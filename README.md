@@ -1,4 +1,4 @@
-# miceball\_setup
+# 
 
 Modular synchronization and acquisition framework for experiments on the miceball\_setup
 
