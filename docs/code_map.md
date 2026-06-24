@@ -6,8 +6,11 @@
 - DeviceAdapterLifecycleError: Public import for invalid live adapter lifecycle operations.
 - DeviceAdapterState: Public import for minimum live adapter lifecycle states.
 - DeviceDeclaration: Public import for persistent/config declarations of intended session devices.
+- DeviceLifecycleResult: Public import for per-adapter Device Manager lifecycle call results.
+- DeviceManager: Public import for coordinating already-created live Device Adapters.
 - DeviceReadiness: Public import for live adapter readiness results.
 - DeviceReadinessNotImplementedError: Public import for base adapters without concrete readiness behavior.
+- DeviceReadinessSummary: Public import for aggregated Device Manager readiness results.
 - DeviceStatus: Public import for live adapter status snapshots.
 - LifecycleTransition: Public import for recorded lifecycle transitions.
 - ReadinessCheck: Public import for recorded readiness checks.
@@ -28,6 +31,12 @@
 - DeviceAdapterLifecycleError: Signals invalid live adapter lifecycle operations.
 - DeviceReadinessNotImplementedError: Signals that a live adapter has no concrete readiness implementation.
 - DeviceAdapter: Provides the minimum live runtime control interface for one device adapter with externally read-only lifecycle state.
+
+## src/lab_sync_acquisition/device_manager.py
+
+- DeviceLifecycleResult: Records the result of one Device Manager lifecycle call against one adapter.
+- DeviceReadinessSummary: Aggregates readiness results across already-created adapters.
+- DeviceManager: Holds at least one already-created Device Adapter and coordinates lifecycle, readiness, and status calls without creating adapters.
 
 ## src/lab_sync_acquisition/session.py
 

@@ -1194,6 +1194,76 @@ Device Adapter lifecycle status and readiness may be represented now, but scient
 
 ---
 
+## Decision 049: DeviceManager receives already-created adapters
+
+**Status:** Accepted
+
+DeviceManager receives already-created DeviceAdapters.
+
+DeviceManager is responsible for:
+
+* holding adapters
+* calling adapter lifecycle methods
+* aggregating readiness results
+* collecting status summaries
+* returning lifecycle results
+
+DeviceManager is not responsible for:
+
+* creating adapters
+* looking up adapters by device type
+* registering adapter classes
+* discovering plugins
+* interpreting device-specific configuration
+
+Session owns selected DeviceDeclarations.
+
+DeviceManager owns live DeviceAdapters.
+
+The connection between DeviceDeclarations and concrete DeviceAdapters is intentionally deferred.
+
+**Rationale:**
+The first device lifecycle slice should validate lifecycle coordination without forcing architectural decisions about adapter factories, registration systems, plugin discovery, or declaration-to-adapter binding.
+
+**Consequence:**
+DeviceManager can be implemented and tested using already-created fake adapters. Adapter creation remains a future architectural decision.
+
+---
+
+## Decision 050: DeviceManager v1 empty-manager and failure policy
+
+**Status:** Accepted
+
+An empty DeviceManager is invalid in v1.
+
+DeviceManager must be created with at least one already-created DeviceAdapter.
+
+DeviceManager catches adapter lifecycle/readiness exceptions, records them in lifecycle/readiness result objects, and continues applying the operation to remaining adapters.
+
+DeviceManager does not decide whether a failure is session-fatal.
+
+Fatal/nonfatal interpretation is deferred to later session readiness or policy logic.
+
+For v1, initialize_all(config) passes the supplied config object through unchanged to each adapter.
+
+Per-device initialization configuration is deferred.
+
+**Rationale:**
+
+DeviceManager v1 exists to coordinate live participating adapters. A manager with zero adapters is more likely to indicate wiring or configuration error than a meaningful ready state.
+
+Continuing across adapters preserves evidence from all devices and avoids one adapter failure hiding the status of others.
+
+**Consequence:**
+
+Readiness aggregation no longer relies on all([]).
+
+Partial failures are returned as explicit result objects.
+
+Session-level interpretation of required/optional device failure remains a future decision.
+
+---
+
 # Accepted Architectural Principles
 
 The following principles summarize the accepted decisions so far.
@@ -1246,6 +1316,8 @@ The following principles summarize the accepted decisions so far.
 46. Establish guardrails before implementation; establish structure after experience
 47. Configuration declares intended devices before live adapters exist.
 48. The minimum live Device Adapter interface proves runtime manageability before scientific data production.
+49. DeviceManager receives already-created DeviceAdapters and coordinates lifecycle calls without creating adapters.
+50. DeviceManager v1 requires at least one already-created DeviceAdapter, records adapter failures as results, and continues processing remaining adapters.
 
 ---
 

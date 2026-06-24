@@ -9,6 +9,11 @@ from lab_sync_acquisition.device_adapter import (
     DeviceReadinessNotImplementedError,
     DeviceStatus,
 )
+from lab_sync_acquisition.device_manager import (
+    DeviceLifecycleResult,
+    DeviceManager,
+    DeviceReadinessSummary,
+)
 from lab_sync_acquisition.session import (
     LifecycleTransition,
     ReadinessCheck,
@@ -26,6 +31,9 @@ __all__ = [
     "DeviceReadiness",
     "DeviceReadinessNotImplementedError",
     "DeviceStatus",
+    "DeviceLifecycleResult",
+    "DeviceManager",
+    "DeviceReadinessSummary",
     "LifecycleTransition",
     "ReadinessCheck",
     "Session",
