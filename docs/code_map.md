@@ -16,4 +16,4 @@
 - ReadinessCheck: Records the result of a readiness condition checked during lifecycle transitions.
 - LifecycleTransition: Records an allowed lifecycle state transition in sequence order.
 - SessionLifecycleError: Signals invalid lifecycle operations or failed readiness requirements.
-- Session: Owns one session's lifecycle state, transition history, readiness checks, cleanup status, and final status in memory.
+- Session: Owns one session's lifecycle state, read-only transition history, read-only readiness checks, cleanup status, and final status in memory.

@@ -47,21 +47,51 @@ class SessionLifecycleTests(unittest.TestCase):
                 SessionState.COMPLETED,
             ],
         )
-        self.assertEqual(
-            session.final_status,
-            {
-                "state": "completed",
-                "reason": "normal completion",
-                "cleanup_occurred": True,
-            },
-        )
+        self.assertIsNotNone(session.final_status)
+        self.assertEqual(session.final_status["state"], "completed")
+        self.assertEqual(session.final_status["reason"], "normal completion")
+        self.assertTrue(session.final_status["cleanup_occurred"])
+
+    def test_new_session_always_starts_created(self) -> None:
+        with self.assertRaises(TypeError):
+            Session(
+                session_id="session-001",
+                configuration=config(),
+                current_state=SessionState.RUNNING,
+            )
+
+        session = Session(session_id="session-001", configuration=config())
+        self.assertIs(session.current_state, SessionState.CREATED)
+
+    def test_lifecycle_histories_are_session_owned(self) -> None:
+        with self.assertRaises(TypeError):
+            Session(
+                session_id="session-001",
+                configuration=config(),
+                transition_history=[],
+            )
+
+        with self.assertRaises(TypeError):
+            Session(
+                session_id="session-001",
+                configuration=config(),
+                readiness_checks=[],
+            )
+
+        session = running_session()
+        with self.assertRaises(AttributeError):
+            session.transition_history = ()
+        with self.assertRaises(AttributeError):
+            session.readiness_checks = ()
+        with self.assertRaises(AttributeError):
+            session.transition_history.append
 
     def test_invalid_transition_rejection(self) -> None:
         session = Session(session_id="session-001", configuration=config())
 
         with self.assertRaises(SessionLifecycleError):
             session.start()
-        self.assertEqual(session.readiness_checks, [])
+        self.assertEqual(session.readiness_checks, ())
 
     def test_initialize_fails_when_required_declarations_are_missing(self) -> None:
         cases = [
@@ -129,6 +159,18 @@ class SessionLifecycleTests(unittest.TestCase):
             checks,
         )
         self.assertIn(
+            ("ingestor_required", "PASS", "out_of_scope_for_this_slice"),
+            checks,
+        )
+        self.assertIn(
+            ("storage_required", "PASS", "out_of_scope_for_this_slice"),
+            checks,
+        )
+        self.assertIn(
+            ("synchronization_required", "PASS", "out_of_scope_for_this_slice"),
+            checks,
+        )
+        self.assertIn(
             (
                 "session_start_event_required",
                 "PASS",
@@ -144,14 +186,10 @@ class SessionLifecycleTests(unittest.TestCase):
         session.abort(reason="user requested abort")
 
         self.assertIs(session.current_state, SessionState.ABORTED)
-        self.assertEqual(
-            session.final_status,
-            {
-                "state": "aborted",
-                "reason": "user requested abort",
-                "cleanup_occurred": True,
-            },
-        )
+        self.assertIsNotNone(session.final_status)
+        self.assertEqual(session.final_status["state"], "aborted")
+        self.assertEqual(session.final_status["reason"], "user requested abort")
+        self.assertTrue(session.final_status["cleanup_occurred"])
 
     def test_failure_path_records_final_state(self) -> None:
         session = running_session()
@@ -160,25 +198,32 @@ class SessionLifecycleTests(unittest.TestCase):
         session.fail(reason="fatal failure")
 
         self.assertIs(session.current_state, SessionState.FAILED)
-        self.assertEqual(
-            session.final_status,
-            {
-                "state": "failed",
-                "reason": "fatal failure",
-                "cleanup_occurred": True,
-            },
-        )
+        self.assertIsNotNone(session.final_status)
+        self.assertEqual(session.final_status["state"], "failed")
+        self.assertEqual(session.final_status["reason"], "fatal failure")
+        self.assertTrue(session.final_status["cleanup_occurred"])
 
     def test_cleanup_happens_before_terminal_state(self) -> None:
-        session = running_session()
+        terminal_finishers = [
+            (Session.complete, SessionState.COMPLETED),
+            (Session.fail, SessionState.FAILED),
+            (Session.abort, SessionState.ABORTED),
+        ]
 
-        session.stop()
-        session.complete()
+        for finish, terminal_state in terminal_finishers:
+            with self.subTest(finish=finish.__name__):
+                session = running_session()
 
-        terminal_transition = session.transition_history[-1]
-        self.assertTrue(session.cleanup_occurred)
-        self.assertIsNotNone(session.cleanup_sequence)
-        self.assertLess(session.cleanup_sequence, terminal_transition.sequence)
+                session.stop()
+                finish(session)
+
+                terminal_transition = session.transition_history[-1]
+                self.assertIs(terminal_transition.to_state, terminal_state)
+                self.assertTrue(session.cleanup_occurred)
+                self.assertIsNotNone(session.cleanup_sequence)
+                self.assertIsNotNone(session.final_status)
+                self.assertLess(session.cleanup_sequence, session.final_status["sequence"])
+                self.assertLess(session.final_status["sequence"], terminal_transition.sequence)
 
     def test_terminal_states_reject_future_transitions(self) -> None:
         terminal_finishers = [
@@ -193,8 +238,21 @@ class SessionLifecycleTests(unittest.TestCase):
                 session.stop()
                 finish(session)
 
-                with self.assertRaises(SessionLifecycleError):
-                    session.stop()
+                lifecycle_operations = [
+                    Session.initialize,
+                    Session.start,
+                    Session.stop,
+                    Session.complete,
+                    Session.fail,
+                    Session.abort,
+                ]
+                for operation in lifecycle_operations:
+                    with self.subTest(
+                        finish=finish.__name__,
+                        operation=operation.__name__,
+                    ):
+                        with self.assertRaises(SessionLifecycleError):
+                            operation(session)
 
 
 if __name__ == "__main__":

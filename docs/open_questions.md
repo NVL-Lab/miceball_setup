@@ -67,6 +67,12 @@ Raw acquisition records and NWB exports have separate lifecycles.
 The remaining work is defining the exact folder structure,
 mandatory files, optional files, manifests, file-tracking records,
 and validation outputs.
+
+Additional questions:
+
+* What is the persistent schema for lifecycle transition records, readiness checks, cleanup evidence, and final session status?
+* Should runtime lifecycle evidence always be exposed as read-only records, or are there accepted cases where another component may append lifecycle evidence?
+
 ---
 
 ## Q003: What is the Minimal End-to-End Experiment?

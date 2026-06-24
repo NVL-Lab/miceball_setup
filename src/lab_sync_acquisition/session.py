@@ -58,12 +58,16 @@ class Session:
 
     session_id: str | None
     configuration: SessionConfig | None
-    current_state: SessionState = SessionState.CREATED
-    transition_history: list[LifecycleTransition] = field(default_factory=list)
-    readiness_checks: list[ReadinessCheck] = field(default_factory=list)
-    cleanup_occurred: bool = False
-    cleanup_sequence: int | None = None
-    final_status: dict[str, Any] | None = None
+    current_state: SessionState = field(default=SessionState.CREATED, init=False)
+    cleanup_occurred: bool = field(default=False, init=False)
+    cleanup_sequence: int | None = field(default=None, init=False)
+    final_status: dict[str, Any] | None = field(default=None, init=False)
+    _transition_history: list[LifecycleTransition] = field(
+        default_factory=list, init=False, repr=False
+    )
+    _readiness_checks: list[ReadinessCheck] = field(
+        default_factory=list, init=False, repr=False
+    )
     _sequence: int = field(default=0, init=False, repr=False)
 
     _ALLOWED_TRANSITIONS: ClassVar[set[tuple[SessionState, SessionState]]] = {
@@ -79,6 +83,18 @@ class Session:
         SessionState.FAILED,
         SessionState.ABORTED,
     }
+
+    @property
+    def transition_history(self) -> tuple[LifecycleTransition, ...]:
+        """Recorded lifecycle transitions in sequence order."""
+
+        return tuple(self._transition_history)
+
+    @property
+    def readiness_checks(self) -> tuple[ReadinessCheck, ...]:
+        """Recorded readiness checks in sequence order."""
+
+        return tuple(self._readiness_checks)
 
     def initialize(self) -> None:
         """Move from created to initialized after declaration checks pass."""
@@ -159,12 +175,13 @@ class Session:
 
     def _finish(self, terminal_state: SessionState, reason: str | None) -> None:
         self._cleanup()
-        self._transition_to(terminal_state, reason=reason)
         self.final_status = {
             "state": terminal_state.value,
             "reason": reason,
             "cleanup_occurred": self.cleanup_occurred,
+            "sequence": self._next_sequence(),
         }
+        self._transition_to(terminal_state, reason=reason)
 
     def _cleanup(self) -> None:
         if self.current_state != SessionState.STOPPING:
@@ -186,7 +203,7 @@ class Session:
             sequence=self._next_sequence(),
             reason=reason,
         )
-        self.transition_history.append(record)
+        self._transition_history.append(record)
         self.current_state = new_state
 
     def _ensure_transition_allowed(self, new_state: SessionState) -> None:
@@ -207,7 +224,7 @@ class Session:
     ) -> list[str]:
         failures = []
         for name, passed, reason in checks:
-            self.readiness_checks.append(
+            self._readiness_checks.append(
                 ReadinessCheck(
                     name=name,
                     status="PASS" if passed else "FAIL",
