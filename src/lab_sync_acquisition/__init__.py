@@ -24,6 +24,7 @@ from lab_sync_acquisition.session import (
     SessionLifecycleError,
     SessionState,
 )
+from lab_sync_acquisition.storage import InMemoryStorageManager
 
 __all__ = [
     "DeviceAdapter",
@@ -34,6 +35,7 @@ __all__ = [
     "DeviceReadinessNotImplementedError",
     "DeviceStatus",
     "InMemoryIngestor",
+    "InMemoryStorageManager",
     "DeviceLifecycleResult",
     "DeviceManager",
     "DeviceRecordCollection",

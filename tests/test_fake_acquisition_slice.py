@@ -12,6 +12,7 @@ from lab_sync_acquisition import (
     DeviceDeclaration,
     DeviceManager,
     InMemoryIngestor,
+    InMemoryStorageManager,
     Session,
     SessionConfig,
     SessionState,
@@ -34,7 +35,7 @@ class TinyStreamFakeAdapter(ReadyFakeAdapter):
 
 
 class FakeAcquisitionSliceTests(unittest.TestCase):
-    def test_fake_records_cross_manager_and_ingestor_boundaries(self) -> None:
+    def test_fake_records_cross_manager_ingestor_and_storage_boundaries(self) -> None:
         declaration = DeviceDeclaration(
             device_id="declared-camera-001",
             device_type="camera",
@@ -55,7 +56,8 @@ class FakeAcquisitionSliceTests(unittest.TestCase):
             required=True,
         )
         manager = DeviceManager(adapters=[adapter])
-        ingestor = InMemoryIngestor()
+        storage = InMemoryStorageManager()
+        ingestor = InMemoryIngestor(storage_manager=storage)
 
         manager.initialize_all(config={"mode": "fake"})
         readiness = manager.check_readiness()
@@ -71,18 +73,31 @@ class FakeAcquisitionSliceTests(unittest.TestCase):
         manager.shutdown_all()
         status = manager.collect_statuses()
         received_collection = ingestor.received_records[0]
+        stored_collection = storage.stored_records[0]
 
         self.assertEqual(len(record_collections), 1)
         self.assertEqual(record_collections[0].device_id, "adapter-camera-001")
         self.assertEqual(len(ingestor.received_records), 1)
         self.assertEqual(received_collection.device_id, "adapter-camera-001")
+        self.assertEqual(len(storage.stored_records), 1)
+        self.assertEqual(stored_collection.device_id, "adapter-camera-001")
         self.assertEqual(len(rows), 3)
         self.assertEqual(len(received_collection.records), 3)
-        self.assertTrue(all("session_time" in row for row in received_collection.records))
+        self.assertEqual(len(stored_collection.records), 3)
+        self.assertTrue(all("session_time" in row for row in stored_collection.records))
         self.assertTrue(
             all(
                 received_row is manager_row
                 for received_row, manager_row in zip(received_collection.records, rows)
+            )
+        )
+        self.assertTrue(
+            all(
+                stored_row is received_row
+                for stored_row, received_row in zip(
+                    stored_collection.records,
+                    received_collection.records,
+                )
             )
         )
         self.assertIs(session.current_state, SessionState.COMPLETED)

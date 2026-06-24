@@ -1476,6 +1476,62 @@ For v1:
 DeviceManager receives adapters.
 DeviceManager trusts that caller code supplied the intended adapters.
 DeviceManager does not know DeviceDeclarations.
+```
+
+---
+
+## Decision 057: Ingestor owns accepted-record handoff to StorageManager
+
+**Status:** Accepted
+
+The Ingestor owns the handoff of accepted records to the Storage Manager.
+
+Tests and caller code should not manually pass the same accepted records to both the Ingestor and the Storage Manager as independent steps.
+
+Minimum boundary:
+
+```text
+DeviceManager
+    collects records
+
+Ingestor
+    receives DeviceRecordCollection objects
+    accepts records
+    preserves accepted records unchanged
+    forwards accepted records to StorageManager
+
+StorageManager
+    receives accepted records
+    stores them unchanged
+    exposes stored records for verification
+```
+
+The Ingestor and Storage Manager remain separate components.
+
+The Storage Manager remains responsible for storing accepted records.
+
+For v1, storage may remain in memory and does not define:
+
+* file format
+* folder layout
+* Parquet schema
+* NWB mapping
+* session record structure
+* manifest format
+* reconstruction behavior
+* full stream schema
+
+**Rationale:**
+
+The first acquisition-to-storage path should be a real framework path rather than a test manually coordinating independent components.
+
+Keeping the Ingestor responsible for forwarding accepted records preserves the architectural boundary while avoiding premature storage design.
+
+**Consequence:**
+
+An in-memory Ingestor may be constructed with an optional in-memory Storage Manager.
+
+When the Ingestor receives accepted records, it forwards those same records to storage without transforming records, assigning timestamps, or defining persistent schemas.
 
 
 
@@ -1540,6 +1596,7 @@ The following principles summarize the accepted decisions so far.
 53. Live DeviceAdapters are explicitly constructed outside DeviceManager v1.
 55. DeviceAdapter receives copied declaration fields, not DeviceDeclaration.
 56. A component should only validate information it owns.
+57. Ingestor owns the handoff of accepted records to StorageManager while StorageManager remains a separate storage boundary.
 
 ---
 

@@ -5,12 +5,14 @@ from __future__ import annotations
 from typing import Iterable
 
 from lab_sync_acquisition.device_manager import DeviceRecordCollection
+from lab_sync_acquisition.storage import InMemoryStorageManager
 
 
 class InMemoryIngestor:
-    """Receives collected device records in memory without storing to disk."""
+    """Receives collected device records and optionally forwards them to storage."""
 
-    def __init__(self) -> None:
+    def __init__(self, storage_manager: InMemoryStorageManager | None = None) -> None:
+        self._storage_manager = storage_manager
         self._received_records: tuple[DeviceRecordCollection, ...] = ()
 
     @property
@@ -23,6 +25,8 @@ class InMemoryIngestor:
         self,
         collections: Iterable[DeviceRecordCollection],
     ) -> None:
-        """Receive record collections without transforming them."""
+        """Receive accepted record collections and forward them if storage is set."""
 
         self._received_records = tuple(collections)
+        if self._storage_manager is not None:
+            self._storage_manager.store_records(self._received_records)
