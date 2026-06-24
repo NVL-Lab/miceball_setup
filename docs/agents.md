@@ -337,3 +337,64 @@ Stop and ask for architectural clarification if a requested change requires deci
 * how multi-node acquisition works
 
 Do not silently decide these in code.
+
+# Simplicity First
+
+Prefer the simplest solution that satisfies the current architectural requirements.
+
+Do not build infrastructure for hypothetical future needs.
+
+Do not introduce additional abstraction layers unless they solve an existing problem or are required by an accepted architectural decision.
+
+Examples of things that should not be added without a documented need:
+
+* plugin systems
+* dependency injection frameworks
+* service locators
+* registries
+* event buses
+* workflow engines
+* distributed coordination systems
+* generic factory hierarchies
+* complex inheritance trees
+
+Future extensibility should come from clear component boundaries, not from speculative abstraction.
+
+A small amount of duplicated code is preferable to a large abstraction that has not yet demonstrated value.
+
+Rule of Three:
+
+Before introducing a new abstraction, there should usually be at least three concrete use cases that benefit from it.
+
+Prefer:
+
+```text
+simple
+explicit
+readable
+testable
+```
+
+over:
+
+```text
+generic
+clever
+highly configurable
+deeply abstract
+```
+
+When deciding between two designs with equivalent functionality, choose the design that is easier for a new lab member to understand.
+
+
+# Optimize for Auditability
+
+This repository may be developed with AI assistance, but the system must remain understandable and auditable by humans.
+
+Researchers must be able to inspect the code, configuration, timing records, and stored outputs well enough to decide whether an experiment is scientifically valid.
+
+Prefer straightforward designs over clever or deeply abstract designs.
+
+A design that is slightly less elegant but easier to inspect, test, and explain is usually preferred.
+
+The cost of complexity is paid during debugging, validation, and scientific interpretation, even if AI generated the code.

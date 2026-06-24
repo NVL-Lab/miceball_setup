@@ -564,6 +564,393 @@ The repository may contain placeholder folders, but production code should not b
 
 ---
 
+## Decision 023: Streams and events are distinct but complementary
+
+**Status:** Accepted
+
+A Stream is repeated time-indexed data from one source.
+
+Examples:
+
+* camera frames
+* accelerometer samples
+* sampled lick sensor state
+* continuous digital or analog signals
+
+An Event is a discrete timestamped occurrence.
+
+Examples:
+
+* lick detected
+* reward delivered
+* tone started
+* tone stopped
+* camera started
+* device disconnected
+* dropped frame detected
+
+A device may produce:
+
+* streams only
+* events only
+* both streams and events
+
+**Rationale:**
+Different devices naturally produce different kinds of records. High-rate repeated data should not be forced into a generic event model, and sparse occurrences should not be forced into a sampled stream model.
+
+**Consequence:**
+Device Adapters must declare which streams and events they produce.
+
+---
+
+## Decision 024: Network transport does not define the data model
+
+**Status:** Accepted
+
+The mechanism used to move data, such as TCP sockets, files, shared memory, or another transport, does not determine whether data are streams or events.
+
+Transport moves records.
+The framework data model defines records.
+
+**Rationale:**
+The legacy system used TCP sockets, but the architecture should not be tied to that communication method.
+
+**Consequence:**
+Changing the transport mechanism should not require redefining Stream, Event, Session, or Timing Record concepts.
+
+---
+
+## Decision 025: A session is one bounded experimental run
+
+**Status:** Accepted
+
+A Session is one bounded experimental run initiated by the Controller using a declared configuration, selected devices, and a session identity.
+
+A Session may last minutes to hours.
+Repeated daily runs are separate sessions.
+
+An Experiment is the larger scientific plan.
+A Session is one execution of that plan.
+
+**Rationale:**
+One experiment may contain many sessions across days. The framework needs the session to be the concrete acquisition and reconstruction unit.
+
+**Consequence:**
+Session records should contain all data, events, timing records, configuration, and manifests needed to reconstruct that run.
+
+---
+
+## Decision 026: Session start and experiment start are different
+
+**Status:** Accepted
+
+Session start means acquisition begins.
+
+Experiment start means the protocol begins.
+
+The experiment start is recorded as an event inside the session timeline.
+
+Example:
+
+```text
+session_start        t = 0 s
+camera_ready         t = 45 s
+experiment_start     t = 120 s
+tone_start           t = 180 s
+experiment_end       t = 3600 s
+session_end          t = 3660 s
+```
+
+**Rationale:**
+Devices may require warmup, stabilization, calibration, or buffering before the scientific protocol begins. Recording this period preserves diagnostic information.
+
+**Consequence:**
+The system should record too much rather than start acquisition late. Scientific analysis can later use the `experiment_start` event as the behavioral/protocol beginning.
+
+---
+
+## Decision 027: Intermediate records are table-shaped and stored as Parquet by default
+
+**Status:** Accepted
+
+Intermediate records should use table-shaped data models.
+
+In memory, these records may be represented as DataFrames.
+
+On disk, Parquet is the preferred default format for streams, events, timing records, ingest records, and reconstruction outputs.
+
+CSV may be used for small human-readable debug exports, but should not be the primary storage format for large or typed records.
+
+**Rationale:**
+Parquet preserves column types better than CSV and is more efficient for large structured records, while still supporting inspection and debugging workflows.
+
+**Consequence:**
+The architecture should define schemas for table-shaped records independently of the specific in-memory representation.
+
+---
+
+## Decision 028: Storage uses raw records first, reconstruction/export later
+
+**Status:** Accepted
+
+The session storage model should preserve raw session records first.
+
+Reconstruction and export should produce derived outputs later.
+
+Raw records include:
+
+* streams
+* events
+* timing records
+* ingest records
+* errors
+* configuration
+* manifests
+
+**Rationale:**
+Raw records are the scientific evidence. Reconstruction and NWB export should not replace or overwrite them.
+
+**Consequence:**
+Raw records should remain immutable after session close whenever possible.
+
+---
+
+## Decision 029: Reconstruction writes derived outputs and does not silently modify raw records
+
+**Status:** Accepted
+
+Reconstruction is the process of rebuilding a complete session timeline from stored raw streams, events, timing records, configuration, and manifests.
+
+The Reconstruction Manager owns:
+
+* loading stored session records
+* validating required files
+* mapping local/device time to session time
+* checking timestamp continuity
+* checking dropped or missing samples
+* producing validation reports
+* producing export-ready tables
+
+Reconstruction does not own:
+
+* acquisition
+* device control
+* protocol execution
+* neuroscience analysis
+* silent rewriting of raw records
+
+**Rationale:**
+Reconstruction must be auditable and repeatable from stored records.
+
+**Consequence:**
+Reconstruction outputs should be stored separately from raw records.
+
+---
+
+## Decision 030: Device outputs must be mappable to NWB
+
+**Status:** Accepted
+
+Framework Device Adapters are not NWB Device objects.
+
+However, Device Adapters must provide enough metadata and output schema information for later NWB export.
+
+Conceptually:
+
+```text
+Framework Device Adapter
+    -> stored device metadata + streams/events
+    -> NWB Exporter
+    -> NWB Device / TimeSeries / BehavioralEvents / related objects
+```
+
+**Rationale:**
+NWB should shape the internal data model where appropriate, but should not constrain acquisition internals too early.
+
+**Consequence:**
+Device metadata, stream schemas, and event schemas should be designed so that later NWB export is natural.
+
+---
+
+## Decision 031: The Controller sends protocol intent; the Acquisition Node records execution
+
+**Status:** Accepted
+
+The Controller owns the protocol plan.
+
+The Acquisition Node executes time-critical protocol actions locally and records what actually happened.
+
+Commands and outcomes must both be recorded.
+
+Example:
+
+```text
+reward_commanded at 120.500 s
+valve_opened at 120.503 s
+valve_closed at 120.553 s
+```
+
+**Rationale:**
+Scientific interpretation depends on what actually happened, not only what was intended.
+
+**Consequence:**
+Protocol commands, device actions, and device outcomes should be stored as timestamped events.
+
+---
+
+## Decision 032: Session lifecycle states
+
+**Status:** Accepted
+
+The Phase 1 session lifecycle is:
+
+```text
+created
+initialized
+running
+stopping
+completed
+failed
+aborted
+```
+
+Definitions:
+
+* `created`: session identity exists.
+* `initialized`: configuration, devices, storage, ingestor, protocol, and timing source are prepared.
+* `running`: acquisition has started and session time is running.
+* `stopping`: cleanup/finalization is in progress.
+* `completed`: session ended normally.
+* `failed`: session ended because of unexpected failure.
+* `aborted`: session ended because of intentional early termination.
+
+**Rationale:**
+This lifecycle is simple but still separates preparation, acquisition, cleanup, and final status.
+
+**Consequence:**
+A failed or aborted session is still a session and must be preserved.
+
+---
+
+## Decision 033: State transitions require readiness checks
+
+**Status:** Accepted
+
+State transitions are allowed only when required conditions are satisfied and recorded.
+
+Examples:
+
+`created -> initialized` requires:
+
+* session ID exists
+* configuration exists
+* selected devices declared
+* storage location declared
+* protocol plan declared
+
+`initialized -> running` requires:
+
+* required devices connected
+* required devices configured
+* Ingestor reachable or local buffering enabled
+* storage ready
+* Synchronization Manager ready
+* session time source ready
+* device schemas declared
+* `session_start` event can be recorded
+
+`running -> experiment_start event` requires:
+
+* acquisition is already running
+* session clock is running
+* required streams/events are being recorded or explicitly marked unavailable
+* protocol executor ready
+
+**Rationale:**
+Experiments should not begin until acquisition is truly running and timing is available.
+
+**Consequence:**
+Readiness checks should be recorded so that later reconstruction can determine whether a session began under valid conditions.
+
+---
+
+## Decision 034: Cleanup is mandatory and preserves evidence
+
+**Status:** Accepted
+
+Every session must enter a cleanup/finalization phase during `stopping`, regardless of whether it ends normally, fails, or is aborted.
+
+Cleanup includes:
+
+* stopping devices
+* flushing buffers
+* closing files
+* finalizing manifests
+* writing final session status
+* recording unresolved errors
+* releasing hardware resources
+* disconnecting from the Ingestor if needed
+
+Cleanup does not mean:
+
+* deleting bad data
+* hiding partial files
+* making a failed session look successful
+
+**Rationale:**
+Real experiments fail. The system must preserve evidence rather than erase it.
+
+**Consequence:**
+Final state is assigned after cleanup:
+
+```text
+normal stop   -> completed
+fatal error   -> failed
+user abort    -> aborted
+```
+
+---
+
+## Decision 035: Failure is recorded as data
+
+**Status:** Accepted
+
+Failures must be recorded as timestamped events.
+
+Failure categories are:
+
+* warning
+* recoverable failure
+* fatal failure
+
+Recommended behavior:
+
+* warning: record and continue
+* recoverable failure: record, attempt recovery, continue if safe
+* fatal failure: record, stop acquisition, preserve partial session
+
+**Rationale:**
+Failure information is necessary for debugging and for determining whether a session is scientifically valid.
+
+**Consequence:**
+A failed session should contain all data up to failure, all available timing records, and explicit failure records.
+
+---
+
+## Decision 036: Controller failure should not automatically stop acquisition
+
+**Status:** Accepted
+
+Once acquisition has started, the Acquisition Node should be able to continue, complete, or safely stop without requiring the GUI/Controller to remain alive.
+
+**Rationale:**
+The GUI/Controller is a command authority, not the acquisition runtime or timing authority.
+
+**Consequence:**
+The Acquisition Node must preserve session records even if communication with the Controller is lost.
+
+---
+
 # Accepted Architectural Principles
 
 The following principles summarize the accepted decisions so far.
@@ -591,6 +978,23 @@ The following principles summarize the accepted decisions so far.
 21. Utilities must not hide domain logic.
 22. Plotting is allowed only for framework validation and debugging.
 23. The final source structure is not yet frozen.
+24. Parquet is the preferred default storage format for intermediate records.
+25. Raw records are stored first; reconstruction and export create derived records later.
+26. Reconstruction must never silently modify raw records.
+27. Device outputs must be mappable to NWB.
+28. The Controller sends protocol intent; the Acquisition Node records protocol execution and outcomes.
+29. The session lifecycle is: created → initialized → running → stopping → completed/failed/aborted.
+30. State transitions require readiness checks.
+31. Experiments cannot begin until acquisition is confirmed running.
+32. Cleanup is mandatory for every session termination path.
+33. Cleanup preserves evidence and never hides failures.
+34. Failures are recorded as timestamped data.
+35. Controller failure should not automatically stop acquisition.
+36. Human-readable intermediate outputs are required.
+37. Utilities must not become a junk drawer for domain logic.
+38. Plotting is allowed only for framework validation and debugging.
+39. This repository is for synchronization and acquisition, not GUI development or neuroscience analysis.
+40. Architectural decisions are documented before implementation begins.
 
 ---
 
@@ -680,3 +1084,214 @@ The following decisions remain open and should be resolved before writing the fi
 * What happens if storage fails?
 * What happens if timing records are incomplete?
 * Can a partial session be marked scientifically unusable but still preserved?
+
+
+# Changes to Existing Decisions!!!!!
+
+## Decision 004: The Ingestor is a separate architectural entity
+
+Replace:
+
+* receiving data packets and events
+
+with:
+
+* receiving records from Acquisition Nodes
+
+Add:
+
+Records may contain:
+
+* data
+* events
+* timing records
+* file references
+* deferred-transfer records
+
+Add after the ownership section:
+
+The Ingestor is responsible for creating a complete session record.
+
+The Ingestor does not require all raw bytes to pass through it during acquisition.
+
+Large files may remain on acquisition machines during acquisition and be transferred after session completion.
+
+---
+
+## Decision 011: Timing records are part of the raw scientific record
+
+Add after the timing-record list:
+
+Whenever possible, timestamps should be stored directly with the stream or event they describe.
+
+The timing subsystem is reserved for timing-specific records that are not naturally part of a stream or event.
+
+Examples include:
+
+* session clock declarations
+* synchronization records
+* drift records
+* local-to-session mapping records
+
+---
+
+## Decision 029: Reconstruction writes derived outputs and does not silently modify raw records
+
+Replace:
+
+* producing export-ready tables
+
+with:
+
+* producing validation reports
+* producing export-ready records
+
+Add:
+
+For Phase 1, reconstruction is primarily a validation and assembly process rather than a large transformation pipeline.
+
+Its primary purpose is to verify that a stored session is complete, internally consistent, and exportable.
+
+---
+
+# New Decisions
+
+## Decision 037: Session completion is independent of NWB export
+
+**Status:** Accepted
+
+A Session is complete when acquisition has ended, cleanup has completed, and the raw session record has been finalized.
+
+NWB export is a post-session operation.
+
+NWB export status does not determine Session completion.
+
+**Rationale:**
+Large files may require transfer, conversion, validation, or upload after acquisition has ended.
+
+These operations should not block future sessions.
+
+**Consequence:**
+Multiple sessions may be acquired while previous sessions are awaiting NWB export.
+
+---
+
+## Decision 038: The Ingestor manages records, not necessarily all raw bytes online
+
+**Status:** Accepted
+
+The Ingestor is responsible for creating a complete session record.
+
+Not all device data must be transferred through the Ingestor during acquisition.
+
+Some devices may provide:
+
+* full records during acquisition
+* timing records during acquisition
+* file references during acquisition
+* large files after acquisition
+
+**Rationale:**
+Some acquisition systems generate files that are impractical to transfer in real time.
+
+**Consequence:**
+The architecture must support both online records and deferred file-transfer workflows.
+
+---
+
+## Decision 039: Timing belongs primarily with the data records it describes
+
+**Status:** Accepted
+
+Streams and Events should contain their own Session Time whenever possible.
+
+Examples:
+
+* frame timestamps
+* sample timestamps
+* event timestamps
+
+Separate timing records should only be used for timing-specific information that is not naturally part of a stream or event.
+
+**Rationale:**
+The most useful location for timing information is alongside the data it describes.
+
+**Consequence:**
+Session reconstruction and NWB export should not require separate timestamp lookups for normal records.
+
+---
+
+## Decision 040: Raw acquisition records and NWB exports have separate lifecycles
+
+**Status:** Accepted
+
+Raw acquisition records and NWB exports are separate storage products.
+
+Recommended structure:
+
+```text
+raw/
+    session_<session_id>/
+
+nwb/
+    session_<session_id>/
+```
+
+Raw records are working acquisition records.
+
+NWB files are long-term scientific exports.
+
+**Rationale:**
+Raw records and NWB exports have different lifecycles, storage requirements, and deletion policies.
+
+**Consequence:**
+Experimenters may retain, archive, upload, or delete raw records independently of NWB exports.
+
+---
+
+## Decision 041: Storage capacity must be validated before acquisition begins
+
+**Status:** Accepted
+
+Before acquisition begins, the system must verify that participating machines have sufficient storage capacity.
+
+Examples:
+
+* Acquisition Node
+* Ingestor machine
+* Microscope PC
+* CaBMI PC
+* other acquisition systems
+
+**Rationale:**
+Running out of storage during acquisition can invalidate a session and is often preventable.
+
+**Consequence:**
+Storage-capacity checks are part of session initialization readiness.
+
+---
+
+# Accepted Architectural Principles
+
+Append the following principles:
+
+41. Session completion is independent of NWB export.
+42. The Ingestor manages records, not necessarily all raw bytes online.
+43. Timing belongs primarily with the data records it describes.
+44. Raw acquisition records and NWB exports have separate lifecycles.
+45. Storage capacity must be validated before acquisition begins.
+
+---
+
+# Remove
+
+Delete the entire section:
+
+```text
+# Open Decisions Not Yet Resolved
+```
+
+and everything beneath it.
+
+Open questions now belong exclusively in `open_questions.md`.
+
