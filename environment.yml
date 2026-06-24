@@ -1,0 +1,6 @@
+name: miceball_setup
+channels:
+  - defaults
+dependencies:
+  - python=3.12
+  - pytest

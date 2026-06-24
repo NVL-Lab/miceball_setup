@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+build/
+dist/
+
+# Virtual environments
+.venv/
+venv/
+env/
+.env/
+.conda/
+conda-meta/
+
+# IDE
+.vscode/
+
+# Test artifacts
+.pytest_cache/
+
+# OS
+.DS_Store
+Thumbs.db
