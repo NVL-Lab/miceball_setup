@@ -186,19 +186,19 @@ This document tracks unresolved architectural questions that must be addressed b
 
 
 
-\* The GUI is a client, not the owner of acquisition timing.
+* The GUI is a client, not the owner of acquisition timing.
 
-\* Session time has a single owner.
+* Session time has a single owner.
 
-\* Timing information is part of the scientific record.
+* Timing information is part of the scientific record.
 
-\* Offline reconstruction must be possible from stored records.
+* Offline reconstruction must be possible from stored records.
 
-\* Devices should be modular and interchangeable.
+* Devices should be modular and interchangeable.
 
-\* Configuration should be explicit rather than hidden in implementation defaults.
+* Configuration should be explicit rather than hidden in implementation defaults.
 
-\* Intermediate outputs should remain easy to inspect and debug.
+* Intermediate outputs should remain easy to inspect and debug.
 
 
 
