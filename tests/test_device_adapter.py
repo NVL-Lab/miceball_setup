@@ -27,6 +27,7 @@ def fake_adapter() -> FakeDeviceAdapter:
         device_id="camera-001",
         device_type="camera",
         declared_capabilities=["reports_health"],
+        required=True,
     )
 
 
@@ -75,6 +76,7 @@ class DeviceAdapterTests(unittest.TestCase):
             device_id="base-001",
             device_type="base",
             declared_capabilities=[],
+            required=True,
         )
         adapter.initialize(config={})
 

@@ -8,7 +8,10 @@ SRC = ROOT / "src"
 sys.path.insert(0, str(SRC))
 
 from lab_sync_acquisition import (
+    DeviceAdapter,
     DeviceDeclaration,
+    DeviceManager,
+    DeviceReadiness,
     Session,
     SessionConfig,
     SessionLifecycleError,
@@ -39,6 +42,22 @@ def running_session() -> Session:
     session.initialize()
     session.start()
     return session
+
+
+def device_readiness(
+    device_id: str,
+    *,
+    required: bool,
+    ready: bool,
+    reason: str = "ready",
+) -> DeviceReadiness:
+    return DeviceReadiness(
+        device_id=device_id,
+        required=required,
+        ready=ready,
+        reason=reason,
+        capabilities_available=["reports_health"],
+    )
 
 
 class SessionLifecycleTests(unittest.TestCase):
@@ -396,6 +415,196 @@ class SessionLifecycleTests(unittest.TestCase):
             ),
             checks,
         )
+
+    def test_required_ready_device_allows_initialization(self) -> None:
+        session = Session(session_id="session-001", configuration=config())
+
+        session.initialize(
+            device_readiness_summary=[
+                device_readiness("camera-001", required=True, ready=True)
+            ]
+        )
+
+        self.assertIs(session.current_state, SessionState.INITIALIZED)
+
+    def test_required_not_ready_device_blocks_initialization(self) -> None:
+        session = Session(session_id="session-001", configuration=config())
+
+        with self.assertRaises(SessionLifecycleError):
+            session.initialize(
+                device_readiness_summary=[
+                    device_readiness(
+                        "camera-001",
+                        required=True,
+                        ready=False,
+                        reason="camera warming up",
+                    )
+                ]
+            )
+
+        self.assertIs(session.current_state, SessionState.CREATED)
+        self.assertEqual(session.device_readiness_summary[0].device_id, "camera-001")
+        self.assertFalse(session.device_readiness_summary[0].ready)
+
+    def test_optional_not_ready_device_does_not_block_initialization(self) -> None:
+        session = Session(session_id="session-001", configuration=config())
+
+        session.initialize(
+            device_readiness_summary=[
+                device_readiness(
+                    "auxiliary-camera-001",
+                    required=False,
+                    ready=False,
+                    reason="optional device offline",
+                )
+            ]
+        )
+
+        self.assertIs(session.current_state, SessionState.INITIALIZED)
+        self.assertFalse(session.device_readiness_summary[0].ready)
+        self.assertFalse(session.device_readiness_summary[0].required)
+
+    def test_session_records_device_readiness_summary(self) -> None:
+        session = Session(session_id="session-001", configuration=config())
+        summary = [
+            device_readiness(
+                "camera-001",
+                required=True,
+                ready=True,
+                reason="ready",
+            )
+        ]
+
+        session.initialize(device_readiness_summary=summary)
+
+        recorded = session.device_readiness_summary[0]
+        self.assertEqual(recorded.device_id, "camera-001")
+        self.assertTrue(recorded.required)
+        self.assertTrue(recorded.ready)
+        self.assertEqual(recorded.reason, "ready")
+        self.assertEqual(recorded.capabilities_available, ("reports_health",))
+
+    def test_session_initialization_uses_supplied_readiness_without_live_adapters(
+        self,
+    ) -> None:
+        session = Session(session_id="session-001", configuration=config())
+
+        session.initialize(
+            device_readiness_summary=[
+                device_readiness("camera-001", required=True, ready=True)
+            ]
+        )
+
+        self.assertIs(session.current_state, SessionState.INITIALIZED)
+
+    def test_session_initialization_does_not_call_device_adapter_methods(self) -> None:
+        class FailingAdapter(DeviceAdapter):
+            def check_ready(self):
+                raise AssertionError("Session should not call adapter methods")
+
+        adapter = FailingAdapter(
+            device_id="camera-001",
+            device_type="camera",
+            declared_capabilities=[],
+            required=True,
+        )
+        session = Session(session_id="session-001", configuration=config())
+
+        session.initialize(
+            device_readiness_summary=[
+                device_readiness(adapter.device_id, required=True, ready=True)
+            ]
+        )
+
+        self.assertIs(session.current_state, SessionState.INITIALIZED)
+
+    def test_session_does_not_bind_declarations_to_readiness_records(self) -> None:
+        declaration = DeviceDeclaration(
+            device_id="declared-camera-001",
+            device_type="camera",
+            enabled=True,
+            required=True,
+            declared_capabilities=[],
+        )
+        session = Session(
+            session_id="session-001",
+            configuration=SessionConfig(
+                selected_devices=[declaration],
+                storage_location="placeholder://session",
+                protocol_plan={"name": "no-op"},
+            ),
+        )
+
+        session.initialize(
+            device_readiness_summary=[
+                device_readiness("adapter-camera-001", required=True, ready=True)
+            ]
+        )
+
+        self.assertIs(session.current_state, SessionState.INITIALIZED)
+        self.assertEqual(
+            session.device_readiness_summary[0].device_id,
+            "adapter-camera-001",
+        )
+
+    def test_device_manager_readiness_output_can_initialize_session(self) -> None:
+        class ReadyAdapter(DeviceAdapter):
+            def check_ready(self):
+                return self._mark_ready()
+
+        adapter = ReadyAdapter(
+            device_id="camera-001",
+            device_type="camera",
+            declared_capabilities=["reports_health"],
+            required=True,
+        )
+        manager = DeviceManager(adapters=[adapter])
+        manager.initialize_all(config={})
+        readiness_summary = manager.check_readiness()
+        session = Session(session_id="session-001", configuration=config())
+
+        session.initialize(device_readiness_summary=readiness_summary)
+
+        self.assertIs(session.current_state, SessionState.INITIALIZED)
+        self.assertIs(session.device_readiness_summary[0], readiness_summary.results[0])
+
+    def test_required_not_ready_from_device_manager_blocks_initialization(self) -> None:
+        adapter = DeviceAdapter(
+            device_id="camera-001",
+            device_type="camera",
+            declared_capabilities=["reports_health"],
+            required=True,
+        )
+        manager = DeviceManager(adapters=[adapter])
+        manager.initialize_all(config={})
+        readiness_summary = manager.check_readiness()
+        session = Session(session_id="session-001", configuration=config())
+
+        with self.assertRaises(SessionLifecycleError):
+            session.initialize(device_readiness_summary=readiness_summary)
+
+        self.assertIs(session.current_state, SessionState.CREATED)
+        self.assertIs(session.device_readiness_summary[0], readiness_summary.results[0])
+
+    def test_optional_not_ready_from_device_manager_does_not_block_initialization(
+        self,
+    ) -> None:
+        adapter = DeviceAdapter(
+            device_id="camera-001",
+            device_type="camera",
+            declared_capabilities=["reports_health"],
+            required=False,
+        )
+        manager = DeviceManager(adapters=[adapter])
+        manager.initialize_all(config={})
+        readiness_summary = manager.check_readiness()
+        session = Session(session_id="session-001", configuration=config())
+
+        session.initialize(device_readiness_summary=readiness_summary)
+
+        self.assertIs(session.current_state, SessionState.INITIALIZED)
+        self.assertFalse(session.device_readiness_summary[0].required)
+        self.assertFalse(session.device_readiness_summary[0].ready)
 
     def test_abort_path_records_final_state(self) -> None:
         session = running_session()

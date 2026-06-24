@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Iterable
 
 from lab_sync_acquisition.device import DeviceDeclaration
+from lab_sync_acquisition.device_adapter import DeviceReadiness
 
 
 class SessionState(str, Enum):
@@ -70,6 +71,9 @@ class Session:
     _readiness_checks: list[ReadinessCheck] = field(
         default_factory=list, init=False, repr=False
     )
+    _device_readiness_summary: list[DeviceReadiness] = field(
+        default_factory=list, init=False, repr=False
+    )
     _sequence: int = field(default=0, init=False, repr=False)
 
     _ALLOWED_TRANSITIONS: ClassVar[set[tuple[SessionState, SessionState]]] = {
@@ -98,7 +102,16 @@ class Session:
 
         return tuple(self._readiness_checks)
 
-    def initialize(self) -> None:
+    @property
+    def device_readiness_summary(self) -> tuple[DeviceReadiness, ...]:
+        """Recorded device readiness evidence supplied during initialization."""
+
+        return tuple(self._device_readiness_summary)
+
+    def initialize(
+        self,
+        device_readiness_summary: Iterable[DeviceReadiness] | None = None,
+    ) -> None:
         """Move from created to initialized after declaration checks pass."""
 
         self._ensure_transition_allowed(SessionState.INITIALIZED)
@@ -133,11 +146,15 @@ class Session:
             ),
         ]
         checks.extend(self._selected_device_declaration_checks())
+        device_readiness_failures = self._record_device_readiness_summary(
+            device_readiness_summary
+        )
         failures = self._record_checks(checks)
+        failures.extend(device_readiness_failures)
         if failures:
             failed_names = ", ".join(failures)
             raise SessionLifecycleError(
-                f"Session cannot initialize; missing declarations: {failed_names}"
+                f"Session cannot initialize; readiness failed: {failed_names}"
             )
 
         self._transition_to(SessionState.INITIALIZED)
@@ -278,6 +295,20 @@ class Session:
                 ]
             )
         return checks
+
+    def _record_device_readiness_summary(
+        self,
+        device_readiness_summary: Iterable[DeviceReadiness] | None,
+    ) -> list[str]:
+        if device_readiness_summary is None:
+            return []
+
+        failures = []
+        for record in device_readiness_summary:
+            self._device_readiness_summary.append(record)
+            if record.required and not record.ready:
+                failures.append(f"device_readiness[{record.device_id}]")
+        return failures
 
     def _next_sequence(self) -> int:
         self._sequence += 1

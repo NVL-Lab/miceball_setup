@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Iterable
+from typing import Any, Iterable, Iterator
 
 from lab_sync_acquisition.device_adapter import (
     DeviceAdapter,
@@ -28,6 +28,9 @@ class DeviceReadinessSummary:
 
     results: tuple[DeviceReadiness, ...]
     all_ready: bool
+
+    def __iter__(self) -> Iterator[DeviceReadiness]:
+        return iter(self.results)
 
 
 class DeviceManager:
@@ -62,8 +65,10 @@ class DeviceManager:
             except Exception as error:
                 readiness = DeviceReadiness(
                     device_id=adapter.device_id,
+                    required=adapter.required,
                     ready=False,
                     reason=str(error),
+                    capabilities_available=adapter.declared_capabilities,
                 )
             results.append(readiness)
         readiness_results = tuple(results)

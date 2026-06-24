@@ -24,8 +24,28 @@ class DeviceReadiness:
     """Readiness result reported by a live device adapter."""
 
     device_id: str
+    required: bool
     ready: bool
     reason: str
+    capabilities_available: tuple[str, ...]
+
+    def __init__(
+        self,
+        device_id: str,
+        required: bool,
+        ready: bool,
+        reason: str,
+        capabilities_available: Iterable[str],
+    ) -> None:
+        object.__setattr__(self, "device_id", device_id)
+        object.__setattr__(self, "required", required)
+        object.__setattr__(self, "ready", ready)
+        object.__setattr__(self, "reason", reason)
+        object.__setattr__(
+            self,
+            "capabilities_available",
+            tuple(capabilities_available),
+        )
 
 
 @dataclass(frozen=True)
@@ -59,6 +79,7 @@ class DeviceAdapter:
     device_id: str
     device_type: str
     declared_capabilities: tuple[str, ...]
+    required: bool
     _state: DeviceAdapterState = field(
         default=DeviceAdapterState.DECLARED, init=False, repr=False
     )
@@ -69,10 +90,12 @@ class DeviceAdapter:
         device_id: str,
         device_type: str,
         declared_capabilities: Iterable[str],
+        required: bool,
     ) -> None:
         self.device_id = device_id
         self.device_type = device_type
         self.declared_capabilities = tuple(declared_capabilities)
+        self.required = required
         self._state = DeviceAdapterState.DECLARED
         self._initialization_config = None
 
@@ -169,8 +192,10 @@ class DeviceAdapter:
         self._set_state(DeviceAdapterState.READY)
         return DeviceReadiness(
             device_id=self.device_id,
+            required=self.required,
             ready=True,
             reason="ready",
+            capabilities_available=self.declared_capabilities,
         )
 
     def _set_state(self, state: DeviceAdapterState) -> None:

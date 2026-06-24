@@ -35,11 +35,12 @@ class FailingStartAdapter(FakeDeviceAdapter):
         raise RuntimeError("start unavailable")
 
 
-def fake_adapter(device_id: str) -> FakeDeviceAdapter:
+def fake_adapter(device_id: str, *, required: bool = True) -> FakeDeviceAdapter:
     return FakeDeviceAdapter(
         device_id=device_id,
         device_type="camera",
         declared_capabilities=["reports_health"],
+        required=required,
     )
 
 
@@ -97,6 +98,7 @@ class DeviceManagerTests(unittest.TestCase):
             device_id="base-001",
             device_type="base",
             declared_capabilities=[],
+            required=True,
         )
         manager = DeviceManager(adapters=[adapter])
         manager.initialize_all(config={})
@@ -106,13 +108,16 @@ class DeviceManagerTests(unittest.TestCase):
         self.assertFalse(summary.all_ready)
         self.assertEqual(len(summary.results), 1)
         self.assertEqual(summary.results[0].device_id, "base-001")
+        self.assertTrue(summary.results[0].required)
         self.assertFalse(summary.results[0].ready)
+        self.assertEqual(summary.results[0].capabilities_available, ())
 
     def test_manager_continues_readiness_checks_after_failure(self) -> None:
         failing_adapter = FailingReadinessAdapter(
             device_id="camera-001",
             device_type="camera",
             declared_capabilities=[],
+            required=True,
         )
         ready_adapter = fake_adapter("camera-002")
         manager = DeviceManager(adapters=[failing_adapter, ready_adapter])
@@ -122,8 +127,10 @@ class DeviceManagerTests(unittest.TestCase):
 
         self.assertFalse(summary.all_ready)
         self.assertEqual([result.device_id for result in summary.results], ["camera-001", "camera-002"])
+        self.assertTrue(summary.results[0].required)
         self.assertFalse(summary.results[0].ready)
         self.assertEqual(summary.results[0].reason, "readiness unavailable")
+        self.assertEqual(summary.results[0].capabilities_available, ())
         self.assertTrue(summary.results[1].ready)
         self.assertIs(ready_adapter.get_status().state, DeviceAdapterState.READY)
 
@@ -145,6 +152,7 @@ class DeviceManagerTests(unittest.TestCase):
             device_id="camera-001",
             device_type="camera",
             declared_capabilities=[],
+            required=True,
         )
         running_adapter = fake_adapter("camera-002")
         manager = DeviceManager(adapters=[failing_adapter, running_adapter])

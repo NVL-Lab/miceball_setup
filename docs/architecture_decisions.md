@@ -1264,6 +1264,88 @@ Session-level interpretation of required/optional device failure remains a futur
 
 ---
 
+## Decision 051: Session initialization may use DeviceManager readiness summaries
+
+**Status:** Accepted
+
+Session owns DeviceDeclarations, lifecycle state, and recorded readiness summaries.
+
+DeviceManager owns already-created live DeviceAdapters, adapter lifecycle calls, and adapter readiness aggregation.
+
+During Session.initialize(), Session may receive or be given a DeviceManager readiness summary.
+
+Session may use that summary to decide whether initialization readiness passes.
+
+Session must not own DeviceAdapters.
+
+Session must not call DeviceAdapter methods directly.
+
+Session must not create DeviceManager.
+
+Session must not create DeviceAdapters.
+
+Session must not bind DeviceDeclarations to DeviceAdapters.
+
+For this slice, readiness summary records must include:
+
+* device_id
+* required
+* ready
+* reason
+* capabilities_available
+
+A required device that is not ready causes Session.initialize() to fail.
+
+An optional device that is not ready is recorded but does not block Session.initialize().
+
+The connection between DeviceDeclarations and concrete DeviceAdapters remains deferred.
+
+**Rationale:**
+
+This is the smallest boundary between Session and live device lifecycle. It allows Session initialization to depend on device readiness evidence without giving Session ownership of hardware communication or adapter lifecycle.
+
+**Consequence:**
+
+Session can record readiness evidence and gate initialization on required devices, while DeviceManager remains the owner of live adapters.
+
+---
+
+## Decision 052: DeviceManager and Session use one readiness record contract
+
+**Status:** Accepted
+
+The readiness record produced by DeviceManager and the readiness record consumed and recorded by Session are the same contract.
+
+DeviceManager produces readiness records.
+
+Session consumes and records readiness records.
+
+Session does not transform readiness records into a separate Session-only readiness type.
+
+Session does not reinterpret adapter readiness beyond required-device gating during initialize.
+
+The shared readiness record must include:
+
+* device_id
+* required
+* ready
+* reason
+* capabilities_available
+
+**Rationale:**
+
+The first Session-DeviceManager bridge should be a real vertical slice, not two parallel readiness schemas.
+
+Using one readiness record avoids an unnecessary translation layer and keeps the boundary simple.
+
+**Consequence:**
+
+DeviceManager.check_readiness() output can be passed directly to Session.initialize().
+
+Tests must demonstrate actual DeviceManager-to-Session compatibility.
+
+---
+
 # Accepted Architectural Principles
 
 The following principles summarize the accepted decisions so far.
@@ -1318,6 +1400,8 @@ The following principles summarize the accepted decisions so far.
 48. The minimum live Device Adapter interface proves runtime manageability before scientific data production.
 49. DeviceManager receives already-created DeviceAdapters and coordinates lifecycle calls without creating adapters.
 50. DeviceManager v1 requires at least one already-created DeviceAdapter, records adapter failures as results, and continues processing remaining adapters.
+51. Session initialization may use supplied device readiness summaries for gating while DeviceManager remains the owner of live adapters.
+52. DeviceManager and Session use one shared readiness record contract.
 
 ---
 
