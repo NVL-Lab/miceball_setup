@@ -7,7 +7,6 @@ ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 sys.path.insert(0, str(SRC))
 
-import lab_sync_acquisition.session as session_module
 from lab_sync_acquisition import (
     DeviceAdapter,
     DeviceAdapterState,
@@ -45,37 +44,18 @@ def fake_adapter(device_id: str) -> FakeDeviceAdapter:
 
 
 class DeviceManagerTests(unittest.TestCase):
-    def test_empty_manager_is_invalid(self) -> None:
+    def test_manager_requires_at_least_one_adapter(self) -> None:
         with self.assertRaises(ValueError):
             DeviceManager(adapters=[])
 
-    def test_receives_already_created_adapters(self) -> None:
+    def test_manager_can_coordinate_an_already_created_adapter(self) -> None:
         adapter = fake_adapter("camera-001")
 
         manager = DeviceManager(adapters=[adapter])
 
         self.assertIs(manager.adapters[0], adapter)
 
-    def test_does_not_create_adapters(self) -> None:
-        adapter_a = fake_adapter("camera-001")
-        adapter_b = fake_adapter("camera-002")
-
-        manager = DeviceManager(adapters=[adapter_a, adapter_b])
-
-        self.assertEqual(len(manager.adapters), 2)
-        self.assertEqual({id(adapter) for adapter in manager.adapters}, {id(adapter_a), id(adapter_b)})
-        self.assertFalse(hasattr(manager, "create_adapter"))
-        self.assertFalse(hasattr(manager, "register_adapter"))
-        self.assertFalse(hasattr(manager, "discover_devices"))
-
-    def test_stores_adapters(self) -> None:
-        adapters = [fake_adapter("camera-001"), fake_adapter("camera-002")]
-
-        manager = DeviceManager(adapters=adapters)
-
-        self.assertEqual(manager.adapters, tuple(adapters))
-
-    def test_can_initialize_adapters(self) -> None:
+    def test_manager_can_initialize_adapters(self) -> None:
         adapters = [fake_adapter("camera-001"), fake_adapter("camera-002")]
         manager = DeviceManager(adapters=adapters)
         config = {"shared": "config"}
@@ -89,7 +69,7 @@ class DeviceManagerTests(unittest.TestCase):
         )
         self.assertTrue(all(adapter.initialization_config is config for adapter in adapters))
 
-    def test_initialize_passes_same_config_object_through_unchanged(self) -> None:
+    def test_manager_passes_supplied_config_to_each_adapter(self) -> None:
         adapters = [fake_adapter("camera-001"), fake_adapter("camera-002")]
         manager = DeviceManager(adapters=adapters)
         config = {"nested": {"threshold": 3}}
@@ -100,7 +80,7 @@ class DeviceManagerTests(unittest.TestCase):
         self.assertIs(adapters[1].initialization_config, config)
         self.assertEqual(config, {"nested": {"threshold": 3}})
 
-    def test_can_check_and_aggregate_readiness(self) -> None:
+    def test_manager_can_check_and_aggregate_readiness(self) -> None:
         adapters = [fake_adapter("camera-001"), fake_adapter("camera-002")]
         manager = DeviceManager(adapters=adapters)
         manager.initialize_all(config={})
@@ -112,7 +92,7 @@ class DeviceManagerTests(unittest.TestCase):
         self.assertTrue(all(result.ready for result in summary.results))
         self.assertTrue(all(adapter.get_status().ready for adapter in adapters))
 
-    def test_readiness_aggregation_records_not_ready_results(self) -> None:
+    def test_manager_records_not_ready_results(self) -> None:
         adapter = DeviceAdapter(
             device_id="base-001",
             device_type="base",
@@ -128,7 +108,7 @@ class DeviceManagerTests(unittest.TestCase):
         self.assertEqual(summary.results[0].device_id, "base-001")
         self.assertFalse(summary.results[0].ready)
 
-    def test_readiness_failure_still_processes_remaining_adapters(self) -> None:
+    def test_manager_continues_readiness_checks_after_failure(self) -> None:
         failing_adapter = FailingReadinessAdapter(
             device_id="camera-001",
             device_type="camera",
@@ -147,7 +127,7 @@ class DeviceManagerTests(unittest.TestCase):
         self.assertTrue(summary.results[1].ready)
         self.assertIs(ready_adapter.get_status().state, DeviceAdapterState.READY)
 
-    def test_can_start_adapters(self) -> None:
+    def test_manager_can_start_adapters(self) -> None:
         adapters = [fake_adapter("camera-001"), fake_adapter("camera-002")]
         manager = DeviceManager(adapters=adapters)
         manager.initialize_all(config={})
@@ -160,7 +140,7 @@ class DeviceManagerTests(unittest.TestCase):
             all(adapter.get_status().state is DeviceAdapterState.RUNNING for adapter in adapters)
         )
 
-    def test_lifecycle_failure_still_processes_remaining_adapters(self) -> None:
+    def test_manager_continues_lifecycle_operations_after_failure(self) -> None:
         failing_adapter = FailingStartAdapter(
             device_id="camera-001",
             device_type="camera",
@@ -180,7 +160,7 @@ class DeviceManagerTests(unittest.TestCase):
         self.assertTrue(results[1].succeeded)
         self.assertIs(running_adapter.get_status().state, DeviceAdapterState.RUNNING)
 
-    def test_can_stop_adapters(self) -> None:
+    def test_manager_can_stop_adapters(self) -> None:
         adapters = [fake_adapter("camera-001"), fake_adapter("camera-002")]
         manager = DeviceManager(adapters=adapters)
         manager.initialize_all(config={})
@@ -194,7 +174,7 @@ class DeviceManagerTests(unittest.TestCase):
             all(adapter.get_status().state is DeviceAdapterState.STOPPED for adapter in adapters)
         )
 
-    def test_can_shut_down_adapters(self) -> None:
+    def test_manager_can_shut_down_adapters(self) -> None:
         adapters = [fake_adapter("camera-001"), fake_adapter("camera-002")]
         manager = DeviceManager(adapters=adapters)
         manager.initialize_all(config={})
@@ -209,7 +189,7 @@ class DeviceManagerTests(unittest.TestCase):
             all(adapter.get_status().state is DeviceAdapterState.SHUTDOWN for adapter in adapters)
         )
 
-    def test_can_collect_status_summaries(self) -> None:
+    def test_manager_can_collect_status_summaries(self) -> None:
         adapters = [fake_adapter("camera-001"), fake_adapter("camera-002")]
         manager = DeviceManager(adapters=adapters)
 
@@ -219,17 +199,6 @@ class DeviceManagerTests(unittest.TestCase):
         self.assertTrue(
             all(status.state is DeviceAdapterState.DECLARED for status in statuses)
         )
-
-    def test_session_does_not_import_device_manager(self) -> None:
-        self.assertFalse(hasattr(session_module, "DeviceManager"))
-
-    def test_session_does_not_own_device_adapters(self) -> None:
-        session_names = set(session_module.Session.__dataclass_fields__)
-
-        self.assertNotIn("adapters", session_names)
-        self.assertNotIn("device_adapters", session_names)
-        self.assertNotIn("device_manager", session_names)
-
 
 if __name__ == "__main__":
     unittest.main()

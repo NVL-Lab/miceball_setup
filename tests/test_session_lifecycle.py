@@ -289,39 +289,20 @@ class SessionLifecycleTests(unittest.TestCase):
                 )
                 self.assertIs(session.current_state, SessionState.CREATED)
 
-    def test_new_session_always_starts_created(self) -> None:
-        with self.assertRaises(TypeError):
-            Session(
-                session_id="session-001",
-                configuration=config(),
-                current_state=SessionState.RUNNING,
-            )
-
+    def test_new_session_starts_created(self) -> None:
         session = Session(session_id="session-001", configuration=config())
+
         self.assertIs(session.current_state, SessionState.CREATED)
+        self.assertEqual(session.transition_history, ())
+        self.assertEqual(session.readiness_checks, ())
 
-    def test_lifecycle_histories_are_session_owned(self) -> None:
-        with self.assertRaises(TypeError):
-            Session(
-                session_id="session-001",
-                configuration=config(),
-                transition_history=[],
-            )
-
-        with self.assertRaises(TypeError):
-            Session(
-                session_id="session-001",
-                configuration=config(),
-                readiness_checks=[],
-            )
-
+    def test_session_exposes_lifecycle_evidence_as_read_only_history(self) -> None:
         session = running_session()
+
         with self.assertRaises(AttributeError):
             session.transition_history = ()
         with self.assertRaises(AttributeError):
             session.readiness_checks = ()
-        with self.assertRaises(AttributeError):
-            session.transition_history.append
 
     def test_invalid_transition_rejection(self) -> None:
         session = Session(session_id="session-001", configuration=config())

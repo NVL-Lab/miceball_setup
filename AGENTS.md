@@ -423,3 +423,46 @@ Agents must not commit or overwrite generated cache files, including:
 * local environment files
 
 If running tests creates generated files, agents must leave them untracked or clean them up unless those files are explicitly part of the accepted repository design.
+
+
+## Testing Philosophy
+
+The committed `tests/` folder is for public framework behavior.
+
+Tests should read like examples of how a future user, lab member, or framework component uses the repository.
+
+A good committed test demonstrates something the framework can do through its public API.
+
+Examples of good test intent:
+
+* a session can be created, initialized, started, stopped, and completed
+* a session records lifecycle evidence during normal use
+* a device declaration can be included in session configuration
+* a fake adapter can be initialized, started, stopped, and shut down
+* a device manager can coordinate already-created adapters
+* a device manager can report adapter readiness and status summaries
+
+Avoid committed tests whose main purpose is:
+
+* proving that a not-yet-implemented future method does not exist
+* checking that Codex stayed within a prompt boundary
+* checking private helper methods
+* checking implementation storage details
+* checking exact internal object layout unless it is part of the public API
+
+Codex may run temporary/internal checks while developing, but those checks should not automatically become committed tests.
+
+Before adding a committed test, ask:
+
+"Does this test show useful public functionality of the framework?"
+
+If yes, it belongs in `tests/`.
+
+If the test mainly answers:
+
+"Did Codex avoid adding something?"
+"Did a private helper behave a certain way?"
+"Did the implementation use this exact internal structure?"
+
+then it probably does not belong in the committed public test suite.
+

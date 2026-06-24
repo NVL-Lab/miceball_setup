@@ -31,7 +31,7 @@ def fake_adapter() -> FakeDeviceAdapter:
 
 
 class DeviceAdapterTests(unittest.TestCase):
-    def test_fake_adapter_initializes(self) -> None:
+    def test_adapter_can_be_initialized(self) -> None:
         adapter = fake_adapter()
 
         adapter.initialize(config={"exposure_ms": 10})
@@ -47,7 +47,7 @@ class DeviceAdapterTests(unittest.TestCase):
         self.assertEqual(status.device_type, "camera")
         self.assertEqual(status.declared_capabilities, ("reports_health",))
 
-    def test_fake_adapter_reports_readiness(self) -> None:
+    def test_adapter_can_report_readiness(self) -> None:
         adapter = fake_adapter()
         adapter.initialize(config={})
 
@@ -60,7 +60,7 @@ class DeviceAdapterTests(unittest.TestCase):
         self.assertTrue(status.ready)
         self.assertFalse(status.running)
 
-    def test_direct_state_mutation_is_not_allowed(self) -> None:
+    def test_adapter_runtime_state_is_read_only(self) -> None:
         adapter = fake_adapter()
 
         with self.assertRaises(AttributeError):
@@ -70,7 +70,7 @@ class DeviceAdapterTests(unittest.TestCase):
 
         self.assertIs(adapter.get_status().state, DeviceAdapterState.DECLARED)
 
-    def test_base_adapter_readiness_does_not_silently_pass(self) -> None:
+    def test_base_adapter_requires_concrete_readiness(self) -> None:
         adapter = DeviceAdapter(
             device_id="base-001",
             device_type="base",
@@ -85,7 +85,7 @@ class DeviceAdapterTests(unittest.TestCase):
         self.assertIs(status.state, DeviceAdapterState.FAILED)
         self.assertTrue(status.failed)
 
-    def test_fake_adapter_starts_stops_and_shuts_down_in_allowed_order(self) -> None:
+    def test_adapter_can_start_stop_and_shutdown(self) -> None:
         adapter = fake_adapter()
 
         adapter.initialize(config={})
@@ -108,7 +108,7 @@ class DeviceAdapterTests(unittest.TestCase):
         self.assertTrue(shutdown_status.shutdown)
         self.assertTrue(shutdown_status.stopped)
 
-    def test_invalid_lifecycle_order_fails(self) -> None:
+    def test_adapter_rejects_invalid_lifecycle_order(self) -> None:
         cases = [
             ("check_ready_before_initialize", lambda adapter: adapter.check_ready()),
             ("start_before_ready", lambda adapter: adapter.start()),
@@ -127,7 +127,7 @@ class DeviceAdapterTests(unittest.TestCase):
                 self.assertIs(status.state, DeviceAdapterState.FAILED)
                 self.assertTrue(status.failed)
 
-    def test_status_reflects_declared_initialized_ready_running_stopped_failed(
+    def test_adapter_status_tracks_lifecycle_progress(
         self,
     ) -> None:
         adapter = fake_adapter()
@@ -149,23 +149,6 @@ class DeviceAdapterTests(unittest.TestCase):
         with self.assertRaises(DeviceAdapterLifecycleError):
             failed_adapter.start()
         self.assertIs(failed_adapter.get_status().state, DeviceAdapterState.FAILED)
-
-    def test_no_data_acquisition_methods_are_introduced(self) -> None:
-        forbidden_methods = [
-            "read_sample",
-            "read_frame",
-            "emit_event",
-            "write_file",
-            "send_command",
-            "trigger",
-            "calibrate",
-            "reconnect",
-        ]
-
-        for method_name in forbidden_methods:
-            with self.subTest(method_name=method_name):
-                self.assertFalse(hasattr(DeviceAdapter, method_name))
-
 
 if __name__ == "__main__":
     unittest.main()
