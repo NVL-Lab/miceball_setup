@@ -8,6 +8,7 @@
 - DeviceDeclaration: Public import for persistent/config declarations of intended session devices.
 - DeviceLifecycleResult: Public import for per-adapter Device Manager lifecycle call results.
 - DeviceManager: Public import for coordinating already-created live Device Adapters.
+- DeviceRecordCollection: Public import for records collected by DeviceManager from one already-created adapter.
 - DeviceReadiness: Public import for the shared readiness record produced by DeviceManager and consumed by Session.
 - DeviceReadinessNotImplementedError: Public import for base adapters without concrete readiness behavior.
 - DeviceReadinessSummary: Public import for aggregated Device Manager readiness results.
@@ -35,8 +36,9 @@
 ## src/lab_sync_acquisition/device_manager.py
 
 - DeviceLifecycleResult: Records the result of one Device Manager lifecycle call against one adapter.
+- DeviceRecordCollection: Records the source adapter identity and unmodified records collected from that adapter.
 - DeviceReadinessSummary: Aggregates shared readiness records across already-created adapters and can be passed to Session initialization.
-- DeviceManager: Holds at least one already-created Device Adapter and coordinates lifecycle, readiness, and status calls without creating adapters.
+- DeviceManager: Holds at least one already-created Device Adapter and coordinates lifecycle, readiness, status, and minimal record collection calls without creating adapters.
 
 ## src/lab_sync_acquisition/session.py
 

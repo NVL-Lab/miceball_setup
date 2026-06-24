@@ -12,6 +12,7 @@ from lab_sync_acquisition.device_adapter import (
 from lab_sync_acquisition.device_manager import (
     DeviceLifecycleResult,
     DeviceManager,
+    DeviceRecordCollection,
     DeviceReadinessSummary,
 )
 from lab_sync_acquisition.session import (
@@ -33,6 +34,7 @@ __all__ = [
     "DeviceStatus",
     "DeviceLifecycleResult",
     "DeviceManager",
+    "DeviceRecordCollection",
     "DeviceReadinessSummary",
     "LifecycleTransition",
     "ReadinessCheck",

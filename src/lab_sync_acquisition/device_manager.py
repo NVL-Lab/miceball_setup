@@ -33,6 +33,14 @@ class DeviceReadinessSummary:
         return iter(self.results)
 
 
+@dataclass(frozen=True)
+class DeviceRecordCollection:
+    """Records collected from one already-created adapter."""
+
+    device_id: str
+    records: tuple[Any, ...]
+
+
 class DeviceManager:
     """Coordinates lifecycle calls for already-created Device Adapters."""
 
@@ -102,6 +110,23 @@ class DeviceManager:
         """Collect status snapshots from each already-created adapter."""
 
         return tuple(adapter.get_status() for adapter in self._adapters)
+
+    def collect_records(
+        self,
+        adapter_method_name: str,
+    ) -> tuple[DeviceRecordCollection, ...]:
+        """Collect records returned by a named method on each adapter."""
+
+        collections = []
+        for adapter in self._adapters:
+            records = getattr(adapter, adapter_method_name)()
+            collections.append(
+                DeviceRecordCollection(
+                    device_id=adapter.device_id,
+                    records=tuple(records),
+                )
+            )
+        return tuple(collections)
 
     def _call_lifecycle(
         self,
