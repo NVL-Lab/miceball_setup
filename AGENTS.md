@@ -466,3 +466,29 @@ If the test mainly answers:
 
 then it probably does not belong in the committed public test suite.
 
+# Human-in-the-loop workflow
+
+The user is the bridge between architecture discussion, Codex, and IPython.
+
+When reporting completed work:
+
+- Report public API changes explicitly.
+- Report constructor signatures and public method names for new/modified public classes.
+- Prefer simple workflow tests over architecture-policing tests.
+- Vertical-slice tests should read like user workflows.
+- Minimize information required for manual verification in IPython.
+
+# Public API reporting
+
+If a public class is added or modified, report when finished:
+
+ClassName
+    constructor: ...
+
+    public methods:
+        ...
+        ...
+
+    public properties:
+        ...
+
