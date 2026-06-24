@@ -951,6 +951,174 @@ The Acquisition Node must preserve session records even if communication with th
 
 ---
 
+## Decision 41: Session completion is independent of NWB export
+
+**Status:** Accepted
+
+A Session is complete when acquisition has ended, cleanup has completed, and the raw session record has been finalized.
+
+NWB export is a post-session operation.
+
+NWB export status does not determine Session completion.
+
+**Rationale:**
+Large files may require transfer, conversion, validation, or upload after acquisition has ended.
+
+These operations should not block future sessions.
+
+**Consequence:**
+Multiple sessions may be acquired while previous sessions are awaiting NWB export.
+
+---
+
+## Decision 042: The Ingestor manages records, not necessarily all raw bytes online
+
+**Status:** Accepted
+
+The Ingestor is responsible for creating a complete session record.
+
+Not all device data must be transferred through the Ingestor during acquisition.
+
+Some devices may provide:
+
+* full records during acquisition
+* timing records during acquisition
+* file references during acquisition
+* large files after acquisition
+
+**Rationale:**
+Some acquisition systems generate files that are impractical to transfer in real time.
+
+**Consequence:**
+The architecture must support both online records and deferred file-transfer workflows.
+
+---
+
+## Decision 043: Timing belongs primarily with the data records it describes
+
+**Status:** Accepted
+
+Streams and Events should contain their own Session Time whenever possible.
+
+Examples:
+
+* frame timestamps
+* sample timestamps
+* event timestamps
+
+Separate timing records should only be used for timing-specific information that is not naturally part of a stream or event.
+
+**Rationale:**
+The most useful location for timing information is alongside the data it describes.
+
+**Consequence:**
+Session reconstruction and NWB export should not require separate timestamp lookups for normal records.
+
+---
+
+## Decision 044: Raw acquisition records and NWB exports have separate lifecycles
+
+**Status:** Accepted
+
+Raw acquisition records and NWB exports are separate storage products.
+
+Recommended structure:
+
+```text
+raw/
+    session_<session_id>/
+
+nwb/
+    session_<session_id>/
+```
+
+Raw records are working acquisition records.
+
+NWB files are long-term scientific exports.
+
+**Rationale:**
+Raw records and NWB exports have different lifecycles, storage requirements, and deletion policies.
+
+**Consequence:**
+Experimenters may retain, archive, upload, or delete raw records independently of NWB exports.
+
+---
+
+## Decision 045: Storage capacity must be validated before acquisition begins
+
+**Status:** Accepted
+
+Before acquisition begins, the system must verify that participating machines have sufficient storage capacity.
+
+Examples:
+
+* Acquisition Node
+* Ingestor machine
+* Microscope PC
+* CaBMI PC
+* other acquisition systems
+
+**Rationale:**
+Running out of storage during acquisition can invalidate a session and is often preventable.
+
+**Consequence:**
+Storage-capacity checks are part of session initialization readiness.
+
+
+----
+
+## Decision 046: Software mapping should start with guardrails, not a full skeleton
+
+**Status:** Accepted
+
+Architectural concepts may have more than one software representation.
+
+Some concepts exist as runtime objects or services during acquisition.
+Some concepts exist as persistent records after or during acquisition.
+Some concepts require both.
+
+The implementation should begin with a minimal vertical slice rather than a complete pre-planned source skeleton.
+
+**Accepted rules:**
+
+* A Session is not just a folder.
+* The runtime Session represents lifecycle state and session control.
+* The stored Session Record represents the evidence produced by the session.
+* A Device has runtime lifecycle state.
+* Device Adapters handle device-specific communication.
+* The Device Manager coordinates device lifecycle.
+* Stream rows and Event rows should contain Session Time directly whenever possible.
+* Event records must include enough information to distinguish event category, type, and source.
+* Important behavior must be controlled by explicit configuration, not hidden lower-level defaults.
+
+**Implementation stop rule:**
+
+If implementation requires deciding the meaning, boundary, or ownership of any of the following concepts, implementation must stop and request architectural clarification:
+
+* Session
+* Session Record
+* Stream
+* Event
+* Timing Record
+* Configuration
+* Device
+* Device Adapter
+* Device Manager
+* Synchronization Manager
+* Ingestor
+* Storage Manager
+* Reconstruction Manager
+
+**Rationale:**
+
+The architecture should prevent dangerous hidden assumptions without overengineering a complete software structure before the first working vertical slice exists.
+
+**Consequence:**
+
+Codex and other implementation agents should implement only what the first vertical slice requires. They should not create speculative skeletons, plugin systems, generic factories, or unused abstraction layers.  
+
+---
+
 # Accepted Architectural Principles
 
 The following principles summarize the accepted decisions so far.
@@ -995,96 +1163,14 @@ The following principles summarize the accepted decisions so far.
 38. Plotting is allowed only for framework validation and debugging.
 39. This repository is for synchronization and acquisition, not GUI development or neuroscience analysis.
 40. Architectural decisions are documented before implementation begins.
+41. Session completion is independent of NWB export.
+42. The Ingestor manages records, not necessarily all raw bytes online.
+43. Timing belongs primarily with the data records it describes.
+44. Raw acquisition records and NWB exports have separate lifecycles.
+45. Storage capacity must be validated before acquisition begins.
+46. Establish guardrails before implementation; establish structure after experience
 
 ---
-
-# Open Decisions Not Yet Resolved
-
-The following decisions remain open and should be resolved before writing the final architecture document.
-
-## Session model
-
-* What are the exact session lifecycle states?
-* What makes a session valid?
-* What makes a session failed-but-reconstructable?
-* What is the session identity format?
-* What must be present in a session manifest?
-
-## Stream model
-
-* What is a stream?
-* How are sampled streams represented?
-* How are frame-based streams represented?
-* How are sparse event streams represented?
-* How are command streams represented?
-
-## Event model
-
-* What is an event?
-* Are protocol commands stored as events?
-* Are device state changes stored as events?
-* Are errors stored as events?
-* Are rewards, licks, tones, and camera triggers all events?
-
-## Synchronization model
-
-* What is a synchronization anchor?
-* What exact records are required to map local time to session time?
-* How is drift represented?
-* How is timestamp uncertainty represented?
-* What happens if sync records are missing or inconsistent?
-
-## Storage model
-
-* What is the session folder structure?
-* What files are mandatory?
-* What file formats are acceptable for intermediate storage?
-* What is written online versus reconstructed offline?
-* What makes a stored session complete?
-
-## Reconstruction model
-
-* What component performs reconstruction?
-* What are the outputs of reconstruction?
-* Does reconstruction write new files or generate views?
-* How are reconstruction errors reported?
-
-## Multi-node acquisition
-
-* Can multiple Acquisition Nodes participate in the same session?
-* If yes, who coordinates them?
-* How is session time shared across nodes?
-* Is this Phase 1 or future architecture?
-
-## Protocol model
-
-* What does the Controller send to the Acquisition Node?
-* What does the Acquisition Node execute locally?
-* What protocol events must be recorded?
-* How much protocol logic belongs in this repository?
-
-## Device contract
-
-* What minimum methods or behaviors must every Device Adapter support?
-* How are device capabilities declared?
-* How are optional capabilities represented?
-* What must be tested before a device is accepted?
-
-## Configuration model
-
-* Should configuration be stored as classes, JSON, YAML, or another format?
-* Which configuration is user-facing?
-* Which configuration is internal?
-* How are defaults declared without being hidden?
-
-## Failure and recovery
-
-* What happens if a device disconnects mid-session?
-* What happens if the Ingestor disconnects?
-* What happens if storage fails?
-* What happens if timing records are incomplete?
-* Can a partial session be marked scientifically unusable but still preserved?
-
 
 # Changes to Existing Decisions!!!!!
 
@@ -1154,144 +1240,7 @@ Its primary purpose is to verify that a stored session is complete, internally c
 
 ---
 
-# New Decisions
 
-## Decision 037: Session completion is independent of NWB export
-
-**Status:** Accepted
-
-A Session is complete when acquisition has ended, cleanup has completed, and the raw session record has been finalized.
-
-NWB export is a post-session operation.
-
-NWB export status does not determine Session completion.
-
-**Rationale:**
-Large files may require transfer, conversion, validation, or upload after acquisition has ended.
-
-These operations should not block future sessions.
-
-**Consequence:**
-Multiple sessions may be acquired while previous sessions are awaiting NWB export.
-
----
-
-## Decision 038: The Ingestor manages records, not necessarily all raw bytes online
-
-**Status:** Accepted
-
-The Ingestor is responsible for creating a complete session record.
-
-Not all device data must be transferred through the Ingestor during acquisition.
-
-Some devices may provide:
-
-* full records during acquisition
-* timing records during acquisition
-* file references during acquisition
-* large files after acquisition
-
-**Rationale:**
-Some acquisition systems generate files that are impractical to transfer in real time.
-
-**Consequence:**
-The architecture must support both online records and deferred file-transfer workflows.
-
----
-
-## Decision 039: Timing belongs primarily with the data records it describes
-
-**Status:** Accepted
-
-Streams and Events should contain their own Session Time whenever possible.
-
-Examples:
-
-* frame timestamps
-* sample timestamps
-* event timestamps
-
-Separate timing records should only be used for timing-specific information that is not naturally part of a stream or event.
-
-**Rationale:**
-The most useful location for timing information is alongside the data it describes.
-
-**Consequence:**
-Session reconstruction and NWB export should not require separate timestamp lookups for normal records.
-
----
-
-## Decision 040: Raw acquisition records and NWB exports have separate lifecycles
-
-**Status:** Accepted
-
-Raw acquisition records and NWB exports are separate storage products.
-
-Recommended structure:
-
-```text
-raw/
-    session_<session_id>/
-
-nwb/
-    session_<session_id>/
-```
-
-Raw records are working acquisition records.
-
-NWB files are long-term scientific exports.
-
-**Rationale:**
-Raw records and NWB exports have different lifecycles, storage requirements, and deletion policies.
-
-**Consequence:**
-Experimenters may retain, archive, upload, or delete raw records independently of NWB exports.
-
----
-
-## Decision 041: Storage capacity must be validated before acquisition begins
-
-**Status:** Accepted
-
-Before acquisition begins, the system must verify that participating machines have sufficient storage capacity.
-
-Examples:
-
-* Acquisition Node
-* Ingestor machine
-* Microscope PC
-* CaBMI PC
-* other acquisition systems
-
-**Rationale:**
-Running out of storage during acquisition can invalidate a session and is often preventable.
-
-**Consequence:**
-Storage-capacity checks are part of session initialization readiness.
-
----
-
-# Accepted Architectural Principles
-
-Append the following principles:
-
-41. Session completion is independent of NWB export.
-42. The Ingestor manages records, not necessarily all raw bytes online.
-43. Timing belongs primarily with the data records it describes.
-44. Raw acquisition records and NWB exports have separate lifecycles.
-45. Storage capacity must be validated before acquisition begins.
-
----
-
-# Remove
-
-Delete the entire section:
-
-```text
-# Open Decisions Not Yet Resolved
-```
-
-and everything beneath it.
 
 Open questions now belong exclusively in `open_questions.md`.
 

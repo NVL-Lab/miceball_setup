@@ -398,3 +398,28 @@ Prefer straightforward designs over clever or deeply abstract designs.
 A design that is slightly less elegant but easier to inspect, test, and explain is usually preferred.
 
 The cost of complexity is paid during debugging, validation, and scientific interpretation, even if AI generated the code.
+
+
+## Agent Testing Behavior
+
+Agents must add or update tests in the repository `tests/` folder for any behavior they implement or change.
+
+Agents may run tests locally to check their work, but they must not treat local execution as the deliverable.
+
+The deliverable is:
+
+* source changes
+* test files in `tests/`
+* a short explanation of how the user can run the tests
+
+Agents must not rely on temporary scripts, notebook cells, REPL commands, or private scratch files as the only test.
+
+Agents must not commit or overwrite generated cache files, including:
+
+* `__pycache__/`
+* `.pyc`
+* `.pytest_cache/`
+* temporary debug outputs
+* local environment files
+
+If running tests creates generated files, agents must leave them untracked or clean them up unless those files are explicitly part of the accepted repository design.
