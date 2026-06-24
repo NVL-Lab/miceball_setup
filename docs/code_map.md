@@ -2,7 +2,13 @@
 
 ## src/lab_sync_acquisition/__init__.py
 
+- DeviceAdapter: Public import for the minimum live runtime control interface for one device adapter.
+- DeviceAdapterLifecycleError: Public import for invalid live adapter lifecycle operations.
+- DeviceAdapterState: Public import for minimum live adapter lifecycle states.
 - DeviceDeclaration: Public import for persistent/config declarations of intended session devices.
+- DeviceReadiness: Public import for live adapter readiness results.
+- DeviceReadinessNotImplementedError: Public import for base adapters without concrete readiness behavior.
+- DeviceStatus: Public import for live adapter status snapshots.
 - LifecycleTransition: Public import for recorded lifecycle transitions.
 - ReadinessCheck: Public import for recorded readiness checks.
 - Session: Public import for the runtime session lifecycle model.
@@ -13,6 +19,15 @@
 ## src/lab_sync_acquisition/device.py
 
 - DeviceDeclaration: Holds explicit persistent/config fields for an intended device before any live adapter exists, with capabilities stored immutably.
+
+## src/lab_sync_acquisition/device_adapter.py
+
+- DeviceAdapterState: Enumerates the minimum lifecycle states for a live device adapter.
+- DeviceReadiness: Records whether a live device adapter is ready to start.
+- DeviceStatus: Reports the current live adapter lifecycle status without scientific data.
+- DeviceAdapterLifecycleError: Signals invalid live adapter lifecycle operations.
+- DeviceReadinessNotImplementedError: Signals that a live adapter has no concrete readiness implementation.
+- DeviceAdapter: Provides the minimum live runtime control interface for one device adapter with externally read-only lifecycle state.
 
 ## src/lab_sync_acquisition/session.py
 

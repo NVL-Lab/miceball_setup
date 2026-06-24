@@ -1147,6 +1147,53 @@ Session initialization may validate declared device configuration fields, but it
 
 ---
 
+## Decision 048: Minimum live Device Adapter interface proves manageability
+
+**Status:** Accepted
+
+A live Device Adapter proves that one device can be managed at runtime.
+
+It does not yet need to produce scientific data.
+
+The minimum live `DeviceAdapter` interface is:
+
+* `device_id`
+* `device_type`
+* `declared_capabilities`
+* `initialize(config)`
+* `check_ready()`
+* `start()`
+* `stop()`
+* `shutdown()`
+* `get_status()`
+
+The minimum interface must not include:
+
+* `read_sample`
+* `read_frame`
+* `emit_event`
+* `write_file`
+* `send_command`
+* `trigger`
+* `calibrate`
+* `reconnect`
+
+`DeviceDeclaration` is configuration and persistent intent.
+
+`DeviceAdapter` is live runtime control for one device type.
+
+The Device Manager will later coordinate many adapters.
+
+Session should not call hardware-specific methods.
+
+**Rationale:**
+The first live-device slice should prove lifecycle manageability without pretending that acquisition, streams, events, commands, or hardware-specific behavior have been designed.
+
+**Consequence:**
+Device Adapter lifecycle status and readiness may be represented now, but scientific data production, hardware communication details, and multi-adapter coordination remain out of scope.
+
+---
+
 # Accepted Architectural Principles
 
 The following principles summarize the accepted decisions so far.
@@ -1198,6 +1245,7 @@ The following principles summarize the accepted decisions so far.
 45. Storage capacity must be validated before acquisition begins.
 46. Establish guardrails before implementation; establish structure after experience
 47. Configuration declares intended devices before live adapters exist.
+48. The minimum live Device Adapter interface proves runtime manageability before scientific data production.
 
 ---
 
