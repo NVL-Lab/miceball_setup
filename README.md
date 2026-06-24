@@ -1,12 +1,4 @@
-# 
-
-Modular synchronization and acquisition framework for experiments on the miceball\_setup
-
-# 
-
-
-
-\# Lab Sync Acquisition
+# Lab Sync Acquisition
 
 
 
@@ -14,7 +6,7 @@ A modular synchronization and acquisition framework for neuroscience experiments
 
 
 
-\## Overview
+## Overview
 
 
 
@@ -22,15 +14,15 @@ This repository is developing a hardware-agnostic framework for:
 
 
 
-\* data acquisition
+* data acquisition
 
-\* device synchronization
+* device synchronization
 
-\* timing management
+* timing management
 
-\* session storage
+* session storage
 
-\* session reconstruction
+* session reconstruction
 
 
 
@@ -38,17 +30,17 @@ The framework is intended to support behavioral and neural experiments involving
 
 
 
-\* cameras
+* cameras
 
-\* lick sensors
+* lick sensors
 
-\* water delivery systems
+* water delivery systems
 
-\* speakers
+* speakers
 
-\* accelerometers
+* accelerometers
 
-\* future sensors and actuators
+* future sensors and actuators
 
 
 
@@ -60,11 +52,11 @@ A separate GUI may configure and control experiments, but the GUI is considered 
 
 
 
-\---
+---
 
 
 
-\## Project Goals
+## Project Goals
 
 
 
@@ -72,25 +64,25 @@ The framework aims to provide:
 
 
 
-\* a common device abstraction
+* a common device abstraction
 
-\* explicit ownership of synchronization and timing
+* explicit ownership of synchronization and timing
 
-\* reproducible session reconstruction
+* reproducible session reconstruction
 
-\* human-readable intermediate outputs
+* human-readable intermediate outputs
 
-\* compatibility with NWB export
+* compatibility with NWB export
 
-\* support for future hardware expansion
-
-
-
-\---
+* support for future hardware expansion
 
 
 
-\## Motivation
+---
+
+
+
+## Motivation
 
 
 
@@ -98,19 +90,19 @@ This project is informed by lessons learned from a previous acquisition system t
 
 
 
-\* no explicit timing authority
+* no explicit timing authority
 
-\* independently generated timestamps
+* independently generated timestamps
 
-\* no drift handling
+* no drift handling
 
-\* no periodic synchronization
+* no periodic synchronization
 
-\* incomplete synchronization implementation
+* incomplete synchronization implementation
 
-\* complex process interactions
+* complex process interactions
 
-\* unclear ownership of responsibilities
+* unclear ownership of responsibilities
 
 
 
@@ -118,11 +110,11 @@ The architecture of this framework is being designed specifically to avoid those
 
 
 
-\---
+---
 
 
 
-\## Current Status
+## Current Status
 
 
 
@@ -138,15 +130,15 @@ Architectural decisions are being discussed and documented before source code is
 
 
 
-\---
+---
 
 
 
-\## Architecture Documents
+## Architecture Documents
 
 
 
-\### Accepted Decisions
+### Accepted Decisions
 
 
 
@@ -166,7 +158,7 @@ This document contains architectural decisions that have been accepted by the ar
 
 
 
-\### Open Questions
+### Open Questions
 
 
 
@@ -186,11 +178,11 @@ This document tracks unresolved architectural questions that must be addressed b
 
 
 
-\---
+---
 
 
 
-\## Guiding Principles
+## Guiding Principles
 
 
 
@@ -210,11 +202,11 @@ This document tracks unresolved architectural questions that must be addressed b
 
 
 
-\---
+---
 
 
 
-\## Repository Status
+## Repository Status
 
 
 
