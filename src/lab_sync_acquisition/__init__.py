@@ -1,5 +1,6 @@
 """Lab synchronization and acquisition framework."""
 
+from lab_sync_acquisition.device import DeviceDeclaration
 from lab_sync_acquisition.session import (
     LifecycleTransition,
     ReadinessCheck,
@@ -10,6 +11,7 @@ from lab_sync_acquisition.session import (
 )
 
 __all__ = [
+    "DeviceDeclaration",
     "LifecycleTransition",
     "ReadinessCheck",
     "Session",

@@ -219,6 +219,7 @@ The philosophy has been accepted, but the exact configuration model has not.
 * How are defaults declared?
 * How are configuration values propagated?
 * Should configuration be represented as YAML, JSON, classes, or another structure?
+* What vocabulary and structure should be used for `DeviceDeclaration.declared_capabilities`?
 
 ### Blocks
 

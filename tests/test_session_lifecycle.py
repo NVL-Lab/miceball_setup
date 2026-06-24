@@ -8,6 +8,7 @@ SRC = ROOT / "src"
 sys.path.insert(0, str(SRC))
 
 from lab_sync_acquisition import (
+    DeviceDeclaration,
     Session,
     SessionConfig,
     SessionLifecycleError,
@@ -20,6 +21,16 @@ def config() -> SessionConfig:
         selected_devices=[],
         storage_location="placeholder://session",
         protocol_plan={"name": "no-op"},
+    )
+
+
+def device_declaration() -> DeviceDeclaration:
+    return DeviceDeclaration(
+        device_id="camera-001",
+        device_type="camera",
+        enabled=True,
+        required=True,
+        declared_capabilities=["produces_stream"],
     )
 
 
@@ -51,6 +62,232 @@ class SessionLifecycleTests(unittest.TestCase):
         self.assertEqual(session.final_status["state"], "completed")
         self.assertEqual(session.final_status["reason"], "normal completion")
         self.assertTrue(session.final_status["cleanup_occurred"])
+
+    def test_empty_selected_devices_is_allowed(self) -> None:
+        session = Session(session_id="session-001", configuration=config())
+
+        session.initialize()
+
+        self.assertIs(session.current_state, SessionState.INITIALIZED)
+        checks = {
+            (check.name, check.status, check.reason)
+            for check in session.readiness_checks
+        }
+        self.assertIn(
+            ("selected_devices_declared", "PASS", "selected_devices_declared"),
+            checks,
+        )
+
+    def test_valid_device_declaration_passes_initialization(self) -> None:
+        declaration = device_declaration()
+        session = Session(
+            session_id="session-001",
+            configuration=SessionConfig(
+                selected_devices=[declaration],
+                storage_location="placeholder://session",
+                protocol_plan={"name": "no-op"},
+            ),
+        )
+
+        session.initialize()
+
+        self.assertEqual(declaration.declared_capabilities, ("produces_stream",))
+        self.assertIs(session.current_state, SessionState.INITIALIZED)
+        checks = {
+            (check.name, check.status, check.reason)
+            for check in session.readiness_checks
+        }
+        self.assertIn(
+            ("selected_devices[0].device_id_exists", "PASS", "device_id_declared"),
+            checks,
+        )
+        self.assertIn(
+            (
+                "selected_devices[0].device_type_exists",
+                "PASS",
+                "device_type_declared",
+            ),
+            checks,
+        )
+        self.assertIn(
+            (
+                "selected_devices[0].enabled_is_boolean",
+                "PASS",
+                "enabled_declared_as_boolean",
+            ),
+            checks,
+        )
+        self.assertIn(
+            (
+                "selected_devices[0].required_is_boolean",
+                "PASS",
+                "required_declared_as_boolean",
+            ),
+            checks,
+        )
+        self.assertIn(
+            (
+                "selected_devices[0].declared_capabilities_declared",
+                "PASS",
+                "declared_capabilities_declared",
+            ),
+            checks,
+        )
+
+    def test_missing_device_id_fails_initialization(self) -> None:
+        session = Session(
+            session_id="session-001",
+            configuration=SessionConfig(
+                selected_devices=[
+                    DeviceDeclaration(
+                        device_id="",
+                        device_type="camera",
+                        enabled=True,
+                        required=True,
+                        declared_capabilities=[],
+                    )
+                ],
+                storage_location="placeholder://session",
+                protocol_plan={"name": "no-op"},
+            ),
+        )
+
+        with self.assertRaises(SessionLifecycleError):
+            session.initialize()
+
+        self.assertIn(
+            "selected_devices[0].device_id_exists",
+            [check.name for check in session.readiness_checks if check.status == "FAIL"],
+        )
+        self.assertIs(session.current_state, SessionState.CREATED)
+
+    def test_missing_device_type_fails_initialization(self) -> None:
+        session = Session(
+            session_id="session-001",
+            configuration=SessionConfig(
+                selected_devices=[
+                    DeviceDeclaration(
+                        device_id="camera-001",
+                        device_type=None,
+                        enabled=True,
+                        required=True,
+                        declared_capabilities=[],
+                    )
+                ],
+                storage_location="placeholder://session",
+                protocol_plan={"name": "no-op"},
+            ),
+        )
+
+        with self.assertRaises(SessionLifecycleError):
+            session.initialize()
+
+        self.assertIn(
+            "selected_devices[0].device_type_exists",
+            [check.name for check in session.readiness_checks if check.status == "FAIL"],
+        )
+        self.assertIs(session.current_state, SessionState.CREATED)
+
+    def test_empty_declared_capabilities_is_allowed(self) -> None:
+        declaration = DeviceDeclaration(
+            device_id="camera-001",
+            device_type="camera",
+            enabled=True,
+            required=True,
+            declared_capabilities=[],
+        )
+        session = Session(
+            session_id="session-001",
+            configuration=SessionConfig(
+                selected_devices=[declaration],
+                storage_location="placeholder://session",
+                protocol_plan={"name": "no-op"},
+            ),
+        )
+
+        session.initialize()
+
+        self.assertEqual(declaration.declared_capabilities, ())
+        self.assertIs(session.current_state, SessionState.INITIALIZED)
+        self.assertIn(
+            "selected_devices[0].declared_capabilities_declared",
+            [check.name for check in session.readiness_checks if check.status == "PASS"],
+        )
+
+    def test_missing_declared_capabilities_fails_initialization(self) -> None:
+        session = Session(
+            session_id="session-001",
+            configuration=SessionConfig(
+                selected_devices=[
+                    DeviceDeclaration(
+                        device_id="camera-001",
+                        device_type="camera",
+                        enabled=True,
+                        required=True,
+                        declared_capabilities=None,
+                    )
+                ],
+                storage_location="placeholder://session",
+                protocol_plan={"name": "no-op"},
+            ),
+        )
+
+        with self.assertRaises(SessionLifecycleError):
+            session.initialize()
+
+        self.assertIn(
+            "selected_devices[0].declared_capabilities_declared",
+            [check.name for check in session.readiness_checks if check.status == "FAIL"],
+        )
+        self.assertIs(session.current_state, SessionState.CREATED)
+
+    def test_invalid_enabled_or_required_type_fails_initialization(self) -> None:
+        cases = [
+            (
+                DeviceDeclaration(
+                    device_id="camera-001",
+                    device_type="camera",
+                    enabled="yes",
+                    required=True,
+                    declared_capabilities=[],
+                ),
+                "selected_devices[0].enabled_is_boolean",
+            ),
+            (
+                DeviceDeclaration(
+                    device_id="camera-001",
+                    device_type="camera",
+                    enabled=True,
+                    required="yes",
+                    declared_capabilities=[],
+                ),
+                "selected_devices[0].required_is_boolean",
+            ),
+        ]
+
+        for declaration, expected_failure in cases:
+            with self.subTest(expected_failure=expected_failure):
+                session = Session(
+                    session_id="session-001",
+                    configuration=SessionConfig(
+                        selected_devices=[declaration],
+                        storage_location="placeholder://session",
+                        protocol_plan={"name": "no-op"},
+                    ),
+                )
+
+                with self.assertRaises(SessionLifecycleError):
+                    session.initialize()
+
+                self.assertIn(
+                    expected_failure,
+                    [
+                        check.name
+                        for check in session.readiness_checks
+                        if check.status == "FAIL"
+                    ],
+                )
+                self.assertIs(session.current_state, SessionState.CREATED)
 
     def test_new_session_always_starts_created(self) -> None:
         with self.assertRaises(TypeError):

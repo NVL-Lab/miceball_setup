@@ -2,6 +2,7 @@
 
 ## src/lab_sync_acquisition/__init__.py
 
+- DeviceDeclaration: Public import for persistent/config declarations of intended session devices.
 - LifecycleTransition: Public import for recorded lifecycle transitions.
 - ReadinessCheck: Public import for recorded readiness checks.
 - Session: Public import for the runtime session lifecycle model.
@@ -9,10 +10,14 @@
 - SessionLifecycleError: Public import for lifecycle operation failures.
 - SessionState: Public import for accepted Phase 1 session lifecycle states.
 
+## src/lab_sync_acquisition/device.py
+
+- DeviceDeclaration: Holds explicit persistent/config fields for an intended device before any live adapter exists, with capabilities stored immutably.
+
 ## src/lab_sync_acquisition/session.py
 
 - SessionState: Enumerates the accepted Phase 1 session lifecycle states.
-- SessionConfig: Holds explicit session declarations needed to initialize a session.
+- SessionConfig: Holds explicit session declarations, including selected device declarations, needed to initialize a session.
 - ReadinessCheck: Records the result of a readiness condition checked during lifecycle transitions.
 - LifecycleTransition: Records an allowed lifecycle state transition in sequence order.
 - SessionLifecycleError: Signals invalid lifecycle operations or failed readiness requirements.

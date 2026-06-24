@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, ClassVar
 
+from lab_sync_acquisition.device import DeviceDeclaration
+
 
 class SessionState(str, Enum):
     """Accepted Phase 1 session lifecycle states."""
@@ -23,7 +25,7 @@ class SessionState(str, Enum):
 class SessionConfig:
     """Explicit declarations required to initialize a session."""
 
-    selected_devices: list[str] | None
+    selected_devices: list[DeviceDeclaration] | None
     storage_location: str | None
     protocol_plan: Any | None
 
@@ -130,6 +132,7 @@ class Session:
                 "protocol_plan_declared",
             ),
         ]
+        checks.extend(self._selected_device_declaration_checks())
         failures = self._record_checks(checks)
         if failures:
             failed_names = ", ".join(failures)
@@ -235,6 +238,46 @@ class Session:
             if not passed:
                 failures.append(name)
         return failures
+
+    def _selected_device_declaration_checks(
+        self,
+    ) -> list[tuple[str, bool, str]]:
+        if self.configuration is None or self.configuration.selected_devices is None:
+            return []
+
+        checks = []
+        for index, device in enumerate(self.configuration.selected_devices):
+            prefix = f"selected_devices[{index}]"
+            checks.extend(
+                [
+                    (
+                        f"{prefix}.device_id_exists",
+                        device.device_id is not None and device.device_id != "",
+                        "device_id_declared",
+                    ),
+                    (
+                        f"{prefix}.device_type_exists",
+                        device.device_type is not None and device.device_type != "",
+                        "device_type_declared",
+                    ),
+                    (
+                        f"{prefix}.enabled_is_boolean",
+                        isinstance(device.enabled, bool),
+                        "enabled_declared_as_boolean",
+                    ),
+                    (
+                        f"{prefix}.required_is_boolean",
+                        isinstance(device.required, bool),
+                        "required_declared_as_boolean",
+                    ),
+                    (
+                        f"{prefix}.declared_capabilities_declared",
+                        device.declared_capabilities is not None,
+                        "declared_capabilities_declared",
+                    ),
+                ]
+            )
+        return checks
 
     def _next_sequence(self) -> int:
         self._sequence += 1

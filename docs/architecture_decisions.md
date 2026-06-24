@@ -1119,6 +1119,34 @@ Codex and other implementation agents should implement only what the first verti
 
 ---
 
+## Decision 047: Configuration declares intended devices before live adapters exist
+
+**Status:** Accepted
+
+Configuration declares intended devices before any live hardware connection exists.
+
+A selected device is represented first as a `DeviceDeclaration` in `SessionConfig`.
+
+`DeviceDeclaration` is a persistent/config concept with:
+
+* device ID
+* device type
+* enabled flag
+* required flag
+* declared capabilities
+
+Device Adapters create and control live device connections later.
+
+The Device Manager coordinates live device lifecycle later.
+
+**Rationale:**
+Session configuration must explicitly state which devices are intended for the session without implying that hardware has already been discovered, connected, configured, or started.
+
+**Consequence:**
+Session initialization may validate declared device configuration fields, but it must not validate live hardware, create adapters, or introduce a Device Manager.
+
+---
+
 # Accepted Architectural Principles
 
 The following principles summarize the accepted decisions so far.
@@ -1169,6 +1197,7 @@ The following principles summarize the accepted decisions so far.
 44. Raw acquisition records and NWB exports have separate lifecycles.
 45. Storage capacity must be validated before acquisition begins.
 46. Establish guardrails before implementation; establish structure after experience
+47. Configuration declares intended devices before live adapters exist.
 
 ---
 
