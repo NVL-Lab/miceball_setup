@@ -15,6 +15,7 @@ from lab_sync_acquisition.device_manager import (
     DeviceRecordCollection,
     DeviceReadinessSummary,
 )
+from lab_sync_acquisition.ingestor import InMemoryIngestor
 from lab_sync_acquisition.session import (
     LifecycleTransition,
     ReadinessCheck,
@@ -32,6 +33,7 @@ __all__ = [
     "DeviceReadiness",
     "DeviceReadinessNotImplementedError",
     "DeviceStatus",
+    "InMemoryIngestor",
     "DeviceLifecycleResult",
     "DeviceManager",
     "DeviceRecordCollection",

@@ -13,6 +13,7 @@
 - DeviceReadinessNotImplementedError: Public import for base adapters without concrete readiness behavior.
 - DeviceReadinessSummary: Public import for aggregated Device Manager readiness results.
 - DeviceStatus: Public import for live adapter status snapshots.
+- InMemoryIngestor: Public import for the minimal in-memory record receiver.
 - LifecycleTransition: Public import for recorded lifecycle transitions.
 - ReadinessCheck: Public import for recorded readiness checks.
 - Session: Public import for the runtime session lifecycle model.
@@ -39,6 +40,10 @@
 - DeviceRecordCollection: Records the source adapter identity and unmodified records collected from that adapter.
 - DeviceReadinessSummary: Aggregates shared readiness records across already-created adapters and can be passed to Session initialization.
 - DeviceManager: Holds at least one already-created Device Adapter and coordinates lifecycle, readiness, status, and minimal record collection calls without creating adapters.
+
+## src/lab_sync_acquisition/ingestor.py
+
+- InMemoryIngestor: Receives DeviceRecordCollection objects in memory and exposes them without storage, timestamp assignment, or transformation.
 
 ## src/lab_sync_acquisition/session.py
 
