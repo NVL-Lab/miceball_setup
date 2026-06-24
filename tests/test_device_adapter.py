@@ -13,17 +13,11 @@ from lab_sync_acquisition import (
     DeviceAdapterState,
     DeviceReadinessNotImplementedError,
 )
+from tests.fakes import ReadyFakeAdapter
 
 
-class FakeDeviceAdapter(DeviceAdapter):
-    """Test-only adapter for exercising the minimum lifecycle interface."""
-
-    def check_ready(self):
-        return self._mark_ready()
-
-
-def fake_adapter() -> FakeDeviceAdapter:
-    return FakeDeviceAdapter(
+def fake_adapter() -> ReadyFakeAdapter:
+    return ReadyFakeAdapter(
         device_id="camera-001",
         device_type="camera",
         declared_capabilities=["reports_health"],

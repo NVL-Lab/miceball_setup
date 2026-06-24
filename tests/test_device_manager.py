@@ -12,13 +12,7 @@ from lab_sync_acquisition import (
     DeviceAdapterState,
     DeviceManager,
 )
-
-
-class FakeDeviceAdapter(DeviceAdapter):
-    """Test-only adapter for Device Manager coordination tests."""
-
-    def check_ready(self):
-        return self._mark_ready()
+from tests.fakes import ReadyFakeAdapter
 
 
 class FailingReadinessAdapter(DeviceAdapter):
@@ -28,15 +22,15 @@ class FailingReadinessAdapter(DeviceAdapter):
         raise RuntimeError("readiness unavailable")
 
 
-class FailingStartAdapter(FakeDeviceAdapter):
+class FailingStartAdapter(ReadyFakeAdapter):
     """Test-only adapter that fails start explicitly."""
 
     def start(self) -> None:
         raise RuntimeError("start unavailable")
 
 
-def fake_adapter(device_id: str, *, required: bool = True) -> FakeDeviceAdapter:
-    return FakeDeviceAdapter(
+def fake_adapter(device_id: str, *, required: bool = True) -> ReadyFakeAdapter:
+    return ReadyFakeAdapter(
         device_id=device_id,
         device_type="camera",
         declared_capabilities=["reports_health"],

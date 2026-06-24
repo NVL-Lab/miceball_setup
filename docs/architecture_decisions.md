@@ -1346,6 +1346,141 @@ Tests must demonstrate actual DeviceManager-to-Session compatibility.
 
 ---
 
+## Decision 053: Live DeviceAdapters are explicitly constructed outside DeviceManager v1
+
+**Status:** Accepted
+
+`DeviceDeclaration` declares intended device participation.
+
+`DeviceAdapter` is the live runtime object that controls one device.
+
+`DeviceManager v1` receives already-created live `DeviceAdapter` instances and coordinates their lifecycle.
+
+A `DeviceDeclaration` does not automatically create a `DeviceAdapter`.
+
+`DeviceManager` does not create adapters.
+
+`DeviceManager` does not resolve `device_type` into an adapter class.
+
+`DeviceManager` does not discover devices.
+
+`DeviceManager` does not use factories, registries, plugin systems, service locators, or hardware discovery.
+
+For now, the bridge from declaration to live adapter is explicit manual construction by caller/test/user code:
+
+```python
+declarations = [...]
+adapters = [...]
+manager = DeviceManager(adapters)
+```
+
+The caller is responsible for constructing adapters with the configuration needed by that adapter.
+
+Only information needed for live adapter identity and lifecycle/readiness should cross into the adapter.
+
+Declaration-only information remains in `DeviceDeclaration` and `SessionConfig`.
+
+**Rationale:**
+
+This preserves the accepted ownership boundaries:
+
+* `Session` owns `DeviceDeclarations`, session lifecycle, and readiness evidence.
+* `DeviceAdapter` owns one live device.
+* `DeviceManager` owns live adapters only after they have already been constructed.
+
+Creating adapters inside `DeviceManager` would force premature decisions about factories, registries, plugin systems, hardware discovery, and declaration-to-adapter binding.
+
+**Consequence:**
+
+The first implementation keeps adapter construction explicit and boring.
+
+Future adapter-creation architecture may be considered only after multiple real adapters exist and the repeated construction pattern proves a need.
+
+---
+
+## Decision 055: DeviceAdapter receives copied declaration fields, not DeviceDeclaration
+
+**Status:** Accepted
+
+A `DeviceAdapter` receives only the declaration fields required for live device participation.
+
+A `DeviceAdapter` does not receive, retain, or depend on a full `DeviceDeclaration` object.
+
+Allowed to cross from `DeviceDeclaration` into `DeviceAdapter` v1:
+
+```text
+device_id
+device_type
+declared_capabilities
+required
+```
+
+Declaration-only fields remain outside the adapter:
+
+```text
+enabled
+```
+
+`enabled` is a configuration/selection concern.
+
+A disabled device should normally not become a live adapter.
+
+The intended boundary is:
+
+```text
+DeviceDeclaration
+    persistent/session intent
+
+caller code
+    filters enabled declarations
+    manually constructs adapters from allowed fields
+
+DeviceAdapter
+    live runtime participant
+
+DeviceManager
+    manages live adapters
+```
+
+**Rationale:**
+
+`DeviceDeclaration` is a persistent configuration concept.
+
+`DeviceAdapter` is a live runtime concept.
+
+Passing a full `DeviceDeclaration` into a `DeviceAdapter` would blur the boundary between session configuration and live device control.
+
+Using copied fields preserves separation of responsibilities and keeps adapter construction explicit.
+
+**Consequence:**
+
+A `DeviceAdapter` is not a wrapper around `DeviceDeclaration`.
+
+Adapter construction remains explicit caller code.
+
+Future adapter-construction mechanisms, if any, should continue to preserve this boundary.
+
+---
+
+## Decision 056: DeviceManager does not validate declaration-to-adapter matching in v1
+
+**Status:** Accepted
+
+`DeviceManager` validates and coordinates live `DeviceAdapter` lifecycle, readiness, and status.
+
+`DeviceManager` does not validate whether live adapters match `DeviceDeclaration` records.
+
+For v1:
+
+```text
+DeviceManager receives adapters.
+DeviceManager trusts that caller code supplied the intended adapters.
+DeviceManager does not know DeviceDeclarations.
+
+
+
+--- ********************************************************************************
+
 # Accepted Architectural Principles
 
 The following principles summarize the accepted decisions so far.
@@ -1402,6 +1537,9 @@ The following principles summarize the accepted decisions so far.
 50. DeviceManager v1 requires at least one already-created DeviceAdapter, records adapter failures as results, and continues processing remaining adapters.
 51. Session initialization may use supplied device readiness summaries for gating while DeviceManager remains the owner of live adapters.
 52. DeviceManager and Session use one shared readiness record contract.
+53. Live DeviceAdapters are explicitly constructed outside DeviceManager v1.
+55. DeviceAdapter receives copied declaration fields, not DeviceDeclaration.
+56. A component should only validate information it owns.
 
 ---
 

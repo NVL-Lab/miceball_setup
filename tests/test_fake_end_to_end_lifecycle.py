@@ -8,7 +8,6 @@ SRC = ROOT / "src"
 sys.path.insert(0, str(SRC))
 
 from lab_sync_acquisition import (
-    DeviceAdapter,
     DeviceAdapterState,
     DeviceDeclaration,
     DeviceManager,
@@ -16,17 +15,13 @@ from lab_sync_acquisition import (
     SessionConfig,
     SessionState,
 )
-
-
-class ReadyFakeAdapter(DeviceAdapter):
-    """Test-only adapter that reports ready after initialization."""
-
-    def check_ready(self):
-        return self._mark_ready()
+from tests.fakes import ReadyFakeAdapter
 
 
 class FakeEndToEndLifecycleTests(unittest.TestCase):
-    def test_session_and_device_manager_can_complete_fake_lifecycle(self) -> None:
+    def test_manual_declaration_to_adapter_bridge_can_complete_fake_lifecycle(
+        self,
+    ) -> None:
         declarations = [
             DeviceDeclaration(
                 device_id="declared-camera-001",
@@ -90,6 +85,8 @@ class FakeEndToEndLifecycleTests(unittest.TestCase):
                 for adapter_status in status
             )
         )
+        self.assertTrue(all(not adapter_status.failed for adapter_status in status))
+        self.assertTrue(all(adapter_status.shutdown for adapter_status in status))
         self.assertEqual(
             [declaration.device_id for declaration in declarations],
             ["declared-camera-001", "declared-encoder-001"],

@@ -17,6 +17,7 @@ from lab_sync_acquisition import (
     SessionLifecycleError,
     SessionState,
 )
+from tests.fakes import ReadyFakeAdapter
 
 
 def config() -> SessionConfig:
@@ -548,11 +549,7 @@ class SessionLifecycleTests(unittest.TestCase):
         )
 
     def test_device_manager_readiness_output_can_initialize_session(self) -> None:
-        class ReadyAdapter(DeviceAdapter):
-            def check_ready(self):
-                return self._mark_ready()
-
-        adapter = ReadyAdapter(
+        adapter = ReadyFakeAdapter(
             device_id="camera-001",
             device_type="camera",
             declared_capabilities=["reports_health"],
