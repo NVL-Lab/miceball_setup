@@ -122,7 +122,7 @@ The project is currently in the architecture design phase.
 
 
 
-Implementation has intentionally not begun.
+Small parts of the implementation have begun.
 
 
 
