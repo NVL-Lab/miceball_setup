@@ -106,7 +106,12 @@ It may run:
 
 The Ingestor owns:
 
-* receiving data packets and events
+* receiving records from Acquisition Nodes. Records may contain:
+	-data
+	-events
+	-timing records
+	-file references
+	-deferred-transfer records
 * assigning ingest order
 * preserving timing records
 * validating completeness
@@ -121,8 +126,12 @@ The Ingestor does not own:
 * protocol execution
 * GUI configuration
 
+The Ingestor is responsible for creating a complete session record.
+The Ingestor does not require all raw bytes to pass through it during acquisition.
+Large files may remain on acquisition machines during acquisition and be transferred after session completion.
+
 **Rationale:**
-The legacy system blurred ingestion, timing, and storage. This framework separates those responsibilities.
+To separate ingestion, timing, and storage.
 
 **Consequence:**
 Ingestor arrival time must never be treated as the scientific timestamp of a sample or event.
@@ -292,6 +301,15 @@ Timing records include, when applicable:
 * session stop time
 * synchronization anchor records
 * local-to-session time mapping records
+
+Whenever possible, timestamps should be stored directly with the stream or event they describe.
+The timing subsystem is reserved for timing-specific records that are not naturally part of a stream or event.
+Examples include:
+
+* session clock declarations
+* synchronization records
+* drift records
+* local-to-session mapping records
 
 **Rationale:**
 If timing records are lost, the session may not be scientifically reconstructable.
@@ -729,7 +747,8 @@ The Reconstruction Manager owns:
 * checking timestamp continuity
 * checking dropped or missing samples
 * producing validation reports
-* producing export-ready tables
+* producing validation reports
+* producing export-ready records
 
 Reconstruction does not own:
 
@@ -738,6 +757,9 @@ Reconstruction does not own:
 * protocol execution
 * neuroscience analysis
 * silent rewriting of raw records
+
+For Phase 1, reconstruction is primarily a validation and assembly process rather than a large transformation pipeline.
+Its primary purpose is to verify that a stored session is complete, internally consistent, and exportable.
 
 **Rationale:**
 Reconstruction must be auditable and repeatable from stored records.
@@ -1597,74 +1619,6 @@ The following principles summarize the accepted decisions so far.
 55. DeviceAdapter receives copied declaration fields, not DeviceDeclaration.
 56. A component should only validate information it owns.
 57. Ingestor owns the handoff of accepted records to StorageManager while StorageManager remains a separate storage boundary.
-
----
-
-# Changes to Existing Decisions!!!!!
-
-## Decision 004: The Ingestor is a separate architectural entity
-
-Replace:
-
-* receiving data packets and events
-
-with:
-
-* receiving records from Acquisition Nodes
-
-Add:
-
-Records may contain:
-
-* data
-* events
-* timing records
-* file references
-* deferred-transfer records
-
-Add after the ownership section:
-
-The Ingestor is responsible for creating a complete session record.
-
-The Ingestor does not require all raw bytes to pass through it during acquisition.
-
-Large files may remain on acquisition machines during acquisition and be transferred after session completion.
-
----
-
-## Decision 011: Timing records are part of the raw scientific record
-
-Add after the timing-record list:
-
-Whenever possible, timestamps should be stored directly with the stream or event they describe.
-
-The timing subsystem is reserved for timing-specific records that are not naturally part of a stream or event.
-
-Examples include:
-
-* session clock declarations
-* synchronization records
-* drift records
-* local-to-session mapping records
-
----
-
-## Decision 029: Reconstruction writes derived outputs and does not silently modify raw records
-
-Replace:
-
-* producing export-ready tables
-
-with:
-
-* producing validation reports
-* producing export-ready records
-
-Add:
-
-For Phase 1, reconstruction is primarily a validation and assembly process rather than a large transformation pipeline.
-
-Its primary purpose is to verify that a stored session is complete, internally consistent, and exportable.
 
 ---
 
