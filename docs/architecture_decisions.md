@@ -1555,6 +1555,32 @@ An in-memory Ingestor may be constructed with an optional in-memory Storage Mana
 
 When the Ingestor receives accepted records, it forwards those same records to storage without transforming records, assigning timestamps, or defining persistent schemas.
 
+---
+
+## Decision 058: The glossary is the authoritative source of architectural terminology
+
+**Status:** Accepted
+
+The repository glossary (`docs/glossary.md`) is the authoritative source for the definitions of architectural concepts and terminology.
+
+All architecture discussions, implementation discussions, documentation, tests, and code should use the accepted glossary terms consistently.
+
+New architectural concepts should not be introduced implicitly during implementation. If a new concept is required, it should first be discussed and, if accepted, added to the glossary before becoming part of the architecture.
+
+**Principle**
+
+One concept. One definition. One name.
+
+**Rationale**
+
+A shared vocabulary prevents ambiguity between architecture discussions, implementation, documentation, and AI coding agents. Consistent terminology reduces duplicate concepts, conflicting names, and architectural drift over time.
+
+**Consequences**
+
+* `docs/glossary.md` is the authoritative reference for architectural terminology.
+* Existing terms should be reused rather than creating synonyms.
+* New architectural terms should be added to the glossary before they are adopted by the implementation.
+* Architecture, documentation, tests, and code should use the accepted glossary terminology consistently.
 
 
 --- ********************************************************************************
@@ -1619,6 +1645,7 @@ The following principles summarize the accepted decisions so far.
 55. DeviceAdapter receives copied declaration fields, not DeviceDeclaration.
 56. A component should only validate information it owns.
 57. Ingestor owns the handoff of accepted records to StorageManager while StorageManager remains a separate storage boundary.
+58. Architectural terminology is defined once and used consistently throughout the repository.
 
 ---
 

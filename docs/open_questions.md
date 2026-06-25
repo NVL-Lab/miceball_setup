@@ -121,44 +121,6 @@ The architecture is largely defined, but implementation should begin with a focu
 
 ---
 
-## Q005: What is the Glossary of Accepted Terms?
-
-### Why this matters
-
-Many architectural terms now have specific meanings.
-
-### Questions
-
-* What terms require formal definitions?
-* What synonyms should be avoided?
-* What terminology should be standardized across documentation and code?
-
-Examples include:
-
-* Session
-* Experiment
-* Stream
-* Event
-* Timing Record
-* Session Time
-* Device Local Time
-* Ingest Time
-* Controller
-* Acquisition Node
-* Ingestor
-* Device Adapter
-* Device Manager
-* Synchronization Manager
-* Storage Manager
-* Reconstruction Manager
-
-### Blocks
-
-* Documentation consistency
-* API naming consistency
-* Codex governance
-
----
 
 # Important Questions
 
