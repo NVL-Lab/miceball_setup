@@ -19,6 +19,7 @@ from lab_sync_acquisition import (
     SessionLifecycleError,
     SessionState,
     ServiceReadiness,
+    SynchronizationManager,
 )
 from tests.fakes import ReadyFakeAdapter
 
@@ -668,6 +669,73 @@ class SessionLifecycleTests(unittest.TestCase):
         session.initialize(service_readiness=service_readiness)
 
         self.assertIs(session.current_state, SessionState.INITIALIZED)
+        self.assertEqual(session.service_readiness_checks, tuple(service_readiness))
+
+    def test_session_initializes_with_device_and_service_readiness_including_synchronization(
+        self,
+    ) -> None:
+        adapter = ReadyFakeAdapter(
+            device_id="camera-001",
+            device_type="camera",
+            declared_capabilities=["reports_health"],
+            required=True,
+        )
+        manager = DeviceManager(adapters=[adapter])
+        ingestor = InMemoryIngestor()
+        storage = InMemoryStorageManager()
+        synchronization = SynchronizationManager()
+        manager.initialize_all(config={})
+        device_readiness_summary = manager.check_readiness()
+        service_readiness = [
+            ingestor.check_ready(),
+            storage.check_ready(),
+            synchronization.check_ready(),
+        ]
+        session = Session(session_id="session-001", configuration=config())
+
+        session.initialize(
+            device_readiness_summary=device_readiness_summary,
+            service_readiness=service_readiness,
+        )
+        session.start()
+
+        self.assertIs(session.current_state, SessionState.RUNNING)
+        self.assertEqual(
+            session.device_readiness_summary,
+            device_readiness_summary.results,
+        )
+        self.assertEqual(session.service_readiness_checks, tuple(service_readiness))
+        synchronization_readiness = session.service_readiness_checks[2]
+        self.assertEqual(synchronization_readiness.component_id, "synchronization")
+        self.assertEqual(
+            synchronization_readiness.component_type,
+            "synchronization_manager",
+        )
+        self.assertTrue(synchronization_readiness.required)
+        self.assertTrue(synchronization_readiness.ready)
+        self.assertFalse(synchronization.is_running)
+
+        session_time_s = synchronization.start()
+
+        self.assertEqual(session_time_s, 0.0)
+        self.assertTrue(synchronization.is_running)
+
+    def test_required_not_ready_synchronization_blocks_initialization(self) -> None:
+        session = Session(session_id="session-001", configuration=config())
+        service_readiness = [
+            ServiceReadiness(
+                component_id="synchronization",
+                component_type="synchronization_manager",
+                required=True,
+                ready=False,
+                reason="session clock unavailable",
+            )
+        ]
+
+        with self.assertRaises(SessionLifecycleError):
+            session.initialize(service_readiness=service_readiness)
+
+        self.assertIs(session.current_state, SessionState.CREATED)
         self.assertEqual(session.service_readiness_checks, tuple(service_readiness))
 
     def test_abort_path_records_final_state(self) -> None:

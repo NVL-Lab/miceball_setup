@@ -332,3 +332,246 @@ A failure that prevents safe continuation of the session.
 Fatal Failures result in Session termination after cleanup and preservation of available records.
 
 Fatal Failures are recorded as events.
+
+---
+
+# Record Collection
+
+An acquisition-side collection of records produced by one live Device Adapter and collected through the DeviceManager.
+
+A Device Record Collection identifies the source device, the kind of records collected, and the record rows or payloads.
+
+It is not a transport message and is not sent directly to the Ingestor.
+
+Device Record Collections are converted into Acquisition Record Envelopes by the AcquisitionNode.
+
+---
+
+# Acquisition Record Envelope
+
+The unit of acquisition data exchanged between the acquisition side and the Ingestor.
+
+An Acquisition Record Envelope contains session identity, source identity, record kind, and records in a plain-data form that can cross a process or computer boundary.
+
+It is created by the AcquisitionNode, not by Device Adapters.
+
+---
+
+# Record Kind
+
+A minimal label identifying the broad kind of records being carried.
+
+Examples may include stream, event, timing, file_reference, or other accepted record categories.
+
+The detailed stream/event schema is defined separately.
+
+---
+
+# Service Readiness
+
+A standardized readiness report produced by framework services such as the Ingestor, StorageManager, and SynchronizationManager.
+
+Service Readiness is consumed by Session during initialization to determine whether required services are ready for acquisition.
+
+It does not describe device readiness.
+
+---
+
+# Device Readiness
+
+A readiness summary describing whether one or more Device Adapters are prepared for acquisition.
+
+Device Readiness is produced by the DeviceManager by aggregating the readiness of its managed Device Adapters.
+
+It is distinct from Service Readiness.
+
+---
+
+# Acquisition Evidence
+
+Information recorded as part of the scientific acquisition record.
+
+Examples include acquisition data, session_start events, session_stop events, timing information, and other acquisition-side records.
+
+Acquisition Evidence is created by the AcquisitionNode and preserved by the Ingestor and StorageManager.
+
+It is distinct from Session lifecycle state.
+
+---
+
+# Session Lifecycle
+
+The runtime state of a Session.
+
+Examples include initialized, running, stopped, completed, failed, and aborted.
+
+Session lifecycle is owned by the Session and records framework execution state.
+
+It is distinct from Acquisition Evidence.
+
+---
+
+# Device Lifecycle
+
+The runtime lifecycle of a live Device Adapter.
+
+Typical lifecycle states include:
+
+* declared
+* initialized
+* ready
+* running
+* stopped
+* shutdown
+* failed
+
+Device Lifecycle is owned by the DeviceAdapter and coordinated by the DeviceManager.
+
+It is distinct from Session Lifecycle.
+
+---
+
+# Acquisition-side Caller
+
+The runtime code responsible for coordinating acquisition-side operations outside the responsibilities of individual framework components.
+
+Examples include collecting records from the DeviceManager, obtaining Session Time from the Synchronization Manager, creating Acquisition Record Envelopes, and forwarding them to the Ingestor.
+
+The Acquisition-side Caller is a temporary architectural role. It is not itself a framework component and may later become part of the AcquisitionNode runtime.
+
+---
+
+# Session Start
+
+The acquisition event that begins Session Time for a Session.
+
+At Session Start:
+
+```text
+session_time_s = 0.0
+
+
+---
+
+# Session End
+
+The acquisition event that ends Session Time for a Session.
+
+Session End marks the completion of acquisition and defines the final Session Time for the recorded acquisition evidence.
+
+Session End is distinct from the end of the behavioral protocol.
+
+---
+
+# Device Status
+
+A summary describing the current runtime state of a live Device Adapter.
+
+Device Status includes lifecycle state and runtime status information such as initialization, readiness, running, stopped, failed, and shutdown.
+
+Device Status is produced by the DeviceManager.
+
+It describes runtime execution state and is distinct from Device Readiness.
+
+---
+
+# Persistent Storage
+
+The durable preservation of acquisition records beyond runtime memory.
+
+Persistent Storage begins after records leave the Ingestor and are accepted by the Storage Manager.
+
+The storage format is defined separately from the Storage Manager architecture.
+
+---
+
+# Readiness Gating
+
+The process of determining whether Session initialization may proceed based on readiness evidence.
+
+Session performs Readiness Gating using Device Readiness and, in the future, Service Readiness.
+
+Required components that are not ready prevent Session initialization.
+
+Optional components are recorded but do not block initialization.
+
+---
+
+# Shared Readiness Contract
+
+The common readiness record shared between DeviceManager and Session.
+
+The shared readiness contract is produced by DeviceManager and consumed unchanged by Session.
+
+Session records the readiness evidence but does not transform or reinterpret the readiness records beyond required-device gating.
+
+---
+
+# End-to-End Lifecycle Test
+
+A vertical-slice test that exercises the intended public workflow of the framework using fake components.
+
+An End-to-End Lifecycle Test validates component interaction through public APIs rather than internal implementation details.
+
+It is intended to document expected framework usage as well as verify behavior.
+
+---
+
+---
+
+# Device Declaration
+
+A persistent configuration object describing an intended participant in a Session.
+
+A Device Declaration identifies a device independently of any live hardware connection.
+
+Typical fields include:
+
+* device_id
+* device_type
+* enabled
+* required
+* declared_capabilities
+
+Device Declarations are stored in Session Configuration.
+
+They are consumed by the DeviceManager to create live DeviceAdapters.
+
+A Device Declaration is not a live device and does not communicate with hardware.
+
+---
+
+# Session Configuration
+
+The persistent configuration accepted by a Session before initialization.
+
+Session Configuration declares the intended runtime configuration of a Session, including selected Device Declarations and other session-level configuration.
+
+It represents intended execution rather than runtime state.
+
+Session Configuration is validated during Session initialization.
+
+It does not contain runtime objects such as DeviceAdapters, DeviceManagers, or other live framework components.
+
+---
+
+# Lifecycle Evidence
+
+Information recorded during runtime that documents execution of framework lifecycle operations.
+
+Examples include:
+
+* lifecycle transitions
+* readiness checks
+* cleanup completion
+* final status
+
+Lifecycle Evidence describes framework execution state.
+
+It is distinct from Acquisition Evidence, which describes scientific acquisition data and timing.
+
+
+
+
+
+

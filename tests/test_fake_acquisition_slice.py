@@ -9,6 +9,7 @@ sys.path.insert(0, str(SRC))
 
 from lab_sync_acquisition import (
     AcquisitionRecordEnvelope,
+    AcquisitionNode,
     DeviceAdapterState,
     DeviceDeclaration,
     DeviceManager,
@@ -216,6 +217,87 @@ class FakeAcquisitionSliceTests(unittest.TestCase):
         self.assertEqual(ingestor.accepted_envelopes, ())
         self.assertEqual(storage.stored_envelopes, ())
 
+    def test_session_start_event_crosses_acquisition_envelope_boundary(self) -> None:
+        declaration = DeviceDeclaration(
+            device_id="declared-camera-001",
+            device_type="camera",
+            enabled=True,
+            required=True,
+            declared_capabilities=["reports_health"],
+        )
+        configuration = SessionConfig(
+            selected_devices=[declaration],
+            storage_location="placeholder://session",
+            protocol_plan={"name": "session-start-event"},
+        )
+        session = Session(session_id="session-001", configuration=configuration)
+        adapter = ReadyFakeAdapter(
+            device_id="adapter-camera-001",
+            device_type="camera",
+            declared_capabilities=["reports_health"],
+            required=True,
+        )
+        manager = DeviceManager(adapters=[adapter])
+        synchronization = SynchronizationManager()
+        storage = InMemoryStorageManager()
+        ingestor = InMemoryIngestor(storage_manager=storage)
+
+        manager.initialize_all(config={"mode": "fake"})
+        manager_readiness = manager.check_readiness()
+        session.initialize(
+            device_readiness_summary=manager_readiness,
+            service_readiness=[
+                synchronization.check_ready(),
+                ingestor.check_ready(),
+                storage.check_ready(),
+            ],
+        )
+        session.start()
+        session_time_s = synchronization.start()
+        session_start_row = {
+            "event_category": "session_lifecycle",
+            "event_type": "session_start",
+            "session_time_s": session_time_s,
+        }
+        envelope = AcquisitionRecordEnvelope(
+            session_id=session.session_id,
+            source_device_id="acquisition_node",
+            record_kind="event",
+            records=[session_start_row],
+        )
+        envelope_data = envelope.to_dict()
+        reconstructed_envelope = AcquisitionRecordEnvelope.from_dict(envelope_data)
+
+        audit = ingestor.receive_envelope(reconstructed_envelope)
+
+        synchronization.stop()
+        session.stop(reason="session_start event recorded")
+        session.complete(reason="session_start event recorded")
+        stored_envelope = storage.stored_envelopes[0]
+        stored_row = stored_envelope.records[0]
+
+        self.assertIs(session.current_state, SessionState.COMPLETED)
+        self.assertEqual(session_time_s, 0.0)
+        self.assertEqual(envelope_data["session_id"], "session-001")
+        self.assertEqual(envelope_data["source_device_id"], "acquisition_node")
+        self.assertEqual(envelope_data["record_kind"], "event")
+        self.assertTrue(audit.accepted)
+        self.assertEqual(audit.reason, "accepted")
+        self.assertEqual(len(ingestor.ingest_audit), 1)
+        self.assertEqual(len(storage.stored_envelopes), 1)
+        self.assertEqual(stored_envelope.session_id, "session-001")
+        self.assertEqual(stored_envelope.source_device_id, "acquisition_node")
+        self.assertEqual(stored_envelope.record_kind, "event")
+        self.assertEqual(stored_row, session_start_row)
+        self.assertEqual(
+            stored_row,
+            {
+                "event_category": "session_lifecycle",
+                "event_type": "session_start",
+                "session_time_s": 0.0,
+            },
+        )
+
     def test_bounded_fake_acquisition_loop_stores_multiple_envelopes(self) -> None:
         declaration = DeviceDeclaration(
             device_id="declared-camera-001",
@@ -259,91 +341,135 @@ class FakeAcquisitionSliceTests(unittest.TestCase):
         synchronization = SynchronizationManager()
         storage = InMemoryStorageManager()
         ingestor = InMemoryIngestor(storage_manager=storage)
+        acquisition_node = AcquisitionNode(
+            session_id=session.session_id,
+            device_manager=manager,
+            synchronization_manager=synchronization,
+            ingestor=ingestor,
+        )
 
         manager.initialize_all(config={"mode": "bounded-fake"})
-        manager_readiness = manager.check_readiness()
-        synchronization_ready = synchronization.check_ready()
-        service_readiness = [
-            synchronization_ready,
-            ingestor.check_ready(),
+        acquisition_readiness = acquisition_node.check_ready()
+        manager_readiness = acquisition_readiness["device_readiness"]
+        service_readiness = (
+            *acquisition_readiness["service_readiness"],
             storage.check_ready(),
-        ]
+        )
         session.initialize(
             device_readiness_summary=manager_readiness,
             service_readiness=service_readiness,
         )
         session.start()
-        initial_session_time_s = synchronization.start()
+        start_result = acquisition_node.start_acquisition()
+        initial_session_time_s = start_result["session_time_s"]
         self.assertEqual(initial_session_time_s, 0.0)
         self.assertGreaterEqual(synchronization.current_session_time_s, 0.0)
         self.assertLess(synchronization.current_session_time_s, 0.1)
-        manager.start_all()
+        session_start_audit = start_result["session_start_audit"]
+        self.assertTrue(session_start_audit.accepted)
+        self.assertTrue(
+            all(result.succeeded for result in start_result["device_start_results"])
+        )
 
         acquisition_steps = 3
-        received_envelope_count = 0
-        timestamped_rows_at_envelope_creation = []
+        iteration_summaries = []
         for _ in range(acquisition_steps):
-            record_collections = manager.collect_records("produce_next_batch")
-            self.assertGreaterEqual(len(record_collections), 1)
-            for collection in record_collections:
-                self.assertTrue(
-                    all("session_time_s" not in row for row in collection.records)
-                )
-                session_time_s = synchronization.current_session_time_s
-                timestamped_records = tuple(
-                    {
-                        **row,
-                        "session_time_s": session_time_s,
-                    }
-                    for row in collection.records
-                )
-                timestamped_rows_at_envelope_creation.extend(
-                    dict(row) for row in timestamped_records
-                )
-                envelope = AcquisitionRecordEnvelope(
-                    session_id=session.session_id,
-                    source_device_id=collection.device_id,
-                    record_kind="tiny_stream",
-                    records=timestamped_records,
-                )
-                envelope_data = envelope.to_dict()
-                reconstructed_envelope = AcquisitionRecordEnvelope.from_dict(
-                    envelope_data
-                )
-                audit = ingestor.receive_envelope(reconstructed_envelope)
-                self.assertTrue(audit.accepted)
-                received_envelope_count += 1
+            summary = acquisition_node.run_one_iteration()
+            iteration_summaries.append(summary)
+            self.assertEqual(summary.collections_seen, 1)
+            self.assertEqual(summary.envelopes_sent, 1)
+            self.assertEqual(summary.accepted_count, 1)
+            self.assertEqual(summary.rejected_count, 0)
 
-        manager.stop_all()
-        final_session_time_s = synchronization.stop()
+        stop_result = acquisition_node.stop_acquisition()
+        final_session_time_s = stop_result["final_session_time_s"]
+        session_stop_audit = stop_result["session_stop_audit"]
+        stored_envelope_count_before_complete = len(storage.stored_envelopes)
+
         session.stop(reason="bounded fake acquisition complete")
+        stored_envelope_count_after_shutdown = len(storage.stored_envelopes)
         session.complete(reason="bounded fake acquisition complete")
-        manager.shutdown_all()
-        status = manager.collect_statuses()
+        node_status = acquisition_node.status()
+        status = node_status["device_statuses"]
         stored_envelopes = storage.stored_envelopes
+        lifecycle_event_envelopes = [
+            envelope
+            for envelope in stored_envelopes
+            if envelope.record_kind == "event"
+        ]
+        stream_envelopes = [
+            envelope
+            for envelope in stored_envelopes
+            if envelope.record_kind == "tiny_stream"
+        ]
         stored_rows = [
             row
-            for envelope in stored_envelopes
+            for envelope in stream_envelopes
+            for row in envelope.records
+        ]
+        stored_lifecycle_event_rows = [
+            row
+            for envelope in lifecycle_event_envelopes
             for row in envelope.records
         ]
 
         self.assertGreater(acquisition_steps, 1)
-        self.assertGreater(len(stored_envelopes), 1)
-        self.assertEqual(len(stored_envelopes), received_envelope_count)
-        self.assertEqual(len(ingestor.ingest_audit), received_envelope_count)
+        self.assertGreater(len(stream_envelopes), 1)
+        self.assertGreater(len(stored_envelopes), len(stream_envelopes))
+        self.assertEqual(len(iteration_summaries), acquisition_steps)
+        self.assertEqual(
+            [summary.iteration_index for summary in iteration_summaries],
+            [1, 2, 3],
+        )
+        self.assertEqual(len(stream_envelopes), acquisition_steps)
+        self.assertEqual(len(lifecycle_event_envelopes), 2)
+        self.assertEqual(
+            len(ingestor.ingest_audit),
+            len(stream_envelopes) + len(lifecycle_event_envelopes),
+        )
         self.assertEqual(storage.get_envelopes_for_session("session-001"), stored_envelopes)
         self.assertEqual(
             storage.get_envelopes_for_source("adapter-camera-001"),
-            stored_envelopes,
+            tuple(stream_envelopes),
+        )
+        self.assertEqual(
+            storage.get_envelopes_for_source("acquisition_node"),
+            tuple(lifecycle_event_envelopes),
         )
         self.assertEqual(session.service_readiness_checks, tuple(service_readiness))
-        self.assertEqual(synchronization_ready.component_id, "synchronization")
         self.assertEqual(
-            synchronization_ready.component_type,
+            acquisition_readiness["service_readiness"][0].component_id,
+            "synchronization",
+        )
+        self.assertEqual(
+            acquisition_readiness["service_readiness"][0].component_type,
             "synchronization_manager",
         )
+        self.assertEqual(node_status["session_id"], "session-001")
+        self.assertFalse(node_status["running"])
+        self.assertEqual(node_status["iteration_index"], acquisition_steps)
         self.assertFalse(synchronization.is_running)
         self.assertGreaterEqual(final_session_time_s, 0.0)
+        self.assertTrue(session_stop_audit.accepted)
+        self.assertEqual(session_stop_audit.reason, "accepted")
+        self.assertEqual(stored_envelope_count_before_complete, len(stored_envelopes))
+        self.assertEqual(stored_envelope_count_after_shutdown, len(stored_envelopes))
+        self.assertEqual(
+            stored_lifecycle_event_rows[0],
+            {
+                "event_category": "session_lifecycle",
+                "event_type": "session_start",
+                "session_time_s": 0.0,
+            },
+        )
+        self.assertEqual(
+            stored_lifecycle_event_rows[1],
+            {
+                "event_category": "session_lifecycle",
+                "event_type": "session_stop",
+                "session_time_s": final_session_time_s,
+            },
+        )
         self.assertTrue(
             all(audit.accepted for audit in ingestor.ingest_audit)
         )
@@ -362,8 +488,8 @@ class FakeAcquisitionSliceTests(unittest.TestCase):
             original_payload_rows,
         )
         self.assertEqual(
-            [dict(row) for row in stored_rows],
-            timestamped_rows_at_envelope_creation,
+            len(stored_rows),
+            len(original_payload_rows),
         )
         self.assertTrue(
             all(

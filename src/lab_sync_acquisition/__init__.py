@@ -1,5 +1,9 @@
 """Lab synchronization and acquisition framework."""
 
+from lab_sync_acquisition.acquisition_node import (
+    AcquisitionIterationSummary,
+    AcquisitionNode,
+)
 from lab_sync_acquisition.acquisition_record import AcquisitionRecordEnvelope
 from lab_sync_acquisition.device import DeviceDeclaration
 from lab_sync_acquisition.device_adapter import (
@@ -30,6 +34,8 @@ from lab_sync_acquisition.storage import InMemoryStorageManager
 from lab_sync_acquisition.synchronization import SynchronizationManager
 
 __all__ = [
+    "AcquisitionIterationSummary",
+    "AcquisitionNode",
     "DeviceAdapter",
     "DeviceAdapterLifecycleError",
     "DeviceAdapterState",

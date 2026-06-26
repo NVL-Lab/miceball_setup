@@ -2,6 +2,8 @@
 
 ## src/lab_sync_acquisition/__init__.py
 
+- AcquisitionIterationSummary: Public import for the result of one bounded AcquisitionNode iteration.
+- AcquisitionNode: Public import for bounded acquisition-side execution that coordinates existing runtime collaborators without owning Session lifecycle.
 - AcquisitionRecordEnvelope: Public import for the transferable acquisition record envelope shared across the acquisition-to-ingestion boundary.
 - DeviceAdapter: Public import for the minimum live runtime control interface for one device adapter.
 - DeviceAdapterLifecycleError: Public import for invalid live adapter lifecycle operations.
@@ -29,6 +31,11 @@
 ## src/lab_sync_acquisition/acquisition_record.py
 
 - AcquisitionRecordEnvelope: Holds the minimal transferable acquisition record message fields crossing from acquisition into ingestion and supports JSON-like plain-data round trips.
+
+## src/lab_sync_acquisition/acquisition_node.py
+
+- AcquisitionIterationSummary: Records the small inspectable summary returned by one bounded acquisition iteration.
+- AcquisitionNode: Owns bounded acquisition-side execution using already-created DeviceManager, SynchronizationManager, and Ingestor collaborators.
 
 ## src/lab_sync_acquisition/device.py
 

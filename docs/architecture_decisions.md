@@ -2117,6 +2117,168 @@ Synchronization Manager v1 owns Session Time; it does not solve the full synchro
 * Every stream sample, frame, or event must have Session Time or enough stored information to reconstruct it.
 
 
+---
+
+## Decision 066: Session start and stop are acquisition event records
+
+**Status:** Accepted
+
+`session_start` and `session_stop` are ordinary acquisition event records.
+
+Minimum representation:
+
+```text
+record_kind: event
+source_device_id: acquisition_node
+```
+
+`session_start`:
+
+```python
+{
+    "event_category": "session_lifecycle",
+    "event_type": "session_start",
+    "session_time_s": 0.0,
+}
+```
+
+`session_stop`:
+
+```python
+{
+    "event_category": "session_lifecycle",
+    "event_type": "session_stop",
+    "session_time_s": SynchronizationManager.stop(),
+}
+```
+
+Ownership:
+
+- `SynchronizationManager` defines Session Time but does not create event records.
+- `Session` records runtime lifecycle only.
+- Acquisition-side caller code creates the event records and sends them to the Ingestor.
+- Ingestor and StorageManager preserve them unchanged.
+
+`session_stop` marks the end of acquisition time.
+
+`Session.completed`, `failed`, and `aborted` occur after cleanup.
+
+---
+
+## Decision 067: Acquisition Node exposes a command boundary to the Controller
+
+
+**Status:** Accepted
+
+The Controller owns high-level session intent.
+
+The Session owns lifecycle state, readiness evidence, and final session status.
+
+The Acquisition Node owns acquisition-side execution.
+
+The Acquisition Node executes acquisition actions in response to Session/Controller command intent, but it does not own the Session lifecycle.
+
+Conceptually:
+
+```text
+Controller
+    sends session intent
+
+Session
+    validates lifecycle/readiness
+    records lifecycle state
+
+Acquisition Node
+    executes acquisition---
+
+---
+
+## Decision 068: AcquisitionNode v1 owns bounded synchronous acquisition execution
+
+**Status:** Accepted
+
+`AcquisitionNode` is the software owner of acquisition execution.
+
+It does not own the `Session` object or Session lifecycle.
+
+For Phase 1, `AcquisitionNode` receives already-created runtime collaborators, including:
+
+* session identity
+* DeviceManager
+* SynchronizationManager
+* Ingestor boundary
+
+It does not construct adapters, managers, synchronization services, ingestors, or storage.
+
+`AcquisitionNode v1` uses a bounded synchronous execution model.
+
+It may expose a small public interface for:
+
+* acquisition-side readiness
+* starting acquisition
+* running one acquisition iteration
+* stopping acquisition
+* aborting acquisition
+* reporting acquisition status
+
+`AcquisitionNode` is responsible for:
+
+* starting and stopping Session Time through SynchronizationManager
+* creating `session_start` and `session_stop` acquisition evidence
+* starting, collecting from, stopping, and shutting down devices through DeviceManager
+* creating acquisition envelopes
+* sending envelopes to the Ingestor boundary
+
+It is not responsible for:
+
+* Session lifecycle
+* Controller behavior
+* GUI behavior
+* adapter construction
+* storage policy
+* transport
+* scheduling/threading/async execution
+* reconstruction
+* neuroscience analysis
+
+**Principle**
+
+AcquisitionNode owns acquisition execution, not Session lifecycle.
+
+**Rationale**
+
+The current tests manually coordinate Session, SynchronizationManager, DeviceManager, Ingestor, and StorageManager. That orchestration is now an acquisition runtime responsibility and should belong to AcquisitionNode, while preserving the existing ownership boundaries.
+
+**Consequence**
+
+The next implementation can replace test-owned acquisition orchestration with a minimal `AcquisitionNode` without introducing transport, threading, persistent storage, reconstruction, or direct Session ownership.
+
+---
+
+## Decision 069: DeviceManager collects records; AcquisitionNode creates envelopes
+
+**Status:** Accepted
+
+DeviceAdapters expose acquisition records but do not create `AcquisitionRecordEnvelope` objects or communicate with the Ingestor.
+
+DeviceManager collects adapter records and returns `DeviceRecordCollection` objects.
+
+Minimum `DeviceRecordCollection` fields:
+
+* source_device_id
+* record_kind
+* records
+
+AcquisitionNode converts `DeviceRecordCollection` objects into `AcquisitionRecordEnvelope` objects and attaches Session Time as needed.
+
+DeviceAdapters do not assign Session Time, but may preserve device-local timing information.
+
+**Principle**
+
+DeviceAdapters expose acquisition records; DeviceManager returns `DeviceRecordCollection`; AcquisitionNode creates `AcquisitionRecordEnvelope`.
+
+---
+
 
 --- ********************************************************************************
 
@@ -2188,6 +2350,10 @@ The following principles summarize the accepted decisions so far.
 63. Acquisition-side code creates `AcquisitionRecordEnvelope` objects before records cross to the Ingestor. `DeviceManager`, `Session`, and `Ingestor` do not own this transformation.
 64. SynchronizationManager owns Session Time; acquisition-side code attaches `session_time` to records before they become `AcquisitionRecordEnvelope`s.
 65. Synchronization Manager v1 owns Session Time; it does not solve the full synchronization problem.
+66. Session start and stop are stored as ordinary acquisition event records; Session lifecycle remains separate.
+67. Session owns lifecycle; Acquisition Node owns acquisition execution.
+68. AcquisitionNode v1 owns bounded synchronous acquisition execution, not Session lifecycle.
+69. DeviceManager collects acquisition records into Collections; AcquisitionNode creates Envelopes.
 
 ---
 
