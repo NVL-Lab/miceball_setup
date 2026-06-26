@@ -19,6 +19,7 @@
 - IngestAuditRecord: Public import for ingest audit evidence recorded for each received acquisition envelope.
 - InMemoryIngestor: Public import for the minimal in-memory envelope receiver that can forward accepted envelopes to storage.
 - InMemoryStorageManager: Public import for the minimal in-memory acquisition envelope storage boundary.
+- PersistentStorageManager: Public import for the v1 persistent StorageManager implementation that stores accepted envelopes as JSONL.
 - LifecycleTransition: Public import for recorded lifecycle transitions.
 - ReadinessCheck: Public import for recorded readiness checks.
 - Session: Public import for the runtime session lifecycle model.
@@ -60,7 +61,7 @@
 ## src/lab_sync_acquisition/ingestor.py
 
 - IngestAuditRecord: Records ingest order, receive time, accepted status, and reason for one received acquisition envelope.
-- InMemoryIngestor: Receives AcquisitionRecordEnvelope objects in memory, reports service readiness, records separate ingest audit evidence, and optionally forwards accepted envelopes to storage without mutating rows.
+- InMemoryIngestor: Receives AcquisitionRecordEnvelope objects in memory, reports service readiness, records separate ingest audit evidence, and optionally forwards accepted envelopes to in-memory or persistent storage without mutating rows.
 
 ## src/lab_sync_acquisition/service_readiness.py
 
@@ -69,6 +70,7 @@
 ## src/lab_sync_acquisition/storage.py
 
 - InMemoryStorageManager: Reports service readiness, stores accepted AcquisitionRecordEnvelope objects in memory, and exposes all, session-filtered, and source-filtered readback without file writing or transformation.
+- PersistentStorageManager: Reports service readiness, appends accepted AcquisitionRecordEnvelope dictionaries to a caller-supplied JSONL file, and reads them back as envelopes.
 
 ## src/lab_sync_acquisition/synchronization.py
 

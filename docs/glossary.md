@@ -481,7 +481,11 @@ The durable preservation of acquisition records beyond runtime memory.
 
 Persistent Storage begins after records leave the Ingestor and are accepted by the Storage Manager.
 
-The storage format is defined separately from the Storage Manager architecture.
+For v1, accepted Acquisition Record Envelopes may be stored as JSONL, with one envelope dictionary per line.
+
+JSONL is a storage backend detail, not a replacement for the Storage Manager architectural boundary.
+
+The final storage format is defined separately from the Storage Manager architecture.
 
 ---
 

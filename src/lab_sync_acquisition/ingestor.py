@@ -8,7 +8,10 @@ from typing import Any
 
 from lab_sync_acquisition.acquisition_record import AcquisitionRecordEnvelope
 from lab_sync_acquisition.service_readiness import ServiceReadiness
-from lab_sync_acquisition.storage import InMemoryStorageManager
+from lab_sync_acquisition.storage import (
+    InMemoryStorageManager,
+    PersistentStorageManager,
+)
 
 
 @dataclass(frozen=True)
@@ -24,7 +27,12 @@ class IngestAuditRecord:
 class InMemoryIngestor:
     """Receives acquisition envelopes and forwards accepted ones to storage."""
 
-    def __init__(self, storage_manager: InMemoryStorageManager | None = None) -> None:
+    def __init__(
+        self,
+        storage_manager: InMemoryStorageManager
+        | PersistentStorageManager
+        | None = None,
+    ) -> None:
         self._storage_manager = storage_manager
         self._accepted_envelopes: tuple[AcquisitionRecordEnvelope, ...] = ()
         self._ingest_audit: tuple[IngestAuditRecord, ...] = ()

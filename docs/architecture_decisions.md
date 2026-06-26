@@ -2310,6 +2310,26 @@ The Controller assembles configuration; the Session owns the accepted run config
 
 ---
 
+## Decision 071: Persistent storage v1 uses JSONL
+
+**Status:** Accepted
+
+`StorageManager` remains the architectural component responsible for persistent storage of accepted acquisition records.
+
+For v1, `StorageManager` uses JSONL as the persistent storage backend.
+
+Each line stores one accepted `AcquisitionRecordEnvelope` in its plain-data dictionary representation.
+
+Ingest audit records remain separate from acquisition records.
+
+This decision does not define the final storage format. Future implementations may replace the JSONL backend without changing `StorageManager` ownership.
+
+**Principle**
+
+`StorageManager` is the architectural boundary; JSONL is the v1 storage backend.
+
+---
+
 
 --- ********************************************************************************
 
@@ -2386,6 +2406,7 @@ The following principles summarize the accepted decisions so far.
 68. AcquisitionNode v1 owns bounded synchronous acquisition execution, not Session lifecycle.
 69. DeviceManager collects acquisition records into Collections; AcquisitionNode creates Envelopes.
 70. The Controller assembles configuration; the Session owns the accepted run configuration.
+71. StorageManager is the persistent storage boundary; JSONL is the v1 storage backend.
 
 ---
 

@@ -30,7 +30,10 @@ from lab_sync_acquisition.session import (
     SessionState,
 )
 from lab_sync_acquisition.service_readiness import ServiceReadiness
-from lab_sync_acquisition.storage import InMemoryStorageManager
+from lab_sync_acquisition.storage import (
+    InMemoryStorageManager,
+    PersistentStorageManager,
+)
 from lab_sync_acquisition.synchronization import SynchronizationManager
 
 __all__ = [
@@ -47,6 +50,7 @@ __all__ = [
     "IngestAuditRecord",
     "InMemoryIngestor",
     "InMemoryStorageManager",
+    "PersistentStorageManager",
     "DeviceLifecycleResult",
     "DeviceManager",
     "DeviceRecordCollection",

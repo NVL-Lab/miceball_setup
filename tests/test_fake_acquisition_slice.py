@@ -1,4 +1,5 @@
 import unittest
+import tempfile
 from pathlib import Path
 import sys
 
@@ -15,6 +16,7 @@ from lab_sync_acquisition import (
     DeviceManager,
     InMemoryIngestor,
     InMemoryStorageManager,
+    PersistentStorageManager,
     Session,
     SessionConfig,
     SessionState,
@@ -536,6 +538,151 @@ class FakeAcquisitionSliceTests(unittest.TestCase):
         )
         self.assertTrue(all(adapter_status.shutdown for adapter_status in status))
         self.assertTrue(all(not adapter_status.failed for adapter_status in status))
+
+    def test_bounded_fake_acquisition_can_persist_jsonl_records(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            declaration = DeviceDeclaration(
+                device_id="declared-camera-001",
+                device_type="camera",
+                enabled=True,
+                required=True,
+                declared_capabilities=["tiny_stream"],
+            )
+            configuration = SessionConfig(
+                selected_devices=[declaration],
+                storage_location="placeholder://session",
+                protocol_plan={"name": "persistent-jsonl-fake-acquisition"},
+            )
+            session = Session(session_id="session-001", configuration=configuration)
+            payload_batches = [
+                [
+                    {"device_time_s": 100.0, "step": 1, "value": 10},
+                    {"device_time_s": 100.1, "step": 1, "value": 11},
+                ],
+                [
+                    {"device_time_s": 100.2, "step": 2, "value": 12},
+                ],
+            ]
+            adapter = BoundedFakeStreamAdapter(
+                device_id="adapter-camera-001",
+                device_type="camera",
+                declared_capabilities=["reports_health"],
+                required=True,
+                record_kind="tiny_stream",
+                batches=payload_batches,
+            )
+            manager = DeviceManager(adapters=[adapter])
+            synchronization = SynchronizationManager()
+            storage = PersistentStorageManager(
+                records_path=Path(temporary_directory) / "accepted_records.jsonl"
+            )
+            ingestor = InMemoryIngestor(storage_manager=storage)
+            acquisition_node = AcquisitionNode(
+                session_id=session.session_id,
+                device_manager=manager,
+                synchronization_manager=synchronization,
+                ingestor=ingestor,
+            )
+
+            manager.initialize_all(config={"mode": "persistent-jsonl-fake"})
+            acquisition_readiness = acquisition_node.check_ready()
+            session.initialize(
+                device_readiness_summary=acquisition_readiness["device_readiness"],
+                service_readiness=(
+                    *acquisition_readiness["service_readiness"],
+                    storage.check_ready(),
+                ),
+            )
+            session.start()
+            acquisition_node.start_acquisition()
+            acquisition_node.run_one_iteration()
+            acquisition_node.run_one_iteration()
+            stop_result = acquisition_node.stop_acquisition()
+            stored_envelope_count_before_complete = len(storage.stored_envelopes)
+            session.stop(reason="persistent fake acquisition complete")
+            session.complete(reason="persistent fake acquisition complete")
+
+            stored_envelopes = storage.read_envelopes()
+            lifecycle_event_envelopes = [
+                envelope
+                for envelope in stored_envelopes
+                if envelope.record_kind == "event"
+            ]
+            stream_envelopes = [
+                envelope
+                for envelope in stored_envelopes
+                if envelope.record_kind == "tiny_stream"
+            ]
+            stored_stream_rows = [
+                row
+                for envelope in stream_envelopes
+                for row in envelope.records
+            ]
+            stored_event_rows = [
+                row
+                for envelope in lifecycle_event_envelopes
+                for row in envelope.records
+            ]
+
+            self.assertIs(session.current_state, SessionState.COMPLETED)
+            self.assertTrue(storage.records_path.exists())
+            self.assertEqual(len(stored_envelopes), 4)
+            self.assertEqual(stored_envelope_count_before_complete, 4)
+            self.assertEqual(len(lifecycle_event_envelopes), 2)
+            self.assertEqual(len(stream_envelopes), 2)
+            self.assertEqual(
+                storage.get_envelopes_for_session("session-001"),
+                stored_envelopes,
+            )
+            self.assertEqual(
+                storage.get_envelopes_for_source("adapter-camera-001"),
+                tuple(stream_envelopes),
+            )
+            self.assertEqual(
+                storage.get_envelopes_for_source("acquisition_node"),
+                tuple(lifecycle_event_envelopes),
+            )
+            self.assertEqual(
+                stored_event_rows[0],
+                {
+                    "event_category": "session_lifecycle",
+                    "event_type": "session_start",
+                    "session_time_s": 0.0,
+                },
+            )
+            self.assertEqual(
+                stored_event_rows[1],
+                {
+                    "event_category": "session_lifecycle",
+                    "event_type": "session_stop",
+                    "session_time_s": stop_result["final_session_time_s"],
+                },
+            )
+            self.assertTrue(
+                all("session_time_s" in row for row in stored_stream_rows)
+            )
+            self.assertTrue(
+                all("device_time_s" in row for row in stored_stream_rows)
+            )
+            self.assertEqual(
+                [
+                    {
+                        key: value
+                        for key, value in row.items()
+                        if key != "session_time_s"
+                    }
+                    for row in stored_stream_rows
+                ],
+                [
+                    row
+                    for batch in payload_batches
+                    for row in batch
+                ],
+            )
+            self.assertNotIn(
+                "ingest_order",
+                storage.records_path.read_text(encoding="utf-8"),
+            )
 
 
 if __name__ == "__main__":

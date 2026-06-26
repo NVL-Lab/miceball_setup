@@ -370,13 +370,50 @@ Session.complete()
 
 ---
 
+# W008 - Persistent JSONL Storage
+
+## Purpose
+
+Validate that accepted acquisition envelopes can cross the StorageManager persistence boundary and be read back from JSONL.
+
+## Workflow
+
+```text
+AcquisitionNode
+        |
+        v
+AcquisitionRecordEnvelope
+        |
+        v
+InMemoryIngestor
+        |
+        v
+PersistentStorageManager
+        |
+        v
+accepted_records.jsonl
+        |
+        v
+AcquisitionRecordEnvelope
+```
+
+## Validates
+
+- StorageManager remains the persistence boundary
+- JSONL is the v1 storage backend
+- accepted envelopes are stored as plain-data dictionaries
+- stored envelopes read back as AcquisitionRecordEnvelope objects
+- ingest audit remains separate from acquisition records
+- session_time_s and device-local timing fields are preserved
+
+---
+
 # Future Workflows
 
 The following workflows are expected to be added as the framework evolves.
 
 ## Planned
 
-- Persistent storage
 - Reconstruction
 - NWB export
 - Multi-node acquisition
