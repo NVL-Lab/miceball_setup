@@ -8,6 +8,7 @@ from typing import Any, ClassVar, Iterable
 
 from lab_sync_acquisition.device import DeviceDeclaration
 from lab_sync_acquisition.device_adapter import DeviceReadiness
+from lab_sync_acquisition.service_readiness import ServiceReadiness
 
 
 class SessionState(str, Enum):
@@ -74,6 +75,9 @@ class Session:
     _device_readiness_summary: list[DeviceReadiness] = field(
         default_factory=list, init=False, repr=False
     )
+    _service_readiness_checks: list[ServiceReadiness] = field(
+        default_factory=list, init=False, repr=False
+    )
     _sequence: int = field(default=0, init=False, repr=False)
 
     _ALLOWED_TRANSITIONS: ClassVar[set[tuple[SessionState, SessionState]]] = {
@@ -108,9 +112,16 @@ class Session:
 
         return tuple(self._device_readiness_summary)
 
+    @property
+    def service_readiness_checks(self) -> tuple[ServiceReadiness, ...]:
+        """Recorded service readiness evidence supplied during initialization."""
+
+        return tuple(self._service_readiness_checks)
+
     def initialize(
         self,
         device_readiness_summary: Iterable[DeviceReadiness] | None = None,
+        service_readiness: Iterable[ServiceReadiness] | None = None,
     ) -> None:
         """Move from created to initialized after declaration checks pass."""
 
@@ -149,8 +160,10 @@ class Session:
         device_readiness_failures = self._record_device_readiness_summary(
             device_readiness_summary
         )
+        service_readiness_failures = self._record_service_readiness(service_readiness)
         failures = self._record_checks(checks)
         failures.extend(device_readiness_failures)
+        failures.extend(service_readiness_failures)
         if failures:
             failed_names = ", ".join(failures)
             raise SessionLifecycleError(
@@ -308,6 +321,20 @@ class Session:
             self._device_readiness_summary.append(record)
             if record.required and not record.ready:
                 failures.append(f"device_readiness[{record.device_id}]")
+        return failures
+
+    def _record_service_readiness(
+        self,
+        service_readiness: Iterable[ServiceReadiness] | None,
+    ) -> list[str]:
+        if service_readiness is None:
+            return []
+
+        failures = []
+        for record in service_readiness:
+            self._service_readiness_checks.append(record)
+            if record.required and not record.ready:
+                failures.append(f"service_readiness[{record.component_id}]")
         return failures
 
     def _next_sequence(self) -> int:

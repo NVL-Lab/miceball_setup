@@ -12,10 +12,13 @@ from lab_sync_acquisition import (
     DeviceDeclaration,
     DeviceManager,
     DeviceReadiness,
+    InMemoryIngestor,
+    InMemoryStorageManager,
     Session,
     SessionConfig,
     SessionLifecycleError,
     SessionState,
+    ServiceReadiness,
 )
 from tests.fakes import ReadyFakeAdapter
 
@@ -602,6 +605,80 @@ class SessionLifecycleTests(unittest.TestCase):
         self.assertIs(session.current_state, SessionState.INITIALIZED)
         self.assertFalse(session.device_readiness_summary[0].required)
         self.assertFalse(session.device_readiness_summary[0].ready)
+
+    def test_services_report_readiness_for_session_initialization(self) -> None:
+        ingestor = InMemoryIngestor()
+        storage = InMemoryStorageManager()
+
+        ingestor_readiness = ingestor.check_ready()
+        storage_readiness = storage.check_ready()
+
+        self.assertEqual(ingestor_readiness.component_id, "ingestor")
+        self.assertEqual(ingestor_readiness.component_type, "ingestor")
+        self.assertTrue(ingestor_readiness.required)
+        self.assertTrue(ingestor_readiness.ready)
+        self.assertEqual(storage_readiness.component_id, "storage")
+        self.assertEqual(storage_readiness.component_type, "storage_manager")
+        self.assertTrue(storage_readiness.required)
+        self.assertTrue(storage_readiness.ready)
+
+    def test_required_ready_services_allow_initialization_without_record_flow(
+        self,
+    ) -> None:
+        ingestor = InMemoryIngestor()
+        storage = InMemoryStorageManager()
+        service_readiness = [ingestor.check_ready(), storage.check_ready()]
+        session = Session(session_id="session-001", configuration=config())
+
+        session.initialize(service_readiness=service_readiness)
+
+        self.assertIs(session.current_state, SessionState.INITIALIZED)
+        self.assertEqual(session.service_readiness_checks, tuple(service_readiness))
+        self.assertEqual(ingestor.accepted_envelopes, ())
+        self.assertEqual(ingestor.ingest_audit, ())
+        self.assertEqual(storage.stored_envelopes, ())
+
+    def test_required_not_ready_service_blocks_initialization(self) -> None:
+        session = Session(session_id="session-001", configuration=config())
+        service_readiness = [
+            ServiceReadiness(
+                component_id="storage",
+                component_type="storage_manager",
+                required=True,
+                ready=False,
+                reason="storage unavailable",
+            )
+        ]
+
+        with self.assertRaises(SessionLifecycleError):
+            session.initialize(service_readiness=service_readiness)
+
+        self.assertIs(session.current_state, SessionState.CREATED)
+        self.assertEqual(session.service_readiness_checks, tuple(service_readiness))
+
+    def test_session_uses_service_readiness_without_service_internals(self) -> None:
+        session = Session(session_id="session-001", configuration=config())
+        service_readiness = [
+            ServiceReadiness(
+                component_id="ingestor",
+                component_type="ingestor",
+                required=True,
+                ready=True,
+                reason="ready",
+            ),
+            ServiceReadiness(
+                component_id="storage",
+                component_type="storage_manager",
+                required=True,
+                ready=True,
+                reason="ready",
+            ),
+        ]
+
+        session.initialize(service_readiness=service_readiness)
+
+        self.assertIs(session.current_state, SessionState.INITIALIZED)
+        self.assertEqual(session.service_readiness_checks, tuple(service_readiness))
 
     def test_abort_path_records_final_state(self) -> None:
         session = running_session()

@@ -8,6 +8,7 @@ SRC = ROOT / "src"
 sys.path.insert(0, str(SRC))
 
 from lab_sync_acquisition import (
+    AcquisitionRecordEnvelope,
     DeviceAdapterState,
     DeviceDeclaration,
     DeviceManager,
@@ -35,7 +36,7 @@ class TinyStreamFakeAdapter(ReadyFakeAdapter):
 
 
 class FakeAcquisitionSliceTests(unittest.TestCase):
-    def test_fake_records_cross_manager_ingestor_and_storage_boundaries(self) -> None:
+    def test_fake_records_cross_plain_data_envelope_boundary(self) -> None:
         declaration = DeviceDeclaration(
             device_id="declared-camera-001",
             device_type="camera",
@@ -60,43 +61,97 @@ class FakeAcquisitionSliceTests(unittest.TestCase):
         ingestor = InMemoryIngestor(storage_manager=storage)
 
         manager.initialize_all(config={"mode": "fake"})
-        readiness = manager.check_readiness()
-        session.initialize(device_readiness_summary=readiness)
+        manager_readiness = manager.check_readiness()
+        ingestor_ready = ingestor.check_ready()
+        storage_ready = storage.check_ready()
+        session.initialize(
+            device_readiness_summary=manager_readiness,
+            service_readiness=[ingestor_ready, storage_ready],
+        )
         session.start()
         manager.start_all()
         record_collections = manager.collect_records("produce_tiny_stream")
         rows = record_collections[0].records
-        ingestor.receive_records(record_collections)
+        envelope = AcquisitionRecordEnvelope(
+            session_id=session.session_id,
+            source_device_id=record_collections[0].device_id,
+            record_kind="tiny_stream",
+            records=rows,
+        )
+        envelope_data = envelope.to_dict()
+        reconstructed_envelope = AcquisitionRecordEnvelope.from_dict(envelope_data)
+        audit = ingestor.receive_envelope(reconstructed_envelope)
         session.stop(reason="fake acquisition complete")
         session.complete(reason="fake acquisition complete")
         manager.stop_all()
         manager.shutdown_all()
         status = manager.collect_statuses()
-        received_collection = ingestor.received_records[0]
-        stored_collection = storage.stored_records[0]
+        accepted_envelope = ingestor.accepted_envelopes[0]
+        stored_envelope = storage.stored_envelopes[0]
+        session_envelopes = storage.get_envelopes_for_session("session-001")
+        source_envelopes = storage.get_envelopes_for_source("adapter-camera-001")
 
         self.assertEqual(len(record_collections), 1)
         self.assertEqual(record_collections[0].device_id, "adapter-camera-001")
-        self.assertEqual(len(ingestor.received_records), 1)
-        self.assertEqual(received_collection.device_id, "adapter-camera-001")
-        self.assertEqual(len(storage.stored_records), 1)
-        self.assertEqual(stored_collection.device_id, "adapter-camera-001")
+        self.assertEqual(session.device_readiness_summary, manager_readiness.results)
+        self.assertEqual(
+            session.service_readiness_checks,
+            (ingestor_ready, storage_ready),
+        )
+        self.assertEqual(ingestor_ready.component_id, "ingestor")
+        self.assertEqual(storage_ready.component_id, "storage")
+        self.assertEqual(
+            set(envelope_data),
+            {"session_id", "source_device_id", "record_kind", "records"},
+        )
+        self.assertEqual(envelope_data["session_id"], "session-001")
+        self.assertEqual(envelope_data["source_device_id"], "adapter-camera-001")
+        self.assertEqual(envelope_data["record_kind"], "tiny_stream")
+        self.assertIsInstance(envelope_data["records"], list)
+        self.assertTrue(audit.accepted)
+        self.assertEqual(audit.reason, "accepted")
+        self.assertEqual(audit.ingest_order, 1)
+        self.assertEqual(len(ingestor.ingest_audit), 1)
+        self.assertEqual(ingestor.ingest_audit[0], audit)
+        self.assertEqual(len(ingestor.accepted_envelopes), 1)
+        self.assertEqual(accepted_envelope.source_device_id, "adapter-camera-001")
+        self.assertEqual(len(storage.stored_envelopes), 1)
+        self.assertEqual(stored_envelope.source_device_id, "adapter-camera-001")
+        self.assertEqual(stored_envelope.session_id, "session-001")
+        self.assertEqual(stored_envelope.record_kind, "tiny_stream")
+        self.assertEqual(session_envelopes, (stored_envelope,))
+        self.assertEqual(source_envelopes, (stored_envelope,))
+        self.assertEqual(storage.get_envelopes_for_session("other-session"), ())
+        self.assertEqual(storage.get_envelopes_for_source("other-source"), ())
         self.assertEqual(len(rows), 3)
-        self.assertEqual(len(received_collection.records), 3)
-        self.assertEqual(len(stored_collection.records), 3)
-        self.assertTrue(all("session_time" in row for row in stored_collection.records))
+        self.assertEqual(len(reconstructed_envelope.records), 3)
+        self.assertEqual(len(accepted_envelope.records), 3)
+        self.assertEqual(len(stored_envelope.records), 3)
+        self.assertTrue(all("session_time" in row for row in stored_envelope.records))
         self.assertTrue(
             all(
-                received_row is manager_row
-                for received_row, manager_row in zip(received_collection.records, rows)
+                reconstructed_row is manager_row
+                for reconstructed_row, manager_row in zip(
+                    reconstructed_envelope.records,
+                    rows,
+                )
             )
         )
         self.assertTrue(
             all(
-                stored_row is received_row
-                for stored_row, received_row in zip(
-                    stored_collection.records,
-                    received_collection.records,
+                accepted_row is reconstructed_row
+                for accepted_row, reconstructed_row in zip(
+                    accepted_envelope.records,
+                    reconstructed_envelope.records,
+                )
+            )
+        )
+        self.assertTrue(
+            all(
+                stored_row is accepted_row
+                for stored_row, accepted_row in zip(
+                    stored_envelope.records,
+                    accepted_envelope.records,
                 )
             )
         )
@@ -109,6 +164,25 @@ class FakeAcquisitionSliceTests(unittest.TestCase):
         )
         self.assertTrue(all(not adapter_status.failed for adapter_status in status))
         self.assertTrue(all(adapter_status.shutdown for adapter_status in status))
+
+    def test_ingestor_rejects_envelope_without_session_time(self) -> None:
+        storage = InMemoryStorageManager()
+        ingestor = InMemoryIngestor(storage_manager=storage)
+        envelope = AcquisitionRecordEnvelope(
+            session_id="session-001",
+            source_device_id="adapter-camera-001",
+            record_kind="tiny_stream",
+            records=[{"value": 10}],
+        )
+
+        audit = ingestor.receive_envelope(envelope)
+
+        self.assertFalse(audit.accepted)
+        self.assertEqual(audit.reason, "missing_session_time")
+        self.assertEqual(audit.ingest_order, 1)
+        self.assertEqual(len(ingestor.ingest_audit), 1)
+        self.assertEqual(ingestor.accepted_envelopes, ())
+        self.assertEqual(storage.stored_envelopes, ())
 
 
 if __name__ == "__main__":

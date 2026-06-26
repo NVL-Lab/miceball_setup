@@ -2,6 +2,7 @@
 
 ## src/lab_sync_acquisition/__init__.py
 
+- AcquisitionRecordEnvelope: Public import for the transferable acquisition record envelope shared across the acquisition-to-ingestion boundary.
 - DeviceAdapter: Public import for the minimum live runtime control interface for one device adapter.
 - DeviceAdapterLifecycleError: Public import for invalid live adapter lifecycle operations.
 - DeviceAdapterState: Public import for minimum live adapter lifecycle states.
@@ -13,14 +14,20 @@
 - DeviceReadinessNotImplementedError: Public import for base adapters without concrete readiness behavior.
 - DeviceReadinessSummary: Public import for aggregated Device Manager readiness results.
 - DeviceStatus: Public import for live adapter status snapshots.
-- InMemoryIngestor: Public import for the minimal in-memory record receiver that can forward accepted records to storage.
-- InMemoryStorageManager: Public import for the minimal in-memory storage boundary.
+- IngestAuditRecord: Public import for ingest audit evidence recorded for each received acquisition envelope.
+- InMemoryIngestor: Public import for the minimal in-memory envelope receiver that can forward accepted envelopes to storage.
+- InMemoryStorageManager: Public import for the minimal in-memory acquisition envelope storage boundary.
 - LifecycleTransition: Public import for recorded lifecycle transitions.
 - ReadinessCheck: Public import for recorded readiness checks.
 - Session: Public import for the runtime session lifecycle model.
 - SessionConfig: Public import for explicit session declarations required by this slice.
 - SessionLifecycleError: Public import for lifecycle operation failures.
 - SessionState: Public import for accepted Phase 1 session lifecycle states.
+- ServiceReadiness: Public import for readiness records produced by framework services and consumed by Session initialization.
+
+## src/lab_sync_acquisition/acquisition_record.py
+
+- AcquisitionRecordEnvelope: Holds the minimal transferable acquisition record message fields crossing from acquisition into ingestion and supports JSON-like plain-data round trips.
 
 ## src/lab_sync_acquisition/device.py
 
@@ -44,11 +51,16 @@
 
 ## src/lab_sync_acquisition/ingestor.py
 
-- InMemoryIngestor: Receives DeviceRecordCollection objects in memory, exposes them, and optionally forwards accepted records to storage without timestamp assignment or transformation.
+- IngestAuditRecord: Records ingest order, receive time, accepted status, and reason for one received acquisition envelope.
+- InMemoryIngestor: Receives AcquisitionRecordEnvelope objects in memory, reports service readiness, records separate ingest audit evidence, and optionally forwards accepted envelopes to storage without mutating rows.
+
+## src/lab_sync_acquisition/service_readiness.py
+
+- ServiceReadiness: Holds the shared framework-service readiness fields consumed by Session initialization.
 
 ## src/lab_sync_acquisition/storage.py
 
-- InMemoryStorageManager: Stores accepted DeviceRecordCollection objects in memory and exposes them for read-back without file writing or transformation.
+- InMemoryStorageManager: Reports service readiness, stores accepted AcquisitionRecordEnvelope objects in memory, and exposes all, session-filtered, and source-filtered readback without file writing or transformation.
 
 ## src/lab_sync_acquisition/session.py
 
@@ -57,4 +69,4 @@
 - ReadinessCheck: Records the result of a readiness condition checked during lifecycle transitions.
 - LifecycleTransition: Records an allowed lifecycle state transition in sequence order.
 - SessionLifecycleError: Signals invalid lifecycle operations or failed readiness requirements.
-- Session: Owns one session's lifecycle state, read-only transition history, read-only readiness checks, recorded shared device readiness summaries, cleanup status, and final status in memory.
+- Session: Owns one session's lifecycle state, read-only transition history, read-only readiness checks, recorded shared device and service readiness summaries, cleanup status, and final status in memory.

@@ -1583,6 +1583,269 @@ A shared vocabulary prevents ambiguity between architecture discussions, impleme
 * Architecture, documentation, tests, and code should use the accepted glossary terminology consistently.
 
 
+---
+
+## Decision 059: Ingestor receives transferable acquisition record envelopes
+
+**Status:** Accepted
+
+The boundary between acquisition and ingestion is not a live `DeviceManager` object calling a live `Ingestor` object.
+
+The boundary is:
+
+```text
+Acquisition side emits record messages.
+Ingestor side receives record messages.
+```
+
+`DeviceManager` and `Ingestor` should not need to import or share live objects.
+
+They share a minimal transferable acquisition record envelope.
+
+Minimum envelope fields:
+
+```text
+session_id
+source_device_id
+record_kind
+records
+```
+
+Each row inside `records` must contain:
+
+```text
+session_time
+```
+
+Ingestor v1 receives envelopes and creates separate ingest audit evidence:
+
+```text
+ingest_order
+ingest_received_at
+accepted
+reason
+```
+
+Accepted envelopes are forwarded to `StorageManager`.
+
+Rows are not mutated by the Ingestor.
+
+`source_device_id` and row `session_time` are preserved unchanged.
+
+This decision supersedes the object-sharing interpretation of Decision 057 for the DeviceManager-to-Ingestor boundary.
+
+**Rationale:**
+
+Acquisition and ingestion may later run in different processes or on different computers.
+
+A transferable envelope keeps the boundary explicit without deciding network transport, serialization protocol, file format, session folder layout, or final session record structure.
+
+**Consequence:**
+
+Ingestor tests should pass through the envelope shape.
+
+The in-memory workflow may still run in one Python process, but the Ingestor receives acquisition record envelopes rather than adapter-owned or manager-owned collection objects.
+
+Storage v1 stores accepted envelopes unchanged in memory for verification.
+
+---
+
+## Decision 060: AcquisitionRecordEnvelope is plain-data round-trippable
+
+**Status:** Accepted
+
+`AcquisitionRecordEnvelope` must be convertible to and from a JSON-like plain-data form.
+
+Minimum round trip:
+
+```text
+AcquisitionRecordEnvelope
+    -> dict / JSON-like plain-data form
+    -> AcquisitionRecordEnvelope
+```
+
+The plain-data form contains only:
+
+* strings
+* numbers
+* booleans
+* `None`
+* lists
+* dicts
+
+The plain-data form does not include live runtime objects.
+
+The round trip must preserve:
+
+* `session_id`
+* `source_device_id`
+* `record_kind`
+* `records`
+* row `session_time`
+
+The round trip does not define:
+
+* network transport
+* serialization protocol
+* socket communication
+* Redis
+* files
+* file format
+* folder layout
+* Parquet
+* NWB
+* session record structure
+* manifest format
+* reconstruction
+* real devices
+* full stream schema
+
+**Rationale:**
+
+Acquisition Nodes and Ingestors may later be different processes or computers.
+
+A plain-data envelope round trip proves the boundary can cross process-like seams without sharing live `DeviceAdapter`, `DeviceManager`, or `DeviceRecordCollection` objects.
+
+**Consequence:**
+
+Acquisition-side code can create an envelope, convert it to plain data, and ingest-side code can reconstruct an envelope from that plain data before validation and storage handoff.
+
+Rows remain unchanged by the envelope round trip.
+
+---
+
+## Decision 061: StorageManager v1 proves in-memory persistence boundary behavior
+
+**Status:** Accepted
+
+StorageManager v1 proves persistence boundary behavior, not the final storage format.
+
+Minimum behavior:
+
+```text
+StorageManager v1
+    receives accepted ingest records/envelopes
+    keeps them unchanged
+    exposes small readback/inspection API
+```
+
+For v1, `InMemoryStorageManager` stores accepted `AcquisitionRecordEnvelope` objects unchanged in memory.
+
+It preserves:
+
+* `session_id`
+* `source_device_id`
+* `record_kind`
+* `records`
+* row `session_time`
+
+Ingest audit remains separate from stored device records.
+
+StorageManager v1 may expose small inspection methods for:
+
+* all stored envelopes
+* stored envelopes for a given `session_id`
+* stored envelopes for a given `source_device_id`
+
+This decision does not define:
+
+* files
+* Parquet
+* folder layout
+* session manifest
+* reconstruction
+* Session integration
+* NWB
+* networking
+* transport protocol
+* serialization protocol
+* full stream schema
+* final Session Record structure
+
+**Rationale:**
+
+Before wiring storage readiness into Session, the framework needs a small, inspectable proof that accepted records become retained session evidence.
+
+In-memory readback validates the storage boundary while deferring final persistence design.
+
+**Consequence:**
+
+`InMemoryStorageManager` remains intentionally boring.
+
+It supports readback and filtering by existing envelope fields without mutating rows or interpreting stream schemas.
+
+---
+
+## Decision 062: Session initialization consumes service readiness summaries
+
+**Status:** Accepted
+
+Session readiness gating consumes readiness summaries from services.
+
+It does not inspect service internals.
+
+Minimum shared service readiness result:
+
+```text
+component_id
+component_type
+required
+ready
+reason
+```
+
+For Ingestor:
+
+```text
+component_id: ingestor
+component_type: ingestor
+required: true
+ready: true/false
+reason: ...
+```
+
+For StorageManager:
+
+```text
+component_id: storage
+component_type: storage_manager
+required: true
+ready: true/false
+reason: ...
+```
+
+`InMemoryIngestor` and `InMemoryStorageManager` may expose `check_ready()` methods that return this shared service readiness record.
+
+`Session.initialize()` may receive service readiness records.
+
+`Session.initialize()` records supplied service readiness records.
+
+`Session.initialize()` fails if any required service readiness record has `ready=False`.
+
+Session must not inspect:
+
+* how Ingestor accepts records
+* how StorageManager stores or reads back records
+* storage internals
+* ingest audit internals
+
+No records need to flow during initialization.
+
+This service readiness contract is for framework services such as Ingestor and StorageManager. It does not replace the live device readiness contract.
+
+**Rationale:**
+
+Session initialization should gate on readiness evidence produced by participating services without coupling Session to their internal behavior.
+
+This keeps service readiness narrow while preserving the existing device readiness boundary.
+
+**Consequence:**
+
+Session can record and gate on service readiness summaries before acquisition records flow.
+
+Final readiness framework, service discovery, storage capacity validation, reconstruction readiness, and multi-node readiness remain deferred.
+
+
 --- ********************************************************************************
 
 # Accepted Architectural Principles
@@ -1646,6 +1909,10 @@ The following principles summarize the accepted decisions so far.
 56. A component should only validate information it owns.
 57. Ingestor owns the handoff of accepted records to StorageManager while StorageManager remains a separate storage boundary.
 58. Architectural terminology is defined once and used consistently throughout the repository.
+59. DeviceManager and Ingestor share transferable acquisition record envelopes rather than live adapter-owned or manager-owned objects.
+60. AcquisitionRecordEnvelope supports a minimal JSON-like plain-data round trip without choosing a transport or serialization protocol.
+61. StorageManager v1 proves in-memory persistence boundary behavior and small readback without deciding final storage format.
+62. Session initialization consumes shared service readiness summaries and does not inspect service internals.
 
 ---
 

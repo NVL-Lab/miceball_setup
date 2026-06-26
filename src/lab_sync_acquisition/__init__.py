@@ -1,5 +1,6 @@
 """Lab synchronization and acquisition framework."""
 
+from lab_sync_acquisition.acquisition_record import AcquisitionRecordEnvelope
 from lab_sync_acquisition.device import DeviceDeclaration
 from lab_sync_acquisition.device_adapter import (
     DeviceAdapter,
@@ -15,7 +16,7 @@ from lab_sync_acquisition.device_manager import (
     DeviceRecordCollection,
     DeviceReadinessSummary,
 )
-from lab_sync_acquisition.ingestor import InMemoryIngestor
+from lab_sync_acquisition.ingestor import IngestAuditRecord, InMemoryIngestor
 from lab_sync_acquisition.session import (
     LifecycleTransition,
     ReadinessCheck,
@@ -24,6 +25,7 @@ from lab_sync_acquisition.session import (
     SessionLifecycleError,
     SessionState,
 )
+from lab_sync_acquisition.service_readiness import ServiceReadiness
 from lab_sync_acquisition.storage import InMemoryStorageManager
 
 __all__ = [
@@ -31,9 +33,11 @@ __all__ = [
     "DeviceAdapterLifecycleError",
     "DeviceAdapterState",
     "DeviceDeclaration",
+    "AcquisitionRecordEnvelope",
     "DeviceReadiness",
     "DeviceReadinessNotImplementedError",
     "DeviceStatus",
+    "IngestAuditRecord",
     "InMemoryIngestor",
     "InMemoryStorageManager",
     "DeviceLifecycleResult",
@@ -46,4 +50,5 @@ __all__ = [
     "SessionConfig",
     "SessionLifecycleError",
     "SessionState",
+    "ServiceReadiness",
 ]
