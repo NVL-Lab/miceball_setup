@@ -25,11 +25,19 @@ class SessionState(str, Enum):
 
 @dataclass(frozen=True)
 class SessionConfig:
-    """Explicit declarations required to initialize a session."""
+    """Accepted configuration for one Session run."""
 
     selected_devices: list[DeviceDeclaration] | None
     storage_location: str | None
     protocol_plan: Any | None
+    session_id: str | None = None
+    session_parameters: dict[str, Any] | None = None
+    device_configurations: dict[str, Any] | None = None
+    synchronization_configuration: dict[str, Any] | None = None
+    acquisition_configuration: dict[str, Any] | None = None
+    ingestion_configuration: dict[str, Any] | None = None
+    storage_configuration: dict[str, Any] | None = None
+    protocol_reference: Any | None = None
 
 
 @dataclass(frozen=True)

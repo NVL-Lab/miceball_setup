@@ -22,7 +22,7 @@
 - LifecycleTransition: Public import for recorded lifecycle transitions.
 - ReadinessCheck: Public import for recorded readiness checks.
 - Session: Public import for the runtime session lifecycle model.
-- SessionConfig: Public import for explicit session declarations required by this slice.
+- SessionConfig: Public import for the accepted run configuration owned by a Session.
 - SessionLifecycleError: Public import for lifecycle operation failures.
 - SessionState: Public import for accepted Phase 1 session lifecycle states.
 - ServiceReadiness: Public import for readiness records produced by framework services and consumed by Session initialization.
@@ -48,14 +48,14 @@
 - DeviceStatus: Reports the current live adapter lifecycle status without scientific data.
 - DeviceAdapterLifecycleError: Signals invalid live adapter lifecycle operations.
 - DeviceReadinessNotImplementedError: Signals that a live adapter has no concrete readiness implementation.
-- DeviceAdapter: Provides the minimum live runtime control interface for one device adapter with externally read-only lifecycle state and explicit required participation metadata for readiness records.
+- DeviceAdapter: Provides the minimum live runtime control interface for one device adapter with externally read-only lifecycle state, explicit required participation metadata, and a concrete-adapter record exposure hook for DeviceManager collection.
 
 ## src/lab_sync_acquisition/device_manager.py
 
 - DeviceLifecycleResult: Records the result of one Device Manager lifecycle call against one adapter.
-- DeviceRecordCollection: Records the source adapter identity and unmodified records collected from that adapter.
+- DeviceRecordCollection: Records the source device identity, record kind, and unmodified records collected from one already-created adapter.
 - DeviceReadinessSummary: Aggregates shared readiness records across already-created adapters and can be passed to Session initialization.
-- DeviceManager: Holds at least one already-created Device Adapter and coordinates lifecycle, readiness, status, and minimal record collection calls without creating adapters.
+- DeviceManager: Holds at least one already-created Device Adapter and coordinates lifecycle, readiness, status, and minimal acquisition record collection without creating adapters or envelopes.
 
 ## src/lab_sync_acquisition/ingestor.py
 
@@ -77,7 +77,7 @@
 ## src/lab_sync_acquisition/session.py
 
 - SessionState: Enumerates the accepted Phase 1 session lifecycle states.
-- SessionConfig: Holds explicit session declarations, including selected device declarations, needed to initialize a session.
+- SessionConfig: Holds the accepted run configuration for one Session, including selected device declarations and optional configuration buckets for runtime owners.
 - ReadinessCheck: Records the result of a readiness condition checked during lifecycle transitions.
 - LifecycleTransition: Records an allowed lifecycle state transition in sequence order.
 - SessionLifecycleError: Signals invalid lifecycle operations or failed readiness requirements.

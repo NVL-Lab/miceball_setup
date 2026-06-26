@@ -178,6 +178,14 @@ class DeviceAdapter:
             shutdown=self._state is DeviceAdapterState.SHUTDOWN,
         )
 
+    def collect_records(self) -> Any:
+        """Expose adapter-produced acquisition records for DeviceManager collection."""
+
+        raise NotImplementedError(
+            "DeviceAdapter.collect_records requires a concrete acquisition "
+            "record implementation"
+        )
+
     def _require_state(self, expected_state: DeviceAdapterState) -> None:
         if self._state is not expected_state:
             actual_state = self._state

@@ -37,7 +37,8 @@ class DeviceReadinessSummary:
 class DeviceRecordCollection:
     """Records collected from one already-created adapter."""
 
-    device_id: str
+    source_device_id: str
+    record_kind: str
     records: tuple[Any, ...]
 
 
@@ -111,19 +112,17 @@ class DeviceManager:
 
         return tuple(adapter.get_status() for adapter in self._adapters)
 
-    def collect_records(
-        self,
-        adapter_method_name: str,
-    ) -> tuple[DeviceRecordCollection, ...]:
-        """Collect records returned by a named method on each adapter."""
+    def collect_records(self) -> tuple[DeviceRecordCollection, ...]:
+        """Collect acquisition records exposed by each already-created adapter."""
 
         collections = []
         for adapter in self._adapters:
-            records = getattr(adapter, adapter_method_name)()
+            adapter_records = adapter.collect_records()
             collections.append(
                 DeviceRecordCollection(
-                    device_id=adapter.device_id,
-                    records=tuple(records),
+                    source_device_id=adapter.device_id,
+                    record_kind=adapter_records["record_kind"],
+                    records=tuple(adapter_records["records"]),
                 )
             )
         return tuple(collections)

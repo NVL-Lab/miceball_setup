@@ -25,8 +25,6 @@ class AcquisitionIterationSummary:
 class AcquisitionNode:
     """Owns bounded acquisition execution without owning Session lifecycle."""
 
-    _record_collection_method_name = "produce_next_batch"
-
     def __init__(
         self,
         session_id: str,
@@ -40,6 +38,7 @@ class AcquisitionNode:
         self._ingestor = ingestor
         self._running = False
         self._iteration_index = 0
+        self._last_error: str | None = None
 
     def check_ready(self) -> dict[str, Any]:
         """Return acquisition-side readiness using existing readiness contracts."""
@@ -87,9 +86,7 @@ class AcquisitionNode:
         if not self._running:
             raise RuntimeError("AcquisitionNode must be running before iteration")
 
-        record_collections = self._device_manager.collect_records(
-            self._record_collection_method_name
-        )
+        record_collections = self._device_manager.collect_records()
         self._iteration_index += 1
         envelopes_sent = 0
         accepted_count = 0
@@ -101,8 +98,8 @@ class AcquisitionNode:
                 for row in collection.records
             )
             audit = self._send_envelope(
-                source_device_id=collection.device_id,
-                record_kind=self._record_kind_for_device(collection.device_id),
+                source_device_id=collection.source_device_id,
+                record_kind=collection.record_kind,
                 records=records,
             )
             envelopes_sent += 1
@@ -158,10 +155,9 @@ class AcquisitionNode:
 
         return {
             "session_id": self._session_id,
-            "running": self._running,
-            "iteration_index": self._iteration_index,
-            "session_time_s": self._synchronization_manager.current_session_time_s,
-            "device_statuses": self._device_manager.collect_statuses(),
+            "is_running": self._running,
+            "iteration_count": self._iteration_index,
+            "last_error": self._last_error,
         }
 
     def _send_envelope(
@@ -187,9 +183,3 @@ class AcquisitionNode:
             **row,
             "session_time_s": self._synchronization_manager.current_session_time_s,
         }
-
-    def _record_kind_for_device(self, device_id: str) -> str:
-        for adapter in self._device_manager.adapters:
-            if adapter.device_id == device_id and adapter.declared_capabilities:
-                return adapter.declared_capabilities[0]
-        return "device_records"

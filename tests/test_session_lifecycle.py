@@ -102,6 +102,48 @@ class SessionLifecycleTests(unittest.TestCase):
             checks,
         )
 
+    def test_session_preserves_accepted_run_configuration(self) -> None:
+        declaration = device_declaration()
+        accepted_config = SessionConfig(
+            session_id="session-001",
+            selected_devices=[declaration],
+            session_parameters={"experimenter": "test-user"},
+            device_configurations={
+                "camera-001": {
+                    "exposure_ms": 5,
+                    "frame_rate_hz": 30,
+                },
+            },
+            synchronization_configuration={"clock": "phase1_monotonic"},
+            acquisition_configuration={"bounded_iterations": 3},
+            ingestion_configuration={"mode": "in_memory"},
+            storage_configuration={"mode": "in_memory"},
+            storage_location="placeholder://session",
+            protocol_plan={"name": "no-op"},
+            protocol_reference="protocol://no-op",
+        )
+        session = Session(session_id="session-001", configuration=accepted_config)
+
+        session.initialize()
+
+        self.assertIs(session.configuration, accepted_config)
+        self.assertIs(session.configuration.selected_devices[0], declaration)
+        self.assertEqual(
+            session.configuration.device_configurations["camera-001"],
+            {
+                "exposure_ms": 5,
+                "frame_rate_hz": 30,
+            },
+        )
+        self.assertEqual(declaration.device_id, "camera-001")
+        self.assertEqual(declaration.device_type, "camera")
+        self.assertTrue(declaration.enabled)
+        self.assertTrue(declaration.required)
+        self.assertEqual(declaration.declared_capabilities, ("produces_stream",))
+        self.assertFalse(hasattr(declaration, "exposure_ms"))
+        self.assertFalse(hasattr(declaration, "frame_rate_hz"))
+        self.assertIs(session.current_state, SessionState.INITIALIZED)
+
     def test_valid_device_declaration_passes_initialization(self) -> None:
         declaration = device_declaration()
         session = Session(

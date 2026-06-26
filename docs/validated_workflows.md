@@ -257,7 +257,10 @@ SynchronizationManager.start()
 session_start event
         │
         ▼
-bounded acquisition
+AcquisitionNode
+        │
+        ▼
+run_one_iteration()
         │
         ▼
 DeviceRecordCollection

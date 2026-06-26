@@ -449,7 +449,7 @@ At Session Start:
 
 ```text
 session_time_s = 0.0
-
+```
 
 ---
 
@@ -489,7 +489,7 @@ The storage format is defined separately from the Storage Manager architecture.
 
 The process of determining whether Session initialization may proceed based on readiness evidence.
 
-Session performs Readiness Gating using Device Readiness and, in the future, Service Readiness.
+Session performs Readiness Gating using Device Readiness and Service Readiness.
 
 Required components that are not ready prevent Session initialization.
 
@@ -535,7 +535,7 @@ Typical fields include:
 
 Device Declarations are stored in Session Configuration.
 
-They are consumed by the DeviceManager to create live DeviceAdapters.
+They are used by caller code to explicitly construct live DeviceAdapters.
 
 A Device Declaration is not a live device and does not communicate with hardware.
 
@@ -543,9 +543,9 @@ A Device Declaration is not a live device and does not communicate with hardware
 
 # Session Configuration
 
-The persistent configuration accepted by a Session before initialization.
+The accepted run configuration owned by a Session.
 
-Session Configuration declares the intended runtime configuration of a Session, including selected Device Declarations and other session-level configuration.
+Session Configuration declares the intended runtime configuration of a Session, including selected Device Declarations, session parameters, device configuration, synchronization configuration, acquisition configuration, ingestion/storage configuration, and protocol intent or reference.
 
 It represents intended execution rather than runtime state.
 

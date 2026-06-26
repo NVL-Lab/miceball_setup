@@ -2189,7 +2189,8 @@ Session
     records lifecycle state
 
 Acquisition Node
-    executes acquisition---
+    executes acquisition
+```
 
 ---
 
@@ -2279,6 +2280,36 @@ DeviceAdapters expose acquisition records; DeviceManager returns `DeviceRecordCo
 
 ---
 
+## Decision 070: Session owns accepted run configuration
+
+**Status:** Accepted
+
+`SessionConfig` represents the accepted configuration for one Session run.
+
+The Controller may assemble configuration, but the Session owns the accepted configuration.
+
+`DeviceDeclaration` says what participates.
+
+Device configuration says how each device should be used.
+
+`SessionConfig` may include:
+
+* session parameters
+* device declarations
+* device configuration
+* synchronization configuration
+* acquisition runtime configuration
+* ingestion/storage configuration
+* protocol intent or reference
+
+Runtime owners receive only the configuration relevant to their responsibility.
+
+**Principle**
+
+The Controller assembles configuration; the Session owns the accepted run configuration.
+
+---
+
 
 --- ********************************************************************************
 
@@ -2354,6 +2385,7 @@ The following principles summarize the accepted decisions so far.
 67. Session owns lifecycle; Acquisition Node owns acquisition execution.
 68. AcquisitionNode v1 owns bounded synchronous acquisition execution, not Session lifecycle.
 69. DeviceManager collects acquisition records into Collections; AcquisitionNode creates Envelopes.
+70. The Controller assembles configuration; the Session owns the accepted run configuration.
 
 ---
 

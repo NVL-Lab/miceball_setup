@@ -26,15 +26,18 @@ from tests.fakes import ReadyFakeAdapter
 class TinyStreamFakeAdapter(ReadyFakeAdapter):
     """Test-only adapter that produces a tiny in-memory stream."""
 
-    def produce_tiny_stream(self):
+    def collect_records(self):
         if self.state is not DeviceAdapterState.RUNNING:
             raise RuntimeError("Tiny stream requires a running fake adapter")
 
-        return [
-            {"session_time": 0.0, "value": 10},
-            {"session_time": 0.1, "value": 11},
-            {"session_time": 0.2, "value": 12},
-        ]
+        return {
+            "record_kind": "tiny_stream",
+            "records": [
+                {"session_time": 0.0, "value": 10},
+                {"session_time": 0.1, "value": 11},
+                {"session_time": 0.2, "value": 12},
+            ],
+        }
 
 
 class BoundedFakeStreamAdapter(ReadyFakeAdapter):
@@ -46,6 +49,7 @@ class BoundedFakeStreamAdapter(ReadyFakeAdapter):
         device_type,
         declared_capabilities,
         required,
+        record_kind,
         batches,
     ):
         super().__init__(
@@ -54,18 +58,25 @@ class BoundedFakeStreamAdapter(ReadyFakeAdapter):
             declared_capabilities=declared_capabilities,
             required=required,
         )
+        self._record_kind = record_kind
         self._batches = tuple(tuple(batch) for batch in batches)
         self._next_batch_index = 0
 
-    def produce_next_batch(self):
+    def collect_records(self):
         if self.state is not DeviceAdapterState.RUNNING:
             raise RuntimeError("Fake acquisition requires a running fake adapter")
         if self._next_batch_index >= len(self._batches):
-            return ()
+            return {
+                "record_kind": self._record_kind,
+                "records": (),
+            }
 
         batch = self._batches[self._next_batch_index]
         self._next_batch_index += 1
-        return batch
+        return {
+            "record_kind": self._record_kind,
+            "records": batch,
+        }
 
 
 class FakeAcquisitionSliceTests(unittest.TestCase):
@@ -103,12 +114,12 @@ class FakeAcquisitionSliceTests(unittest.TestCase):
         )
         session.start()
         manager.start_all()
-        record_collections = manager.collect_records("produce_tiny_stream")
+        record_collections = manager.collect_records()
         rows = record_collections[0].records
         envelope = AcquisitionRecordEnvelope(
             session_id=session.session_id,
-            source_device_id=record_collections[0].device_id,
-            record_kind="tiny_stream",
+            source_device_id=record_collections[0].source_device_id,
+            record_kind=record_collections[0].record_kind,
             records=rows,
         )
         envelope_data = envelope.to_dict()
@@ -125,7 +136,11 @@ class FakeAcquisitionSliceTests(unittest.TestCase):
         source_envelopes = storage.get_envelopes_for_source("adapter-camera-001")
 
         self.assertEqual(len(record_collections), 1)
-        self.assertEqual(record_collections[0].device_id, "adapter-camera-001")
+        self.assertEqual(
+            record_collections[0].source_device_id,
+            "adapter-camera-001",
+        )
+        self.assertEqual(record_collections[0].record_kind, "tiny_stream")
         self.assertEqual(session.device_readiness_summary, manager_readiness.results)
         self.assertEqual(
             session.service_readiness_checks,
@@ -314,15 +329,15 @@ class FakeAcquisitionSliceTests(unittest.TestCase):
         session = Session(session_id="session-001", configuration=configuration)
         payload_batches = [
             [
-                {"step": 1, "value": 10},
-                {"step": 1, "value": 11},
+                {"device_time_s": 100.0, "step": 1, "value": 10},
+                {"device_time_s": 100.1, "step": 1, "value": 11},
             ],
             [
-                {"step": 2, "value": 12},
-                {"step": 2, "value": 13},
+                {"device_time_s": 100.2, "step": 2, "value": 12},
+                {"device_time_s": 100.3, "step": 2, "value": 13},
             ],
             [
-                {"step": 3, "value": 14},
+                {"device_time_s": 100.4, "step": 3, "value": 14},
             ],
         ]
         original_payload_rows = [
@@ -333,8 +348,9 @@ class FakeAcquisitionSliceTests(unittest.TestCase):
         adapter = BoundedFakeStreamAdapter(
             device_id="adapter-camera-001",
             device_type="camera",
-            declared_capabilities=["tiny_stream"],
+            declared_capabilities=["reports_health"],
             required=True,
+            record_kind="tiny_stream",
             batches=payload_batches,
         )
         manager = DeviceManager(adapters=[adapter])
@@ -346,6 +362,17 @@ class FakeAcquisitionSliceTests(unittest.TestCase):
             device_manager=manager,
             synchronization_manager=synchronization,
             ingestor=ingestor,
+        )
+        initial_node_status = acquisition_node.status()
+
+        self.assertEqual(
+            initial_node_status,
+            {
+                "session_id": "session-001",
+                "is_running": False,
+                "iteration_count": 0,
+                "last_error": None,
+            },
         )
 
         manager.initialize_all(config={"mode": "bounded-fake"})
@@ -390,7 +417,7 @@ class FakeAcquisitionSliceTests(unittest.TestCase):
         stored_envelope_count_after_shutdown = len(storage.stored_envelopes)
         session.complete(reason="bounded fake acquisition complete")
         node_status = acquisition_node.status()
-        status = node_status["device_statuses"]
+        status = manager.collect_statuses()
         stored_envelopes = storage.stored_envelopes
         lifecycle_event_envelopes = [
             envelope
@@ -421,6 +448,7 @@ class FakeAcquisitionSliceTests(unittest.TestCase):
             [summary.iteration_index for summary in iteration_summaries],
             [1, 2, 3],
         )
+        self.assertEqual(adapter.declared_capabilities, ("reports_health",))
         self.assertEqual(len(stream_envelopes), acquisition_steps)
         self.assertEqual(len(lifecycle_event_envelopes), 2)
         self.assertEqual(
@@ -446,8 +474,9 @@ class FakeAcquisitionSliceTests(unittest.TestCase):
             "synchronization_manager",
         )
         self.assertEqual(node_status["session_id"], "session-001")
-        self.assertFalse(node_status["running"])
-        self.assertEqual(node_status["iteration_index"], acquisition_steps)
+        self.assertFalse(node_status["is_running"])
+        self.assertEqual(node_status["iteration_count"], acquisition_steps)
+        self.assertIsNone(node_status["last_error"])
         self.assertFalse(synchronization.is_running)
         self.assertGreaterEqual(final_session_time_s, 0.0)
         self.assertTrue(session_stop_audit.accepted)
@@ -480,6 +509,7 @@ class FakeAcquisitionSliceTests(unittest.TestCase):
         self.assertTrue(
             all("session_time_s" not in row for row in original_payload_rows)
         )
+        self.assertTrue(all("device_time_s" in row for row in stored_rows))
         self.assertEqual(
             [
                 {key: value for key, value in row.items() if key != "session_time_s"}
@@ -493,7 +523,7 @@ class FakeAcquisitionSliceTests(unittest.TestCase):
         )
         self.assertTrue(
             all(
-                set(row) == {"session_time_s", "step", "value"}
+                set(row) == {"device_time_s", "session_time_s", "step", "value"}
                 for row in stored_rows
             )
         )
