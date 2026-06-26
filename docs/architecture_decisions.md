@@ -1845,6 +1845,61 @@ Session can record and gate on service readiness summaries before acquisition re
 
 Final readiness framework, service discovery, storage capacity validation, reconstruction readiness, and multi-node readiness remain deferred.
 
+---
+
+## Decision 063: Acquisition-side code creates transferable record envelopes
+
+**Status:** Accepted
+
+`DeviceManager` produces acquisition-side `DeviceRecordCollection` objects.
+
+Before records cross the boundary to the `Ingestor`, acquisition-side caller code wraps each collection in an `AcquisitionRecordEnvelope`.
+
+The ownership boundary is:
+
+```text
+DeviceManager
+    collects DeviceRecordCollection
+
+acquisition-side caller
+    creates AcquisitionRecordEnvelope
+
+Ingestor
+    receives AcquisitionRecordEnvelope
+```
+
+`DeviceManager` does not:
+
+* create `AcquisitionRecordEnvelope`
+* know the ingest message format
+* know transport concerns
+
+`Ingestor` does not:
+
+* receive `DeviceRecordCollection`
+* know live adapter collection details
+* know `DeviceManager`
+
+`Session` does not:
+
+* transform acquisition records
+* create acquisition envelopes
+
+No dedicated `EnvelopeBuilder` component exists in Phase 1.
+
+Envelope creation is explicit acquisition-side caller code until repeated real implementations demonstrate the need for a shared abstraction.
+
+**Rationale:**
+
+The acquisition/ingest boundary represents a transferable message contract rather than shared runtime objects.
+
+Keeping envelope creation outside both `DeviceManager` and `Ingestor` preserves their responsibilities while avoiding the premature introduction of another architectural component.
+
+**Consequence:**
+
+Acquisition-side code is responsible for converting runtime record collections into transferable envelopes before they cross into the ingestion boundary.
+
+
 
 --- ********************************************************************************
 
@@ -1913,6 +1968,7 @@ The following principles summarize the accepted decisions so far.
 60. AcquisitionRecordEnvelope supports a minimal JSON-like plain-data round trip without choosing a transport or serialization protocol.
 61. StorageManager v1 proves in-memory persistence boundary behavior and small readback without deciding final storage format.
 62. Session initialization consumes shared service readiness summaries and does not inspect service internals.
+63. Acquisition-side code creates `AcquisitionRecordEnvelope` objects before records cross to the Ingestor. `DeviceManager`, `Session`, and `Ingestor` do not own this transformation.
 
 ---
 

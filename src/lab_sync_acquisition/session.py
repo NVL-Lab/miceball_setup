@@ -173,17 +173,9 @@ class Session:
         self._transition_to(SessionState.INITIALIZED)
 
     def start(self) -> None:
-        """Move from initialized to running and record scoped readiness checks."""
+        """Move from initialized to running."""
 
         self._ensure_transition_allowed(SessionState.RUNNING)
-        checks = [
-            ("devices_required", True, "out_of_scope_for_this_slice"),
-            ("ingestor_required", True, "out_of_scope_for_this_slice"),
-            ("storage_required", True, "out_of_scope_for_this_slice"),
-            ("synchronization_required", True, "out_of_scope_for_this_slice"),
-            ("session_start_event_required", True, "out_of_scope_for_this_slice"),
-        ]
-        self._record_checks(checks)
         self._transition_to(SessionState.RUNNING)
 
     def stop(self, reason: str | None = None) -> None:

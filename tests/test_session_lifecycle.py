@@ -382,8 +382,10 @@ class SessionLifecycleTests(unittest.TestCase):
                 self.assertIn(missing_check, failed_checks)
                 self.assertIs(session.current_state, SessionState.CREATED)
 
-    def test_readiness_checks_are_recorded(self) -> None:
-        session = running_session()
+    def test_initialize_records_declaration_readiness_checks(self) -> None:
+        session = Session(session_id="session-001", configuration=config())
+
+        session.initialize()
 
         checks = {
             (check.name, check.status, check.reason)
@@ -395,30 +397,18 @@ class SessionLifecycleTests(unittest.TestCase):
             ("selected_devices_declared", "PASS", "selected_devices_declared"),
             checks,
         )
-        self.assertIn(
-            ("devices_required", "PASS", "out_of_scope_for_this_slice"),
-            checks,
-        )
-        self.assertIn(
-            ("ingestor_required", "PASS", "out_of_scope_for_this_slice"),
-            checks,
-        )
-        self.assertIn(
-            ("storage_required", "PASS", "out_of_scope_for_this_slice"),
-            checks,
-        )
-        self.assertIn(
-            ("synchronization_required", "PASS", "out_of_scope_for_this_slice"),
-            checks,
-        )
-        self.assertIn(
-            (
-                "session_start_event_required",
-                "PASS",
-                "out_of_scope_for_this_slice",
-            ),
-            checks,
-        )
+
+    def test_start_requires_initialized_session_without_adding_readiness_checks(
+        self,
+    ) -> None:
+        session = Session(session_id="session-001", configuration=config())
+        session.initialize()
+        readiness_checks = session.readiness_checks
+
+        session.start()
+
+        self.assertIs(session.current_state, SessionState.RUNNING)
+        self.assertEqual(session.readiness_checks, readiness_checks)
 
     def test_required_ready_device_allows_initialization(self) -> None:
         session = Session(session_id="session-001", configuration=config())
