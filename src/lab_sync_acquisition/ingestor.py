@@ -90,6 +90,6 @@ class InMemoryIngestor:
 
     def _row_has_session_time(self, row: Any) -> bool:
         try:
-            return "session_time" in row
+            return "session_time_s" in row or "session_time" in row
         except TypeError:
             return False

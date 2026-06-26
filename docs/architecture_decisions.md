@@ -1899,6 +1899,223 @@ Keeping envelope creation outside both `DeviceManager` and `Ingestor` preserves 
 
 Acquisition-side code is responsible for converting runtime record collections into transferable envelopes before they cross into the ingestion boundary.
 
+---
+
+## Decision 064: SynchronizationManager owns Session Time
+
+**Status:** Accepted
+
+The framework owns Session Time through a `SynchronizationManager`.
+
+`Session Time` is the shared temporal reference for all acquisition records belonging to a session.
+
+The ownership boundary is:
+
+```text
+SynchronizationManager
+    owns Session Time
+
+acquisition-side caller
+    obtains Session Time
+    attaches session_time to acquisition records
+
+AcquisitionRecordEnvelope
+    carries timestamped records
+
+Ingestor
+    receives timestamped records
+
+StorageManager
+    stores timestamped records
+```
+
+`SynchronizationManager` is responsible for:
+
+* starting the session clock
+* reporting readiness
+* providing the current Session Time
+
+`SynchronizationManager` does not:
+
+* collect acquisition records
+* own device lifecycle
+* own session lifecycle
+* perform ingestion
+* perform storage
+
+`DeviceAdapter` does not:
+
+* invent Session Time
+* own the session clock
+
+For Phase 1 fake acquisition, adapters may produce untimestamped payload rows. The acquisition-side caller attaches `session_time` obtained from the `SynchronizationManager` before creating an `AcquisitionRecordEnvelope`.
+
+`Ingestor` does not:
+
+* assign timestamps
+* modify timestamps
+
+`StorageManager` does not:
+
+* assign timestamps
+* modify timestamps
+
+`Session` does not:
+
+* assign timestamps to acquisition records
+
+This decision intentionally excludes:
+
+* hardware synchronization
+* synchronization anchors
+* drift estimation
+* clock correction
+* timestamp uncertainty
+* multi-node synchronization
+
+These remain future architectural work.
+
+**Rationale:**
+
+Session Time is a framework concern rather than a device concern.
+
+Separating timestamp ownership from adapters ensures that all acquisition records share a common temporal reference while preserving clear ownership boundaries between acquisition, synchronization, ingestion, and storage.
+
+**Consequence:**
+
+Before acquisition records cross into the ingestion boundary, acquisition-side code is responsible for obtaining the current Session Time from the `SynchronizationManager` and attaching it to each record.
+
+
+---
+
+
+## Decision 065: Synchronization Manager v1 owns Phase 1 Session Time
+
+**Status:** Accepted
+
+Session Time is the session-scoped monotonic scientific timebase for one Session.
+
+For Phase 1:
+
+```text
+Session Time = elapsed seconds since acquisition session_start
+```
+
+The `session_start` acquisition event defines:
+
+```text
+session_time_s = 0.0
+```
+
+Session Time is:
+
+* relative
+* monotonic
+* session-scoped
+* stored in seconds
+* owned by the Synchronization Manager
+* based on Jetson monotonic time in Phase 1
+
+Session Time is not:
+
+* wall-clock time
+* GUI time
+* Ingestor arrival time
+* Device Local Time
+* network/message timestamp
+
+## Scientific guarantee
+
+For Phase 1, Session Time guarantees that all streams and events from the Acquisition Node are timestamped against the same monotonic session clock.
+
+It does not yet guarantee:
+
+* hardware-level synchronization
+* sub-millisecond precision
+* multi-node clock alignment
+* drift correction across independent machines
+
+Millisecond-level timing is sufficient for Phase 1 because the most timing-critical signal is currently approximately 30 Hz.
+
+## Relation to device clocks
+
+Devices may produce local timestamps, counters, frame indices, or local clock values.
+
+These should be preserved when available, but:
+
+```text
+Device Local Time != Session Time
+```
+
+If both exist, both should be stored.
+
+## Lifecycle relationship
+
+Session Time starts when acquisition starts, not when the behavioral protocol starts.
+
+```text
+session_start       session_time_s = 0.0
+experiment_start    timestamped event inside Session
+experiment_end      timestamped event inside Session
+session_end         final acquisition time
+```
+
+Warmup, stabilization, calibration, and buffering may therefore be recorded before the behavioral protocol begins.
+
+## Software boundary
+
+The Synchronization Manager owns Session Time.
+
+The Acquisition Node starts Session Time by asking the Synchronization Manager to start the session clock when acquisition enters `running`.
+
+Conceptually:
+
+```text
+Controller sends start_session intent
+Acquisition Node passes readiness checks
+Synchronization Manager starts Session Time
+session_start event is recorded at session_time_s = 0.0
+Acquisition begins
+```
+
+Components do not invent Session Time.
+
+Session Time is provided to acquisition components through the Acquisition Node runtime.
+
+Conceptually:
+
+```text
+Device Adapter -> Acquisition Node runtime -> Synchronization Manager -> session_time_s
+```
+
+For Phase 1, adapters may receive session timestamps from the acquisition runtime when records are created.
+
+## Out of scope for v1
+
+Synchronization Manager v1 does not solve:
+
+* hardware synchronization
+* drift estimation
+* drift correction
+* synchronization anchors
+* multi-node clock alignment
+* timestamp uncertainty modeling
+* external time references
+* transport timing
+
+## Principle
+
+Synchronization Manager v1 owns Session Time; it does not solve the full synchronization problem.
+
+## Consequences
+
+* Adapters do not assign or invent Session Time.
+* Ingestor does not assign or invent Session Time.
+* Storage Manager does not assign or invent Session Time.
+* Session coordinates lifecycle but does not define clock semantics.
+* Acquisition-side runtime obtains Session Time from the Synchronization Manager.
+* Every stream sample, frame, or event must have Session Time or enough stored information to reconstruct it.
+
 
 
 --- ********************************************************************************
@@ -1969,6 +2186,8 @@ The following principles summarize the accepted decisions so far.
 61. StorageManager v1 proves in-memory persistence boundary behavior and small readback without deciding final storage format.
 62. Session initialization consumes shared service readiness summaries and does not inspect service internals.
 63. Acquisition-side code creates `AcquisitionRecordEnvelope` objects before records cross to the Ingestor. `DeviceManager`, `Session`, and `Ingestor` do not own this transformation.
+64. SynchronizationManager owns Session Time; acquisition-side code attaches `session_time` to records before they become `AcquisitionRecordEnvelope`s.
+65. Synchronization Manager v1 owns Session Time; it does not solve the full synchronization problem.
 
 ---
 

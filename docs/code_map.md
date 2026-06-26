@@ -24,6 +24,7 @@
 - SessionLifecycleError: Public import for lifecycle operation failures.
 - SessionState: Public import for accepted Phase 1 session lifecycle states.
 - ServiceReadiness: Public import for readiness records produced by framework services and consumed by Session initialization.
+- SynchronizationManager: Public import for the minimal Phase 1 Session Time owner.
 
 ## src/lab_sync_acquisition/acquisition_record.py
 
@@ -61,6 +62,10 @@
 ## src/lab_sync_acquisition/storage.py
 
 - InMemoryStorageManager: Reports service readiness, stores accepted AcquisitionRecordEnvelope objects in memory, and exposes all, session-filtered, and source-filtered readback without file writing or transformation.
+
+## src/lab_sync_acquisition/synchronization.py
+
+- SynchronizationManager: Owns the minimal Phase 1 session clock, reports synchronization service readiness, starts Session Time at 0.0 seconds, exposes current Session Time, and can freeze final timing state.
 
 ## src/lab_sync_acquisition/session.py
 

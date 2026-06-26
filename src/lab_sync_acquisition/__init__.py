@@ -27,6 +27,7 @@ from lab_sync_acquisition.session import (
 )
 from lab_sync_acquisition.service_readiness import ServiceReadiness
 from lab_sync_acquisition.storage import InMemoryStorageManager
+from lab_sync_acquisition.synchronization import SynchronizationManager
 
 __all__ = [
     "DeviceAdapter",
@@ -51,4 +52,5 @@ __all__ = [
     "SessionLifecycleError",
     "SessionState",
     "ServiceReadiness",
+    "SynchronizationManager",
 ]

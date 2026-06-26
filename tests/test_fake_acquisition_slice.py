@@ -17,6 +17,7 @@ from lab_sync_acquisition import (
     Session,
     SessionConfig,
     SessionState,
+    SynchronizationManager,
 )
 from tests.fakes import ReadyFakeAdapter
 
@@ -36,7 +37,7 @@ class TinyStreamFakeAdapter(ReadyFakeAdapter):
 
 
 class BoundedFakeStreamAdapter(ReadyFakeAdapter):
-    """Test-only adapter with pre-timestamped fake acquisition batches."""
+    """Test-only adapter with untimestamped fake acquisition payload batches."""
 
     def __init__(
         self,
@@ -229,22 +230,22 @@ class FakeAcquisitionSliceTests(unittest.TestCase):
             protocol_plan={"name": "bounded-fake-acquisition"},
         )
         session = Session(session_id="session-001", configuration=configuration)
-        pre_timestamped_batches = [
+        payload_batches = [
             [
-                {"session_time": 0.0, "step": 1, "value": 10},
-                {"session_time": 0.1, "step": 1, "value": 11},
+                {"step": 1, "value": 10},
+                {"step": 1, "value": 11},
             ],
             [
-                {"session_time": 0.2, "step": 2, "value": 12},
-                {"session_time": 0.3, "step": 2, "value": 13},
+                {"step": 2, "value": 12},
+                {"step": 2, "value": 13},
             ],
             [
-                {"session_time": 0.4, "step": 3, "value": 14},
+                {"step": 3, "value": 14},
             ],
         ]
-        original_rows = [
+        original_payload_rows = [
             dict(row)
-            for batch in pre_timestamped_batches
+            for batch in payload_batches
             for row in batch
         ]
         adapter = BoundedFakeStreamAdapter(
@@ -252,33 +253,58 @@ class FakeAcquisitionSliceTests(unittest.TestCase):
             device_type="camera",
             declared_capabilities=["tiny_stream"],
             required=True,
-            batches=pre_timestamped_batches,
+            batches=payload_batches,
         )
         manager = DeviceManager(adapters=[adapter])
+        synchronization = SynchronizationManager()
         storage = InMemoryStorageManager()
         ingestor = InMemoryIngestor(storage_manager=storage)
 
         manager.initialize_all(config={"mode": "bounded-fake"})
         manager_readiness = manager.check_readiness()
-        service_readiness = [ingestor.check_ready(), storage.check_ready()]
+        synchronization_ready = synchronization.check_ready()
+        service_readiness = [
+            synchronization_ready,
+            ingestor.check_ready(),
+            storage.check_ready(),
+        ]
         session.initialize(
             device_readiness_summary=manager_readiness,
             service_readiness=service_readiness,
         )
         session.start()
+        initial_session_time_s = synchronization.start()
+        self.assertEqual(initial_session_time_s, 0.0)
+        self.assertGreaterEqual(synchronization.current_session_time_s, 0.0)
+        self.assertLess(synchronization.current_session_time_s, 0.1)
         manager.start_all()
 
         acquisition_steps = 3
         received_envelope_count = 0
+        timestamped_rows_at_envelope_creation = []
         for _ in range(acquisition_steps):
             record_collections = manager.collect_records("produce_next_batch")
             self.assertGreaterEqual(len(record_collections), 1)
             for collection in record_collections:
+                self.assertTrue(
+                    all("session_time_s" not in row for row in collection.records)
+                )
+                session_time_s = synchronization.current_session_time_s
+                timestamped_records = tuple(
+                    {
+                        **row,
+                        "session_time_s": session_time_s,
+                    }
+                    for row in collection.records
+                )
+                timestamped_rows_at_envelope_creation.extend(
+                    dict(row) for row in timestamped_records
+                )
                 envelope = AcquisitionRecordEnvelope(
                     session_id=session.session_id,
                     source_device_id=collection.device_id,
                     record_kind="tiny_stream",
-                    records=collection.records,
+                    records=timestamped_records,
                 )
                 envelope_data = envelope.to_dict()
                 reconstructed_envelope = AcquisitionRecordEnvelope.from_dict(
@@ -289,6 +315,7 @@ class FakeAcquisitionSliceTests(unittest.TestCase):
                 received_envelope_count += 1
 
         manager.stop_all()
+        final_session_time_s = synchronization.stop()
         session.stop(reason="bounded fake acquisition complete")
         session.complete(reason="bounded fake acquisition complete")
         manager.shutdown_all()
@@ -309,14 +336,38 @@ class FakeAcquisitionSliceTests(unittest.TestCase):
             storage.get_envelopes_for_source("adapter-camera-001"),
             stored_envelopes,
         )
+        self.assertEqual(session.service_readiness_checks, tuple(service_readiness))
+        self.assertEqual(synchronization_ready.component_id, "synchronization")
+        self.assertEqual(
+            synchronization_ready.component_type,
+            "synchronization_manager",
+        )
+        self.assertFalse(synchronization.is_running)
+        self.assertGreaterEqual(final_session_time_s, 0.0)
         self.assertTrue(
             all(audit.accepted for audit in ingestor.ingest_audit)
         )
-        self.assertTrue(all("session_time" in row for row in stored_rows))
-        self.assertEqual([dict(row) for row in stored_rows], original_rows)
+        self.assertTrue(all("session_time_s" in row for row in stored_rows))
+        self.assertTrue(
+            all(isinstance(row["session_time_s"], float) for row in stored_rows)
+        )
+        self.assertTrue(
+            all("session_time_s" not in row for row in original_payload_rows)
+        )
+        self.assertEqual(
+            [
+                {key: value for key, value in row.items() if key != "session_time_s"}
+                for row in stored_rows
+            ],
+            original_payload_rows,
+        )
+        self.assertEqual(
+            [dict(row) for row in stored_rows],
+            timestamped_rows_at_envelope_creation,
+        )
         self.assertTrue(
             all(
-                set(row) == {"session_time", "step", "value"}
+                set(row) == {"session_time_s", "step", "value"}
                 for row in stored_rows
             )
         )
