@@ -39,6 +39,30 @@ class SessionConfig:
     storage_configuration: dict[str, Any] | None = None
     protocol_reference: Any | None = None
 
+    def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-like plain-data representation."""
+
+        return {
+            "session_id": self.session_id,
+            "selected_devices": (
+                [
+                    device.to_dict()
+                    for device in self.selected_devices
+                ]
+                if self.selected_devices is not None
+                else None
+            ),
+            "storage_location": self.storage_location,
+            "protocol_plan": self.protocol_plan,
+            "session_parameters": self.session_parameters,
+            "device_configurations": self.device_configurations,
+            "synchronization_configuration": self.synchronization_configuration,
+            "acquisition_configuration": self.acquisition_configuration,
+            "ingestion_configuration": self.ingestion_configuration,
+            "storage_configuration": self.storage_configuration,
+            "protocol_reference": self.protocol_reference,
+        }
+
 
 @dataclass(frozen=True)
 class ReadinessCheck:
@@ -49,6 +73,16 @@ class ReadinessCheck:
     reason: str
     sequence: int
 
+    def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-like plain-data representation."""
+
+        return {
+            "name": self.name,
+            "status": self.status,
+            "reason": self.reason,
+            "sequence": self.sequence,
+        }
+
 
 @dataclass(frozen=True)
 class LifecycleTransition:
@@ -58,6 +92,16 @@ class LifecycleTransition:
     to_state: SessionState
     sequence: int
     reason: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-like plain-data representation."""
+
+        return {
+            "from_state": self.from_state.value,
+            "to_state": self.to_state.value,
+            "sequence": self.sequence,
+            "reason": self.reason,
+        }
 
 
 class SessionLifecycleError(Exception):

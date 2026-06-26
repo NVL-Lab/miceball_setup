@@ -23,7 +23,7 @@
 - LifecycleTransition: Public import for recorded lifecycle transitions.
 - ReadinessCheck: Public import for recorded readiness checks.
 - Session: Public import for the runtime session lifecycle model.
-- SessionConfig: Public import for the accepted run configuration owned by a Session.
+- SessionConfig: Public import for the immutable accepted run configuration owned by a Session and preserved as part of the Session Record.
 - SessionLifecycleError: Public import for lifecycle operation failures.
 - SessionState: Public import for accepted Phase 1 session lifecycle states.
 - ServiceReadiness: Public import for readiness records produced by framework services and consumed by Session initialization.
@@ -40,12 +40,12 @@
 
 ## src/lab_sync_acquisition/device.py
 
-- DeviceDeclaration: Holds explicit persistent/config fields for an intended device before any live adapter exists, with capabilities stored immutably.
+- DeviceDeclaration: Holds explicit persistent/config fields for an intended device before any live adapter exists, with capabilities stored immutably and exposed as plain data for Session Record evidence.
 
 ## src/lab_sync_acquisition/device_adapter.py
 
 - DeviceAdapterState: Enumerates the minimum lifecycle states for a live device adapter.
-- DeviceReadiness: Records device readiness fields shared by DeviceManager and Session.
+- DeviceReadiness: Records device readiness fields shared by DeviceManager and Session and exposes them as plain data for Session Record evidence.
 - DeviceStatus: Reports the current live adapter lifecycle status without scientific data.
 - DeviceAdapterLifecycleError: Signals invalid live adapter lifecycle operations.
 - DeviceReadinessNotImplementedError: Signals that a live adapter has no concrete readiness implementation.
@@ -60,17 +60,17 @@
 
 ## src/lab_sync_acquisition/ingestor.py
 
-- IngestAuditRecord: Records ingest order, receive time, accepted status, and reason for one received acquisition envelope.
+- IngestAuditRecord: Records ingest order, receive time, accepted status, and reason for one received acquisition envelope and exposes audit evidence as plain data.
 - InMemoryIngestor: Receives AcquisitionRecordEnvelope objects in memory, reports service readiness, records separate ingest audit evidence, and optionally forwards accepted envelopes to in-memory or persistent storage without mutating rows.
 
 ## src/lab_sync_acquisition/service_readiness.py
 
-- ServiceReadiness: Holds the shared framework-service readiness fields consumed by Session initialization.
+- ServiceReadiness: Holds the shared framework-service readiness fields consumed by Session initialization and exposes them as plain data for Session Record evidence.
 
 ## src/lab_sync_acquisition/storage.py
 
 - InMemoryStorageManager: Reports service readiness, stores accepted AcquisitionRecordEnvelope objects in memory, and exposes all, session-filtered, and source-filtered readback without file writing or transformation.
-- PersistentStorageManager: Reports service readiness, appends accepted AcquisitionRecordEnvelope dictionaries to a caller-supplied JSONL file, and reads them back as envelopes.
+- PersistentStorageManager: Reports service readiness, appends accepted AcquisitionRecordEnvelope dictionaries to a caller-supplied JSONL file, reads them back as envelopes, and writes/reads a minimal v1 Session Record JSON evidence package.
 
 ## src/lab_sync_acquisition/synchronization.py
 
@@ -79,8 +79,24 @@
 ## src/lab_sync_acquisition/session.py
 
 - SessionState: Enumerates the accepted Phase 1 session lifecycle states.
-- SessionConfig: Holds the accepted run configuration for one Session, including selected device declarations and optional configuration buckets for runtime owners.
-- ReadinessCheck: Records the result of a readiness condition checked during lifecycle transitions.
-- LifecycleTransition: Records an allowed lifecycle state transition in sequence order.
+- SessionConfig: Holds the immutable accepted run configuration for one Session, including selected device declarations and optional configuration buckets for runtime owners, and exposes it as plain data for the persistent Session Record.
+- ReadinessCheck: Records the result of a readiness condition checked during lifecycle transitions and exposes it as plain data for Session Record evidence.
+- LifecycleTransition: Records an allowed lifecycle state transition in sequence order and exposes it as plain data for Session Record evidence.
 - SessionLifecycleError: Signals invalid lifecycle operations or failed readiness requirements.
 - Session: Owns one session's lifecycle state, read-only transition history, read-only readiness checks, recorded shared device and service readiness summaries, cleanup status, and final status in memory.
+
+## scripts/demo_cross_process_acquisition_writer.py
+
+- main: Writes demo plain-data AcquisitionRecordEnvelope dictionaries to a local JSONL handoff file.
+
+## scripts/demo_cross_process_ingestor_reader.py
+
+- main: Reads demo handoff envelope dictionaries, reconstructs AcquisitionRecordEnvelope objects, sends them to InMemoryIngestor, and persists accepted envelopes through PersistentStorageManager.
+
+## scripts/demo_socket_acquisition_sender.py
+
+- main: Sends demo newline-delimited AcquisitionRecordEnvelope dictionaries to a localhost receiver over a disposable socket demo boundary.
+
+## scripts/demo_socket_ingestor_receiver.py
+
+- main: Receives demo newline-delimited envelope dictionaries over localhost, reconstructs AcquisitionRecordEnvelope objects, sends them to InMemoryIngestor, and persists accepted envelopes through PersistentStorageManager.

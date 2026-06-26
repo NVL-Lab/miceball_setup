@@ -408,6 +408,130 @@ AcquisitionRecordEnvelope
 
 ---
 
+# W009 - Persistent Session Record Finalization
+
+## Purpose
+
+Validate that a completed Session can be finalized into a durable v1 Session Record evidence package.
+
+## Workflow
+
+```text
+Session.complete()
+        |
+        v
+finalization caller gathers evidence
+        |
+        v
+PersistentStorageManager.write_session_record()
+        |
+        v
+session_record.json
+        |
+        v
+PersistentStorageManager.read_session_record()
+```
+
+## Validates
+
+- finalization code gathers evidence from existing owners
+- SessionConfig is preserved as accepted configuration evidence
+- Session lifecycle and readiness evidence are preserved
+- accepted acquisition envelopes are included in the Session Record
+- ingest audit evidence is included separately from acquisition envelopes
+- final session status and cleanup evidence are preserved
+- StorageManager writes evidence without becoming a Session lifecycle owner
+
+---
+
+# W010 - Local Cross-Process JSONL Handoff
+
+## Purpose
+
+Validate that acquisition-side and ingestion/storage-side demo code can run in separate local shell processes without sharing live runtime objects.
+
+## Workflow
+
+```text
+writer shell process
+        |
+        v
+plain-data AcquisitionRecordEnvelope dictionaries
+        |
+        v
+handoff.jsonl
+        |
+        v
+reader shell process
+        |
+        v
+AcquisitionRecordEnvelope.from_dict()
+        |
+        v
+InMemoryIngestor
+        |
+        v
+PersistentStorageManager
+        |
+        v
+accepted_records.jsonl
+```
+
+## Validates
+
+- a local JSONL handoff file can act as a demo process boundary
+- acquisition-side code emits plain-data envelopes
+- ingestion/storage-side code reconstructs envelopes without live acquisition objects
+- Ingestor creates audit evidence for each received envelope
+- StorageManager writes accepted envelopes to persistent JSONL
+- session_start, stream-like, event-like, and session_stop records preserve session_time_s
+
+---
+
+# W011 - Localhost Socket Envelope Transfer
+
+## Purpose
+
+Validate that acquisition-side and ingestion/storage-side demo code can communicate live over localhost without sharing runtime objects.
+
+## Workflow
+
+```text
+socket sender shell process
+        |
+        v
+newline-delimited JSON AcquisitionRecordEnvelope dictionaries
+        |
+        v
+localhost TCP socket
+        |
+        v
+socket receiver shell process
+        |
+        v
+AcquisitionRecordEnvelope.from_dict()
+        |
+        v
+InMemoryIngestor
+        |
+        v
+PersistentStorageManager
+        |
+        v
+accepted_records.jsonl
+```
+
+## Validates
+
+- live local process-to-process envelope transfer
+- no live DeviceAdapter, DeviceManager, AcquisitionNode, or Session object crosses the boundary
+- receiver reconstructs envelopes through the public plain-data API
+- Ingestor creates audit evidence for received envelopes
+- StorageManager writes accepted envelopes to persistent JSONL
+- session_start, stream-like, event-like, and session_stop records preserve session_time_s
+
+---
+
 # Future Workflows
 
 The following workflows are expected to be added as the framework evolves.

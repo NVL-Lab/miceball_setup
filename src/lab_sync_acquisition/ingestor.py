@@ -23,6 +23,16 @@ class IngestAuditRecord:
     accepted: bool
     reason: str
 
+    def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-like plain-data representation."""
+
+        return {
+            "ingest_order": self.ingest_order,
+            "ingest_received_at": self.ingest_received_at,
+            "accepted": self.accepted,
+            "reason": self.reason,
+        }
+
 
 class InMemoryIngestor:
     """Receives acquisition envelopes and forwards accepted ones to storage."""

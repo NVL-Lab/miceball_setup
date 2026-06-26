@@ -218,19 +218,24 @@ An Experiment may contain many Sessions.
 
 # Session Record
 
-The complete collection of records associated with a Session.
+A durable evidence package for one Session.
 
 Examples include:
 
-* manifests
-* configuration
-* streams
-* events
-* timing records
-* reconstruction outputs
-* exports
+* accepted Session Configuration
+* Session lifecycle evidence
+* device readiness evidence
+* service readiness evidence
+* session_start and session_stop acquisition events
+* accepted acquisition envelopes
+* ingest audit records
+* final session status
+* warnings, recoverable failures, and fatal failures
+* cleanup evidence
 
-The exact Session Record structure is defined elsewhere.
+The Session Record preserves what was intended, what was ready, what ran, what was acquired, what was ingested, how the Session ended, and what failed.
+
+The final folder layout, manifest format, detailed schemas, reconstruction outputs, and export formats are defined separately.
 
 ---
 
@@ -550,6 +555,10 @@ A Device Declaration is not a live device and does not communicate with hardware
 The accepted run configuration owned by a Session.
 
 Session Configuration declares the intended runtime configuration of a Session, including selected Device Declarations, session parameters, device configuration, synchronization configuration, acquisition configuration, ingestion/storage configuration, and protocol intent or reference.
+
+The accepted Session Configuration is immutable for the duration of the Session.
+
+The accepted Session Configuration is part of the persistent Session Record.
 
 It represents intended execution rather than runtime state.
 

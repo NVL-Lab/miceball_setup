@@ -47,6 +47,17 @@ class DeviceReadiness:
             tuple(capabilities_available),
         )
 
+    def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-like plain-data representation."""
+
+        return {
+            "device_id": self.device_id,
+            "required": self.required,
+            "ready": self.ready,
+            "reason": self.reason,
+            "capabilities_available": list(self.capabilities_available),
+        }
+
 
 @dataclass(frozen=True)
 class DeviceStatus:

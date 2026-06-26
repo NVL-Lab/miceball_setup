@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Iterable
+from typing import Any, Iterable
 
 from lab_sync_acquisition.acquisition_record import AcquisitionRecordEnvelope
 from lab_sync_acquisition.service_readiness import ServiceReadiness
@@ -145,3 +145,69 @@ class PersistentStorageManager:
             for envelope in self.read_envelopes()
             if envelope.source_device_id == source_device_id
         )
+
+    def write_session_record(
+        self,
+        session_record_path: str | Path,
+        *,
+        accepted_session_config: Any,
+        lifecycle_evidence: Iterable[Any],
+        readiness_evidence: Iterable[Any],
+        device_readiness_evidence: Iterable[Any],
+        service_readiness_evidence: Iterable[Any],
+        accepted_acquisition_envelopes: Iterable[AcquisitionRecordEnvelope],
+        ingest_audit_records: Iterable[Any],
+        final_session_status: dict[str, Any] | None,
+        cleanup_evidence: dict[str, Any],
+        warnings_or_failures: Iterable[Any] = (),
+    ) -> None:
+        """Write a minimal v1 Session Record JSON evidence package."""
+
+        path = Path(session_record_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        session_record = {
+            "accepted_session_config": _to_plain_data(accepted_session_config),
+            "session_lifecycle_evidence": _to_plain_data(lifecycle_evidence),
+            "readiness_evidence": _to_plain_data(readiness_evidence),
+            "device_readiness_evidence": _to_plain_data(
+                device_readiness_evidence
+            ),
+            "service_readiness_evidence": _to_plain_data(
+                service_readiness_evidence
+            ),
+            "accepted_acquisition_envelopes": _to_plain_data(
+                accepted_acquisition_envelopes
+            ),
+            "ingest_audit_records": _to_plain_data(ingest_audit_records),
+            "final_session_status": _to_plain_data(final_session_status),
+            "cleanup_evidence": _to_plain_data(cleanup_evidence),
+            "warnings_or_failures": _to_plain_data(warnings_or_failures),
+        }
+        with path.open("w", encoding="utf-8") as session_record_file:
+            json.dump(session_record, session_record_file, indent=2)
+
+    def read_session_record(
+        self,
+        session_record_path: str | Path,
+    ) -> dict[str, Any]:
+        """Read a minimal v1 Session Record JSON evidence package."""
+
+        path = Path(session_record_path)
+        with path.open("r", encoding="utf-8") as session_record_file:
+            return json.load(session_record_file)
+
+
+def _to_plain_data(value: Any) -> Any:
+    if hasattr(value, "to_dict"):
+        return value.to_dict()
+    if isinstance(value, dict):
+        return {
+            key: _to_plain_data(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return [
+            _to_plain_data(item)
+            for item in value
+        ]
+    return value

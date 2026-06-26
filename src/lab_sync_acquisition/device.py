@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable
+from typing import Any, Iterable
 
 
 @dataclass(frozen=True)
@@ -33,3 +33,18 @@ class DeviceDeclaration:
         else:
             capabilities = tuple(declared_capabilities)
         object.__setattr__(self, "declared_capabilities", capabilities)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-like plain-data representation."""
+
+        return {
+            "device_id": self.device_id,
+            "device_type": self.device_type,
+            "enabled": self.enabled,
+            "required": self.required,
+            "declared_capabilities": (
+                list(self.declared_capabilities)
+                if self.declared_capabilities is not None
+                else None
+            ),
+        }

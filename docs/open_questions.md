@@ -64,14 +64,20 @@ nwb/
 
 Raw acquisition records and NWB exports have separate lifecycles.
 
+Decision 073 defines the minimum evidence categories that belong in the persistent Session Record.
+
 The remaining work is defining the exact folder structure,
 mandatory files, optional files, manifests, file-tracking records,
-and validation outputs.
+validation outputs, and representation details for each evidence category.
 
 Additional questions:
 
-* What is the persistent schema for lifecycle transition records, readiness checks, cleanup evidence, and final session status?
-* Should runtime lifecycle evidence always be exposed as read-only records, or are there accepted cases where another component may append lifecycle evidence?
+* What files are mandatory for a valid Session Record?
+* What files are optional?
+* What manifest format identifies the included evidence?
+* How are file-tracking records represented?
+* What validation outputs are required?
+* How should accepted configuration, lifecycle evidence, readiness evidence, acquisition evidence, ingest audit records, final status, failures, and cleanup evidence be represented in storage?
 
 ---
 

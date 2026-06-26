@@ -178,6 +178,26 @@ This document tracks unresolved architectural questions that must be addressed b
 
 
 
+### Local Cross-Process Demo
+
+
+
+See:
+
+
+
+```text
+
+docs/local_cross_process_demo.md
+
+```
+
+
+
+This document explains the first live two-shell localhost socket demo where acquisition-side code sends plain-data envelopes and ingestion/storage-side code receives them in a separate process.
+
+
+
 ---
 
 

@@ -2165,32 +2165,92 @@ Ownership:
 
 ---
 
-## Decision 067: Acquisition Node exposes a command boundary to the Controller
+I actually think this is a sign that we should **stop adding decisions** and start **consolidating**.
 
+Decision 067 currently says:
+
+> Controller sends session intent.
+> Session owns lifecycle.
+> AcquisitionNode executes acquisition.
+
+Your proposed 075 doesn't change any ownership. It just adds:
+
+* example commands
+* command receipt evidence
+* command outcome evidence
+* transport exclusions
+
+Those are refinements, not new architectural principles.
+
+I would therefore **edit Decision 067** rather than create Decision 075.
+
+Even better, I would replace 067 with something like:
+
+```markdown
+
+--- 
+
+## Decision 067: Controller-to-AcquisitionNode command boundary
 
 **Status:** Accepted
 
-The Controller owns high-level session intent.
+The Controller owns high-level Session command intent.
 
-The Session owns lifecycle state, readiness evidence, and final session status.
+The Session owns Session lifecycle state, readiness evidence, accepted `SessionConfig`, cleanup evidence, and final Session status.
 
-The Acquisition Node owns acquisition-side execution.
+The AcquisitionNode owns acquisition-side execution in response to accepted command intent.
 
-The Acquisition Node executes acquisition actions in response to Session/Controller command intent, but it does not own the Session lifecycle.
+Typical Session command intent includes:
 
-Conceptually:
+* `initialize_session`
+* `start_session`
+* `stop_session`
+* `abort_session`
 
-```text
-Controller
-    sends session intent
+For v1, AcquisitionNode execution may include:
 
-Session
-    validates lifecycle/readiness
-    records lifecycle state
+* preparing acquisition runtime state
+* starting acquisition
+* stopping acquisition
+* aborting acquisition safely
+* recording command receipt evidence
+* recording command outcome evidence
+* preserving acquisition evidence if Controller communication is lost
 
-Acquisition Node
-    executes acquisition
+Command receipt and command outcome are acquisition evidence and become part of the persistent Session Record.
+
+The Controller does not own:
+
+* Session Time
+* device lifecycle
+* acquisition execution
+* ingestion
+* storage
+* cleanup
+* final Session status
+
+This decision does not define:
+
+* transport
+* serialization
+* scheduler/threading
+* async behavior
+* retry policy
+* distributed coordination
+* GUI behavior
+
+**Rationale**
+
+Separating command intent from acquisition execution preserves ownership boundaries while ensuring acquisition remains safe and auditable if Controller communication is interrupted.
+
+**Consequence**
+
+Future implementations should represent Controller commands as explicit intent while preserving Session lifecycle ownership and AcquisitionNode execution ownership.
 ```
+
+This keeps one decision for one architectural boundary instead of accumulating overlapping decisions.
+
+More broadly, I think you're at the point where the architecture document should start being **curated rather than appended**. Early in a project, appending decisions is useful because ideas are evolving. Now many newer decisions are refinements of earlier ones. If you keep appending, you'll eventually have multiple decisions describing the same boundary, making the document harder to read and maintain. Consolidating related decisions into a single authoritative decision is the better long-term approach.
 
 ---
 
@@ -2330,6 +2390,127 @@ This decision does not define the final storage format. Future implementations m
 
 ---
 
+## Decision 072: SessionConfig is part of the Session Record
+
+**Status:** Accepted
+
+The accepted `SessionConfig` is part of the persistent Session Record.
+
+The Controller assembles the configuration.
+
+The Session owns the accepted `SessionConfig`.
+
+`SessionConfig` is immutable for the duration of the Session.
+
+Runtime components receive only the configuration relevant to their responsibilities and must not modify the accepted `SessionConfig`.
+
+This decision establishes that the accepted configuration is preserved as part of the Session Record. It does not define:
+
+* storage format
+* serialization
+* file location
+* session folder layout
+* versioning
+
+**Rationale**
+
+The accepted configuration is part of the scientific evidence required to understand, reproduce, reconstruct, and audit a Session.
+
+**Consequence**
+
+Future Session Record implementations must persist the accepted `SessionConfig` alongside the other Session evidence.
+
+---
+
+## Decision 073: Persistent Session Record v1 contents
+
+**Status:** Accepted
+
+A persistent Session Record is the durable evidence package for one Session.
+
+For v1, the Session Record must include enough information to audit a completed, failed, or aborted Session.
+
+Minimum required contents:
+
+* accepted `SessionConfig`
+* Session lifecycle evidence
+* device readiness evidence
+* service readiness evidence
+* `session_start` acquisition event
+* `session_stop` acquisition event, if available
+* accepted acquisition envelopes
+* ingest audit records
+* final session status
+* warnings, recoverable failures, and fatal failures, if any
+* cleanup evidence
+
+The Session Record records what was intended, what was ready, what ran, what was acquired, what was ingested, how the Session ended, and what failed.
+
+This decision defines required evidence, not the final storage implementation.
+
+It does not define:
+
+* Parquet schemas
+* NWB export
+* reconstruction outputs
+* final folder layout
+* manifest format
+* real device schemas
+* transport
+* scheduler/threading behavior
+
+**Rationale**
+
+A Session is scientifically auditable only if stored evidence preserves both acquisition data and execution context. Raw acquisition envelopes alone are insufficient because they do not capture accepted configuration, readiness, lifecycle, ingest audit, cleanup, or final status.
+
+**Consequence**
+
+Future storage implementations must preserve these evidence categories as part of the Session Record. Phase 1 may use simple JSON/JSONL representations until the final storage structure is defined.
+
+---
+
+## Decision 074: Persistent Session Record finalization ownership
+
+**Status:** Accepted
+
+No separate `SessionRecordManager` exists in v1.
+
+The persistent Session Record is assembled from evidence owned by existing components.
+
+Ownership remains:
+
+* `Session` owns accepted `SessionConfig`, lifecycle evidence, readiness evidence, cleanup evidence, and final session status.
+* `AcquisitionNode` creates acquisition evidence, including `session_start` and `session_stop` events.
+* `Ingestor` owns ingest audit evidence.
+* `StorageManager` writes persistent evidence.
+
+A finalization caller may gather the required evidence pieces and pass them to the `StorageManager`.
+
+The finalization caller is orchestration code, not a new architectural owner.
+
+`Session` does not write directly to storage.
+
+`StorageManager` does not own Session lifecycle, acquisition execution, or ingest auditing.
+
+This decision does not define:
+
+* final folder layout
+* manifest format
+* Parquet schemas
+* NWB export
+* reconstruction outputs
+* transport
+* scheduler/threading behavior
+
+**Rationale**
+
+The framework already has clear evidence owners. Creating a `SessionRecordManager` before repeated finalization workflows exist would add a premature abstraction and risk blurring ownership boundaries.
+
+**Consequence**
+
+The first persistent Session Record implementation should pass existing evidence into the `StorageManager` explicitly. A dedicated Session Record owner may be considered later only if repeated workflows show that the orchestration role has become a real component.
+
+---
 
 --- ********************************************************************************
 
@@ -2407,6 +2588,9 @@ The following principles summarize the accepted decisions so far.
 69. DeviceManager collects acquisition records into Collections; AcquisitionNode creates Envelopes.
 70. The Controller assembles configuration; the Session owns the accepted run configuration.
 71. StorageManager is the persistent storage boundary; JSONL is the v1 storage backend.
+72. The accepted SessionConfig is part of the persistent Session Record.
+73. The persistent Session Record is the durable evidence package for one Session.
+74. Existing components own evidence; StorageManager writes evidence; no new manager yet.
 
 ---
 
