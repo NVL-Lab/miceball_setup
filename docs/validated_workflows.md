@@ -18,7 +18,7 @@ As the framework grows, this document should evolve into a catalog of validated 
 
 ---
 
-# W001 — Session Lifecycle
+# W001 - Session Lifecycle
 
 ## Purpose
 
@@ -28,20 +28,20 @@ Validate the Phase 1 runtime Session lifecycle.
 
 ```text
 Session
-    │
-    ▼
+    |
+    v
 created
-    │
-    ▼
+    |
+    v
 initialize()
-    │
-    ▼
+    |
+    v
 start()
-    │
-    ▼
+    |
+    v
 stop()
-    │
-    ▼
+    |
+    v
 complete()
 ```
 
@@ -55,7 +55,7 @@ complete()
 
 ---
 
-# W002 — Device Readiness
+# W002 - Device Readiness
 
 ## Purpose
 
@@ -65,17 +65,17 @@ Validate the boundary between configuration, live devices, and Session readiness
 
 ```text
 DeviceDeclaration
-        │
-        ▼
+        |
+        v
 DeviceAdapter
-        │
-        ▼
+        |
+        v
 DeviceManager
-        │
-        ▼
+        |
+        v
 DeviceReadinessSummary
-        │
-        ▼
+        |
+        v
 Session.initialize()
 ```
 
@@ -90,7 +90,7 @@ Session.initialize()
 
 ---
 
-# W003 — Service Readiness
+# W003 - Service Readiness
 
 ## Purpose
 
@@ -100,23 +100,23 @@ Validate that Session initialization consumes readiness summaries from framework
 
 ```text
 InMemoryIngestor
-        │
-        ▼
+        |
+        v
 ServiceReadiness
-        │
-        │
+        |
+        |
 InMemoryStorageManager
-        │
-        ▼
+        |
+        v
 ServiceReadiness
-        │
-        │
+        |
+        |
 SynchronizationManager
-        │
-        ▼
+        |
+        v
 ServiceReadiness
-        │
-        ▼
+        |
+        v
 Session.initialize()
 ```
 
@@ -129,7 +129,7 @@ Session.initialize()
 
 ---
 
-# W004 — Acquisition Envelope Boundary
+# W004 - Acquisition Envelope Boundary
 
 ## Purpose
 
@@ -139,26 +139,26 @@ Validate the acquisition-to-ingestion boundary.
 
 ```text
 DeviceManager
-        │
-        ▼
+        |
+        v
 DeviceRecordCollection
-        │
-        ▼
+        |
+        v
 Acquisition-side caller
-        │
-        ▼
+        |
+        v
 AcquisitionRecordEnvelope
-        │
-        ▼
+        |
+        v
 dict
-        │
-        ▼
+        |
+        v
 AcquisitionRecordEnvelope
-        │
-        ▼
+        |
+        v
 InMemoryIngestor
-        │
-        ▼
+        |
+        v
 InMemoryStorageManager
 ```
 
@@ -172,7 +172,7 @@ InMemoryStorageManager
 
 ---
 
-# W005 — Phase 1 Session Time
+# W005 - Phase 1 Session Time
 
 ## Purpose
 
@@ -182,26 +182,26 @@ Validate the ownership of Session Time.
 
 ```text
 SynchronizationManager
-        │
-        ▼
+        |
+        v
 start()
-        │
-        ▼
+        |
+        v
 session_time_s
-        │
-        ▼
+        |
+        v
 Acquisition-side caller
-        │
-        ▼
+        |
+        v
 records
-        │
-        ▼
+        |
+        v
 AcquisitionRecordEnvelope
-        │
-        ▼
+        |
+        v
 Ingestor
-        │
-        ▼
+        |
+        v
 Storage
 ```
 
@@ -215,7 +215,7 @@ Storage
 
 ---
 
-# W006 — Session Acquisition Lifecycle
+# W006 - Session Acquisition Lifecycle
 
 ## Purpose
 
@@ -225,68 +225,68 @@ Validate the complete Phase 1 acquisition workflow.
 
 ```text
 Session created
-        │
-        ▼
+        |
+        v
 Device declarations
-        │
-        ▼
+        |
+        v
 Live DeviceAdapters
-        │
-        ▼
+        |
+        v
 DeviceManager
-        │
-        ▼
+        |
+        v
 Device readiness
-        │
-        ▼
+        |
+        v
 Service readiness
-    ├── Ingestor
-    ├── Storage
-    └── SynchronizationManager
-        │
-        ▼
+    +-- Ingestor
+    +-- Storage
+    +-- SynchronizationManager
+        |
+        v
 Session.initialize()
-        │
-        ▼
+        |
+        v
 Session.start()
-        │
-        ▼
+        |
+        v
 SynchronizationManager.start()
-        │
-        ▼
+        |
+        v
 session_start event
-        │
-        ▼
+        |
+        v
 AcquisitionNode
-        │
-        ▼
+        |
+        v
 run_one_iteration()
-        │
-        ▼
+        |
+        v
 DeviceRecordCollection
-        │
-        ▼
+        |
+        v
 AcquisitionRecordEnvelope
-        │
-        ▼
+        |
+        v
 dict round-trip
-        │
-        ▼
+        |
+        v
 InMemoryIngestor
-        │
-        ▼
+        |
+        v
 InMemoryStorageManager
-        │
-        ▼
+        |
+        v
 SynchronizationManager.stop()
-        │
-        ▼
+        |
+        v
 session_stop event
-        │
-        ▼
+        |
+        v
 Session.stop()
-        │
-        ▼
+        |
+        v
 Session.complete()
 ```
 
@@ -529,6 +529,100 @@ accepted_records.jsonl
 - Ingestor creates audit evidence for received envelopes
 - StorageManager writes accepted envelopes to persistent JSONL
 - session_start, stream-like, event-like, and session_stop records preserve session_time_s
+
+---
+
+# W012 - OpenCV Camera Metadata Adapter
+
+## Purpose
+
+Validate that a concrete SDK-backed camera adapter can participate in the existing acquisition path without storing image data.
+
+## Workflow
+
+```text
+SeeedIMX219OpenCVCameraAdapter
+        |
+        v
+DeviceManager.collect_records()
+        |
+        v
+DeviceRecordCollection
+        |
+        v
+AcquisitionNode
+        |
+        v
+AcquisitionRecordEnvelope
+        |
+        v
+InMemoryIngestor
+        |
+        v
+PersistentStorageManager
+        |
+        v
+accepted_records.jsonl
+```
+
+## Validates
+
+- a concrete OpenCV-backed adapter uses the existing DeviceAdapter lifecycle
+- camera frames are reduced immediately to lightweight metadata records
+- image arrays and encoded image bytes are not placed in acquisition envelopes
+- DeviceManager collects metadata records without creating envelopes
+- AcquisitionNode attaches session_time_s
+- StorageManager persists metadata records through the existing JSONL boundary
+- the OpenCV capture is released during adapter shutdown
+
+---
+
+# W013 - OpenCV Camera Metadata Over Localhost Socket
+
+## Purpose
+
+Validate through the automated public test suite that the framework acquisition
+path can feed the live localhost socket boundary using deterministic FakeCV2
+camera input.
+
+## Workflow
+
+```text
+FakeCV2
+        |
+        v
+SeeedIMX219OpenCVCameraAdapter
+        |
+        v
+DeviceManager
+        |
+        v
+AcquisitionNode
+        |
+        v
+newline-delimited JSON socket
+        |
+        v
+demo_socket_ingestor_receiver.py
+        |
+        v
+InMemoryIngestor
+        |
+        v
+PersistentStorageManager
+```
+
+## Validates
+
+- the socket sender can use fake OpenCV locally without physical camera hardware
+- the concrete OpenCV adapter participates through DeviceManager and AcquisitionNode
+- AcquisitionNode creates session_start, camera metadata, and session_stop envelopes
+- camera image arrays and encoded image bytes do not cross the socket boundary
+- receiver-side Ingestor and StorageManager persist accepted metadata envelopes unchanged
+
+This workflow does not claim automated real-hardware validation. The successful
+manual MSMF laptop-webcam run is recorded separately in
+`docs/local_cross_process_demo.md`.
 
 ---
 

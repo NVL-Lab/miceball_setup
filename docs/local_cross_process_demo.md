@@ -148,6 +148,147 @@ Every row includes `session_time_s`.
 
 ---
 
+# Stronger Camera Adapter Socket Demo
+
+The basic socket demo sends hard-coded envelope dictionaries. The stronger camera adapter demo proves that the live socket boundary can be fed by the real framework acquisition path:
+
+```text
+FakeCV2/OpenCVCameraAdapter
+    -> DeviceManager
+    -> AcquisitionNode
+    -> newline-delimited JSON socket
+    -> socket receiver
+    -> InMemoryIngestor
+    -> PersistentStorageManager
+```
+
+This still does not require a physical camera, Jetson, CSI hardware, GStreamer, or real OpenCV. The sender uses fake injected OpenCV input by default so the local development test can run anywhere.
+
+The live socket carries only lightweight evidence:
+
+* `session_start`
+* camera frame metadata records
+* `session_stop`
+
+It does not carry image arrays, encoded image bytes, image files, video files, or file references.
+
+## Windows PowerShell Camera Adapter Demo
+
+Run these setup commands from the repository root:
+
+```powershell
+$python = "C:\Users\Nuria\anaconda3\envs\miceball_setup\python.exe"
+$demoDir = ".\tmp_socket_camera_demo"
+New-Item -ItemType Directory -Force $demoDir
+$accepted = Join-Path $demoDir "accepted_records.jsonl"
+$hostName = "127.0.0.1"
+$port = 8766
+```
+
+Shell 1, ingestion/storage-side receiver:
+
+```powershell
+& $python .\scripts\demo_socket_ingestor_receiver.py $hostName $port $accepted
+```
+
+Expected initial output:
+
+```text
+listening=127.0.0.1:8766
+accepted_records_path=tmp_socket_camera_demo\accepted_records.jsonl
+```
+
+Leave Shell 1 running.
+
+Shell 2, acquisition-side OpenCV camera sender:
+
+```powershell
+& $python .\scripts\demo_socket_opencv_camera_sender.py $hostName $port
+```
+
+Expected sender output:
+
+```text
+target=127.0.0.1:8766
+envelopes_sent=3
+camera_metadata_records_sent=2
+```
+
+After the sender closes the connection, Shell 1 should finish with:
+
+```text
+envelopes_received=3
+accepted_envelopes_stored=3
+ingest_audit_records=3
+```
+
+Inspect the stored accepted envelope JSONL:
+
+```powershell
+Get-Content $accepted
+```
+
+You should see three JSON lines:
+
+* `session_start`
+* `camera_frame_metadata`
+* `session_stop`
+
+The camera metadata rows include `frame_index`, `width`, `height`, `channels`, `dtype`, and `session_time_s`.
+
+## Optional Real Laptop Webcam Sender
+
+The same sender can use an installed real OpenCV build and laptop webcam while
+preserving the metadata-only socket boundary. Keep the receiver command above
+running in Shell 1, then run this in Shell 2:
+
+```powershell
+& $python .\scripts\demo_socket_opencv_camera_sender.py $hostName $port --real-cv2 --camera-source 0 --frames-per-collect 2 --width 640 --height 480 --fps 30
+```
+
+OpenCV's default capture backend is used unless `--api-preference` is supplied.
+The sender transmits `session_start`, lightweight camera frame metadata, and
+`session_stop`; it never transmits image arrays or encoded image bytes.
+
+## Recorded Manual Hardware Validation
+
+The real laptop webcam path has been run successfully as a manual hardware
+validation using installed `cv2` and the MSMF capture backend. That run produced
+and stored three envelopes (`session_start`, camera metadata, and
+`session_stop`), sent two camera metadata records, and sent no image payloads.
+
+This result is separate from W013 in `validated_workflows.md`. W013 is the
+automated, deterministic FakeCV2 socket workflow; the MSMF result is manual
+hardware evidence and is not required by the normal test suite or CI.
+
+---
+
+# Optional Real Camera Smoke Check
+
+After validating the fake OpenCV socket workflow, an optional manual script can
+exercise the same camera adapter against a real `cv2.VideoCapture` source. It
+runs one bounded `DeviceManager`/`AcquisitionNode` iteration, prints lightweight
+frame metadata, and releases the camera. It does not write or transmit image or
+video payloads and is not part of the automated test suite.
+
+From the repository root, camera index `0` with OpenCV's default backend:
+
+```powershell
+& "C:\Users\Nuria\anaconda3\envs\miceball_setup\python.exe" .\scripts\manual_opencv_camera_smoke.py 0
+```
+
+Optional capture settings are explicit:
+
+```powershell
+& "C:\Users\Nuria\anaconda3\envs\miceball_setup\python.exe" .\scripts\manual_opencv_camera_smoke.py 0 --api-preference 200 --frames-per-collect 3 --width 640 --height 480 --fps 30
+```
+
+The numeric API preference is passed directly to OpenCV. For example, OpenCV
+commonly exposes `CAP_V4L2` as `200`, but the value should be confirmed in the
+installed OpenCV build and target platform.
+
+---
+
 # Roadmap Fit
 
 This demo is a stepping stone toward Jetson and real-device deployment.

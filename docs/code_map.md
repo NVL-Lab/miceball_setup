@@ -21,9 +21,11 @@
 - InMemoryStorageManager: Public import for the minimal in-memory acquisition envelope storage boundary.
 - PersistentStorageManager: Public import for the v1 persistent StorageManager implementation that stores accepted envelopes as JSONL.
 - LifecycleTransition: Public import for recorded lifecycle transitions.
+- OpenCVCameraConfig: Public import for explicit OpenCV camera initialization and polling configuration.
 - ReadinessCheck: Public import for recorded readiness checks.
 - Session: Public import for the runtime session lifecycle model.
 - SessionConfig: Public import for the immutable accepted run configuration owned by a Session and preserved as part of the Session Record.
+- SeeedIMX219OpenCVCameraAdapter: Public import for the concrete OpenCV-backed metadata-only adapter for a Seeed IMX219 camera.
 - SessionLifecycleError: Public import for lifecycle operation failures.
 - SessionState: Public import for accepted Phase 1 session lifecycle states.
 - ServiceReadiness: Public import for readiness records produced by framework services and consumed by Session initialization.
@@ -67,6 +69,11 @@
 
 - ServiceReadiness: Holds the shared framework-service readiness fields consumed by Session initialization and exposes them as plain data for Session Record evidence.
 
+## src/lab_sync_acquisition/opencv_camera.py
+
+- OpenCVCameraConfig: Holds explicit OpenCV camera source, backend, frame polling count, and optional requested capture properties.
+- SeeedIMX219OpenCVCameraAdapter: Opens a Seeed IMX219-compatible OpenCV camera, reports readiness, reduces polled frames to metadata-only records, and releases the capture during shutdown.
+
 ## src/lab_sync_acquisition/storage.py
 
 - InMemoryStorageManager: Reports service readiness, stores accepted AcquisitionRecordEnvelope objects in memory, and exposes all, session-filtered, and source-filtered readback without file writing or transformation.
@@ -97,6 +104,14 @@
 
 - main: Sends demo newline-delimited AcquisitionRecordEnvelope dictionaries to a localhost receiver over a disposable socket demo boundary.
 
+## scripts/demo_socket_opencv_camera_sender.py
+
+- main: Runs the OpenCV camera adapter with default fake input or explicit real cv2 through DeviceManager and AcquisitionNode, then sends metadata-only envelopes over the disposable localhost socket demo boundary.
+
 ## scripts/demo_socket_ingestor_receiver.py
 
 - main: Receives demo newline-delimited envelope dictionaries over localhost, reconstructs AcquisitionRecordEnvelope objects, sends them to InMemoryIngestor, and persists accepted envelopes through PersistentStorageManager.
+
+## scripts/manual_opencv_camera_smoke.py
+
+- main: Runs one optional bounded metadata-only AcquisitionNode iteration against a real OpenCV camera and releases the camera without writing image or video files.

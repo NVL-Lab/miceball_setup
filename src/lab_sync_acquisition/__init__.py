@@ -30,6 +30,10 @@ from lab_sync_acquisition.session import (
     SessionState,
 )
 from lab_sync_acquisition.service_readiness import ServiceReadiness
+from lab_sync_acquisition.opencv_camera import (
+    OpenCVCameraConfig,
+    SeeedIMX219OpenCVCameraAdapter,
+)
 from lab_sync_acquisition.storage import (
     InMemoryStorageManager,
     PersistentStorageManager,
@@ -51,6 +55,8 @@ __all__ = [
     "InMemoryIngestor",
     "InMemoryStorageManager",
     "PersistentStorageManager",
+    "OpenCVCameraConfig",
+    "SeeedIMX219OpenCVCameraAdapter",
     "DeviceLifecycleResult",
     "DeviceManager",
     "DeviceRecordCollection",

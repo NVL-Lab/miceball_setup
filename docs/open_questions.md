@@ -85,45 +85,23 @@ Additional questions:
 
 ### Why this matters
 
-The architecture should be validated against the smallest useful experiment.
+The generic Phase 1 acquisition, ingestion, and storage path is now demonstrated
+by the validated workflows. What remains unresolved is the smallest
+scientifically useful experiment and the evidence required to judge it
+successful.
 
 ### Questions
 
-* What is the smallest supported experiment?
-* Which devices participate?
-* Which streams are produced?
-* Which events are produced?
-* Which timing records are produced?
-* What files are written?
+* What is the smallest scientifically useful supported experiment?
+* Which real devices, streams, events, and timing records are required for it?
+* Which persistent evidence is required beyond the existing Phase 1 workflow?
 * What does successful reconstruction look like?
+* What validation criteria determine that the reconstructed experiment is usable?
 
 ### Blocks
 
-* Architecture validation
-* Initial implementation scope
-* Testing strategy
-
----
-
-## Q004: What belongs in the First Implementation Milestone?
-
-### Why this matters
-
-The architecture is largely defined, but implementation should begin with a focused vertical slice.
-
-### Questions
-
-* What is the first useful end-to-end workflow?
-* Should the first milestone use simulated devices?
-* Should the first milestone use real devices?
-* Should the Ingestor be included immediately?
-* Should reconstruction be included immediately?
-* What constitutes a successful Phase 1 demonstration?
-
-### Blocks
-
-* First implementation plan
-* First Codex development cycle
+* Scientifically useful experiment acceptance
+* Reconstruction validation criteria
 
 ---
 
@@ -155,15 +133,16 @@ Future devices may not perfectly follow session time.
 
 ### Why this matters
 
-Device validation requirements have not yet been defined.
+The OpenCV camera slice demonstrates basic lifecycle, readiness, metadata-only
+record collection, Session Time attachment, persistence, and clean shutdown.
+General acceptance requirements for new devices are not yet defined.
 
 ### Questions
 
-* What lifecycle behavior must be tested?
-* What timing behavior must be tested?
 * What failure behavior must be tested?
-* What schemas must a device declare?
-* What makes a device Phase-1 compliant?
+* What timing quality and precision must be demonstrated?
+* What record and capability schemas must a device declare?
+* What automated and manual hardware checks make a device Phase-1 compliant?
 
 ### Blocks
 
@@ -176,17 +155,16 @@ Device validation requirements have not yet been defined.
 
 ### Why this matters
 
-The philosophy has been accepted, but the exact configuration model has not.
+The framework now has explicit `SessionConfig` buckets, separate
+`DeviceDeclaration` participation intent, and concrete adapter configuration
+objects such as `OpenCVCameraConfig`. The final external representation and
+propagation policy remain unresolved.
 
 ### Questions
 
-* What is configuration?
-* What is runtime state?
-* What is user-facing configuration?
-* What is internal configuration?
-* How are defaults declared?
-* How are configuration values propagated?
-* Should configuration be represented as YAML, JSON, classes, or another structure?
+* What external configuration file format should be used?
+* What is the policy for declaring and applying defaults?
+* How are accepted configuration values propagated to runtime owners?
 * What vocabulary and structure should be used for `DeviceDeclaration.declared_capabilities`?
 
 ### Blocks

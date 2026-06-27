@@ -697,6 +697,10 @@ In memory, these records may be represented as DataFrames.
 
 On disk, Parquet is the preferred default format for streams, events, timing records, ingest records, and reconstruction outputs.
 
+This is a future storage direction. Phase 1 validates the StorageManager
+boundary with the JSONL backend accepted in Decision 071; that JSONL validation
+does not settle the final Parquet schemas or storage layout.
+
 CSV may be used for small human-readable debug exports, but should not be the primary storage format for large or typed records.
 
 **Rationale:**
@@ -2165,7 +2169,6 @@ Ownership:
 
 ---
 
-I actually think this is a sign that we should **stop adding decisions** and start **consolidating**.
 
 Decision 067 currently says:
 
@@ -2541,7 +2544,7 @@ The following principles summarize the accepted decisions so far.
 21. Utilities must not hide domain logic.
 22. Plotting is allowed only for framework validation and debugging.
 23. The final source structure is not yet frozen.
-24. Parquet is the preferred default storage format for intermediate records.
+24. Parquet remains the preferred future format for table-shaped intermediate records; Phase 1 uses the JSONL backend defined by Decision 071.
 25. Raw records are stored first; reconstruction and export create derived records later.
 26. Reconstruction must never silently modify raw records.
 27. Device outputs must be mappable to NWB.

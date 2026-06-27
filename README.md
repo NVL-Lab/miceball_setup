@@ -194,7 +194,7 @@ docs/local_cross_process_demo.md
 
 
 
-This document explains the first live two-shell localhost socket demo where acquisition-side code sends plain-data envelopes and ingestion/storage-side code receives them in a separate process.
+This document explains the live two-shell localhost socket demos, including the basic plain-envelope sender and the OpenCV camera-adapter metadata sender.
 
 
 

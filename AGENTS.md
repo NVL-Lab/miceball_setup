@@ -466,6 +466,12 @@ If the test mainly answers:
 
 then it probably does not belong in the committed public test suite.
 
+## Tests And Demos
+
+* `tests/` contains automated, deterministic public behavior checks that are normally hardware-independent.
+* `scripts/demo_*` contains manual architecture and runtime demonstrations.
+* `scripts/manual_*` contains optional hardware smoke checks and is not required for normal tests or CI.
+
 # Human-in-the-loop workflow
 
 The user is the bridge between architecture discussion, Codex, and IPython.
