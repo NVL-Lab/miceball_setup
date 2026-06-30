@@ -309,3 +309,39 @@ Ingestor side
 ```
 
 Transport choices should not redefine the acquisition record model.
+
+---
+
+# Phase 2 Simulated Remote AcquisitionNode
+
+This Phase 2 demo runs one explicitly identified, Jetson-like AcquisitionNode
+process and one computer Ingestor process. It reuses the existing newline-
+delimited JSON socket only as a provisional network handoff.
+
+The remote sender records `node_id`, `session_id`, and role in node readiness,
+and populates `source_node_id` in every acquisition envelope. If connection or
+sending fails, it writes one local JSONL failure-evidence record, attempts
+cleanup, and exits nonzero. It does not retry, replay, or buffer records.
+
+Computer shell:
+
+```powershell
+$python = "C:\Users\Nuria\anaconda3\envs\miceball_setup\python.exe"
+$hostName = "0.0.0.0"
+$port = 8767
+$accepted = ".\tmp_remote_demo\accepted_records.jsonl"
+& $python .\scripts\demo_socket_ingestor_receiver.py $hostName $port $accepted
+```
+
+Jetson or simulated Jetson shell, replacing `COMPUTER_IP` with the computer's
+reachable address:
+
+```powershell
+$python = "C:\Users\Nuria\anaconda3\envs\miceball_setup\python.exe"
+$failureEvidence = ".\tmp_remote_demo\sender_failures.jsonl"
+& $python .\scripts\demo_remote_acquisition_node_sender.py COMPUTER_IP 8767 --node-id jetson-like-001 --session-id remote-session-001 --role acquisition_node --failure-evidence-path $failureEvidence
+```
+
+For a same-computer validation, use `127.0.0.1` for both receiver binding and
+sender target. A successful run sends three envelopes: `session_start`, one
+fake stream envelope, and `session_stop`.

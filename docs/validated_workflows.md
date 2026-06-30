@@ -626,6 +626,51 @@ manual MSMF laptop-webcam run is recorded separately in
 
 ---
 
+# W014 - Simulated Remote AcquisitionNode Readiness
+
+## Purpose
+
+Validate one explicitly identified, simulated remote AcquisitionNode sending a
+bounded Session to a computer-side Ingestor without defining final transport.
+
+## Workflow
+
+```text
+simulated remote AcquisitionNode
+        |
+        v
+AcquisitionNodeReadiness
+        |
+        v
+DeviceManager + fake DeviceAdapter
+        |
+        v
+AcquisitionRecordEnvelope with source_node_id
+        |
+        v
+provisional TCP socket
+        |
+        v
+computer InMemoryIngestor
+        |
+        v
+computer PersistentStorageManager
+```
+
+## Validates
+
+- node, session, and role identity are explicit readiness evidence
+- existing device and service readiness contracts are aggregated rather than replaced
+- the Phase 2 demo caller does not start acquisition when required readiness fails
+- source_node_id survives the plain-data and process boundary
+- Session Time survives transfer unchanged
+- computer-side Ingestor audit and JSONL persistence occur
+- acquisition cleanup completes after the bounded run
+- refused connections produce one demo-local sender failure JSONL record and a nonzero exit
+- no retry, replay, buffering, or final transport architecture is introduced
+
+---
+
 # Future Workflows
 
 The following workflows are expected to be added as the framework evolves.

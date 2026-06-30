@@ -4,6 +4,7 @@
 
 - AcquisitionIterationSummary: Public import for the result of one bounded AcquisitionNode iteration.
 - AcquisitionNode: Public import for bounded acquisition-side execution that coordinates existing runtime collaborators without owning Session lifecycle.
+- AcquisitionNodeReadiness: Public import for Phase 2 node identity and aggregated device/service readiness evidence.
 - AcquisitionRecordEnvelope: Public import for the transferable acquisition record envelope shared across the acquisition-to-ingestion boundary.
 - DeviceAdapter: Public import for the minimum live runtime control interface for one device adapter.
 - DeviceAdapterLifecycleError: Public import for invalid live adapter lifecycle operations.
@@ -31,14 +32,18 @@
 - ServiceReadiness: Public import for readiness records produced by framework services and consumed by Session initialization.
 - SynchronizationManager: Public import for the minimal Phase 1 Session Time owner.
 
+## src/lab_sync_acquisition/acquisition_node_readiness.py
+
+- AcquisitionNodeReadiness: Holds explicit node, session, and role identity while aggregating existing device and service readiness evidence.
+
 ## src/lab_sync_acquisition/acquisition_record.py
 
-- AcquisitionRecordEnvelope: Holds the minimal transferable acquisition record message fields crossing from acquisition into ingestion and supports JSON-like plain-data round trips.
+- AcquisitionRecordEnvelope: Holds the minimal transferable acquisition record message fields, including optional source node identity, and supports JSON-like plain-data round trips.
 
 ## src/lab_sync_acquisition/acquisition_node.py
 
 - AcquisitionIterationSummary: Records the small inspectable summary returned by one bounded acquisition iteration.
-- AcquisitionNode: Owns bounded acquisition-side execution using already-created DeviceManager, SynchronizationManager, and Ingestor collaborators.
+- AcquisitionNode: Owns bounded acquisition-side execution using already-created collaborators and can report aggregated readiness evidence for explicitly identified Phase 2 nodes.
 
 ## src/lab_sync_acquisition/device.py
 
@@ -111,6 +116,10 @@
 ## scripts/demo_socket_ingestor_receiver.py
 
 - main: Receives demo newline-delimited envelope dictionaries over localhost, reconstructs AcquisitionRecordEnvelope objects, sends them to InMemoryIngestor, and persists accepted envelopes through PersistentStorageManager.
+
+## scripts/demo_remote_acquisition_node_sender.py
+
+- main: Runs one identified simulated remote AcquisitionNode session over the provisional socket and writes demo-local JSONL failure evidence before a nonzero exit when connection or sending fails.
 
 ## scripts/manual_opencv_camera_smoke.py
 

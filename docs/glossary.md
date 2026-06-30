@@ -356,7 +356,20 @@ Device Record Collections are converted into Acquisition Record Envelopes by the
 
 The unit of acquisition data exchanged between the acquisition side and the Ingestor.
 
-An Acquisition Record Envelope contains session identity, source identity, record kind, and records in a plain-data form that can cross a process or computer boundary.
+An Acquisition Record Envelope contains session identity, source device
+identity, record kind, and records in a plain-data form that can cross a process
+or computer boundary. Phase 2 envelopes may also contain `source_node_id`;
+existing Phase 1 envelopes remain valid without it.
+
+---
+
+# Acquisition Node Readiness
+
+Readiness evidence for one explicitly identified acquisition-capable system.
+
+`AcquisitionNodeReadiness` records `node_id`, `session_id`, and role while
+aggregating the existing Device Readiness Summary and Service Readiness records.
+It does not replace those existing readiness contracts.
 
 It is created by the AcquisitionNode, not by Device Adapters.
 

@@ -81,30 +81,6 @@ Additional questions:
 
 ---
 
-## Q003: What is the Minimal End-to-End Experiment?
-
-### Why this matters
-
-The generic Phase 1 acquisition, ingestion, and storage path is now demonstrated
-by the validated workflows. What remains unresolved is the smallest
-scientifically useful experiment and the evidence required to judge it
-successful.
-
-### Questions
-
-* What is the smallest scientifically useful supported experiment?
-* Which real devices, streams, events, and timing records are required for it?
-* Which persistent evidence is required beyond the existing Phase 1 workflow?
-* What does successful reconstruction look like?
-* What validation criteria determine that the reconstructed experiment is usable?
-
-### Blocks
-
-* Scientifically useful experiment acceptance
-* Reconstruction validation criteria
-
----
-
 
 # Important Questions
 

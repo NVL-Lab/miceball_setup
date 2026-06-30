@@ -4,6 +4,7 @@ from lab_sync_acquisition.acquisition_node import (
     AcquisitionIterationSummary,
     AcquisitionNode,
 )
+from lab_sync_acquisition.acquisition_node_readiness import AcquisitionNodeReadiness
 from lab_sync_acquisition.acquisition_record import AcquisitionRecordEnvelope
 from lab_sync_acquisition.device import DeviceDeclaration
 from lab_sync_acquisition.device_adapter import (
@@ -43,6 +44,7 @@ from lab_sync_acquisition.synchronization import SynchronizationManager
 __all__ = [
     "AcquisitionIterationSummary",
     "AcquisitionNode",
+    "AcquisitionNodeReadiness",
     "DeviceAdapter",
     "DeviceAdapterLifecycleError",
     "DeviceAdapterState",

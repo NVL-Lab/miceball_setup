@@ -2169,94 +2169,6 @@ Ownership:
 
 ---
 
-
-Decision 067 currently says:
-
-> Controller sends session intent.
-> Session owns lifecycle.
-> AcquisitionNode executes acquisition.
-
-Your proposed 075 doesn't change any ownership. It just adds:
-
-* example commands
-* command receipt evidence
-* command outcome evidence
-* transport exclusions
-
-Those are refinements, not new architectural principles.
-
-I would therefore **edit Decision 067** rather than create Decision 075.
-
-Even better, I would replace 067 with something like:
-
-```markdown
-
---- 
-
-## Decision 067: Controller-to-AcquisitionNode command boundary
-
-**Status:** Accepted
-
-The Controller owns high-level Session command intent.
-
-The Session owns Session lifecycle state, readiness evidence, accepted `SessionConfig`, cleanup evidence, and final Session status.
-
-The AcquisitionNode owns acquisition-side execution in response to accepted command intent.
-
-Typical Session command intent includes:
-
-* `initialize_session`
-* `start_session`
-* `stop_session`
-* `abort_session`
-
-For v1, AcquisitionNode execution may include:
-
-* preparing acquisition runtime state
-* starting acquisition
-* stopping acquisition
-* aborting acquisition safely
-* recording command receipt evidence
-* recording command outcome evidence
-* preserving acquisition evidence if Controller communication is lost
-
-Command receipt and command outcome are acquisition evidence and become part of the persistent Session Record.
-
-The Controller does not own:
-
-* Session Time
-* device lifecycle
-* acquisition execution
-* ingestion
-* storage
-* cleanup
-* final Session status
-
-This decision does not define:
-
-* transport
-* serialization
-* scheduler/threading
-* async behavior
-* retry policy
-* distributed coordination
-* GUI behavior
-
-**Rationale**
-
-Separating command intent from acquisition execution preserves ownership boundaries while ensuring acquisition remains safe and auditable if Controller communication is interrupted.
-
-**Consequence**
-
-Future implementations should represent Controller commands as explicit intent while preserving Session lifecycle ownership and AcquisitionNode execution ownership.
-```
-
-This keeps one decision for one architectural boundary instead of accumulating overlapping decisions.
-
-More broadly, I think you're at the point where the architecture document should start being **curated rather than appended**. Early in a project, appending decisions is useful because ideas are evolving. Now many newer decisions are refinements of earlier ones. If you keep appending, you'll eventually have multiple decisions describing the same boundary, making the document harder to read and maintain. Consolidating related decisions into a single authoritative decision is the better long-term approach.
-
----
-
 ## Decision 068: AcquisitionNode v1 owns bounded synchronous acquisition execution
 
 **Status:** Accepted
@@ -2515,6 +2427,72 @@ The first persistent Session Record implementation should pass existing evidence
 
 ---
 
+## Decision 075: Phase 2 remote AcquisitionNode readiness
+
+**Status:** Accepted
+
+Phase 2 hardens Phase 1 for remote AcquisitionNode deployment.
+
+Phase 2 validates one remote AcquisitionNode while keeping the design compatible with multiple future acquisition-capable systems.
+
+A real or remote AcquisitionNode session may start only if readiness evidence shows:
+
+* required devices ready
+* Session Time ready
+* Ingestor reachable or explicit local fallback available
+* storage path ready for every machine expected to write data
+* cleanup/finalization path available
+
+Each acquisition-capable system must have explicit identity evidence:
+
+* `node_id`
+* `session_id`
+* role declaration
+* local storage readiness, if it writes files
+* connection/readiness status with the Ingestor
+* cleanup/finalization evidence
+
+For v1, node readiness is represented by `AcquisitionNodeReadiness`.
+
+`AcquisitionNodeReadiness` aggregates existing readiness evidence rather than replacing it:
+
+* device readiness uses existing `DeviceReadinessSummary`
+* service readiness uses existing `ServiceReadiness`
+
+The acquisition envelope may include optional `source_node_id`.
+
+New Phase 2 remote-acquisition workflows should populate `source_node_id`.
+
+Existing Phase 1 envelope records remain valid without `source_node_id`.
+
+Do not encode node identity into `source_device_id`.
+
+Network transfer may fail. Acquisition evidence must still be preserved, or the session must fail safely with evidence.
+
+This decision does not define:
+
+* final network architecture
+* Redis
+* retries
+* async runtime
+* transport abstraction
+* multi-node acquisition
+* multi-node synchronization
+* storage capacity threshold policy
+* local fallback implementation
+* Parquet
+* NWB
+
+**Rationale**
+
+Remote deployment introduces operational risk even when the data model is unchanged. The first Phase 2 contract should prove safe readiness and identity evidence without turning transport into a new architecture.
+
+**Consequence**
+
+The next implementation may add a small node-readiness record and optional `source_node_id` envelope field, then validate one simulated remote AcquisitionNode sending plain-data envelopes to one computer Ingestor.
+
+---
+
 --- ********************************************************************************
 
 # Accepted Architectural Principles
@@ -2594,6 +2572,7 @@ The following principles summarize the accepted decisions so far.
 72. The accepted SessionConfig is part of the persistent Session Record.
 73. The persistent Session Record is the durable evidence package for one Session.
 74. Existing components own evidence; StorageManager writes evidence; no new manager yet.
+75. Phase 2 remote AcquisitionNode sessions require explicit node identity and aggregated readiness evidence before acquisition starts.
 
 ---
 

@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Iterable
 
 from lab_sync_acquisition.acquisition_record import AcquisitionRecordEnvelope
+from lab_sync_acquisition.acquisition_node_readiness import AcquisitionNodeReadiness
 from lab_sync_acquisition.device_manager import DeviceManager
 from lab_sync_acquisition.ingestor import InMemoryIngestor
+from lab_sync_acquisition.service_readiness import ServiceReadiness
 from lab_sync_acquisition.synchronization import SynchronizationManager
 
 
@@ -31,11 +33,15 @@ class AcquisitionNode:
         device_manager: DeviceManager,
         synchronization_manager: SynchronizationManager,
         ingestor: InMemoryIngestor,
+        node_id: str | None = None,
+        role: str | None = None,
     ) -> None:
         self._session_id = session_id
         self._device_manager = device_manager
         self._synchronization_manager = synchronization_manager
         self._ingestor = ingestor
+        self._node_id = node_id
+        self._role = role
         self._running = False
         self._iteration_index = 0
         self._last_error: str | None = None
@@ -56,6 +62,29 @@ class AcquisitionNode:
             "device_readiness": device_readiness,
             "service_readiness": service_readiness,
         }
+
+    def check_node_readiness(
+        self,
+        additional_service_readiness: Iterable[ServiceReadiness] = (),
+    ) -> AcquisitionNodeReadiness:
+        """Return Phase 2 readiness with explicit node and session identity."""
+
+        if not self._node_id or not self._role:
+            raise ValueError("Phase 2 node readiness requires node_id and role")
+        device_readiness = self._device_manager.check_readiness()
+        service_readiness = (
+            self._synchronization_manager.check_ready(),
+            self._ingestor.check_ready(),
+            *additional_service_readiness,
+        )
+        readiness = AcquisitionNodeReadiness(
+            node_id=self._node_id,
+            session_id=self._session_id,
+            role=self._role,
+            device_readiness=device_readiness,
+            service_readiness=service_readiness,
+        )
+        return readiness
 
     def start_acquisition(self) -> dict[str, Any]:
         """Start Session Time, record session_start evidence, and start devices."""
@@ -171,6 +200,7 @@ class AcquisitionNode:
             source_device_id=source_device_id,
             record_kind=record_kind,
             records=records,
+            source_node_id=self._node_id,
         )
         envelope_data = envelope.to_dict()
         reconstructed_envelope = AcquisitionRecordEnvelope.from_dict(envelope_data)
