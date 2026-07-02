@@ -657,6 +657,23 @@ computer InMemoryIngestor
 computer PersistentStorageManager
 ```
 
+---
+
+Public GitHub repository
+        ↓
+git clone on Jetson
+        ↓
+uv project environment
+        ↓
+framework imports
+        ↓
+full test suite
+        ↓
+Phase 2 remote tests
+
+---
+
+
 ## Validates
 
 - node, session, and role identity are explicit readiness evidence
@@ -668,6 +685,64 @@ computer PersistentStorageManager
 - acquisition cleanup completes after the bounded run
 - refused connections produce one demo-local sender failure JSONL record and a nonzero exit
 - no retry, replay, buffering, or final transport architecture is introduced
+
+---
+
+# W015 - Jetson-to-Computer Remote Acquisition
+
+## Purpose
+
+Record the first successful manual validation across two physical machines: an
+NVIDIA Jetson Orin AcquisitionNode and a Windows ingestion/storage computer.
+
+This is distinct from W011 localhost transfer and W014 simulated remote
+validation on one computer.
+
+## Workflow
+
+```text
+Jetson Orin
+        |
+        v
+AcquisitionNode
+        |
+        v
+DeviceManager + fake DeviceAdapter
+        |
+        v
+SynchronizationManager
+        |
+        v
+AcquisitionRecordEnvelope
+        |
+        v
+plain-data socket transfer over Wi-Fi
+        |
+        v
+Windows computer socket receiver
+        |
+        v
+InMemoryIngestor
+        |
+        v
+PersistentStorageManager
+        |
+        v
+JSONL persistence
+```
+
+## Validates
+
+- the sender and receiver run on two physical machines
+- the Jetson connects successfully to the Windows receiver over Wi-Fi
+- three envelopes are transmitted, received, and stored
+- three ingest audit records are created
+- source_node_id, session_id, and source_device_id survive transfer
+- Session Time survives transfer unchanged
+- sender cleanup completes successfully
+- sender connection failure remains covered separately by demo-local JSONL evidence and a nonzero exit
+
+This is a manual hardware/runtime validation, not an automated test-suite claim.
 
 ---
 

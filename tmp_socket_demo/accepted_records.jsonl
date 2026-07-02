@@ -1,4 +1,0 @@
-{"session_id": "demo-session-001", "source_device_id": "acquisition_node", "record_kind": "event", "records": [{"event_category": "session_lifecycle", "event_type": "session_start", "session_time_s": 0.0}]}
-{"session_id": "demo-session-001", "source_device_id": "fake_camera_001", "record_kind": "camera_stream", "records": [{"frame_index": 0, "pixel_mean": 12.5, "session_time_s": 0.1}, {"frame_index": 1, "pixel_mean": 12.8, "session_time_s": 0.2}]}
-{"session_id": "demo-session-001", "source_device_id": "fake_lick_sensor_001", "record_kind": "lick_event", "records": [{"event_category": "behavior", "event_type": "lick", "session_time_s": 0.25}]}
-{"session_id": "demo-session-001", "source_device_id": "acquisition_node", "record_kind": "event", "records": [{"event_category": "session_lifecycle", "event_type": "session_stop", "session_time_s": 0.3}]}

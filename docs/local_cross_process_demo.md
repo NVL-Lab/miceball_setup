@@ -345,3 +345,23 @@ $failureEvidence = ".\tmp_remote_demo\sender_failures.jsonl"
 For a same-computer validation, use `127.0.0.1` for both receiver binding and
 sender target. A successful run sends three envelopes: `session_start`, one
 fake stream envelope, and `session_stop`.
+
+---
+
+# Recorded Jetson-to-Computer Validation
+
+The Phase 2 remote workflow has been manually validated across two physical
+machines. A Windows computer ran the socket receiver, `InMemoryIngestor`, and
+`PersistentStorageManager`; an NVIDIA Jetson Orin running JetPack 6 / Jetson
+Linux R36 ran the AcquisitionNode sender. Both machines used repository clones
+and passed their automated tests before the manual run.
+
+The Jetson connected to the Windows receiver over Wi-Fi and transferred
+plain-data `AcquisitionRecordEnvelope` dictionaries. The run transmitted,
+received, and stored three envelopes, created three ingest audit records,
+preserved `source_node_id`, `session_id`, `source_device_id`, and Session Time,
+and completed sender cleanup. The computer persisted the accepted envelopes as
+JSONL.
+
+This records a successful two-machine validation only. It does not define a
+deployment model or final transport architecture.

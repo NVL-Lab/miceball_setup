@@ -124,10 +124,12 @@ The project is currently in the architecture design phase.
 
 Small parts of the implementation have begun.
 
+The Phase 2 envelope path has been manually validated over Wi-Fi between an
+NVIDIA Jetson Orin AcquisitionNode and a Windows ingestion/storage computer.
 
 
-Architectural decisions are being discussed and documented before source code is written.
 
+The project follows an architecture-first development process. Architectural decisions are discussed and documented before the corresponding implementation is added to the framework.
 
 
 ---

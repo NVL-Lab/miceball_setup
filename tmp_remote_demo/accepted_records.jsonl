@@ -1,3 +1,0 @@
-{"session_id": "remote-session-001", "source_device_id": "acquisition_node", "record_kind": "event", "records": [{"event_category": "session_lifecycle", "event_type": "session_start", "session_time_s": 0.0}], "source_node_id": "jetson-like-001"}
-{"session_id": "remote-session-001", "source_device_id": "remote-fake-device-001", "record_kind": "remote_fake_stream", "records": [{"sample_index": 0, "value": 10, "session_time_s": 0.0}, {"sample_index": 1, "value": 11, "session_time_s": 0.0}], "source_node_id": "jetson-like-001"}
-{"session_id": "remote-session-001", "source_device_id": "acquisition_node", "record_kind": "event", "records": [{"event_category": "session_lifecycle", "event_type": "session_stop", "session_time_s": 0.0}], "source_node_id": "jetson-like-001"}

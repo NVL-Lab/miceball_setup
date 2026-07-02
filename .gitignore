@@ -24,3 +24,4 @@ conda-meta/
 # OS
 .DS_Store
 Thumbs.db
+local_info.md
