@@ -126,6 +126,8 @@ Small parts of the implementation have begun.
 
 The Phase 2 envelope path has been manually validated over Wi-Fi between an
 NVIDIA Jetson Orin AcquisitionNode and a Windows ingestion/storage computer.
+The same two-machine path has also been validated with a real Jetson USB camera
+using OpenCV/V4L2 and metadata-only acquisition envelopes.
 
 
 

@@ -746,6 +746,67 @@ This is a manual hardware/runtime validation, not an automated test-suite claim.
 
 ---
 
+# W016 - Jetson USB Camera to Computer Ingestor
+
+## Purpose
+
+Record the first successful two-machine validation using a real USB camera on
+an NVIDIA Jetson, the real OpenCV/V4L2 backend, and a Windows computer Ingestor
+and StorageManager.
+
+This is distinct from W013's automated FakeCV2 socket workflow, the manual MSMF
+laptop-webcam validation, and W015's Jetson fake-adapter transfer.
+
+## Workflow
+
+```text
+Jetson USB camera (/dev/video2)
+        |
+        v
+OpenCV / V4L2
+        |
+        v
+SeeedIMX219OpenCVCameraAdapter
+        |
+        v
+DeviceManager
+        |
+        v
+AcquisitionNode
+        |
+        v
+AcquisitionRecordEnvelope
+        |
+        v
+plain-data socket transfer over Wi-Fi
+        |
+        v
+Windows computer socket receiver
+        |
+        v
+InMemoryIngestor
+        |
+        v
+PersistentStorageManager
+        |
+        v
+JSONL persistence
+```
+
+## Validates
+
+- a real USB camera on the Jetson is acquired through OpenCV/V4L2
+- three envelopes are transmitted, received, accepted, and stored
+- three ingest audit records are created
+- session_start, camera_frame_metadata, and session_stop evidence persist
+- two camera metadata records preserve frame shape, dtype, frame index, read status, and V4L2 backend identity
+- session_time_s and device_local_time survive remote transfer
+- no image arrays or encoded image payloads cross the socket boundary
+
+This is a manual hardware/runtime validation, not an automated test-suite claim.
+
+---
+
 # Future Workflows
 
 The following workflows are expected to be added as the framework evolves.

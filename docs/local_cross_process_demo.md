@@ -365,3 +365,33 @@ JSONL.
 
 This records a successful two-machine validation only. It does not define a
 deployment model or final transport architecture.
+
+---
+
+# Recorded Jetson USB Camera Validation
+
+A real USB camera connected to an NVIDIA Jetson Orin has been manually
+validated against the Windows receiver over Wi-Fi. The camera was exposed as
+`/dev/video2`; OpenCV used the V4L2 backend. The Windows computer ran the socket
+receiver, `InMemoryIngestor`, and `PersistentStorageManager`.
+
+Windows receiver:
+
+```powershell
+python scripts\demo_socket_ingestor_receiver.py 0.0.0.0 8768 .\tmp_jetson_camera_demo\accepted_records.jsonl
+```
+
+Jetson sender, replacing `PC_IP` with the Windows computer's reachable address:
+
+```bash
+python scripts/demo_socket_opencv_camera_sender.py PC_IP 8768 --real-cv2 --camera-source 2 --api-preference 200 --frames-per-collect 2 --width 640 --height 480 --fps 30
+```
+
+The run sent and stored three envelopes and created three ingest audit records.
+JSONL readback contained `session_start`, two `camera_frame_metadata` rows, and
+`session_stop`. Camera metadata preserved width, height, channels, dtype,
+device-local time, frame index, read status, `backend=V4L2`, and Session Time.
+No image arrays or encoded image payloads crossed the socket boundary.
+
+This is validation evidence, not deployment documentation or a final transport
+design.

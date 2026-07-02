@@ -142,7 +142,7 @@ Ingestor arrival time must never be treated as the scientific timestamp of a sam
 
 **Status:** Accepted
 
-Acquisition Nodes may transmit data in batches.
+Acquisition Nodes may transmit data in batches. UPDATE: Acquisition Nodes should transmit continuous acquisition data in batches. Individual row transport remains acceptable for sparse events or debugging. Each row must retain its own timing information before batching.
 
 For example, the Jetson may send every 500 rows of acquired data to the Ingestor.
 
@@ -2493,6 +2493,72 @@ The next implementation may add a small node-readiness record and optional `sour
 
 ---
 
+## Decision 76: Public Repository and Local Configuration
+
+**Status:** Accepted
+
+The Lab Sync Acquisition framework is maintained as a public repository.
+
+No confidential, machine-specific, or institution-specific information shall be committed to the repository.
+
+Examples include, but are not limited to:
+
+- IP addresses
+- hostnames
+- usernames
+- passwords, tokens, or API keys
+- SSH keys
+- hardware serial numbers
+- local filesystem paths
+- calibration files
+- machine-specific configuration
+- lab-specific deployment information
+
+Whenever runtime configuration is required, the repository should provide a committed example/template configuration file (for example `config.example.*`).
+
+Each deployment (Jetson, acquisition computer, controller, developer workstation, etc.) should maintain its own local configuration file derived from the example.
+
+Local configuration files containing machine-specific information must be excluded from version control (for example via `.gitignore`).
+
+The framework source code should never depend on confidential values being hard-coded into the repository.
+
+**Rationale**
+
+Maintaining the framework as a public repository improves reproducibility, collaboration, and deployment while protecting confidential laboratory information. Example configuration files also provide clear documentation for new users and deployments.
+
+**Consequence**
+
+All future configuration features should distinguish between:
+
+- committed example/template configuration
+- local deployment-specific configuration
+
+Only the example/template files belong in the repository.
+
+---
+
+## Decision 077: Continuous acquisition batching is owned by AcquisitionNode
+
+**Status:** Accepted
+
+Acquisition Nodes should batch continuous acquisition records before sending them to the Ingestor.
+
+Batching is owned by the AcquisitionNode. DeviceAdapters produce timed records; DeviceManager collects records; AcquisitionNode groups records into AcquisitionRecordEnvelope objects.
+
+Batching does not change timing ownership. Each row must already contain Session Time or enough timing information to reconstruct it before batching.
+
+For v1, batches may be flushed by record count, elapsed batch age, normal stop, abort, or failure cleanup.
+
+Retry behavior is part of Phase 3 acquisition robustness. Retry belongs to the AcquisitionNode transmission responsibility and must preserve failure/retry/drop evidence.
+
+**Rationale:**
+Continuous streams should avoid row-by-row transmission without moving timing responsibility away from acquisition.
+
+**Consequence:**
+Ingestor and StorageManager remain envelope-oriented and do not need to know whether an envelope contains one record or many records.
+
+---
+
 --- ********************************************************************************
 
 # Accepted Architectural Principles
@@ -2573,6 +2639,8 @@ The following principles summarize the accepted decisions so far.
 73. The persistent Session Record is the durable evidence package for one Session.
 74. Existing components own evidence; StorageManager writes evidence; no new manager yet.
 75. Phase 2 remote AcquisitionNode sessions require explicit node identity and aggregated readiness evidence before acquisition starts.
+76. The repository is public; all machine- or lab-specific configuration must be stored in untracked local configuration files, while committed example/template configuration files are provided for users to copy and customize.
+77. Continuous acquisition batching is owned by the AcquisitionNode.
 
 ---
 
