@@ -1,4 +1,4 @@
-import unittest
+﻿import unittest
 import tempfile
 from pathlib import Path
 import sys
@@ -94,6 +94,7 @@ class FakeAcquisitionSliceTests(unittest.TestCase):
             selected_devices=[declaration],
             storage_location="placeholder://session",
             protocol_plan={"name": "no-op"},
+            error_evidence_location="placeholder://errors",
         )
         session = Session(session_id="session-001", configuration=configuration)
         adapter = TinyStreamFakeAdapter(
@@ -246,6 +247,7 @@ class FakeAcquisitionSliceTests(unittest.TestCase):
             selected_devices=[declaration],
             storage_location="placeholder://session",
             protocol_plan={"name": "session-start-event"},
+            error_evidence_location="placeholder://errors",
         )
         session = Session(session_id="session-001", configuration=configuration)
         adapter = ReadyFakeAdapter(
@@ -327,6 +329,7 @@ class FakeAcquisitionSliceTests(unittest.TestCase):
             selected_devices=[declaration],
             storage_location="placeholder://session",
             protocol_plan={"name": "bounded-fake-acquisition"},
+            error_evidence_location="placeholder://errors",
         )
         session = Session(session_id="session-001", configuration=configuration)
         payload_batches = [
@@ -552,6 +555,7 @@ class FakeAcquisitionSliceTests(unittest.TestCase):
                 selected_devices=[declaration],
                 storage_location="placeholder://session",
                 protocol_plan={"name": "persistent-jsonl-fake-acquisition"},
+                error_evidence_location="placeholder://errors",
             )
             session = Session(session_id="session-001", configuration=configuration)
             payload_batches = [
@@ -687,3 +691,5 @@ class FakeAcquisitionSliceTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+

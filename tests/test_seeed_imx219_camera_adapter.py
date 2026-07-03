@@ -1,4 +1,4 @@
-import tempfile
+﻿import tempfile
 import unittest
 from pathlib import Path
 import sys
@@ -108,6 +108,7 @@ class SeeedIMX219OpenCVCameraAdapterTests(unittest.TestCase):
                 selected_devices=[declaration],
                 storage_location=str(temporary_directory),
                 protocol_plan={"name": "camera-metadata-only"},
+                error_evidence_location="placeholder://errors",
                 device_configurations={
                     "seeed-imx219-001": {
                         "camera_source": 0,
@@ -216,3 +217,5 @@ class SeeedIMX219OpenCVCameraAdapterTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+

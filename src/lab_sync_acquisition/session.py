@@ -30,6 +30,7 @@ class SessionConfig:
     selected_devices: list[DeviceDeclaration] | None
     storage_location: str | None
     protocol_plan: Any | None
+    error_evidence_location: str
     session_id: str | None = None
     session_parameters: dict[str, Any] | None = None
     device_configurations: dict[str, Any] | None = None
@@ -54,6 +55,7 @@ class SessionConfig:
             ),
             "storage_location": self.storage_location,
             "protocol_plan": self.protocol_plan,
+            "error_evidence_location": self.error_evidence_location,
             "session_parameters": self.session_parameters,
             "device_configurations": self.device_configurations,
             "synchronization_configuration": self.synchronization_configuration,

@@ -1,4 +1,4 @@
-import unittest
+﻿import unittest
 from pathlib import Path
 import sys
 
@@ -29,6 +29,7 @@ def config() -> SessionConfig:
         selected_devices=[],
         storage_location="placeholder://session",
         protocol_plan={"name": "no-op"},
+        error_evidence_location="placeholder://errors",
     )
 
 
@@ -120,6 +121,7 @@ class SessionLifecycleTests(unittest.TestCase):
             storage_configuration={"mode": "in_memory"},
             storage_location="placeholder://session",
             protocol_plan={"name": "no-op"},
+            error_evidence_location="placeholder://errors",
             protocol_reference="protocol://no-op",
         )
         session = Session(session_id="session-001", configuration=accepted_config)
@@ -127,6 +129,10 @@ class SessionLifecycleTests(unittest.TestCase):
         session.initialize()
 
         self.assertIs(session.configuration, accepted_config)
+        self.assertEqual(
+            session.configuration.to_dict()["error_evidence_location"],
+            "placeholder://errors",
+        )
         self.assertIs(session.configuration.selected_devices[0], declaration)
         self.assertEqual(
             session.configuration.device_configurations["camera-001"],
@@ -152,6 +158,7 @@ class SessionLifecycleTests(unittest.TestCase):
                 selected_devices=[declaration],
                 storage_location="placeholder://session",
                 protocol_plan={"name": "no-op"},
+                error_evidence_location="placeholder://errors",
             ),
         )
 
@@ -215,6 +222,7 @@ class SessionLifecycleTests(unittest.TestCase):
                 ],
                 storage_location="placeholder://session",
                 protocol_plan={"name": "no-op"},
+                error_evidence_location="placeholder://errors",
             ),
         )
 
@@ -242,6 +250,7 @@ class SessionLifecycleTests(unittest.TestCase):
                 ],
                 storage_location="placeholder://session",
                 protocol_plan={"name": "no-op"},
+                error_evidence_location="placeholder://errors",
             ),
         )
 
@@ -268,6 +277,7 @@ class SessionLifecycleTests(unittest.TestCase):
                 selected_devices=[declaration],
                 storage_location="placeholder://session",
                 protocol_plan={"name": "no-op"},
+                error_evidence_location="placeholder://errors",
             ),
         )
 
@@ -295,6 +305,7 @@ class SessionLifecycleTests(unittest.TestCase):
                 ],
                 storage_location="placeholder://session",
                 protocol_plan={"name": "no-op"},
+                error_evidence_location="placeholder://errors",
             ),
         )
 
@@ -339,6 +350,7 @@ class SessionLifecycleTests(unittest.TestCase):
                         selected_devices=[declaration],
                         storage_location="placeholder://session",
                         protocol_plan={"name": "no-op"},
+                        error_evidence_location="placeholder://errors",
                     ),
                 )
 
@@ -387,6 +399,7 @@ class SessionLifecycleTests(unittest.TestCase):
                     selected_devices=None,
                     storage_location="placeholder://session",
                     protocol_plan={"name": "no-op"},
+                    error_evidence_location="placeholder://errors",
                 ),
                 "selected_devices_declared",
             ),
@@ -396,6 +409,7 @@ class SessionLifecycleTests(unittest.TestCase):
                     selected_devices=[],
                     storage_location=None,
                     protocol_plan={"name": "no-op"},
+                    error_evidence_location="placeholder://errors",
                 ),
                 "storage_location_declared",
             ),
@@ -405,6 +419,7 @@ class SessionLifecycleTests(unittest.TestCase):
                     selected_devices=[],
                     storage_location="placeholder://session",
                     protocol_plan=None,
+                    error_evidence_location="placeholder://errors",
                 ),
                 "protocol_plan_declared",
             ),
@@ -569,6 +584,7 @@ class SessionLifecycleTests(unittest.TestCase):
                 selected_devices=[declaration],
                 storage_location="placeholder://session",
                 protocol_plan={"name": "no-op"},
+                error_evidence_location="placeholder://errors",
             ),
         )
 
@@ -858,3 +874,5 @@ class SessionLifecycleTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+

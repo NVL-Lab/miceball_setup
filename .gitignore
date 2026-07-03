@@ -20,6 +20,7 @@ conda-meta/
 
 # Test artifacts
 .pytest_cache/
+tmp_continuous_batched_stream_demo/
 
 # OS
 .DS_Store

@@ -149,6 +149,7 @@ propagation policy remain unresolved.
 * Session manifest structure
 * Device schema structure
 
+
 ---
 
 # Future Questions
@@ -196,6 +197,29 @@ The framework intends to support NWB export.
 Design internal records so that NWB export is straightforward, but do not let NWB drive the Phase 1 architecture.
 
 ---
+
+## Q011: What is the retry and replay model for failed handoff envelopes?
+
+### Why this matters
+
+The first handoff failure slice preserves failure evidence and may preserve failed envelopes locally, but it does not retry or replay them.
+
+### Questions
+
+* Should failed envelopes be retried immediately, later, or only manually?
+* Is there a retry queue or local backlog?
+* Are newer envelopes allowed to continue sending while older failed envelopes remain unsent?
+* How are successful retries recorded?
+* How are permanently unsent envelopes represented in the Session Record?
+* Who initiates replay: AcquisitionNode, Controller, or offline reconstruction tooling?
+* What local storage limits apply to failed-envelope preservation?
+
+### Current direction
+
+Do not implement retry/replay in the first handoff failure slice. Preserve sender-side failure evidence first, then design retry/replay explicitly as a later Phase 3 robustness decision.
+
+---
+
 
 # Architecture Board Rule
 

@@ -1,4 +1,4 @@
-import unittest
+﻿import unittest
 from pathlib import Path
 import sys
 
@@ -42,6 +42,7 @@ class FakeEndToEndLifecycleTests(unittest.TestCase):
             selected_devices=declarations,
             storage_location="placeholder://session",
             protocol_plan={"name": "no-op"},
+            error_evidence_location="placeholder://errors",
         )
         session = Session(
             session_id="session-001",
@@ -99,3 +100,5 @@ class FakeEndToEndLifecycleTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+

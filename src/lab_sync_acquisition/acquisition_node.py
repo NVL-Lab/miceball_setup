@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
+import json
+from math import isfinite
+from pathlib import Path
 from typing import Any, Iterable
 
 from lab_sync_acquisition.acquisition_record import AcquisitionRecordEnvelope
@@ -35,6 +39,8 @@ class AcquisitionNode:
         ingestor: InMemoryIngestor,
         node_id: str | None = None,
         role: str | None = None,
+        acquisition_configuration: Mapping[str, Any] | None = None,
+        error_evidence_location: str | None = None,
     ) -> None:
         self._session_id = session_id
         self._device_manager = device_manager
@@ -42,6 +48,20 @@ class AcquisitionNode:
         self._ingestor = ingestor
         self._node_id = node_id
         self._role = role
+        self._error_evidence_location = error_evidence_location
+        self._handoff_failure_policy = self._read_handoff_failure_policy(
+            acquisition_configuration
+        )
+        (
+            self._stream_batch_max_records,
+            self._stream_batch_max_age_s,
+        ) = self._read_stream_batch_configuration(acquisition_configuration)
+        self._pending_stream_batches: dict[
+            tuple[str | None, str, str], list[dict[str, Any]]
+        ] = {}
+        self._pending_stream_batch_started_session_times: dict[
+            tuple[str | None, str, str], float
+        ] = {}
         self._running = False
         self._iteration_index = 0
         self._last_error: str | None = None
@@ -126,16 +146,23 @@ class AcquisitionNode:
                 self._with_session_time(row)
                 for row in collection.records
             )
-            audit = self._send_envelope(
-                source_device_id=collection.source_device_id,
-                record_kind=collection.record_kind,
-                records=records,
-            )
-            envelopes_sent += 1
-            if audit.accepted:
-                accepted_count += 1
+            if collection.record_kind == "stream" and self._stream_batching_enabled():
+                audits = self._append_stream_records(
+                    source_device_id=collection.source_device_id,
+                    record_kind=collection.record_kind,
+                    records=records,
+                )
             else:
-                rejected_count += 1
+                audits = (
+                    self._send_envelope(
+                        source_device_id=collection.source_device_id,
+                        record_kind=collection.record_kind,
+                        records=records,
+                    ),
+                )
+            envelopes_sent += len(audits)
+            accepted_count += sum(audit.accepted for audit in audits)
+            rejected_count += sum(not audit.accepted for audit in audits)
 
         return AcquisitionIterationSummary(
             iteration_index=self._iteration_index,
@@ -148,6 +175,7 @@ class AcquisitionNode:
     def stop_acquisition(self) -> dict[str, Any]:
         """Stop Session Time, record session_stop evidence, and stop devices."""
 
+        self._flush_pending_stream_batches()
         final_session_time_s = self._synchronization_manager.stop()
         session_stop_audit = self._send_envelope(
             source_device_id="acquisition_node",
@@ -204,7 +232,52 @@ class AcquisitionNode:
         )
         envelope_data = envelope.to_dict()
         reconstructed_envelope = AcquisitionRecordEnvelope.from_dict(envelope_data)
-        return self._ingestor.receive_envelope(reconstructed_envelope)
+        try:
+            return self._ingestor.receive_envelope(reconstructed_envelope)
+        except Exception as error:
+            return self._record_handoff_failure(reconstructed_envelope, error)
+
+    def _record_handoff_failure(
+        self,
+        envelope: AcquisitionRecordEnvelope,
+        error: Exception,
+    ) -> Any:
+        if not self._error_evidence_location:
+            raise RuntimeError(
+                "Sender handoff failed but error_evidence_location is not configured"
+            ) from error
+
+        preserve = self._handoff_failure_policy == "must_preserve"
+        evidence = {
+            "session_id": envelope.session_id,
+            "source_node_id": envelope.source_node_id,
+            "source_device_id": envelope.source_device_id,
+            "record_kind": envelope.record_kind,
+            "record_count": len(envelope.records),
+            "failure_type": type(error).__name__,
+            "error_message": str(error),
+            "policy_name": self._handoff_failure_policy,
+            "action_taken": (
+                "preserved_failed_envelope"
+                if preserve
+                else "recorded_drop_and_continued"
+            ),
+            "failure_session_time_s": (
+                self._synchronization_manager.current_session_time_s
+            ),
+            "preserved_envelope": preserve,
+        }
+        if preserve:
+            evidence["envelope"] = envelope.to_dict()
+
+        evidence_directory = Path(self._error_evidence_location)
+        evidence_directory.mkdir(parents=True, exist_ok=True)
+        evidence_path = evidence_directory / "sender_handoff_failures.jsonl"
+        with evidence_path.open("a", encoding="utf-8") as evidence_file:
+            evidence_file.write(json.dumps(evidence))
+            evidence_file.write("\n")
+
+        return _FailedHandoffAudit()
 
     def _with_session_time(self, row: dict[str, Any]) -> dict[str, Any]:
         if "session_time_s" in row:
@@ -213,3 +286,137 @@ class AcquisitionNode:
             **row,
             "session_time_s": self._synchronization_manager.current_session_time_s,
         }
+
+    def _append_stream_records(
+        self,
+        source_device_id: str,
+        record_kind: str,
+        records: tuple[dict[str, Any], ...],
+    ) -> tuple[Any, ...]:
+        key = (self._node_id, source_device_id, record_kind)
+        pending = self._pending_stream_batches.get(key)
+        if records:
+            if pending is None:
+                pending = []
+                self._pending_stream_batches[key] = pending
+                self._pending_stream_batch_started_session_times[key] = (
+                    self._synchronization_manager.current_session_time_s
+                )
+            pending.extend(records)
+        elif pending is None:
+            return ()
+
+        audits = []
+        while (
+            self._stream_batch_max_records is not None
+            and len(pending) >= self._stream_batch_max_records
+        ):
+            batch = pending[: self._stream_batch_max_records]
+            audit = self._send_envelope(
+                source_device_id=source_device_id,
+                record_kind=record_kind,
+                records=tuple(batch),
+            )
+            del pending[: self._stream_batch_max_records]
+            audits.append(audit)
+            if pending:
+                self._pending_stream_batch_started_session_times[key] = (
+                    self._synchronization_manager.current_session_time_s
+                )
+
+        if pending and self._stream_batch_max_age_s is not None:
+            batch_started = self._pending_stream_batch_started_session_times[key]
+            batch_age = (
+                self._synchronization_manager.current_session_time_s
+                - batch_started
+            )
+            if batch_age >= self._stream_batch_max_age_s:
+                audit = self._send_envelope(
+                    source_device_id=source_device_id,
+                    record_kind=record_kind,
+                    records=tuple(pending),
+                )
+                pending.clear()
+                audits.append(audit)
+
+        if not pending:
+            self._pending_stream_batches.pop(key, None)
+            self._pending_stream_batch_started_session_times.pop(key, None)
+        return tuple(audits)
+
+    def _flush_pending_stream_batches(self) -> None:
+        for key, records in tuple(self._pending_stream_batches.items()):
+            source_node_id, source_device_id, record_kind = key
+            if source_node_id != self._node_id:
+                continue
+            if records:
+                self._send_envelope(
+                    source_device_id=source_device_id,
+                    record_kind=record_kind,
+                    records=tuple(records),
+                )
+            self._pending_stream_batches.pop(key, None)
+            self._pending_stream_batch_started_session_times.pop(key, None)
+
+    def _read_stream_batch_configuration(
+        self,
+        acquisition_configuration: Mapping[str, Any] | None,
+    ) -> tuple[int | None, float | None]:
+        if not isinstance(acquisition_configuration, Mapping):
+            return None, None
+        policy_name = acquisition_configuration.get("batch_policy")
+        policies = acquisition_configuration.get("batch_policies")
+        if policy_name != "type_1" or not isinstance(policies, Mapping):
+            return None, None
+        policy = policies.get(policy_name)
+        if not isinstance(policy, Mapping):
+            return None, None
+        max_records = policy.get("max_records")
+        if (
+            isinstance(max_records, bool)
+            or not isinstance(max_records, int)
+            or max_records <= 1
+        ):
+            max_records = None
+        max_batch_age_s = policy.get("max_batch_age_s")
+        if (
+            isinstance(max_batch_age_s, bool)
+            or not isinstance(max_batch_age_s, (int, float))
+            or not isfinite(max_batch_age_s)
+            or max_batch_age_s <= 0
+        ):
+            max_batch_age_s = None
+        return max_records, (
+            float(max_batch_age_s) if max_batch_age_s is not None else None
+        )
+
+    def _read_handoff_failure_policy(
+        self,
+        acquisition_configuration: Mapping[str, Any] | None,
+    ) -> str:
+        if not isinstance(acquisition_configuration, Mapping):
+            return "must_preserve"
+        policy_name = acquisition_configuration.get("handoff_failure_policy")
+        policies = acquisition_configuration.get("handoff_failure_policies")
+        if policy_name not in {"must_preserve", "best_effort"}:
+            return "must_preserve"
+        if not isinstance(policies, Mapping):
+            return "must_preserve"
+        policy = policies.get(policy_name)
+        if not isinstance(policy, Mapping):
+            return "must_preserve"
+        expected_preserve = policy_name == "must_preserve"
+        if policy.get("preserve_failed_envelope") is not expected_preserve:
+            return "must_preserve"
+        return policy_name
+
+    def _stream_batching_enabled(self) -> bool:
+        return (
+            self._stream_batch_max_records is not None
+            or self._stream_batch_max_age_s is not None
+        )
+
+
+@dataclass(frozen=True)
+class _FailedHandoffAudit:
+    accepted: bool = False

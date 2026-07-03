@@ -3,7 +3,7 @@
 ## src/lab_sync_acquisition/__init__.py
 
 - AcquisitionIterationSummary: Public import for the result of one bounded AcquisitionNode iteration.
-- AcquisitionNode: Public import for bounded acquisition-side execution that coordinates existing runtime collaborators without owning Session lifecycle.
+- AcquisitionNode: Public import for bounded acquisition-side execution, configured stream batching, and sender-side failure evidence under the supplied Session error evidence location.
 - AcquisitionNodeReadiness: Public import for Phase 2 node identity and aggregated device/service readiness evidence.
 - AcquisitionRecordEnvelope: Public import for the transferable acquisition record envelope shared across the acquisition-to-ingestion boundary.
 - DeviceAdapter: Public import for the minimum live runtime control interface for one device adapter.
@@ -25,7 +25,7 @@
 - OpenCVCameraConfig: Public import for explicit OpenCV camera initialization and polling configuration.
 - ReadinessCheck: Public import for recorded readiness checks.
 - Session: Public import for the runtime session lifecycle model.
-- SessionConfig: Public import for the immutable accepted run configuration owned by a Session and preserved as part of the Session Record.
+- SessionConfig: Public import for the immutable accepted run configuration, including its explicit error evidence location, owned by a Session and preserved as part of the Session Record.
 - SeeedIMX219OpenCVCameraAdapter: Public import for the concrete OpenCV-backed metadata-only adapter for a Seeed IMX219 camera.
 - SessionLifecycleError: Public import for lifecycle operation failures.
 - SessionState: Public import for accepted Phase 1 session lifecycle states.
@@ -43,7 +43,7 @@
 ## src/lab_sync_acquisition/acquisition_node.py
 
 - AcquisitionIterationSummary: Records the small inspectable summary returned by one bounded acquisition iteration.
-- AcquisitionNode: Owns bounded acquisition-side execution using already-created collaborators and can report aggregated readiness evidence for explicitly identified Phase 2 nodes.
+- AcquisitionNode: Owns bounded acquisition-side execution, private stream batching, and sender-side handoff failure evidence written under the supplied Session error evidence location.
 
 ## src/lab_sync_acquisition/device.py
 
@@ -91,7 +91,7 @@
 ## src/lab_sync_acquisition/session.py
 
 - SessionState: Enumerates the accepted Phase 1 session lifecycle states.
-- SessionConfig: Holds the immutable accepted run configuration for one Session, including selected device declarations and optional configuration buckets for runtime owners, and exposes it as plain data for the persistent Session Record.
+- SessionConfig: Holds the immutable accepted run configuration, including the explicit Session error evidence location, and exposes it as plain data for the persistent Session Record.
 - ReadinessCheck: Records the result of a readiness condition checked during lifecycle transitions and exposes it as plain data for Session Record evidence.
 - LifecycleTransition: Records an allowed lifecycle state transition in sequence order and exposes it as plain data for Session Record evidence.
 - SessionLifecycleError: Signals invalid lifecycle operations or failed readiness requirements.
@@ -104,6 +104,10 @@
 ## scripts/demo_cross_process_ingestor_reader.py
 
 - main: Reads demo handoff envelope dictionaries, reconstructs AcquisitionRecordEnvelope objects, sends them to InMemoryIngestor, and persists accepted envelopes through PersistentStorageManager.
+
+## scripts/demo_continuous_batched_stream.py
+
+- main: Runs deterministic count- and Session-Time-age-triggered continuous fake-stream scenarios through AcquisitionNode and persistent JSONL storage.
 
 ## scripts/demo_socket_acquisition_sender.py
 

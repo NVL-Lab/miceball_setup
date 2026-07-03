@@ -2559,6 +2559,156 @@ Ingestor and StorageManager remain envelope-oriented and do not need to know whe
 
 ---
 
+## Decision 078: AcquisitionNode batching implementation v1
+
+**Status:** Accepted
+
+The v1 implementation of continuous acquisition batching follows these principles:
+
+- `AcquisitionNode` owns batching state.
+- Pending batches are private runtime state within `AcquisitionNode`.
+- Pending batches are created lazily only after records are produced.
+- Batching is performed per stream identity (`source_node_id`, `source_device_id`, `record_kind`).
+- Only `stream` records are batched in v1. Other record kinds continue using the existing immediate-envelope path.
+- Batching behavior is configured through `SessionConfig.acquisition_config`.
+- The selected batching policy is part of the accepted `SessionConfig` and therefore part of the persistent Session Record.
+- v1 supports a single batching policy shared by all stream-producing devices. Future versions may introduce additional policies or per-device policies without changing ownership boundaries.
+
+**Rationale**
+
+This implementation keeps batching entirely within the existing `AcquisitionNode` responsibility, preserves the existing acquisition-envelope boundary, and avoids introducing new architectural components or downstream changes.
+
+**Consequence**
+
+`DeviceAdapter`, `DeviceManager`, `Ingestor`, and `StorageManager` remain unchanged. `AcquisitionRecordEnvelope` remains the transfer boundary regardless of whether it contains one record or many.
+```
+
+---
+
+## Decision 079: Device declarations carry device-specific acquisition policy assignments
+
+**Status:** Accepted
+
+Device-specific acquisition policy assignments belong with the device declaration.
+
+A `DeviceDeclaration` should identify not only which device participates in a Session, but also which acquisition policies apply to that device when relevant.
+
+Examples include:
+
+- batching policy
+- handoff failure policy
+- future storage or timing-related acquisition policies
+
+Policy definitions may remain in `SessionConfig.acquisition_configuration`, but policy assignment should be declared with the device rather than in a separate source-to-policy map.
+
+**Rationale**
+
+When adding or modifying a device, the acquisition behavior associated with that device should be visible in one place. This avoids scattered configuration maps and reduces the risk that a new device is declared without its required acquisition policies.
+
+**Consequence**
+
+Future implementation should extend `DeviceDeclaration` or the accepted device configuration structure so that each device can declare relevant acquisition policy names, such as `batch_policy` and `handoff_failure_policy`. `AcquisitionNode` may use these assignments when applying source-specific behavior, while policy meanings remain defined in acquisition configuration.
+
+---
+
+## Decision 081: AcquisitionRecordEnvelope is the atomic handoff unit
+
+**Status:** Accepted**
+
+`AcquisitionRecordEnvelope` is the atomic unit for acquisition handoff.
+
+Once records are placed into an envelope, handoff, retry, failure, preservation, or drop behavior operates on the entire envelope and never on individual records.
+
+**Rationale:**
+The framework needs one clear unit of transfer and failure accounting.
+
+**Consequence:**
+Record-level retry or partial-envelope handoff is out of scope unless a future architecture explicitly replaces the envelope boundary.
+
+---
+
+## Decision 081: AcquisitionNode owns sender-side handoff failure evidence
+
+**Status:** Accepted
+
+Handoff failure evidence is mandatory for every failed envelope handoff attempt.
+
+Failure policy determines the consequence of the failure, not whether evidence is recorded.
+
+Sender-side handoff failure evidence is owned by the `AcquisitionNode`, because the failure occurred before the envelope successfully crossed the handoff boundary.
+
+`Ingestor` owns receiver-side ingest audit for envelopes it receives.
+
+`StorageManager` owns persistence of accepted envelopes.
+
+**Rationale:**
+Failure ownership should follow where the failure occurred.
+
+**Consequence:**
+Policies such as `must_preserve` or `best_effort` may decide whether failed envelopes are preserved, retried, dropped, or cause abort, but they may not suppress failure evidence.
+
+---
+
+## Decision 082: Handoff failure policies define sender-side failure consequences
+
+**Status:** Accepted
+
+Phase 3 defines two sender-side handoff failure policies:
+
+```text
+must_preserve
+    failure evidence required
+    failed envelope must be preserved locally if not handed off
+    repeated failures may abort acquisition
+
+best_effort
+    failure evidence required
+    failed envelope may be dropped
+    acquisition continues
+
+---
+
+## Decision 083: Sender-side handoff v1 uses one attempt per envelope 
+
+**Status:** Accepted
+
+For v1, each `AcquisitionRecordEnvelope` receives one sender-side handoff attempt.
+
+If handoff fails, the `AcquisitionNode` applies the assigned handoff failure policy immediately.
+
+There is no retry queue, delayed retry, replay backlog, or blocking resend loop in v1.
+
+For `must_preserve`, the failed envelope is preserved locally, failure evidence is recorded, and consecutive failed handoff attempts may abort acquisition.
+
+For `best_effort`, failure evidence is recorded, the failed envelope may be dropped, and acquisition continues.
+
+**Rationale:**
+The first robustness slice should preserve evidence and define failure consequences without introducing a replay system.
+
+**Consequence:**
+Consecutive failures mean consecutive failed handoff attempts for newly emitted `must_preserve` envelopes, not retry attempts from a backlog.
+
+---
+
+## Decision 085: System error evidence location is configured per Session
+
+**Status:** Accepted
+
+Each Session must have a configured location for system error and failure evidence.
+
+Framework components that produce runtime error evidence must write or report that evidence to the configured Session error evidence location.
+
+User notification is separate from error evidence preservation.
+
+The AcquisitionNode must not own GUI popups, alerts, or user-facing notification behavior.
+
+**Rationale:**
+Failure evidence must be preserved even when no user interface is available.
+
+**Consequence:**
+AcquisitionNode may record sender-side handoff failures there, while future Controller or GUI components may surface user-facing alerts from preserved evidence or runtime status.
+
+
 --- ********************************************************************************
 
 # Accepted Architectural Principles
@@ -2641,6 +2791,13 @@ The following principles summarize the accepted decisions so far.
 75. Phase 2 remote AcquisitionNode sessions require explicit node identity and aggregated readiness evidence before acquisition starts.
 76. The repository is public; all machine- or lab-specific configuration must be stored in untracked local configuration files, while committed example/template configuration files are provided for users to copy and customize.
 77. Continuous acquisition batching is owned by the AcquisitionNode.
+78.  `AcquisitionNode` does the batching
+79. Device-specific acquisition policy assignments belong with the corresponding `DeviceDeclaration`. Policy definitions remain in `SessionConfig.acquisition_configuration`, while each device declares which policy names it uses.
+80. Envelope doesn't split for failure
+81. Sender-side handoff failure evidence is owned by the AcquisitionNode
+82. Handoff failure policies define sender-side failure consequences
+83. Sender-side handoff v1 performs one handoff attempt per envelope
+85. System error evidence location is configured per Session.
 
 ---
 

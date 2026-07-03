@@ -807,6 +807,94 @@ This is a manual hardware/runtime validation, not an automated test-suite claim.
 
 ---
 
+# W017 - AcquisitionNode Stream Batching v1
+
+## Purpose
+
+Validate count-based and Session-Time-age batching of continuous stream rows
+inside AcquisitionNode without changing the envelope, ingestion, or storage
+boundaries.
+
+## Workflow
+
+```text
+DeviceManager.collect_records()
+        |
+        v
+timestamped stream rows
+        |
+        v
+AcquisitionNode private pending batch
+        |
+        +-- max_records reached --> AcquisitionRecordEnvelope
+        |
+        +-- max_batch_age_s reached --> AcquisitionRecordEnvelope
+        |
+        +-- partial batch at stop --> AcquisitionRecordEnvelope
+        |
+        v
+InMemoryIngestor
+        |
+        v
+InMemoryStorageManager
+```
+
+## Validates
+
+- batching configuration comes from SessionConfig.acquisition_configuration
+- type_1 batches stream rows by configured max_records
+- optional max_batch_age_s flushes partial batches using SynchronizationManager Session Time
+- invalid count and age settings disable only their own flush condition
+- count-flush leftovers begin a new Session Time age window
+- full envelopes contain exactly max_records rows
+- partial rows remain pending until stop
+- pending rows flush before session_stop evidence
+- non-stream records continue through the immediate envelope path
+- missing or invalid batching configuration preserves immediate collection behavior
+- Ingestor and StorageManager continue receiving ordinary AcquisitionRecordEnvelope objects
+
+---
+
+# W018 - Continuous Batched Stream Demo
+
+## Purpose
+
+Manually validate existing AcquisitionNode batching with larger deterministic
+fake streams and persistent JSONL readback.
+
+## Workflow
+
+```text
+ContinuousFakeStreamAdapter
+        |
+        v
+DeviceManager
+        |
+        v
+AcquisitionNode count/Session-Time-age batching
+        |
+        v
+AcquisitionRecordEnvelope
+        |
+        v
+InMemoryIngestor
+        |
+        v
+PersistentStorageManager
+```
+
+## Validates
+
+- 1,200 fast records produce stream envelope sizes 500, 500, and 200
+- 5 slow records produce age-triggered stream envelope sizes 2, 2, and 1
+- the final partial batch in each scenario flushes at stop
+- both scenarios use deterministic SynchronizationManager-compatible Session Time without sleeping
+- each scenario persists session_start, three stream envelopes, and session_stop as JSONL
+
+This is a manual quality/demo validation, not an additional automated test.
+
+---
+
 # Future Workflows
 
 The following workflows are expected to be added as the framework evolves.

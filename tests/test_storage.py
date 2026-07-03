@@ -1,4 +1,4 @@
-import tempfile
+﻿import tempfile
 import unittest
 from pathlib import Path
 import sys
@@ -124,6 +124,7 @@ class PersistentStorageManagerTests(unittest.TestCase):
                 selected_devices=[declaration],
                 storage_location="placeholder://session",
                 protocol_plan={"name": "session-record-v1"},
+                error_evidence_location="placeholder://errors",
                 session_parameters={"operator": "test-user"},
                 device_configurations={
                     "declared-camera-001": {"exposure_ms": 5}
@@ -329,3 +330,5 @@ class PersistentStorageManagerTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
