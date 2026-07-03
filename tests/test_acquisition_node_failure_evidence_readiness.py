@@ -33,7 +33,7 @@ class AcquisitionNodeFailureEvidenceReadinessTests(unittest.TestCase):
             node, adapter = self._initialized_node(directory)
 
             readiness = node.check_ready()
-            node.start_acquisition()
+            start_result = node.start_runtime()
 
             failure_evidence = next(
                 item
@@ -43,8 +43,19 @@ class AcquisitionNodeFailureEvidenceReadinessTests(unittest.TestCase):
             self.assertTrue(readiness["ready"])
             self.assertTrue(failure_evidence.ready)
             self.assertTrue(node.status()["is_running"])
+            self.assertEqual(start_result["session_time_s"], 0.0)
             self.assertEqual(adapter.collect_count, 0)
-            node.stop_acquisition()
+            stop_result = node.stop_runtime()
+            self.assertTrue(
+                all(result.succeeded for result in stop_result["device_stop_results"])
+            )
+            self.assertTrue(
+                all(
+                    result.succeeded
+                    for result in stop_result["device_shutdown_results"]
+                )
+            )
+            self.assertFalse(node.status()["is_running"])
 
     def test_acquisition_does_not_start_with_unavailable_evidence_location(self):
         with tempfile.TemporaryDirectory() as directory:

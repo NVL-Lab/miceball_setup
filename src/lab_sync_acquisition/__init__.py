@@ -6,6 +6,7 @@ from lab_sync_acquisition.acquisition_node import (
 )
 from lab_sync_acquisition.acquisition_node_readiness import AcquisitionNodeReadiness
 from lab_sync_acquisition.acquisition_record import AcquisitionRecordEnvelope
+from lab_sync_acquisition.controller import Controller, ControllerCommandResult
 from lab_sync_acquisition.device import DeviceDeclaration
 from lab_sync_acquisition.device_adapter import (
     DeviceAdapter,
@@ -50,6 +51,8 @@ __all__ = [
     "DeviceAdapterState",
     "DeviceDeclaration",
     "AcquisitionRecordEnvelope",
+    "Controller",
+    "ControllerCommandResult",
     "DeviceReadiness",
     "DeviceReadinessNotImplementedError",
     "DeviceStatus",

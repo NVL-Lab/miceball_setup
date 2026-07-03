@@ -227,13 +227,13 @@ def main() -> int:
             if not readiness["ready"]:
                 raise RuntimeError("OpenCV camera demo sender was not ready")
 
-            acquisition_node.start_acquisition()
+            acquisition_node.start_runtime()
             acquisition_node.run_one_iteration()
-            acquisition_node.stop_acquisition()
+            acquisition_node.stop_runtime()
         finally:
             if acquisition_node.status()["is_running"]:
                 try:
-                    acquisition_node.stop_acquisition()
+                    acquisition_node.stop_runtime()
                 except Exception:
                     pass
 

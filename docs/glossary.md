@@ -16,9 +16,19 @@ The Acquisition Node is not the GUI, Controller, Ingestor, or Storage Manager.
 
 ---
 
+# Acquisition Runtime
+
+The Session-level runtime owned by an Acquisition Node.
+
+When the Acquisition Runtime is active, the node is active for that Session, Session Time is running, and acquisition evidence may be recorded.
+
+Acquisition Runtime active does not imply that an Experiment is running or that every declared device is streaming or producing records.
+
+---
+
 # Controller
 
-The component responsible for issuing high-level session commands.
+The component responsible for sequential orchestration and command results for one Session in Controller v1.
 
 Examples:
 
@@ -26,9 +36,10 @@ Examples:
 * initialize session
 * start session
 * stop session
-* abort session
+* run bounded acquisition iterations
+* finalize session evidence and outcome
 
-The Controller owns protocol intent but does not own acquisition timing.
+The Controller coordinates existing components but does not own Session lifecycle state, Acquisition Runtime execution, Session Time, device lifecycle, ingest audit, or persistent writing.
 
 The GUI and Controller are conceptually separate, even if they run on the same machine.
 
@@ -96,14 +107,15 @@ Events are part of the scientific record.
 
 # Experiment
 
-A scientific plan that may consist of multiple Sessions.
+A scientific or protocol segment that runs within a Session.
 
 Examples:
 
-* a multi-day behavioral study
-* a calcium imaging experiment performed across multiple days
+* a behavioral task segment
+* a stimulus protocol segment
+* a calibration or validation segment
 
-An Experiment is larger than a Session.
+A Session may contain no active Experiment, one Experiment, or multiple Experiment segments. Experiment orchestration is not implemented in Controller v1.
 
 ---
 
@@ -167,6 +179,14 @@ The Acquisition Node records protocol execution.
 
 ---
 
+# Project
+
+The larger scientific study or collection of related Sessions.
+
+A Project may contain many Sessions. Project orchestration is not implemented in the current framework.
+
+---
+
 # Raw Record
 
 A record captured directly from acquisition before reconstruction or export.
@@ -208,11 +228,19 @@ The Reconstruction Manager does not perform acquisition or protocol execution.
 
 # Session
 
-One bounded experimental run performed using a declared configuration, selected devices, and a session identity.
+A bounded temporal and evidence container with accepted configuration, selected devices, lifecycle state, Session Time, and a session identity.
 
 A Session may last minutes or hours.
 
-An Experiment may contain many Sessions.
+A running Session does not imply that an Experiment is running or that all declared devices are streaming. It indicates Session lifecycle state, not protocol or device-production state.
+
+---
+
+# Device Streaming
+
+The condition in which one live device is actively producing acquisition records.
+
+Device streaming is source-specific. Session running and Acquisition Runtime active do not imply that every declared device is streaming.
 
 ---
 
@@ -241,7 +269,7 @@ The final folder layout, manifest format, detailed schemas, reconstruction outpu
 
 # Session Time
 
-The shared experiment time used to align streams, events, and timing records.
+The shared time within a Session used to align streams, events, Experiments, and timing records.
 
 Session Time has exactly one owner: the Synchronization Manager.
 

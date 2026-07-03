@@ -127,8 +127,8 @@ class AcquisitionNode:
         )
         return readiness
 
-    def start_acquisition(self) -> dict[str, Any]:
-        """Start Session Time, record session_start evidence, and start devices."""
+    def start_runtime(self) -> dict[str, Any]:
+        """Start the Session acquisition runtime and its existing evidence path."""
 
         failure_evidence_readiness = self._failure_evidence_readiness()
         if not failure_evidence_readiness.ready:
@@ -156,6 +156,11 @@ class AcquisitionNode:
             "session_start_audit": session_start_audit,
             "device_start_results": device_start_results,
         }
+
+    def start_acquisition(self) -> dict[str, Any]:
+        """Compatibility wrapper for start_runtime()."""
+
+        return self.start_runtime()
 
     def run_one_iteration(self) -> AcquisitionIterationSummary:
         """Collect one bounded batch of records and send envelopes to ingestion."""
@@ -212,8 +217,8 @@ class AcquisitionNode:
             rejected_count=rejected_count,
         )
 
-    def stop_acquisition(self) -> dict[str, Any]:
-        """Stop Session Time, record session_stop evidence, and stop devices."""
+    def stop_runtime(self) -> dict[str, Any]:
+        """Stop the Session acquisition runtime and perform existing cleanup."""
 
         try:
             self._flush_pending_stream_batches()
@@ -241,6 +246,11 @@ class AcquisitionNode:
             "device_stop_results": device_stop_results,
             "device_shutdown_results": device_shutdown_results,
         }
+
+    def stop_acquisition(self) -> dict[str, Any]:
+        """Compatibility wrapper for stop_runtime()."""
+
+        return self.stop_runtime()
 
     def abort_acquisition(self) -> dict[str, Any]:
         """Attempt minimal acquisition shutdown without defining a failure model."""

@@ -3,9 +3,11 @@
 ## src/lab_sync_acquisition/__init__.py
 
 - AcquisitionIterationSummary: Public import for the result of one bounded AcquisitionNode iteration.
-- AcquisitionNode: Public import for bounded execution, configured batching, writable failure-evidence readiness, sender-side failure handling, and explicitly mapped acquisition-health evaluation.
+- AcquisitionNode: Public import for bounded acquisition runtime execution with runtime-named methods, acquisition-named compatibility wrappers, configured batching, writable failure-evidence readiness, sender-side failure handling, and explicitly mapped acquisition-health evaluation.
 - AcquisitionNodeReadiness: Public import for Phase 2 node identity and aggregated device/service readiness evidence.
 - AcquisitionRecordEnvelope: Public import for the transferable acquisition record envelope shared across the acquisition-to-ingestion boundary.
+- Controller: Public import for sequential single-session orchestration using already-created runtime collaborators.
+- ControllerCommandResult: Public import for one Controller command outcome.
 - DeviceAdapter: Public import for the minimum live runtime control interface for one device adapter.
 - DeviceAdapterLifecycleError: Public import for invalid live adapter lifecycle operations.
 - DeviceAdapterState: Public import for minimum live adapter lifecycle states.
@@ -43,11 +45,16 @@
 ## src/lab_sync_acquisition/acquisition_node.py
 
 - AcquisitionIterationSummary: Records the small inspectable summary returned by one bounded acquisition iteration.
-- AcquisitionNode: Owns bounded execution, private batching, writable failure-evidence readiness, sender-side handoff evidence, cleanup-capable failure status, and explicitly mapped first-record acquisition-health evaluation.
+- AcquisitionNode: Owns bounded acquisition runtime execution through `start_runtime()`/`stop_runtime()`, retains acquisition-named compatibility wrappers, and preserves existing batching, readiness, handoff, health, failure, and cleanup behavior.
 
 ## src/lab_sync_acquisition/device.py
 
 - DeviceDeclaration: Holds persistent participation intent, immutable capabilities, and an optional declared acquisition-health policy assignment as plain Session Record data.
+
+## src/lab_sync_acquisition/controller.py
+
+- ControllerCommandResult: Records one command outcome and exposes its command, success, details, and error as plain evidence.
+- Controller: Sequentially coordinates one Session, runtime failure outcomes, cleanup, and two-step persistent Session Record finalization without taking over component ownership.
 
 ## src/lab_sync_acquisition/device_adapter.py
 

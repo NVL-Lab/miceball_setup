@@ -104,7 +104,7 @@ def main() -> int:
         if not readiness["ready"]:
             raise RuntimeError(f"Camera readiness failed: {readiness}")
 
-        start_result = acquisition_node.start_acquisition()
+        start_result = acquisition_node.start_runtime()
         if not all(
             result.succeeded for result in start_result["device_start_results"]
         ):
@@ -125,7 +125,7 @@ def main() -> int:
         return 0
     finally:
         if adapter.state is DeviceAdapterState.RUNNING:
-            acquisition_node.stop_acquisition()
+            acquisition_node.stop_runtime()
         elif adapter.state is DeviceAdapterState.STOPPED:
             manager.shutdown_all()
 

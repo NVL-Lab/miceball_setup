@@ -322,7 +322,7 @@ Session.initialize()
 Session.start()
         |
         v
-AcquisitionNode.start_acquisition()
+AcquisitionNode.start_runtime()
         |
         v
 session_start envelope
@@ -346,7 +346,7 @@ InMemoryIngestor
 InMemoryStorageManager
         |
         v
-AcquisitionNode.stop_acquisition()
+AcquisitionNode.stop_runtime()
         |
         v
 session_stop envelope
@@ -892,6 +892,49 @@ PersistentStorageManager
 - each scenario persists session_start, three stream envelopes, and session_stop as JSONL
 
 This is a manual quality/demo validation, not an additional automated test.
+
+---
+
+# W019 - Controller v1 Sequential Session Orchestration
+
+## Purpose
+
+Validate that Controller v1 replaces manual sequencing for one bounded Session while existing components retain ownership of lifecycle, runtime execution, evidence, ingest audit, and persistence.
+
+## Normal Workflow
+
+```text
+create_session
+        |
+initialize_session
+        |
+start_session
+        |
+run_one_iteration
+        |
+stop_session
+        |
+finalize_session
+        |
+completed
+```
+
+## Validates
+
+- Controller uses `AcquisitionNode.start_runtime()` and `stop_runtime()`
+- Session enters running only after runtime start succeeds
+- normal stop preserves `session_stop` evidence and moves Session to stopping
+- Session Record persistence uses a stopping-state write followed by a completed-state update
+- successful finalization leaves a completed Session and durable completed evidence
+
+## Validated Failure Scenarios
+
+- a pre-running runtime start failure leaves the Session failed without passing through running
+- AcquisitionNode failed status during an iteration produces a failed command result, cleanup-capable runtime stop, and failed Session outcome
+- runtime stop failure produces a failed command result and failed Session outcome
+- failure of the first Session Record write leaves the Session failed rather than completed
+
+These tests validate sequential command outcomes only. They do not define Experiment orchestration, abort semantics, retry, asynchronous execution, multi-session control, or distributed orchestration.
 
 ---
 

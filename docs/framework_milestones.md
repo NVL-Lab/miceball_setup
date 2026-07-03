@@ -124,6 +124,28 @@ The acquisition framework supports real devices while preserving the established
 
 ---
 
+# M004 — Controller v1 Sequential Orchestration
+
+**Status:** Completed
+
+## Goal
+
+Replace manual single-Session sequencing with a minimal synchronous Controller while preserving existing component ownership.
+
+## Demonstrated
+
+- Acquisition Runtime terminology through `start_runtime()` and `stop_runtime()`
+- sequential create, initialize, start, iteration, stop, and finalization commands
+- Controller command-result evidence
+- pre-running, iteration, runtime-stop, and first-write finalization failure outcomes
+- two-step Session Record persistence ending with durable completed evidence
+
+## Confidence gained
+
+One bounded Session can be orchestrated and finalized through public framework APIs without introducing GUI behavior, asynchronous execution, retry, or new ownership boundaries.
+
+---
+
 # Future Milestones
 
 Planned future milestones include:
@@ -133,9 +155,8 @@ Planned future milestones include:
 - First synchronized multi-device acquisition
 - First Parquet backend
 - First microscope integration
-- First complete experimental session
+- First complete Session containing Experiment activity
 - First NWB export
-- First Controller integration
 - First distributed acquisition across multiple nodes
 
 These milestones will be added as they are successfully demonstrated.

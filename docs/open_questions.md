@@ -158,7 +158,7 @@ propagation policy remain unresolved.
 
 ### Why this matters
 
-Future experiments may involve multiple acquisition systems participating in the same session.
+Future Sessions may involve multiple acquisition systems participating in the same Session.
 
 Examples:
 
@@ -220,29 +220,6 @@ Do not implement retry/replay in the first handoff failure slice. Preserve sende
 
 ---
 
-## Q012: What is the Controller v1 responsibility?
-
-### Why this matters
-
-The framework now has a capable `AcquisitionNode`, but caller/orchestration code still manually coordinates Session, readiness, acquisition start/stop, cleanup, and finalization.
-
-### Questions
-
-* What commands does Controller v1 expose?
-* Does Controller own Session start/stop orchestration?
-* Does Controller call `AcquisitionNode.check_ready()` before `start_acquisition()`?
-* How does Controller respond if AcquisitionNode start fails?
-* How does Controller observe AcquisitionNode failed status?
-* Does Controller decide when to call `Session.fail()`, `Session.stop()`, or `Session.complete()`?
-* What evidence does Controller preserve?
-
-### Blocks
-
-* Session failure integration
-* Operator-facing control
-* Complete session orchestration
-
-
 ## Q013: What is the acquisition-health consequence model?
 
 ### Why this matters
@@ -285,4 +262,27 @@ Sender-side robustness now preserves evidence before handoff, but receiver-side 
 * Ingestor hardening
 * Session Record failure schema
 * Reconstruction validation
+
+---
+
+## Q015: What orchestration follows Controller v1?
+
+### Why this matters
+
+Controller v1 now coordinates one bounded Session sequentially. Experiment-level and distributed orchestration remain intentionally deferred.
+
+### Questions
+
+* How are Experiment segments represented and orchestrated within a Session?
+* How does acquisition health apply to a specific Experiment segment?
+* What semantics distinguish a future abort command from framework failure and intentional stop?
+* What component, if any, coordinates multiple Sessions?
+* How is orchestration distributed across multiple Acquisition Nodes?
+
+### Blocks
+
+* Experiment orchestration
+* Experiment-scoped health
+* Abort semantics
+* Multi-session and distributed orchestration
 

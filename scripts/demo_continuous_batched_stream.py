@@ -154,7 +154,7 @@ def run_scenario(
     if not readiness["ready"]:
         raise RuntimeError(f"Scenario is not ready: {scenario_name}")
 
-    node.start_acquisition()
+    node.start_runtime()
     try:
         iterations = math.ceil(total_records / records_per_iteration)
         for _ in range(iterations):
@@ -162,7 +162,7 @@ def run_scenario(
             synchronization.advance(session_time_step_s)
     finally:
         if node.status()["is_running"]:
-            node.stop_acquisition()
+            node.stop_runtime()
 
     stored_envelopes = storage.read_envelopes()
     stream_envelopes = tuple(

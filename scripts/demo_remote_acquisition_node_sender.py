@@ -149,9 +149,9 @@ def main() -> int:
                 if not node_readiness.ready:
                     raise RuntimeError(f"node_not_ready: {node_readiness.to_dict()}")
 
-                acquisition_node.start_acquisition()
+                acquisition_node.start_runtime()
                 acquisition_node.run_one_iteration()
-                acquisition_node.stop_acquisition()
+                acquisition_node.stop_runtime()
                 envelopes_sent = socket_boundary.envelopes_sent
             finally:
                 cleanup_evidence = _cleanup_runtime(
@@ -219,7 +219,7 @@ def _cleanup_runtime(
     attempted = adapter is not None
     if acquisition_node is not None and acquisition_node.status()["is_running"]:
         try:
-            acquisition_node.stop_acquisition()
+            acquisition_node.stop_runtime()
         except Exception as error:
             errors.append(str(error))
     if synchronization is not None and synchronization.is_running:

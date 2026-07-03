@@ -137,6 +137,7 @@ class Session:
     _ALLOWED_TRANSITIONS: ClassVar[set[tuple[SessionState, SessionState]]] = {
         (SessionState.CREATED, SessionState.INITIALIZED),
         (SessionState.INITIALIZED, SessionState.RUNNING),
+        (SessionState.INITIALIZED, SessionState.FAILED),
         (SessionState.RUNNING, SessionState.STOPPING),
         (SessionState.STOPPING, SessionState.COMPLETED),
         (SessionState.STOPPING, SessionState.FAILED),
@@ -253,7 +254,7 @@ class Session:
         self._finish(SessionState.ABORTED, reason)
 
     def _finish(self, terminal_state: SessionState, reason: str | None) -> None:
-        self._cleanup()
+        self._cleanup(terminal_state)
         self.final_status = {
             "state": terminal_state.value,
             "reason": reason,
@@ -262,10 +263,15 @@ class Session:
         }
         self._transition_to(terminal_state, reason=reason)
 
-    def _cleanup(self) -> None:
-        if self.current_state != SessionState.STOPPING:
+    def _cleanup(self, terminal_state: SessionState) -> None:
+        cleanup_allowed = self.current_state == SessionState.STOPPING or (
+            self.current_state == SessionState.INITIALIZED
+            and terminal_state == SessionState.FAILED
+        )
+        if not cleanup_allowed:
             raise SessionLifecycleError(
-                f"Cleanup requires state 'stopping', got '{self.current_state.value}'"
+                "Cleanup requires state 'stopping', or 'initialized' for a "
+                f"pre-running failure; got '{self.current_state.value}'"
             )
         if not self.cleanup_occurred:
             self.cleanup_occurred = True

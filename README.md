@@ -50,6 +50,10 @@ The framework is independent of any specific experiment and independent of any s
 
 A separate GUI may configure and control experiments, but the GUI is considered a client of the framework rather than part of the framework itself.
 
+In framework terminology, a Project is the larger scientific study, a Session
+is one bounded acquisition/evidence run, and an Experiment is scientific or
+protocol activity inside a running Session.
+
 
 
 ---
@@ -128,6 +132,10 @@ The Phase 2 envelope path has been manually validated over Wi-Fi between an
 NVIDIA Jetson Orin AcquisitionNode and a Windows ingestion/storage computer.
 The same two-machine path has also been validated with a real Jetson USB camera
 using OpenCV/V4L2 and metadata-only acquisition envelopes.
+
+Phase 4 Controller v1 now provides validated sequential orchestration for one
+bounded Session, including normal completion, runtime failure outcomes, cleanup,
+and two-step persistent Session Record finalization.
 
 
 

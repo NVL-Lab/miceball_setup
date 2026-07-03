@@ -174,7 +174,7 @@ Batch size may affect latency, but it must not affect scientific timestamps.
 
 Session time is owned by the Synchronization Manager.
 
-Session time is the shared experiment time used to align all streams and events.
+Session time is the shared time within a Session used to align streams, events, Experiments, and timing records.
 
 The GUI does not own session time.
 The Ingestor does not own session time.
@@ -647,11 +647,11 @@ A Session is one bounded experimental run initiated by the Controller using a de
 A Session may last minutes to hours.
 Repeated daily runs are separate sessions.
 
-An Experiment is the larger scientific plan.
-A Session is one execution of that plan.
+Terminology update: Decision 094 names the larger scientific plan a `Project`.
+An `Experiment` is a bounded scientific or protocol activity inside a Session.
 
 **Rationale:**
-One experiment may contain many sessions across days. The framework needs the session to be the concrete acquisition and reconstruction unit.
+One Project may contain many Sessions across days. The framework needs the Session to be the concrete acquisition and reconstruction unit.
 
 **Consequence:**
 Session records should contain all data, events, timing records, configuration, and manifests needed to reconstruct that run.
@@ -662,7 +662,7 @@ Session records should contain all data, events, timing records, configuration, 
 
 **Status:** Accepted
 
-Session start means acquisition begins.
+Terminology update: under Decision 094, Session start means the Session evidence container and Acquisition Runtime begin.
 
 Experiment start means the protocol begins.
 
@@ -2850,6 +2850,199 @@ Once acquisition starts, failures must be preservable. If failure evidence canno
 **Consequence:**
 Acquisition start/readiness must include a failure-evidence writability check. This does not introduce GUI notification, Controller behavior, retry, replay, or Session failure ownership.
 
+---
+
+## Decision 091: AcquisitionNode exposes Acquisition Runtime terminology while preserving acquisition compatibility methods
+
+**Status:** Accepted
+
+`AcquisitionNode` exposes Acquisition Runtime terminology for its Session-level runtime lifecycle.
+
+The preferred public terminology is:
+
+```text
+check_ready()
+start_runtime()
+run_one_iteration()
+stop_runtime()
+get_status()
+```
+
+`start_runtime()` means the AcquisitionNode enters the active runtime for a Session: Session Time may start, acquisition evidence can be recorded, batching/envelope creation may occur, and cleanup/failure behavior becomes active.
+
+`start_runtime()` does not mean every declared device is streaming, an Experiment is active, or every Session-ready device is producing records.
+
+For compatibility, existing `start_acquisition()` and `stop_acquisition()` methods may remain as wrappers around `start_runtime()` and `stop_runtime()` during transition.
+
+Acquisition Runtime states are conceptually:
+
+```text
+created
+ready
+runtime_active
+stopping
+runtime_stopped
+failed
+cleanup_failed
+```
+
+A failed AcquisitionNode rejects new acquisition iterations but remains cleanup-capable.
+
+**Principle**
+
+AcquisitionNode runtime active means the Session acquisition runtime is capable of recording evidence; it does not imply all devices are streaming.
+
+---
+
+## Decision 092: Controller v1 owns single-session sequential orchestration
+
+**Status:** Accepted
+
+Controller v1 owns sequential orchestration for one Session run.
+
+Controller v1 coordinates existing components through Session creation/opening, initialization, runtime start, bounded iteration calls, intentional stop, finalization, and final Session outcome.
+
+Controller v1 does not absorb ownership from Session, AcquisitionNode, SynchronizationManager, DeviceManager, Ingestor, or StorageManager.
+
+Ownership remains:
+
+```text
+Session
+    owns lifecycle state, accepted SessionConfig, readiness evidence,
+    cleanup/finalization evidence, and final Session status
+
+AcquisitionNode
+    owns Acquisition Runtime execution, session_start/session_stop evidence,
+    batching, envelope creation, sender-side handoff failure evidence,
+    acquisition health evaluation, and cleanup-capable runtime stop
+
+SynchronizationManager
+    owns Session Time
+
+DeviceManager
+    owns live DeviceAdapters and adapter lifecycle coordination
+
+Ingestor
+    owns receiver-side ingest audit and accepted-envelope handoff to StorageManager
+
+StorageManager
+    owns persistent writing of evidence
+
+Controller
+    owns single-session orchestration and command results
+```
+
+Controller v1 may expose:
+
+```text
+create_session(config)
+initialize_session()
+start_session()
+run_one_iteration()
+stop_session(reason=None)
+finalize_session()
+get_status()
+```
+
+Controller v1 does not expose `abort_session()` as a separate command.
+
+For v1:
+
+```text
+stop = command
+abort = future semantic interpretation or metadata
+failure = framework/runtime-detected outcome
+```
+
+Controller requests initialization, but Session performs readiness gating.
+
+Controller starts the Session-level Acquisition Runtime, but does not imply that an Experiment is active or that all declared devices are streaming.
+
+Controller v1 must not treat these as equivalent:
+
+```text
+Session.running
+Acquisition Runtime active
+Experiment running
+Device streaming
+```
+
+A Session may be running while no Experiment is active. A device may be Session-ready but intentionally idle.
+
+Experiment segments, validation segments, device-streaming schedules, experiment-scoped acquisition health, network command transport, GUI behavior, async service runtime, multi-session Overlord behavior, and multi-node orchestration are out of scope for Controller v1.
+
+Controller v1 directly records only command/orchestration result evidence. It coordinates evidence owned by Session, AcquisitionNode, Ingestor, and StorageManager without taking ownership of that evidence.
+
+**Principle**
+
+Controller commands and orchestrates one Session.
+Session owns lifecycle.
+AcquisitionNode owns runtime execution.
+Device streaming is source-specific and not implied by Session start.
+
+---
+
+## Decision 093: Controller failure outcomes and two-step Session Record finalization
+
+**Status:** Accepted
+
+A Session may transition directly from `initialized` to `failed` when a pre-running framework or runtime failure prevents acquisition from safely starting.
+
+Session completion requires persistent Session Record finalization. Controller v1 uses two persistence steps:
+
+```text
+Acquisition Runtime stops
+        ↓
+Session.stop()
+        ↓
+StorageManager writes Session Record using current stopping evidence
+        ↓
+Session.complete()
+        ↓
+StorageManager updates the Session Record with final completed status and lifecycle evidence
+```
+
+If the first Session Record write fails, Controller calls `Session.fail()` and records a failed `ControllerCommandResult`.
+
+If the final completed-record update fails after `Session.complete()`, Controller reports the failed command result and does not invent rollback semantics.
+
+Session continues to own lifecycle and final status. StorageManager continues to own persistent writing. Controller owns orchestration and command outcomes.
+
+**Rationale:**
+Pre-running failures must be representable without falsely claiming that acquisition ran, and completed Sessions must have durable final evidence.
+
+**Consequence:**
+Normal completion requires a successful stopping-state write followed by a completed-state update. Framework failures use existing Session failure lifecycle behavior without adding abort, retry, or new ownership.
+
+---
+
+## Decision 094: Project, Session, and Experiment are distinct concepts
+
+**Status:** Accepted
+
+A Project is the larger scientific study or collection of related Sessions.
+
+A Session is one bounded acquisition/evidence run with Session lifecycle, Session Time, Acquisition Runtime, accepted configuration, and a persistent Session Record.
+
+An Experiment is a bounded scientific or protocol activity inside a running Session.
+
+A Project may contain many Sessions.
+
+A Session may contain zero, one, or many Experiments.
+
+Session start means the Session evidence container and Acquisition Runtime begin. It does not mean an Experiment has started.
+
+Experiment start and Experiment end are recorded as timestamped evidence inside the running Session.
+
+Device participation, protocol behavior, validation periods, and acquisition-health expectations may eventually be scoped to Experiments rather than to the entire Session.
+
+**Principle**
+
+* Project is the scientific study.
+* Session is the acquisition/evidence container.
+* Experiment is protocol activity inside a Session.
+
+
 
 --- ********************************************************************************
 
@@ -2946,6 +3139,10 @@ The following principles summarize the accepted decisions so far.
 88. Acquisition-health behavior comes only from explicitly assigned device policy.
 89. Caller code passes explicit live-source acquisition-health policy mappings into AcquisitionNode.
 90. AcquisitionNode requires a writable configured Session failure-evidence location before acquisition starts.
+91. AcquisitionNode runtime active means the Session acquisition runtime is capable of recording evidence; it does not imply all devices are streaming.
+92. Controller commands and orchestrates one Session. Session owns lifecycle. AcquisitionNode owns runtime execution. Device streaming is source-specific and not implied by Session start.
+93. Pre-running framework failures may fail an initialized Session; normal completion uses stopping-state persistence followed by completed-state Session Record update.
+94. Project is the scientific study; Session is the acquisition/evidence container; Experiment is protocol activity inside a Session.
 
 ---
 
