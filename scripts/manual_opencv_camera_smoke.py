@@ -38,6 +38,11 @@ def main() -> int:
         )
     )
     parser.add_argument(
+        "--error-evidence-location",
+        required=True,
+        help="Configured Session directory for failure evidence.",
+    )
+    parser.add_argument(
         "camera_source",
         type=_camera_source,
         help="OpenCV camera index or source string.",
@@ -79,6 +84,7 @@ def main() -> int:
         device_manager=manager,
         synchronization_manager=SynchronizationManager(),
         ingestor=ingestor,
+        error_evidence_location=args.error_evidence_location,
     )
     config = OpenCVCameraConfig(
         camera_source=args.camera_source,

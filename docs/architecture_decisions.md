@@ -2570,7 +2570,7 @@ The v1 implementation of continuous acquisition batching follows these principle
 - Pending batches are created lazily only after records are produced.
 - Batching is performed per stream identity (`source_node_id`, `source_device_id`, `record_kind`).
 - Only `stream` records are batched in v1. Other record kinds continue using the existing immediate-envelope path.
-- Batching behavior is configured through `SessionConfig.acquisition_config`.
+- Batching behavior is configured through `SessionConfig.acquisition_configuration`.
 - The selected batching policy is part of the accepted `SessionConfig` and therefore part of the persistent Session Record.
 - v1 supports a single batching policy shared by all stream-producing devices. Future versions may introduce additional policies or per-device policies without changing ownership boundaries.
 
@@ -2611,7 +2611,7 @@ Future implementation should extend `DeviceDeclaration` or the accepted device c
 
 ---
 
-## Decision 081: AcquisitionRecordEnvelope is the atomic handoff unit
+## Decision 080: AcquisitionRecordEnvelope is the atomic handoff unit
 
 **Status:** Accepted**
 
@@ -2690,7 +2690,7 @@ Consecutive failures mean consecutive failed handoff attempts for newly emitted 
 
 ---
 
-## Decision 085: System error evidence location is configured per Session
+## Decision 084: System error evidence location is configured per Session
 
 **Status:** Accepted
 
@@ -2707,6 +2707,148 @@ Failure evidence must be preserved even when no user interface is available.
 
 **Consequence:**
 AcquisitionNode may record sender-side handoff failures there, while future Controller or GUI components may surface user-facing alerts from preserved evidence or runtime status.
+
+---
+
+## Decision 085: Must-preserve handoff failure threshold aborts AcquisitionNode
+
+**Status:** Accepted
+
+For `must_preserve` handoff failures, the failure threshold is configured in `SessionConfig.acquisition_configuration`.
+
+Only failed handoff attempts for newly emitted `must_preserve` envelopes count toward the threshold.
+
+A successful envelope handoff resets the consecutive failure count.
+
+When the threshold is reached, the `AcquisitionNode` records failure evidence for the triggering envelope, stops accepting new acquisition iterations, and marks acquisition status as failed.
+
+Session failure and cleanup remain owned by caller/Session orchestration, not by the `AcquisitionNode`.
+
+**Rationale:**
+`must_preserve` needs operational meaning without introducing retry, replay, Controller behavior, or GUI notification.
+
+**Consequence:**
+Consecutive failure counting belongs to sender-side handoff behavior and does not define a general error taxonomy.
+
+---
+
+## Decision 086: Failed AcquisitionNode remains cleanup-capable
+
+**Status:** Accepted
+
+If `AcquisitionNode` enters failed status, it must reject new acquisition iterations but remain capable of stop and cleanup operations.
+
+During stop after failure, `AcquisitionNode` should flush pending batches when possible, record `session_stop` if possible, stop devices, shut down devices, and preserve cleanup evidence.
+
+`AcquisitionNode` does not own `Session.fail()` or final Session lifecycle state.
+
+**Rationale:**
+Acquisition failure should prevent further acquisition but must not prevent evidence-preserving cleanup.
+
+**Consequence:**
+Failure status blocks new acquisition iterations, not cleanup.
+
+---
+
+## Decision 087: Acquisition health is evaluated by AcquisitionNode
+
+**Status:** Accepted
+
+Acquisition health describes whether an expected acquisition source is producing valid acquisition evidence during a running Session.
+
+Acquisition health is distinct from handoff failure.
+
+Acquisition-health policy definitions live in `SessionConfig.acquisition_configuration`.
+
+Device-specific acquisition-health policy assignments live with the corresponding `DeviceDeclaration`.
+
+`AcquisitionNode` is the primary evaluator of acquisition health because it owns acquisition execution, record collection, batching, envelope creation, and sender-side evidence.
+
+`DeviceAdapters` may optionally report device-specific health information, but adapter-reported health supplements AcquisitionNode evaluation and does not replace it.
+
+For v1, acquisition health produces explicit health evidence without introducing retry, replay, GUI notification, async execution, or Session lifecycle ownership.
+
+---
+
+## Decision 088: Acquisition health behavior is determined by the assigned device policy
+
+**Status:** Accepted
+
+`AcquisitionNode` does not infer acquisition-health behavior from device type.
+
+Instead, `AcquisitionNode` reads the acquisition-health policy assigned in the corresponding `DeviceDeclaration`.
+
+Policy definitions remain in `SessionConfig.acquisition_configuration`.
+
+The assigned policy determines how acquisition health is evaluated.
+
+For this implementation slice, health-policy failure must produce explicit acquisition-health evidence only.
+
+Do not make AcquisitionNode fail yet.
+
+Do not introduce warning/fatal policy consequences yet.
+
+Do not infer health behavior from required devices, device type, or record kind.
+
+---
+
+## Decision 089: Acquisition health policy assignments reach AcquisitionNode through explicit source policy mapping
+
+**Status:** Accepted
+
+`AcquisitionNode` must not infer acquisition-health policy assignments by matching `DeviceDeclaration.device_id` to live adapter or `DeviceRecordCollection.source_device_id`.
+
+Declaration-to-adapter binding remains deferred.
+
+For v1, caller/orchestration code passes an explicit acquisition-health source policy mapping into `AcquisitionNode`.
+
+The mapping keys are live acquisition source IDs, matching `DeviceRecordCollection.source_device_id`.
+
+The mapping values are acquisition-health policy names defined in `SessionConfig.acquisition_configuration`.
+
+Conceptually:
+
+```text
+DeviceDeclaration
+    declares intended policy assignment
+
+caller/orchestration
+    performs explicit declaration-to-live-source wiring
+
+AcquisitionNode
+    receives source_id -> acquisition_health_policy_name mapping
+    evaluates policies against DeviceRecordCollection.source_device_id
+```
+
+`AcquisitionNode` may only evaluate acquisition health for source IDs present in this explicit mapping.
+
+`AcquisitionNode` does not validate whether the mapping came from a particular `DeviceDeclaration`.
+
+**Rationale:**
+Existing architecture intentionally defers declaration-to-adapter matching. Assuming equal IDs would silently introduce that binding. An explicit source policy mapping lets acquisition health proceed without changing DeviceManager ownership or adapter construction architecture.
+
+**Consequence:**
+The implementation must add explicit `AcquisitionNode` input for source health-policy assignments rather than giving `AcquisitionNode` full `DeviceDeclaration` access.
+
+---
+
+## Decision 090: AcquisitionNode requires writable failure-evidence location before acquisition starts
+
+**Status:** Accepted
+
+`AcquisitionNode` must verify that the configured Session failure/error evidence location is writable before acquisition starts.
+
+If the configured failure/error evidence location is missing, unavailable, or not writable, acquisition readiness fails.
+
+`AcquisitionNode` must not enter running acquisition when failure evidence cannot be preserved.
+
+This applies before any acquisition records are collected, batched, or handed off.
+
+**Rationale:**
+Once acquisition starts, failures must be preservable. If failure evidence cannot be written, then failed or partial Sessions become unauditable.
+
+**Consequence:**
+Acquisition start/readiness must include a failure-evidence writability check. This does not introduce GUI notification, Controller behavior, retry, replay, or Session failure ownership.
 
 
 --- ********************************************************************************
@@ -2797,7 +2939,13 @@ The following principles summarize the accepted decisions so far.
 81. Sender-side handoff failure evidence is owned by the AcquisitionNode
 82. Handoff failure policies define sender-side failure consequences
 83. Sender-side handoff v1 performs one handoff attempt per envelope
-85. System error evidence location is configured per Session.
+84. System error evidence location is configured per Session.
+85. A configured consecutive must-preserve handoff failure threshold marks AcquisitionNode acquisition status failed.
+86. A failed AcquisitionNode rejects new iterations but remains capable of evidence-preserving cleanup.
+87. AcquisitionNode evaluates acquisition health separately from handoff failure.
+88. Acquisition-health behavior comes only from explicitly assigned device policy.
+89. Caller code passes explicit live-source acquisition-health policy mappings into AcquisitionNode.
+90. AcquisitionNode requires a writable configured Session failure-evidence location before acquisition starts.
 
 ---
 

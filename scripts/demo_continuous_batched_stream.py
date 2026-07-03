@@ -123,11 +123,12 @@ def run_scenario(
             }
         },
     }
+    error_evidence_location = output_path.parent / "errors"
     configuration = SessionConfig(
         selected_devices=[],
         storage_location=str(output_path),
         protocol_plan={"name": scenario_name},
-        error_evidence_location="placeholder://errors",
+        error_evidence_location=str(error_evidence_location),
         acquisition_configuration=acquisition_configuration,
     )
     adapter = ContinuousFakeStreamAdapter(
@@ -145,6 +146,7 @@ def run_scenario(
         ingestor=ingestor,
         node_id="batch-demo-node",
         acquisition_configuration=configuration.acquisition_configuration,
+        error_evidence_location=configuration.error_evidence_location,
     )
 
     manager.initialize_all(config={"mode": scenario_name})

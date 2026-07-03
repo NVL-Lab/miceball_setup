@@ -79,6 +79,7 @@ $python = "C:\Users\Nuria\anaconda3\envs\miceball_setup\python.exe"
 $demoDir = ".\tmp_socket_demo"
 New-Item -ItemType Directory -Force $demoDir
 $accepted = Join-Path $demoDir "accepted_records.jsonl"
+$senderErrors = Join-Path $demoDir "sender_errors"
 $hostName = "127.0.0.1"
 $port = 8765
 ```
@@ -203,7 +204,7 @@ Leave Shell 1 running.
 Shell 2, acquisition-side OpenCV camera sender:
 
 ```powershell
-& $python .\scripts\demo_socket_opencv_camera_sender.py $hostName $port
+& $python .\scripts\demo_socket_opencv_camera_sender.py $hostName $port --error-evidence-location $senderErrors
 ```
 
 Expected sender output:
@@ -243,7 +244,7 @@ preserving the metadata-only socket boundary. Keep the receiver command above
 running in Shell 1, then run this in Shell 2:
 
 ```powershell
-& $python .\scripts\demo_socket_opencv_camera_sender.py $hostName $port --real-cv2 --camera-source 0 --frames-per-collect 2 --width 640 --height 480 --fps 30
+& $python .\scripts\demo_socket_opencv_camera_sender.py $hostName $port --error-evidence-location $senderErrors --real-cv2 --camera-source 0 --frames-per-collect 2 --width 640 --height 480 --fps 30
 ```
 
 OpenCV's default capture backend is used unless `--api-preference` is supplied.
@@ -274,13 +275,13 @@ video payloads and is not part of the automated test suite.
 From the repository root, camera index `0` with OpenCV's default backend:
 
 ```powershell
-& "C:\Users\Nuria\anaconda3\envs\miceball_setup\python.exe" .\scripts\manual_opencv_camera_smoke.py 0
+& "C:\Users\Nuria\anaconda3\envs\miceball_setup\python.exe" .\scripts\manual_opencv_camera_smoke.py 0 --error-evidence-location .\tmp_manual_camera_smoke\sender_errors
 ```
 
 Optional capture settings are explicit:
 
 ```powershell
-& "C:\Users\Nuria\anaconda3\envs\miceball_setup\python.exe" .\scripts\manual_opencv_camera_smoke.py 0 --api-preference 200 --frames-per-collect 3 --width 640 --height 480 --fps 30
+& "C:\Users\Nuria\anaconda3\envs\miceball_setup\python.exe" .\scripts\manual_opencv_camera_smoke.py 0 --error-evidence-location .\tmp_manual_camera_smoke\sender_errors --api-preference 200 --frames-per-collect 3 --width 640 --height 480 --fps 30
 ```
 
 The numeric API preference is passed directly to OpenCV. For example, OpenCV
@@ -384,7 +385,7 @@ python scripts\demo_socket_ingestor_receiver.py 0.0.0.0 8768 .\tmp_jetson_camera
 Jetson sender, replacing `PC_IP` with the Windows computer's reachable address:
 
 ```bash
-python scripts/demo_socket_opencv_camera_sender.py PC_IP 8768 --real-cv2 --camera-source 2 --api-preference 200 --frames-per-collect 2 --width 640 --height 480 --fps 30
+python scripts/demo_socket_opencv_camera_sender.py PC_IP 8768 --error-evidence-location ./tmp_jetson_camera_demo/sender_errors --real-cv2 --camera-source 2 --api-preference 200 --frames-per-collect 2 --width 640 --height 480 --fps 30
 ```
 
 The run sent and stored three envelopes and created three ingest audit records.

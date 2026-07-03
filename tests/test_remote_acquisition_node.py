@@ -50,6 +50,7 @@ class RemoteAcquisitionNodeTests(unittest.TestCase):
             ingestor=InMemoryIngestor(),
             node_id="jetson-like-001",
             role="acquisition_node",
+            error_evidence_location=tempfile.gettempdir(),
         )
         storage_not_ready = ServiceReadiness(
             component_id="node_storage",

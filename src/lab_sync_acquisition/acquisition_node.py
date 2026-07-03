@@ -7,6 +7,7 @@ from dataclasses import dataclass
 import json
 from math import isfinite
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 from typing import Any, Iterable
 
 from lab_sync_acquisition.acquisition_record import AcquisitionRecordEnvelope
@@ -41,6 +42,7 @@ class AcquisitionNode:
         role: str | None = None,
         acquisition_configuration: Mapping[str, Any] | None = None,
         error_evidence_location: str | None = None,
+        acquisition_health_source_policies: Mapping[str, str] | None = None,
     ) -> None:
         self._session_id = session_id
         self._device_manager = device_manager
@@ -49,9 +51,26 @@ class AcquisitionNode:
         self._node_id = node_id
         self._role = role
         self._error_evidence_location = error_evidence_location
+        self._acquisition_health_source_policies = dict(
+            acquisition_health_source_policies or {}
+        )
+        self._acquisition_health_policies = self._read_acquisition_health_policies(
+            acquisition_configuration
+        )
+        self._acquisition_health_observed_counts = {
+            source_device_id: 0
+            for source_device_id in self._acquisition_health_source_policies
+        }
+        self._acquisition_health_failures_recorded: set[str] = set()
+        self._acquisition_start_session_time_s: float | None = None
         self._handoff_failure_policy = self._read_handoff_failure_policy(
             acquisition_configuration
         )
+        self._must_preserve_failure_threshold = (
+            self._read_must_preserve_failure_threshold(acquisition_configuration)
+        )
+        self._consecutive_must_preserve_handoff_failures = 0
+        self._failed = False
         (
             self._stream_batch_max_records,
             self._stream_batch_max_age_s,
@@ -73,6 +92,7 @@ class AcquisitionNode:
         service_readiness = (
             self._synchronization_manager.check_ready(),
             self._ingestor.check_ready(),
+            self._failure_evidence_readiness(),
         )
         ready = device_readiness.all_ready and all(
             readiness.ready for readiness in service_readiness
@@ -95,6 +115,7 @@ class AcquisitionNode:
         service_readiness = (
             self._synchronization_manager.check_ready(),
             self._ingestor.check_ready(),
+            self._failure_evidence_readiness(),
             *additional_service_readiness,
         )
         readiness = AcquisitionNodeReadiness(
@@ -109,7 +130,14 @@ class AcquisitionNode:
     def start_acquisition(self) -> dict[str, Any]:
         """Start Session Time, record session_start evidence, and start devices."""
 
+        failure_evidence_readiness = self._failure_evidence_readiness()
+        if not failure_evidence_readiness.ready:
+            raise RuntimeError(
+                "AcquisitionNode cannot start; failure evidence location is not writable: "
+                f"{failure_evidence_readiness.reason}"
+            )
         session_time_s = self._synchronization_manager.start()
+        self._acquisition_start_session_time_s = session_time_s
         session_start_audit = self._send_envelope(
             source_device_id="acquisition_node",
             record_kind="event",
@@ -132,6 +160,8 @@ class AcquisitionNode:
     def run_one_iteration(self) -> AcquisitionIterationSummary:
         """Collect one bounded batch of records and send envelopes to ingestion."""
 
+        if self._failed:
+            raise RuntimeError("AcquisitionNode has failed and cannot run new iterations")
         if not self._running:
             raise RuntimeError("AcquisitionNode must be running before iteration")
 
@@ -145,6 +175,11 @@ class AcquisitionNode:
             records = tuple(
                 self._with_session_time(row)
                 for row in collection.records
+            )
+            self._observe_acquisition_health_records(
+                source_device_id=collection.source_device_id,
+                record_kind=collection.record_kind,
+                records=records,
             )
             if collection.record_kind == "stream" and self._stream_batching_enabled():
                 audits = self._append_stream_records(
@@ -164,6 +199,11 @@ class AcquisitionNode:
             accepted_count += sum(audit.accepted for audit in audits)
             rejected_count += sum(not audit.accepted for audit in audits)
 
+        health_audits = self._evaluate_acquisition_health()
+        envelopes_sent += len(health_audits)
+        accepted_count += sum(audit.accepted for audit in health_audits)
+        rejected_count += sum(not audit.accepted for audit in health_audits)
+
         return AcquisitionIterationSummary(
             iteration_index=self._iteration_index,
             collections_seen=len(record_collections),
@@ -175,22 +215,26 @@ class AcquisitionNode:
     def stop_acquisition(self) -> dict[str, Any]:
         """Stop Session Time, record session_stop evidence, and stop devices."""
 
-        self._flush_pending_stream_batches()
-        final_session_time_s = self._synchronization_manager.stop()
-        session_stop_audit = self._send_envelope(
-            source_device_id="acquisition_node",
-            record_kind="event",
-            records=[
-                {
-                    "event_category": "session_lifecycle",
-                    "event_type": "session_stop",
-                    "session_time_s": final_session_time_s,
-                }
-            ],
-        )
-        device_stop_results = self._device_manager.stop_all()
-        device_shutdown_results = self._device_manager.shutdown_all()
-        self._running = False
+        try:
+            self._flush_pending_stream_batches()
+        finally:
+            try:
+                final_session_time_s = self._synchronization_manager.stop()
+                session_stop_audit = self._send_envelope(
+                    source_device_id="acquisition_node",
+                    record_kind="event",
+                    records=[
+                        {
+                            "event_category": "session_lifecycle",
+                            "event_type": "session_stop",
+                            "session_time_s": final_session_time_s,
+                        }
+                    ],
+                )
+            finally:
+                device_stop_results = self._device_manager.stop_all()
+                device_shutdown_results = self._device_manager.shutdown_all()
+                self._running = False
         return {
             "final_session_time_s": final_session_time_s,
             "session_stop_audit": session_stop_audit,
@@ -215,6 +259,10 @@ class AcquisitionNode:
             "is_running": self._running,
             "iteration_count": self._iteration_index,
             "last_error": self._last_error,
+            "failed": self._failed,
+            "consecutive_must_preserve_handoff_failures": (
+                self._consecutive_must_preserve_handoff_failures
+            ),
         }
 
     def _send_envelope(
@@ -233,7 +281,9 @@ class AcquisitionNode:
         envelope_data = envelope.to_dict()
         reconstructed_envelope = AcquisitionRecordEnvelope.from_dict(envelope_data)
         try:
-            return self._ingestor.receive_envelope(reconstructed_envelope)
+            audit = self._ingestor.receive_envelope(reconstructed_envelope)
+            self._consecutive_must_preserve_handoff_failures = 0
+            return audit
         except Exception as error:
             return self._record_handoff_failure(reconstructed_envelope, error)
 
@@ -276,6 +326,17 @@ class AcquisitionNode:
         with evidence_path.open("a", encoding="utf-8") as evidence_file:
             evidence_file.write(json.dumps(evidence))
             evidence_file.write("\n")
+
+        if preserve:
+            self._consecutive_must_preserve_handoff_failures += 1
+            if (
+                self._must_preserve_failure_threshold is not None
+                and self._consecutive_must_preserve_handoff_failures
+                >= self._must_preserve_failure_threshold
+            ):
+                self._failed = True
+                self._running = False
+                self._last_error = f"{type(error).__name__}: {error}"
 
         return _FailedHandoffAudit()
 
@@ -409,6 +470,158 @@ class AcquisitionNode:
         if policy.get("preserve_failed_envelope") is not expected_preserve:
             return "must_preserve"
         return policy_name
+
+    def _read_must_preserve_failure_threshold(
+        self,
+        acquisition_configuration: Mapping[str, Any] | None,
+    ) -> int | None:
+        if not isinstance(acquisition_configuration, Mapping):
+            return None
+        policies = acquisition_configuration.get("handoff_failure_policies")
+        if not isinstance(policies, Mapping):
+            return None
+        policy = policies.get("must_preserve")
+        if not isinstance(policy, Mapping):
+            return None
+        threshold = policy.get("consecutive_failure_threshold")
+        if isinstance(threshold, bool) or not isinstance(threshold, int):
+            return None
+        if threshold < 1:
+            return None
+        return threshold
+
+    def _read_acquisition_health_policies(
+        self,
+        acquisition_configuration: Mapping[str, Any] | None,
+    ) -> dict[str, Mapping[str, Any]]:
+        if not isinstance(acquisition_configuration, Mapping):
+            return {}
+        policies = acquisition_configuration.get("acquisition_health_policies")
+        if not isinstance(policies, Mapping):
+            return {}
+        return {
+            str(name): policy
+            for name, policy in policies.items()
+            if isinstance(name, str) and isinstance(policy, Mapping)
+        }
+
+    def _failure_evidence_readiness(self) -> ServiceReadiness:
+        if not self._error_evidence_location:
+            return ServiceReadiness(
+                component_id="failure_evidence",
+                component_type="failure_evidence_location",
+                required=True,
+                ready=False,
+                reason="missing_error_evidence_location",
+            )
+        try:
+            evidence_directory = Path(self._error_evidence_location)
+            evidence_directory.mkdir(parents=True, exist_ok=True)
+            with NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=evidence_directory,
+                prefix=".failure-evidence-readiness-",
+                delete=True,
+            ):
+                pass
+        except (OSError, ValueError) as error:
+            return ServiceReadiness(
+                component_id="failure_evidence",
+                component_type="failure_evidence_location",
+                required=True,
+                ready=False,
+                reason=str(error),
+            )
+        return ServiceReadiness(
+            component_id="failure_evidence",
+            component_type="failure_evidence_location",
+            required=True,
+            ready=True,
+            reason="writable",
+        )
+
+    def _observe_acquisition_health_records(
+        self,
+        source_device_id: str,
+        record_kind: str,
+        records: tuple[dict[str, Any], ...],
+    ) -> None:
+        policy_name = self._acquisition_health_source_policies.get(source_device_id)
+        policy = self._acquisition_health_policies.get(policy_name or "")
+        if not self._valid_first_record_policy(policy):
+            return
+        if record_kind != policy["record_kind"]:
+            return
+        grace_deadline = (
+            (self._acquisition_start_session_time_s or 0.0)
+            + float(policy["grace_window_s"])
+        )
+        self._acquisition_health_observed_counts[source_device_id] += sum(
+            "session_time_s" in row
+            and isinstance(row["session_time_s"], (int, float))
+            and not isinstance(row["session_time_s"], bool)
+            and float(row["session_time_s"]) <= grace_deadline
+            for row in records
+        )
+
+    def _evaluate_acquisition_health(self) -> tuple[Any, ...]:
+        if self._acquisition_start_session_time_s is None:
+            return ()
+        current_session_time_s = (
+            self._synchronization_manager.current_session_time_s
+        )
+        audits = []
+        for source_device_id, policy_name in (
+            self._acquisition_health_source_policies.items()
+        ):
+            if source_device_id in self._acquisition_health_failures_recorded:
+                continue
+            policy = self._acquisition_health_policies.get(policy_name)
+            if not self._valid_first_record_policy(policy):
+                continue
+            observed_count = self._acquisition_health_observed_counts[source_device_id]
+            grace_window_s = float(policy["grace_window_s"])
+            elapsed = current_session_time_s - self._acquisition_start_session_time_s
+            if observed_count > 0 or elapsed < grace_window_s:
+                continue
+            audits.append(
+                self._send_envelope(
+                    source_device_id="acquisition_node",
+                    record_kind="event",
+                    records=(
+                        {
+                            "event_category": "acquisition_health",
+                            "event_type": "health_policy_failed",
+                            "source_device_id": source_device_id,
+                            "policy_name": policy_name,
+                            "policy_kind": "first_record_within_grace_window",
+                            "expected_record_kind": policy["record_kind"],
+                            "grace_window_s": grace_window_s,
+                            "observed_record_count": observed_count,
+                            "session_time_s": current_session_time_s,
+                        },
+                    ),
+                )
+            )
+            self._acquisition_health_failures_recorded.add(source_device_id)
+        return tuple(audits)
+
+    def _valid_first_record_policy(
+        self,
+        policy: Mapping[str, Any] | None,
+    ) -> bool:
+        if policy is None:
+            return False
+        grace_window_s = policy.get("grace_window_s")
+        return (
+            policy.get("kind") == "first_record_within_grace_window"
+            and isinstance(policy.get("record_kind"), str)
+            and not isinstance(grace_window_s, bool)
+            and isinstance(grace_window_s, (int, float))
+            and isfinite(grace_window_s)
+            and grace_window_s >= 0
+        )
 
     def _stream_batching_enabled(self) -> bool:
         return (

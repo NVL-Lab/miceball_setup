@@ -146,6 +146,11 @@ def main() -> int:
     parser.add_argument("host", help="Receiver host, for example 127.0.0.1.")
     parser.add_argument("port", type=int, help="Receiver TCP port.")
     parser.add_argument(
+        "--error-evidence-location",
+        required=True,
+        help="Configured Session directory for sender-side failure evidence.",
+    )
+    parser.add_argument(
         "--real-cv2",
         action="store_true",
         help="Use installed cv2 and a real VideoCapture instead of FakeCV2.",
@@ -205,6 +210,7 @@ def main() -> int:
             device_manager=manager,
             synchronization_manager=synchronization,
             ingestor=socket_boundary,
+            error_evidence_location=args.error_evidence_location,
         )
         camera_config = OpenCVCameraConfig(
             camera_source=args.camera_source,

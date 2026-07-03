@@ -159,6 +159,7 @@ class PersistentStorageManagerTests(unittest.TestCase):
                 device_manager=manager,
                 synchronization_manager=synchronization,
                 ingestor=ingestor,
+                error_evidence_location=str(temporary_directory),
             )
 
             manager.initialize_all(config={"mode": "session-record-v1"})
@@ -211,6 +212,7 @@ class PersistentStorageManagerTests(unittest.TestCase):
                     "enabled": True,
                     "required": True,
                     "declared_capabilities": ["tiny_stream"],
+                    "acquisition_health_policy": None,
                 },
             )
             self.assertEqual(
@@ -254,7 +256,7 @@ class PersistentStorageManagerTests(unittest.TestCase):
                         "service_readiness_evidence"
                     ]
                 ],
-                ["synchronization", "ingestor", "storage"],
+                ["synchronization", "ingestor", "failure_evidence", "storage"],
             )
             self.assertEqual(
                 len(session_record["accepted_acquisition_envelopes"]),

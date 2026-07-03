@@ -146,6 +146,7 @@ class SeeedIMX219OpenCVCameraAdapterTests(unittest.TestCase):
                 device_manager=manager,
                 synchronization_manager=synchronization,
                 ingestor=ingestor,
+                error_evidence_location=str(temporary_directory),
             )
 
             manager.initialize_all(config=camera_config)

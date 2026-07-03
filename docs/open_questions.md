@@ -220,10 +220,69 @@ Do not implement retry/replay in the first handoff failure slice. Preserve sende
 
 ---
 
+## Q012: What is the Controller v1 responsibility?
 
-# Architecture Board Rule
+### Why this matters
 
-No major implementation work should begin until all Critical questions have either:
+The framework now has a capable `AcquisitionNode`, but caller/orchestration code still manually coordinates Session, readiness, acquisition start/stop, cleanup, and finalization.
 
-1. Been answered and accepted, or
-2. Been explicitly deferred with a documented rationale.
+### Questions
+
+* What commands does Controller v1 expose?
+* Does Controller own Session start/stop orchestration?
+* Does Controller call `AcquisitionNode.check_ready()` before `start_acquisition()`?
+* How does Controller respond if AcquisitionNode start fails?
+* How does Controller observe AcquisitionNode failed status?
+* Does Controller decide when to call `Session.fail()`, `Session.stop()`, or `Session.complete()`?
+* What evidence does Controller preserve?
+
+### Blocks
+
+* Session failure integration
+* Operator-facing control
+* Complete session orchestration
+
+
+## Q013: What is the acquisition-health consequence model?
+
+### Why this matters
+
+Acquisition health v1 can produce health evidence, but the architecture has not decided when health failures are warnings, recoverable failures, fatal acquisition failures, or Session failures.
+
+### Questions
+
+* Which health failures should only record evidence?
+* Which health failures should stop acquisition?
+* Which health failures should mark the AcquisitionNode failed?
+* Which health failures should cause Controller/Session failure handling?
+* Are consequences configured per health policy?
+* How are repeated health failures represented?
+
+### Blocks
+
+* Fatal/warning health behavior
+* Session failure integration
+* Operator notification
+
+
+## Q014: What is the receiver-side Ingestor validation model?
+
+### Why this matters
+
+Sender-side robustness now preserves evidence before handoff, but receiver-side validation remains separate. The Ingestor may eventually need to detect malformed envelopes, missing timing, duplicated envelopes, or incomplete sessions.
+
+### Questions
+
+* What envelope validation does Ingestor perform?
+* Does Ingestor reject malformed records or preserve them with audit evidence?
+* What fields are mandatory for accepted envelopes?
+* How does Ingestor represent rejected envelopes?
+* Does Ingestor detect missing expected sources, or is that only AcquisitionNode health?
+* How are receiver-side failures represented in the Session Record?
+
+### Blocks
+
+* Ingestor hardening
+* Session Record failure schema
+* Reconstruction validation
+

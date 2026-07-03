@@ -59,6 +59,8 @@ class SocketOpenCVCameraDemoTests(unittest.TestCase):
                         str(sender_script),
                         host,
                         str(port),
+                        "--error-evidence-location",
+                        str(demo_dir / "sender_errors"),
                     ],
                     cwd=ROOT,
                     capture_output=True,

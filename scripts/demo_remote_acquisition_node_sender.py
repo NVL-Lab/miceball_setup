@@ -125,6 +125,7 @@ def main() -> int:
                 ingestor=socket_boundary,
                 node_id=args.node_id,
                 role=args.role,
+                error_evidence_location=str(failure_path.parent),
             )
 
             try:

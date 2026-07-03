@@ -1,4 +1,5 @@
 ﻿import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -378,6 +379,7 @@ class AcquisitionNodeBatchingTests(unittest.TestCase):
             ingestor=InMemoryIngestor(storage_manager=storage),
             node_id="batch-node-001",
             acquisition_configuration=configuration.acquisition_configuration,
+            error_evidence_location=tempfile.gettempdir(),
         )
         manager.initialize_all(config={"mode": "batching-test"})
         manager.check_readiness()

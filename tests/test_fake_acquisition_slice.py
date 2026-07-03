@@ -367,6 +367,7 @@ class FakeAcquisitionSliceTests(unittest.TestCase):
             device_manager=manager,
             synchronization_manager=synchronization,
             ingestor=ingestor,
+            error_evidence_location=tempfile.gettempdir(),
         )
         initial_node_status = acquisition_node.status()
 
@@ -377,6 +378,8 @@ class FakeAcquisitionSliceTests(unittest.TestCase):
                 "is_running": False,
                 "iteration_count": 0,
                 "last_error": None,
+                "failed": False,
+                "consecutive_must_preserve_handoff_failures": 0,
             },
         )
 
@@ -586,6 +589,7 @@ class FakeAcquisitionSliceTests(unittest.TestCase):
                 device_manager=manager,
                 synchronization_manager=synchronization,
                 ingestor=ingestor,
+                error_evidence_location=tempfile.gettempdir(),
             )
 
             manager.initialize_all(config={"mode": "persistent-jsonl-fake"})

@@ -3,7 +3,7 @@
 ## src/lab_sync_acquisition/__init__.py
 
 - AcquisitionIterationSummary: Public import for the result of one bounded AcquisitionNode iteration.
-- AcquisitionNode: Public import for bounded acquisition-side execution, configured stream batching, and sender-side failure evidence under the supplied Session error evidence location.
+- AcquisitionNode: Public import for bounded execution, configured batching, writable failure-evidence readiness, sender-side failure handling, and explicitly mapped acquisition-health evaluation.
 - AcquisitionNodeReadiness: Public import for Phase 2 node identity and aggregated device/service readiness evidence.
 - AcquisitionRecordEnvelope: Public import for the transferable acquisition record envelope shared across the acquisition-to-ingestion boundary.
 - DeviceAdapter: Public import for the minimum live runtime control interface for one device adapter.
@@ -43,11 +43,11 @@
 ## src/lab_sync_acquisition/acquisition_node.py
 
 - AcquisitionIterationSummary: Records the small inspectable summary returned by one bounded acquisition iteration.
-- AcquisitionNode: Owns bounded acquisition-side execution, private stream batching, and sender-side handoff failure evidence written under the supplied Session error evidence location.
+- AcquisitionNode: Owns bounded execution, private batching, writable failure-evidence readiness, sender-side handoff evidence, cleanup-capable failure status, and explicitly mapped first-record acquisition-health evaluation.
 
 ## src/lab_sync_acquisition/device.py
 
-- DeviceDeclaration: Holds explicit persistent/config fields for an intended device before any live adapter exists, with capabilities stored immutably and exposed as plain data for Session Record evidence.
+- DeviceDeclaration: Holds persistent participation intent, immutable capabilities, and an optional declared acquisition-health policy assignment as plain Session Record data.
 
 ## src/lab_sync_acquisition/device_adapter.py
 
