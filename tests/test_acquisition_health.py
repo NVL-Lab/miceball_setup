@@ -12,6 +12,7 @@ from lab_sync_acquisition import (
     AcquisitionNode,
     DeviceDeclaration,
     DeviceManager,
+    ExperimentRuntimeHealthMapping,
     InMemoryIngestor,
     InMemoryStorageManager,
     ServiceReadiness,
@@ -65,7 +66,6 @@ class AcquisitionHealthTests(unittest.TestCase):
     def test_unmapped_required_source_is_not_health_checked(self):
         node, storage, synchronization = self._running_node(
             batches=((), ()),
-            source_health_policies={},
         )
 
         node.run_one_iteration()
@@ -79,7 +79,7 @@ class AcquisitionHealthTests(unittest.TestCase):
     def test_first_record_policy_emits_health_evidence_after_grace_window(self):
         node, storage, synchronization = self._running_node(
             batches=((), ()),
-            source_health_policies={"live-camera-001": "camera-first-record"},
+            runtime_health_mapping=self._runtime_mapping("live-camera-001"),
         )
 
         node.run_one_iteration()
@@ -108,7 +108,7 @@ class AcquisitionHealthTests(unittest.TestCase):
     def test_matching_record_within_grace_window_avoids_failure_evidence(self):
         node, storage, synchronization = self._running_node(
             batches=(({"sample_index": 1},), ()),
-            source_health_policies={"live-camera-001": "camera-first-record"},
+            runtime_health_mapping=self._runtime_mapping("live-camera-001"),
         )
 
         synchronization.set_session_time(0.5)
@@ -144,7 +144,50 @@ class AcquisitionHealthTests(unittest.TestCase):
             "camera-first-record",
         )
 
-    def _running_node(self, batches, source_health_policies):
+    def test_active_mapping_ignores_unmapped_session_ready_source(self):
+        mapped_adapter = HealthFakeAdapter(
+            "mapped-camera-001",
+            "fake_camera",
+            ("stream",),
+            True,
+            batches=((), ()),
+        )
+        unmapped_adapter = HealthFakeAdapter(
+            "unmapped-camera-001",
+            "fake_camera",
+            ("stream",),
+            True,
+            batches=((), ()),
+        )
+        manager = DeviceManager((mapped_adapter, unmapped_adapter))
+        storage = InMemoryStorageManager()
+        synchronization = ControlledSynchronizationManager()
+        node = AcquisitionNode(
+            session_id="health-session-002",
+            device_manager=manager,
+            synchronization_manager=synchronization,
+            ingestor=InMemoryIngestor(storage_manager=storage),
+            acquisition_configuration=self._health_configuration(),
+            error_evidence_location=tempfile.gettempdir(),
+        )
+        manager.initialize_all(config={"mode": "mapped-health-test"})
+        manager.check_readiness()
+        node.start_runtime()
+        node.activate_experiment_runtime_health_mapping(
+            self._runtime_mapping("mapped-camera-001")
+        )
+
+        node.run_one_iteration()
+        synchronization.set_session_time(1.0)
+        node.run_one_iteration()
+
+        self.assertEqual(
+            [row["source_device_id"] for row in self._health_rows(storage)],
+            ["mapped-camera-001"],
+        )
+        node.stop_runtime()
+
+    def _running_node(self, batches, runtime_health_mapping=()):
         adapter = HealthFakeAdapter(
             "live-camera-001",
             "fake_camera",
@@ -162,13 +205,24 @@ class AcquisitionHealthTests(unittest.TestCase):
             ingestor=InMemoryIngestor(storage_manager=storage),
             node_id="health-node-001",
             acquisition_configuration=self._health_configuration(),
-            acquisition_health_source_policies=source_health_policies,
             error_evidence_location=tempfile.gettempdir(),
         )
         manager.initialize_all(config={"mode": "health-test"})
         manager.check_readiness()
-        node.start_acquisition()
+        node.start_runtime()
+        node.activate_experiment_runtime_health_mapping(runtime_health_mapping)
         return node, storage, synchronization
+
+    def _runtime_mapping(self, live_source_id):
+        return (
+            ExperimentRuntimeHealthMapping(
+                live_source_id=live_source_id,
+                expected_participant_id="camera-001",
+                acquisition_health_policy="camera-first-record",
+                required=True,
+                expected_contribution="camera_frame_metadata",
+            ),
+        )
 
     def _health_configuration(self):
         return {

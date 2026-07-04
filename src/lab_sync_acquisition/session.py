@@ -106,6 +106,93 @@ class LifecycleTransition:
         }
 
 
+@dataclass(frozen=True)
+class ExpectedParticipant:
+    """Plain-data declaration of expected Experiment contribution."""
+
+    participant_id: str
+    participant_type: str
+    expected_contribution: str
+    required: bool
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-like plain-data representation."""
+
+        return {
+            "participant_id": self.participant_id,
+            "participant_type": self.participant_type,
+            "expected_contribution": self.expected_contribution,
+            "required": self.required,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> ExpectedParticipant:
+        """Reconstruct a declaration from its plain-data representation."""
+
+        return cls(
+            participant_id=data["participant_id"],
+            participant_type=data["participant_type"],
+            expected_contribution=data["expected_contribution"],
+            required=data["required"],
+        )
+
+
+@dataclass(frozen=True)
+class ExperimentDescriptor:
+    """Persistent scientific identity for one Experiment in a Session."""
+
+    experiment_id: str
+    details: dict[str, Any] | None = None
+    expected_participants: tuple[ExpectedParticipant, ...] = ()
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-like plain-data representation."""
+
+        return {
+            "experiment_id": self.experiment_id,
+            "details": self.details,
+            "expected_participants": [
+                participant.to_dict()
+                for participant in self.expected_participants
+            ],
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> ExperimentDescriptor:
+        """Reconstruct a descriptor from its plain-data representation."""
+
+        return cls(
+            experiment_id=data["experiment_id"],
+            details=dict(data["details"]) if data.get("details") is not None else None,
+            expected_participants=tuple(
+                ExpectedParticipant.from_dict(participant)
+                for participant in data.get("expected_participants", ())
+            ),
+        )
+
+
+@dataclass(frozen=True)
+class ExperimentLifecycleEvidence:
+    """Canonical Session-owned evidence for one Experiment lifecycle event."""
+
+    experiment_id: str
+    event_type: str
+    session_time_s: float | None
+    sequence: int
+    details: dict[str, Any] | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-like plain-data representation."""
+
+        return {
+            "experiment_id": self.experiment_id,
+            "event_type": self.event_type,
+            "session_time_s": self.session_time_s,
+            "sequence": self.sequence,
+            "details": self.details,
+        }
+
+
 class SessionLifecycleError(Exception):
     """Raised when a session lifecycle operation is not allowed."""
 
@@ -130,6 +217,12 @@ class Session:
         default_factory=list, init=False, repr=False
     )
     _service_readiness_checks: list[ServiceReadiness] = field(
+        default_factory=list, init=False, repr=False
+    )
+    _experiment_lifecycle_evidence: list[ExperimentLifecycleEvidence] = field(
+        default_factory=list, init=False, repr=False
+    )
+    _experiment_descriptors: list[ExperimentDescriptor] = field(
         default_factory=list, init=False, repr=False
     )
     _sequence: int = field(default=0, init=False, repr=False)
@@ -172,6 +265,65 @@ class Session:
         """Recorded service readiness evidence supplied during initialization."""
 
         return tuple(self._service_readiness_checks)
+
+    @property
+    def experiment_lifecycle_evidence(
+        self,
+    ) -> tuple[ExperimentLifecycleEvidence, ...]:
+        """Canonical Experiment lifecycle evidence in Session timeline order."""
+
+        return tuple(self._experiment_lifecycle_evidence)
+
+    @property
+    def experiment_descriptors(self) -> tuple[ExperimentDescriptor, ...]:
+        """Experiment descriptors in first-start order."""
+
+        return tuple(self._experiment_descriptors)
+
+    def ensure_experiment_descriptor(
+        self,
+        experiment_id: str,
+        details: dict[str, Any] | None = None,
+        expected_participants: Iterable[ExpectedParticipant] = (),
+    ) -> ExperimentDescriptor:
+        """Create one descriptor for an Experiment or return the existing one."""
+
+        for descriptor in self._experiment_descriptors:
+            if descriptor.experiment_id == experiment_id:
+                return descriptor
+
+        descriptor = ExperimentDescriptor(
+            experiment_id=experiment_id,
+            details=dict(details) if details is not None else None,
+            expected_participants=tuple(expected_participants),
+        )
+        self._experiment_descriptors.append(descriptor)
+        return descriptor
+
+    def record_experiment_lifecycle(
+        self,
+        experiment_id: str,
+        event_type: str,
+        session_time_s: float | None,
+        details: dict[str, Any] | None = None,
+    ) -> ExperimentLifecycleEvidence:
+        """Record canonical Experiment lifecycle evidence while Session runs."""
+
+        if self.current_state != SessionState.RUNNING:
+            raise SessionLifecycleError(
+                "Experiment lifecycle evidence requires Session state 'running'"
+            )
+        if event_type not in {"experiment_start", "experiment_stop"}:
+            raise ValueError(f"Unsupported Experiment lifecycle event: {event_type}")
+        evidence = ExperimentLifecycleEvidence(
+            experiment_id=experiment_id,
+            event_type=event_type,
+            session_time_s=session_time_s,
+            sequence=self._next_sequence(),
+            details=dict(details) if details is not None else None,
+        )
+        self._experiment_lifecycle_evidence.append(evidence)
+        return evidence
 
     def initialize(
         self,

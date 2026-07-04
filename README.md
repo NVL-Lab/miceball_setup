@@ -137,6 +137,11 @@ Phase 4 Controller v1 now provides validated sequential orchestration for one
 bounded Session, including normal completion, runtime failure outcomes, cleanup,
 and two-step persistent Session Record finalization.
 
+Phase 5 now provides validated Controller-owned Experiment lifecycle, persistent
+Experiment descriptors and Expected Participant declarations, explicit runtime
+health mappings, and AcquisitionNode health evaluation scoped only to mapped
+live acquisition sources.
+
 
 
 The project follows an architecture-first development process. Architectural decisions are discussed and documented before the corresponding implementation is added to the framework.

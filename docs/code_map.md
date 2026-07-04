@@ -3,7 +3,7 @@
 ## src/lab_sync_acquisition/__init__.py
 
 - AcquisitionIterationSummary: Public import for the result of one bounded AcquisitionNode iteration.
-- AcquisitionNode: Public import for bounded acquisition runtime execution with runtime-named methods, acquisition-named compatibility wrappers, configured batching, writable failure-evidence readiness, sender-side failure handling, and explicitly mapped acquisition-health evaluation.
+- AcquisitionNode: Public import for bounded acquisition runtime execution, active Experiment-mapped acquisition-health scope, configured batching, writable failure-evidence readiness, and sender-side failure handling.
 - AcquisitionNodeReadiness: Public import for Phase 2 node identity and aggregated device/service readiness evidence.
 - AcquisitionRecordEnvelope: Public import for the transferable acquisition record envelope shared across the acquisition-to-ingestion boundary.
 - Controller: Public import for sequential single-session orchestration using already-created runtime collaborators.
@@ -18,6 +18,10 @@
 - DeviceReadiness: Public import for the shared readiness record produced by DeviceManager and consumed by Session.
 - DeviceReadinessNotImplementedError: Public import for base adapters without concrete readiness behavior.
 - DeviceReadinessSummary: Public import for aggregated Device Manager readiness results.
+- ExpectedParticipant: Public import for a plain-data declaration of expected contribution during one Experiment.
+- ExperimentDescriptor: Public import for the persistent scientific identity of one Experiment within a Session.
+- ExperimentLifecycleEvidence: Public import for canonical Session-owned Experiment start/stop evidence.
+- ExperimentRuntimeHealthMapping: Public import for one explicit live-source Experiment health assignment as plain runtime data.
 - DeviceStatus: Public import for live adapter status snapshots.
 - IngestAuditRecord: Public import for ingest audit evidence recorded for each received acquisition envelope.
 - InMemoryIngestor: Public import for the minimal in-memory envelope receiver that can forward accepted envelopes to storage.
@@ -45,7 +49,7 @@
 ## src/lab_sync_acquisition/acquisition_node.py
 
 - AcquisitionIterationSummary: Records the small inspectable summary returned by one bounded acquisition iteration.
-- AcquisitionNode: Owns bounded acquisition runtime execution through `start_runtime()`/`stop_runtime()`, retains acquisition-named compatibility wrappers, and preserves existing batching, readiness, handoff, health, failure, and cleanup behavior.
+- AcquisitionNode: Owns bounded acquisition runtime execution through `start_runtime()`/`stop_runtime()`, scopes existing acquisition-health evaluation exclusively to its active Experiment runtime mapping, and preserves existing batching, readiness, handoff, failure, and cleanup behavior.
 
 ## src/lab_sync_acquisition/device.py
 
@@ -54,7 +58,7 @@
 ## src/lab_sync_acquisition/controller.py
 
 - ControllerCommandResult: Records one command outcome and exposes its command, success, details, and error as plain evidence.
-- Controller: Sequentially coordinates one Session, runtime failure outcomes, cleanup, and two-step persistent Session Record finalization without taking over component ownership.
+- Controller: Sequentially coordinates one Session, activates and clears the active Experiment runtime health mapping on AcquisitionNode without persisting or evaluating it, creates Experiment descriptors and canonical lifecycle evidence, handles runtime failure outcomes and cleanup, and performs two-step Session Record finalization.
 
 ## src/lab_sync_acquisition/device_adapter.py
 
@@ -71,6 +75,10 @@
 - DeviceRecordCollection: Records the source device identity, record kind, and unmodified records collected from one already-created adapter.
 - DeviceReadinessSummary: Aggregates shared readiness records across already-created adapters and can be passed to Session initialization.
 - DeviceManager: Holds at least one already-created Device Adapter and coordinates lifecycle, readiness, status, and minimal acquisition record collection without creating adapters or envelopes.
+
+## src/lab_sync_acquisition/experiment_runtime.py
+
+- ExperimentRuntimeHealthMapping: Records one immutable live-source-to-Expected-Participant health assignment and supports plain-data round trips without activation or evaluation behavior.
 
 ## src/lab_sync_acquisition/ingestor.py
 
@@ -89,7 +97,7 @@
 ## src/lab_sync_acquisition/storage.py
 
 - InMemoryStorageManager: Reports service readiness, stores accepted AcquisitionRecordEnvelope objects in memory, and exposes all, session-filtered, and source-filtered readback without file writing or transformation.
-- PersistentStorageManager: Reports service readiness, appends accepted AcquisitionRecordEnvelope dictionaries to a caller-supplied JSONL file, reads them back as envelopes, and writes/reads a minimal v1 Session Record JSON evidence package.
+- PersistentStorageManager: Reports service readiness, stores accepted envelopes, and writes/reads a v1 Session Record including Experiment descriptors and canonical Experiment lifecycle evidence.
 
 ## src/lab_sync_acquisition/synchronization.py
 
@@ -101,8 +109,11 @@
 - SessionConfig: Holds the immutable accepted run configuration, including the explicit Session error evidence location, and exposes it as plain data for the persistent Session Record.
 - ReadinessCheck: Records the result of a readiness condition checked during lifecycle transitions and exposes it as plain data for Session Record evidence.
 - LifecycleTransition: Records an allowed lifecycle state transition in sequence order and exposes it as plain data for Session Record evidence.
+- ExpectedParticipant: Records participant identity, type, expected contribution, and required status as an inert plain-data declaration.
+- ExperimentDescriptor: Records the persistent scientific identity, caller-supplied details, and ordered Expected Participants of one Experiment as plain Session Record data.
+- ExperimentLifecycleEvidence: Records canonical `experiment_start` or `experiment_stop` evidence in the Session timeline as plain data.
 - SessionLifecycleError: Signals invalid lifecycle operations or failed readiness requirements.
-- Session: Owns one session's lifecycle state, read-only transition history, read-only readiness checks, recorded shared device and service readiness summaries, cleanup status, and final status in memory.
+- Session: Owns lifecycle, readiness, Experiment descriptors, canonical Experiment lifecycle evidence, cleanup status, and final status in memory.
 
 ## scripts/demo_cross_process_acquisition_writer.py
 

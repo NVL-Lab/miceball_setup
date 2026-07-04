@@ -380,6 +380,7 @@ class FakeAcquisitionSliceTests(unittest.TestCase):
                 "last_error": None,
                 "failed": False,
                 "consecutive_must_preserve_handoff_failures": 0,
+                "active_experiment_runtime_health_mapping": (),
             },
         )
 

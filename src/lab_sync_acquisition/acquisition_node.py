@@ -13,6 +13,7 @@ from typing import Any, Iterable
 from lab_sync_acquisition.acquisition_record import AcquisitionRecordEnvelope
 from lab_sync_acquisition.acquisition_node_readiness import AcquisitionNodeReadiness
 from lab_sync_acquisition.device_manager import DeviceManager
+from lab_sync_acquisition.experiment_runtime import ExperimentRuntimeHealthMapping
 from lab_sync_acquisition.ingestor import InMemoryIngestor
 from lab_sync_acquisition.service_readiness import ServiceReadiness
 from lab_sync_acquisition.synchronization import SynchronizationManager
@@ -51,16 +52,10 @@ class AcquisitionNode:
         self._node_id = node_id
         self._role = role
         self._error_evidence_location = error_evidence_location
-        self._acquisition_health_source_policies = dict(
-            acquisition_health_source_policies or {}
-        )
         self._acquisition_health_policies = self._read_acquisition_health_policies(
             acquisition_configuration
         )
-        self._acquisition_health_observed_counts = {
-            source_device_id: 0
-            for source_device_id in self._acquisition_health_source_policies
-        }
+        self._acquisition_health_observed_counts: dict[str, int] = {}
         self._acquisition_health_failures_recorded: set[str] = set()
         self._acquisition_start_session_time_s: float | None = None
         self._handoff_failure_policy = self._read_handoff_failure_policy(
@@ -84,6 +79,31 @@ class AcquisitionNode:
         self._running = False
         self._iteration_index = 0
         self._last_error: str | None = None
+        self._active_experiment_runtime_health_mapping: tuple[
+            ExperimentRuntimeHealthMapping, ...
+        ] = ()
+
+    def activate_experiment_runtime_health_mapping(
+        self,
+        runtime_health_mapping: Iterable[ExperimentRuntimeHealthMapping],
+    ) -> None:
+        """Store an immutable active Experiment runtime health mapping."""
+
+        self._active_experiment_runtime_health_mapping = tuple(
+            runtime_health_mapping
+        )
+        self._acquisition_health_observed_counts = {
+            mapping.live_source_id: 0
+            for mapping in self._active_experiment_runtime_health_mapping
+        }
+        self._acquisition_health_failures_recorded.clear()
+
+    def clear_experiment_runtime_health_mapping(self) -> None:
+        """Clear active Experiment runtime mapping without stopping runtime."""
+
+        self._active_experiment_runtime_health_mapping = ()
+        self._acquisition_health_observed_counts = {}
+        self._acquisition_health_failures_recorded.clear()
 
     def check_ready(self) -> dict[str, Any]:
         """Return acquisition-side readiness using existing readiness contracts."""
@@ -272,6 +292,9 @@ class AcquisitionNode:
             "failed": self._failed,
             "consecutive_must_preserve_handoff_failures": (
                 self._consecutive_must_preserve_handoff_failures
+            ),
+            "active_experiment_runtime_health_mapping": (
+                self._active_experiment_runtime_health_mapping
             ),
         }
 
@@ -557,8 +580,19 @@ class AcquisitionNode:
         record_kind: str,
         records: tuple[dict[str, Any], ...],
     ) -> None:
-        policy_name = self._acquisition_health_source_policies.get(source_device_id)
-        policy = self._acquisition_health_policies.get(policy_name or "")
+        mapping = next(
+            (
+                mapping
+                for mapping in self._active_experiment_runtime_health_mapping
+                if mapping.live_source_id == source_device_id
+            ),
+            None,
+        )
+        if mapping is None:
+            return
+        policy = self._acquisition_health_policies.get(
+            mapping.acquisition_health_policy
+        )
         if not self._valid_first_record_policy(policy):
             return
         if record_kind != policy["record_kind"]:
@@ -576,15 +610,18 @@ class AcquisitionNode:
         )
 
     def _evaluate_acquisition_health(self) -> tuple[Any, ...]:
-        if self._acquisition_start_session_time_s is None:
+        if (
+            self._acquisition_start_session_time_s is None
+            or not self._active_experiment_runtime_health_mapping
+        ):
             return ()
         current_session_time_s = (
             self._synchronization_manager.current_session_time_s
         )
         audits = []
-        for source_device_id, policy_name in (
-            self._acquisition_health_source_policies.items()
-        ):
+        for mapping in self._active_experiment_runtime_health_mapping:
+            source_device_id = mapping.live_source_id
+            policy_name = mapping.acquisition_health_policy
             if source_device_id in self._acquisition_health_failures_recorded:
                 continue
             policy = self._acquisition_health_policies.get(policy_name)

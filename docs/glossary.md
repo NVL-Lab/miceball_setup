@@ -43,6 +43,8 @@ The Controller coordinates existing components but does not own Session lifecycl
 
 The GUI and Controller are conceptually separate, even if they run on the same machine.
 
+The Controller owns canonical Experiment lifecycle orchestration. AcquisitionNodes record local execution evidence associated with an active Experiment.
+
 ---
 
 # Device
@@ -113,9 +115,73 @@ Examples:
 
 * a behavioral task segment
 * a stimulus protocol segment
-* a calibration or validation segment
+* a baseline recording or scientific decoder-calibration segment
 
-A Session may contain no active Experiment, one Experiment, or multiple Experiment segments. Experiment orchestration is not implemented in Controller v1.
+A Session may contain no active Experiment or multiple sequential Experiment segments, with at most one active Experiment at a time. Controller owns canonical Experiment start/stop orchestration, while Session owns descriptors and lifecycle evidence.
+
+Each Experiment segment has one canonical, Controller-owned lifecycle in the Session timeline and Session Record. An Experiment declares expected participation by selected Session-owned resources without owning those resources.
+
+Session-ready resources are not automatically Experiment participants, and Experiment participants are not necessarily continuously producing records.
+
+---
+
+# Experiment Descriptor
+
+The Session-owned plain-data description of one Experiment's scientific identity and declared expected participation.
+
+An Experiment Descriptor is persistent Session evidence. It does not own lifecycle state or live runtime resources, and it does not bind declarations to live objects.
+
+---
+
+# Expected Participant
+
+A plain-data declaration in an Experiment Descriptor describing a Session resource expected to contribute to that Experiment.
+
+Its minimum conceptual fields are `participant_id`, `participant_type`, `expected_contribution`, and `required`. Expected participants may describe Acquisition Nodes, Devices, protocol services, decoders, or other runtime components.
+
+Participation means expected contribution, not continuous record production. An Expected Participant is not a live `DeviceAdapter`, a `DeviceManager` entry, an `AcquisitionNode` object, or a runtime binding.
+
+Only Expected Participants declared by the active Experiment are in scope for Experiment-scoped acquisition-health evaluation. Being Session-ready alone does not place a resource in that scope.
+
+Expected Participant identifiers are not matched implicitly to Device Declarations, live source identifiers, Device Adapters, or Acquisition Nodes. Caller/orchestration must provide an explicit runtime mapping before AcquisitionNode can evaluate the expectation.
+
+---
+
+# Experiment Participant Runtime Mapping
+
+An explicit caller/orchestration-provided mapping for one active Experiment, keyed by live acquisition source ID.
+
+Each entry identifies the Expected Participant satisfied by that source, the acquisition-health policy, whether participation is required, and the expected contribution. One Expected Participant may map to zero, one, or many live sources; one live source may satisfy at most one Expected Participant within the active mapping.
+
+The mapping is immutable for the active Experiment's lifetime and may differ between Experiments in the same Session. It is runtime intent, not persistent resource ownership. AcquisitionNode evaluates only mapped live sources and never infers bindings by comparing identifiers.
+
+---
+
+# Experiment-Scoped Acquisition Health
+
+Evaluation of whether contributions expected by the active Experiment appeared.
+
+Its scope is determined exclusively by the active Experiment Runtime Health Mapping. With no active mapping, no Experiment-scoped acquisition-health evaluation occurs. With an active mapping, only mapped live acquisition source IDs are evaluated; Session-ready but unmapped resources are excluded.
+
+Experiment-scoped acquisition health is distinct from Session Readiness, which asks whether a resource can safely participate in the Session. The existing first-record grace-window algorithm is validated for mapped sources; additional algorithms, consequences, participant enforcement, and Controller policy remain deferred.
+
+---
+
+# Validation
+
+An operator-initiated operational activity inside a Session that records validation evidence without creating an Experiment.
+
+Examples include playing a test tone, dispensing one reward, acquiring one camera frame, flashing an LED, moving an actuator, or operational calibration such as autofocus.
+
+Not every Device or runtime component must support Validation.
+
+---
+
+# Calibration
+
+A purpose rather than an architectural category.
+
+Operational calibration is represented as Validation. Scientific calibration, such as BMI decoder training, is represented as Experiment.
 
 ---
 
@@ -532,6 +598,14 @@ For v1, accepted Acquisition Record Envelopes may be stored as JSONL, with one e
 JSONL is a storage backend detail, not a replacement for the Storage Manager architectural boundary.
 
 The final storage format is defined separately from the Storage Manager architecture.
+
+---
+
+# Readiness
+
+An automatic framework operation during Session initialization that determines whether components can safely participate and whether the Session may proceed.
+
+Readiness is not operator-initiated and does not create an Experiment.
 
 ---
 

@@ -3042,6 +3042,376 @@ Device participation, protocol behavior, validation periods, and acquisition-hea
 * Session is the acquisition/evidence container.
 * Experiment is protocol activity inside a Session.
 
+---
+
+## Decision 095: Experiment lifecycle is Controller-owned and Session-scoped
+
+**Status:** Accepted
+
+Experiment lifecycle is Controller-owned and Session-scoped. There is one canonical Experiment lifecycle per Experiment segment within a Session.
+
+The canonical lifecycle belongs to the Session timeline and Session Record, not to individual AcquisitionNodes.
+
+Future canonical lifecycle events are conceptually `experiment_start`, `experiment_stop`, `experiment_abort`, and `experiment_fail`.
+
+AcquisitionNode(s) do not own Experiment lifecycle. AcquisitionNode(s) record local execution evidence associated with the active Experiment.
+
+This mirrors the accepted boundary: Controller owns protocol intent; AcquisitionNode owns execution evidence.
+
+The design must remain compatible with multiple AcquisitionNodes participating in one Session. Canonical Experiment lifecycle events must not assume `source_device_id = acquisition_node`.
+
+```text
+Experimenter
+        ↓
+Controller
+        ↓
+Session timeline / Session Record
+        ↓
+AcquisitionNode(s)
+        ↓
+local execution evidence
+```
+
+---
+
+## Decision 096: Readiness, Validation, and Experiment are distinct architectural concepts
+
+**Status:** Accepted
+
+Readiness, Validation, and Experiment are distinct architectural concepts. They must not collapse into one Experiment abstraction.
+
+**Readiness** is an automatic framework operation during Session initialization. It determines whether components can safely participate and whether the Session may proceed. It is not operator-initiated and is not an Experiment.
+
+**Validation** is operator-initiated operational activity inside a Session. It records validation evidence without creating an Experiment, and not every device must support it. Examples include playing a test tone, dispensing one reward, acquiring one camera frame, flashing an LED, or moving an actuator.
+
+**Experiment** is scientific or protocol activity bounded inside a running Session. It owns scientific meaning rather than operational checks. Examples include baseline recording, behavioral tasks, fear conditioning, BMI training, stimulation protocols, and decoder calibration.
+
+**Calibration** is a purpose, not an architectural category. Operational calibration is Validation; scientific calibration is Experiment.
+
+```text
+autofocus              → Validation
+play test tone         → Validation
+acquire one frame      → Validation
+BMI decoder training   → Experiment
+```
+
+**Principle**
+
+```text
+Readiness
+    framework operation
+
+Validation
+    operator-initiated operational activity inside a Session
+
+Experiment
+    scientific/protocol activity inside a running Session
+
+Calibration
+    purpose, not an architectural category
+```
+
+---
+
+## Decision 097: Experiment declares expected participants
+
+**Status:** Accepted
+
+The Session owns available resources. The Experiment declares which Session resources are expected to participate.
+
+Resources remain owned by the Session. The Experiment owns only the expectation that selected resources contribute to that Experiment. This is broader than devices.
+
+```text
+Session
+        ↓
+available resources
+
+Experiment
+        ↓
+expected participants
+```
+
+```text
+Session-ready ≠ Experiment participant
+Experiment participant ≠ continuously producing acquisition
+Participation = expected contribution
+```
+
+Future expected participants may include AcquisitionNodes, Devices, protocol services, decoders, and other runtime components.
+
+Future experiment-scoped acquisition health should be evaluated only against expected participants declared by the active Experiment.
+
+---
+
+## Decision 098: Experiment expected participants are plain-data declarations
+
+**Status:** Accepted
+
+Experiment expected participants are stored in an `ExperimentDescriptor`.
+
+They are plain-data declarations of expected contribution during an Experiment, not live runtime objects. They do not create, own, bind, start, stop, or manage live resources.
+
+```text
+ExperimentDescriptor
+    persistent intent / expected participation
+
+Controller
+    uses descriptor to command Experiment lifecycle
+
+Session
+    records descriptor as Session evidence
+
+AcquisitionNode(s)
+    receive only relevant runtime intent later
+
+Live resources
+    remain owned by existing runtime owners
+```
+
+```text
+ExpectedParticipant
+    != live DeviceAdapter
+    != DeviceManager entry
+    != AcquisitionNode object
+    != runtime binding
+```
+
+The minimum conceptual fields are:
+
+```text
+participant_id
+participant_type
+expected_contribution
+required
+```
+
+Examples include:
+
+```text
+camera_001
+    participant_type: device
+    expected_contribution: camera_frame_metadata
+
+jetson_001
+    participant_type: acquisition_node
+    expected_contribution: behavior_acquisition
+
+decoder_001
+    participant_type: decoder
+    expected_contribution: decoder_predictions
+```
+
+`ExpectedParticipant` is to `ExperimentDescriptor` what `DeviceDeclaration` is to `SessionConfig`: persistent intent first, runtime binding later.
+
+---
+
+## Decision 099: Expected participants define Experiment-scoped acquisition health scope
+
+**Status:** Accepted
+
+Experiment-scoped acquisition health is evaluated only for the Expected Participants declared by the active Experiment.
+
+Resources that are Session-ready but are not Expected Participants in the active Experiment must not produce Experiment-scoped acquisition-health failures.
+
+`ExpectedParticipant` declares expectation only. It does not bind itself to live acquisition sources, `DeviceAdapter` objects, `DeviceManager` objects, `AcquisitionNode` objects, or acquisition-health policies. A separate runtime mapping will be introduced later.
+
+```text
+ExpectedParticipant
+        |
+caller/orchestration mapping
+        |
+live acquisition source id
+        +
+acquisition-health policy
+        |
+AcquisitionNode
+```
+
+```text
+Session readiness
+    can this resource participate?
+
+Expected participant
+    should this resource contribute now?
+
+Experiment-scoped acquisition health
+    did the expected contribution appear?
+```
+
+This decision defines only the scope of evaluation. It intentionally does not define runtime binding, participant enforcement, health policy assignment, health evaluation algorithms, Validation behavior, or distributed orchestration.
+
+---
+
+## Decision 100: Experiment expected-participant assignments reach AcquisitionNode through explicit runtime mapping
+
+**Status:** Accepted
+
+`ExpectedParticipant` declarations do not bind themselves to live acquisition sources.
+
+`AcquisitionNode` must not infer Experiment-scoped acquisition-health assignments by matching `ExpectedParticipant.participant_id` to `DeviceDeclaration.device_id`, `DeviceRecordCollection.source_device_id`, live `DeviceAdapter` identifiers, or `AcquisitionNode` identifiers.
+
+Instead, caller/orchestration provides an explicit runtime mapping.
+
+```text
+ExperimentDescriptor
+    contains ExpectedParticipant declarations
+
+        |
+
+caller/orchestration
+
+        |
+
+maps Expected Participants to
+
+    live acquisition source IDs
+    +
+    acquisition-health policies
+
+        |
+
+AcquisitionNode
+
+        |
+
+evaluates Experiment-scoped acquisition health only from that mapping
+```
+
+**Principle**
+
+```text
+Declaration is not binding.
+
+ExpectedParticipant
+    declares expected contribution.
+
+Runtime mapping
+    defines which live source satisfies that expectation.
+
+AcquisitionNode
+    never guesses the mapping.
+```
+
+This mirrors the existing explicit boundaries between `DeviceDeclaration` and `DeviceAdapter`, and between acquisition-health policies and live source assignments. The framework consistently separates persistent declarations, runtime binding, and runtime execution.
+
+---
+
+## Decision 101: Experiment runtime health mapping contract
+
+**Status:** Accepted
+
+For each active Experiment, caller/orchestration provides `AcquisitionNode` with an explicit Experiment runtime health mapping.
+
+The mapping is keyed by live acquisition source ID. Each live source entry identifies the Expected Participant it satisfies, the acquisition-health policy to apply, whether participation is required, and the expected contribution.
+
+```text
+ExperimentDescriptor
+    ExpectedParticipant(participant_id="camera_001")
+            |
+
+caller/orchestration mapping
+
+            |
+
+live_source_id = "camera-adapter-source-17"
+
+    expected_participant_id = "camera_001"
+    acquisition_health_policy = "camera_frames_required"
+    required = True
+    expected_contribution = "camera_frame_metadata"
+
+            |
+
+AcquisitionNode
+```
+
+An Expected Participant may map to zero, one, or many live sources. A live acquisition source may satisfy at most one Expected Participant within one active Experiment mapping.
+
+The runtime mapping is immutable for the lifetime of one active Experiment. Different Experiments within the same Session may activate different runtime mappings.
+
+`AcquisitionNode` evaluates Experiment-scoped acquisition health only for live acquisition source IDs present in the active mapping. It must not infer mappings from Expected Participant identifiers, `DeviceDeclaration` identifiers, `DeviceAdapter` identifiers, `AcquisitionNode` identifiers, or `DeviceRecordCollection` source identifiers.
+
+```text
+Controller / orchestration
+        starts Experiment
+                |
+provides ExperimentDescriptor
+        + Experiment runtime health mapping
+                |
+AcquisitionNode activates mapping
+                |
+evaluates Experiment-scoped acquisition health
+                |
+mapping is cleared or replaced when Experiment ends
+```
+
+**Principle**
+
+```text
+ExpectedParticipant
+    declares expectation.
+
+Runtime mapping
+    identifies which live acquisition source satisfies that expectation.
+
+AcquisitionNode
+    evaluates only the explicit mapping and never guesses.
+```
+
+This extends the framework's separation of persistent declarations, runtime binding, and runtime execution.
+
+---
+
+## Decision 102: Active Experiment runtime health mapping scopes AcquisitionNode health evaluation
+
+**Status:** Accepted
+
+When an active Experiment runtime health mapping is present, `AcquisitionNode` acquisition-health evaluation is scoped only to the live acquisition source IDs present in that mapping.
+
+```text
+No active Experiment runtime health mapping
+        |
+No Experiment-scoped acquisition-health evaluation
+
+Active Experiment runtime health mapping
+        |
+Evaluate only mapped live acquisition source IDs
+```
+
+Session-ready resources that are not present in the active mapping must not participate in Experiment-scoped acquisition-health evaluation.
+
+`AcquisitionNode` must not infer mappings, bind Expected Participants, inspect `DeviceDeclaration` objects, inspect `DeviceAdapter` identities, inspect `AcquisitionNode` identities, or evaluate unmapped live sources as Experiment participants.
+
+This decision defines only the scope of evaluation. It intentionally does not define acquisition-health algorithms, health consequences, participant enforcement, Controller policy, runtime mapping persistence, or protocol execution.
+
+**Principle**
+
+```text
+No active Experiment mapping
+        |
+No Experiment-scoped acquisition-health evaluation
+
+Active Experiment mapping
+        |
+Evaluate only mapped live acquisition source IDs
+```
+
+This completes the runtime ownership chain:
+
+```text
+ExperimentDescriptor
+        |
+ExpectedParticipant
+        |
+Runtime mapping
+        |
+AcquisitionNode
+        |
+Experiment-scoped acquisition-health evaluation
+```
+
+The runtime mapping determines the scope of evaluation. `AcquisitionNode` never guesses that scope.
+
 
 
 --- ********************************************************************************
@@ -3143,6 +3513,14 @@ The following principles summarize the accepted decisions so far.
 92. Controller commands and orchestrates one Session. Session owns lifecycle. AcquisitionNode owns runtime execution. Device streaming is source-specific and not implied by Session start.
 93. Pre-running framework failures may fail an initialized Session; normal completion uses stopping-state persistence followed by completed-state Session Record update.
 94. Project is the scientific study; Session is the acquisition/evidence container; Experiment is protocol activity inside a Session.
+95. Controller owns canonical Session-scoped Experiment lifecycle; AcquisitionNodes record local execution evidence.
+96. Readiness, Validation, and Experiment are distinct; Calibration is a purpose rather than an architectural category.
+97. Experiments declare expected participation by Session-owned resources without owning those resources.
+98. Experiment expected participants are plain-data declarations; live-resource binding remains separate and deferred.
+99. Experiment-scoped acquisition health evaluates only Expected Participants declared by the active Experiment.
+100. Expected-participant assignments reach AcquisitionNode through explicit caller/orchestration runtime mapping; AcquisitionNode never infers bindings from identifiers.
+101. Each active Experiment uses an immutable live-source-keyed runtime health mapping supplied explicitly to AcquisitionNode by caller/orchestration.
+102. AcquisitionNode performs no Experiment-scoped health evaluation without an active mapping and evaluates only live source IDs present in that mapping.
 
 ---
 

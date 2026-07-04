@@ -146,6 +146,33 @@ One bounded Session can be orchestrated and finalized through public framework A
 
 ---
 
+# M005 — Experiment Lifecycle and Scoped Acquisition Health
+
+**Status:** Completed
+
+## Goal
+
+Add bounded scientific Experiment activity inside a running Session while preserving the distinction between persistent intent, runtime mapping, and runtime execution.
+
+## Demonstrated
+
+- Controller-owned canonical Experiment start/stop lifecycle
+- at most one active Experiment per Session
+- Session-owned Experiment descriptors and lifecycle evidence
+- persistent ordered Expected Participant declarations
+- runtime-only live-source Experiment health mappings
+- Controller activation and clearing of AcquisitionNode mappings
+- no participant binding or identifier inference
+- AcquisitionNode health evaluation only for mapped live source IDs
+- no participant-scoped health evaluation without an active mapping
+- Session-ready but unmapped resources excluded from Experiment health scope
+
+## Confidence gained
+
+A completed Session can contain auditable Experiment activity and explicit expected participation while runtime health scope remains narrow, inspectable, and independent of resource ownership or persistence.
+
+---
+
 # Future Milestones
 
 Planned future milestones include:
@@ -155,7 +182,6 @@ Planned future milestones include:
 - First synchronized multi-device acquisition
 - First Parquet backend
 - First microscope integration
-- First complete Session containing Experiment activity
 - First NWB export
 - First distributed acquisition across multiple nodes
 

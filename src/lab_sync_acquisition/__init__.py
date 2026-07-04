@@ -22,8 +22,12 @@ from lab_sync_acquisition.device_manager import (
     DeviceRecordCollection,
     DeviceReadinessSummary,
 )
+from lab_sync_acquisition.experiment_runtime import ExperimentRuntimeHealthMapping
 from lab_sync_acquisition.ingestor import IngestAuditRecord, InMemoryIngestor
 from lab_sync_acquisition.session import (
+    ExpectedParticipant,
+    ExperimentDescriptor,
+    ExperimentLifecycleEvidence,
     LifecycleTransition,
     ReadinessCheck,
     Session,
@@ -66,6 +70,10 @@ __all__ = [
     "DeviceManager",
     "DeviceRecordCollection",
     "DeviceReadinessSummary",
+    "ExpectedParticipant",
+    "ExperimentDescriptor",
+    "ExperimentLifecycleEvidence",
+    "ExperimentRuntimeHealthMapping",
     "LifecycleTransition",
     "ReadinessCheck",
     "Session",

@@ -13,6 +13,8 @@ from lab_sync_acquisition import (
     Controller,
     DeviceDeclaration,
     DeviceManager,
+    ExpectedParticipant,
+    ExperimentRuntimeHealthMapping,
     InMemoryIngestor,
     PersistentStorageManager,
     SessionConfig,
@@ -149,6 +151,223 @@ class ControllerWorkflowTests(unittest.TestCase):
             self.assertEqual(controller.get_status()["session_state"], "failed")
             self.assertFalse(controller.get_status()["acquisition_runtime"]["is_running"])
 
+    def test_controller_records_experiment_lifecycle_inside_running_session(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            controller, manager, node, config = self._controller_fixture(root)
+            manager.initialize_all(config={"mode": "experiment-lifecycle"})
+            readiness = node.check_ready()
+            controller.create_session(config)
+
+            runtime_mapping = (
+                ExperimentRuntimeHealthMapping(
+                    live_source_id="live-source-001",
+                    expected_participant_id="camera-001",
+                    acquisition_health_policy="camera_frames_required",
+                    required=True,
+                    expected_contribution="camera_frame_metadata",
+                ),
+            )
+            replacement_mapping = (
+                ExperimentRuntimeHealthMapping(
+                    live_source_id="other-source",
+                    expected_participant_id="decoder-001",
+                    acquisition_health_policy="decoder_required",
+                    required=True,
+                    expected_contribution="decoder_predictions",
+                ),
+            )
+
+            before_running = controller.start_experiment(
+                "experiment-001",
+                runtime_health_mapping=runtime_mapping,
+            )
+            self.assertFalse(before_running.succeeded)
+            self.assertEqual(
+                controller.get_status()[
+                    "active_experiment_runtime_health_mapping"
+                ],
+                (),
+            )
+            self.assertEqual(
+                node.status()["active_experiment_runtime_health_mapping"],
+                (),
+            )
+
+            controller.initialize_session(
+                readiness["device_readiness"], readiness["service_readiness"]
+            )
+            controller.start_session()
+
+            without_active = controller.stop_experiment("experiment-001")
+            self.assertFalse(without_active.succeeded)
+
+            started = controller.start_experiment(
+                "experiment-001",
+                details={"protocol": "baseline"},
+                expected_participants=(
+                    ExpectedParticipant(
+                        participant_id="camera-001",
+                        participant_type="device",
+                        expected_contribution="camera_frame_metadata",
+                        required=True,
+                    ),
+                    ExpectedParticipant(
+                        participant_id="decoder-001",
+                        participant_type="decoder",
+                        expected_contribution="decoder_predictions",
+                        required=False,
+                    ),
+                ),
+                runtime_health_mapping=runtime_mapping,
+            )
+            active_status = controller.get_status()
+            overlapping = controller.start_experiment(
+                "experiment-002",
+                runtime_health_mapping=replacement_mapping,
+            )
+            status_after_overlap = controller.get_status()
+            mismatched_stop = controller.stop_experiment("experiment-002")
+            node_status_after_mismatched_stop = node.status()
+            stopped = controller.stop_experiment("experiment-001")
+            status_after_stop = controller.get_status()
+            second_started = controller.start_experiment("experiment-002")
+            second_stopped = controller.stop_experiment("experiment-002")
+            restarted = controller.start_experiment(
+                "experiment-001",
+                details={"protocol": "replacement"},
+            )
+            restopped = controller.stop_experiment("experiment-001")
+
+            running_status = controller.get_status()
+            self.assertTrue(started.succeeded)
+            self.assertEqual(
+                active_status["active_experiment_runtime_health_mapping"],
+                runtime_mapping,
+            )
+            self.assertEqual(
+                active_status["acquisition_runtime"][
+                    "active_experiment_runtime_health_mapping"
+                ],
+                runtime_mapping,
+            )
+            self.assertFalse(overlapping.succeeded)
+            self.assertIn("already active", overlapping.error)
+            self.assertEqual(
+                status_after_overlap["active_experiment_runtime_health_mapping"],
+                runtime_mapping,
+            )
+            self.assertEqual(
+                status_after_overlap["acquisition_runtime"][
+                    "active_experiment_runtime_health_mapping"
+                ],
+                runtime_mapping,
+            )
+            self.assertFalse(mismatched_stop.succeeded)
+            self.assertIn("not 'experiment-002'", mismatched_stop.error)
+            self.assertEqual(
+                node_status_after_mismatched_stop[
+                    "active_experiment_runtime_health_mapping"
+                ],
+                runtime_mapping,
+            )
+            self.assertTrue(stopped.succeeded)
+            self.assertEqual(
+                status_after_stop["active_experiment_runtime_health_mapping"],
+                (),
+            )
+            self.assertEqual(
+                status_after_stop["acquisition_runtime"][
+                    "active_experiment_runtime_health_mapping"
+                ],
+                (),
+            )
+            self.assertTrue(second_started.succeeded)
+            self.assertTrue(second_stopped.succeeded)
+            self.assertTrue(restarted.succeeded)
+            self.assertTrue(restopped.succeeded)
+            self.assertEqual(started.details["event_type"], "experiment_start")
+            self.assertEqual(stopped.details["event_type"], "experiment_stop")
+            self.assertIsNotNone(started.details["session_time_s"])
+            self.assertIsNotNone(stopped.details["session_time_s"])
+            self.assertEqual(running_status["session_state"], "running")
+            self.assertTrue(running_status["acquisition_runtime"]["is_running"])
+
+            controller.stop_session(reason="experiment lifecycle complete")
+            controller.finalize_session()
+            session_record = PersistentStorageManager(
+                root / "accepted_records.jsonl"
+            ).read_session_record(root / "session_record.json")
+            self.assertNotIn("runtime_health_mapping", session_record)
+            self.assertNotIn(
+                "active_experiment_runtime_health_mapping",
+                session_record,
+            )
+            self.assertEqual(
+                [
+                    evidence["event_type"]
+                    for evidence in session_record["experiment_lifecycle_evidence"]
+                ],
+                [
+                    "experiment_start",
+                    "experiment_stop",
+                    "experiment_start",
+                    "experiment_stop",
+                    "experiment_start",
+                    "experiment_stop",
+                ],
+            )
+            self.assertEqual(
+                [
+                    evidence["experiment_id"]
+                    for evidence in session_record["experiment_lifecycle_evidence"]
+                ],
+                [
+                    "experiment-001",
+                    "experiment-001",
+                    "experiment-002",
+                    "experiment-002",
+                    "experiment-001",
+                    "experiment-001",
+                ],
+            )
+            self.assertEqual(
+                session_record["experiment_lifecycle_evidence"][0]["experiment_id"],
+                "experiment-001",
+            )
+            self.assertEqual(
+                session_record["experiment_lifecycle_evidence"][0]["details"],
+                {"protocol": "baseline"},
+            )
+            self.assertEqual(
+                session_record["experiment_descriptors"],
+                [
+                    {
+                        "experiment_id": "experiment-001",
+                        "details": {"protocol": "baseline"},
+                        "expected_participants": [
+                            {
+                                "participant_id": "camera-001",
+                                "participant_type": "device",
+                                "expected_contribution": "camera_frame_metadata",
+                                "required": True,
+                            },
+                            {
+                                "participant_id": "decoder-001",
+                                "participant_type": "decoder",
+                                "expected_contribution": "decoder_predictions",
+                                "required": False,
+                            },
+                        ],
+                    },
+                    {
+                        "experiment_id": "experiment-002",
+                        "details": None,
+                        "expected_participants": [],
+                    },
+                ],
+            )
+
     def test_failed_acquisition_node_marks_session_failed_and_stops_runtime(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -256,17 +475,20 @@ class ControllerWorkflowTests(unittest.TestCase):
         manager = DeviceManager((adapter,))
         storage = PersistentStorageManager(root / "accepted_records.jsonl")
         ingestor = InMemoryIngestor(storage_manager=storage)
+        synchronization = synchronization_manager or SynchronizationManager()
         node = AcquisitionNode(
             session_id=config.session_id,
             device_manager=manager,
-            synchronization_manager=(
-                synchronization_manager or SynchronizationManager()
-            ),
+            synchronization_manager=synchronization,
             ingestor=ingestor,
             error_evidence_location=config.error_evidence_location,
         )
         controller = Controller(
-            node, ingestor, storage, root / "session_record.json"
+            node,
+            ingestor,
+            storage,
+            root / "session_record.json",
+            synchronization_manager=synchronization,
         )
         return controller, manager, node, config
 

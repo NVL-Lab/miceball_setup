@@ -8,10 +8,17 @@ from typing import Any, Iterable
 
 from lab_sync_acquisition.acquisition_node import AcquisitionNode
 from lab_sync_acquisition.device_adapter import DeviceReadiness
+from lab_sync_acquisition.experiment_runtime import ExperimentRuntimeHealthMapping
 from lab_sync_acquisition.ingestor import InMemoryIngestor
 from lab_sync_acquisition.service_readiness import ServiceReadiness
-from lab_sync_acquisition.session import Session, SessionConfig, SessionState
+from lab_sync_acquisition.session import (
+    ExpectedParticipant,
+    Session,
+    SessionConfig,
+    SessionState,
+)
 from lab_sync_acquisition.storage import PersistentStorageManager
+from lab_sync_acquisition.synchronization import SynchronizationManager
 
 
 @dataclass(frozen=True)
@@ -43,12 +50,18 @@ class Controller:
         ingestor: InMemoryIngestor,
         storage_manager: PersistentStorageManager,
         session_record_path: str | Path,
+        synchronization_manager: SynchronizationManager | None = None,
     ) -> None:
         self._acquisition_node = acquisition_node
         self._ingestor = ingestor
         self._storage_manager = storage_manager
         self._session_record_path = Path(session_record_path)
+        self._synchronization_manager = synchronization_manager
         self._session: Session | None = None
+        self._active_experiment_id: str | None = None
+        self._active_experiment_runtime_health_mapping: tuple[
+            ExperimentRuntimeHealthMapping, ...
+        ] = ()
         self._last_result: ControllerCommandResult | None = None
         self._command_results: list[ControllerCommandResult] = []
 
@@ -119,6 +132,79 @@ class Controller:
             return self._record_failed_command("run_one_iteration", error)
         return self._record_successful_command("run_one_iteration", summary)
 
+    def start_experiment(
+        self,
+        experiment_id: str,
+        details: dict[str, Any] | None = None,
+        expected_participants: Iterable[ExpectedParticipant] = (),
+        runtime_health_mapping: Iterable[ExperimentRuntimeHealthMapping] = (),
+    ) -> ControllerCommandResult:
+        """Record canonical Experiment start evidence inside a running Session."""
+
+        def command() -> dict[str, Any]:
+            session = self._require_session()
+            if session.current_state != SessionState.RUNNING:
+                raise RuntimeError("Experiment start requires a running Session")
+            if self._active_experiment_id is not None:
+                raise RuntimeError(
+                    f"Experiment '{self._active_experiment_id}' is already active"
+                )
+            if not experiment_id:
+                raise ValueError("experiment_id is required")
+            active_runtime_health_mapping = tuple(runtime_health_mapping)
+            session.ensure_experiment_descriptor(
+                experiment_id,
+                details,
+                expected_participants,
+            )
+            evidence = session.record_experiment_lifecycle(
+                experiment_id=experiment_id,
+                event_type="experiment_start",
+                session_time_s=self._current_session_time_s(),
+                details=details,
+            )
+            self._active_experiment_id = experiment_id
+            self._active_experiment_runtime_health_mapping = (
+                active_runtime_health_mapping
+            )
+            self._acquisition_node.activate_experiment_runtime_health_mapping(
+                active_runtime_health_mapping
+            )
+            return evidence.to_dict()
+
+        return self._run_command("start_experiment", command)
+
+    def stop_experiment(
+        self,
+        experiment_id: str,
+        details: dict[str, Any] | None = None,
+    ) -> ControllerCommandResult:
+        """Record canonical Experiment stop evidence without stopping Session."""
+
+        def command() -> dict[str, Any]:
+            session = self._require_session()
+            if session.current_state != SessionState.RUNNING:
+                raise RuntimeError("Experiment stop requires a running Session")
+            if self._active_experiment_id is None:
+                raise RuntimeError("No Experiment is active")
+            if experiment_id != self._active_experiment_id:
+                raise RuntimeError(
+                    f"Active Experiment is '{self._active_experiment_id}', "
+                    f"not '{experiment_id}'"
+                )
+            evidence = session.record_experiment_lifecycle(
+                experiment_id=experiment_id,
+                event_type="experiment_stop",
+                session_time_s=self._current_session_time_s(),
+                details=details,
+            )
+            self._active_experiment_id = None
+            self._active_experiment_runtime_health_mapping = ()
+            self._acquisition_node.clear_experiment_runtime_health_mapping()
+            return evidence.to_dict()
+
+        return self._run_command("stop_experiment", command)
+
     def stop_session(self, reason: str | None = None) -> ControllerCommandResult:
         """Stop runtime cleanup first, then move Session to stopping."""
 
@@ -169,6 +255,9 @@ class Controller:
                 self._session.current_state.value if self._session else None
             ),
             "acquisition_runtime": self._acquisition_node.status(),
+            "active_experiment_runtime_health_mapping": (
+                self._active_experiment_runtime_health_mapping
+            ),
             "last_command": self._last_result,
         }
 
@@ -256,4 +345,11 @@ class Controller:
             warnings_or_failures=tuple(
                 result for result in self._command_results if not result.succeeded
             ),
+            experiment_lifecycle_evidence=session.experiment_lifecycle_evidence,
+            experiment_descriptors=session.experiment_descriptors,
         )
+
+    def _current_session_time_s(self) -> float | None:
+        if self._synchronization_manager is None:
+            return None
+        return self._synchronization_manager.current_session_time_s

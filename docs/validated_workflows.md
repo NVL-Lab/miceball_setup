@@ -938,6 +938,79 @@ These tests validate sequential command outcomes only. They do not define Experi
 
 ---
 
+# W020 - Canonical Experiment Lifecycle Evidence
+
+## Purpose
+
+Validate the first Controller-owned, Session-scoped Experiment lifecycle evidence path without implementing protocol execution, expected participants, Validation, or Experiment-scoped health.
+
+## Workflow
+
+```text
+running Session + active Acquisition Runtime
+        |
+Controller.start_experiment(experiment_id, details=None)
+        |
+Session-owned experiment_start evidence
+        |
+Controller.stop_experiment(experiment_id, details=None)
+        |
+Session-owned experiment_stop evidence
+        |
+two-step Session Record finalization
+```
+
+## Validates
+
+- Experiment start is rejected before Session running
+- Experiment stop is rejected when no Experiment is active
+- starting a second Experiment while one is active is rejected without implicitly switching Experiments
+- stopping an Experiment ID other than the active Experiment is rejected
+- after the active Experiment stops, a different Experiment may start and stop normally
+- canonical evidence includes `experiment_id`, `event_type`, Session Time when supplied, sequence, and optional details
+- stopping an Experiment does not stop the Session or Acquisition Runtime
+- persistent Session Record finalization includes canonical Experiment lifecycle evidence
+- no device commands, participant enforcement, Validation, protocol execution, or AcquisitionNode-owned Experiment lifecycle are introduced
+
+---
+
+# W021 - Persistent Experiment Descriptors
+
+## Purpose
+
+Validate that each Experiment receives one Session-owned scientific descriptor, separate from its lifecycle evidence.
+
+## Validates
+
+- first start creates one descriptor from `experiment_id` and caller-supplied `details`
+- stopping or restarting the same Experiment does not duplicate or replace its descriptor
+- different Experiments receive distinct descriptors
+- ordered Expected Participant declarations survive plain-data round trip and Session Record persistence
+- Expected Participant evidence preserves `participant_id`, `participant_type`, `expected_contribution`, and `required`
+- lifecycle evidence continues to record every successful start and stop
+- persistent Session Record finalization includes Experiment descriptors
+- descriptors do not bind, own, start, stop, validate, enforce, or otherwise manage live runtime resources
+- descriptors do not introduce protocol schemas, lifecycle state, or timestamps
+
+---
+
+# W022 - Experiment-Scoped Acquisition Health Scope
+
+## Purpose
+
+Validate that AcquisitionNode applies its existing acquisition-health algorithm only to live sources explicitly present in the active Experiment runtime health mapping.
+
+## Validates
+
+- without an active Experiment runtime mapping, no participant-scoped acquisition-health evaluation occurs
+- an active mapping evaluates only its mapped live source IDs
+- Session-ready but unmapped sources are ignored
+- mapped sources retain the existing first-record grace-window algorithm and evidence
+- runtime mappings remain runtime-only and are not added to Experiment descriptors or Session Records
+- no identifier inference or participant binding is introduced
+
+---
+
 # Future Workflows
 
 The following workflows are expected to be added as the framework evolves.

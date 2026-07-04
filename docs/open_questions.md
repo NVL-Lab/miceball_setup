@@ -265,24 +265,24 @@ Sender-side robustness now preserves evidence before handoff, but receiver-side 
 
 ---
 
-## Q015: What orchestration follows Controller v1?
+## Q015: What orchestration follows Phase 5?
 
 ### Why this matters
 
-Controller v1 now coordinates one bounded Session sequentially. Experiment-level and distributed orchestration remain intentionally deferred.
+Controller v1 now coordinates one bounded Session sequentially, records canonical Experiment evidence, and activates explicit Experiment runtime health mappings on AcquisitionNode. Phase 5 completes this narrow Experiment lifecycle and health-scope architecture. Validation, abort semantics, multi-session control, and distributed orchestration remain intentionally deferred.
+
+Decisions 095–102 establish canonical Experiment lifecycle ownership, distinguish Readiness and Validation from Experiment, define expected participants as plain-data declarations, define an immutable live-source-keyed runtime health mapping, and scope AcquisitionNode Experiment health evaluation exclusively to that active mapping. Acquisition-health consequences remain tracked separately in Q013.
 
 ### Questions
 
-* How are Experiment segments represented and orchestrated within a Session?
-* How does acquisition health apply to a specific Experiment segment?
+* How is Validation requested and recorded without creating an Experiment?
 * What semantics distinguish a future abort command from framework failure and intentional stop?
 * What component, if any, coordinates multiple Sessions?
 * How is orchestration distributed across multiple Acquisition Nodes?
 
 ### Blocks
 
-* Experiment orchestration
-* Experiment-scoped health
+* Validation orchestration
 * Abort semantics
 * Multi-session and distributed orchestration
 

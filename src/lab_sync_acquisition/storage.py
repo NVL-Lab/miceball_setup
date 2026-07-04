@@ -160,6 +160,8 @@ class PersistentStorageManager:
         final_session_status: dict[str, Any] | None,
         cleanup_evidence: dict[str, Any],
         warnings_or_failures: Iterable[Any] = (),
+        experiment_lifecycle_evidence: Iterable[Any] = (),
+        experiment_descriptors: Iterable[Any] = (),
     ) -> None:
         """Write a minimal v1 Session Record JSON evidence package."""
 
@@ -182,6 +184,10 @@ class PersistentStorageManager:
             "final_session_status": _to_plain_data(final_session_status),
             "cleanup_evidence": _to_plain_data(cleanup_evidence),
             "warnings_or_failures": _to_plain_data(warnings_or_failures),
+            "experiment_lifecycle_evidence": _to_plain_data(
+                experiment_lifecycle_evidence
+            ),
+            "experiment_descriptors": _to_plain_data(experiment_descriptors),
         }
         with path.open("w", encoding="utf-8") as session_record_file:
             json.dump(session_record, session_record_file, indent=2)
