@@ -2589,6 +2589,8 @@ This implementation keeps batching entirely within the existing `AcquisitionNode
 
 **Status:** Accepted
 
+**Superseded in part by Decision 105:** The acquisition-health policy assignment portion of this decision is no longer authoritative. A `DeviceDeclaration` value may serve only as a transitional default or template; the active `ExperimentRuntimeHealthMapping` owns the acquisition-health policy assignment for an Experiment. Other policy categories described here are not changed by Decision 105.
+
 Device-specific acquisition policy assignments belong with the device declaration.
 
 A `DeviceDeclaration` should identify not only which device participates in a Session, but also which acquisition policies apply to that device when relevant.
@@ -2760,7 +2762,7 @@ Acquisition health is distinct from handoff failure.
 
 Acquisition-health policy definitions live in `SessionConfig.acquisition_configuration`.
 
-Device-specific acquisition-health policy assignments live with the corresponding `DeviceDeclaration`.
+**Superseded by Decision 105:** Acquisition-health policy assignments belong to the active `ExperimentRuntimeHealthMapping`, not to `DeviceDeclaration`. Any declaration-level value is transitional/template data only.
 
 `AcquisitionNode` is the primary evaluator of acquisition health because it owns acquisition execution, record collection, batching, envelope creation, and sender-side evidence.
 
@@ -2774,15 +2776,17 @@ For v1, acquisition health produces explicit health evidence without introducing
 
 **Status:** Accepted
 
+**Superseded in part by Decision 105:** The policy still determines evaluation behavior, but the authoritative assignment is Experiment-scoped through `ExperimentRuntimeHealthMapping`, not read from the corresponding `DeviceDeclaration`.
+
 `AcquisitionNode` does not infer acquisition-health behavior from device type.
 
-Instead, `AcquisitionNode` reads the acquisition-health policy assigned in the corresponding `DeviceDeclaration`.
+Instead, `AcquisitionNode` reads the acquisition-health policy assigned in the active `ExperimentRuntimeHealthMapping`.
 
 Policy definitions remain in `SessionConfig.acquisition_configuration`.
 
 The assigned policy determines how acquisition health is evaluated.
 
-For this implementation slice, health-policy failure must produce explicit acquisition-health evidence only.
+For this implementation slice, a detected acquisition-health condition must produce explicit acquisition-health observation evidence only. Operational significance is evaluated separately.
 
 Do not make AcquisitionNode fail yet.
 
@@ -2795,6 +2799,8 @@ Do not infer health behavior from required devices, device type, or record kind.
 ## Decision 089: Acquisition health policy assignments reach AcquisitionNode through explicit source policy mapping
 
 **Status:** Accepted
+
+**Superseded in part by Decisions 100, 101, and 105:** The explicit live-source mapping principle remains accepted. The authoritative mapping is now the active Experiment-scoped `ExperimentRuntimeHealthMapping`, which assigns policy while connecting an Expected Participant to a live source. `DeviceDeclaration` is not the assignment owner.
 
 `AcquisitionNode` must not infer acquisition-health policy assignments by matching `DeviceDeclaration.device_id` to live adapter or `DeviceRecordCollection.source_device_id`.
 
@@ -3211,7 +3217,7 @@ decoder_001
 
 Experiment-scoped acquisition health is evaluated only for the Expected Participants declared by the active Experiment.
 
-Resources that are Session-ready but are not Expected Participants in the active Experiment must not produce Experiment-scoped acquisition-health failures.
+Resources that are Session-ready but are not Expected Participants in the active Experiment must not produce Experiment-scoped health observations.
 
 `ExpectedParticipant` declares expectation only. It does not bind itself to live acquisition sources, `DeviceAdapter` objects, `DeviceManager` objects, `AcquisitionNode` objects, or acquisition-health policies. A separate runtime mapping will be introduced later.
 
@@ -3412,6 +3418,139 @@ Experiment-scoped acquisition-health evaluation
 
 The runtime mapping determines the scope of evaluation. `AcquisitionNode` never guesses that scope.
 
+---
+
+## Decision 103: Experiment-scoped acquisition health is expressed as health observations
+
+**Status:** Accepted
+
+`AcquisitionNode` owns Experiment-scoped acquisition-health evaluation for the active Experiment runtime mapping.
+
+Whenever that evaluation detects a condition relevant to Experiment-scoped acquisition health, it produces an Experiment-scoped Health Observation.
+
+Health Observations describe acquisition-health state without interpreting operational significance. Examples include:
+
+* expected acquisition evidence missing
+* expected acquisition evidence resumed
+* acquisition rate below expectation
+* acquisition resumed after interruption
+* other Experiment-scoped acquisition-health conditions
+
+Experiment-scoped Health Observations are recorded as Experiment-scoped health evidence.
+
+For this first behavioral slice, observations produce evidence only. They do not imply warnings, recoverable failures, Experiment failure, Session failure, Controller behavior, operator notification, recovery, or retry.
+
+**Principle**
+
+```text
+AcquisitionNode
+        |
+Experiment-scoped health evaluation
+        |
+Health Observation
+        |
+Health evidence
+
+Policy is evaluated separately.
+```
+
+---
+
+## Decision 104: Observation type is not consequence
+
+**Status:** Accepted
+
+An Experiment-scoped Health Observation describes a condition detected by acquisition-health evaluation. The observation type does not itself define a warning, recoverable failure, Experiment failure, Session failure, Controller action, operator notification, or recovery action.
+
+Operational meaning is supplied separately by the acquisition-health policy assigned through the active `ExperimentRuntimeHealthMapping`. The same observation type may therefore have different configured consequence labels in different Experiments.
+
+This decision separates detection evidence from its future runtime interpretation. It does not define consequence execution.
+
+**Principle**
+
+```text
+Observation type
+    describes what was detected.
+
+Assigned acquisition-health policy
+    supplies configured operational meaning.
+```
+
+---
+
+## Decision 105: Acquisition-health policy assignment is Experiment-scoped
+
+**Status:** Accepted
+
+Acquisition-health policies continue to exist as named policy definitions.
+
+Policy definitions live in Session or Experiment configuration. Policy assignment belongs to the active `ExperimentRuntimeHealthMapping`.
+
+`DeviceDeclaration` declares Session-level availability and intent. It does not permanently define whether a device is critical, soft, optional, warning-only, fatal, or otherwise operationally consequential for all Experiments.
+
+The same Session-ready live source may receive different acquisition-health policies in different Experiments.
+
+```text
+DeviceDeclaration
+    declares Session availability / intent
+
+ExpectedParticipant
+    declares Experiment expectation
+
+ExperimentRuntimeHealthMapping
+    maps ExpectedParticipant to live source
+    assigns Experiment-specific acquisition-health policy
+
+Acquisition-health policy
+    defines configurable evaluation
+    and future consequence behavior
+```
+
+Earlier documentation that treated `DeviceDeclaration` as the authoritative owner of acquisition-health policy assignment is superseded. Declaration-level policy values are, at most, transitional defaults or templates and are not the authoritative Experiment-scoped assignment.
+
+**Principle**
+
+```text
+A device is not globally critical or soft.
+
+The active Experiment runtime mapping assigns the acquisition-health policy that applies during that Experiment.
+```
+
+---
+
+## Decision 106: AcquisitionHealthPolicy is a plain-data policy definition
+
+**Status:** Accepted
+
+`AcquisitionHealthPolicy` is an immutable plain-data definition containing:
+
+* a policy identifier
+* explicit acquisition-health evaluation parameters
+* an interpretation mapping from observation type to consequence label
+
+The supported consequence-label vocabulary is:
+
+* `informational`
+* `warning`
+* `recoverable_failure`
+* `experiment_failure`
+* `session_failure`
+
+Policy validation ensures that interpretation keys are supported by a supplied evaluator observation vocabulary and that consequence labels belong to the accepted vocabulary.
+
+This decision defines configuration and validation only. It does not execute consequences, change Controller behavior, fail Experiments or Sessions, notify operators, retry, or recover.
+
+**Principle**
+
+```text
+AcquisitionHealthPolicy
+    defines evaluation configuration
+    and observation interpretation vocabulary.
+
+Runtime consequence execution
+    remains separate and deferred.
+```
+
 
 
 --- ********************************************************************************
@@ -3497,7 +3636,7 @@ The following principles summarize the accepted decisions so far.
 76. The repository is public; all machine- or lab-specific configuration must be stored in untracked local configuration files, while committed example/template configuration files are provided for users to copy and customize.
 77. Continuous acquisition batching is owned by the AcquisitionNode.
 78.  `AcquisitionNode` does the batching
-79. Device-specific acquisition policy assignments belong with the corresponding `DeviceDeclaration`. Policy definitions remain in `SessionConfig.acquisition_configuration`, while each device declares which policy names it uses.
+79. Superseded in part by Decision 105: DeviceDeclaration does not authoritatively assign acquisition-health policy; any such value is transitional/template data only.
 80. Envelope doesn't split for failure
 81. Sender-side handoff failure evidence is owned by the AcquisitionNode
 82. Handoff failure policies define sender-side failure consequences
@@ -3506,8 +3645,8 @@ The following principles summarize the accepted decisions so far.
 85. A configured consecutive must-preserve handoff failure threshold marks AcquisitionNode acquisition status failed.
 86. A failed AcquisitionNode rejects new iterations but remains capable of evidence-preserving cleanup.
 87. AcquisitionNode evaluates acquisition health separately from handoff failure.
-88. Acquisition-health behavior comes only from explicitly assigned device policy.
-89. Caller code passes explicit live-source acquisition-health policy mappings into AcquisitionNode.
+88. Acquisition-health behavior comes from the policy explicitly assigned by the active Experiment runtime mapping; DeviceDeclaration is not authoritative.
+89. Caller code passes explicit live-source acquisition-health policy mappings into AcquisitionNode; Decisions 100, 101, and 105 define the active Experiment runtime mapping as the authoritative form.
 90. AcquisitionNode requires a writable configured Session failure-evidence location before acquisition starts.
 91. AcquisitionNode runtime active means the Session acquisition runtime is capable of recording evidence; it does not imply all devices are streaming.
 92. Controller commands and orchestrates one Session. Session owns lifecycle. AcquisitionNode owns runtime execution. Device streaming is source-specific and not implied by Session start.
@@ -3521,6 +3660,10 @@ The following principles summarize the accepted decisions so far.
 100. Expected-participant assignments reach AcquisitionNode through explicit caller/orchestration runtime mapping; AcquisitionNode never infers bindings from identifiers.
 101. Each active Experiment uses an immutable live-source-keyed runtime health mapping supplied explicitly to AcquisitionNode by caller/orchestration.
 102. AcquisitionNode performs no Experiment-scoped health evaluation without an active mapping and evaluates only live source IDs present in that mapping.
+103. AcquisitionNode records Experiment-scoped health conditions as Health Observation evidence; operational significance is evaluated separately.
+104. Observation type describes a detected condition; the assigned acquisition-health policy supplies configured operational meaning.
+105. Acquisition-health policy assignment is Experiment-scoped and belongs to the active ExperimentRuntimeHealthMapping, not DeviceDeclaration.
+106. AcquisitionHealthPolicy is an immutable plain-data definition; runtime consequence execution remains separate and deferred.
 
 ---
 

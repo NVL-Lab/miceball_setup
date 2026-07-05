@@ -51,6 +51,57 @@ class StopFailingSynchronizationManager(SynchronizationManager):
 
 
 class ControllerWorkflowTests(unittest.TestCase):
+    def test_health_observation_does_not_fail_controller_session_or_runtime(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            controller, manager, node, config = self._controller_fixture(
+                root,
+                acquisition_configuration={
+                    "acquisition_health_policies": {
+                        "event-required": {
+                            "kind": "first_record_within_grace_window",
+                            "record_kind": "event",
+                            "grace_window_s": 0.0,
+                        }
+                    }
+                },
+            )
+            manager.initialize_all(config={"mode": "health-observation"})
+            readiness = node.check_ready()
+            controller.create_session(config)
+            controller.initialize_session(
+                readiness["device_readiness"],
+                readiness["service_readiness"],
+            )
+            controller.start_session()
+            controller.start_experiment(
+                "experiment-observation-001",
+                runtime_health_mapping=(
+                    ExperimentRuntimeHealthMapping(
+                        live_source_id="live-source-001",
+                        expected_participant_id="event-source-001",
+                        acquisition_health_policy="event-required",
+                        required=True,
+                        expected_contribution="event_records",
+                    ),
+                ),
+            )
+
+            result = controller.run_one_iteration()
+
+            self.assertTrue(result.succeeded)
+            self.assertEqual(controller.get_status()["session_state"], "running")
+            self.assertTrue(
+                controller.get_status()["acquisition_runtime"]["is_running"]
+            )
+            self.assertFalse(node.status()["failed"])
+            self.assertEqual(
+                node.experiment_scoped_health_observations[0].experiment_id,
+                "experiment-observation-001",
+            )
+            controller.stop_experiment("experiment-observation-001")
+            controller.stop_session()
+
     def test_controller_completes_one_bounded_session_and_session_record(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -469,8 +520,13 @@ class ControllerWorkflowTests(unittest.TestCase):
             self.assertIn("session record unavailable", result.error)
             self.assertEqual(controller.get_status()["session_state"], "failed")
 
-    def _controller_fixture(self, root, synchronization_manager=None):
-        config = self._config(root)
+    def _controller_fixture(
+        self,
+        root,
+        synchronization_manager=None,
+        acquisition_configuration=None,
+    ):
+        config = self._config(root, acquisition_configuration)
         adapter = ControllerFakeAdapter()
         manager = DeviceManager((adapter,))
         storage = PersistentStorageManager(root / "accepted_records.jsonl")
@@ -481,6 +537,7 @@ class ControllerWorkflowTests(unittest.TestCase):
             device_manager=manager,
             synchronization_manager=synchronization,
             ingestor=ingestor,
+            acquisition_configuration=config.acquisition_configuration,
             error_evidence_location=config.error_evidence_location,
         )
         controller = Controller(

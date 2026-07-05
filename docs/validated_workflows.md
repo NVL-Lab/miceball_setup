@@ -1004,10 +1004,31 @@ Validate that AcquisitionNode applies its existing acquisition-health algorithm 
 
 - without an active Experiment runtime mapping, no participant-scoped acquisition-health evaluation occurs
 - an active mapping evaluates only its mapped live source IDs
+- the active mapping, rather than DeviceDeclaration, supplies each mapped source's Experiment-specific acquisition-health policy assignment
 - Session-ready but unmapped sources are ignored
 - mapped sources retain the existing first-record grace-window algorithm and evidence
+- missing expected evidence produces an `ExperimentScopedHealthObservation` with Experiment, source, participant, contribution, policy, required status, Session Time, and audit details
+- observations are inspectable on AcquisitionNode and cross the existing acquisition-envelope evidence path
+- observations do not mark AcquisitionNode failed or stop Acquisition Runtime
 - runtime mappings remain runtime-only and are not added to Experiment descriptors or Session Records
 - no identifier inference or participant binding is introduced
+
+---
+
+# W023 - Acquisition-Health Observation and Policy Definition
+
+## Purpose
+
+Validate that Experiment-scoped health conditions remain evidence and that acquisition-health policy definitions are inspectable plain data rather than executable consequence behavior.
+
+## Validates
+
+- `ExperimentScopedHealthObservation` preserves detected condition evidence without assigning an operational consequence
+- `AcquisitionHealthPolicy` round-trips its policy identifier, explicit evaluation parameters, and observation-to-consequence-label interpretation mapping
+- policy validation accepts only supported evaluator observation names
+- consequence labels are restricted to the accepted vocabulary
+- policy definitions do not execute warnings, failures, Controller actions, notifications, retry, or recovery
+- policy assignment remains authoritative on `ExperimentRuntimeHealthMapping`, not `DeviceDeclaration`
 
 ---
 

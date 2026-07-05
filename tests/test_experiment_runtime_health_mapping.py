@@ -4,6 +4,7 @@ from lab_sync_acquisition import (
     AcquisitionNode,
     DeviceManager,
     ExperimentRuntimeHealthMapping,
+    ExperimentScopedHealthObservation,
     InMemoryIngestor,
     SynchronizationManager,
 )
@@ -11,6 +12,25 @@ from tests.fakes import ReadyFakeAdapter
 
 
 class ExperimentRuntimeHealthMappingTests(unittest.TestCase):
+    def test_health_observation_round_trips_as_plain_evidence(self):
+        observation = ExperimentScopedHealthObservation(
+            experiment_id="experiment-001",
+            live_source_id="camera-source-001",
+            expected_participant_id="camera-001",
+            expected_contribution="camera_frame_metadata",
+            acquisition_health_policy="camera_frames_required",
+            observation_type="expected_acquisition_evidence_missing",
+            required=True,
+            session_time_s=1.25,
+            details={"observed_record_count": 0},
+        )
+
+        reconstructed = ExperimentScopedHealthObservation.from_dict(
+            observation.to_dict()
+        )
+
+        self.assertEqual(reconstructed, observation)
+
     def test_mapping_entry_round_trips_through_plain_data(self):
         mapping = ExperimentRuntimeHealthMapping(
             live_source_id="camera-adapter-source-17",
@@ -70,13 +90,19 @@ class ExperimentRuntimeHealthMappingTests(unittest.TestCase):
             ),
         )
 
-        node.activate_experiment_runtime_health_mapping(first_mapping)
+        node.activate_experiment_runtime_health_mapping(
+            "experiment-001",
+            first_mapping,
+        )
         self.assertEqual(
             node.status()["active_experiment_runtime_health_mapping"],
             first_mapping,
         )
 
-        node.activate_experiment_runtime_health_mapping(replacement)
+        node.activate_experiment_runtime_health_mapping(
+            "experiment-002",
+            replacement,
+        )
         self.assertEqual(
             node.status()["active_experiment_runtime_health_mapping"],
             replacement,

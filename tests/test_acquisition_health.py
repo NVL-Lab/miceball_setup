@@ -10,13 +10,11 @@ sys.path.insert(0, str(SRC))
 
 from lab_sync_acquisition import (
     AcquisitionNode,
-    DeviceDeclaration,
     DeviceManager,
     ExperimentRuntimeHealthMapping,
     InMemoryIngestor,
     InMemoryStorageManager,
     ServiceReadiness,
-    SessionConfig,
 )
 from tests.fakes import ReadyFakeAdapter
 
@@ -73,10 +71,11 @@ class AcquisitionHealthTests(unittest.TestCase):
         node.run_one_iteration()
 
         self.assertEqual(self._health_rows(storage), [])
+        self.assertEqual(node.experiment_scoped_health_observations, ())
         self.assertFalse(node.status()["failed"])
         node.stop_acquisition()
 
-    def test_first_record_policy_emits_health_evidence_after_grace_window(self):
+    def test_missing_expected_evidence_records_health_observation(self):
         node, storage, synchronization = self._running_node(
             batches=((), ()),
             runtime_health_mapping=self._runtime_mapping("live-camera-001"),
@@ -86,23 +85,32 @@ class AcquisitionHealthTests(unittest.TestCase):
         synchronization.set_session_time(1.0)
         node.run_one_iteration()
 
+        expected_observation = {
+            "experiment_id": "experiment-001",
+            "live_source_id": "live-camera-001",
+            "expected_participant_id": "camera-001",
+            "expected_contribution": "camera_frame_metadata",
+            "acquisition_health_policy": "camera-first-record",
+            "observation_type": "expected_acquisition_evidence_missing",
+            "required": True,
+            "session_time_s": 1.0,
+            "details": {
+                "policy_kind": "first_record_within_grace_window",
+                "expected_record_kind": "stream",
+                "grace_window_s": 1.0,
+                "observed_record_count": 0,
+            },
+        }
+        self.assertEqual(self._health_rows(storage), [expected_observation])
         self.assertEqual(
-            self._health_rows(storage),
             [
-                {
-                    "event_category": "acquisition_health",
-                    "event_type": "health_policy_failed",
-                    "source_device_id": "live-camera-001",
-                    "policy_name": "camera-first-record",
-                    "policy_kind": "first_record_within_grace_window",
-                    "expected_record_kind": "stream",
-                    "grace_window_s": 1.0,
-                    "observed_record_count": 0,
-                    "session_time_s": 1.0,
-                }
+                observation.to_dict()
+                for observation in node.experiment_scoped_health_observations
             ],
+            [expected_observation],
         )
         self.assertFalse(node.status()["failed"])
+        self.assertTrue(node.status()["is_running"])
         node.stop_acquisition()
 
     def test_matching_record_within_grace_window_avoids_failure_evidence(self):
@@ -118,31 +126,6 @@ class AcquisitionHealthTests(unittest.TestCase):
 
         self.assertEqual(self._health_rows(storage), [])
         node.stop_acquisition()
-
-    def test_declared_health_policy_is_preserved_as_session_config_data(self):
-        declaration = DeviceDeclaration(
-            device_id="declared-camera-001",
-            device_type="camera",
-            enabled=True,
-            required=True,
-            declared_capabilities=("stream",),
-            acquisition_health_policy="camera-first-record",
-        )
-        configuration = SessionConfig(
-            selected_devices=[declaration],
-            storage_location="placeholder://storage",
-            protocol_plan={"name": "health-policy-test"},
-            error_evidence_location="placeholder://errors",
-            acquisition_configuration=self._health_configuration(),
-        )
-
-        plain_data = configuration.to_dict()
-
-        self.assertEqual(declaration.acquisition_health_policy, "camera-first-record")
-        self.assertEqual(
-            plain_data["selected_devices"][0]["acquisition_health_policy"],
-            "camera-first-record",
-        )
 
     def test_active_mapping_ignores_unmapped_session_ready_source(self):
         mapped_adapter = HealthFakeAdapter(
@@ -174,6 +157,7 @@ class AcquisitionHealthTests(unittest.TestCase):
         manager.check_readiness()
         node.start_runtime()
         node.activate_experiment_runtime_health_mapping(
+            "experiment-002",
             self._runtime_mapping("mapped-camera-001")
         )
 
@@ -182,7 +166,7 @@ class AcquisitionHealthTests(unittest.TestCase):
         node.run_one_iteration()
 
         self.assertEqual(
-            [row["source_device_id"] for row in self._health_rows(storage)],
+            [row["live_source_id"] for row in self._health_rows(storage)],
             ["mapped-camera-001"],
         )
         node.stop_runtime()
@@ -210,7 +194,11 @@ class AcquisitionHealthTests(unittest.TestCase):
         manager.initialize_all(config={"mode": "health-test"})
         manager.check_readiness()
         node.start_runtime()
-        node.activate_experiment_runtime_health_mapping(runtime_health_mapping)
+        if runtime_health_mapping:
+            node.activate_experiment_runtime_health_mapping(
+                "experiment-001",
+                runtime_health_mapping,
+            )
         return node, storage, synchronization
 
     def _runtime_mapping(self, live_source_id):
@@ -240,7 +228,8 @@ class AcquisitionHealthTests(unittest.TestCase):
             row
             for envelope in storage.stored_envelopes
             for row in envelope.records
-            if row.get("event_category") == "acquisition_health"
+            if row.get("observation_type")
+            == "expected_acquisition_evidence_missing"
         ]
 
 

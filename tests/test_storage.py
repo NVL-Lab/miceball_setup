@@ -212,7 +212,6 @@ class PersistentStorageManagerTests(unittest.TestCase):
                     "enabled": True,
                     "required": True,
                     "declared_capabilities": ["tiny_stream"],
-                    "acquisition_health_policy": None,
                 },
             )
             self.assertEqual(

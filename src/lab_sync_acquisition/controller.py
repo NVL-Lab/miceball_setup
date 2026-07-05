@@ -168,6 +168,7 @@ class Controller:
                 active_runtime_health_mapping
             )
             self._acquisition_node.activate_experiment_runtime_health_mapping(
+                experiment_id,
                 active_runtime_health_mapping
             )
             return evidence.to_dict()

@@ -155,6 +155,24 @@ Each entry identifies the Expected Participant satisfied by that source, the acq
 
 The mapping is immutable for the active Experiment's lifetime and may differ between Experiments in the same Session. It is runtime intent, not persistent resource ownership. AcquisitionNode evaluates only mapped live sources and never infers bindings by comparing identifiers.
 
+The mapping is also the authoritative acquisition-health policy assignment for each mapped live source during that Experiment. A different Experiment may assign a different policy to the same source.
+
+---
+
+# Acquisition-Health Policy
+
+A named configurable definition of acquisition-health evaluation behavior and, in future, consequence behavior.
+
+Policy definitions live in Session or Experiment configuration. The active Experiment Runtime Health Mapping assigns a policy to each mapped live acquisition source for that Experiment.
+
+The plain-data policy definition contains a `policy_id`; optional evaluation values for first-record grace window, maximum gap, and minimum rate; and an interpretation mapping from observation type to consequence label. Observation type and consequence label are distinct: the observation describes what was detected, while the assigned policy supplies configured operational meaning.
+
+Supported consequence labels are `informational`, `warning`, `recoverable_failure`, `experiment_failure`, and `session_failure`. These labels are vocabulary only in the first policy-definition slice: they are validated and stored but have no runtime semantics or actions.
+
+Interpretation keys must be supported by the evaluator that validates the policy. Policies do not define evaluator observation capabilities.
+
+`DeviceDeclaration` does not contain or assign acquisition-health policy; a device is not globally critical, soft, optional, warning-only, or fatal across every Experiment.
+
 ---
 
 # Experiment-Scoped Acquisition Health
@@ -164,6 +182,16 @@ Evaluation of whether contributions expected by the active Experiment appeared.
 Its scope is determined exclusively by the active Experiment Runtime Health Mapping. With no active mapping, no Experiment-scoped acquisition-health evaluation occurs. With an active mapping, only mapped live acquisition source IDs are evaluated; Session-ready but unmapped resources are excluded.
 
 Experiment-scoped acquisition health is distinct from Session Readiness, which asks whether a resource can safely participate in the Session. The existing first-record grace-window algorithm is validated for mapped sources; additional algorithms, consequences, participant enforcement, and Controller policy remain deferred.
+
+---
+
+# Experiment-Scoped Health Observation
+
+A condition detected by AcquisitionNode while evaluating acquisition health for live sources in the active Experiment Runtime Health Mapping.
+
+Examples include missing expected evidence, resumed evidence, acquisition rate below expectation, or acquisition resuming after interruption. A Health Observation records what AcquisitionNode observed as Experiment-scoped health evidence; it does not assign operational significance.
+
+For the first behavioral slice, a Health Observation is evidence only. It is not inherently a warning, recoverable failure, Experiment failure, Session failure, Controller command, operator notification, recovery action, or retry request. Policy interpretation and runtime consequence execution remain separate.
 
 ---
 
@@ -662,6 +690,8 @@ Device Declarations are stored in Session Configuration.
 They are used by caller code to explicitly construct live DeviceAdapters.
 
 A Device Declaration is not a live device and does not communicate with hardware.
+
+A Device Declaration establishes Session-level availability and intent. It does not contain or assign an acquisition-health policy; the active Experiment Runtime Health Mapping owns that assignment.
 
 ---
 

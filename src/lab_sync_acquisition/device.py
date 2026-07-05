@@ -15,7 +15,6 @@ class DeviceDeclaration:
     enabled: bool
     required: bool
     declared_capabilities: tuple[str, ...] | None
-    acquisition_health_policy: str | None
 
     def __init__(
         self,
@@ -24,7 +23,6 @@ class DeviceDeclaration:
         enabled: bool,
         required: bool,
         declared_capabilities: Iterable[str] | None,
-        acquisition_health_policy: str | None = None,
     ) -> None:
         object.__setattr__(self, "device_id", device_id)
         object.__setattr__(self, "device_type", device_type)
@@ -35,9 +33,6 @@ class DeviceDeclaration:
         else:
             capabilities = tuple(declared_capabilities)
         object.__setattr__(self, "declared_capabilities", capabilities)
-        object.__setattr__(
-            self, "acquisition_health_policy", acquisition_health_policy
-        )
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-like plain-data representation."""
@@ -52,5 +47,4 @@ class DeviceDeclaration:
                 if self.declared_capabilities is not None
                 else None
             ),
-            "acquisition_health_policy": self.acquisition_health_policy,
         }

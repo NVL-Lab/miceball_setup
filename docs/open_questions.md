@@ -224,16 +224,15 @@ Do not implement retry/replay in the first handoff failure slice. Preserve sende
 
 ### Why this matters
 
-Acquisition health v1 can produce health evidence, but the architecture has not decided when health failures are warnings, recoverable failures, fatal acquisition failures, or Session failures.
+Decisions 103-106 establish evidence-only Health Observations, separate observation types from consequences, assign policies through the active Experiment Runtime Health Mapping, and define the plain-data policy interpretation vocabulary. The architecture has not decided how configured consequence labels are interpreted and executed at runtime.
 
 ### Questions
 
-* Which health failures should only record evidence?
-* Which health failures should stop acquisition?
-* Which health failures should mark the AcquisitionNode failed?
-* Which health failures should cause Controller/Session failure handling?
-* Are consequences configured per health policy?
-* How are repeated health failures represented?
+* Which component executes configured consequence labels at runtime?
+* What behavior distinguishes warnings from recoverable failures?
+* How do `experiment_failure` and `session_failure` labels affect their respective lifecycles?
+* Which consequences trigger Controller actions, automatic stop, or operator notification?
+* How are repeated observations interpreted during runtime policy execution?
 
 ### Blocks
 

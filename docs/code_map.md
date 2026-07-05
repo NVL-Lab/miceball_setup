@@ -2,8 +2,9 @@
 
 ## src/lab_sync_acquisition/__init__.py
 
+- AcquisitionHealthPolicy: Public import for immutable plain-data acquisition-health policy definitions and observation-vocabulary validation.
 - AcquisitionIterationSummary: Public import for the result of one bounded AcquisitionNode iteration.
-- AcquisitionNode: Public import for bounded acquisition runtime execution, active Experiment-mapped acquisition-health scope, configured batching, writable failure-evidence readiness, and sender-side failure handling.
+- AcquisitionNode: Public import for bounded acquisition runtime execution, active Experiment runtime mapping as the sole health-policy assignment path, configured batching, writable failure-evidence readiness, and sender-side failure handling.
 - AcquisitionNodeReadiness: Public import for Phase 2 node identity and aggregated device/service readiness evidence.
 - AcquisitionRecordEnvelope: Public import for the transferable acquisition record envelope shared across the acquisition-to-ingestion boundary.
 - Controller: Public import for sequential single-session orchestration using already-created runtime collaborators.
@@ -22,6 +23,7 @@
 - ExperimentDescriptor: Public import for the persistent scientific identity of one Experiment within a Session.
 - ExperimentLifecycleEvidence: Public import for canonical Session-owned Experiment start/stop evidence.
 - ExperimentRuntimeHealthMapping: Public import for one explicit live-source Experiment health assignment as plain runtime data.
+- ExperimentScopedHealthObservation: Public import for an evidence-only Experiment health condition detected by AcquisitionNode.
 - DeviceStatus: Public import for live adapter status snapshots.
 - IngestAuditRecord: Public import for ingest audit evidence recorded for each received acquisition envelope.
 - InMemoryIngestor: Public import for the minimal in-memory envelope receiver that can forward accepted envelopes to storage.
@@ -42,6 +44,10 @@
 
 - AcquisitionNodeReadiness: Holds explicit node, session, and role identity while aggregating existing device and service readiness evidence.
 
+## src/lab_sync_acquisition/acquisition_health.py
+
+- AcquisitionHealthPolicy: Stores explicit evaluation parameters and observation-to-consequence-label vocabulary, supports plain-data round trips, and validates interpretation keys against supplied supported observations without executing policy.
+
 ## src/lab_sync_acquisition/acquisition_record.py
 
 - AcquisitionRecordEnvelope: Holds the minimal transferable acquisition record message fields, including optional source node identity, and supports JSON-like plain-data round trips.
@@ -49,11 +55,11 @@
 ## src/lab_sync_acquisition/acquisition_node.py
 
 - AcquisitionIterationSummary: Records the small inspectable summary returned by one bounded acquisition iteration.
-- AcquisitionNode: Owns bounded acquisition runtime execution through `start_runtime()`/`stop_runtime()`, scopes existing acquisition-health evaluation exclusively to its active Experiment runtime mapping, and preserves existing batching, readiness, handoff, failure, and cleanup behavior.
+- AcquisitionNode: Owns bounded acquisition runtime execution, scopes health evaluation to its active Experiment mapping, and exposes evidence-only ExperimentScopedHealthObservation records without assigning consequences.
 
 ## src/lab_sync_acquisition/device.py
 
-- DeviceDeclaration: Holds persistent participation intent, immutable capabilities, and an optional declared acquisition-health policy assignment as plain Session Record data.
+- DeviceDeclaration: Holds persistent Session participation intent and immutable capabilities without acquisition-health policy assignment.
 
 ## src/lab_sync_acquisition/controller.py
 
@@ -78,7 +84,8 @@
 
 ## src/lab_sync_acquisition/experiment_runtime.py
 
-- ExperimentRuntimeHealthMapping: Records one immutable live-source-to-Expected-Participant health assignment and supports plain-data round trips without activation or evaluation behavior.
+- ExperimentRuntimeHealthMapping: Records one immutable live-source-to-Expected-Participant mapping and the authoritative Experiment-scoped acquisition-health policy assignment, with plain-data round trips but no evaluation behavior.
+- ExperimentScopedHealthObservation: Records an Experiment-scoped health condition, source and participant identity, policy context, Session Time, and audit details as plain evidence without operational consequence.
 
 ## src/lab_sync_acquisition/ingestor.py
 

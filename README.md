@@ -139,8 +139,15 @@ and two-step persistent Session Record finalization.
 
 Phase 5 now provides validated Controller-owned Experiment lifecycle, persistent
 Experiment descriptors and Expected Participant declarations, explicit runtime
-health mappings, and AcquisitionNode health evaluation scoped only to mapped
-live acquisition sources.
+health mappings that assign Experiment-specific acquisition-health policies,
+and AcquisitionNode health evaluation scoped only to mapped live acquisition
+sources. Device declarations describe Session availability rather than global
+health-policy consequence.
+
+Phase 6 adds evidence-only Experiment-scoped health observations and immutable
+plain-data acquisition-health policy definitions. Observation type remains
+separate from consequence, policy assignment remains Experiment-scoped, and
+runtime warning/failure/Controller behavior is intentionally deferred.
 
 
 

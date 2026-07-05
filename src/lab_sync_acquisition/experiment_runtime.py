@@ -38,3 +38,49 @@ class ExperimentRuntimeHealthMapping:
             required=data["required"],
             expected_contribution=data["expected_contribution"],
         )
+
+
+@dataclass(frozen=True)
+class ExperimentScopedHealthObservation:
+    """Plain-data acquisition-health condition observed during an Experiment."""
+
+    experiment_id: str
+    live_source_id: str
+    expected_participant_id: str
+    expected_contribution: str
+    acquisition_health_policy: str
+    observation_type: str
+    required: bool
+    session_time_s: float | None
+    details: dict[str, Any]
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-like plain-data representation."""
+
+        return {
+            "experiment_id": self.experiment_id,
+            "live_source_id": self.live_source_id,
+            "expected_participant_id": self.expected_participant_id,
+            "expected_contribution": self.expected_contribution,
+            "acquisition_health_policy": self.acquisition_health_policy,
+            "observation_type": self.observation_type,
+            "required": self.required,
+            "session_time_s": self.session_time_s,
+            "details": self.details,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> ExperimentScopedHealthObservation:
+        """Reconstruct an observation from plain data."""
+
+        return cls(
+            experiment_id=data["experiment_id"],
+            live_source_id=data["live_source_id"],
+            expected_participant_id=data["expected_participant_id"],
+            expected_contribution=data["expected_contribution"],
+            acquisition_health_policy=data["acquisition_health_policy"],
+            observation_type=data["observation_type"],
+            required=data["required"],
+            session_time_s=data["session_time_s"],
+            details=dict(data["details"]),
+        )

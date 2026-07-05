@@ -160,7 +160,7 @@ Add bounded scientific Experiment activity inside a running Session while preser
 - at most one active Experiment per Session
 - Session-owned Experiment descriptors and lifecycle evidence
 - persistent ordered Expected Participant declarations
-- runtime-only live-source Experiment health mappings
+- runtime-only live-source Experiment health mappings that own Experiment-specific policy assignment
 - Controller activation and clearing of AcquisitionNode mappings
 - no participant binding or identifier inference
 - AcquisitionNode health evaluation only for mapped live source IDs
@@ -170,6 +170,31 @@ Add bounded scientific Experiment activity inside a running Session while preser
 ## Confidence gained
 
 A completed Session can contain auditable Experiment activity and explicit expected participation while runtime health scope remains narrow, inspectable, and independent of resource ownership or persistence.
+
+---
+
+# M006 - Acquisition-Health Observations and Policy Definitions
+
+**Status:** Completed
+
+## Goal
+
+Separate Experiment-scoped health detection evidence from configured operational meaning without introducing consequence execution.
+
+## Demonstrated
+
+- evidence-only `ExperimentScopedHealthObservation` records
+- observation type kept distinct from consequence label
+- Experiment-scoped policy assignment through `ExperimentRuntimeHealthMapping`
+- removal of acquisition-health policy ownership from `DeviceDeclaration`
+- immutable plain-data `AcquisitionHealthPolicy` definitions
+- explicit evaluation parameters and observation interpretation mappings
+- validation against supported observation names and accepted consequence-label vocabulary
+- no warning, failure, Controller, notification, retry, recovery, or policy-execution behavior
+
+## Confidence gained
+
+The framework can describe what acquisition health observed and how an Experiment configures its interpretation while leaving operational consequence execution as explicit future work.
 
 ---
 

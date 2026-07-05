@@ -13,7 +13,10 @@ from typing import Any, Iterable
 from lab_sync_acquisition.acquisition_record import AcquisitionRecordEnvelope
 from lab_sync_acquisition.acquisition_node_readiness import AcquisitionNodeReadiness
 from lab_sync_acquisition.device_manager import DeviceManager
-from lab_sync_acquisition.experiment_runtime import ExperimentRuntimeHealthMapping
+from lab_sync_acquisition.experiment_runtime import (
+    ExperimentRuntimeHealthMapping,
+    ExperimentScopedHealthObservation,
+)
 from lab_sync_acquisition.ingestor import InMemoryIngestor
 from lab_sync_acquisition.service_readiness import ServiceReadiness
 from lab_sync_acquisition.synchronization import SynchronizationManager
@@ -43,7 +46,6 @@ class AcquisitionNode:
         role: str | None = None,
         acquisition_configuration: Mapping[str, Any] | None = None,
         error_evidence_location: str | None = None,
-        acquisition_health_source_policies: Mapping[str, str] | None = None,
     ) -> None:
         self._session_id = session_id
         self._device_manager = device_manager
@@ -56,7 +58,7 @@ class AcquisitionNode:
             acquisition_configuration
         )
         self._acquisition_health_observed_counts: dict[str, int] = {}
-        self._acquisition_health_failures_recorded: set[str] = set()
+        self._acquisition_health_observations_recorded: set[str] = set()
         self._acquisition_start_session_time_s: float | None = None
         self._handoff_failure_policy = self._read_handoff_failure_policy(
             acquisition_configuration
@@ -82,13 +84,27 @@ class AcquisitionNode:
         self._active_experiment_runtime_health_mapping: tuple[
             ExperimentRuntimeHealthMapping, ...
         ] = ()
+        self._active_experiment_id: str | None = None
+        self._experiment_scoped_health_observations: list[
+            ExperimentScopedHealthObservation
+        ] = []
+
+    @property
+    def experiment_scoped_health_observations(
+        self,
+    ) -> tuple[ExperimentScopedHealthObservation, ...]:
+        """Experiment-scoped health observations in detection order."""
+
+        return tuple(self._experiment_scoped_health_observations)
 
     def activate_experiment_runtime_health_mapping(
         self,
+        experiment_id: str,
         runtime_health_mapping: Iterable[ExperimentRuntimeHealthMapping],
     ) -> None:
         """Store an immutable active Experiment runtime health mapping."""
 
+        self._active_experiment_id = experiment_id
         self._active_experiment_runtime_health_mapping = tuple(
             runtime_health_mapping
         )
@@ -96,14 +112,15 @@ class AcquisitionNode:
             mapping.live_source_id: 0
             for mapping in self._active_experiment_runtime_health_mapping
         }
-        self._acquisition_health_failures_recorded.clear()
+        self._acquisition_health_observations_recorded.clear()
 
     def clear_experiment_runtime_health_mapping(self) -> None:
         """Clear active Experiment runtime mapping without stopping runtime."""
 
         self._active_experiment_runtime_health_mapping = ()
+        self._active_experiment_id = None
         self._acquisition_health_observed_counts = {}
-        self._acquisition_health_failures_recorded.clear()
+        self._acquisition_health_observations_recorded.clear()
 
     def check_ready(self) -> dict[str, Any]:
         """Return acquisition-side readiness using existing readiness contracts."""
@@ -622,7 +639,7 @@ class AcquisitionNode:
         for mapping in self._active_experiment_runtime_health_mapping:
             source_device_id = mapping.live_source_id
             policy_name = mapping.acquisition_health_policy
-            if source_device_id in self._acquisition_health_failures_recorded:
+            if source_device_id in self._acquisition_health_observations_recorded:
                 continue
             policy = self._acquisition_health_policies.get(policy_name)
             if not self._valid_first_record_policy(policy):
@@ -632,26 +649,31 @@ class AcquisitionNode:
             elapsed = current_session_time_s - self._acquisition_start_session_time_s
             if observed_count > 0 or elapsed < grace_window_s:
                 continue
+            observation = ExperimentScopedHealthObservation(
+                experiment_id=self._active_experiment_id or "",
+                live_source_id=source_device_id,
+                expected_participant_id=mapping.expected_participant_id,
+                expected_contribution=mapping.expected_contribution,
+                acquisition_health_policy=policy_name,
+                observation_type="expected_acquisition_evidence_missing",
+                required=mapping.required,
+                session_time_s=current_session_time_s,
+                details={
+                    "policy_kind": "first_record_within_grace_window",
+                    "expected_record_kind": policy["record_kind"],
+                    "grace_window_s": grace_window_s,
+                    "observed_record_count": observed_count,
+                },
+            )
+            self._experiment_scoped_health_observations.append(observation)
             audits.append(
                 self._send_envelope(
                     source_device_id="acquisition_node",
                     record_kind="event",
-                    records=(
-                        {
-                            "event_category": "acquisition_health",
-                            "event_type": "health_policy_failed",
-                            "source_device_id": source_device_id,
-                            "policy_name": policy_name,
-                            "policy_kind": "first_record_within_grace_window",
-                            "expected_record_kind": policy["record_kind"],
-                            "grace_window_s": grace_window_s,
-                            "observed_record_count": observed_count,
-                            "session_time_s": current_session_time_s,
-                        },
-                    ),
+                    records=(observation.to_dict(),),
                 )
             )
-            self._acquisition_health_failures_recorded.add(source_device_id)
+            self._acquisition_health_observations_recorded.add(source_device_id)
         return tuple(audits)
 
     def _valid_first_record_policy(
