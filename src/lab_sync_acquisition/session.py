@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, ClassVar, Iterable
 
+from lab_sync_acquisition.acquisition_health import AcquisitionHealthPolicy
 from lab_sync_acquisition.device import DeviceDeclaration
 from lab_sync_acquisition.device_adapter import DeviceReadiness
 from lab_sync_acquisition.service_readiness import ServiceReadiness
@@ -36,6 +37,7 @@ class SessionConfig:
     device_configurations: dict[str, Any] | None = None
     synchronization_configuration: dict[str, Any] | None = None
     acquisition_configuration: dict[str, Any] | None = None
+    acquisition_health_policies: tuple[AcquisitionHealthPolicy, ...] = ()
     ingestion_configuration: dict[str, Any] | None = None
     storage_configuration: dict[str, Any] | None = None
     protocol_reference: Any | None = None
@@ -60,6 +62,10 @@ class SessionConfig:
             "device_configurations": self.device_configurations,
             "synchronization_configuration": self.synchronization_configuration,
             "acquisition_configuration": self.acquisition_configuration,
+            "acquisition_health_policies": [
+                policy.to_dict()
+                for policy in self.acquisition_health_policies
+            ],
             "ingestion_configuration": self.ingestion_configuration,
             "storage_configuration": self.storage_configuration,
             "protocol_reference": self.protocol_reference,

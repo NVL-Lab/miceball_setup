@@ -44,6 +44,7 @@ class ExperimentRuntimeHealthMapping:
 class ExperimentScopedHealthObservation:
     """Plain-data acquisition-health condition observed during an Experiment."""
 
+    observation_id: str
     experiment_id: str
     live_source_id: str
     expected_participant_id: str
@@ -58,6 +59,7 @@ class ExperimentScopedHealthObservation:
         """Return a JSON-like plain-data representation."""
 
         return {
+            "observation_id": self.observation_id,
             "experiment_id": self.experiment_id,
             "live_source_id": self.live_source_id,
             "expected_participant_id": self.expected_participant_id,
@@ -74,6 +76,7 @@ class ExperimentScopedHealthObservation:
         """Reconstruct an observation from plain data."""
 
         return cls(
+            observation_id=data["observation_id"],
             experiment_id=data["experiment_id"],
             live_source_id=data["live_source_id"],
             expected_participant_id=data["expected_participant_id"],

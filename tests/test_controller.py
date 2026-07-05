@@ -9,6 +9,7 @@ SRC = ROOT / "src"
 sys.path.insert(0, str(SRC))
 
 from lab_sync_acquisition import (
+    AcquisitionHealthPolicy,
     AcquisitionNode,
     Controller,
     DeviceDeclaration,
@@ -56,15 +57,18 @@ class ControllerWorkflowTests(unittest.TestCase):
             root = Path(directory)
             controller, manager, node, config = self._controller_fixture(
                 root,
-                acquisition_configuration={
-                    "acquisition_health_policies": {
-                        "event-required": {
-                            "kind": "first_record_within_grace_window",
+                acquisition_health_policies=(
+                    AcquisitionHealthPolicy(
+                        policy_id="event-required",
+                        evaluation_rules={
+                            "first_evidence": {
                             "record_kind": "event",
                             "grace_window_s": 0.0,
-                        }
-                    }
-                },
+                            }
+                        },
+                        interpretation={},
+                    ),
+                ),
             )
             manager.initialize_all(config={"mode": "health-observation"})
             readiness = node.check_ready()
@@ -525,8 +529,13 @@ class ControllerWorkflowTests(unittest.TestCase):
         root,
         synchronization_manager=None,
         acquisition_configuration=None,
+        acquisition_health_policies=(),
     ):
-        config = self._config(root, acquisition_configuration)
+        config = self._config(
+            root,
+            acquisition_configuration,
+            acquisition_health_policies,
+        )
         adapter = ControllerFakeAdapter()
         manager = DeviceManager((adapter,))
         storage = PersistentStorageManager(root / "accepted_records.jsonl")
@@ -538,6 +547,7 @@ class ControllerWorkflowTests(unittest.TestCase):
             synchronization_manager=synchronization,
             ingestor=ingestor,
             acquisition_configuration=config.acquisition_configuration,
+            acquisition_health_policies=config.acquisition_health_policies,
             error_evidence_location=config.error_evidence_location,
         )
         controller = Controller(
@@ -549,7 +559,12 @@ class ControllerWorkflowTests(unittest.TestCase):
         )
         return controller, manager, node, config
 
-    def _config(self, root, acquisition_configuration=None):
+    def _config(
+        self,
+        root,
+        acquisition_configuration=None,
+        acquisition_health_policies=(),
+    ):
         return SessionConfig(
             session_id="controller-failure-session-001",
             selected_devices=[],
@@ -557,6 +572,7 @@ class ControllerWorkflowTests(unittest.TestCase):
             protocol_plan={"name": "controller-failure-v1"},
             error_evidence_location=str(root / "errors"),
             acquisition_configuration=acquisition_configuration,
+            acquisition_health_policies=acquisition_health_policies,
         )
 
 

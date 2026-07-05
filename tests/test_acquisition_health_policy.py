@@ -1,16 +1,32 @@
 import unittest
 
-from lab_sync_acquisition import AcquisitionHealthPolicy
+from lab_sync_acquisition import AcquisitionHealthPolicy, SessionConfig
 
 
 class AcquisitionHealthPolicyTests(unittest.TestCase):
+    def test_session_config_owns_serialized_policy_definitions(self):
+        policy = self._policy()
+        configuration = SessionConfig(
+            selected_devices=[],
+            storage_location=None,
+            protocol_plan=None,
+            error_evidence_location="errors",
+            acquisition_health_policies=(policy,),
+        )
+
+        self.assertEqual(
+            configuration.to_dict()["acquisition_health_policies"],
+            [policy.to_dict()],
+        )
+
     def test_policy_round_trips_with_optional_evaluation_fields(self):
         policy = AcquisitionHealthPolicy(
             policy_id="camera-soft",
-            evaluation={
-                "first_record_grace_window_s": 1.5,
-                "max_gap_s": None,
-                "minimum_rate_hz": None,
+            evaluation_rules={
+                "first_evidence": {
+                    "record_kind": "camera_frame_metadata",
+                    "grace_window_s": 1.5,
+                },
             },
             interpretation={
                 "expected_acquisition_evidence_missing": "warning",
@@ -24,10 +40,11 @@ class AcquisitionHealthPolicyTests(unittest.TestCase):
             plain_data,
             {
                 "policy_id": "camera-soft",
-                "evaluation": {
-                    "first_record_grace_window_s": 1.5,
-                    "max_gap_s": None,
-                    "minimum_rate_hz": None,
+                "evaluation_rules": {
+                    "first_evidence": {
+                        "record_kind": "camera_frame_metadata",
+                        "grace_window_s": 1.5,
+                    },
                 },
                 "interpretation": {
                     "expected_acquisition_evidence_missing": "warning",
@@ -56,11 +73,7 @@ class AcquisitionHealthPolicyTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Unsupported.*labels: stop_camera"):
             AcquisitionHealthPolicy(
                 policy_id="invalid-policy",
-                evaluation={
-                    "first_record_grace_window_s": None,
-                    "max_gap_s": None,
-                    "minimum_rate_hz": None,
-                },
+                evaluation_rules={},
                 interpretation={
                     "expected_acquisition_evidence_missing": "stop_camera",
                 },
@@ -69,10 +82,13 @@ class AcquisitionHealthPolicyTests(unittest.TestCase):
     def _policy(self):
         return AcquisitionHealthPolicy(
             policy_id="camera-required",
-            evaluation={
-                "first_record_grace_window_s": 1.0,
-                "max_gap_s": 2.0,
-                "minimum_rate_hz": 20.0,
+            evaluation_rules={
+                "first_evidence": {
+                    "record_kind": "stream",
+                    "grace_window_s": 1.0,
+                },
+                "gap": {"record_kind": "stream", "max_gap_s": 2.0},
+                "rate": {"record_kind": "stream", "minimum_rate_hz": 20.0},
             },
             interpretation={
                 "expected_acquisition_evidence_missing": "experiment_failure",

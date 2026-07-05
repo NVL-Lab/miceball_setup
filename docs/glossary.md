@@ -8,7 +8,7 @@ These definitions take precedence over informal usage.
 
 # Acquisition Node
 
-A hardware-facing runtime responsible for acquiring data from devices, generating acquisition records, and forwarding records to the Ingestor.
+A hardware-facing runtime responsible for acquiring data from devices, generating acquisition records, forwarding records to the Ingestor, evaluating Experiment-scoped acquisition health, executing assigned AcquisitionHealthPolicy interpretation, and recording Health Interpretation Evidence.
 
 The Jetson is the Phase 1 Acquisition Node.
 
@@ -43,7 +43,7 @@ The Controller coordinates existing components but does not own Session lifecycl
 
 The GUI and Controller are conceptually separate, even if they run on the same machine.
 
-The Controller owns canonical Experiment lifecycle orchestration. AcquisitionNodes record local execution evidence associated with an active Experiment.
+The Controller owns canonical Experiment lifecycle orchestration. AcquisitionNodes record local execution evidence associated with an active Experiment. Future Controller behavior owns framework actions based on Health Interpretation Evidence; the Controller does not perform acquisition-health policy interpretation.
 
 ---
 
@@ -161,15 +161,19 @@ The mapping is also the authoritative acquisition-health policy assignment for e
 
 # Acquisition-Health Policy
 
-A named configurable definition of acquisition-health evaluation behavior and, in future, consequence behavior.
+A named configurable definition of acquisition-health evaluation behavior and observation interpretation.
 
-Policy definitions live in Session or Experiment configuration. The active Experiment Runtime Health Mapping assigns a policy to each mapped live acquisition source for that Experiment.
+Policy definitions belong to `SessionConfig` and persist as accepted Session configuration. The active Experiment Runtime Health Mapping assigns one configured policy to each mapped live acquisition source for that Experiment. Definition is Session-scoped; assignment is Experiment-scoped runtime intent.
 
-The plain-data policy definition contains a `policy_id`; optional evaluation values for first-record grace window, maximum gap, and minimum rate; and an interpretation mapping from observation type to consequence label. Observation type and consequence label are distinct: the observation describes what was detected, while the assigned policy supplies configured operational meaning.
+The plain-data policy definition contains a `policy_id`, an `evaluation_rules` mapping of independent named rule substructures, and an interpretation mapping from observation type to consequence label. Observation type and consequence label are distinct: the observation describes what was detected, while the assigned policy supplies configured operational meaning.
 
-Supported consequence labels are `informational`, `warning`, `recoverable_failure`, `experiment_failure`, and `session_failure`. These labels are vocabulary only in the first policy-definition slice: they are validated and stored but have no runtime semantics or actions.
+Each evaluation rule owns only the parameters its algorithm needs. For example, `first_evidence` may own `record_kind` and `grace_window_s`, while `gap` may own `record_kind` and `max_gap_s`. New rule names may be added without changing the policy's top-level schema.
+
+Supported configured consequence labels are `informational`, `warning`, `recoverable_failure`, `experiment_failure`, and `session_failure`. AcquisitionNode immediately interprets each emitted Health Observation through this mapping and records at most one result as Health Interpretation Evidence. When no interpretation is configured for an observation, the runtime outcome is `uninterpreted`. Framework actions associated with interpretations remain separate and Controller-owned.
 
 Interpretation keys must be supported by the evaluator that validates the policy. Policies do not define evaluator observation capabilities.
+
+Evaluator-specific parameters needed by a supported rule belong in that rule's substructure under `evaluation_rules`. They are evaluation configuration, not source identity or policy assignment.
 
 `DeviceDeclaration` does not contain or assign acquisition-health policy; a device is not globally critical, soft, optional, warning-only, or fatal across every Experiment.
 
@@ -181,7 +185,7 @@ Evaluation of whether contributions expected by the active Experiment appeared.
 
 Its scope is determined exclusively by the active Experiment Runtime Health Mapping. With no active mapping, no Experiment-scoped acquisition-health evaluation occurs. With an active mapping, only mapped live acquisition source IDs are evaluated; Session-ready but unmapped resources are excluded.
 
-Experiment-scoped acquisition health is distinct from Session Readiness, which asks whether a resource can safely participate in the Session. The existing first-record grace-window algorithm is validated for mapped sources; additional algorithms, consequences, participant enforcement, and Controller policy remain deferred.
+Experiment-scoped acquisition health is distinct from Session Readiness, which asks whether a resource can safely participate in the Session. The existing first-record grace-window algorithm is validated for mapped sources; additional algorithms, participant enforcement, and Controller action semantics remain deferred.
 
 ---
 
@@ -191,7 +195,23 @@ A condition detected by AcquisitionNode while evaluating acquisition health for 
 
 Examples include missing expected evidence, resumed evidence, acquisition rate below expectation, or acquisition resuming after interruption. A Health Observation records what AcquisitionNode observed as Experiment-scoped health evidence; it does not assign operational significance.
 
-For the first behavioral slice, a Health Observation is evidence only. It is not inherently a warning, recoverable failure, Experiment failure, Session failure, Controller command, operator notification, recovery action, or retry request. Policy interpretation and runtime consequence execution remain separate.
+A Health Observation is evidence of what was detected and is not inherently a warning, recoverable failure, Experiment failure, Session failure, Controller command, operator notification, recovery action, or retry request. AcquisitionNode interprets it through the assigned AcquisitionHealthPolicy and records that interpretation separately as Health Interpretation Evidence.
+
+Each emitted Experiment-scoped Health Observation has a stable `observation_id` used only as runtime evidence provenance. It is not a database key or a Session, Experiment, persistence, or Controller identifier.
+
+---
+
+# Health Interpretation Evidence
+
+Immutable plain-data Experiment-scoped runtime evidence recording how AcquisitionNode immediately interpreted a Health Observation according to the AcquisitionHealthPolicy assigned through the active Experiment Runtime Health Mapping.
+
+Each emitted Health Observation produces at most one corresponding Health Interpretation Evidence record. Its `originating_observation_id` explicitly references the originating observation's `observation_id`, preserving an auditable one-to-one runtime chain. If the assigned policy has no configured interpretation for the observation, the recorded outcome is `uninterpreted`.
+
+Its fields preserve the originating observation reference, Experiment, live source, Expected Participant, observation type, assigned policy, interpretation label, required status, Session Time, and plain-data details. AcquisitionNode now produces it immediately after its originating observation through the existing evidence-envelope path. Persistence in the final Session Record remains separate work.
+
+Health Interpretation Evidence is original runtime evidence. It is not regenerated or silently reinterpreted during reconstruction. A later reinterpretation under a different policy must be separate derived analysis or reconstruction evidence.
+
+Health Interpretation Evidence records policy interpretation only. It does not itself stop an Experiment, fail a Session, notify an operator, initiate retry or recovery, or perform orchestration. Future Controller behavior owns framework actions based on this evidence.
 
 ---
 
@@ -699,7 +719,9 @@ A Device Declaration establishes Session-level availability and intent. It does 
 
 The accepted run configuration owned by a Session.
 
-Session Configuration declares the intended runtime configuration of a Session, including selected Device Declarations, session parameters, device configuration, synchronization configuration, acquisition configuration, ingestion/storage configuration, and protocol intent or reference.
+Session Configuration declares the intended runtime configuration of a Session, including selected Device Declarations, session parameters, device configuration, synchronization configuration, acquisition configuration, ingestion/storage configuration, protocol intent or reference, and the available `AcquisitionHealthPolicy` definitions.
+
+Acquisition-health policy definitions are persistent Session-scoped configuration. Experiment Runtime Health Mappings assign those definitions to live sources as Experiment-scoped runtime intent.
 
 The accepted Session Configuration is immutable for the duration of the Session.
 

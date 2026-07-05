@@ -3451,7 +3451,7 @@ Health Observation
         |
 Health evidence
 
-Policy is evaluated separately.
+Policy interpretation is recorded separately from Health Observation evidence.
 ```
 
 ---
@@ -3465,6 +3465,8 @@ An Experiment-scoped Health Observation describes a condition detected by acquis
 Operational meaning is supplied separately by the acquisition-health policy assigned through the active `ExperimentRuntimeHealthMapping`. The same observation type may therefore have different configured consequence labels in different Experiments.
 
 This decision separates detection evidence from its future runtime interpretation. It does not define consequence execution.
+
+**Clarified by Decision 107:** AcquisitionNode executes the assigned policy interpretation and records Health Interpretation Evidence. Controller-owned framework actions remain separate.
 
 **Principle**
 
@@ -3485,6 +3487,8 @@ Assigned acquisition-health policy
 Acquisition-health policies continue to exist as named policy definitions.
 
 Policy definitions live in Session or Experiment configuration. Policy assignment belongs to the active `ExperimentRuntimeHealthMapping`.
+
+**Clarified by Decision 110:** Policy definitions belong specifically to persistent `SessionConfig`; only assignment is Experiment-scoped runtime intent.
 
 `DeviceDeclaration` declares Session-level availability and intent. It does not permanently define whether a device is critical, soft, optional, warning-only, fatal, or otherwise operationally consequential for all Experiments.
 
@@ -3540,6 +3544,10 @@ Policy validation ensures that interpretation keys are supported by a supplied e
 
 This decision defines configuration and validation only. It does not execute consequences, change Controller behavior, fail Experiments or Sessions, notify operators, retry, or recover.
 
+**Superseded in part by Decision 107:** AcquisitionNode now owns execution of the policy's observation interpretation and production of Health Interpretation Evidence. The prohibition on framework actions, lifecycle changes, notification, retry, and recovery remains authoritative.
+
+**Superseded in part by Decision 111:** The flat `evaluation` parameter structure has evolved into rule-specific `evaluation_rules`. The policy remains an immutable plain-data definition with explicit interpretation vocabulary.
+
 **Principle**
 
 ```text
@@ -3549,6 +3557,274 @@ AcquisitionHealthPolicy
 
 Runtime consequence execution
     remains separate and deferred.
+```
+
+---
+
+## Decision 107: AcquisitionNode executes AcquisitionHealthPolicy interpretation
+
+**Status:** Accepted
+
+`AcquisitionNode` executes the `AcquisitionHealthPolicy` assigned through the active `ExperimentRuntimeHealthMapping`.
+
+Policy execution consists of interpreting Experiment-scoped Health Observations according to the assigned acquisition-health policy. It produces Health Interpretation Evidence recording the policy-assigned interpretation of each Health Observation.
+
+For example:
+
+```text
+Observation:
+    first_evidence_missing
+
+Assigned policy:
+    critical_camera
+
+Health interpretation:
+    experiment_failure
+```
+
+Policy execution ends with production of Health Interpretation Evidence.
+
+`AcquisitionNode` does not stop an Experiment, fail a Session, notify the operator, retry or recover, invoke Controller behavior, or perform framework orchestration. Framework actions based on Health Interpretation Evidence remain the responsibility of the Controller.
+
+**Principle**
+
+```text
+Health Observation
+        |
+Assigned AcquisitionHealthPolicy
+        |
+AcquisitionNode executes policy interpretation
+        |
+Health Interpretation Evidence
+        |
+Controller executes framework action
+```
+
+---
+
+## Decision 108: AcquisitionHealthPolicy interpretation is immediate and one-to-one with health observations
+
+**Status:** Accepted
+
+When `AcquisitionNode` produces an `ExperimentScopedHealthObservation`, it immediately executes the assigned `AcquisitionHealthPolicy` interpretation for that observation.
+
+Each emitted Health Observation produces at most one corresponding `HealthInterpretationEvidence` record. Interpretation evidence references the originating Health Observation and preserves an auditable runtime chain.
+
+```text
+Health Observation evidence
+        |
+Immediate assigned-policy interpretation
+        |
+Health Interpretation Evidence
+```
+
+Policy interpretation is runtime evidence, not a derived reconstruction product. Interpretations are not regenerated or silently reinterpreted after the fact. Any future offline reinterpretation using different policy definitions must be recorded as separate derived analysis or reconstruction evidence and must not modify the original runtime interpretation evidence.
+
+If an observation has no configured interpretation under the assigned `AcquisitionHealthPolicy`, the runtime records the interpretation outcome as `uninterpreted` rather than inventing a consequence.
+
+Allowed interpretation outcomes are:
+
+* `informational`
+* `warning`
+* `recoverable_failure`
+* `experiment_failure`
+* `session_failure`
+* `uninterpreted`
+
+Interpretation evidence records what the runtime policy meant when the observation occurred. It remains evidence only and does not execute Controller behavior, stop an Experiment, fail a Session, retry, recover, notify operators, perform orchestration, or execute framework actions.
+
+**Principle**
+
+```text
+Health Observation emitted
+        |
+Immediate one-to-one policy interpretation
+        |
+Health Interpretation Evidence emitted
+
+Health Interpretation Evidence
+        !=
+Framework action
+```
+
+---
+
+## Decision 109: Health interpretation evidence explicitly references its originating health observation
+
+**Status:** Accepted
+
+Each `ExperimentScopedHealthObservation` produced by `AcquisitionNode` has a stable runtime identity used solely to preserve provenance between runtime evidence records.
+
+Each `HealthInterpretationEvidence` explicitly references its originating `ExperimentScopedHealthObservation`.
+
+```text
+ExperimentScopedHealthObservation
+
+    observation_id
+
+            |
+            v
+
+HealthInterpretationEvidence
+
+    originating_observation_id
+```
+
+Observation identity preserves an auditable evidence chain. It is not a persistence identifier, database key, Session identifier, Experiment identifier, or Controller identifier. It is only the runtime identity of one emitted Health Observation.
+
+```text
+Health Observation
+        |
+Observation evidence
+        |
+Health Interpretation Evidence
+```
+
+Multiple interpretation records must not reference the same runtime observation unless a future architecture decision explicitly introduces multi-stage interpretation. Under the current architecture, one observation produces at most one interpretation evidence record.
+
+This decision does not define identifier format, UUID versus integer representation, persistence implementation, storage layout, or Controller behavior. It defines only the required provenance relationship.
+
+**Principle**
+
+```text
+Every runtime interpretation explicitly identifies
+the runtime observation it interpreted.
+```
+
+---
+
+## Decision 110: AcquisitionHealthPolicy definitions are Session-scoped configuration and Experiment-scoped assignment
+
+**Status:** Accepted
+
+`AcquisitionHealthPolicy` definitions belong to `SessionConfig`. They represent the set of acquisition-health policies available during a Session.
+
+An `ExperimentRuntimeHealthMapping` assigns one of those policy definitions to a live source for the currently active Experiment.
+
+```text
+SessionConfig
+    owns AcquisitionHealthPolicy definitions
+
+            |
+            v
+
+ExperimentRuntimeHealthMapping
+    assigns AcquisitionHealthPolicy
+    to one live source
+
+            |
+            v
+
+AcquisitionNode
+    executes the assigned policy
+```
+
+Policy definition and policy assignment are distinct. One Session may contain multiple policy definitions, and the same live source may receive different policy assignments in different Experiments within that Session.
+
+```text
+SessionConfig
+    soft_camera
+    critical_camera
+
+Experiment A
+    camera_001 -> soft_camera
+
+Experiment B
+    camera_001 -> critical_camera
+```
+
+Policy definitions are persistent Session configuration. Policy assignments are runtime Experiment intent.
+
+The Controller or equivalent orchestration layer is responsible for making configured policy definitions available to `AcquisitionNode` together with the active `ExperimentRuntimeHealthMapping`.
+
+Evaluator-specific parameters required to execute an evaluation rule, such as `record_kind` for first-record evaluation, belong inside the appropriate `evaluation` section of the `AcquisitionHealthPolicy` definition. They are evaluation parameters, not device identity or policy assignment. This introduces no new evaluator capability model.
+
+**Clarified by Decision 111:** The appropriate evaluation section is the named rule-specific substructure within `evaluation_rules`.
+
+This decision defines ownership only. It does not define Controller implementation, transport mechanism, serialization format, runtime caching, or policy execution semantics.
+
+**Principle**
+
+```text
+Policy definition is Session-scoped configuration.
+
+Policy assignment is Experiment-scoped runtime intent.
+```
+
+---
+
+## Decision 111: AcquisitionHealthPolicy evaluation uses rule-specific substructures
+
+**Status:** Accepted
+
+`AcquisitionHealthPolicy` remains a plain-data policy definition. Its evaluation portion is organized into independent evaluation rules rather than a flat collection of unrelated parameters.
+
+Each evaluation rule owns only the parameters required for that rule.
+
+```text
+AcquisitionHealthPolicy
+
+    policy_id
+
+    evaluation_rules
+
+        first_evidence
+            ...
+
+        gap
+            ...
+
+        rate
+            ...
+
+        future rule names...
+
+    interpretation
+```
+
+For example:
+
+```text
+AcquisitionHealthPolicy
+
+    policy_id: critical_camera
+
+    evaluation_rules:
+
+        first_evidence:
+            record_kind: camera_frame_metadata
+            grace_window_s: 2.0
+
+        gap:
+            record_kind: camera_frame_metadata
+            max_gap_s: 1.0
+
+        rate:
+            record_kind: camera_frame_metadata
+            minimum_rate_hz: 25
+
+    interpretation:
+
+        first_evidence_missing: experiment_failure
+        frame_gap: warning
+        frame_rate_low: warning
+```
+
+Evaluation rules represent independent health-evaluation algorithms. Each rule owns the parameters needed to evaluate the observation family it produces. Future participant types may introduce additional evaluation rules without changing the top-level policy schema.
+
+This decision supersedes the flat `evaluation` parameter structure introduced in Decision 106. It does not change policy ownership, assignment, interpretation ownership, or framework-action boundaries.
+
+**Principle**
+
+```text
+Evaluation parameters belong to
+the evaluation rule that uses them.
+
+Evaluation rules own parameters.
+
+Policies own evaluation rules.
+
+Assignments own policies.
 ```
 
 
@@ -3663,7 +3939,12 @@ The following principles summarize the accepted decisions so far.
 103. AcquisitionNode records Experiment-scoped health conditions as Health Observation evidence; operational significance is evaluated separately.
 104. Observation type describes a detected condition; the assigned acquisition-health policy supplies configured operational meaning.
 105. Acquisition-health policy assignment is Experiment-scoped and belongs to the active ExperimentRuntimeHealthMapping, not DeviceDeclaration.
-106. AcquisitionHealthPolicy is an immutable plain-data definition; runtime consequence execution remains separate and deferred.
+106. AcquisitionHealthPolicy is an immutable plain-data definition; framework consequence actions remain separate from policy interpretation.
+107. AcquisitionNode executes assigned AcquisitionHealthPolicy interpretation and produces Health Interpretation Evidence; Controller-owned framework actions remain separate.
+108. Every emitted Health Observation is interpreted immediately at runtime with at most one corresponding Health Interpretation Evidence record; uninterpreted observations are recorded explicitly.
+109. Every Health Interpretation Evidence record explicitly references the stable runtime identity of the Health Observation it interpreted.
+110. AcquisitionHealthPolicy definitions are persistent SessionConfig data; ExperimentRuntimeHealthMapping provides Experiment-scoped assignment to live sources.
+111. AcquisitionHealthPolicy evaluation parameters live in independent named evaluation_rules substructures owned by the rules that use them.
 
 ---
 

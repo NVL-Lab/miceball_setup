@@ -8,11 +8,6 @@ from types import MappingProxyType
 from typing import Any
 
 
-_EVALUATION_FIELDS = (
-    "first_record_grace_window_s",
-    "max_gap_s",
-    "minimum_rate_hz",
-)
 _CONSEQUENCE_LABELS = {
     "informational",
     "warning",
@@ -23,25 +18,73 @@ _CONSEQUENCE_LABELS = {
 
 
 @dataclass(frozen=True)
+class HealthInterpretationEvidence:
+    """Plain-data policy interpretation of one health observation."""
+
+    originating_observation_id: str
+    experiment_id: str
+    live_source_id: str
+    expected_participant_id: str
+    observation_type: str
+    acquisition_health_policy: str
+    interpretation_label: str
+    required: bool
+    session_time_s: float | None
+    details: dict[str, Any]
+
+    def __post_init__(self) -> None:
+        if (
+            self.interpretation_label not in _CONSEQUENCE_LABELS
+            and self.interpretation_label != "uninterpreted"
+        ):
+            raise ValueError(
+                "Unsupported acquisition-health interpretation label: "
+                + self.interpretation_label
+            )
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-like plain-data representation."""
+
+        return {
+            "originating_observation_id": self.originating_observation_id,
+            "experiment_id": self.experiment_id,
+            "live_source_id": self.live_source_id,
+            "expected_participant_id": self.expected_participant_id,
+            "observation_type": self.observation_type,
+            "acquisition_health_policy": self.acquisition_health_policy,
+            "interpretation_label": self.interpretation_label,
+            "required": self.required,
+            "session_time_s": self.session_time_s,
+            "details": self.details,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> HealthInterpretationEvidence:
+        """Reconstruct interpretation evidence from plain data."""
+
+        return cls(
+            originating_observation_id=data["originating_observation_id"],
+            experiment_id=data["experiment_id"],
+            live_source_id=data["live_source_id"],
+            expected_participant_id=data["expected_participant_id"],
+            observation_type=data["observation_type"],
+            acquisition_health_policy=data["acquisition_health_policy"],
+            interpretation_label=data["interpretation_label"],
+            required=data["required"],
+            session_time_s=data["session_time_s"],
+            details=dict(data["details"]),
+        )
+
+
+@dataclass(frozen=True)
 class AcquisitionHealthPolicy:
     """Plain-data health evaluation and interpretation definition."""
 
     policy_id: str
-    evaluation: Mapping[str, float | None]
+    evaluation_rules: Mapping[str, Mapping[str, Any]]
     interpretation: Mapping[str, str]
 
     def __post_init__(self) -> None:
-        missing_fields = [
-            field_name
-            for field_name in _EVALUATION_FIELDS
-            if field_name not in self.evaluation
-        ]
-        if missing_fields:
-            raise ValueError(
-                "AcquisitionHealthPolicy evaluation is missing fields: "
-                + ", ".join(missing_fields)
-            )
-
         unsupported_labels = sorted(
             {
                 label
@@ -57,11 +100,11 @@ class AcquisitionHealthPolicy:
 
         object.__setattr__(
             self,
-            "evaluation",
+            "evaluation_rules",
             MappingProxyType(
                 {
-                    field_name: self.evaluation[field_name]
-                    for field_name in _EVALUATION_FIELDS
+                    rule_name: MappingProxyType(dict(parameters))
+                    for rule_name, parameters in self.evaluation_rules.items()
                 }
             ),
         )
@@ -76,9 +119,9 @@ class AcquisitionHealthPolicy:
 
         return {
             "policy_id": self.policy_id,
-            "evaluation": {
-                field_name: self.evaluation[field_name]
-                for field_name in _EVALUATION_FIELDS
+            "evaluation_rules": {
+                rule_name: dict(parameters)
+                for rule_name, parameters in self.evaluation_rules.items()
             },
             "interpretation": dict(self.interpretation),
         }
@@ -87,12 +130,11 @@ class AcquisitionHealthPolicy:
     def from_dict(cls, data: dict[str, Any]) -> AcquisitionHealthPolicy:
         """Reconstruct a policy from plain data."""
 
-        evaluation = data["evaluation"]
         return cls(
             policy_id=data["policy_id"],
-            evaluation={
-                field_name: evaluation[field_name]
-                for field_name in _EVALUATION_FIELDS
+            evaluation_rules={
+                rule_name: dict(parameters)
+                for rule_name, parameters in data["evaluation_rules"].items()
             },
             interpretation=dict(data["interpretation"]),
         )

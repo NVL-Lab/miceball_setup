@@ -198,6 +198,32 @@ The framework can describe what acquisition health observed and how an Experimen
 
 ---
 
+# M007 - Immediate Acquisition-Health Interpretation Evidence
+
+**Status:** Completed
+
+## Goal
+
+Connect Session-scoped policy definitions and Experiment-scoped assignments to immediate, provenance-linked runtime interpretation evidence without executing framework consequences.
+
+## Demonstrated
+
+- persistent `SessionConfig` ownership of `AcquisitionHealthPolicy` definitions
+- rule-specific `evaluation_rules` with no legacy raw policy dictionary path
+- Experiment-scoped policy assignment through `ExperimentRuntimeHealthMapping`
+- AcquisitionNode lookup and execution of the assigned policy interpretation
+- runtime-unique `observation_id` on each emitted Health Observation
+- immediate one-to-one `HealthInterpretationEvidence` linked by `originating_observation_id`
+- configured interpretation labels and explicit `uninterpreted` outcomes
+- observation and interpretation evidence through the existing envelope, ingest, and storage path
+- no runtime stop, node failure, Controller action, lifecycle consequence, notification, retry, recovery, or orchestration
+
+## Confidence gained
+
+The framework now preserves an auditable runtime chain from configured policy and detected health condition to policy interpretation while keeping framework actions as explicit future Controller work.
+
+---
+
 # Future Milestones
 
 Planned future milestones include:

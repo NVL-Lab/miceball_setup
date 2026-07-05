@@ -220,19 +220,18 @@ Do not implement retry/replay in the first handoff failure slice. Preserve sende
 
 ---
 
-## Q013: What is the acquisition-health consequence model?
+## Q013: How does Controller act on Health Interpretation Evidence?
 
 ### Why this matters
 
-Decisions 103-106 establish evidence-only Health Observations, separate observation types from consequences, assign policies through the active Experiment Runtime Health Mapping, and define the plain-data policy interpretation vocabulary. The architecture has not decided how configured consequence labels are interpreted and executed at runtime.
+Decisions 103-111 establish and the current Phase 7 implementation validates evidence-only Health Observations, SessionConfig-owned policy definitions with named `evaluation_rules`, Experiment-scoped assignment through the active Experiment Runtime Health Mapping, immediate AcquisitionNode interpretation, explicit observation provenance, `uninterpreted` outcomes, and envelope-path persistence/readback. AcquisitionNode does not perform framework actions. Remaining architecture begins with Controller responses and their framework and lifecycle consequences.
 
 ### Questions
 
-* Which component executes configured consequence labels at runtime?
-* What behavior distinguishes warnings from recoverable failures?
-* How do `experiment_failure` and `session_failure` labels affect their respective lifecycles?
-* Which consequences trigger Controller actions, automatic stop, or operator notification?
-* How are repeated observations interpreted during runtime policy execution?
+* What Controller action distinguishes informational evidence, warnings, and recoverable failures?
+* How do `experiment_failure` and `session_failure` interpretations affect their respective lifecycles?
+* Which interpretations trigger automatic stop or operator notification?
+* How does Controller handle repeated or conflicting Health Interpretation Evidence?
 
 ### Blocks
 

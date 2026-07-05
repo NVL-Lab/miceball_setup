@@ -4,7 +4,10 @@ from lab_sync_acquisition.acquisition_node import (
     AcquisitionIterationSummary,
     AcquisitionNode,
 )
-from lab_sync_acquisition.acquisition_health import AcquisitionHealthPolicy
+from lab_sync_acquisition.acquisition_health import (
+    AcquisitionHealthPolicy,
+    HealthInterpretationEvidence,
+)
 from lab_sync_acquisition.acquisition_node_readiness import AcquisitionNodeReadiness
 from lab_sync_acquisition.acquisition_record import AcquisitionRecordEnvelope
 from lab_sync_acquisition.controller import Controller, ControllerCommandResult
@@ -80,6 +83,7 @@ __all__ = [
     "ExperimentLifecycleEvidence",
     "ExperimentRuntimeHealthMapping",
     "ExperimentScopedHealthObservation",
+    "HealthInterpretationEvidence",
     "LifecycleTransition",
     "ReadinessCheck",
     "Session",

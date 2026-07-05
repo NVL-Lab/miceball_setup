@@ -149,6 +149,12 @@ plain-data acquisition-health policy definitions. Observation type remains
 separate from consequence, policy assignment remains Experiment-scoped, and
 runtime warning/failure/Controller behavior is intentionally deferred.
 
+The current Phase 7 slice adds SessionConfig-owned policy definitions with
+rule-specific `evaluation_rules`, immediate AcquisitionNode policy
+interpretation, and explicitly linked Health Interpretation Evidence. These
+interpretations remain evidence only; Controller actions and lifecycle
+consequences are intentionally deferred.
+
 
 
 The project follows an architecture-first development process. Architectural decisions are discussed and documented before the corresponding implementation is added to the framework.

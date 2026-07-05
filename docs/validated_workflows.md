@@ -1032,6 +1032,28 @@ Validate that Experiment-scoped health conditions remain evidence and that acqui
 
 ---
 
+# W024 - Immediate Acquisition-Health Policy Interpretation Evidence
+
+## Purpose
+
+Validate the runtime evidence chain from Session-configured policy definition through Experiment-scoped assignment, Health Observation, and immediate policy interpretation.
+
+## Validates
+
+- `SessionConfig` owns serializable `AcquisitionHealthPolicy` definitions
+- policies use named rule-specific `evaluation_rules` rather than legacy raw dictionaries
+- `ExperimentRuntimeHealthMapping` assigns a configured policy by `policy_id`
+- AcquisitionNode evaluates the assigned `first_evidence` rule for mapped live sources
+- each emitted `ExperimentScopedHealthObservation` receives a runtime-unique `observation_id`
+- exactly one immediate `HealthInterpretationEvidence` references that ID through `originating_observation_id`
+- configured interpretation labels are preserved
+- a missing interpretation entry produces `uninterpreted`
+- observation and interpretation evidence cross the existing acquisition-envelope path
+- interpretation evidence does not stop Acquisition Runtime or mark AcquisitionNode failed
+- no Controller action, lifecycle consequence, retry, recovery, notification, or orchestration is introduced
+
+---
+
 # Future Workflows
 
 The following workflows are expected to be added as the framework evolves.

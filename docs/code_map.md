@@ -4,7 +4,7 @@
 
 - AcquisitionHealthPolicy: Public import for immutable plain-data acquisition-health policy definitions and observation-vocabulary validation.
 - AcquisitionIterationSummary: Public import for the result of one bounded AcquisitionNode iteration.
-- AcquisitionNode: Public import for bounded acquisition runtime execution, active Experiment runtime mapping as the sole health-policy assignment path, configured batching, writable failure-evidence readiness, and sender-side failure handling.
+- AcquisitionNode: Public import for bounded acquisition runtime execution, Session-configured health-policy lookup, active Experiment runtime assignment, linked observation/interpretation evidence, configured batching, writable failure-evidence readiness, and sender-side failure handling.
 - AcquisitionNodeReadiness: Public import for Phase 2 node identity and aggregated device/service readiness evidence.
 - AcquisitionRecordEnvelope: Public import for the transferable acquisition record envelope shared across the acquisition-to-ingestion boundary.
 - Controller: Public import for sequential single-session orchestration using already-created runtime collaborators.
@@ -23,7 +23,8 @@
 - ExperimentDescriptor: Public import for the persistent scientific identity of one Experiment within a Session.
 - ExperimentLifecycleEvidence: Public import for canonical Session-owned Experiment start/stop evidence.
 - ExperimentRuntimeHealthMapping: Public import for one explicit live-source Experiment health assignment as plain runtime data.
-- ExperimentScopedHealthObservation: Public import for an evidence-only Experiment health condition detected by AcquisitionNode.
+- ExperimentScopedHealthObservation: Public import for an identified evidence-only Experiment health condition detected by AcquisitionNode.
+- HealthInterpretationEvidence: Public import for immutable plain-data evidence explicitly linked to the Health Observation interpreted by AcquisitionHealthPolicy without executing framework action.
 - DeviceStatus: Public import for live adapter status snapshots.
 - IngestAuditRecord: Public import for ingest audit evidence recorded for each received acquisition envelope.
 - InMemoryIngestor: Public import for the minimal in-memory envelope receiver that can forward accepted envelopes to storage.
@@ -33,7 +34,7 @@
 - OpenCVCameraConfig: Public import for explicit OpenCV camera initialization and polling configuration.
 - ReadinessCheck: Public import for recorded readiness checks.
 - Session: Public import for the runtime session lifecycle model.
-- SessionConfig: Public import for the immutable accepted run configuration, including its explicit error evidence location, owned by a Session and preserved as part of the Session Record.
+- SessionConfig: Public import for the immutable accepted run configuration, including Session-scoped AcquisitionHealthPolicy definitions and its explicit error evidence location, owned by a Session and preserved as part of the Session Record.
 - SeeedIMX219OpenCVCameraAdapter: Public import for the concrete OpenCV-backed metadata-only adapter for a Seeed IMX219 camera.
 - SessionLifecycleError: Public import for lifecycle operation failures.
 - SessionState: Public import for accepted Phase 1 session lifecycle states.
@@ -46,7 +47,8 @@
 
 ## src/lab_sync_acquisition/acquisition_health.py
 
-- AcquisitionHealthPolicy: Stores explicit evaluation parameters and observation-to-consequence-label vocabulary, supports plain-data round trips, and validates interpretation keys against supplied supported observations without executing policy.
+- AcquisitionHealthPolicy: Stores named rule-specific evaluation substructures and observation-to-interpretation vocabulary, supports plain-data round trips, and validates interpretation keys against supplied supported observations.
+- HealthInterpretationEvidence: Records the assigned policy's interpretation of one explicitly referenced Experiment-scoped Health Observation as immutable plain data without executing framework action.
 
 ## src/lab_sync_acquisition/acquisition_record.py
 
@@ -55,7 +57,7 @@
 ## src/lab_sync_acquisition/acquisition_node.py
 
 - AcquisitionIterationSummary: Records the small inspectable summary returned by one bounded acquisition iteration.
-- AcquisitionNode: Owns bounded acquisition runtime execution, scopes health evaluation to its active Experiment mapping, and exposes evidence-only ExperimentScopedHealthObservation records without assigning consequences.
+- AcquisitionNode: Owns bounded acquisition runtime execution, scopes health evaluation to its active Experiment mapping, and emits explicitly linked ExperimentScopedHealthObservation and HealthInterpretationEvidence records without executing framework actions.
 
 ## src/lab_sync_acquisition/device.py
 
@@ -85,7 +87,7 @@
 ## src/lab_sync_acquisition/experiment_runtime.py
 
 - ExperimentRuntimeHealthMapping: Records one immutable live-source-to-Expected-Participant mapping and the authoritative Experiment-scoped acquisition-health policy assignment, with plain-data round trips but no evaluation behavior.
-- ExperimentScopedHealthObservation: Records an Experiment-scoped health condition, source and participant identity, policy context, Session Time, and audit details as plain evidence without operational consequence.
+- ExperimentScopedHealthObservation: Records a runtime-unique observation identity, Experiment-scoped health condition, source and participant identity, policy context, Session Time, and audit details as plain evidence without operational consequence.
 
 ## src/lab_sync_acquisition/ingestor.py
 

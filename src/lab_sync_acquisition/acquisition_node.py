@@ -10,6 +10,10 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Any, Iterable
 
+from lab_sync_acquisition.acquisition_health import (
+    AcquisitionHealthPolicy,
+    HealthInterpretationEvidence,
+)
 from lab_sync_acquisition.acquisition_record import AcquisitionRecordEnvelope
 from lab_sync_acquisition.acquisition_node_readiness import AcquisitionNodeReadiness
 from lab_sync_acquisition.device_manager import DeviceManager
@@ -45,6 +49,7 @@ class AcquisitionNode:
         node_id: str | None = None,
         role: str | None = None,
         acquisition_configuration: Mapping[str, Any] | None = None,
+        acquisition_health_policies: Iterable[AcquisitionHealthPolicy] = (),
         error_evidence_location: str | None = None,
     ) -> None:
         self._session_id = session_id
@@ -54,9 +59,10 @@ class AcquisitionNode:
         self._node_id = node_id
         self._role = role
         self._error_evidence_location = error_evidence_location
-        self._acquisition_health_policies = self._read_acquisition_health_policies(
-            acquisition_configuration
-        )
+        self._acquisition_health_policies = {
+            policy.policy_id: policy
+            for policy in acquisition_health_policies
+        }
         self._acquisition_health_observed_counts: dict[str, int] = {}
         self._acquisition_health_observations_recorded: set[str] = set()
         self._acquisition_start_session_time_s: float | None = None
@@ -88,6 +94,10 @@ class AcquisitionNode:
         self._experiment_scoped_health_observations: list[
             ExperimentScopedHealthObservation
         ] = []
+        self._health_interpretation_evidence: list[
+            HealthInterpretationEvidence
+        ] = []
+        self._next_health_observation_id = 1
 
     @property
     def experiment_scoped_health_observations(
@@ -96,6 +106,14 @@ class AcquisitionNode:
         """Experiment-scoped health observations in detection order."""
 
         return tuple(self._experiment_scoped_health_observations)
+
+    @property
+    def health_interpretation_evidence(
+        self,
+    ) -> tuple[HealthInterpretationEvidence, ...]:
+        """Policy interpretations in originating observation order."""
+
+        return tuple(self._health_interpretation_evidence)
 
     def activate_experiment_runtime_health_mapping(
         self,
@@ -540,21 +558,6 @@ class AcquisitionNode:
             return None
         return threshold
 
-    def _read_acquisition_health_policies(
-        self,
-        acquisition_configuration: Mapping[str, Any] | None,
-    ) -> dict[str, Mapping[str, Any]]:
-        if not isinstance(acquisition_configuration, Mapping):
-            return {}
-        policies = acquisition_configuration.get("acquisition_health_policies")
-        if not isinstance(policies, Mapping):
-            return {}
-        return {
-            str(name): policy
-            for name, policy in policies.items()
-            if isinstance(name, str) and isinstance(policy, Mapping)
-        }
-
     def _failure_evidence_readiness(self) -> ServiceReadiness:
         if not self._error_evidence_location:
             return ServiceReadiness(
@@ -610,13 +613,14 @@ class AcquisitionNode:
         policy = self._acquisition_health_policies.get(
             mapping.acquisition_health_policy
         )
-        if not self._valid_first_record_policy(policy):
+        rule = self._first_evidence_rule(policy)
+        if rule is None:
             return
-        if record_kind != policy["record_kind"]:
+        if record_kind != rule["record_kind"]:
             return
         grace_deadline = (
             (self._acquisition_start_session_time_s or 0.0)
-            + float(policy["grace_window_s"])
+            + float(rule["grace_window_s"])
         )
         self._acquisition_health_observed_counts[source_device_id] += sum(
             "session_time_s" in row
@@ -642,14 +646,16 @@ class AcquisitionNode:
             if source_device_id in self._acquisition_health_observations_recorded:
                 continue
             policy = self._acquisition_health_policies.get(policy_name)
-            if not self._valid_first_record_policy(policy):
+            rule = self._first_evidence_rule(policy)
+            if rule is None:
                 continue
             observed_count = self._acquisition_health_observed_counts[source_device_id]
-            grace_window_s = float(policy["grace_window_s"])
+            grace_window_s = float(rule["grace_window_s"])
             elapsed = current_session_time_s - self._acquisition_start_session_time_s
             if observed_count > 0 or elapsed < grace_window_s:
                 continue
             observation = ExperimentScopedHealthObservation(
+                observation_id=f"health-observation-{self._next_health_observation_id}",
                 experiment_id=self._active_experiment_id or "",
                 live_source_id=source_device_id,
                 expected_participant_id=mapping.expected_participant_id,
@@ -659,12 +665,13 @@ class AcquisitionNode:
                 required=mapping.required,
                 session_time_s=current_session_time_s,
                 details={
-                    "policy_kind": "first_record_within_grace_window",
-                    "expected_record_kind": policy["record_kind"],
+                    "policy_kind": "first_evidence",
+                    "expected_record_kind": rule["record_kind"],
                     "grace_window_s": grace_window_s,
                     "observed_record_count": observed_count,
                 },
             )
+            self._next_health_observation_id += 1
             self._experiment_scoped_health_observations.append(observation)
             audits.append(
                 self._send_envelope(
@@ -673,24 +680,51 @@ class AcquisitionNode:
                     records=(observation.to_dict(),),
                 )
             )
+            interpretation = HealthInterpretationEvidence(
+                originating_observation_id=observation.observation_id,
+                experiment_id=observation.experiment_id,
+                live_source_id=observation.live_source_id,
+                expected_participant_id=observation.expected_participant_id,
+                observation_type=observation.observation_type,
+                acquisition_health_policy=observation.acquisition_health_policy,
+                interpretation_label=policy.interpretation.get(
+                    observation.observation_type,
+                    "uninterpreted",
+                ),
+                required=observation.required,
+                session_time_s=observation.session_time_s,
+                details={"expected_contribution": mapping.expected_contribution},
+            )
+            self._health_interpretation_evidence.append(interpretation)
+            audits.append(
+                self._send_envelope(
+                    source_device_id="acquisition_node",
+                    record_kind="event",
+                    records=(interpretation.to_dict(),),
+                )
+            )
             self._acquisition_health_observations_recorded.add(source_device_id)
         return tuple(audits)
 
-    def _valid_first_record_policy(
+    def _first_evidence_rule(
         self,
-        policy: Mapping[str, Any] | None,
-    ) -> bool:
+        policy: AcquisitionHealthPolicy | None,
+    ) -> Mapping[str, Any] | None:
         if policy is None:
-            return False
-        grace_window_s = policy.get("grace_window_s")
-        return (
-            policy.get("kind") == "first_record_within_grace_window"
-            and isinstance(policy.get("record_kind"), str)
+            return None
+        rule = policy.evaluation_rules.get("first_evidence")
+        if rule is None:
+            return None
+        grace_window_s = rule.get("grace_window_s")
+        if (
+            isinstance(rule.get("record_kind"), str)
             and not isinstance(grace_window_s, bool)
             and isinstance(grace_window_s, (int, float))
             and isfinite(grace_window_s)
             and grace_window_s >= 0
-        )
+        ):
+            return rule
+        return None
 
     def _stream_batching_enabled(self) -> bool:
         return (

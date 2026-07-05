@@ -14,6 +14,7 @@ from tests.fakes import ReadyFakeAdapter
 class ExperimentRuntimeHealthMappingTests(unittest.TestCase):
     def test_health_observation_round_trips_as_plain_evidence(self):
         observation = ExperimentScopedHealthObservation(
+            observation_id="health-observation-1",
             experiment_id="experiment-001",
             live_source_id="camera-source-001",
             expected_participant_id="camera-001",
