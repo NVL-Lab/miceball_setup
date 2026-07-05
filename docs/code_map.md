@@ -8,6 +8,7 @@
 - AcquisitionNodeReadiness: Public import for Phase 2 node identity and aggregated device/service readiness evidence.
 - AcquisitionRecordEnvelope: Public import for the transferable acquisition record envelope shared across the acquisition-to-ingestion boundary.
 - Controller: Public import for sequential single-session orchestration using already-created runtime collaborators.
+- ControllerActionDecision: Public import for one immutable evidence-only Controller decision derived from explicitly presented HealthInterpretationEvidence.
 - ControllerCommandResult: Public import for one Controller command outcome.
 - DeviceAdapter: Public import for the minimum live runtime control interface for one device adapter.
 - DeviceAdapterLifecycleError: Public import for invalid live adapter lifecycle operations.
@@ -21,7 +22,7 @@
 - DeviceReadinessSummary: Public import for aggregated Device Manager readiness results.
 - ExpectedParticipant: Public import for a plain-data declaration of expected contribution during one Experiment.
 - ExperimentDescriptor: Public import for the persistent scientific identity of one Experiment within a Session.
-- ExperimentLifecycleEvidence: Public import for canonical Session-owned Experiment start/stop evidence.
+- ExperimentLifecycleEvidence: Public import for canonical Session-owned Experiment start, normal-stop, and failure evidence.
 - ExperimentRuntimeHealthMapping: Public import for one explicit live-source Experiment health assignment as plain runtime data.
 - ExperimentScopedHealthObservation: Public import for an identified evidence-only Experiment health condition detected by AcquisitionNode.
 - HealthInterpretationEvidence: Public import for immutable plain-data evidence explicitly linked to the Health Observation interpreted by AcquisitionHealthPolicy without executing framework action.
@@ -66,7 +67,8 @@
 ## src/lab_sync_acquisition/controller.py
 
 - ControllerCommandResult: Records one command outcome and exposes its command, success, details, and error as plain evidence.
-- Controller: Sequentially coordinates one Session, activates and clears the active Experiment runtime health mapping on AcquisitionNode without persisting or evaluating it, creates Experiment descriptors and canonical lifecycle evidence, handles runtime failure outcomes and cleanup, and performs two-step Session Record finalization.
+- ControllerActionDecision: Records one health-derived Controller decision with Session, Experiment, source, policy, interpretation, and originating-observation provenance without executing framework consequences.
+- Controller: Sequentially coordinates one Session, records decisions through `process_health_interpretation()`, executes accepted failure decisions through `execute_controller_action_decision()`, activates and clears Experiment runtime health mappings, creates canonical lifecycle evidence, handles runtime failure cleanup, and performs two-step Session Record finalization.
 
 ## src/lab_sync_acquisition/device_adapter.py
 
@@ -120,7 +122,7 @@
 - LifecycleTransition: Records an allowed lifecycle state transition in sequence order and exposes it as plain data for Session Record evidence.
 - ExpectedParticipant: Records participant identity, type, expected contribution, and required status as an inert plain-data declaration.
 - ExperimentDescriptor: Records the persistent scientific identity, caller-supplied details, and ordered Expected Participants of one Experiment as plain Session Record data.
-- ExperimentLifecycleEvidence: Records canonical `experiment_start` or `experiment_stop` evidence in the Session timeline as plain data.
+- ExperimentLifecycleEvidence: Records canonical `experiment_start`, `experiment_stop`, or `experiment_fail` evidence in the Session timeline as plain data.
 - SessionLifecycleError: Signals invalid lifecycle operations or failed readiness requirements.
 - Session: Owns lifecycle, readiness, Experiment descriptors, canonical Experiment lifecycle evidence, cleanup status, and final status in memory.
 

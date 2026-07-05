@@ -3827,6 +3827,78 @@ Policies own evaluation rules.
 Assignments own policies.
 ```
 
+---
+
+## Decision 112: Controller records evidence-only action decisions for explicitly presented health interpretations
+
+**Status:** Accepted
+
+Controller owns decisions derived from `HealthInterpretationEvidence` when that evidence is explicitly presented to it.
+
+For each presented interpretation, Controller produces exactly one immutable plain-data `ControllerActionDecision` and records it as Controller evidence.
+
+```text
+ExperimentScopedHealthObservation
+        |
+HealthInterpretationEvidence
+        |
+Controller
+        |
+ControllerActionDecision
+```
+
+Phase 8a maps interpretation labels to evidence-only decisions:
+
+```text
+informational       -> record_only
+uninterpreted       -> record_only
+warning             -> record_warning_decision
+recoverable_failure -> record_recoverable_failure_decision
+experiment_failure  -> record_experiment_failure_decision
+session_failure     -> record_session_failure_decision
+```
+
+These decisions preserve interpretation and originating-observation provenance but do not mutate Session, Experiment, AcquisitionNode, DeviceManager, or SynchronizationManager lifecycle or runtime state.
+
+This decision does not define evidence delivery, polling, callbacks, subscriptions, event buses, transport, aggregation, distributed coordination, lifecycle consequences, retry, recovery, notification, operator acknowledgement, or GUI behavior.
+
+**Principle**
+
+```text
+Health interpretation explicitly presented
+        |
+Controller records one action decision
+        |
+Framework consequence remains separate
+```
+
+---
+
+## Decision 113: Controller executes Experiment- and Session-failure action decisions through existing lifecycle owners
+
+**Status:** Accepted
+
+Experiment lifecycle terminal events are distinct: `experiment_stop` records normal completion, `experiment_fail` records unexpected Experiment-level framework or runtime failure, and `experiment_abort` is reserved for future intentional early termination and is not implemented in Phase 8b.
+
+Controller executes `record_experiment_failure_decision` by asking Session to record canonical `experiment_fail` evidence, ending the active Experiment, and clearing the active Experiment runtime health mapping from both Controller and AcquisitionNode.
+
+Experiment failure does not fail or stop the Session and does not stop Acquisition Runtime.
+
+Controller executes `record_session_failure_decision` through its existing failed-Session path: Acquisition Runtime cleanup is attempted and Session transitions through its accepted stopping/failed lifecycle. No new cleanup semantics are introduced.
+
+This decision does not introduce `experiment_abort`, a generic Experiment end-reason field, notification, retry, recovery, distributed delivery, aggregation, polling, callbacks, or event buses.
+
+**Principle**
+
+```text
+Experiment failure
+    ends the active Experiment
+    but does not imply Session failure.
+
+Session failure
+    uses the existing failed-Session cleanup path.
+```
+
 
 
 --- ********************************************************************************
@@ -3945,6 +4017,8 @@ The following principles summarize the accepted decisions so far.
 109. Every Health Interpretation Evidence record explicitly references the stable runtime identity of the Health Observation it interpreted.
 110. AcquisitionHealthPolicy definitions are persistent SessionConfig data; ExperimentRuntimeHealthMapping provides Experiment-scoped assignment to live sources.
 111. AcquisitionHealthPolicy evaluation parameters live in independent named evaluation_rules substructures owned by the rules that use them.
+112. Controller records exactly one evidence-only ControllerActionDecision for each explicitly presented HealthInterpretationEvidence without mutating framework lifecycle or runtime state.
+113. Controller executes Experiment-failure decisions as canonical experiment_fail evidence without failing Session, and executes Session-failure decisions through the existing failed-Session cleanup path.
 
 ---
 

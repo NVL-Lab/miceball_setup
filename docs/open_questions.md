@@ -220,25 +220,23 @@ Do not implement retry/replay in the first handoff failure slice. Preserve sende
 
 ---
 
-## Q013: How does Controller act on Health Interpretation Evidence?
+## Q013: How are ControllerActionDecisions executed?
 
 ### Why this matters
 
-Decisions 103-111 establish and the current Phase 7 implementation validates evidence-only Health Observations, SessionConfig-owned policy definitions with named `evaluation_rules`, Experiment-scoped assignment through the active Experiment Runtime Health Mapping, immediate AcquisitionNode interpretation, explicit observation provenance, `uninterpreted` outcomes, and envelope-path persistence/readback. AcquisitionNode does not perform framework actions. Remaining architecture begins with Controller responses and their framework and lifecycle consequences.
+Decisions 103-113 establish the runtime health evidence chain, evidence-only Controller decisions, and Phase 8b execution for Experiment- and Session-failure decisions. Experiment failure records canonical `experiment_fail` evidence and ends only the active Experiment; Session failure uses the existing failed-Session cleanup path. Remaining architecture concerns warning/recoverable-failure execution and other deferred consequence behavior.
 
 ### Questions
 
-* What Controller action distinguishes informational evidence, warnings, and recoverable failures?
-* How do `experiment_failure` and `session_failure` interpretations affect their respective lifecycles?
-* Which interpretations trigger automatic stop or operator notification?
-* How does Controller handle repeated or conflicting Health Interpretation Evidence?
+* How are warning and recoverable-failure decisions represented beyond Controller decision evidence?
+* Which non-failure decisions trigger automatic stop, cleanup, or operator notification?
+* How does Controller execute repeated or conflicting decisions?
 
 ### Blocks
 
 * Fatal/warning health behavior
 * Session failure integration
 * Operator notification
-
 
 ## Q014: What is the receiver-side Ingestor validation model?
 
@@ -283,4 +281,24 @@ Decisions 095–102 establish canonical Experiment lifecycle ownership, distingu
 * Validation orchestration
 * Abort semantics
 * Multi-session and distributed orchestration
+
+---
+
+## Q016: How does Health Interpretation Evidence reach Controller during distributed runtime?
+
+### Why this matters
+
+Phase 8a accepts one `HealthInterpretationEvidence` through an explicit Controller method call. It intentionally does not define polling, callbacks, subscriptions, transport, event buses, aggregation, or multi-node delivery.
+
+### Questions
+
+* Which runtime boundary delivers interpretation evidence to Controller?
+* How are ordering, duplication, and loss represented across processes or machines?
+* How does delivery preserve originating-observation provenance?
+* How are multiple Acquisition Nodes distinguished without coupling Controller to their live objects?
+
+### Blocks
+
+* Distributed health consequence handling
+* Multi-node Controller integration
 

@@ -155,6 +155,16 @@ interpretation, and explicitly linked Health Interpretation Evidence. These
 interpretations remain evidence only; Controller actions and lifecycle
 consequences are intentionally deferred.
 
+Phase 8a adds explicit, evidence-only `ControllerActionDecision` records for
+Health Interpretation Evidence presented directly to Controller. Decision
+execution, lifecycle consequences, notification, recovery, and distributed
+evidence delivery remain intentionally deferred.
+
+Phase 8b executes Experiment- and Session-failure decisions through existing
+lifecycle owners. Experiment failure records canonical `experiment_fail`
+evidence and ends only the active Experiment; Session failure reuses the
+existing failed-Session cleanup path.
+
 
 
 The project follows an architecture-first development process. Architectural decisions are discussed and documented before the corresponding implementation is added to the framework.

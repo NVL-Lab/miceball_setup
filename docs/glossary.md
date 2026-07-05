@@ -43,7 +43,17 @@ The Controller coordinates existing components but does not own Session lifecycl
 
 The GUI and Controller are conceptually separate, even if they run on the same machine.
 
-The Controller owns canonical Experiment lifecycle orchestration. AcquisitionNodes record local execution evidence associated with an active Experiment. Future Controller behavior owns framework actions based on Health Interpretation Evidence; the Controller does not perform acquisition-health policy interpretation.
+The Controller owns canonical Experiment lifecycle orchestration. AcquisitionNodes record local execution evidence associated with an active Experiment. Controller records evidence-only action decisions for Health Interpretation Evidence explicitly presented to it; it does not perform acquisition-health policy interpretation. Execution of framework consequences remains future work.
+
+---
+
+# Controller Action Decision
+
+An immutable plain-data record of the Controller decision derived from one explicitly presented Health Interpretation Evidence record.
+
+It preserves Session, Experiment, live-source, policy, interpretation, and originating-observation provenance. Phase 8a records and returns one decision per presentation without mutating Session, Experiment, Acquisition Runtime, device, or synchronization state.
+
+A Controller Action Decision is evidence of a decision. It is not itself a lifecycle transition, retry, recovery action, notification, or distributed-delivery mechanism.
 
 ---
 
@@ -120,6 +130,10 @@ Examples:
 A Session may contain no active Experiment or multiple sequential Experiment segments, with at most one active Experiment at a time. Controller owns canonical Experiment start/stop orchestration, while Session owns descriptors and lifecycle evidence.
 
 Each Experiment segment has one canonical, Controller-owned lifecycle in the Session timeline and Session Record. An Experiment declares expected participation by selected Session-owned resources without owning those resources.
+
+Canonical terminal evidence distinguishes `experiment_stop` for normal completion from `experiment_fail` for unexpected Experiment-level framework or runtime failure. `experiment_abort` is reserved for future intentional early termination and is not implemented.
+
+Experiment failure ends the active Experiment and its runtime health mapping. It does not automatically fail the Session or stop Acquisition Runtime.
 
 Session-ready resources are not automatically Experiment participants, and Experiment participants are not necessarily continuously producing records.
 

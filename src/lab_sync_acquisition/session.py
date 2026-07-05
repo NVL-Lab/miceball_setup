@@ -319,7 +319,11 @@ class Session:
             raise SessionLifecycleError(
                 "Experiment lifecycle evidence requires Session state 'running'"
             )
-        if event_type not in {"experiment_start", "experiment_stop"}:
+        if event_type not in {
+            "experiment_start",
+            "experiment_stop",
+            "experiment_fail",
+        }:
             raise ValueError(f"Unsupported Experiment lifecycle event: {event_type}")
         evidence = ExperimentLifecycleEvidence(
             experiment_id=experiment_id,

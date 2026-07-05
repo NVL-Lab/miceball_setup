@@ -1054,6 +1054,48 @@ Validate the runtime evidence chain from Session-configured policy definition th
 
 ---
 
+# W025 - Evidence-Only Controller Action Decisions
+
+## Purpose
+
+Validate that Controller maps explicitly presented Health Interpretation Evidence to one inspectable action decision without executing framework consequences.
+
+## Validates
+
+- `Controller.process_health_interpretation()` accepts exactly one explicitly supplied interpretation record
+- each presentation records and returns exactly one `ControllerActionDecision`
+- informational and uninterpreted evidence map to `record_only`
+- warning evidence maps to `record_warning_decision`
+- recoverable-failure evidence maps to `record_recoverable_failure_decision`
+- Experiment-failure evidence maps to `record_experiment_failure_decision`
+- Session-failure evidence maps to `record_session_failure_decision`
+- decisions preserve Session, Experiment, source, policy, interpretation, and originating-observation provenance
+- Controller exposes decisions in presentation order through a read-only tuple
+- Session lifecycle, Experiment lifecycle, Acquisition Runtime, and prior command status remain unchanged
+- no polling, callback, delivery mechanism, retry, recovery, notification, aggregation, or distributed orchestration is introduced
+
+---
+
+# W026 - Controller Failure-Decision Execution
+
+## Purpose
+
+Validate Phase 8b execution of Experiment- and Session-failure ControllerActionDecisions through existing lifecycle owners.
+
+## Validates
+
+- `Controller.execute_controller_action_decision()` executes accepted failure decisions explicitly
+- Experiment-failure decisions record canonical `experiment_fail` Session-owned evidence
+- Experiment failure ends the active Experiment and clears Controller and AcquisitionNode runtime health mappings
+- Experiment failure leaves Session and Acquisition Runtime running
+- Session-failure decisions use the existing runtime cleanup and failed-Session path
+- Session failure stops and shuts down devices through existing cleanup behavior
+- normal `experiment_stop` remains normal completion evidence
+- `experiment_abort` and generic Experiment end reasons are not introduced
+- no notification, retry, recovery, distributed delivery, aggregation, polling, callback, or event bus is introduced
+
+---
+
 # Future Workflows
 
 The following workflows are expected to be added as the framework evolves.

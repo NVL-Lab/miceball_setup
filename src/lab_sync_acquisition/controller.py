@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
+from lab_sync_acquisition.acquisition_health import HealthInterpretationEvidence
 from lab_sync_acquisition.acquisition_node import AcquisitionNode
 from lab_sync_acquisition.device_adapter import DeviceReadiness
 from lab_sync_acquisition.experiment_runtime import ExperimentRuntimeHealthMapping
@@ -41,6 +42,56 @@ class ControllerCommandResult:
         }
 
 
+@dataclass(frozen=True)
+class ControllerActionDecision:
+    """Evidence-only Controller decision for one health interpretation."""
+
+    originating_observation_id: str
+    session_id: str
+    experiment_id: str
+    live_source_id: str
+    acquisition_health_policy: str
+    interpretation_label: str
+    controller_decision: str
+    decision_time_s: float | None
+    details: dict[str, Any] | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return plain Controller action-decision evidence."""
+
+        return {
+            "originating_observation_id": self.originating_observation_id,
+            "session_id": self.session_id,
+            "experiment_id": self.experiment_id,
+            "live_source_id": self.live_source_id,
+            "acquisition_health_policy": self.acquisition_health_policy,
+            "interpretation_label": self.interpretation_label,
+            "controller_decision": self.controller_decision,
+            "decision_time_s": self.decision_time_s,
+            "details": self.details,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> ControllerActionDecision:
+        """Reconstruct Controller decision evidence from plain data."""
+
+        return cls(
+            originating_observation_id=data["originating_observation_id"],
+            session_id=data["session_id"],
+            experiment_id=data["experiment_id"],
+            live_source_id=data["live_source_id"],
+            acquisition_health_policy=data["acquisition_health_policy"],
+            interpretation_label=data["interpretation_label"],
+            controller_decision=data["controller_decision"],
+            decision_time_s=data["decision_time_s"],
+            details=(
+                dict(data["details"])
+                if data.get("details") is not None
+                else None
+            ),
+        )
+
+
 class Controller:
     """Coordinates one Session through already-created runtime collaborators."""
 
@@ -64,6 +115,103 @@ class Controller:
         ] = ()
         self._last_result: ControllerCommandResult | None = None
         self._command_results: list[ControllerCommandResult] = []
+        self._controller_action_decisions: list[ControllerActionDecision] = []
+
+    @property
+    def controller_action_decisions(self) -> tuple[ControllerActionDecision, ...]:
+        """Recorded health-derived decisions in presentation order."""
+
+        return tuple(self._controller_action_decisions)
+
+    def process_health_interpretation(
+        self,
+        evidence: HealthInterpretationEvidence,
+    ) -> ControllerActionDecision:
+        """Record one evidence-only decision for presented interpretation evidence."""
+
+        session = self._require_session()
+        decision_by_interpretation = {
+            "informational": "record_only",
+            "uninterpreted": "record_only",
+            "warning": "record_warning_decision",
+            "recoverable_failure": "record_recoverable_failure_decision",
+            "experiment_failure": "record_experiment_failure_decision",
+            "session_failure": "record_session_failure_decision",
+        }
+        decision = ControllerActionDecision(
+            originating_observation_id=evidence.originating_observation_id,
+            session_id=session.session_id,
+            experiment_id=evidence.experiment_id,
+            live_source_id=evidence.live_source_id,
+            acquisition_health_policy=evidence.acquisition_health_policy,
+            interpretation_label=evidence.interpretation_label,
+            controller_decision=decision_by_interpretation[
+                evidence.interpretation_label
+            ],
+            decision_time_s=self._current_session_time_s(),
+            details={
+                "expected_participant_id": evidence.expected_participant_id,
+                "required": evidence.required,
+            },
+        )
+        self._controller_action_decisions.append(decision)
+        return decision
+
+    def execute_controller_action_decision(
+        self,
+        decision: ControllerActionDecision,
+    ) -> ControllerCommandResult:
+        """Execute accepted Phase 8b lifecycle decisions."""
+
+        def command() -> dict[str, Any]:
+            session = self._require_session()
+            if decision.session_id != session.session_id:
+                raise RuntimeError(
+                    "ControllerActionDecision session_id does not match active Session"
+                )
+            if decision.controller_decision == "record_experiment_failure_decision":
+                if session.current_state != SessionState.RUNNING:
+                    raise RuntimeError(
+                        "Experiment failure requires a running Session"
+                    )
+                if self._active_experiment_id is None:
+                    raise RuntimeError("No Experiment is active")
+                if decision.experiment_id != self._active_experiment_id:
+                    raise RuntimeError(
+                        f"Active Experiment is '{self._active_experiment_id}', "
+                        f"not '{decision.experiment_id}'"
+                    )
+                evidence = session.record_experiment_lifecycle(
+                    experiment_id=decision.experiment_id,
+                    event_type="experiment_fail",
+                    session_time_s=self._current_session_time_s(),
+                    details={
+                        "originating_observation_id": (
+                            decision.originating_observation_id
+                        ),
+                        "acquisition_health_policy": (
+                            decision.acquisition_health_policy
+                        ),
+                        "interpretation_label": decision.interpretation_label,
+                        "controller_decision": decision.controller_decision,
+                    },
+                )
+                self._active_experiment_id = None
+                self._active_experiment_runtime_health_mapping = ()
+                self._acquisition_node.clear_experiment_runtime_health_mapping()
+                return evidence.to_dict()
+            if decision.controller_decision == "record_session_failure_decision":
+                self._attempt_runtime_stop()
+                self._mark_session_failed(
+                    "ControllerActionDecision requested Session failure"
+                )
+                return {"session_state": session.current_state.value}
+            raise RuntimeError(
+                "ControllerActionDecision is not executable in Phase 8b: "
+                f"{decision.controller_decision}"
+            )
+
+        return self._run_command("execute_controller_action_decision", command)
 
     def create_session(self, config: SessionConfig) -> ControllerCommandResult:
         """Create one Session from accepted configuration."""
