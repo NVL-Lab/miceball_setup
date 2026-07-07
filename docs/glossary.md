@@ -43,7 +43,7 @@ The Controller coordinates existing components but does not own Session lifecycl
 
 The GUI and Controller are conceptually separate, even if they run on the same machine.
 
-The Controller owns canonical Experiment lifecycle orchestration. AcquisitionNodes record local execution evidence associated with an active Experiment. Controller records evidence-only action decisions for Health Interpretation Evidence explicitly presented to it; it does not perform acquisition-health policy interpretation. Execution of framework consequences remains future work.
+The Controller owns canonical Experiment lifecycle orchestration. AcquisitionNodes record local execution evidence associated with an active Experiment. Controller records action decisions for Health Interpretation Evidence explicitly presented to it; it does not perform acquisition-health policy interpretation. Controller executes the accepted local no-mutation decisions and the existing Experiment- and Session-failure paths. Notification, retry, recovery, distributed delivery, and other future consequences remain deferred.
 
 ---
 
@@ -54,6 +54,8 @@ An immutable plain-data record of the Controller decision derived from one expli
 It preserves Session, Experiment, live-source, policy, interpretation, and originating-observation provenance. Phase 8a records and returns one decision per presentation without mutating Session, Experiment, Acquisition Runtime, device, or synchronization state.
 
 A Controller Action Decision is evidence of a decision. It is not itself a lifecycle transition, retry, recovery action, notification, or distributed-delivery mechanism.
+
+The normalized local vocabulary is `record_only`, `record_warning`, `record_recoverable_failure`, `operator_required`, `experiment_fail`, and `session_fail`. The first four execute successfully without lifecycle mutation; the failure decisions use the accepted Experiment- and Session-lifecycle owners.
 
 ---
 

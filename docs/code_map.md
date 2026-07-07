@@ -8,7 +8,7 @@
 - AcquisitionNodeReadiness: Public import for Phase 2 node identity and aggregated device/service readiness evidence.
 - AcquisitionRecordEnvelope: Public import for the transferable acquisition record envelope shared across the acquisition-to-ingestion boundary.
 - Controller: Public import for sequential single-session orchestration using already-created runtime collaborators.
-- ControllerActionDecision: Public import for one immutable evidence-only Controller decision derived from explicitly presented HealthInterpretationEvidence.
+- ControllerActionDecision: Public import for one immutable Controller decision using the normalized local execution vocabulary and derived from explicitly presented HealthInterpretationEvidence.
 - ControllerCommandResult: Public import for one Controller command outcome.
 - DeviceAdapter: Public import for the minimum live runtime control interface for one device adapter.
 - DeviceAdapterLifecycleError: Public import for invalid live adapter lifecycle operations.
@@ -67,8 +67,8 @@
 ## src/lab_sync_acquisition/controller.py
 
 - ControllerCommandResult: Records one command outcome and exposes its command, success, details, and error as plain evidence.
-- ControllerActionDecision: Records one health-derived Controller decision with Session, Experiment, source, policy, interpretation, and originating-observation provenance without executing framework consequences.
-- Controller: Sequentially coordinates one Session, records decisions through `process_health_interpretation()`, executes accepted failure decisions through `execute_controller_action_decision()`, activates and clears Experiment runtime health mappings, creates canonical lifecycle evidence, handles runtime failure cleanup, and performs two-step Session Record finalization.
+- ControllerActionDecision: Records one health-derived Controller decision with Session, Experiment, source, policy, interpretation, and originating-observation provenance using the normalized local decision vocabulary.
+- Controller: Sequentially coordinates one Session, records normalized decisions through `process_health_interpretation()`, executes evidence-only and accepted failure decisions through `execute_controller_action_decision()`, activates and clears Experiment runtime health mappings, creates canonical lifecycle evidence, handles runtime failure cleanup, and performs two-step Session Record finalization.
 
 ## src/lab_sync_acquisition/device_adapter.py
 

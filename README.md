@@ -165,6 +165,11 @@ lifecycle owners. Experiment failure records canonical `experiment_fail`
 evidence and ends only the active Experiment; Session failure reuses the
 existing failed-Session cleanup path.
 
+Phase 9 normalizes local `ControllerActionDecision` vocabulary. Record-only,
+warning, recoverable-failure, and operator-required decisions execute
+successfully without lifecycle mutation; `experiment_fail` and `session_fail`
+retain their accepted lifecycle behavior.
+
 
 
 The project follows an architecture-first development process. Architectural decisions are discussed and documented before the corresponding implementation is added to the framework.

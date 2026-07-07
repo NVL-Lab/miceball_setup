@@ -22,10 +22,10 @@ class ControllerActionDecisionTests(unittest.TestCase):
         expected_decisions = {
             "informational": "record_only",
             "uninterpreted": "record_only",
-            "warning": "record_warning_decision",
-            "recoverable_failure": "record_recoverable_failure_decision",
-            "experiment_failure": "record_experiment_failure_decision",
-            "session_failure": "record_session_failure_decision",
+            "warning": "record_warning",
+            "recoverable_failure": "record_recoverable_failure",
+            "experiment_failure": "experiment_fail",
+            "session_failure": "session_fail",
         }
 
         with tempfile.TemporaryDirectory() as directory:
@@ -69,6 +69,52 @@ class ControllerActionDecisionTests(unittest.TestCase):
                 decision.acquisition_health_policy,
                 evidence.acquisition_health_policy,
             )
+
+    def test_no_mutation_decisions_execute_successfully(self):
+        with tempfile.TemporaryDirectory() as directory:
+            controller, node, _, _ = self._running_controller(Path(directory))
+            before = controller.get_status()
+            decisions = [
+                controller.process_health_interpretation(
+                    self._evidence(index, interpretation)
+                )
+                for index, interpretation in enumerate(
+                    ("informational", "uninterpreted", "warning", "recoverable_failure"),
+                    start=1,
+                )
+            ]
+            decisions.append(
+                ControllerActionDecision(
+                    originating_observation_id="health-observation-operator",
+                    session_id="controller-action-session",
+                    experiment_id="experiment-001",
+                    live_source_id="camera-source-001",
+                    acquisition_health_policy="camera-policy",
+                    interpretation_label="warning",
+                    controller_decision="operator_required",
+                    decision_time_s=1.25,
+                )
+            )
+
+            for decision in decisions:
+                result = controller.execute_controller_action_decision(decision)
+                self.assertTrue(result.succeeded, result.error)
+                self.assertEqual(
+                    result.details,
+                    {
+                        "controller_decision": decision.controller_decision,
+                        "lifecycle_mutated": False,
+                    },
+                )
+
+            after = controller.get_status()
+            self.assertEqual(after["session_state"], before["session_state"])
+            self.assertEqual(
+                after["active_experiment_runtime_health_mapping"],
+                before["active_experiment_runtime_health_mapping"],
+            )
+            self.assertTrue(node.status()["is_running"])
+            controller.stop_session()
 
     def test_experiment_failure_ends_only_active_experiment(self):
         with tempfile.TemporaryDirectory() as directory:

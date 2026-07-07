@@ -3849,6 +3849,8 @@ ControllerActionDecision
 
 Phase 8a maps interpretation labels to evidence-only decisions:
 
+**Superseded in vocabulary by Decision 114:** The Phase 8 labels below are retained as historical context; current local decision names are defined by Decision 114.
+
 ```text
 informational       -> record_only
 uninterpreted       -> record_only
@@ -3878,6 +3880,8 @@ Framework consequence remains separate
 
 **Status:** Accepted
 
+**Superseded in vocabulary by Decision 114:** The lifecycle ownership and behavior remain accepted; the current decision names are `experiment_fail` and `session_fail`.
+
 Experiment lifecycle terminal events are distinct: `experiment_stop` records normal completion, `experiment_fail` records unexpected Experiment-level framework or runtime failure, and `experiment_abort` is reserved for future intentional early termination and is not implemented in Phase 8b.
 
 Controller executes `record_experiment_failure_decision` by asking Session to record canonical `experiment_fail` evidence, ending the active Experiment, and clearing the active Experiment runtime health mapping from both Controller and AcquisitionNode.
@@ -3897,6 +3901,39 @@ Experiment failure
 
 Session failure
     uses the existing failed-Session cleanup path.
+```
+
+---
+
+## Decision 114: ControllerActionDecision uses normalized local execution vocabulary
+
+**Status:** Accepted
+
+Controller maps health interpretations to the following local decision vocabulary:
+
+```text
+informational       -> record_only
+uninterpreted       -> record_only
+warning             -> record_warning
+recoverable_failure -> record_recoverable_failure
+experiment_failure  -> experiment_fail
+session_failure     -> session_fail
+```
+
+`record_only`, `record_warning`, `record_recoverable_failure`, and `operator_required` are successful local executions that record decision evidence without lifecycle mutation.
+
+`experiment_fail` records canonical `experiment_fail` evidence, ends only the active Experiment, clears its runtime health mapping, and leaves Session running.
+
+`session_fail` uses the existing failed-Session lifecycle and cleanup path.
+
+This decision normalizes the Phase 8 decision labels. It does not introduce distributed delivery, notification, retry, recovery, aggregation, GUI behavior, or `experiment_abort`.
+
+**Principle**
+
+```text
+ControllerActionDecision names the local decision directly.
+Evidence-only decisions succeed without lifecycle mutation.
+Failure decisions use their already accepted lifecycle owners.
 ```
 
 
@@ -4019,6 +4056,7 @@ The following principles summarize the accepted decisions so far.
 111. AcquisitionHealthPolicy evaluation parameters live in independent named evaluation_rules substructures owned by the rules that use them.
 112. Controller records exactly one evidence-only ControllerActionDecision for each explicitly presented HealthInterpretationEvidence without mutating framework lifecycle or runtime state.
 113. Controller executes Experiment-failure decisions as canonical experiment_fail evidence without failing Session, and executes Session-failure decisions through the existing failed-Session cleanup path.
+114. ControllerActionDecision uses normalized local decision names; evidence-only decisions execute successfully without lifecycle mutation.
 
 ---
 

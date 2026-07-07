@@ -220,22 +220,21 @@ Do not implement retry/replay in the first handoff failure slice. Preserve sende
 
 ---
 
-## Q013: How are ControllerActionDecisions executed?
+## Q013: What further framework behavior follows ControllerActionDecision execution?
 
 ### Why this matters
 
-Decisions 103-113 establish the runtime health evidence chain, evidence-only Controller decisions, and Phase 8b execution for Experiment- and Session-failure decisions. Experiment failure records canonical `experiment_fail` evidence and ends only the active Experiment; Session failure uses the existing failed-Session cleanup path. Remaining architecture concerns warning/recoverable-failure execution and other deferred consequence behavior.
+Decisions 103-114 establish the runtime health evidence chain and normalized local Controller decision execution. `record_only`, `record_warning`, `record_recoverable_failure`, and `operator_required` succeed without lifecycle mutation; `experiment_fail` and `session_fail` use their accepted lifecycle owners. Remaining architecture concerns any future behavior beyond these local semantics.
 
 ### Questions
 
-* How are warning and recoverable-failure decisions represented beyond Controller decision evidence?
-* Which non-failure decisions trigger automatic stop, cleanup, or operator notification?
+* Should warning, recoverable-failure, or operator-required decisions later trigger external notification or acknowledgement behavior?
+* What explicit future decision would authorize escalation beyond their current no-mutation semantics?
 * How does Controller execute repeated or conflicting decisions?
 
 ### Blocks
 
 * Fatal/warning health behavior
-* Session failure integration
 * Operator notification
 
 ## Q014: What is the receiver-side Ingestor validation model?
@@ -301,4 +300,7 @@ Phase 8a accepts one `HealthInterpretationEvidence` through an explicit Controll
 
 * Distributed health consequence handling
 * Multi-node Controller integration
+
+---
+
 

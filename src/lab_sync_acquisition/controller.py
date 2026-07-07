@@ -133,10 +133,10 @@ class Controller:
         decision_by_interpretation = {
             "informational": "record_only",
             "uninterpreted": "record_only",
-            "warning": "record_warning_decision",
-            "recoverable_failure": "record_recoverable_failure_decision",
-            "experiment_failure": "record_experiment_failure_decision",
-            "session_failure": "record_session_failure_decision",
+            "warning": "record_warning",
+            "recoverable_failure": "record_recoverable_failure",
+            "experiment_failure": "experiment_fail",
+            "session_failure": "session_fail",
         }
         decision = ControllerActionDecision(
             originating_observation_id=evidence.originating_observation_id,
@@ -169,7 +169,17 @@ class Controller:
                 raise RuntimeError(
                     "ControllerActionDecision session_id does not match active Session"
                 )
-            if decision.controller_decision == "record_experiment_failure_decision":
+            if decision.controller_decision in {
+                "record_only",
+                "record_warning",
+                "record_recoverable_failure",
+                "operator_required",
+            }:
+                return {
+                    "controller_decision": decision.controller_decision,
+                    "lifecycle_mutated": False,
+                }
+            if decision.controller_decision == "experiment_fail":
                 if session.current_state != SessionState.RUNNING:
                     raise RuntimeError(
                         "Experiment failure requires a running Session"
@@ -200,7 +210,7 @@ class Controller:
                 self._active_experiment_runtime_health_mapping = ()
                 self._acquisition_node.clear_experiment_runtime_health_mapping()
                 return evidence.to_dict()
-            if decision.controller_decision == "record_session_failure_decision":
+            if decision.controller_decision == "session_fail":
                 self._attempt_runtime_stop()
                 self._mark_session_failed(
                     "ControllerActionDecision requested Session failure"

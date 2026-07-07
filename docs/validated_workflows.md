@@ -1065,13 +1065,13 @@ Validate that Controller maps explicitly presented Health Interpretation Evidenc
 - `Controller.process_health_interpretation()` accepts exactly one explicitly supplied interpretation record
 - each presentation records and returns exactly one `ControllerActionDecision`
 - informational and uninterpreted evidence map to `record_only`
-- warning evidence maps to `record_warning_decision`
-- recoverable-failure evidence maps to `record_recoverable_failure_decision`
-- Experiment-failure evidence maps to `record_experiment_failure_decision`
-- Session-failure evidence maps to `record_session_failure_decision`
+- warning evidence maps to `record_warning`
+- recoverable-failure evidence maps to `record_recoverable_failure`
+- Experiment-failure evidence maps to `experiment_fail`
+- Session-failure evidence maps to `session_fail`
 - decisions preserve Session, Experiment, source, policy, interpretation, and originating-observation provenance
 - Controller exposes decisions in presentation order through a read-only tuple
-- Session lifecycle, Experiment lifecycle, Acquisition Runtime, and prior command status remain unchanged
+- `record_only`, `record_warning`, `record_recoverable_failure`, and `operator_required` execute successfully without lifecycle mutation
 - no polling, callback, delivery mechanism, retry, recovery, notification, aggregation, or distributed orchestration is introduced
 
 ---
@@ -1085,10 +1085,10 @@ Validate Phase 8b execution of Experiment- and Session-failure ControllerActionD
 ## Validates
 
 - `Controller.execute_controller_action_decision()` executes accepted failure decisions explicitly
-- Experiment-failure decisions record canonical `experiment_fail` Session-owned evidence
+- `experiment_fail` decisions record canonical `experiment_fail` Session-owned evidence
 - Experiment failure ends the active Experiment and clears Controller and AcquisitionNode runtime health mappings
 - Experiment failure leaves Session and Acquisition Runtime running
-- Session-failure decisions use the existing runtime cleanup and failed-Session path
+- `session_fail` decisions use the existing runtime cleanup and failed-Session path
 - Session failure stops and shuts down devices through existing cleanup behavior
 - normal `experiment_stop` remains normal completion evidence
 - `experiment_abort` and generic Experiment end reasons are not introduced
