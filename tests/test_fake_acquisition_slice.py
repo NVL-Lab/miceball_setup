@@ -381,6 +381,8 @@ class FakeAcquisitionSliceTests(unittest.TestCase):
                 "failed": False,
                 "consecutive_must_preserve_handoff_failures": 0,
                 "active_experiment_runtime_health_mapping": (),
+                "active_experiment_runtime_context": None,
+                "active_synchronization_mapping": None,
             },
         )
 
@@ -521,7 +523,15 @@ class FakeAcquisitionSliceTests(unittest.TestCase):
         self.assertTrue(all("device_time_s" in row for row in stored_rows))
         self.assertEqual(
             [
-                {key: value for key, value in row.items() if key != "session_time_s"}
+                {
+                    key: value
+                    for key, value in row.items()
+                    if key not in {
+                        "session_time_s",
+                        "acquisition_node_local_time_s",
+                        "timestamp_status",
+                    }
+                }
                 for row in stored_rows
             ],
             original_payload_rows,
@@ -532,7 +542,15 @@ class FakeAcquisitionSliceTests(unittest.TestCase):
         )
         self.assertTrue(
             all(
-                set(row) == {"device_time_s", "session_time_s", "step", "value"}
+                set(row)
+                == {
+                    "device_time_s",
+                    "session_time_s",
+                    "acquisition_node_local_time_s",
+                    "timestamp_status",
+                    "step",
+                    "value",
+                }
                 for row in stored_rows
             )
         )
@@ -678,7 +696,11 @@ class FakeAcquisitionSliceTests(unittest.TestCase):
                     {
                         key: value
                         for key, value in row.items()
-                        if key != "session_time_s"
+                        if key not in {
+                            "session_time_s",
+                            "acquisition_node_local_time_s",
+                            "timestamp_status",
+                        }
                     }
                     for row in stored_stream_rows
                 ],
@@ -687,6 +709,18 @@ class FakeAcquisitionSliceTests(unittest.TestCase):
                     for batch in payload_batches
                     for row in batch
                 ],
+            )
+            self.assertTrue(
+                all(
+                    isinstance(row["acquisition_node_local_time_s"], float)
+                    for row in stored_stream_rows
+                )
+            )
+            self.assertTrue(
+                all(
+                    row["timestamp_status"] == "runtime_timestamped"
+                    for row in stored_stream_rows
+                )
             )
             self.assertNotIn(
                 "ingest_order",

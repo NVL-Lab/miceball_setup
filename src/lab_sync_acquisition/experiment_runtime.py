@@ -7,6 +7,35 @@ from typing import Any
 
 
 @dataclass(frozen=True)
+class ActiveExperimentRuntimeContext:
+    """Runtime-only Experiment identity and Session Time origin."""
+
+    experiment_id: str
+    experiment_start_session_time_s: float
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return the active Experiment timing context as plain data."""
+
+        return {
+            "experiment_id": self.experiment_id,
+            "experiment_start_session_time_s": (
+                self.experiment_start_session_time_s
+            ),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> ActiveExperimentRuntimeContext:
+        """Reconstruct active Experiment timing context from plain data."""
+
+        return cls(
+            experiment_id=data["experiment_id"],
+            experiment_start_session_time_s=data[
+                "experiment_start_session_time_s"
+            ],
+        )
+
+
+@dataclass(frozen=True)
 class ExperimentRuntimeHealthMapping:
     """Explicit health assignment for one live source in an Experiment."""
 

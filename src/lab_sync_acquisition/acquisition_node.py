@@ -8,6 +8,7 @@ import json
 from math import isfinite
 from pathlib import Path
 from tempfile import NamedTemporaryFile
+from time import monotonic
 from typing import Any, Iterable
 
 from lab_sync_acquisition.acquisition_health import (
@@ -18,12 +19,16 @@ from lab_sync_acquisition.acquisition_record import AcquisitionRecordEnvelope
 from lab_sync_acquisition.acquisition_node_readiness import AcquisitionNodeReadiness
 from lab_sync_acquisition.device_manager import DeviceManager
 from lab_sync_acquisition.experiment_runtime import (
+    ActiveExperimentRuntimeContext,
     ExperimentRuntimeHealthMapping,
     ExperimentScopedHealthObservation,
 )
 from lab_sync_acquisition.ingestor import InMemoryIngestor
 from lab_sync_acquisition.service_readiness import ServiceReadiness
-from lab_sync_acquisition.synchronization import SynchronizationManager
+from lab_sync_acquisition.synchronization import (
+    SynchronizationManager,
+    SynchronizationMapping,
+)
 
 
 @dataclass(frozen=True)
@@ -90,6 +95,10 @@ class AcquisitionNode:
         self._active_experiment_runtime_health_mapping: tuple[
             ExperimentRuntimeHealthMapping, ...
         ] = ()
+        self._active_experiment_runtime_context: (
+            ActiveExperimentRuntimeContext | None
+        ) = None
+        self._active_synchronization_mapping: SynchronizationMapping | None = None
         self._active_experiment_id: str | None = None
         self._experiment_scoped_health_observations: list[
             ExperimentScopedHealthObservation
@@ -131,6 +140,27 @@ class AcquisitionNode:
             for mapping in self._active_experiment_runtime_health_mapping
         }
         self._acquisition_health_observations_recorded.clear()
+
+    def activate_experiment_runtime_context(
+        self,
+        context: ActiveExperimentRuntimeContext,
+    ) -> None:
+        """Store active Experiment timing context separately from health scope."""
+
+        self._active_experiment_runtime_context = context
+
+    def clear_experiment_runtime_context(self) -> None:
+        """Clear active Experiment timing context without stopping runtime."""
+
+        self._active_experiment_runtime_context = None
+
+    def receive_active_synchronization_mapping(
+        self,
+        mapping: SynchronizationMapping | None,
+    ) -> None:
+        """Passively replace the current SynchronizationManager-owned mapping."""
+
+        self._active_synchronization_mapping = mapping
 
     def clear_experiment_runtime_health_mapping(self) -> None:
         """Clear active Experiment runtime mapping without stopping runtime."""
@@ -331,6 +361,12 @@ class AcquisitionNode:
             "active_experiment_runtime_health_mapping": (
                 self._active_experiment_runtime_health_mapping
             ),
+            "active_experiment_runtime_context": (
+                self._active_experiment_runtime_context
+            ),
+            "active_synchronization_mapping": (
+                self._active_synchronization_mapping
+            ),
         }
 
     def _send_envelope(
@@ -411,10 +447,19 @@ class AcquisitionNode:
     def _with_session_time(self, row: dict[str, Any]) -> dict[str, Any]:
         if "session_time_s" in row:
             return dict(row)
-        return {
+        session_time_s = self._synchronization_manager.current_session_time_s
+        timestamped_row = {
             **row,
-            "session_time_s": self._synchronization_manager.current_session_time_s,
+            "session_time_s": session_time_s,
+            "acquisition_node_local_time_s": monotonic(),
+            "timestamp_status": "runtime_timestamped",
         }
+        if self._active_experiment_runtime_context is not None:
+            timestamped_row["experiment_time_s"] = (
+                session_time_s
+                - self._active_experiment_runtime_context.experiment_start_session_time_s
+            )
+        return timestamped_row
 
     def _append_stream_records(
         self,

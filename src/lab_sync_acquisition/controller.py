@@ -10,7 +10,10 @@ from lab_sync_acquisition.acquisition_health import HealthInterpretationEvidence
 from lab_sync_acquisition.acquisition_node import AcquisitionNode
 from lab_sync_acquisition.communication import RuntimeParticipant
 from lab_sync_acquisition.device_adapter import DeviceReadiness
-from lab_sync_acquisition.experiment_runtime import ExperimentRuntimeHealthMapping
+from lab_sync_acquisition.experiment_runtime import (
+    ActiveExperimentRuntimeContext,
+    ExperimentRuntimeHealthMapping,
+)
 from lab_sync_acquisition.ingestor import InMemoryIngestor
 from lab_sync_acquisition.service_readiness import ServiceReadiness
 from lab_sync_acquisition.session import (
@@ -215,6 +218,7 @@ class Controller:
                 )
                 self._active_experiment_id = None
                 self._active_experiment_runtime_health_mapping = ()
+                self._acquisition_node.clear_experiment_runtime_context()
                 self._acquisition_node.clear_experiment_runtime_health_mapping()
                 return evidence.to_dict()
             if decision.controller_decision == "session_fail":
@@ -317,6 +321,11 @@ class Controller:
             if not experiment_id:
                 raise ValueError("experiment_id is required")
             active_runtime_health_mapping = tuple(runtime_health_mapping)
+            experiment_start_session_time_s = self._current_session_time_s()
+            if experiment_start_session_time_s is None:
+                raise RuntimeError(
+                    "Experiment start requires SynchronizationManager Session Time"
+                )
             session.ensure_experiment_descriptor(
                 experiment_id,
                 details,
@@ -325,12 +334,20 @@ class Controller:
             evidence = session.record_experiment_lifecycle(
                 experiment_id=experiment_id,
                 event_type="experiment_start",
-                session_time_s=self._current_session_time_s(),
+                session_time_s=experiment_start_session_time_s,
                 details=details,
             )
             self._active_experiment_id = experiment_id
             self._active_experiment_runtime_health_mapping = (
                 active_runtime_health_mapping
+            )
+            self._acquisition_node.activate_experiment_runtime_context(
+                ActiveExperimentRuntimeContext(
+                    experiment_id=experiment_id,
+                    experiment_start_session_time_s=(
+                        experiment_start_session_time_s
+                    ),
+                )
             )
             self._acquisition_node.activate_experiment_runtime_health_mapping(
                 experiment_id,
@@ -366,6 +383,7 @@ class Controller:
             )
             self._active_experiment_id = None
             self._active_experiment_runtime_health_mapping = ()
+            self._acquisition_node.clear_experiment_runtime_context()
             self._acquisition_node.clear_experiment_runtime_health_mapping()
             return evidence.to_dict()
 

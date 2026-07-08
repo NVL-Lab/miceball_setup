@@ -28,28 +28,6 @@ Resolved questions should be removed from this file and recorded in `architectur
 
 # Critical Questions
 
-## Q001: What is a Synchronization Anchor?
-
-### Why this matters
-
-The synchronization architecture assumes synchronization anchors may exist, but they have not yet been formally defined.
-
-### Questions
-
-* What qualifies as a synchronization anchor?
-* Is a synchronization anchor required in Phase 1?
-* If Phase 1 uses Jetson monotonic time, what timing records are still required?
-* What information must be stored if hardware synchronization is added later?
-* How are synchronization anchors used during reconstruction?
-
-### Blocks
-
-* Detailed synchronization schema
-* Future hardware timing support
-* Reconstruction validation rules
-
----
-
 ## Q002: What is the Final Session Record Structure?
 
 Current Direction
@@ -84,19 +62,25 @@ Additional questions:
 
 # Important Questions
 
-## Q006: How Should Drift Be Represented?
+## Q006: What is the detailed drift and timing-uncertainty representation?
 
 ### Why this matters
 
-Future devices may not perfectly follow session time.
+Decisions 154-176 establish synchronization ownership and minimum plain-data
+schemas while requiring drift, correction, mapping-update, timestamp-status,
+and timing-quality evidence while preserving runtime timestamps.
+SynchronizationManager owns runtime drift estimation and remapping decisions;
+the mapping mathematics, uncertainty representation, detailed drift model, and
+reconstruction estimators remain open.
 
 ### Questions
 
-* Should drift be represented explicitly?
-* Should drift be estimated during reconstruction?
 * Can drift vary during a session?
+* What mathematics relate `local_time_anchor_s`, `session_time_anchor_s`, and `scale`?
 * How should timestamp uncertainty be represented?
-* What precision is required for Phase 1?
+* What precision and units are required for each timing-evidence field?
+* How are reconstructed drift estimates linked to the runtime mappings they audit?
+* How is runtime drift-estimation evidence represented without exposing the SynchronizationManager algorithm as architecture?
 
 ### Blocks
 
@@ -154,6 +138,28 @@ propagation policy remain unresolved.
 
 # Future Questions
 
+## Q001: What is the future hardware Synchronization Anchor schema?
+
+### Why this matters
+
+Decisions 150-166 establish Session Time ownership, synchronization updates,
+runtime timing evidence, and prospective local-to-Session mappings. A future
+hardware Synchronization Anchor format has not yet been defined.
+
+### Questions
+
+* What qualifies as a synchronization anchor?
+* What information must be stored if hardware synchronization is added later?
+* How are synchronization anchors used during reconstruction?
+* How does a hardware anchor relate to the accepted synchronization-update and timing-mapping evidence?
+
+### Blocks
+
+* Future hardware timing support
+* Hardware-anchor reconstruction validation rules
+
+---
+
 ## Q009: Multi-Node Acquisition
 
 ### Why this matters
@@ -168,14 +174,19 @@ Examples:
 
 ### Questions
 
-* Is multi-node acquisition supported conceptually?
-* How is session time shared across nodes?
-* Who coordinates nodes?
-* What records are required for reconstruction?
+* How are active SynchronizationManager-owned mappings distributed to each AcquisitionNode?
+* What exact mapping/update schema is shared across nodes?
+* How are timing-quality observations from multiple nodes correlated for reconstruction?
+* What deployment and failure behavior is required beyond the accepted ownership model?
 
 ### Current Direction
 
-Architecturally allow this in the future, but do not implement it in Phase 1.
+Multi-node acquisition is architecturally supported. SynchronizationManager
+owns one Session Time and all active SynchronizationMappings; each
+AcquisitionNode applies its received active mapping without resetting its local
+monotonic clock. Detailed
+distributed synchronization transport, schemas, and failure behavior remain
+future work.
 
 ---
 
@@ -320,4 +331,28 @@ Decisions 118-121 and 147-149 establish a separate, pull-based Artifact Plane. T
 
 ---
 
+## Q018: Synchronization observation, drift estimation, and mapping refinement model
 
+**Status:** Open
+
+Phase 11 defines ownership of synchronization evidence and active mappings, but intentionally does not define the mathematical synchronization model.
+
+The following remain future architecture decisions:
+
+- detailed SynchronizationObservation schema
+- local-time sample reporting cadence
+- drift estimation method
+- synchronization mapping update criteria
+- timing uncertainty representation
+- mapping refinement strategy
+- reconstruction timing estimators
+
+The future synchronization design must preserve the accepted Phase 11 principles:
+
+- SynchronizationManager remains the owner of Session Time.
+- SynchronizationManager owns synchronization evidence creation and mapping lifecycle.
+- AcquisitionNode reports local timing information and applies accepted mappings.
+- Runtime Timing remains immutable.
+- Any reconstructed or refined timing remains distinguishable from Runtime Timing.
+
+This question does not block current Phase 11 implementation slices that only require mapping ownership and evidence preservation.

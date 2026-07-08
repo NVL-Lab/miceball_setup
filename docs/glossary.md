@@ -8,7 +8,9 @@ These definitions take precedence over informal usage.
 
 # Acquisition Node
 
-A hardware-facing runtime responsible for acquiring data from devices, generating acquisition records, forwarding records to the Ingestor, evaluating Experiment-scoped acquisition health, executing assigned AcquisitionHealthPolicy interpretation, and recording Health Interpretation Evidence.
+A hardware-facing runtime responsible for acquiring data from devices, attaching framework scientific Runtime Timing, generating acquisition records, forwarding records to the Ingestor, evaluating Experiment-scoped acquisition health, executing assigned AcquisitionHealthPolicy interpretation, and recording Health Interpretation Evidence.
+
+AcquisitionNode receives and applies the active immutable SynchronizationMapping, derives Experiment Time when an Experiment is active, reports local AcquisitionNode time samples to SynchronizationManager, and records local timing-quality observations. It does not create SynchronizationObservation evidence, create, validate, modify, activate, or retire mappings, estimate drift, decide when to remap, or interpret device-native clocks online.
 
 The Jetson is the Phase 1 Acquisition Node.
 
@@ -81,6 +83,8 @@ The component responsible for communicating with a specific device type.
 
 The Device Adapter owns device-specific communication and exposes device capabilities to the framework.
 
+It may expose Device-Native Timing evidence but does not know Session Time, apply SynchronizationMappings, derive Experiment Time, or detect Phase 11 timing-quality failures.
+
 The Device Adapter does not own device lifecycle management.
 
 ---
@@ -135,9 +139,35 @@ Each Experiment segment has one canonical, Controller-owned lifecycle in the Ses
 
 Canonical terminal evidence distinguishes `experiment_stop` for normal completion from `experiment_fail` for unexpected Experiment-level framework or runtime failure. `experiment_abort` is reserved for future intentional early termination and is not implemented.
 
-Experiment failure ends the active Experiment and its runtime health mapping. It does not automatically fail the Session or stop Acquisition Runtime.
+Experiment failure ends the active Experiment and clears both its Active Experiment Runtime Context and runtime health mapping. It does not automatically fail the Session or stop Acquisition Runtime.
 
 Session-ready resources are not automatically Experiment participants, and Experiment participants are not necessarily continuously producing records.
+
+---
+
+# Experiment Time
+
+Analysis-ready scientific time relative to the canonical start of one Experiment inside a Session.
+
+Experiment Time is derived from Session Time as `session_time_s - experiment_start_session_time_s`; it is not an independent clock. Controller owns canonical Experiment lifecycle, Session records the Experiment start Session Time, and AcquisitionNode may derive Experiment Time for records acquired while that Experiment is active.
+
+---
+
+# Active Experiment Runtime Context
+
+The explicit runtime-only handoff from Controller to AcquisitionNode for one active Experiment.
+
+It contains `experiment_id` and `experiment_start_session_time_s`. AcquisitionNode may use this context to derive Experiment Time for its local runtime evidence, but it does not own or mutate canonical Experiment lifecycle evidence.
+
+Active Experiment Runtime Context is separate from ExperimentRuntimeHealthMapping. The context carries lifecycle timing needed for runtime timestamping; the health mapping carries only Experiment-scoped health scope and policy assignment. Controller clears both when the Experiment stops or fails.
+
+---
+
+# Experiment Start Session Time
+
+The canonical Session Time at which Controller starts an Experiment and Session records its `experiment_start` lifecycle evidence.
+
+It is handed explicitly to AcquisitionNode as `experiment_start_session_time_s` within Active Experiment Runtime Context. It is the origin used to derive Experiment Time and is not an independent clock.
 
 ---
 
@@ -172,6 +202,8 @@ Each entry identifies the Expected Participant satisfied by that source, the acq
 The mapping is immutable for the active Experiment's lifetime and may differ between Experiments in the same Session. It is runtime intent, not persistent resource ownership. AcquisitionNode evaluates only mapped live sources and never infers bindings by comparing identifiers.
 
 The mapping is also the authoritative acquisition-health policy assignment for each mapped live source during that Experiment. A different Experiment may assign a different policy to the same source.
+
+Experiment Participant Runtime Mapping, represented by `ExperimentRuntimeHealthMapping`, does not contain Experiment lifecycle timing. Active Experiment Runtime Context is the separate handoff for `experiment_id` and `experiment_start_session_time_s`.
 
 ---
 
@@ -332,6 +364,26 @@ Local Device Time may be useful for debugging, reconstruction, and drift analysi
 
 Local Device Time is not Session Time.
 
+Phase 11 uses the more precise term Device-Native Timing for this device-produced evidence. It is also distinct from AcquisitionNode Local Time.
+
+---
+
+# AcquisitionNode Local Time
+
+The monotonic runtime clock local to one AcquisitionNode.
+
+It is not reset to Session Time and does not own scientific timing. An explicit SynchronizationManager-owned SynchronizationMapping relates it to Session Time. Its record field may be represented as `acquisition_node_local_time_s`.
+
+AcquisitionNode Local Time is distinct from Device-Native Timing exposed by an individual device.
+
+---
+
+# Device-Native Timing
+
+Timing or sequence evidence produced by a device, such as a frame index, sample index, device timestamp, hardware counter, or dropped-frame/sample flag.
+
+The framework preserves Device-Native Timing unchanged. Phase 11 does not synchronize, drift-correct, or interpret device-native clocks online. Device-Native Timing is distinct from framework-owned scientific Session and Experiment Time.
+
 ---
 
 # Protocol
@@ -380,6 +432,8 @@ Raw Records are considered immutable after session completion whenever possible.
 The process of rebuilding a complete session timeline from stored records.
 
 Reconstruction operates on stored data and does not require the original runtime processes.
+
+Reconstruction may audit timing, estimate drift, flag degraded intervals, and produce Reconstructed Timing. It never silently mutates or replaces raw Runtime Timing.
 
 ---
 
@@ -443,11 +497,27 @@ The final folder layout, manifest format, detailed schemas, reconstruction outpu
 
 # Session Time
 
-The shared time within a Session used to align streams, events, Experiments, and timing records.
+The master scientific timebase within a Session used to align streams, events, Experiments, and timing records.
 
 Session Time has exactly one owner: the Synchronization Manager.
 
-Session Time is distinct from Local Device Time and Ingest Time.
+Components receive Session Time from SynchronizationManager or apply an explicit SynchronizationManager-authorized mapping. Session Time is distinct from AcquisitionNode Local Time, Device-Native Timing, Ingest Time, wall-clock time, broker time, message-arrival time, and other transport timestamps.
+
+---
+
+# Runtime Timing
+
+The best current scientific timing attached to data during acquisition.
+
+Runtime Timing is the primary timing path and remains immutable as raw evidence. Later reconstruction may produce separately identified refined timing but must not silently rewrite Runtime Timing.
+
+---
+
+# Reconstructed Timing
+
+Derived timing produced by offline reconstruction after auditing Runtime Timing and its associated evidence.
+
+Reconstructed Timing may refine estimates or identify degraded intervals, but it remains distinguishable from Runtime Timing.
 
 ---
 
@@ -493,6 +563,86 @@ Responsibilities include:
 
 The Synchronization Manager is the sole owner of Session Time.
 
+It produces or authorizes synchronization information and detects timing conditions related to Session Time authority. It does not transfer ownership of Session Time to Controller, AcquisitionNode, transport, or a local machine clock.
+
+---
+
+# Synchronization Update
+
+Timing evidence produced by SynchronizationManager when it creates or replaces the active relationship between an AcquisitionNode's monotonic local time and Session Time.
+
+SynchronizationManager owns validation and atomic activation. AcquisitionNode receives and applies the resulting active immutable SynchronizationMapping to subsequently acquired records only. Mapping updates are preserved runtime timing evidence.
+
+---
+
+# SynchronizationMapping
+
+An immutable relationship created and owned by SynchronizationManager for mapping AcquisitionNode local monotonic time to Session Time.
+
+Its minimum plain-data fields are `session_id`, `acquisition_node_id`, `local_time_anchor_s`, `session_time_anchor_s`, `scale`, and `created_session_time_s`.
+
+SynchronizationManager alone creates, activates, replaces, and retires mappings. AcquisitionNode applies the active mapping locally without modifying or validating it. Replacement is atomic and prospective and never retroactively changes records already timestamped during runtime.
+
+The architecture does not require a mapping identifier on every acquired row.
+
+Detailed mapping mathematics remain unresolved under Q006.
+
+---
+
+# Active Synchronization Mapping
+
+The one SynchronizationMapping currently activated by SynchronizationManager for an AcquisitionNode's prospective runtime timestamping.
+
+The active mapping remains SynchronizationManager-owned even while AcquisitionNode applies it locally.
+
+---
+
+# Synchronization Observation
+
+SynchronizationManager-owned runtime timing evidence created from AcquisitionNode local-time reports.
+
+It contains the local-time information needed for SynchronizationManager-owned drift estimation and remapping decisions. AcquisitionNode supplies local-time samples but does not create Synchronization Observation evidence. The observation is evidence, not a mapping and not a remapping decision.
+
+---
+
+# AcquisitionNode Local-Time Report
+
+Plain runtime data reported by AcquisitionNode to SynchronizationManager periodically or when requested.
+
+Its minimum fields are `session_id`, `acquisition_node_id`, `acquisition_node_local_time_s`, `reported_reason`, and `details`.
+
+A local-time report is not Synchronization Observation evidence. SynchronizationManager decides whether to create Synchronization Observation evidence from the report.
+
+---
+
+# Mapping Update Evidence
+
+Scientific Runtime Timing evidence created by SynchronizationManager whenever an active SynchronizationMapping is created, replaced, or retired.
+
+Its minimum fields are `session_id`, `acquisition_node_id`, `update_type`, optional `previous_mapping`, optional `new_mapping`, `created_session_time_s`, `reason`, and `details`.
+
+Mapping updates are not hidden state and never modify previously timestamped runtime evidence.
+
+Mapping Update Evidence remains in SynchronizationManager memory during runtime and is preserved as RuntimeEvidenceMessage through existing Ingestor intake/audit and Session Record finalization. No separate timing-storage component owns it.
+
+Its durable runtime wrapper uses `evidence_type: mapping_update_evidence`, with the MappingUpdateEvidence plain-data form in `RuntimeEvidenceMessage.payload`. This vocabulary value changes neither timing ownership nor communication, ingestion, or Session Record ownership.
+
+---
+
+# Remapping
+
+SynchronizationManager-owned replacement of the active immutable SynchronizationMapping with a newly created immutable mapping.
+
+SynchronizationManager alone decides whether remapping is required. AcquisitionNode neither requests a consequence nor decides when to remap.
+
+---
+
+# Drift Estimation
+
+The SynchronizationManager-owned evaluation of its Synchronization Observation evidence to assess the relationship between AcquisitionNode local time and Session Time.
+
+Its algorithm remains an implementation detail of SynchronizationManager. Drift estimation may lead SynchronizationManager to replace the active mapping; AcquisitionNode does not perform this decision.
+
 ---
 
 # Timing Record
@@ -505,9 +655,49 @@ Examples:
 * frame numbers
 * sample indices
 * synchronization records
-* timing mappings
+* synchronization mappings
 
 Timing Records are part of the raw scientific record.
+
+---
+
+# Timing Audit Evidence
+
+Scientific evidence used to assess runtime timestamp quality and reconstruct timing relationships.
+
+Examples include AcquisitionNode Local Time, Timestamp Status, Synchronization Observations, mapping updates, active and superseded mappings, correction and drift evidence, timing-quality evidence, and preserved Device-Native Timing. It may be stored with data rows or as associated Timing Records.
+
+---
+
+# Timestamp Status
+
+An auditable indication of the timing state or quality under which an AcquisitionNode timestamped a record.
+
+Timestamp Status accompanies Runtime Timing or associated Timing Audit Evidence. It is not a transport timestamp or a replacement for Session Time.
+
+---
+
+# Timing Quality Observation
+
+Evidence of a detected timing condition.
+
+SynchronizationManager detects conditions related to Session Time authority. AcquisitionNode detects conditions related to local runtime timestamping and synchronization mappings. DeviceAdapters do not detect Phase 11 timing-quality failures.
+
+---
+
+# Timing Quality Policy
+
+Experimenter-configured policy that interprets Timing Quality Observations using the accepted operational interpretation vocabulary.
+
+It does not itself execute framework consequences. Controller owns decisions and actions resulting from interpretation evidence.
+
+---
+
+# Timing Quality Interpretation Evidence
+
+Evidence recording how an assigned Timing Quality Policy interpreted one Timing Quality Observation.
+
+It preserves the observation-to-policy-to-interpretation chain. Controller may use it to create and execute a ControllerActionDecision; the interpretation evidence itself does not mutate Session or Experiment lifecycle.
 
 ---
 
@@ -653,13 +843,13 @@ It is distinct from Session Lifecycle.
 
 ---
 
-# Acquisition-side Caller
+# Acquisition-side Caller (Historical)
 
-The runtime code responsible for coordinating acquisition-side operations outside the responsibilities of individual framework components.
+The earlier temporary runtime role that coordinated acquisition-side operations before AcquisitionNode ownership was established.
 
-Examples include collecting records from the DeviceManager, obtaining Session Time from the Synchronization Manager, creating Acquisition Record Envelopes, and forwarding them to the Ingestor.
+Examples included collecting records from the DeviceManager, obtaining Session Time from the Synchronization Manager, creating Acquisition Record Envelopes, and forwarding them to the Ingestor.
 
-The Acquisition-side Caller is a temporary architectural role. It is not itself a framework component and may later become part of the AcquisitionNode runtime.
+This is not a current framework component. AcquisitionNode now owns runtime timestamping and the acquisition-side envelope workflow; SynchronizationManager remains the sole owner of Session Time.
 
 ---
 

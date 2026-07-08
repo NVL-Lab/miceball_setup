@@ -293,7 +293,11 @@ class PersistentStorageManagerTests(unittest.TestCase):
                     {
                         key: value
                         for key, value in row.items()
-                        if key != "session_time_s"
+                        if key not in {
+                            "session_time_s",
+                            "acquisition_node_local_time_s",
+                            "timestamp_status",
+                        }
                     }
                     for row in stored_stream_rows
                 ],
@@ -301,6 +305,13 @@ class PersistentStorageManagerTests(unittest.TestCase):
             )
             self.assertTrue(
                 all("session_time_s" in row for row in stored_stream_rows)
+            )
+            self.assertTrue(
+                all(
+                    isinstance(row["acquisition_node_local_time_s"], float)
+                    and row["timestamp_status"] == "runtime_timestamped"
+                    for row in stored_stream_rows
+                )
             )
             self.assertEqual(
                 len(session_record["ingest_audit_records"]),

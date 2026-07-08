@@ -215,6 +215,13 @@ Storage
 - Ingestor preserves Session Time
 - Storage preserves Session Time
 
+Phase 11 clarifies the current ownership behind this earlier Phase 1 workflow:
+SynchronizationManager remains the sole Session Time owner, and AcquisitionNode
+now fulfills the former acquisition-side caller role by attaching framework
+scientific timing. DeviceAdapters do not know Session Time or apply timing
+mappings. This clarification does not claim Phase 11 synchronization behavior
+has been implemented or validated.
+
 ---
 
 # W006 - Session Acquisition Lifecycle
@@ -366,7 +373,15 @@ Session.complete()
 - AcquisitionNode starts and stops Session Time through SynchronizationManager
 - AcquisitionNode creates session_start and session_stop acquisition evidence
 - AcquisitionNode runs bounded synchronous acquisition iterations
-- AcquisitionNode attaches Session Time to untimestamped fake rows
+- AcquisitionNode attaches Session Time, monotonic AcquisitionNode local time, and `runtime_timestamped` status to rows it timestamps
+- Controller hands active Experiment identity and canonical start Session Time to AcquisitionNode separately from the runtime health mapping
+- AcquisitionNode derives Experiment Time only while that Experiment context is active
+- DeviceAdapter-produced rows remain unaware of Session Time, Experiment Time, and timing mappings
+- SynchronizationManager creates, replaces, retires, and exposes immutable active mappings per AcquisitionNode
+- SynchronizationManager preserves mapping creation, replacement, and retirement evidence in memory
+- MappingUpdateEvidence converts to the existing durable RuntimeEvidenceMessage boundary with evidence type `mapping_update_evidence` and its complete plain-data payload
+- AcquisitionNode passively replaces its active mapping reference without creating, validating, or applying mapping mathematics
+- acquired rows retain Slice 1 timing fields without a per-row mapping identifier
 - AcquisitionNode sends envelopes through the plain-data boundary
 - Session lifecycle remains separate from acquisition execution
 

@@ -4662,6 +4662,701 @@ Telemetry may be real-time, but it is display/monitoring data, not authoritative
 
 Runtime communication supports orchestration and observation, not scientific data transport.
 
+## Decision 150: SynchronizationManager owns Session Time
+
+**Status:** Accepted
+
+The SynchronizationManager owns scientific Session Time.
+
+Session Time is the master scientific timebase for a Session.
+
+No AcquisitionNode, GUI, Controller, Ingestor, StorageManager, transport layer, local machine clock, or DeviceAdapter owns or defines Session Time.
+
+Components may use Session Time only by receiving it from the SynchronizationManager or by applying an explicit SynchronizationManager-authorized mapping.
+
+**Principle**
+
+```text
+One Session Time.
+One owner.
+SynchronizationManager owns it.
+```
+
+## Decision 151: Experiment Time is derived from Session Time
+
+**Status:** Accepted
+
+Experiment Time is not an independent clock.
+
+Experiment Time is derived from Session Time using the Session Time at which the Experiment started.
+
+Conceptually:
+
+```text
+experiment_time_s =
+    session_time_s - experiment_start_session_time_s
+```
+
+The Session records `experiment_start_session_time_s`.
+
+The Controller owns Experiment lifecycle and records the canonical Experiment start evidence. AcquisitionNode may use the active Experiment start Session Time to attach `experiment_time_s` to acquired records.
+
+Session Time remains necessary to align data across the whole Session, including warmup, validation, inter-Experiment periods, and multiple Experiments.
+
+## Decision 152: AcquisitionNode local clocks are not reset to Session Time
+
+**Status:** Accepted
+
+An AcquisitionNode may have one local monotonic runtime clock.
+
+The AcquisitionNode local clock must not be reset to match Session Time.
+
+Instead, synchronization updates adjust the relationship between:
+
+```text
+AcquisitionNode local time
+        <->
+Session Time
+```
+
+The local clock remains monotonic and auditable.
+
+DeviceAdapters do not maintain independent Session-Time mappings in Phase 11.
+
+## Decision 153: Acquired data carry analysis-ready timing
+
+**Status:** Accepted
+
+Each acquired data record should carry analysis-ready scientific timing whenever practical.
+
+Minimum normal timing fields:
+
+```text
+session_time_s
+experiment_time_s, when an Experiment is active
+```
+
+Normal analysis should not require reconstructing basic timestamps for every row.
+
+Timing belongs primarily with the data records it describes.
+
+## Decision 154: Timing audit evidence is preserved
+
+**Status:** Accepted
+
+In addition to analysis-ready timing, the framework preserves timing audit evidence.
+
+Examples include:
+
+```text
+acquisition_node_local_time_s
+timestamp_status
+synchronization update evidence
+mapping/correction evidence
+device-native timing evidence, when provided
+```
+
+Timing audit evidence supports validation, drift assessment, debugging, reconstruction, and scientific interpretation.
+
+These fields may be stored directly with data rows when practical or as associated timing records when cleaner.
+
+## Decision 155: Runtime timing is the primary timing path
+
+**Status:** Accepted
+
+Data are stored immediately with the best current runtime timing.
+
+Runtime timestamps are not silently rewritten.
+
+Offline reconstruction may validate timing and may produce refined derived timing outputs, but reconstructed timing must remain distinguishable from runtime timing.
+
+Conceptually, derived outputs may contain fields such as:
+
+```text
+session_time_s_runtime
+session_time_s_reconstructed
+experiment_time_s_runtime
+experiment_time_s_reconstructed
+```
+
+or an equivalent representation.
+
+## Decision 156: Synchronization cadence and tolerance are configurable
+
+**Status:** Accepted
+
+Synchronization cadence is configurable.
+
+Missed-synchronization tolerance and drift/correction thresholds are configurable.
+
+These values are not hard-coded architectural constants.
+
+The accepted Session configuration determines the synchronization cadence, missed-update tolerance, acceptable correction magnitude, acceptable drift, and timing-degradation thresholds.
+
+## Decision 157: Transport timestamps are not scientific time
+
+**Status:** Accepted
+
+NATS timestamps, message arrival times, broker times, wall-clock times, and ingest times are not scientific Session Time.
+
+Transport may deliver synchronization records, but transport does not define time.
+
+Scientific timing comes only from the SynchronizationManager or from explicit SynchronizationManager-authorized timing mappings.
+
+## Decision 158: Timing records are part of the scientific record
+
+**Status:** Accepted
+
+Synchronization updates, local-to-Session timing evidence, timestamp-status records, drift evidence, rejected synchronization updates, and timing-quality evidence are part of the scientific record.
+
+They must be preserved with the same seriousness as stream, event, and artifact timing.
+
+They support audit, reconstruction, and scientific interpretation of timing accuracy.
+
+## Decision 159: Reconstruction audits timing but does not replace runtime evidence
+
+**Status:** Accepted
+
+Reconstruction may validate timing consistency, estimate drift, flag degraded intervals, and produce refined derived timing.
+
+Reconstruction must not silently mutate raw runtime timestamps.
+
+Raw runtime timing evidence remains preserved.
+
+Any reconstructed or refined timing is derived evidence and remains distinguishable from runtime timing.
+
+## Decision 160: Timing quality policy is experimenter-configured
+
+**Status:** Accepted
+
+Timing failure behavior is policy-defined, not hard-coded.
+
+Timing quality follows the same ownership pattern as acquisition health:
+
+```text
+Timing condition detected
+        ->
+TimingQualityObservation
+        ->
+TimingQualityPolicy interpretation
+        ->
+TimingQualityInterpretationEvidence
+        ->
+ControllerActionDecision
+```
+
+SynchronizationManager and AcquisitionNode may detect timing conditions.
+
+TimingQualityPolicy interprets detected timing conditions.
+
+Controller decides and executes any framework consequence.
+
+Example configured interpretations:
+
+```text
+camera timing degraded for 5 s        -> warning
+microscope timing degraded for 5 s    -> experiment_failure
+Session master clock unavailable      -> session_failure
+```
+
+Supported timing interpretation labels should mirror the accepted operational vocabulary:
+
+```text
+informational
+warning
+recoverable_failure
+experiment_failure
+session_failure
+operator_required
+uninterpreted
+```
+
+## Decision 161: Timing-quality detection ownership
+
+**Status:** Accepted
+
+**Clarified by Decisions 168 and 171:** SynchronizationManager owns mapping
+validation, drift estimation, and remapping decisions. AcquisitionNode may
+report local-time samples and detect degraded local application state,
+but it does not validate mappings, estimate drift, or decide to remap.
+
+SynchronizationManager detects timing conditions related to the Session Time authority.
+
+Examples include:
+
+```text
+Session Time unavailable
+synchronization update cannot be produced
+authoritative clock degraded
+master timing source unavailable
+```
+
+AcquisitionNode detects timing conditions related to local runtime timestamping.
+
+Examples include:
+
+```text
+missed synchronization update
+stale timing mapping
+excessive correction
+excessive drift
+rejected synchronization update
+degraded timestamp status while recording data
+```
+
+Both may emit TimingQualityObservation evidence.
+
+DeviceAdapters do not detect Phase 11 timing-quality failures. They may expose device-native timing evidence only.
+
+## Decision 162: AcquisitionNode validates synchronization updates before applying them
+
+**Status:** Accepted
+
+**Superseded by Decisions 168 and 171:** SynchronizationManager now owns creation,
+validation, activation, replacement, retirement, drift estimation, and the
+decision to remap. AcquisitionNode receives and applies the active immutable
+mapping locally without validating or modifying it. The prospective,
+non-retroactive timing guarantees remain authoritative.
+
+An AcquisitionNode does not blindly accept every synchronization update.
+
+A received synchronization update is validated before it becomes the active timing mapping.
+
+Validation may include:
+
+```text
+session_id matches current Session
+SynchronizationManager identity is expected
+Session Time is monotonic
+AcquisitionNode local time is monotonic
+correction magnitude is within configured tolerance
+drift estimate is within configured tolerance
+```
+
+If the update is accepted, the AcquisitionNode atomically replaces its current timing mapping.
+
+If the update is rejected, the AcquisitionNode preserves the previous mapping, records the rejected update as timing evidence, emits TimingQualityObservation evidence, and continues according to the configured timing policy.
+
+The framework does not assume that the global update is always correct; it preserves evidence when the apparent drift could come from either the local clock or the Session Time authority.
+
+## Decision 163: Synchronization mapping replacement is atomic and prospective
+
+**Status:** Accepted
+
+Synchronization mapping replacement is atomic from the AcquisitionNode's point of view.
+
+A newly accepted synchronization update affects only subsequently acquired records.
+
+Previously timestamped records are never modified during runtime.
+
+Rejected or superseded mappings remain auditable timing evidence.
+
+This preserves deterministic runtime timestamping and prevents silent retroactive correction.
+
+## Decision 164: AcquisitionNode owns runtime timestamping
+
+**Status:** Accepted
+
+DeviceAdapters produce or expose acquisition records.
+
+DeviceManager collects those records.
+
+AcquisitionNode attaches framework scientific timing to collected records.
+
+The AcquisitionNode attaches:
+
+```text
+session_time_s
+experiment_time_s, when an Experiment is active
+acquisition_node_local_time_s
+timestamp_status
+```
+
+DeviceAdapters do not need to know Session Time.
+
+DeviceAdapters do not apply synchronization mappings.
+
+DeviceAdapters do not derive Experiment Time.
+
+## Decision 165: Device-native timing is preserved but not interpreted online
+
+**Status:** Accepted
+
+Some devices may expose device-native timing evidence.
+
+Examples include:
+
+```text
+frame_index
+sample_index
+device_timestamp
+hardware_counter
+dropped-frame flag
+dropped-sample flag
+```
+
+Phase 11 preserves these values unchanged when available.
+
+Phase 11 does not synchronize, drift-correct, or interpret device-native clocks online.
+
+Device-native timing evidence is stored for audit, debugging, reconstruction, and future export.
+
+## Decision 166: Scientific timing and device-native timing are separate concepts
+
+**Status:** Accepted
+
+The framework distinguishes scientific timing from device-native timing.
+
+Scientific timing is framework-owned and interpreted by the synchronization architecture.
+
+Device-native timing is produced by the device, preserved by the framework, and interpreted only when needed by future reconstruction, validation, or export.
+
+```text
+Scientific timing
+    owned/interpreted by framework
+
+Device-native timing
+    owned by producing device
+    preserved unchanged
+    not interpreted online in Phase 11
+```
+
+This prevents AcquisitionNode from becoming a multi-device clock-reconstruction engine.
+
+## Decision 167: Active Experiment timing reaches AcquisitionNode as runtime context
+
+**Status:** Accepted
+
+Controller owns canonical Experiment lifecycle orchestration and records `experiment_start` evidence in the Session timeline using Session Time.
+
+AcquisitionNode does not own Experiment lifecycle, but it may need the active Experiment start Session Time to derive Experiment Time for local runtime evidence.
+
+Therefore, when Controller starts an Experiment, it must provide AcquisitionNode with explicit active Experiment runtime context containing:
+
+- `experiment_id`
+- `experiment_start_session_time_s`
+
+This handoff is separate from `ExperimentRuntimeHealthMapping`.
+
+`ExperimentRuntimeHealthMapping` continues to contain only Experiment-scoped health scope and policy assignment. It must not be overloaded with lifecycle timing.
+
+AcquisitionNode stores the active Experiment runtime context only while that Experiment is active. It may use it to compute:
+
+```text
+experiment_time_s = session_time_s - experiment_start_session_time_s
+```
+
+for AcquisitionNode-owned runtime evidence.
+
+AcquisitionNode must not reinterpret, create, or mutate canonical Experiment lifecycle evidence. Canonical Experiment lifecycle remains Controller-owned and Session-recorded.
+
+When the active Experiment stops or fails, Controller clears both:
+
+- the active Experiment runtime context
+- the active Experiment runtime health mapping
+
+**Principle**
+
+```text
+Experiment lifecycle timing is Controller/Session evidence.
+
+Experiment runtime timing context is handed to AcquisitionNode explicitly.
+
+Health mapping remains health mapping only.
+```
+
+## Decision 168: SynchronizationManager owns active synchronization mappings
+
+**Status:** Accepted
+
+SynchronizationManager is the sole owner of active SynchronizationMappings.
+
+Only SynchronizationManager may:
+
+- create a new mapping
+- activate a mapping
+- replace the active mapping
+- retire a mapping
+
+AcquisitionNode must never create, modify, validate, or activate mappings.
+
+AcquisitionNode receives the active mapping from SynchronizationManager and applies it locally.
+
+Synchronization mappings are immutable after activation.
+
+Mapping updates occur by atomically replacing the active mapping.
+
+The synchronization algorithm itself remains an implementation detail of SynchronizationManager.
+
+## Decision 169: SynchronizationManager decides when remapping is required
+
+**Status:** Accepted
+
+**Superseded by Decision 171:** AcquisitionNode reports local-time samples but
+does not produce SynchronizationObservation evidence. SynchronizationManager
+creates that evidence from the reports and retains ownership of drift
+estimation and remapping decisions.
+
+AcquisitionNode periodically, or when requested, produces synchronization observations containing its local acquisition-node time.
+
+SynchronizationManager consumes these observations.
+
+SynchronizationManager performs drift estimation.
+
+SynchronizationManager alone decides whether the current mapping should be replaced.
+
+If remapping is required, SynchronizationManager creates a new immutable mapping and distributes it to AcquisitionNode.
+
+AcquisitionNode never decides when remapping is needed.
+
+## Decision 170: Mapping updates are runtime timing evidence
+
+**Status:** Accepted
+
+Mapping creation/replacement is scientific runtime timing evidence.
+
+SynchronizationManager preserves mapping update information.
+
+Mapping replacement is not hidden runtime state.
+
+Mapping updates never modify previously timestamped runtime evidence.
+
+We explicitly decided not to store a mapping identifier on every acquired row.
+
+## Decision 171: SynchronizationManager creates SynchronizationObservation evidence
+
+**Status:** Accepted
+
+AcquisitionNode does not produce SynchronizationObservation evidence.
+
+AcquisitionNode reports AcquisitionNode local-time samples to SynchronizationManager periodically or when requested.
+
+SynchronizationManager creates SynchronizationObservation evidence from those local-time reports because SynchronizationObservation is synchronization evidence used for drift estimation and remapping.
+
+SynchronizationManager owns:
+
+- Session Time
+- creation of SynchronizationObservation evidence
+- drift estimation
+- remapping decisions
+- SynchronizationMapping creation
+- mapping validation
+- mapping activation
+- mapping replacement
+- mapping retirement
+- MappingUpdateEvidence
+
+AcquisitionNode owns only:
+
+- reporting local AcquisitionNode time samples
+- receiving the active immutable SynchronizationMapping
+- applying that mapping prospectively to newly acquired records
+- attaching Runtime Timing to records
+- preserving timestamp status and local timing-quality evidence
+
+Existing `session_time_s` values remain unchanged.
+
+Runtime Timing remains immutable. Reconstruction may later produce separate Reconstructed Timing but must not silently rewrite Runtime Timing.
+
+No drift model or timing-uncertainty model is defined by this decision.
+
+## Decision 172: SynchronizationMapping is immutable SynchronizationManager-owned plain data
+
+**Status:** Accepted
+
+`SynchronizationMapping` is immutable plain data owned by SynchronizationManager.
+
+Its minimum schema is:
+
+```text
+session_id
+acquisition_node_id
+local_time_anchor_s
+session_time_anchor_s
+scale
+created_session_time_s
+```
+
+SynchronizationManager alone creates, validates, activates, replaces, and retires SynchronizationMappings.
+
+AcquisitionNode receives the active immutable mapping and applies it prospectively without modifying or validating it.
+
+The internal mathematical representation and detailed mapping algorithm remain unspecified in Phase 11 and remain open under Q006.
+
+## Decision 173: AcquisitionNode local-time reports are not SynchronizationObservations
+
+**Status:** Accepted
+
+AcquisitionNode reports local-time samples to SynchronizationManager.
+
+The minimum local-time report schema is:
+
+```text
+session_id
+acquisition_node_id
+acquisition_node_local_time_s
+reported_reason
+details
+```
+
+A local-time report is not SynchronizationObservation evidence.
+
+SynchronizationManager decides whether a local-time report becomes SynchronizationObservation evidence and owns creation of that evidence.
+
+## Decision 174: MappingUpdateEvidence records active mapping lifecycle changes
+
+**Status:** Accepted
+
+SynchronizationManager creates `MappingUpdateEvidence` whenever an active SynchronizationMapping is created, replaced, or retired.
+
+Its minimum schema is:
+
+```text
+session_id
+acquisition_node_id
+update_type
+previous_mapping, optional
+new_mapping, optional
+created_session_time_s
+reason
+details
+```
+
+MappingUpdateEvidence is scientific Runtime Timing evidence.
+
+Mapping lifecycle changes are not hidden runtime state and never modify previously acquired records.
+
+## Decision 175: MappingUpdateEvidence uses the existing runtime-evidence preservation path
+
+**Status:** Accepted
+
+MappingUpdateEvidence is preserved:
+
+- in SynchronizationManager memory during runtime
+- as `RuntimeEvidenceMessage`
+- through the existing runtime-evidence ingestion path
+- in the Session Record through the existing StorageManager finalization path
+
+SynchronizationManager creates and owns MappingUpdateEvidence. Ingestor owns runtime-evidence intake and audit. StorageManager writes caller-supplied evidence during existing Session Record finalization.
+
+No new timing-storage component is introduced.
+
+## Decision 176: Synchronization mapping ownership handoff is explicit
+
+**Status:** Accepted
+
+AcquisitionNode reports local-time samples to SynchronizationManager.
+
+SynchronizationManager:
+
+- creates SynchronizationObservation evidence
+- creates SynchronizationMappings
+- validates mappings
+- activates mappings
+- replaces and retires mappings
+- creates MappingUpdateEvidence
+- performs drift estimation
+- decides when remapping is required
+
+AcquisitionNode:
+
+- receives the active immutable SynchronizationMapping
+- applies that mapping prospectively to newly acquired records
+- does not create, validate, modify, activate, replace, or retire mappings
+- does not create SynchronizationObservation or MappingUpdateEvidence
+- does not estimate drift or decide when to remap
+
+Runtime Timing remains immutable. Mapping updates never modify previously acquired records.
+
+## Decision 177: MappingUpdateEvidence uses explicit runtime evidence type
+
+**Status:** Accepted
+
+`MappingUpdateEvidence` is preserved as durable runtime evidence using:
+
+```text
+evidence_type: mapping_update_evidence
+```
+
+The `RuntimeEvidenceMessage.payload` contains the plain-data form of the MappingUpdateEvidence.
+
+Ownership remains unchanged:
+
+```text
+SynchronizationManager
+    creates MappingUpdateEvidence
+
+RuntimeEvidenceMessage
+    carries the evidence through the communication boundary
+
+Ingestor
+    audits and preserves durable runtime evidence
+
+StorageManager / Session Record
+    preserves the accepted evidence
+```
+
+NATS carries the evidence but does not define timing meaning.
+
+`mapping_update_evidence` is a runtime evidence type vocabulary value only.
+
+It does not create:
+
+- a new component
+- a new transport path
+- a new timing owner
+- a new Session Record owner
+
+## Phase 11 ownership chain
+
+The accepted Phase 11 ownership chain is:
+
+```text
+SynchronizationManager
+    owns Session Time
+    owns active synchronization mappings
+    receives AcquisitionNode local-time reports
+    creates synchronization observation evidence
+    performs drift estimation
+    decides when remapping is required
+    preserves mapping update evidence
+    owns immutable plain-data mapping creation and lifecycle
+
+Controller
+    owns Experiment lifecycle
+    records experiment_start_session_time_s
+
+AcquisitionNode
+    owns runtime timestamping
+    reports local AcquisitionNode time samples
+    receives and applies the active immutable mapping
+    does not validate, modify, or activate mappings
+    attaches session_time_s
+    derives experiment_time_s
+    records timing-quality observations
+
+DeviceAdapter
+    owns device communication
+    may expose device-native timing evidence
+    does not know Session Time
+
+Storage
+    preserves runtime timing
+    preserves timing audit evidence
+    preserves device-native timing unchanged
+
+Reconstruction
+    audits and may refine timing
+    never mutates runtime timing evidence
+```
+
+The central Phase 11 principle is:
+
+```text
+Scientific timing is a framework concern.
+Device-native timing is device evidence.
+```
+
 --- ********************************************************************************
 
 # Accepted Architectural Principles
@@ -4816,6 +5511,35 @@ The following principles summarize the accepted decisions so far.
 147. Artifact manifests are artifact-level durable evidence rather than per-record acquisition evidence.
 148. Ingestor is runtime evidence intake, not a universal online scientific-data pipe.
 149. During acquisition, the Control Plane carries runtime communication and display telemetry, not scientific data or artifact bytes.
+150. SynchronizationManager is the sole owner of scientific Session Time.
+151. Experiment Time is derived from Session Time and the canonical Experiment start Session Time.
+152. AcquisitionNode local monotonic clocks are not reset to Session Time; authorized mappings relate them.
+153. Acquired records carry analysis-ready Session Time and, during an Experiment, Experiment Time whenever practical.
+154. Timing audit evidence is preserved alongside analysis-ready timing.
+155. Runtime timing is primary; reconstructed timing is separate derived evidence and never silently replaces it.
+156. Synchronization cadence, tolerance, correction, drift, and degradation thresholds are explicit Session configuration.
+157. Transport, broker, wall-clock, arrival, and ingest timestamps are not scientific time.
+158. Synchronization, mapping, drift, timestamp-status, rejection, and timing-quality records are scientific evidence.
+159. Reconstruction audits and may refine timing but never mutates raw runtime timing evidence.
+160. Experimenter-configured TimingQualityPolicy interprets observations; Controller owns framework consequences.
+161. SynchronizationManager detects authority-side conditions and owns mapping validation/drift decisions; AcquisitionNode reports local-time samples and detects local runtime timestamping conditions without deciding remapping.
+162. AcquisitionNode validates synchronization updates before atomically accepting a new mapping.
+    Superseded by Decisions 168 and 171 for mapping validation and activation ownership; prospective non-retroactive application remains authoritative.
+163. Accepted mapping replacement is atomic and prospective; previous records remain unchanged.
+164. AcquisitionNode attaches framework scientific timing; DeviceAdapters do not know or derive Session or Experiment Time.
+165. Phase 11 preserves device-native timing unchanged without online clock interpretation.
+166. Scientific timing and device-native timing remain distinct framework and device concepts.
+167. Controller explicitly hands active Experiment identity and start Session Time to AcquisitionNode as runtime context separate from health mapping.
+168. SynchronizationManager solely owns immutable active synchronization mappings and their lifecycle.
+169. Superseded by Decision 171: AcquisitionNode does not produce SynchronizationObservation evidence.
+170. Mapping updates are preserved runtime timing evidence and do not require a mapping identifier on every acquired row.
+171. AcquisitionNode reports local-time samples; SynchronizationManager creates SynchronizationObservation evidence and owns drift estimation and remapping.
+172. SynchronizationMapping is immutable SynchronizationManager-owned plain data with an accepted minimum schema.
+173. AcquisitionNode local-time reports use a minimum plain-data schema and are not SynchronizationObservation evidence.
+174. SynchronizationManager creates MappingUpdateEvidence for active mapping creation, replacement, and retirement.
+175. MappingUpdateEvidence uses existing runtime-evidence ingestion and Session Record preservation paths without a new storage component.
+176. AcquisitionNode reports samples and passively applies mappings; SynchronizationManager owns observation, mapping, drift, remapping, and update-evidence behavior.
+177. MappingUpdateEvidence uses runtime evidence type `mapping_update_evidence` with its plain-data form as RuntimeEvidenceMessage payload.
 
 ---
 

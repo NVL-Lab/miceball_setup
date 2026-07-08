@@ -22,6 +22,7 @@ from lab_sync_acquisition.communication import (
     LAB_COMMAND_RESULTS,
     LAB_COMMANDS,
     LAB_EVIDENCE,
+    MAPPING_UPDATE_EVIDENCE_TYPE,
     MESSAGE_CLASSES,
     RUNTIME_CONTROL_COMMAND_RESULT_STATUSES,
     RuntimeCommandMessage,
@@ -51,6 +52,7 @@ from lab_sync_acquisition.device_manager import (
     DeviceReadinessSummary,
 )
 from lab_sync_acquisition.experiment_runtime import (
+    ActiveExperimentRuntimeContext,
     ExperimentRuntimeHealthMapping,
     ExperimentScopedHealthObservation,
 )
@@ -83,9 +85,16 @@ from lab_sync_acquisition.storage import (
     InMemoryStorageManager,
     PersistentStorageManager,
 )
-from lab_sync_acquisition.synchronization import SynchronizationManager
+from lab_sync_acquisition.synchronization import (
+    AcquisitionNodeLocalTimeReport,
+    MappingUpdateEvidence,
+    SynchronizationManager,
+    SynchronizationMapping,
+)
 
 __all__ = [
+    "ActiveExperimentRuntimeContext",
+    "AcquisitionNodeLocalTimeReport",
     "ARTIFACT_MANIFEST_EVIDENCE_TYPE",
     "AcquisitionIterationSummary",
     "AcquisitionHealthPolicy",
@@ -126,8 +135,10 @@ __all__ = [
     "LAB_COMMANDS",
     "LAB_EVIDENCE",
     "LifecycleTransition",
+    "MAPPING_UPDATE_EVIDENCE_TYPE",
     "ReadinessCheck",
     "MESSAGE_CLASSES",
+    "MappingUpdateEvidence",
     "RUNTIME_CONTROL_COMMAND_RESULT_STATUSES",
     "RuntimeCommandMessage",
     "RuntimeCommandResultMessage",
@@ -145,6 +156,7 @@ __all__ = [
     "SessionState",
     "ServiceReadiness",
     "SynchronizationManager",
+    "SynchronizationMapping",
     "build_runtime_subject",
     "aggregate_group_command_results",
     "build_group_command_messages",

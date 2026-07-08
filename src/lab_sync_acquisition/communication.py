@@ -15,6 +15,7 @@ COMMAND_RESULT_STATUSES = frozenset(
 )
 RUNTIME_CONTROL_COMMAND_RESULT_STATUSES = frozenset({"succeeded", "failed"})
 ARTIFACT_MANIFEST_EVIDENCE_TYPE = "artifact_manifest"
+MAPPING_UPDATE_EVIDENCE_TYPE = "mapping_update_evidence"
 
 LAB_COMMANDS = "messages.*.command.>"
 LAB_COMMAND_RESULTS = "messages.*.command_result.>"
