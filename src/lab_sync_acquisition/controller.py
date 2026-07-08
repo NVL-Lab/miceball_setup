@@ -8,6 +8,7 @@ from typing import Any, Iterable
 
 from lab_sync_acquisition.acquisition_health import HealthInterpretationEvidence
 from lab_sync_acquisition.acquisition_node import AcquisitionNode
+from lab_sync_acquisition.communication import RuntimeParticipant
 from lab_sync_acquisition.device_adapter import DeviceReadiness
 from lab_sync_acquisition.experiment_runtime import ExperimentRuntimeHealthMapping
 from lab_sync_acquisition.ingestor import InMemoryIngestor
@@ -122,6 +123,12 @@ class Controller:
         """Recorded health-derived decisions in presentation order."""
 
         return tuple(self._controller_action_decisions)
+
+    @property
+    def expected_runtime_participants(self) -> tuple[RuntimeParticipant, ...]:
+        """Expected runtime identities from the accepted SessionConfig."""
+
+        return self._require_session().configuration.expected_runtime_participants
 
     def process_health_interpretation(
         self,
@@ -496,6 +503,8 @@ class Controller:
             service_readiness_evidence=session.service_readiness_checks,
             accepted_acquisition_envelopes=self._storage_manager.read_envelopes(),
             ingest_audit_records=self._ingestor.ingest_audit,
+            runtime_evidence=self._ingestor.accepted_runtime_evidence,
+            runtime_evidence_audit=self._ingestor.runtime_evidence_audit,
             final_session_status=session.final_status,
             cleanup_evidence={
                 "cleanup_occurred": session.cleanup_occurred,

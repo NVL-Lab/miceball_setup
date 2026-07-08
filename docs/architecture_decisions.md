@@ -3938,6 +3938,730 @@ Failure decisions use their already accepted lifecycle owners.
 
 
 
+## Decision 115: The framework uses a brokered runtime messaging architecture
+
+**Status:** Accepted
+
+The framework uses a brokered messaging architecture for runtime communication.
+
+Runtime components communicate through the messaging infrastructure rather than establishing direct peer-to-peer communication.
+
+The messaging infrastructure acts as the communication hub.
+
+The Controller is a messaging client, not the communication hub.
+
+This architecture allows components to be independently deployed, restarted, replaced, and extended without changing communication topology.
+
+---
+
+## Decision 116: NATS is the runtime transport layer
+
+**Status:** Accepted
+
+NATS is the runtime transport layer for the Lab Sync Acquisition framework.
+
+NATS is responsible only for transporting runtime messages.
+
+NATS does not own:
+
+- Session Time
+- scientific timing
+- lifecycle semantics
+- evidence interpretation
+- storage
+- scientific data ownership
+
+Transport remains independent from scientific meaning.
+
+---
+
+## Decision 117: Runtime communication is classified by delivery requirements
+
+**Status:** Accepted
+
+The framework defines three runtime communication classes.
+
+### JetStream Commands
+
+Critical runtime commands use JetStream.
+
+Examples include:
+
+- start_session
+- stop_session
+- start_experiment
+- stop_experiment
+- abort
+- validation requests
+
+Command messages are:
+
+- durable
+- acknowledged
+- idempotent
+- reliably delivered
+
+### JetStream Evidence
+
+Evidence messages use JetStream.
+
+Examples include:
+
+- lifecycle evidence
+- HealthInterpretationEvidence
+- ControllerActionDecision
+- action outcome evidence
+- artifact manifests
+- storage warnings
+
+Loss of evidence is not acceptable.
+
+### Core NATS Telemetry
+
+Transient runtime telemetry uses Core NATS.
+
+Examples include:
+
+- GUI previews
+- cursor display
+- neuron activity preview
+- live monitoring
+- debug visualization
+- heartbeat display
+
+Telemetry is best effort.
+
+Loss of transient telemetry is acceptable.
+
+---
+
+## Decision 118: Runtime communication is separated from artifact transfer
+
+**Status:** Accepted
+
+The framework separates runtime communication from artifact transfer.
+
+### Runtime Communication Plane
+
+Uses NATS.
+
+Carries:
+
+- commands
+- acknowledgements
+- lifecycle
+- health
+- evidence
+- metadata
+- synchronization records
+- manifests
+- transient telemetry
+
+### Artifact Transfer Plane
+
+Does not use NATS.
+
+Responsible for transferring large scientific artifacts after acquisition.
+
+---
+
+## Decision 119: Large scientific artifacts are never transported through NATS
+
+**Status:** Accepted
+
+Large scientific artifacts remain local during acquisition.
+
+Examples include:
+
+- microscope recordings
+- camera recordings
+- Neuropixels/Open Ephys recordings
+- other large binary scientific artifacts
+
+Large artifacts are transferred later through the artifact transfer workflow.
+
+NATS is never used as the transport path for these artifacts.
+
+---
+
+## Decision 120: Persistent scientific data remain local while runtime telemetry may be streamed
+
+**Status:** Accepted
+
+The authoritative scientific record is always the locally stored acquisition data.
+
+Persistent scientific data are stored locally by the producing AcquisitionNode during acquisition.
+
+Future artifact transfer retrieves these authoritative data after acquisition.
+
+NATS may transport selected low-rate runtime telemetry for:
+
+- GUI visualization
+- online monitoring
+- online processing
+- debugging
+
+Telemetry transported through NATS is not the authoritative scientific record.
+
+---
+
+## Decision 121: Artifact transfer is pull-based
+
+**Status:** Accepted
+
+AcquisitionNodes publish artifact manifests.
+
+AcquisitionNodes never initiate artifact transfer.
+
+Artifact transfer is initiated by the storage/transfer side.
+
+This architecture separates acquisition from storage consolidation and allows transfer scheduling independently from acquisition.
+
+---
+
+## Decision 122: Transport does not define scientific time
+
+**Status:** Accepted
+
+Scientific timing is independent of the runtime transport.
+
+Transport latency, message ordering, and message arrival time never define scientific time.
+
+Scientific timing remains part of the scientific data and synchronization architecture.
+
+---
+
+## Decision 123: The NATS server is laboratory infrastructure
+
+**Status:** Accepted
+
+The NATS server is laboratory infrastructure.
+
+The expected deployment is on the laboratory Overlord PC.
+
+The Overlord PC is a deployment role only.
+
+Deployment location does not define architectural ownership.
+
+---
+
+## Decision 124: Communication failures are framework failures
+
+**Status:** Accepted
+
+NATS is required for coordinated runtime operation.
+
+If NATS is unavailable before a Session begins:
+
+- the Session cannot start.
+
+If NATS becomes unavailable during a Session:
+
+- communication failure handling begins
+- components preserve local evidence
+- the Controller determines the resulting framework actions
+
+The detailed recovery policy remains future work.
+
+---
+
+## Decision 125: Deployment topology does not define ownership
+
+**Status:** Accepted
+
+Framework ownership is independent of deployment topology.
+
+Components may execute on the same machine or on separate machines without changing architectural ownership.
+
+Examples include:
+
+- Controller
+- GUI
+- Ingestor
+- StorageManager
+- NATS
+
+Deployment decisions must not introduce hidden architectural dependencies.
+
+---
+
+## Decision 126: Runtime communication follows a hub-and-spoke topology
+
+**Status:** Accepted
+
+Runtime communication follows a hub-and-spoke architecture.
+
+Components communicate through NATS.
+
+Components should not establish hidden direct communication paths simply because they execute on the same machine.
+
+Communication follows explicit transport boundaries rather than deployment topology.
+
+The default communication pattern is:
+
+- Commands
+    - Controller → AcquisitionNode(s)
+
+- Evidence
+    - AcquisitionNode(s), Controller → Ingestor
+
+- Telemetry
+    - Publishers → Any interested subscribers
+
+The Ingestor is the canonical consumer of durable evidence.
+
+The GUI is a consumer of transient telemetry.
+
+The Controller is a consumer of runtime status and a producer of commands.
+
+The communication topology is independent of physical deployment.
+
+---
+
+## Decision 127
+
+NATS communication is owned by a communication boundary, not by domain components.
+
+Domain components produce and consume plain framework records.
+
+The communication boundary serializes, publishes, subscribes, acknowledges, and reconstructs those records across NATS.
+
+NATS subjects and streams route messages but do not define lifecycle ownership, Session Time, evidence meaning, or artifact storage.
+
+## Decision 128
+
+Phase 10 v1 uses minimal message envelopes.
+
+Command message:
+
+```
+command_id
+session_id
+command_type
+source_id
+target_id
+payload
+```
+
+Command result:
+
+```
+result_id
+command_id
+session_id
+source_id
+target_id
+status
+success
+reason
+payload
+```
+
+Evidence message:
+
+```
+evidence_id
+session_id
+evidence_type
+source_id
+payload
+```
+
+Telemetry message:
+
+```
+session_id
+telemetry_type
+source_id
+payload
+```
+
+No separate idempotency key, causation chain, schema registry, global correlation model, or exhaustive provenance envelope is introduced in v1.
+
+## Decision 129
+
+Phase 10 subject hierarchy is message-rooted, Session-scoped, and routing-only.
+
+Subjects use:
+
+```
+messages.<session_id>.<message_class>.<component_type>.<component_id>.<message_type>
+```
+
+Allowed message_class values:
+
+```
+command
+command_result
+evidence
+telemetry
+```
+
+The root `messages` identifies Lab Sync Acquisition runtime messages on the NATS broker.
+
+The `session_id` remains in the subject because Session is the runtime evidence boundary.
+
+Subjects route messages only. They do not encode physical machine location, deployment topology, ownership, lifecycle semantics, Session Time, command success, evidence meaning, artifact storage, or scientific validity.
+
+## Decision 130
+
+Phase 10 separates durable message classes into distinct JetStream streams.
+
+JetStream streams:
+
+```
+LAB_COMMANDS
+    messages.*.command.>
+
+LAB_COMMAND_RESULTS
+    messages.*.command_result.>
+
+LAB_EVIDENCE
+    messages.*.evidence.>
+```
+
+Telemetry subjects are not stored in JetStream:
+
+```
+messages.*.telemetry.>
+```
+
+Telemetry uses Core NATS only.
+
+Commands, command results, and evidence do not share one durable stream in v1.
+
+## Decision 131
+
+Consumers follow existing component ownership.
+
+Command consumers are target components.
+
+Command-result consumers are command issuers.
+
+Evidence consumers are separated by responsibility.
+
+The Ingestor is the canonical preservation consumer for durable evidence.
+
+The Controller may also consume selected evidence types when that evidence requires Controller decision-making, such as HealthInterpretationEvidence.
+
+The Controller is not the evidence archive.
+
+Telemetry consumers are GUI and monitoring clients.
+
+Consumers do not gain ownership of a domain concept merely because they subscribe to its messages.
+
+## Decision 132
+
+Command delivery uses transport acknowledgement plus explicit command result.
+
+JetStream publish acknowledgement means only that NATS accepted the message into the durable stream.
+
+It does not mean the target component executed the command.
+
+Every durable command must produce a command_result message.
+
+Command success is represented only by command_result evidence, not by NATS delivery acknowledgement.
+
+Lifecycle mutation remains owned by the target domain component, not by NATS.
+
+## Decision 133
+
+Command results use a shared status vocabulary with Phase-specific allowed subsets.
+
+Command result status vocabulary:
+
+```
+accepted
+progress
+succeeded
+failed
+```
+
+For Phase 10 runtime control commands, only final statuses are used:
+
+```
+succeeded
+failed
+```
+
+A runtime control command_result is published after the target component finishes processing the command.
+
+accepted and progress are reserved for future long-running command families, such as artifact transfer, reconstruction, or upload workflows.
+
+## Decision 134
+
+Commands target either one component or one component group.
+
+A unicast command targets one component, and only that component executes it.
+
+A group command targets a component group, such as all AcquisitionNodes in a Session.
+
+Each eligible component in that group may execute the command.
+
+Each executing component publishes its own command_result.
+
+Brokered communication is preserved because commands still move through NATS.
+
+A group command is not one shared lifecycle mutation. It is one command intent fan-out with separate execution outcomes from each participating component.
+
+## Decision 135
+
+Group command aggregation belongs to the command issuer.
+
+A group command may produce zero, one, or many command_result messages.
+
+Each executing component reports only its own result.
+
+NATS does not aggregate group command results.
+
+The target components do not decide the group-level outcome.
+
+The command issuer, usually Controller, interprets returned command_results and decides whether the group command succeeded, failed, timed out, or requires operator action.
+
+## Decision 136
+
+Missing command results are interpreted by the command issuer.
+
+A command may have an expected result window defined by the command issuer.
+
+If no command_result is received within that window, the missing result is recorded as unresolved command outcome evidence.
+
+A missing result is not automatically equivalent to target failure, Session failure, Experiment failure, or command failure.
+
+NATS does not infer failure from missing command_result messages.
+
+## Decision 137
+
+Command receivers use command_id for duplicate detection.
+
+Every command has a command_id.
+
+If a target component receives the same command_id more than once, it must not execute the command more than once.
+
+The target component may republish the previous command_result for that command_id.
+
+Duplicate detection is local to the receiving component.
+
+For Phase 10, command_id is sufficient. No separate idempotency_key is introduced.
+
+## Decision 138
+
+Runtime communication identifies components by type and identifier.
+
+Every communicating runtime component has:
+
+```
+component_type
+component_id
+```
+
+component_type identifies the architectural role.
+
+component_id uniquely identifies one runtime instance of that role within the deployment.
+
+Component identity is independent of physical computer, network address, operating system, deployment topology, and laboratory location.
+
+Component identity is used for message routing and execution ownership only.
+
+It does not imply ownership of Session, Experiment, Session Time, or any other architectural concept.
+
+## Decision 139
+
+SessionConfig is the authoritative source of expected runtime participants.
+
+Controller determines expected runtime participants from the accepted SessionConfig.
+
+Phase 10 does not introduce runtime discovery or a dynamic service registry.
+
+If an expected participant does not respond to the relevant command or readiness request, that absence is recorded as unresolved command outcome evidence and surfaced to the operator.
+
+Runtime availability may be observed in the future, but it does not replace SessionConfig as the source of expected participation.
+
+## Decision 140
+
+NATS carries readiness requests but does not redefine readiness.
+
+Before Session start, Controller may issue readiness-related commands to expected runtime participants over NATS.
+
+The responding component runs its existing readiness logic and returns existing readiness evidence in the command_result payload.
+
+NATS does not define a separate readiness model.
+
+Missing readiness command_results are recorded as unresolved command outcome evidence and surfaced to the operator.
+
+Session readiness gating remains owned by Session using readiness evidence from the accepted readiness contracts.
+
+## Decision 141
+
+NATS availability is required communication readiness before distributed Session start.
+
+For a distributed Session, NATS availability must be checked before Session start.
+
+If NATS is unavailable before Session start, the distributed Session cannot start.
+
+The failure is recorded as communication readiness evidence and surfaced to the operator.
+
+NATS availability does not replace device readiness, service readiness, storage readiness, or Session readiness gating.
+
+NATS does not own readiness. It only provides communication capability.
+
+## Decision 142
+
+NATS unavailability during a Session creates communication-failure evidence, not automatic lifecycle mutation.
+
+If NATS becomes unavailable during a running Session, components that detect the failure record local communication-failure evidence when possible.
+
+AcquisitionNodes continue following their existing local safety and evidence preservation rules.
+
+NATS unavailability does not automatically fail the Session, fail the active Experiment, stop Acquisition Runtime, or discard evidence.
+
+Controller decides any lifecycle consequence after communication state is known or restored.
+
+Reconnect, retry, replay, and operator-intervention policy remain future communication-failure recovery work.
+
+## Decision 143
+
+Durable message producers retain ownership until successful publication.
+
+When a component produces a durable command_result or evidence message, that component remains responsible for preserving the message until it has been successfully published to JetStream.
+
+Failure to publish does not transfer ownership to NATS or any other component.
+
+The message must not be discarded solely because communication is unavailable.
+
+How unpublished messages are buffered, retried, replayed, or recovered is implementation detail and future communication-failure recovery architecture.
+
+Phase 10 defines only the ownership boundary.
+
+## Decision 144
+
+Durable publication success means JetStream stream acceptance.
+
+For durable message classes, publication is considered successful only when JetStream confirms that the message was accepted into the intended stream.
+
+JetStream acceptance means the transport layer durably accepted the message.
+
+It does not mean a consumer processed the message, a command executed successfully, Controller acted on evidence, Ingestor archived evidence, or StorageManager persisted the Session Record.
+
+Downstream outcomes must be represented by separate command_result, evidence, ingest audit, or storage evidence according to the responsible component's ownership.
+
+## Decision 145
+
+Durable evidence is published once and consumed independently.
+
+A component that produces durable evidence publishes it once to the appropriate JetStream evidence subject.
+
+Multiple components may independently consume the same evidence according to their existing responsibilities.
+
+Controller consumes evidence that requires Controller decision-making.
+
+Ingestor consumes durable evidence for preservation as part of the Session Record.
+
+Components do not relay, forward, or republish evidence on behalf of other components.
+
+NATS is the communication hub.
+
+## Decision 146
+
+Telemetry is transient, real-time, display-oriented, and non-authoritative.
+
+Telemetry messages use Core NATS subjects only:
+
+```
+messages.<session_id>.telemetry.<component_type>.<component_id>.<telemetry_type>
+```
+
+Telemetry may be consumed by GUI, monitoring tools, or debugging tools.
+
+Telemetry can be real-time.
+
+Telemetry loss is acceptable.
+
+Telemetry is not evidence.
+
+Telemetry is not authoritative scientific data.
+
+Telemetry may contain display/preview data such as cursor position, selected neuron preview, live visualization summaries, heartbeat display, or monitoring information.
+
+Telemetry does not require command_result, ingest audit, storage preservation, or replay.
+
+A component must not make lifecycle, Session, Experiment, or scientific-validity decisions based only on telemetry.
+
+## Decision 147
+
+Artifact manifests are artifact-level durable evidence, not acquisition-event evidence.
+
+Artifact manifests describe artifact lifecycle boundaries.
+
+They are not emitted per sample, frame, image, event, or acquisition row.
+
+Typical manifest moments:
+
+```
+artifact planned/opened
+artifact closed/finalized
+artifact failed/incomplete
+artifact transferred/verified later
+```
+
+Artifact manifests support discovery, audit, later pull-based transfer, and reconstruction.
+
+During acquisition, scientific data and timing records are written locally by the producing component.
+
+NATS carries artifact manifests, health/status evidence, lifecycle evidence, command outcomes, and telemetry, but not artifact bytes or per-frame scientific data streams.
+
+The Ingestor may consume artifact manifests and runtime evidence, but it is not the required online path for every scientific data row.
+
+## Decision 148
+
+Ingestor is the runtime evidence intake, not the universal scientific data pipe.
+
+Ingestor consumes and audits durable runtime messages such as:
+
+```
+lifecycle evidence
+health evidence
+ControllerActionDecision evidence
+command_result evidence
+artifact manifests
+storage/transfer evidence
+lightweight metadata
+```
+
+Ingestor is not required to receive every scientific sample, frame, image, continuous data row, or large artifact byte during acquisition.
+
+Scientific data may be written locally by the producing component and later included in the Session Record through artifact manifests and pull-based transfer.
+
+This clarifies and narrows earlier acquisition-envelope/ingestion assumptions for large-artifact workflows.
+
+The Ingestor remains responsible for evidence intake and audit, but not for being the online transport path for all scientific data.
+
+## Decision 149
+
+During acquisition, only runtime communication and display telemetry remain on the Control Plane.
+
+During active acquisition, NATS communication is limited to runtime information required for coordination, monitoring, and display.
+
+Typical runtime messages include:
+
+```
+commands
+command_results
+health evidence
+lifecycle evidence
+status updates
+warnings/failures
+artifact lifecycle manifests
+telemetry for real-time display/preview
+synchronization messages in a future phase
+```
+
+Scientific data, timing records, and large artifacts remain local to the producing component until artifact transfer.
+
+Telemetry may be real-time, but it is display/monitoring data, not authoritative scientific data.
+
+Runtime communication supports orchestration and observation, not scientific data transport.
+
 --- ********************************************************************************
 
 # Accepted Architectural Principles
@@ -4057,6 +4781,41 @@ The following principles summarize the accepted decisions so far.
 112. Controller records exactly one evidence-only ControllerActionDecision for each explicitly presented HealthInterpretationEvidence without mutating framework lifecycle or runtime state.
 113. Controller executes Experiment-failure decisions as canonical experiment_fail evidence without failing Session, and executes Session-failure decisions through the existing failed-Session cleanup path.
 114. ControllerActionDecision uses normalized local decision names; evidence-only decisions execute successfully without lifecycle mutation.
+115. Runtime components communicate through brokered messaging rather than peer-to-peer paths.
+116. NATS is the runtime transport layer and does not own domain meaning.
+117. JetStream carries durable commands and evidence; Core NATS carries transient telemetry.
+118. Runtime communication and artifact transfer are separate planes.
+119. Large scientific artifacts never travel through NATS.
+120. Authoritative scientific data remain local during acquisition while selected telemetry may stream.
+121. Artifact transfer is pull-based and is never initiated by AcquisitionNodes.
+122. Transport does not define Session Time or scientific timing.
+123. The NATS server is laboratory infrastructure; its deployment location does not define ownership.
+124. NATS is required before coordinated Session start; runtime communication failure preserves evidence and leaves consequences to Controller.
+125. Deployment topology does not define architectural ownership.
+126. Runtime communication follows an explicit NATS hub-and-spoke topology.
+127. A communication boundary owns NATS mechanics while domain components use plain framework records.
+128. Phase 10 v1 uses minimal command, command-result, evidence, and telemetry message envelopes.
+129. Runtime subjects are message-rooted, Session-scoped, and routing-only.
+130. Commands, command results, and evidence use separate JetStream streams; telemetry uses Core NATS only.
+131. Message consumers follow existing component ownership; Ingestor preserves durable evidence and Controller consumes decision-relevant evidence.
+132. Transport acknowledgement and explicit command result are separate outcomes.
+133. Command results share accepted, progress, succeeded, and failed status vocabulary; Phase 10 runtime control uses final statuses only.
+134. Commands target one component or one component group, with one result per executing component.
+135. Group command-result aggregation belongs to the command issuer.
+136. Missing command results become unresolved outcome evidence interpreted by the command issuer.
+137. Command receivers use command_id for local duplicate detection.
+138. Runtime component identity consists of component_type and component_id independent of deployment location.
+139. SessionConfig is authoritative for expected runtime participants; Phase 10 adds no runtime discovery.
+140. NATS carries readiness requests without redefining readiness ownership or evidence.
+141. NATS availability is required communication readiness before distributed Session start.
+142. Runtime NATS unavailability creates communication-failure evidence without automatic lifecycle mutation.
+143. Durable message producers retain ownership until JetStream publication succeeds.
+144. Durable publication succeeds only when the intended JetStream stream accepts the message.
+145. Durable evidence is published once and consumed independently without component relaying.
+146. Telemetry is transient, display-oriented, non-authoritative, and unsuitable as the sole basis for lifecycle or scientific-validity decisions.
+147. Artifact manifests are artifact-level durable evidence rather than per-record acquisition evidence.
+148. Ingestor is runtime evidence intake, not a universal online scientific-data pipe.
+149. During acquisition, the Control Plane carries runtime communication and display telemetry, not scientific data or artifact bytes.
 
 ---
 

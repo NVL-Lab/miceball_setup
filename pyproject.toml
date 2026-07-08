@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "lab-sync-acquisition"
 version = "0.1.0"
 requires-python = ">=3.12,<3.13"
-dependencies = []
+dependencies = ["nats-py>=2.15,<3"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

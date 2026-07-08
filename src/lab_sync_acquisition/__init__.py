@@ -15,6 +15,26 @@ from lab_sync_acquisition.controller import (
     ControllerActionDecision,
     ControllerCommandResult,
 )
+from lab_sync_acquisition.communication import (
+    ARTIFACT_MANIFEST_EVIDENCE_TYPE,
+    COMMAND_RESULT_STATUSES,
+    GroupCommandOutcome,
+    LAB_COMMAND_RESULTS,
+    LAB_COMMANDS,
+    LAB_EVIDENCE,
+    MESSAGE_CLASSES,
+    RUNTIME_CONTROL_COMMAND_RESULT_STATUSES,
+    RuntimeCommandMessage,
+    RuntimeCommandResultMessage,
+    RuntimeEvidenceMessage,
+    RuntimeParticipant,
+    RuntimeTelemetryMessage,
+    UnresolvedCommandOutcome,
+    aggregate_group_command_results,
+    build_group_command_messages,
+    build_runtime_subject,
+    parse_runtime_subject,
+)
 from lab_sync_acquisition.device import DeviceDeclaration
 from lab_sync_acquisition.device_adapter import (
     DeviceAdapter,
@@ -35,6 +55,14 @@ from lab_sync_acquisition.experiment_runtime import (
     ExperimentScopedHealthObservation,
 )
 from lab_sync_acquisition.ingestor import IngestAuditRecord, InMemoryIngestor
+from lab_sync_acquisition.ingestor import RuntimeEvidenceAuditRecord
+from lab_sync_acquisition.nats_communication import (
+    DurablePublicationError,
+    NatsAcquisitionNodeCommunication,
+    NatsCommunicationBoundary,
+    NatsControllerCommunication,
+    NatsIngestorCommunication,
+)
 from lab_sync_acquisition.session import (
     ExpectedParticipant,
     ExperimentDescriptor,
@@ -58,6 +86,7 @@ from lab_sync_acquisition.storage import (
 from lab_sync_acquisition.synchronization import SynchronizationManager
 
 __all__ = [
+    "ARTIFACT_MANIFEST_EVIDENCE_TYPE",
     "AcquisitionIterationSummary",
     "AcquisitionHealthPolicy",
     "AcquisitionNode",
@@ -70,11 +99,15 @@ __all__ = [
     "Controller",
     "ControllerActionDecision",
     "ControllerCommandResult",
+    "COMMAND_RESULT_STATUSES",
+    "GroupCommandOutcome",
     "DeviceReadiness",
     "DeviceReadinessNotImplementedError",
     "DeviceStatus",
+    "DurablePublicationError",
     "IngestAuditRecord",
     "InMemoryIngestor",
+    "RuntimeEvidenceAuditRecord",
     "InMemoryStorageManager",
     "PersistentStorageManager",
     "OpenCVCameraConfig",
@@ -89,12 +122,31 @@ __all__ = [
     "ExperimentRuntimeHealthMapping",
     "ExperimentScopedHealthObservation",
     "HealthInterpretationEvidence",
+    "LAB_COMMAND_RESULTS",
+    "LAB_COMMANDS",
+    "LAB_EVIDENCE",
     "LifecycleTransition",
     "ReadinessCheck",
+    "MESSAGE_CLASSES",
+    "RUNTIME_CONTROL_COMMAND_RESULT_STATUSES",
+    "RuntimeCommandMessage",
+    "RuntimeCommandResultMessage",
+    "RuntimeEvidenceMessage",
+    "RuntimeParticipant",
+    "RuntimeTelemetryMessage",
+    "UnresolvedCommandOutcome",
+    "NatsAcquisitionNodeCommunication",
+    "NatsCommunicationBoundary",
+    "NatsControllerCommunication",
+    "NatsIngestorCommunication",
     "Session",
     "SessionConfig",
     "SessionLifecycleError",
     "SessionState",
     "ServiceReadiness",
     "SynchronizationManager",
+    "build_runtime_subject",
+    "aggregate_group_command_results",
+    "build_group_command_messages",
+    "parse_runtime_subject",
 ]

@@ -269,7 +269,7 @@ Ingest Time is not Session Time.
 
 # Ingestor
 
-The component responsible for receiving records from Acquisition Nodes and preserving them for storage.
+The canonical runtime evidence-intake component responsible for receiving and auditing durable evidence messages and preserving accepted evidence for storage.
 
 The Ingestor owns:
 
@@ -279,6 +279,48 @@ The Ingestor owns:
 * ingest auditing
 
 The Ingestor does not own scientific time.
+
+The Ingestor is not the universal online pipe for every scientific sample, frame, continuous data row, or large artifact byte. Producing components may store authoritative scientific data locally and represent artifact lifecycle through durable manifests.
+
+---
+
+# Control Plane
+
+The NATS-based runtime communication plane for commands, command results, lifecycle, status, health, evidence, metadata, manifests, and transient telemetry. It does not transport large scientific artifacts or define Session Time.
+
+---
+
+# Artifact Plane
+
+The separate, future pull-based path for transferring large scientific artifacts that remain local during acquisition. Artifact bytes do not travel through NATS.
+
+---
+
+# Artifact Manifest
+
+Artifact-level durable runtime evidence describing an artifact lifecycle boundary. In the current implementation it uses `RuntimeEvidenceMessage` with evidence type `artifact_manifest` and plain metadata supplied by the producing domain component.
+
+An Artifact Manifest is not an acquisition row, frame, sample, artifact byte payload, transfer command, storage layout, checksum record, or transfer implementation.
+
+---
+
+# Runtime Message
+
+A minimal plain-data command, command-result, evidence, or telemetry message routed through the communication boundary. Runtime messages use Session-scoped NATS subjects; routing does not transfer domain ownership.
+
+---
+
+# Unresolved Command Outcome
+
+Issuer-owned evidence that an expected runtime participant did not return a command result within the issuer-defined result window.
+
+An unresolved outcome is not automatically a target failure, command failure, Experiment failure, or Session failure. NATS and target components do not aggregate or interpret missing group-command results.
+
+---
+
+# JetStream
+
+The durable NATS messaging facility used for commands, command results, and evidence. JetStream acceptance confirms durable transport acceptance only, not command execution, evidence consumption, ingest audit, or persistent Session Record storage.
 
 ---
 
@@ -387,6 +429,8 @@ Examples include:
 * session_start and session_stop acquisition events
 * accepted acquisition envelopes
 * ingest audit records
+* accepted durable runtime evidence
+* runtime evidence intake audit records
 * final session status
 * warnings, recoverable failures, and fatal failures
 * cleanup evidence
@@ -512,12 +556,14 @@ Device Record Collections are converted into Acquisition Record Envelopes by the
 
 # Acquisition Record Envelope
 
-The unit of acquisition data exchanged between the acquisition side and the Ingestor.
+The Phase 1-9 unit of acquisition data exchanged between the acquisition side and the Ingestor in the validated bounded-envelope workflows.
 
 An Acquisition Record Envelope contains session identity, source device
 identity, record kind, and records in a plain-data form that can cross a process
 or computer boundary. Phase 2 envelopes may also contain `source_node_id`;
 existing Phase 1 envelopes remain valid without it.
+
+Phase 10 narrows this assumption for large-artifact workflows: NATS carries runtime evidence, metadata, and artifact manifests, while authoritative scientific rows and artifact bytes may remain local rather than crossing the Ingestor online.
 
 ---
 
@@ -736,6 +782,8 @@ A Device Declaration establishes Session-level availability and intent. It does 
 The accepted run configuration owned by a Session.
 
 Session Configuration declares the intended runtime configuration of a Session, including selected Device Declarations, session parameters, device configuration, synchronization configuration, acquisition configuration, ingestion/storage configuration, protocol intent or reference, and the available `AcquisitionHealthPolicy` definitions.
+
+Session Configuration is also authoritative for expected runtime participants, represented as plain component type and component identifier declarations rather than discovered live services.
 
 Acquisition-health policy definitions are persistent Session-scoped configuration. Experiment Runtime Health Mappings assign those definitions to live sources as Experiment-scoped runtime intent.
 

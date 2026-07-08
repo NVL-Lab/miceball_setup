@@ -162,6 +162,8 @@ class PersistentStorageManager:
         warnings_or_failures: Iterable[Any] = (),
         experiment_lifecycle_evidence: Iterable[Any] = (),
         experiment_descriptors: Iterable[Any] = (),
+        runtime_evidence: Iterable[Any] = (),
+        runtime_evidence_audit: Iterable[Any] = (),
     ) -> None:
         """Write a minimal v1 Session Record JSON evidence package."""
 
@@ -181,6 +183,8 @@ class PersistentStorageManager:
                 accepted_acquisition_envelopes
             ),
             "ingest_audit_records": _to_plain_data(ingest_audit_records),
+            "runtime_evidence": _to_plain_data(runtime_evidence),
+            "runtime_evidence_audit": _to_plain_data(runtime_evidence_audit),
             "final_session_status": _to_plain_data(final_session_status),
             "cleanup_evidence": _to_plain_data(cleanup_evidence),
             "warnings_or_failures": _to_plain_data(warnings_or_failures),

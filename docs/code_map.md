@@ -7,9 +7,11 @@
 - AcquisitionNode: Public import for bounded acquisition runtime execution, Session-configured health-policy lookup, active Experiment runtime assignment, linked observation/interpretation evidence, configured batching, writable failure-evidence readiness, and sender-side failure handling.
 - AcquisitionNodeReadiness: Public import for Phase 2 node identity and aggregated device/service readiness evidence.
 - AcquisitionRecordEnvelope: Public import for the transferable acquisition record envelope shared across the acquisition-to-ingestion boundary.
+- ARTIFACT_MANIFEST_EVIDENCE_TYPE: Public evidence-type vocabulary for artifact lifecycle manifests carried through RuntimeEvidenceMessage and LAB_EVIDENCE.
 - Controller: Public import for sequential single-session orchestration using already-created runtime collaborators.
 - ControllerActionDecision: Public import for one immutable Controller decision using the normalized local execution vocabulary and derived from explicitly presented HealthInterpretationEvidence.
 - ControllerCommandResult: Public import for one Controller command outcome.
+- COMMAND_RESULT_STATUSES: Public immutable vocabulary of accepted runtime command-result statuses.
 - DeviceAdapter: Public import for the minimum live runtime control interface for one device adapter.
 - DeviceAdapterLifecycleError: Public import for invalid live adapter lifecycle operations.
 - DeviceAdapterState: Public import for minimum live adapter lifecycle states.
@@ -26,11 +28,29 @@
 - ExperimentRuntimeHealthMapping: Public import for one explicit live-source Experiment health assignment as plain runtime data.
 - ExperimentScopedHealthObservation: Public import for an identified evidence-only Experiment health condition detected by AcquisitionNode.
 - HealthInterpretationEvidence: Public import for immutable plain-data evidence explicitly linked to the Health Observation interpreted by AcquisitionHealthPolicy without executing framework action.
+- LAB_COMMANDS: Public JetStream subject filter for durable runtime commands.
+- LAB_COMMAND_RESULTS: Public JetStream subject filter for durable runtime command results.
+- LAB_EVIDENCE: Public JetStream subject filter for durable runtime evidence.
+- MESSAGE_CLASSES: Public immutable vocabulary of runtime message classes.
+- RUNTIME_CONTROL_COMMAND_RESULT_STATUSES: Public immutable final-status subset used by Phase 10 runtime-control commands.
+- RuntimeCommandMessage: Public immutable plain-data runtime command message.
+- RuntimeCommandResultMessage: Public immutable plain-data runtime command-result message.
+- RuntimeEvidenceMessage: Public immutable plain-data durable evidence message.
+- RuntimeParticipant: Public immutable SessionConfig declaration of one expected runtime component identity.
+- UnresolvedCommandOutcome: Public immutable issuer evidence that one expected command target did not return a result within the issuer-defined window.
+- GroupCommandOutcome: Public immutable issuer-owned aggregate of returned command results and unresolved expected targets for one component group.
+- RuntimeTelemetryMessage: Public immutable plain-data transient telemetry message.
 - DeviceStatus: Public import for live adapter status snapshots.
+- DurablePublicationError: Public import for explicit durable publication failure context without buffering or retry behavior.
 - IngestAuditRecord: Public import for ingest audit evidence recorded for each received acquisition envelope.
 - InMemoryIngestor: Public import for the minimal in-memory envelope receiver that can forward accepted envelopes to storage.
+- RuntimeEvidenceAuditRecord: Public import for one Ingestor audit record associated with durable runtime evidence intake.
+- NatsCommunicationBoundary: Public import for real NATS connection, JetStream stream setup, message serialization, publication, subscription, and transport acknowledgement mechanics.
+- NatsControllerCommunication: Public import for Controller-side durable command publication and command-result consumption.
+- NatsAcquisitionNodeCommunication: Public import for targeted AcquisitionNode command consumption, local duplicate detection, explicit command execution, command-result publication, and runtime evidence publication.
+- NatsIngestorCommunication: Public import for durable runtime evidence consumption into the existing Ingestor ownership boundary.
 - InMemoryStorageManager: Public import for the minimal in-memory acquisition envelope storage boundary.
-- PersistentStorageManager: Public import for the v1 persistent StorageManager implementation that stores accepted envelopes as JSONL.
+- PersistentStorageManager: Public import for the v1 persistent StorageManager implementation that stores accepted envelopes as JSONL and writes caller-supplied Session Record evidence.
 - LifecycleTransition: Public import for recorded lifecycle transitions.
 - OpenCVCameraConfig: Public import for explicit OpenCV camera initialization and polling configuration.
 - ReadinessCheck: Public import for recorded readiness checks.
@@ -41,6 +61,31 @@
 - SessionState: Public import for accepted Phase 1 session lifecycle states.
 - ServiceReadiness: Public import for readiness records produced by framework services and consumed by Session initialization.
 - SynchronizationManager: Public import for the minimal Phase 1 Session Time owner.
+- build_runtime_subject: Public helper that constructs one concrete Session-scoped runtime routing subject.
+- build_group_command_messages: Public helper that fans one command intent out to configured members of one component group.
+- aggregate_group_command_results: Public issuer-side helper that combines per-target results and records absent expected targets as unresolved.
+- parse_runtime_subject: Public helper that parses one concrete runtime routing subject into plain routing fields.
+
+## src/lab_sync_acquisition/communication.py
+
+- ARTIFACT_MANIFEST_EVIDENCE_TYPE: Identifies artifact-level lifecycle manifests as durable runtime evidence without defining transfer or storage schemas.
+- RuntimeParticipant: Stores one expected runtime component type and identifier as plain Session configuration data.
+- UnresolvedCommandOutcome: Stores inspectable plain-data evidence for one expected target whose command result was absent from the issuer-defined result window.
+- GroupCommandOutcome: Stores the issuer-owned aggregate outcome, individual results, and unresolved target evidence for one group command intent.
+- RuntimeCommandMessage: Stores one immutable plain-data command intent with explicit source, target, Session, command identity, type, and payload.
+- RuntimeCommandResultMessage: Stores one immutable plain-data command result and validates its shared status vocabulary.
+- RuntimeEvidenceMessage: Stores one immutable plain-data durable evidence message without interpreting its domain meaning.
+- RuntimeTelemetryMessage: Stores one immutable plain-data transient telemetry message without making it authoritative evidence.
+- build_runtime_subject: Builds the accepted message-rooted, Session-scoped routing subject and validates its message class and concrete tokens.
+- parse_runtime_subject: Parses an accepted concrete routing subject into plain routing fields.
+- build_group_command_messages: Creates one targeted RuntimeCommandMessage per configured participant in an explicitly selected component group.
+- aggregate_group_command_results: Computes the issuer-owned group outcome without broker or target-side aggregation and keeps missing results unresolved rather than failed.
+- MESSAGE_CLASSES: Lists the accepted command, command-result, evidence, and telemetry message classes.
+- COMMAND_RESULT_STATUSES: Lists the shared accepted, progress, succeeded, and failed status vocabulary.
+- RUNTIME_CONTROL_COMMAND_RESULT_STATUSES: Lists the succeeded and failed subset for Phase 10 runtime-control commands.
+- LAB_COMMANDS: Defines the durable command stream subject filter `messages.*.command.>`.
+- LAB_COMMAND_RESULTS: Defines the durable command-result stream subject filter `messages.*.command_result.>`.
+- LAB_EVIDENCE: Defines the durable evidence stream subject filter `messages.*.evidence.>`; telemetry intentionally has no JetStream filter constant.
 
 ## src/lab_sync_acquisition/acquisition_node_readiness.py
 
@@ -68,7 +113,7 @@
 
 - ControllerCommandResult: Records one command outcome and exposes its command, success, details, and error as plain evidence.
 - ControllerActionDecision: Records one health-derived Controller decision with Session, Experiment, source, policy, interpretation, and originating-observation provenance using the normalized local decision vocabulary.
-- Controller: Sequentially coordinates one Session, records normalized decisions through `process_health_interpretation()`, executes evidence-only and accepted failure decisions through `execute_controller_action_decision()`, activates and clears Experiment runtime health mappings, creates canonical lifecycle evidence, handles runtime failure cleanup, and performs two-step Session Record finalization.
+- Controller: Sequentially coordinates one Session, exposes accepted expected runtime participants, records normalized decisions through `process_health_interpretation()`, executes evidence-only and accepted failure decisions through `execute_controller_action_decision()`, activates and clears Experiment runtime health mappings, creates canonical lifecycle evidence, handles runtime failure cleanup, and performs two-step Session Record finalization.
 
 ## src/lab_sync_acquisition/device_adapter.py
 
@@ -95,6 +140,16 @@
 
 - IngestAuditRecord: Records ingest order, receive time, accepted status, and reason for one received acquisition envelope and exposes audit evidence as plain data.
 - InMemoryIngestor: Receives AcquisitionRecordEnvelope objects in memory, reports service readiness, records separate ingest audit evidence, and optionally forwards accepted envelopes to in-memory or persistent storage without mutating rows.
+- RuntimeEvidenceAuditRecord: Records intake order, receive time, evidence identity, acceptance, and reason for one durable RuntimeEvidenceMessage.
+- InMemoryIngestor.receive_runtime_evidence: Accepts and audits durable runtime evidence separately from acquisition-envelope intake.
+
+## src/lab_sync_acquisition/nats_communication.py
+
+- DurablePublicationError: Reports failed JetStream publication with message class, message identity, subject, intended stream, and reason while leaving the original message caller-owned.
+- NatsCommunicationBoundary: Owns a real nats-py connection, reports NATS availability through ServiceReadiness, creates accepted JetStream streams, and handles JSON serialization, durable publication acknowledgement, and Core NATS telemetry mechanics without domain semantics.
+- NatsControllerCommunication: Publishes unicast or issuer-fanned group commands, consumes and aggregates addressed per-target command results over an issuer-defined window, records missing results as unresolved, and independently presents HealthInterpretationEvidence without relaying evidence.
+- NatsAcquisitionNodeCommunication: Consumes targeted commands, invokes existing node readiness or start_runtime, run_one_iteration, and stop_runtime behavior, deduplicates by command_id, and publishes explicit results and AcquisitionNode-owned evidence.
+- NatsIngestorCommunication: Consumes durable RuntimeEvidenceMessage records and passes them to InMemoryIngestor for separate evidence intake and audit.
 
 ## src/lab_sync_acquisition/service_readiness.py
 
@@ -108,7 +163,7 @@
 ## src/lab_sync_acquisition/storage.py
 
 - InMemoryStorageManager: Reports service readiness, stores accepted AcquisitionRecordEnvelope objects in memory, and exposes all, session-filtered, and source-filtered readback without file writing or transformation.
-- PersistentStorageManager: Reports service readiness, stores accepted envelopes, and writes/reads a v1 Session Record including Experiment descriptors and canonical Experiment lifecycle evidence.
+- PersistentStorageManager: Reports service readiness, stores accepted envelopes, and writes/reads a v1 Session Record including Experiment evidence plus separately supplied runtime evidence and runtime-evidence audit records.
 
 ## src/lab_sync_acquisition/synchronization.py
 
@@ -117,7 +172,7 @@
 ## src/lab_sync_acquisition/session.py
 
 - SessionState: Enumerates the accepted Phase 1 session lifecycle states.
-- SessionConfig: Holds the immutable accepted run configuration, including the explicit Session error evidence location, and exposes it as plain data for the persistent Session Record.
+- SessionConfig: Holds the immutable accepted run configuration, including expected runtime participant identities and the explicit Session error evidence location, and exposes it as plain data for the persistent Session Record.
 - ReadinessCheck: Records the result of a readiness condition checked during lifecycle transitions and exposes it as plain data for Session Record evidence.
 - LifecycleTransition: Records an allowed lifecycle state transition in sequence order and exposes it as plain data for Session Record evidence.
 - ExpectedParticipant: Records participant identity, type, expected contribution, and required status as an inert plain-data declaration.
@@ -157,3 +212,7 @@
 ## scripts/manual_opencv_camera_smoke.py
 
 - main: Runs one optional bounded metadata-only AcquisitionNode iteration against a real OpenCV camera and releases the camera without writing image or video files.
+
+## scripts/demo_nats_runtime.py
+
+- main: Manually validates Controller command, AcquisitionNode execution/result/evidence, Ingestor evidence intake, and Core NATS telemetry against a real JetStream-enabled NATS server.

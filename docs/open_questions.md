@@ -198,25 +198,23 @@ Design internal records so that NWB export is straightforward, but do not let NW
 
 ---
 
-## Q011: What is the retry and replay model for failed handoff envelopes?
+## Q011: What is the recovery model for unpublished durable messages?
 
 ### Why this matters
 
-The first handoff failure slice preserves failure evidence and may preserve failed envelopes locally, but it does not retry or replay them.
+Decision 143 keeps durable-message ownership with the producer until successful JetStream publication. Decisions 124 and 142 require communication-failure evidence but intentionally defer reconnect, retry, replay, buffering, and recovery behavior.
 
 ### Questions
 
-* Should failed envelopes be retried immediately, later, or only manually?
-* Is there a retry queue or local backlog?
-* Are newer envelopes allowed to continue sending while older failed envelopes remain unsent?
-* How are successful retries recorded?
-* How are permanently unsent envelopes represented in the Session Record?
-* Who initiates replay: AcquisitionNode, Controller, or offline reconstruction tooling?
-* What local storage limits apply to failed-envelope preservation?
+* What future recovery mechanism, if any, is accepted after an explicit `DurablePublicationError`?
+* When and how are reconnect, retry, or replay permitted?
+* May newer durable messages publish after an earlier publication failure?
+* How are successful recovery and permanently unpublished messages recorded?
+* If future local preservation is accepted, what ownership and storage limits apply?
 
 ### Current direction
 
-Do not implement retry/replay in the first handoff failure slice. Preserve sender-side failure evidence first, then design retry/replay explicitly as a later Phase 3 robustness decision.
+Do not infer recovery behavior from JetStream durability. Publication recovery remains a separate future architecture decision.
 
 ---
 
@@ -283,23 +281,42 @@ Decisions 095–102 establish canonical Experiment lifecycle ownership, distingu
 
 ---
 
-## Q016: How does Health Interpretation Evidence reach Controller during distributed runtime?
+## Q016: How is distributed Health Interpretation Evidence consumption recovered and deduplicated?
 
 ### Why this matters
 
-Phase 8a accepts one `HealthInterpretationEvidence` through an explicit Controller method call. It intentionally does not define polling, callbacks, subscriptions, transport, event buses, aggregation, or multi-node delivery.
+Decisions 115-149 settle the communication boundary, and the implemented Controller consumer now independently receives Session-scoped `HealthInterpretationEvidence` through JetStream. Operational recovery and duplicate-presentation behavior remain unresolved.
 
 ### Questions
 
-* Which runtime boundary delivers interpretation evidence to Controller?
-* How are ordering, duplication, and loss represented across processes or machines?
-* How does delivery preserve originating-observation provenance?
-* How are multiple Acquisition Nodes distinguished without coupling Controller to their live objects?
+* How are consumer acknowledgement, restart, and duplicate presentation handled without repeating Controller actions?
+* How are missing or delayed evidence-consumption outcomes surfaced operationally?
 
 ### Blocks
 
 * Distributed health consequence handling
 * Multi-node Controller integration
+
+---
+
+## Q017: What is the artifact transfer backend and verification workflow?
+
+### Why this matters
+
+Decisions 118-121 and 147-149 establish a separate, pull-based Artifact Plane. They intentionally do not choose the transfer backend, scheduling, verification, checksums, retention, or destination layout.
+
+### Questions
+
+* Which component requests and performs artifact retrieval?
+* What transfer protocol and authentication model are used?
+* How are transfer completion and verification represented as durable evidence?
+* What checksum, resume, retention, and cleanup policies apply?
+
+### Blocks
+
+* Artifact transfer implementation
+* Storage consolidation
+* Reconstruction from transferred artifacts
 
 ---
 

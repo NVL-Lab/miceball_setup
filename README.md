@@ -170,6 +170,51 @@ warning, recoverable-failure, and operator-required decisions execute
 successfully without lifecycle mutation; `experiment_fail` and `session_fail`
 retain their accepted lifecycle behavior.
 
+Phase 10 brokered NATS communication architecture has been accepted and
+documented. Phase 10b now provides the first real nats-py communication
+boundary for durable commands, command results, evidence, and transient Core
+NATS telemetry. The local JetStream workflow has been manually validated with
+three successful AcquisitionNode runtime commands, explicit command results,
+durable evidence intake, and transient telemetry. It does not yet implement
+reconnect, retry, replay, recovery, artifact transfer, or production deployment.
+
+The current readiness slice records expected runtime component identities in
+`SessionConfig`, carries AcquisitionNode readiness requests and existing
+readiness evidence through the command/result path, and represents NATS
+availability through the existing required service-readiness gate.
+
+The independent-consumer slice allows Ingestor and Controller to consume the
+same durable evidence through separate JetStream consumers. Controller uses its
+existing health-interpretation decision behavior, while Ingestor independently
+preserves and audits evidence. Telemetry remains transient Core NATS data with
+no lifecycle or persistence effects.
+
+Artifact lifecycle manifests now use the existing durable runtime-evidence
+path with an explicit `artifact_manifest` evidence type. This adds no artifact
+bytes, transfer backend, storage layout, or checksum behavior;
+authoritative scientific data remain local to the producing component.
+
+Controller finalization now includes Ingestor-accepted durable runtime evidence
+and its separate intake audit in the persistent Session Record while keeping
+acquisition envelopes in their existing independent field.
+
+Phase 10 is implemented through the accepted brokered Control Plane boundary,
+including configured group-command fan-out, issuer-owned result aggregation,
+and unresolved missing-response evidence. Recovery policy and the pull-based
+Artifact Plane backend remain intentionally deferred.
+
+The readiness, publication-failure, independent Controller/Ingestor evidence
+consumption, artifact-manifest, and Core NATS telemetry paths have also been
+manually validated against a real local JetStream broker.
+
+Reproducing the manual runtime validation requires a separate
+JetStream-enabled NATS server:
+
+```text
+nats-server -js
+python scripts/demo_nats_runtime.py --server nats://127.0.0.1:4222
+```
+
 
 
 The project follows an architecture-first development process. Architectural decisions are discussed and documented before the corresponding implementation is added to the framework.

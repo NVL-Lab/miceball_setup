@@ -16,6 +16,8 @@ rather than:
 
 As the framework grows, this document should evolve into a catalog of validated capabilities.
 
+The socket and acquisition-envelope workflows below remain valid historical demonstrations of implemented boundaries. They are not the accepted Phase 10 runtime transport architecture: Phase 10 adopts brokered NATS communication, keeps large scientific artifacts local during acquisition, and has not yet been implemented or validated.
+
 ---
 
 # W001 - Session Lifecycle
@@ -1093,6 +1095,86 @@ Validate Phase 8b execution of Experiment- and Session-failure ControllerActionD
 - normal `experiment_stop` remains normal completion evidence
 - `experiment_abort` and generic Experiment end reasons are not introduced
 - no notification, retry, recovery, distributed delivery, aggregation, polling, callback, or event bus is introduced
+
+---
+
+# W027 - Brokered NATS Runtime Communication
+
+## Purpose
+
+Manually validate the first real brokered runtime path against a local JetStream-enabled NATS server without changing domain ownership or introducing communication recovery behavior.
+
+## Workflow
+
+```text
+Controller communication client
+        |
+RuntimeCommandMessage through JetStream
+        |
+AcquisitionNode communication consumer
+        |
+existing start_runtime / run_one_iteration / stop_runtime behavior
+        |
+RuntimeCommandResultMessage through JetStream
+        |
+Controller command-result consumer
+
+AcquisitionNode RuntimeEvidenceMessage
+        |
+JetStream evidence stream
+        |
+Ingestor runtime-evidence intake and audit
+
+RuntimeTelemetryMessage
+        |
+Core NATS only
+        |
+monitoring subscriber
+```
+
+## Validates
+
+- command, command-result, and evidence messages use their separate accepted JetStream streams
+- one Session-scoped AcquisitionNode consumer receives and executes `start_runtime`, `run_one_iteration`, and `stop_runtime`
+- three commands produce three successful explicit command results
+- JetStream publication acknowledgement remains separate from command success
+- duplicate detection remains local and keyed by `command_id`
+- one durable runtime evidence message reaches separate Ingestor evidence intake and audit
+- expected runtime participants persist in SessionConfig and distributed readiness uses existing readiness evidence
+- required NATS communication readiness participates in the existing Session initialization gate
+- failed durable publication reports `DurablePublicationError` context without retry, buffering, or local persistence
+- Controller and Ingestor independently consume the same durable health-interpretation evidence without relay or republish
+- Controller uses its existing `process_health_interpretation()` behavior for distributed decision-relevant evidence
+- one transient telemetry message crosses Core NATS without a JetStream telemetry stream
+- telemetry remains non-authoritative and produces no lifecycle or persistence effects
+- artifact manifests use `RuntimeEvidenceMessage` and `LAB_EVIDENCE` as lightweight artifact-level evidence
+- Ingestor audits artifact manifests without treating them as acquisition envelopes
+- artifact bytes do not cross NATS and no artifact-transfer backend is introduced
+- unique demo Session identity and Session-scoped command consumption prevent stale cross-Session replay
+- one group command intent fans out to configured members of one explicit component group, with one result per executing target
+- the issuer aggregates returned group results and records missing expected readiness responses as unresolved rather than failed
+- NATS and target components do not aggregate group outcomes
+- Session Time and lifecycle behavior remain owned by existing domain components
+- no reconnect, retry/replay policy, buffering architecture, broker/target-side aggregation, artifact transfer, clock synchronization, or new lifecycle semantics are introduced
+
+The brokered command, readiness, group-command, unresolved-outcome, independent evidence-consumer, artifact-manifest, and telemetry paths were manually validated against a real local JetStream server. This remains a manual validation rather than an automated live-server test required by the normal test suite.
+
+---
+
+# W028 - Persistent Runtime Evidence in Session Record
+
+## Purpose
+
+Validate that Controller finalization gathers Ingestor-owned durable runtime evidence and runtime-evidence audit records into the persistent Session Record without changing acquisition-envelope storage.
+
+## Validates
+
+- accepted `RuntimeEvidenceMessage` records persist under `runtime_evidence`
+- `RuntimeEvidenceAuditRecord` intake evidence persists separately under `runtime_evidence_audit`
+- artifact manifests remain lightweight runtime evidence and introduce no artifact bytes or transfer behavior
+- accepted acquisition envelopes and their ingest audit remain unchanged and separate
+- StorageManager writes evidence supplied by the finalization caller without taking runtime-evidence ownership
+- no Session or Experiment lifecycle semantics, retry, replay, reconnect, or buffering behavior changes
 
 ---
 

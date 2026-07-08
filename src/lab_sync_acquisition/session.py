@@ -7,6 +7,7 @@ from enum import Enum
 from typing import Any, ClassVar, Iterable
 
 from lab_sync_acquisition.acquisition_health import AcquisitionHealthPolicy
+from lab_sync_acquisition.communication import RuntimeParticipant
 from lab_sync_acquisition.device import DeviceDeclaration
 from lab_sync_acquisition.device_adapter import DeviceReadiness
 from lab_sync_acquisition.service_readiness import ServiceReadiness
@@ -41,6 +42,7 @@ class SessionConfig:
     ingestion_configuration: dict[str, Any] | None = None
     storage_configuration: dict[str, Any] | None = None
     protocol_reference: Any | None = None
+    expected_runtime_participants: tuple[RuntimeParticipant, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-like plain-data representation."""
@@ -69,6 +71,10 @@ class SessionConfig:
             "ingestion_configuration": self.ingestion_configuration,
             "storage_configuration": self.storage_configuration,
             "protocol_reference": self.protocol_reference,
+            "expected_runtime_participants": [
+                participant.to_dict()
+                for participant in self.expected_runtime_participants
+            ],
         }
 
 

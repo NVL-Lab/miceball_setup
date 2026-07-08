@@ -9,6 +9,7 @@ SRC = ROOT / "src"
 sys.path.insert(0, str(SRC))
 
 from lab_sync_acquisition import (
+    ARTIFACT_MANIFEST_EVIDENCE_TYPE,
     AcquisitionHealthPolicy,
     AcquisitionNode,
     Controller,
@@ -18,6 +19,7 @@ from lab_sync_acquisition import (
     ExperimentRuntimeHealthMapping,
     InMemoryIngestor,
     PersistentStorageManager,
+    RuntimeEvidenceMessage,
     SessionConfig,
     SynchronizationManager,
 )
@@ -143,6 +145,17 @@ class ControllerWorkflowTests(unittest.TestCase):
                 storage_manager=storage,
                 session_record_path=session_record_path,
             )
+            artifact_manifest = RuntimeEvidenceMessage(
+                evidence_id="artifact-manifest-001",
+                session_id=config.session_id,
+                evidence_type=ARTIFACT_MANIFEST_EVIDENCE_TYPE,
+                source_id="node-001",
+                payload={
+                    "artifact_id": "camera-video-001",
+                    "local_reference": "camera/video-001",
+                },
+            )
+            runtime_audit = ingestor.receive_runtime_evidence(artifact_manifest)
 
             manager.initialize_all(config={"mode": "controller-test"})
             readiness = node.check_ready()
@@ -179,6 +192,26 @@ class ControllerWorkflowTests(unittest.TestCase):
             self.assertEqual(
                 len(session_record["accepted_acquisition_envelopes"]),
                 3,
+            )
+            self.assertEqual(
+                session_record["runtime_evidence"],
+                [artifact_manifest.to_dict()],
+            )
+            self.assertEqual(
+                session_record["runtime_evidence_audit"],
+                [runtime_audit.to_dict()],
+            )
+            self.assertNotIn(
+                "artifact_bytes",
+                session_record["runtime_evidence"][0]["payload"],
+            )
+            self.assertTrue(
+                all(
+                    envelope["record_kind"] != ARTIFACT_MANIFEST_EVIDENCE_TYPE
+                    for envelope in session_record[
+                        "accepted_acquisition_envelopes"
+                    ]
+                )
             )
             self.assertTrue(session_record["cleanup_evidence"]["cleanup_occurred"])
 
