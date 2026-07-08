@@ -1174,6 +1174,8 @@ monitoring subscriber
 
 The brokered command, readiness, group-command, unresolved-outcome, independent evidence-consumer, artifact-manifest, and telemetry paths were manually validated against a real local JetStream server. This remains a manual validation rather than an automated live-server test required by the normal test suite.
 
+The artifact-manifest bullets above validate the implemented Phase 10 transport and intake path only. Accepted Phase 12 Decisions 178-218 assign authoritative local ArtifactManifest ownership to the future LocalStorageManager; that local storage ownership, stream lifecycle, and collection workflow are not yet implemented or validated here.
+
 ---
 
 # W028 - Persistent Runtime Evidence in Session Record
@@ -1190,6 +1192,8 @@ Validate that Controller finalization gathers Ingestor-owned durable runtime evi
 - accepted acquisition envelopes and their ingest audit remain unchanged and separate
 - StorageManager writes evidence supplied by the finalization caller without taking runtime-evidence ownership
 - no Session or Experiment lifecycle semantics, retry, replay, reconnect, or buffering behavior changes
+
+This workflow validates persistence of the current runtime-evidence representation. It does not validate the accepted but unimplemented Phase 12 LocalStorageManager, authoritative local ArtifactManifest lifecycle, LocalStorageCompletionSummary, or future global collection path.
 
 ---
 

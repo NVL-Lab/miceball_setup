@@ -1,0 +1,14 @@
+{
+  "session_id": "session-ipython",
+  "experiment_id": "experiment-A",
+  "acquisition_node_id": "node-ipython",
+  "source_component_id": "camera-001",
+  "data_product_id": "camera-frame-metadata",
+  "artifact_type": "framework_scientific_stream",
+  "schema": {
+    "payload": "plain_data"
+  },
+  "details": {
+    "purpose": "manual validation"
+  }
+}

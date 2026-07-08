@@ -1,0 +1,20 @@
+{
+  "artifact_manifest_id": "606511f7c8d4412a975b714cf9084c62",
+  "session_id": "session-patch",
+  "experiment_id": "experiment-001",
+  "acquisition_node_id": "node-patch",
+  "source_component_id": "camera-001",
+  "artifact_type": "framework_scientific_stream",
+  "lifecycle_state": "finalized",
+  "storage_id": "b5f857c8c27445b1bc2e569fcf62fe01",
+  "local_storage_path": "tmp_manual_local_storage_patch_validation\\session-patch\\experiment-001\\b5f857c8c27445b1bc2e569fcf62fe01\\rows.jsonl",
+  "external_artifact_path": null,
+  "local_managed_paths": [
+    "tmp_manual_local_storage_patch_validation\\session-patch\\experiment-001\\b5f857c8c27445b1bc2e569fcf62fe01\\metadata.json",
+    "tmp_manual_local_storage_patch_validation\\session-patch\\experiment-001\\b5f857c8c27445b1bc2e569fcf62fe01\\rows.jsonl",
+    "tmp_manual_local_storage_patch_validation\\session-patch\\experiment-001\\b5f857c8c27445b1bc2e569fcf62fe01\\artifact_manifest.json"
+  ],
+  "details": {
+    "row_count": 6
+  }
+}

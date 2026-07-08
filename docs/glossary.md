@@ -330,9 +330,87 @@ The separate, future pull-based path for transferring large scientific artifacts
 
 # Artifact Manifest
 
-Artifact-level durable runtime evidence describing an artifact lifecycle boundary. In the current implementation it uses `RuntimeEvidenceMessage` with evidence type `artifact_manifest` and plain metadata supplied by the producing domain component.
+The authoritative local discovery record for one locally managed scientific artifact. Phase 12 assigns exclusive ownership and persistence of the local `ArtifactManifest` to the co-located LocalStorageManager; AcquisitionNode supplies scientific metadata and LocalStorageManager supplies storage metadata.
+
+An ArtifactManifest is created with its scientific stream and remains valid when that stream is finalized with zero rows. Framework-generated artifacts identify their LocalStorageManager path; externally generated artifacts identify the external path and associated LocalStorageManager-managed timing/index path or paths. Its durable `artifact_manifest_id` is distinct from the runtime `storage_id`.
+
+The implemented Phase 10 `RuntimeEvidenceMessage` form with evidence type `artifact_manifest` remains a transport representation, not a transfer of ArtifactManifest ownership.
 
 An Artifact Manifest is not an acquisition row, frame, sample, artifact byte payload, transfer command, storage layout, checksum record, or transfer implementation.
+
+---
+
+# LocalStorageManager
+
+The future co-located runtime collaborator that owns local persistence for exactly one AcquisitionNode. It incrementally writes local scientific streams, owns their creation and finalization, owns their ArtifactManifests, records local storage evidence, and participates in readiness without owning acquisition, Session Time, Experiment lifecycle, transfer, reconstruction, or NWB export.
+
+Phase 12 accepts this responsibility but does not yet implement the component or its API.
+
+---
+
+# Local Scientific Stream
+
+One incrementally written, timestamped local stream for one scientific data product. A stream has its own schema, lifecycle, runtime `storage_id`, and ArtifactManifest relationship; one device may produce multiple streams.
+
+---
+
+# Scientific Data Product
+
+One scientifically meaningful output available from a resource, such as measured data, events, indices, or references into an external artifact. Device declarations describe available products, Experiments select required products through a future declaration mechanism, and AcquisitionNode translates selected products into local stream requests.
+
+---
+
+# storage_id
+
+The runtime write handle for one local scientific stream throughout its local artifact lifecycle. It is not the durable discovery identity of the artifact.
+
+---
+
+# artifact_manifest_id
+
+The durable discovery identity of an ArtifactManifest used by later collection, reconstruction, and export. It is distinct from the stream's runtime `storage_id`.
+
+---
+
+# LocalStorageCompletionSummary
+
+LocalStorageManager-owned plain completion information produced after local finalization. It describes only local completion and does not imply global Session Record completion, transfer, reconstruction, or NWB export.
+
+---
+
+# Local Storage Evidence
+
+LocalStorageManager-owned evidence about stream and manifest creation/finalization, write or finalization failures, and cleanup completion/failure. It is preserved locally and may also be published as durable runtime evidence when communication is available; LocalStorageManager does not interpret its consequences.
+
+---
+
+# Local Completion
+
+Completion of one LocalStorageManager's local artifact lifecycle. Local completion is independent from global Session Record completion and does not imply artifact transfer, reconstruction, or export.
+
+---
+
+# Stream Creation
+
+Creation of one local scientific stream and its ArtifactManifest during Experiment initialization, before acquisition begins. Stable metadata are recorded once and later appends use the stream's `storage_id`.
+
+---
+
+# Stream Finalization
+
+Closure and completion of one local scientific stream lifecycle. Finalization is distinct from flush, which only persists current batches, and makes the local scientific record immutable.
+
+---
+
+# Empty Scientific Stream
+
+A stream that was created and validly finalized with zero rows. It is valid scientific evidence and is distinct from a stream that was never created.
+
+---
+
+# Local Storage Readiness
+
+The Session-initialization readiness condition confirming that co-located local persistence can safely preserve scientific data and evidence before Experiment stream creation. It does not give LocalStorageManager ownership of Session lifecycle.
 
 ---
 

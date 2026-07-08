@@ -1,0 +1,21 @@
+{
+  "artifact_manifest_id": "af35af004fab477f9bef82d1484c3ec3",
+  "session_id": "session-ipython",
+  "experiment_id": "experiment-A",
+  "acquisition_node_id": "node-ipython",
+  "source_component_id": "camera-001",
+  "artifact_type": "framework_scientific_stream",
+  "lifecycle_state": "finalized",
+  "storage_id": "39cf41ea294640a0ad63e9e68ab1d542",
+  "local_storage_path": "tmp_manual_local_storage_validation\\session-ipython\\experiment-A\\39cf41ea294640a0ad63e9e68ab1d542\\rows.jsonl",
+  "external_artifact_path": null,
+  "local_managed_paths": [
+    "tmp_manual_local_storage_validation\\session-ipython\\experiment-A\\39cf41ea294640a0ad63e9e68ab1d542\\metadata.json",
+    "tmp_manual_local_storage_validation\\session-ipython\\experiment-A\\39cf41ea294640a0ad63e9e68ab1d542\\rows.jsonl",
+    "tmp_manual_local_storage_validation\\session-ipython\\experiment-A\\39cf41ea294640a0ad63e9e68ab1d542\\artifact_manifest.json"
+  ],
+  "details": {
+    "purpose": "manual validation",
+    "row_count": 2
+  }
+}

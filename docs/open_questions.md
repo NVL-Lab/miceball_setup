@@ -44,6 +44,8 @@ Raw acquisition records and NWB exports have separate lifecycles.
 
 Decision 073 defines the minimum evidence categories that belong in the persistent Session Record.
 
+Decisions 178-218 now separate AcquisitionNode-local scientific persistence and local completion from future global Session Record completion. The future global StorageManager will consume finalized `ArtifactManifest`, `LocalStorageCompletionSummary`, and local storage evidence without taking ownership of original local records. Its implementation and the exact global integration schema remain unresolved.
+
 The remaining work is defining the exact folder structure,
 mandatory files, optional files, manifests, file-tracking records,
 validation outputs, and representation details for each evidence category.
@@ -260,6 +262,7 @@ Sender-side robustness now preserves evidence before handoff, but receiver-side 
 * How does Ingestor represent rejected envelopes?
 * Does Ingestor detect missing expected sources, or is that only AcquisitionNode health?
 * How are receiver-side failures represented in the Session Record?
+* How are finalized local manifests, completion summaries, and local storage evidence represented in the global Session Record?
 
 ### Blocks
 
@@ -283,6 +286,7 @@ Decisions 095–102 establish canonical Experiment lifecycle ownership, distingu
 * What semantics distinguish a future abort command from framework failure and intentional stop?
 * What component, if any, coordinates multiple Sessions?
 * How is orchestration distributed across multiple Acquisition Nodes?
+* How do Experiments declare the scientific data products they require from participating resources?
 
 ### Blocks
 
@@ -314,7 +318,7 @@ Decisions 115-149 settle the communication boundary, and the implemented Control
 
 ### Why this matters
 
-Decisions 118-121 and 147-149 establish a separate, pull-based Artifact Plane. They intentionally do not choose the transfer backend, scheduling, verification, checksums, retention, or destination layout.
+Decisions 118-121, 147-149, and 178-218 establish a separate, pull-based Artifact Plane. LocalStorageManager owns the authoritative local ArtifactManifest and original local scientific record; transfer creates additional managed copies and never changes original ownership. The decisions intentionally do not choose the transfer backend, scheduling, verification, checksums, retention, cleanup, or destination layout.
 
 ### Questions
 
@@ -322,6 +326,7 @@ Decisions 118-121 and 147-149 establish a separate, pull-based Artifact Plane. T
 * What transfer protocol and authentication model are used?
 * How are transfer completion and verification represented as durable evidence?
 * What checksum, resume, retention, and cleanup policies apply?
+* How does the future global StorageManager collect finalized local discovery information and managed artifact copies?
 
 ### Blocks
 

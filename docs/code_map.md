@@ -199,6 +199,20 @@
 - SessionLifecycleError: Signals invalid lifecycle operations or failed readiness requirements.
 - Session: Owns lifecycle, readiness, Experiment descriptors, canonical Experiment lifecycle evidence, cleanup status, and final status in memory.
 
+## src/lab_sync_acquisition/local_storage.py
+
+- ArtifactManifest: Immutable plain-data authoritative local discovery record for one LocalStorageManager-owned scientific artifact.
+- LocalStorageEvidence: Immutable plain-data evidence for local stream, manifest, write, finalization, and cleanup operations.
+- LocalStorageCompletionSummary: Immutable plain-data summary of local finalization without implying global Session Record completion.
+- LocalStorageManager: Owns JSONL-backed incremental local stream persistence with explicit bounded-buffer and append-time flush-interval configuration, manifests, evidence, readiness, cleanup, flush, and finalization for one Session and co-located AcquisitionNode.
+- LocalStorageManager.check_ready: Verifies that the configured local persistence root is writable using the shared ServiceReadiness contract.
+- LocalStorageManager.create_stream: Creates one local scientific stream, stable metadata record, runtime storage handle, authoritative manifest, and creation evidence.
+- LocalStorageManager.append_rows: Validates required scientific timing/context fields and incrementally appends plain-data rows by storage ID.
+- LocalStorageManager.flush: Flushes current stream writes without finalizing the stream.
+- LocalStorageManager.finalize_stream: Closes one stream, finalizes its manifest, and records finalization evidence.
+- LocalStorageManager.finalize_all: Finalizes all created streams and returns a local-only completion summary.
+- LocalStorageManager.cleanup: Flushes and closes open local stream resources without deletion and records cleanup completion or failure evidence.
+
 ## scripts/demo_cross_process_acquisition_writer.py
 
 - main: Writes demo plain-data AcquisitionRecordEnvelope dictionaries to a local JSONL handoff file.

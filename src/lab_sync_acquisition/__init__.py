@@ -58,6 +58,12 @@ from lab_sync_acquisition.experiment_runtime import (
 )
 from lab_sync_acquisition.ingestor import IngestAuditRecord, InMemoryIngestor
 from lab_sync_acquisition.ingestor import RuntimeEvidenceAuditRecord
+from lab_sync_acquisition.local_storage import (
+    ArtifactManifest,
+    LocalStorageCompletionSummary,
+    LocalStorageEvidence,
+    LocalStorageManager,
+)
 from lab_sync_acquisition.nats_communication import (
     DurablePublicationError,
     NatsAcquisitionNodeCommunication,
@@ -131,10 +137,14 @@ __all__ = [
     "ExperimentRuntimeHealthMapping",
     "ExperimentScopedHealthObservation",
     "HealthInterpretationEvidence",
+    "ArtifactManifest",
     "LAB_COMMAND_RESULTS",
     "LAB_COMMANDS",
     "LAB_EVIDENCE",
     "LifecycleTransition",
+    "LocalStorageCompletionSummary",
+    "LocalStorageEvidence",
+    "LocalStorageManager",
     "MAPPING_UPDATE_EVIDENCE_TYPE",
     "ReadinessCheck",
     "MESSAGE_CLASSES",

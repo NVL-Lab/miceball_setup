@@ -1,0 +1,2 @@
+{"session_time_s": 1.0, "experiment_time_s": 0.5, "acquisition_node_local_time_s": 101.0, "timestamp_status": "runtime_timestamped", "experiment_id": "experiment-A", "payload": {"frame": 1}}
+{"session_time_s": 2.0, "experiment_time_s": 1.5, "acquisition_node_local_time_s": 102.0, "timestamp_status": "runtime_timestamped", "experiment_id": "experiment-A", "payload": "external-artifact-frame-2"}

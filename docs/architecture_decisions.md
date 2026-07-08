@@ -4111,6 +4111,8 @@ Telemetry transported through NATS is not the authoritative scientific record.
 
 AcquisitionNodes publish artifact manifests.
 
+Phase 12 Decision 201 supersedes the ownership implication of this sentence: LocalStorageManager exclusively owns and persists the authoritative local ArtifactManifest. AcquisitionNode remains the orchestration-facing collaborator and does not become the manifest owner.
+
 AcquisitionNodes never initiate artifact transfer.
 
 Artifact transfer is initiated by the storage/transfer side.
@@ -5357,6 +5359,530 @@ Scientific timing is a framework concern.
 Device-native timing is device evidence.
 ```
 
+---
+
+## Decision 178: Introduce a LocalStorageManager
+
+**Status:** Accepted
+
+Each AcquisitionNode owns one LocalStorageManager running on the same machine.
+
+The LocalStorageManager exists specifically to avoid sending authoritative scientific data over the network during acquisition.
+
+AcquisitionNode owns acquisition execution and runtime timestamping.
+
+LocalStorageManager owns local persistence.
+
+A LocalStorageManager must never be deployed remotely from the AcquisitionNode it serves.
+
+---
+
+## Decision 179: All acquired scientific data are timestamped
+
+**Status:** Accepted
+
+Framework-written scientific data store timing directly with every acquired record.
+
+Required timing fields:
+
+- `session_time_s`
+- `experiment_time_s`
+- `acquisition_node_local_time_s`
+- `timestamp_status`
+
+There is no untimestamped scientific data.
+
+---
+
+## Decision 180: Scientific data exist inside Experiments
+
+**Status:** Accepted
+
+Every scientific record therefore contains:
+
+- `experiment_id`
+- `experiment_time_s`
+
+Session-level records outside Experiments remain runtime evidence, lifecycle evidence, timing evidence, health evidence, validation evidence, manifests, configuration, or telemetry.
+
+---
+
+## Decision 181: External scientific artifacts retain their original bytes
+
+**Status:** Accepted
+
+When external software or hardware writes scientific artifacts (TIFFs, videos, vendor files, future Neuropixels/Open Ephys files), the framework does not rewrite those bytes.
+
+Instead it stores local framework timing/index information.
+
+External software never owns scientific timing.
+
+---
+
+## Decision 182: LocalStorageManager owns local persistence for one AcquisitionNode
+
+**Status:** Accepted
+
+It may persist:
+
+- framework scientific records
+- timing/index streams
+- artifact manifests
+- local synchronization/timestamping records
+- local storage evidence
+- cleanup/finalization evidence
+
+It does not own:
+
+- acquisition execution
+- Session Time
+- SynchronizationManager authority
+- Experiment lifecycle
+- device communication
+- artifact transfer
+- reconstruction
+- NWB export
+
+---
+
+## Decision 183: Artifact manifests are authoritative local discovery records
+
+**Status:** Accepted
+
+Artifact manifests are the authoritative local discovery records for later pull-based collection.
+
+---
+
+## Decision 184: Local completion is independent from global Session Record completion
+
+**Status:** Accepted
+
+Local completion is independent from global Session Record completion.
+
+---
+
+## Decision 185: Finalized local scientific records are immutable
+
+**Status:** Accepted
+
+Local scientific records become immutable after finalization.
+
+Derived products must be created separately.
+
+---
+
+## Decision 186: Every local scientific record has exactly one LocalStorageManager owner
+
+**Status:** Accepted
+
+Every local scientific record has exactly one owning LocalStorageManager.
+
+Only that LocalStorageManager owns creation and finalization of those records.
+
+---
+
+## Decision 187: Artifact transfer creates additional managed copies
+
+**Status:** Accepted
+
+Transfer never changes ownership of the original local scientific records.
+
+Retention and cleanup remain separate policy decisions.
+
+---
+
+## Decision 188: LocalStorageManager is a runtime collaborator of AcquisitionNode
+
+**Status:** Accepted
+
+Caller/orchestration creates one LocalStorageManager per AcquisitionNode.
+
+AcquisitionNode owns acquisition and timestamping.
+
+LocalStorageManager owns local persistence.
+
+---
+
+## Decision 189: LocalStorageManager performs incremental writing
+
+**Status:** Accepted
+
+Scientific streams are opened before acquisition data flow and remain open during acquisition.
+
+Data are appended incrementally.
+
+Entire Experiments are never accumulated in memory before writing.
+
+---
+
+## Decision 190: Scientific stream metadata are written once
+
+**Status:** Accepted
+
+Scientific stream metadata are written once when the stream is created.
+
+Subsequent writes reference the stream using a runtime `storage_id` and append only changing timestamped rows.
+
+Stable metadata are not repeatedly transmitted.
+
+---
+
+## Decision 191: LocalStorageManager stores streams independently of payload meaning
+
+**Status:** Accepted
+
+The payload may represent:
+
+- measured scientific data
+- events
+- frame/sample indices
+- references into external artifacts
+
+The storage mechanism is identical regardless of payload type.
+
+---
+
+## Decision 192: External-artifact timing uses the scientific stream abstraction
+
+**Status:** Accepted
+
+External-artifact timing/index information is stored using the same timestamped scientific stream abstraction.
+
+The distinction between internal and external acquisition exists in the ArtifactManifest, not in the LocalStorageManager write path.
+
+---
+
+## Decision 193: ArtifactManifest describes all locally managed scientific artifacts
+
+**Status:** Accepted
+
+Framework-generated artifacts contain the LocalStorageManager path.
+
+Externally generated artifacts contain:
+
+- external artifact path
+- LocalStorageManager-managed path(s)
+
+Every ArtifactManifest contains:
+
+- `experiment_id`
+- `session_id`
+- `acquisition_node_id`
+- `source_component_id`
+- artifact type
+- lifecycle state
+
+ArtifactManifest is created when the corresponding scientific stream is created.
+
+It exists even if zero rows are ultimately written.
+
+---
+
+## Decision 194: LocalStorageManager finalization means only local completion
+
+**Status:** Accepted
+
+It does not imply:
+
+- global Session Record completion
+- artifact transfer
+- reconstruction
+- NWB export
+
+---
+
+## Decision 195: SynchronizationManager remains the synchronization-evidence owner
+
+**Status:** Accepted
+
+LocalStorageManager only persists synchronization-related information through explicit handoff.
+
+---
+
+## Decision 196: Future global StorageManager consumes finalized local discovery information
+
+**Status:** Accepted
+
+Future global StorageManager consumes:
+
+- ArtifactManifest
+- LocalStorageCompletionSummary
+- local storage evidence
+
+Original local scientific record ownership never transfers.
+
+---
+
+## Decision 197: Session creates LocalStorageManagers during initialization
+
+**Status:** Accepted
+
+Session creates one LocalStorageManager for each AcquisitionNode during Session initialization.
+
+LocalStorageManager participates in readiness but does not own Session or Experiment lifecycle.
+
+---
+
+## Decision 198: Controller never communicates directly with LocalStorageManager
+
+**Status:** Accepted
+
+Experiment initialization flows:
+
+```text
+Controller
+    -> AcquisitionNode
+    -> LocalStorageManager
+```
+
+AcquisitionNode requests creation of all local scientific streams required for that Experiment.
+
+---
+
+## Decision 199: Stream creation separates scientific context from storage realization
+
+**Status:** Accepted
+
+LocalStorageManager requests scientific metadata from AcquisitionNode during stream creation.
+
+AcquisitionNode provides scientific context.
+
+LocalStorageManager provides storage realization.
+
+ArtifactManifest is owned and persisted by LocalStorageManager.
+
+---
+
+## Decision 200: Internal and external acquisition share stream creation
+
+**Status:** Accepted
+
+Internal and external acquisition use identical local scientific stream creation.
+
+The only architectural difference is the ArtifactManifest.
+
+---
+
+## Decision 201: ArtifactManifest is owned exclusively by LocalStorageManager
+
+**Status:** Accepted
+
+Scientific metadata are supplied by AcquisitionNode.
+
+Storage metadata are supplied by LocalStorageManager.
+
+This supersedes earlier wording in Decision 121 that assigned artifact-manifest publication directly to AcquisitionNode. AcquisitionNode remains the orchestration-facing collaborator, but LocalStorageManager is the authoritative owner of the local ArtifactManifest.
+
+---
+
+## Decision 202: storage_id and artifact_manifest_id are distinct
+
+**Status:** Accepted
+
+`storage_id`:
+
+- runtime write handle
+- exists through the local artifact lifecycle
+
+`artifact_manifest_id`:
+
+- durable discovery identity
+- used for later collection/reconstruction/export
+
+---
+
+## Decision 203: AcquisitionNode translates Experiment requirements into stream creation
+
+**Status:** Accepted
+
+LocalStorageManager never discovers devices or required outputs.
+
+---
+
+## Decision 204: Streams are created during Experiment initialization
+
+**Status:** Accepted
+
+Local scientific streams are created during Experiment initialization before acquisition begins.
+
+---
+
+## Decision 205: LocalStorageManager buffering is bounded and batch-oriented
+
+**Status:** Accepted
+
+LocalStorageManager uses bounded buffering only for batching according to the existing batching architecture.
+
+Flush occurs according to configured batch size and/or maximum flush interval.
+
+This buffering is purely a persistence implementation detail.
+
+---
+
+## Decision 206: Flush and finalization are distinct operations
+
+**Status:** Accepted
+
+Flush persists current batches.
+
+Finalization closes the stream and completes its local lifecycle.
+
+---
+
+## Decision 207: A stream represents one scientific data product
+
+**Status:** Accepted
+
+A local scientific stream represents one scientific data product, not one device.
+
+One device may produce multiple scientific streams.
+
+---
+
+## Decision 208: Device declarations define available scientific data products
+
+**Status:** Accepted
+
+Device declarations define available scientific data products and their storage requirements.
+
+This includes information such as:
+
+- product identifier
+- product type
+- schema
+- expected size/rate
+- storage requirements
+
+Device declarations do not create storage.
+
+---
+
+## Decision 209: Experiments select required scientific outputs
+
+**Status:** Accepted
+
+Experiments select the scientific outputs required from participating resources.
+
+The mechanism by which Experiments declare outputs is future Experiment architecture.
+
+LocalStorageManager does not determine required outputs.
+
+---
+
+## Decision 210: One requested data product maps to one stream
+
+**Status:** Accepted
+
+AcquisitionNode translates required Experiment outputs into LocalStorageManager stream creation requests.
+
+One requested data product corresponds to one local scientific stream.
+
+---
+
+## Decision 211: Scientific products have independent stream lifecycles
+
+**Status:** Accepted
+
+Each scientific data product receives an independent LocalStorageManager stream.
+
+Each stream has:
+
+- independent `storage_id`
+- independent schema
+- independent lifecycle
+- independent ArtifactManifest relationship
+
+The AcquisitionNode maintains the mapping:
+
+```text
+data product -> storage_id
+```
+
+for the lifetime of the local artifact lifecycle.
+
+---
+
+## Decision 212: LocalStorageManager produces LocalStorageCompletionSummary
+
+**Status:** Accepted
+
+LocalStorageManager produces a LocalStorageCompletionSummary after local finalization.
+
+This describes only local completion.
+
+---
+
+## Decision 213: Empty finalized streams remain valid artifacts
+
+**Status:** Accepted
+
+ArtifactManifest is created when the corresponding stream is created.
+
+Empty finalized streams remain valid scientific artifacts.
+
+Creating a stream with zero rows is distinct from never creating the stream.
+
+---
+
+## Decision 214: Local storage failures are recorded immediately
+
+**Status:** Accepted
+
+Local storage failures are recorded immediately as local storage evidence.
+
+When runtime communication is available they may also be published as durable runtime evidence.
+
+If not delivered online they remain locally preserved and later become part of the global Session Record through future artifact collection.
+
+LocalStorageManager never interprets the consequence of those failures.
+
+---
+
+## Decision 215: Future global StorageManager never writes live local streams
+
+**Status:** Accepted
+
+Future global StorageManager consumes finalized local discovery information only.
+
+It never writes into live local streams.
+
+---
+
+## Decision 216: LocalStorageManager records local storage evidence
+
+**Status:** Accepted
+
+Local storage evidence includes:
+
+- stream created
+- stream finalized
+- manifest created
+- manifest finalized
+- write failure
+- finalization failure
+- cleanup completed
+- cleanup failed
+
+---
+
+## Decision 217: LocalStorageManager participates in Session readiness
+
+**Status:** Accepted
+
+Readiness verifies that local persistence is available before Experiment storage creation.
+
+If local persistence cannot safely preserve scientific data or evidence, readiness fails.
+
+---
+
+## Decision 218: No stream and empty stream are distinct states
+
+**Status:** Accepted
+
+A stream created and finalized with zero rows is valid scientific evidence.
+
+"No stream" and "empty stream" are architecturally distinct states.
+
 --- ********************************************************************************
 
 # Accepted Architectural Principles
@@ -5540,6 +6066,47 @@ The following principles summarize the accepted decisions so far.
 175. MappingUpdateEvidence uses existing runtime-evidence ingestion and Session Record preservation paths without a new storage component.
 176. AcquisitionNode reports samples and passively applies mappings; SynchronizationManager owns observation, mapping, drift, remapping, and update-evidence behavior.
 177. MappingUpdateEvidence uses runtime evidence type `mapping_update_evidence` with its plain-data form as RuntimeEvidenceMessage payload.
+178. Each AcquisitionNode has one co-located LocalStorageManager for authoritative local persistence.
+179. Every framework-written scientific record carries explicit runtime timing fields.
+180. Scientific data belong to Experiments; Session-level records outside Experiments are evidence, configuration, manifests, or telemetry.
+181. External scientific artifact bytes are not rewritten; framework timing and index information are stored locally.
+182. LocalStorageManager owns local persistence without absorbing acquisition, timing authority, lifecycle, transfer, reconstruction, or export.
+183. Artifact manifests are authoritative local discovery records for later pull collection.
+184. Local completion is independent from global Session Record completion.
+185. Finalized local scientific records are immutable and derived products remain separate.
+186. Each local scientific record has exactly one LocalStorageManager owner.
+187. Artifact transfer creates managed copies without transferring original ownership.
+188. LocalStorageManager is a caller-created runtime collaborator of AcquisitionNode.
+189. LocalStorageManager writes scientific streams incrementally.
+190. Stable stream metadata are written once; appends use `storage_id` and changing rows.
+191. Local scientific stream persistence is independent of payload meaning.
+192. External-artifact timing and index information use the same stream abstraction.
+193. ArtifactManifest describes every locally managed scientific artifact and exists even for zero-row streams.
+194. LocalStorageManager finalization means local completion only.
+195. SynchronizationManager retains synchronization-evidence ownership; persistence requires explicit handoff.
+196. Future global StorageManager consumes finalized local discovery information without taking original ownership.
+197. Session creates one LocalStorageManager per AcquisitionNode during initialization, and local storage participates in readiness.
+198. Controller communicates with LocalStorageManager only through AcquisitionNode.
+199. AcquisitionNode supplies scientific context; LocalStorageManager supplies storage realization and owns ArtifactManifest.
+200. Internal and external acquisition share local stream creation and differ through ArtifactManifest.
+201. LocalStorageManager exclusively owns ArtifactManifest.
+202. `storage_id` is a runtime write handle; `artifact_manifest_id` is a durable discovery identity.
+203. AcquisitionNode translates Experiment requirements into stream creation; LocalStorageManager does not discover outputs.
+204. Experiment scientific streams are created before acquisition begins.
+205. Local persistence buffering is bounded batching only.
+206. Flush persists current batches; finalization closes the local stream lifecycle.
+207. One local scientific stream represents one scientific data product, not one device.
+208. Device declarations describe available products and storage requirements but do not create storage.
+209. Experiments select required scientific outputs; the declaration mechanism remains future architecture.
+210. One requested scientific data product maps to one local stream.
+211. Each product has an independent stream, schema, lifecycle, and manifest relationship.
+212. LocalStorageCompletionSummary describes local finalization only.
+213. Empty finalized streams are valid and distinct from streams never created.
+214. Local storage failures are preserved locally and may also be published as durable runtime evidence.
+215. Future global StorageManager never writes live local streams.
+216. LocalStorageManager records explicit local stream, manifest, failure, and cleanup evidence.
+217. Local storage readiness must succeed before Experiment storage creation.
+218. "No stream" and "empty stream" are architecturally distinct.
 
 ---
 

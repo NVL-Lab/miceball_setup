@@ -207,6 +207,14 @@ The readiness, publication-failure, independent Controller/Ingestor evidence
 consumption, artifact-manifest, and Core NATS telemetry paths have also been
 manually validated against a real local JetStream broker.
 
+Phase 12 Local Storage and Session Record architecture is accepted in
+Decisions 178-218. Its first implementation slice now provides the co-located
+`LocalStorageManager` core for readiness, incremental JSONL scientific streams,
+authoritative local artifact manifests, local storage evidence, flush,
+finalization, and local completion summaries. Session, Controller, and
+AcquisitionNode integration plus global collection, transfer, reconstruction,
+and export remain future slices.
+
 Reproducing the manual runtime validation requires a separate
 JetStream-enabled NATS server:
 
