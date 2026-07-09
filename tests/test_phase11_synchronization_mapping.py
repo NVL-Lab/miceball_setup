@@ -46,6 +46,7 @@ class Phase11SynchronizationMappingTests(unittest.TestCase):
         self.assertEqual(message.payload, evidence.to_dict())
         self.assertEqual(message.session_id, evidence.session_id)
         self.assertEqual(message.source_id, "synchronization")
+        self.assertTrue(message.is_persistent)
 
     def test_synchronization_mapping_round_trips_as_immutable_plain_data(self):
         mapping = self._mapping()

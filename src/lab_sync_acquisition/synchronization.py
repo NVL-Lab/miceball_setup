@@ -140,6 +140,7 @@ class MappingUpdateEvidence:
             evidence_type=MAPPING_UPDATE_EVIDENCE_TYPE,
             source_id=source_id,
             payload=self.to_dict(),
+            is_persistent=True,
         )
 
     @classmethod

@@ -5883,7 +5883,220 @@ A stream created and finalized with zero rows is valid scientific evidence.
 
 "No stream" and "empty stream" are architecturally distinct states.
 
---- ********************************************************************************
+---
+
+## Decision 219: RuntimeEvidenceMessage remains the runtime evidence boundary
+
+**Status:** Accepted
+
+`RuntimeEvidenceMessage` remains the runtime evidence boundary between evidence-producing components and runtime evidence consumers.
+
+It carries plain runtime evidence across the communication boundary without transferring ownership of the evidence's domain meaning.
+
+`RuntimeEvidenceMessage` does not own lifecycle, scientific interpretation, persistence policy, Session Time, or storage semantics.
+
+---
+
+## Decision 220: RuntimeEvidenceMessage carries explicit persistence intent
+
+**Status:** Accepted
+
+`RuntimeEvidenceMessage` gains an `is_persistent` flag.
+
+This is an architecture decision only until implementation adds the field.
+
+The flag records whether the evidence-producing component marked that runtime evidence as intended for persistent preservation.
+
+---
+
+## Decision 221: Evidence producers decide persistence for their own evidence
+
+**Status:** Accepted
+
+Evidence-producing components decide whether their own evidence is persistent.
+
+Architecture-defined mandatory persistent evidence categories continue to exist, but the producer responsible for that evidence must set:
+
+```text
+is_persistent = True
+```
+
+The persistence decision belongs to the evidence owner, not to Ingestor or StorageManager.
+
+---
+
+## Decision 222: Ingestor must not infer evidence persistence
+
+**Status:** Accepted
+
+Ingestor must never infer persistence from:
+
+* evidence type
+* payload
+* source component
+* domain meaning
+
+Ingestor uses the explicit persistence intent carried by `RuntimeEvidenceMessage`.
+
+Ingestor does not reinterpret evidence to decide whether it should persist.
+
+---
+
+## Decision 223: Ingestor owns runtime evidence intake and compilation
+
+**Status:** Accepted
+
+Ingestor owns:
+
+* runtime evidence intake
+* intake validation
+* ingest audit
+* temporary runtime retention
+* compilation of persistent runtime evidence
+
+Ingestor compiles runtime evidence marked persistent into the information handed to StorageManager.
+
+---
+
+## Decision 224: Ingestor does not own evidence meaning or persistence decisions
+
+**Status:** Accepted
+
+Ingestor does not own:
+
+* evidence interpretation
+* lifecycle
+* scientific meaning
+* persistence decisions
+
+Ingestor may validate intake shape and record ingest audit, but it does not decide domain significance.
+
+---
+
+## Decision 225: StorageManager owns persistence only
+
+**Status:** Accepted
+
+StorageManager owns persistent writing.
+
+StorageManager receives compiled persistent information and writes persistent records.
+
+StorageManager does not decide runtime evidence meaning, Session lifecycle, Experiment lifecycle, acquisition ownership, or Ingestor intake policy.
+
+---
+
+## Decision 226: Session Record and Evidence Archive are separate concepts
+
+**Status:** Accepted
+
+The Session Record and Evidence Archive are separate concepts.
+
+The Session Record describes the Session itself.
+
+The Evidence Archive stores persistent runtime observations supporting the Session Record.
+
+The Evidence Archive does not replace the Session Record, and the Session Record does not become a raw dump of all runtime evidence.
+
+---
+
+## Decision 227: Evidence Archive v1 uses one runtime evidence stream
+
+**Status:** Accepted
+
+The accepted v1 conceptual Evidence Archive layout is:
+
+```text
+session_<session_id>/
+    session_record_initial.json
+    session_record_final.json
+    evidence/
+        runtime_evidence.jsonl
+        ingest_audit.jsonl
+        compilation_summary.json
+```
+
+Do not introduce category-specific evidence folders in v1.
+
+---
+
+## Decision 228: Persistent evidence lifecycle
+
+**Status:** Accepted
+
+The accepted persistence lifecycle is:
+
+```text
+Session start
+        ↓
+initial Session Record
+
+Session execution
+        ↓
+Ingestor collects runtime evidence
+
+Session end/failure
+        ↓
+Ingestor compiles persistent evidence
+        ↓
+StorageManager writes Evidence Archive
+        ↓
+StorageManager writes final Session Record
+```
+
+This decision defines ownership and order, not an implementation API.
+
+---
+
+## Decision 229: Session completion requires final persistence success
+
+**Status:** Accepted
+
+A Session must not be considered successfully completed until final persistence succeeds.
+
+Final persistence includes the Evidence Archive and final Session Record write.
+
+If final persistence fails, use the existing failed-session path.
+
+Do not introduce a new lifecycle state for persistence failure.
+
+---
+
+## Decision 230: Evidence Archive does not own future storage workflows
+
+**Status:** Accepted
+
+The v1 Evidence Archive does not resolve:
+
+* archive evolution
+* retention or deletion
+* artifact transfer
+* reconstruction
+* NWB export
+* global scientific data collection
+
+Those topics remain future architecture.
+
+---
+
+## Decision 231: RuntimeEvidenceMessage persistence flag does not create new ownership
+
+**Status:** Accepted
+
+The `is_persistent` flag is evidence-owner intent carried across the runtime evidence boundary.
+
+It does not create:
+
+* a new evidence owner
+* a new lifecycle owner
+* a new storage owner
+* a new evidence category
+* a new transport path
+
+RuntimeEvidenceMessage remains the boundary. Ingestor compiles persistent runtime evidence. StorageManager writes persistent records.
+
+---
+
+********************************************************************************
 
 # Accepted Architectural Principles
 
@@ -6107,6 +6320,19 @@ The following principles summarize the accepted decisions so far.
 216. LocalStorageManager records explicit local stream, manifest, failure, and cleanup evidence.
 217. Local storage readiness must succeed before Experiment storage creation.
 218. "No stream" and "empty stream" are architecturally distinct.
+219. RuntimeEvidenceMessage remains the runtime evidence boundary.
+220. RuntimeEvidenceMessage carries explicit producer-supplied persistence intent through `is_persistent`.
+221. Evidence producers decide persistence for their own evidence, including mandatory persistent categories.
+222. Ingestor never infers persistence from evidence type, payload, source, or domain meaning.
+223. Ingestor owns runtime evidence intake, validation, audit, temporary retention, and persistent-evidence compilation.
+224. Ingestor does not own evidence interpretation, lifecycle, scientific meaning, or persistence decisions.
+225. StorageManager owns persistent writing only.
+226. Session Record and Evidence Archive are separate concepts.
+227. Evidence Archive v1 uses one runtime evidence stream plus ingest audit and compilation summary.
+228. Persistent evidence lifecycle runs from initial Session Record through Ingestor collection and final archive/record writes.
+229. Session completion requires final persistence success and otherwise uses the existing failed-session path.
+230. Evidence Archive v1 does not resolve archive evolution, retention, artifact transfer, reconstruction, NWB, or global scientific collection.
+231. The RuntimeEvidenceMessage persistence flag does not create new ownership.
 
 ---
 

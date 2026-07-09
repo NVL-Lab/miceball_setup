@@ -39,7 +39,7 @@
 - RUNTIME_CONTROL_COMMAND_RESULT_STATUSES: Public immutable final-status subset used by Phase 10 runtime-control commands.
 - RuntimeCommandMessage: Public immutable plain-data runtime command message.
 - RuntimeCommandResultMessage: Public immutable plain-data runtime command-result message.
-- RuntimeEvidenceMessage: Public immutable plain-data durable evidence message.
+- RuntimeEvidenceMessage: Public immutable plain-data durable evidence message carrying producer-supplied persistence intent.
 - RuntimeParticipant: Public immutable SessionConfig declaration of one expected runtime component identity.
 - UnresolvedCommandOutcome: Public immutable issuer evidence that one expected command target did not return a result within the issuer-defined window.
 - GroupCommandOutcome: Public immutable issuer-owned aggregate of returned command results and unresolved expected targets for one component group.
@@ -54,7 +54,7 @@
 - NatsAcquisitionNodeCommunication: Public import for targeted AcquisitionNode command consumption, local duplicate detection, explicit command execution, command-result publication, and runtime evidence publication.
 - NatsIngestorCommunication: Public import for durable runtime evidence consumption into the existing Ingestor ownership boundary.
 - InMemoryStorageManager: Public import for the minimal in-memory acquisition envelope storage boundary.
-- PersistentStorageManager: Public import for the v1 persistent StorageManager implementation that stores accepted envelopes as JSONL and writes caller-supplied Session Record evidence.
+- PersistentStorageManager: Public import for the v1 persistent StorageManager implementation that stores accepted envelopes as JSONL and writes caller-supplied Session Record and Evidence Archive products.
 - LifecycleTransition: Public import for recorded lifecycle transitions.
 - OpenCVCameraConfig: Public import for explicit OpenCV camera initialization and polling configuration.
 - ReadinessCheck: Public import for recorded readiness checks.
@@ -80,7 +80,7 @@
 - GroupCommandOutcome: Stores the issuer-owned aggregate outcome, individual results, and unresolved target evidence for one group command intent.
 - RuntimeCommandMessage: Stores one immutable plain-data command intent with explicit source, target, Session, command identity, type, and payload.
 - RuntimeCommandResultMessage: Stores one immutable plain-data command result and validates its shared status vocabulary.
-- RuntimeEvidenceMessage: Stores one immutable plain-data durable evidence message without interpreting its domain meaning.
+- RuntimeEvidenceMessage: Stores one immutable plain-data durable evidence message plus producer-supplied persistence intent without interpreting its domain meaning.
 - RuntimeTelemetryMessage: Stores one immutable plain-data transient telemetry message without making it authoritative evidence.
 - build_runtime_subject: Builds the accepted message-rooted, Session-scoped routing subject and validates its message class and concrete tokens.
 - parse_runtime_subject: Parses an accepted concrete routing subject into plain routing fields.
@@ -122,7 +122,7 @@
 
 - ControllerCommandResult: Records one command outcome and exposes its command, success, details, and error as plain evidence.
 - ControllerActionDecision: Records one health-derived Controller decision with Session, Experiment, source, policy, interpretation, and originating-observation provenance using the normalized local decision vocabulary.
-- Controller: Sequentially coordinates one Session, exposes accepted expected runtime participants, records normalized decisions, hands active Experiment timing context and health mapping separately to AcquisitionNode, creates canonical lifecycle evidence, handles runtime failure cleanup, and performs two-step Session Record finalization.
+- Controller: Sequentially coordinates one Session, exposes accepted expected runtime participants, records normalized decisions, hands active Experiment timing context and health mapping separately to AcquisitionNode, creates canonical lifecycle evidence, handles runtime failure cleanup, and orchestrates Phase 13 initial record, evidence archive, final record, then Session completion.
 
 ## src/lab_sync_acquisition/device_adapter.py
 
@@ -149,9 +149,10 @@
 ## src/lab_sync_acquisition/ingestor.py
 
 - IngestAuditRecord: Records ingest order, receive time, accepted status, and reason for one received acquisition envelope and exposes audit evidence as plain data.
-- InMemoryIngestor: Receives AcquisitionRecordEnvelope objects in memory, reports service readiness, records separate ingest audit evidence, and optionally forwards accepted envelopes to in-memory or persistent storage without mutating rows.
+- InMemoryIngestor: Receives AcquisitionRecordEnvelope objects and RuntimeEvidenceMessage objects in memory, reports service readiness, records separate ingest audit evidence, compiles persistent runtime evidence by message flag, and optionally forwards accepted envelopes to storage without mutating rows.
 - RuntimeEvidenceAuditRecord: Records intake order, receive time, evidence identity, acceptance, and reason for one durable RuntimeEvidenceMessage.
 - InMemoryIngestor.receive_runtime_evidence: Accepts and audits durable runtime evidence separately from acquisition-envelope intake.
+- InMemoryIngestor.compile_persistent_runtime_evidence: Returns accepted runtime evidence marked persistent plus runtime-evidence intake audit without inferring persistence from evidence meaning.
 
 ## src/lab_sync_acquisition/nats_communication.py
 
@@ -173,7 +174,10 @@
 ## src/lab_sync_acquisition/storage.py
 
 - InMemoryStorageManager: Reports service readiness, stores accepted AcquisitionRecordEnvelope objects in memory, and exposes all, session-filtered, and source-filtered readback without file writing or transformation.
-- PersistentStorageManager: Reports service readiness, stores accepted envelopes, and writes/reads a v1 Session Record including Experiment evidence plus separately supplied runtime evidence and runtime-evidence audit records.
+- PersistentStorageManager: Reports service readiness, stores accepted envelopes, and writes/reads v1 Session Record and Phase 13 Evidence Archive products from caller-supplied evidence.
+- PersistentStorageManager.write_initial_session_record: Writes caller-supplied initial Session Record evidence to `session_<session_id>/session_record_initial.json`.
+- PersistentStorageManager.write_evidence_archive: Writes compiled persistent runtime evidence, runtime-evidence audit, and compilation summary to the accepted Phase 13 Evidence Archive files.
+- PersistentStorageManager.write_final_session_record: Writes caller-supplied final Session Record evidence to `session_<session_id>/session_record_final.json`.
 
 ## src/lab_sync_acquisition/synchronization.py
 

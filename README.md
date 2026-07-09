@@ -194,9 +194,9 @@ path with an explicit `artifact_manifest` evidence type. This adds no artifact
 bytes, transfer backend, storage layout, or checksum behavior;
 authoritative scientific data remain local to the producing component.
 
-Controller finalization now includes Ingestor-accepted durable runtime evidence
-and its separate intake audit in the persistent Session Record while keeping
-acquisition envelopes in their existing independent field.
+Controller finalization now preserves the Phase 13 separation: the Session
+Record describes the Session, while the separate Evidence Archive stores
+Ingestor-accepted durable runtime evidence and its intake audit.
 
 Phase 10 is implemented through the accepted brokered Control Plane boundary,
 including configured group-command fan-out, issuer-owned result aggregation,

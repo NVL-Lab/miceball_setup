@@ -145,7 +145,11 @@ class ControllerActionDecisionTests(unittest.TestCase):
 
             controller.stop_session()
             controller.finalize_session()
-            record = storage.read_session_record(root / "session-record.json")
+            record = storage.read_session_record(
+                root
+                / "session_controller-action-session"
+                / "session_record_final.json"
+            )
             self.assertEqual(
                 [
                     item["event_type"]

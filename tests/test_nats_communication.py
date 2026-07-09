@@ -102,6 +102,7 @@ class NatsCommunicationUnitTests(unittest.TestCase):
                 "lifecycle_moment": "closed",
                 "local_reference": "camera/video-001",
             },
+            is_persistent=True,
         )
 
         asyncio.run(node_communication.publish_evidence(manifest))
@@ -116,6 +117,7 @@ class NatsCommunicationUnitTests(unittest.TestCase):
             "node-001.artifact_manifest",
         )
         self.assertNotIn("artifact_bytes", jetstream.data["payload"])
+        self.assertTrue(jetstream.data["is_persistent"])
         self.assertTrue(audit.accepted)
         self.assertEqual(ingestor.accepted_runtime_evidence, (manifest,))
         self.assertEqual(ingestor.accepted_envelopes, ())
@@ -377,6 +379,48 @@ class NatsCommunicationUnitTests(unittest.TestCase):
         self.assertEqual(ingestor.accepted_runtime_evidence, (evidence,))
         self.assertEqual(ingestor.runtime_evidence_audit, (audit,))
         self.assertEqual(ingestor.accepted_envelopes, ())
+        self.assertEqual(
+            ingestor.compile_persistent_runtime_evidence(),
+            {
+                "runtime_evidence": (),
+                "ingest_audit": (audit,),
+            },
+        )
+
+    def test_ingestor_compiles_only_flagged_persistent_runtime_evidence(self):
+        ingestor = InMemoryIngestor()
+        nonpersistent = RuntimeEvidenceMessage(
+            evidence_id="evidence-nonpersistent",
+            session_id="session-001",
+            evidence_type="runtime_note",
+            source_id="node-001",
+            payload={},
+        )
+        persistent = RuntimeEvidenceMessage(
+            evidence_id="evidence-persistent",
+            session_id="session-001",
+            evidence_type="mapping_update_evidence",
+            source_id="synchronization",
+            payload={"update_type": "created"},
+            is_persistent=True,
+        )
+
+        first_audit = ingestor.receive_runtime_evidence(nonpersistent)
+        second_audit = ingestor.receive_runtime_evidence(persistent)
+
+        self.assertTrue(first_audit.accepted)
+        self.assertTrue(second_audit.accepted)
+        self.assertEqual(
+            ingestor.accepted_runtime_evidence,
+            (nonpersistent, persistent),
+        )
+        self.assertEqual(
+            ingestor.compile_persistent_runtime_evidence(),
+            {
+                "runtime_evidence": (persistent,),
+                "ingest_audit": (first_audit, second_audit),
+            },
+        )
 
     def test_command_duplicate_detection_reuses_previous_result(self):
         node = _CountingAcquisitionNode()
@@ -497,6 +541,7 @@ class NatsCommunicationUnitTests(unittest.TestCase):
                 "session_time_s": 1.25,
                 "details": {"gap_s": 2.0},
             },
+            is_persistent=True,
         )
 
 

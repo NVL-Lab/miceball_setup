@@ -96,6 +96,20 @@ class InMemoryIngestor:
 
         return self._runtime_evidence_audit
 
+    def compile_persistent_runtime_evidence(
+        self,
+    ) -> dict[str, tuple[RuntimeEvidenceMessage | RuntimeEvidenceAuditRecord, ...]]:
+        """Return accepted persistent runtime evidence and intake audit records."""
+
+        return {
+            "runtime_evidence": tuple(
+                evidence
+                for evidence in self._accepted_runtime_evidence
+                if evidence.is_persistent
+            ),
+            "ingest_audit": self._runtime_evidence_audit,
+        }
+
     def receive_runtime_evidence(
         self,
         evidence: RuntimeEvidenceMessage,

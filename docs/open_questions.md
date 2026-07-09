@@ -46,18 +46,32 @@ Decision 073 defines the minimum evidence categories that belong in the persiste
 
 Decisions 178-218 now separate AcquisitionNode-local scientific persistence and local completion from future global Session Record completion. The future global StorageManager will consume finalized `ArtifactManifest`, `LocalStorageCompletionSummary`, and local storage evidence without taking ownership of original local records. Its implementation and the exact global integration schema remain unresolved.
 
-The remaining work is defining the exact folder structure,
-mandatory files, optional files, manifests, file-tracking records,
+Decisions 219-231 separate the Session Record from the Evidence Archive, assign persistent runtime-evidence compilation to Ingestor, assign persistent writing to StorageManager, and accept the v1 conceptual layout:
+
+```text
+session_<session_id>/
+    session_record_initial.json
+    session_record_final.json
+    evidence/
+        runtime_evidence.jsonl
+        ingest_audit.jsonl
+        compilation_summary.json
+```
+
+The remaining work is defining schema evolution,
+mandatory and optional record contents, manifests, file-tracking records,
 validation outputs, and representation details for each evidence category.
 
 Additional questions:
 
-* What files are mandatory for a valid Session Record?
-* What files are optional?
+* How should the accepted v1 layout evolve as archive requirements mature?
+* What fields are mandatory within each accepted Session Record and Evidence Archive file?
+* What fields are optional?
 * What manifest format identifies the included evidence?
 * How are file-tracking records represented?
 * What validation outputs are required?
-* How should accepted configuration, lifecycle evidence, readiness evidence, acquisition evidence, ingest audit records, final status, failures, and cleanup evidence be represented in storage?
+* How should accepted configuration, lifecycle evidence, readiness evidence, acquisition evidence, ingest audit records, final status, failures, and cleanup evidence be represented within the accepted Session Record and Evidence Archive concepts?
+* What retention and deletion policy applies to Evidence Archive contents?
 
 ---
 
@@ -252,7 +266,7 @@ Decisions 103-114 establish the runtime health evidence chain and normalized loc
 
 ### Why this matters
 
-Sender-side robustness now preserves evidence before handoff, but receiver-side validation remains separate. The Ingestor may eventually need to detect malformed envelopes, missing timing, duplicated envelopes, or incomplete sessions.
+Sender-side robustness now preserves evidence before handoff, while Decisions 219-231 assign Ingestor runtime evidence intake, intake validation, ingest audit, temporary runtime retention, and persistent runtime-evidence compilation. The detailed receiver-side validation model remains separate. The Ingestor may eventually need to detect malformed envelopes or messages, missing timing, duplicated evidence presentation, or incomplete sessions.
 
 ### Questions
 
@@ -262,7 +276,8 @@ Sender-side robustness now preserves evidence before handoff, but receiver-side 
 * How does Ingestor represent rejected envelopes?
 * Does Ingestor detect missing expected sources, or is that only AcquisitionNode health?
 * How are receiver-side failures represented in the Session Record?
-* How are finalized local manifests, completion summaries, and local storage evidence represented in the global Session Record?
+* What validation rules apply before persistent runtime evidence is included in the compiled Evidence Archive handoff?
+* How are finalized local manifests, completion summaries, and local storage evidence represented across the Session Record and Evidence Archive?
 
 ### Blocks
 
@@ -361,3 +376,67 @@ The future synchronization design must preserve the accepted Phase 11 principles
 - Any reconstructed or refined timing remains distinguishable from Runtime Timing.
 
 This question does not block current Phase 11 implementation slices that only require mapping ownership and evidence preservation.
+
+
+Q019: What is the Global StorageManager evidence model?
+Why this matters
+
+Phase 12 established LocalStorageManager ownership of local scientific persistence. Decisions 219-231 establish that Ingestor compiles persistent runtime evidence and StorageManager writes the Evidence Archive and final Session Record. The framework still needs to define how the future global StorageManager assembles finalized local discovery information and scientific artifacts without taking ownership of the original local scientific records.
+
+Questions
+What finalized local discovery information does the global StorageManager accept?
+Which finalized local evidence must every LocalStorageManager provide?
+When is evidence considered globally accepted?
+How are multiple LocalStorageManagers reconciled into one global Session view?
+How are missing LocalStorageManagers or incomplete evidence represented?
+What evidence remains local even after global collection?
+Blocks
+Global evidence integration beyond the v1 Evidence Archive
+Global evidence persistence
+Session completion architecture
+
+
+Q020: What is the global finalized scientific-data collection model?
+Why this matters
+
+After local scientific records are finalized, the framework must define how finalized artifacts become globally managed copies while preserving the ownership boundaries established for LocalStorageManager.
+
+Questions
+Who initiates finalized data collection?
+What constitutes a globally managed copy?
+How are transferred artifacts associated with their ArtifactManifest?
+What verification is required before global acceptance?
+What remains owned locally after successful collection?
+What retention or deletion policies separate local and global copies?
+Blocks
+Global scientific storage
+Reconstruction
+Export
+
+
+Q021: What is the runtime artifact-transfer orchestration model?
+Why this matters
+
+The framework intentionally separates runtime acquisition from large-artifact movement. Future versions require an orchestration model that determines when transfers occur without interfering with acquisition.
+
+Questions
+Which component schedules artifact transfer?
+How is AcquisitionNode availability monitored?
+When may transfers begin?
+How are interrupted transfers resumed or retried?
+How is transfer progress represented?
+How are transfer failures recorded?
+What operational evidence is generated during transfer?
+Blocks
+Online deployment
+Large-artifact movement
+Distributed operation
+
+I also recommend slightly adjusting the roadmap now:
+
+Phase 13 — Global StorageManager (Evidence)
+Phase 14 — Global StorageManager (Finalized Scientific Data)
+Phase 15 — Runtime Artifact Transfer & Monitoring
+Phase 16 — Configuration Model
+Phase 17 — Device Acceptance / Validation
+Phase 18 — End-to-End Demo Architecture

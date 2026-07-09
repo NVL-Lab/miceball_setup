@@ -97,6 +97,7 @@ class RuntimeCommunicationTests(unittest.TestCase):
                 "lifecycle_moment": "closed",
                 "local_reference": "camera/video-001",
             },
+            is_persistent=True,
         )
 
         reconstructed = RuntimeEvidenceMessage.from_dict(manifest.to_dict())
@@ -106,6 +107,7 @@ class RuntimeCommunicationTests(unittest.TestCase):
             reconstructed.evidence_type,
             ARTIFACT_MANIFEST_EVIDENCE_TYPE,
         )
+        self.assertTrue(reconstructed.is_persistent)
 
     def test_artifact_manifest_rejects_artifact_bytes(self):
         with self.assertRaisesRegex(ValueError, "JSON-like plain data"):
@@ -155,6 +157,7 @@ class RuntimeCommunicationTests(unittest.TestCase):
                 evidence_type="health_interpretation",
                 source_id="acquisition-node-001",
                 payload={"session_time_s": 1.25, "required": True},
+                is_persistent=True,
             ),
             RuntimeTelemetryMessage(
                 session_id="session-001",
@@ -169,6 +172,31 @@ class RuntimeCommunicationTests(unittest.TestCase):
             reconstructed = type(message).from_dict(plain_data)
             self.assertEqual(reconstructed, message)
             self.assertIsInstance(plain_data, dict)
+
+    def test_runtime_evidence_default_is_not_persistent(self):
+        evidence = RuntimeEvidenceMessage(
+            evidence_id="evidence-001",
+            session_id="session-001",
+            evidence_type="runtime_note",
+            source_id="source-001",
+            payload={},
+        )
+
+        self.assertFalse(evidence.is_persistent)
+        self.assertFalse(
+            RuntimeEvidenceMessage.from_dict(evidence.to_dict()).is_persistent
+        )
+
+    def test_runtime_evidence_rejects_non_boolean_persistence_flag(self):
+        with self.assertRaisesRegex(ValueError, "is_persistent must be boolean"):
+            RuntimeEvidenceMessage(
+                evidence_id="evidence-001",
+                session_id="session-001",
+                evidence_type="runtime_note",
+                source_id="source-001",
+                payload={},
+                is_persistent="yes",
+            )
 
     def test_payload_rejects_non_plain_runtime_objects(self):
         with self.assertRaisesRegex(ValueError, "JSON-like plain data"):

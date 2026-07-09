@@ -16,12 +16,15 @@ from lab_sync_acquisition import (
     DeviceManager,
     InMemoryIngestor,
     PersistentStorageManager,
+    RuntimeEvidenceMessage,
     Session,
     SessionConfig,
     SessionState,
     SynchronizationManager,
 )
 from tests.fakes import ReadyFakeAdapter
+
+import json
 
 
 class SessionRecordFakeAdapter(ReadyFakeAdapter):
@@ -48,6 +51,137 @@ class SessionRecordFakeAdapter(ReadyFakeAdapter):
 
 
 class PersistentStorageManagerTests(unittest.TestCase):
+    def test_phase13_initial_session_record_writes_accepted_path(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            storage = PersistentStorageManager(root / "accepted_records.jsonl")
+
+            path = storage.write_initial_session_record(
+                "session-001",
+                **self._minimal_session_record_evidence("session-001"),
+            )
+            record = storage.read_session_record(path)
+
+            self.assertEqual(
+                path,
+                root / "session_session-001" / "session_record_initial.json",
+            )
+            self.assertTrue(path.exists())
+            self.assertEqual(
+                record["accepted_session_config"]["session_id"],
+                "session-001",
+            )
+            self.assertIsNone(record["final_session_status"])
+
+    def test_phase13_final_session_record_writes_accepted_path(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            storage = PersistentStorageManager(root / "accepted_records.jsonl")
+
+            evidence = self._minimal_session_record_evidence("session-001")
+            evidence["final_session_status"] = {"state": "completed"}
+            path = storage.write_final_session_record("session-001", **evidence)
+            record = storage.read_session_record(path)
+
+            self.assertEqual(
+                path,
+                root / "session_session-001" / "session_record_final.json",
+            )
+            self.assertTrue(path.exists())
+            self.assertEqual(record["final_session_status"], {"state": "completed"})
+
+    def test_phase13_evidence_archive_writes_accepted_files(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            storage = PersistentStorageManager(root / "accepted_records.jsonl")
+            ingestor = InMemoryIngestor()
+            nonpersistent = RuntimeEvidenceMessage(
+                evidence_id="evidence-nonpersistent",
+                session_id="session-001",
+                evidence_type="health_interpretation",
+                source_id="node-001",
+                payload={"interpretation_label": "warning"},
+            )
+            persistent = RuntimeEvidenceMessage(
+                evidence_id="evidence-persistent",
+                session_id="session-001",
+                evidence_type="runtime_note",
+                source_id="node-001",
+                payload={"note": "included by Ingestor flag, not type"},
+                is_persistent=True,
+            )
+            first_audit = ingestor.receive_runtime_evidence(nonpersistent)
+            second_audit = ingestor.receive_runtime_evidence(persistent)
+
+            paths = storage.write_evidence_archive(
+                "session-001",
+                ingestor.compile_persistent_runtime_evidence(),
+            )
+
+            expected_directory = root / "session_session-001" / "evidence"
+            self.assertEqual(
+                paths,
+                {
+                    "runtime_evidence": expected_directory
+                    / "runtime_evidence.jsonl",
+                    "ingest_audit": expected_directory / "ingest_audit.jsonl",
+                    "compilation_summary": expected_directory
+                    / "compilation_summary.json",
+                },
+            )
+            runtime_evidence_lines = self._read_jsonl(
+                paths["runtime_evidence"]
+            )
+            ingest_audit_lines = self._read_jsonl(paths["ingest_audit"])
+            compilation_summary = json.loads(
+                paths["compilation_summary"].read_text(encoding="utf-8")
+            )
+
+            self.assertEqual(runtime_evidence_lines, [persistent.to_dict()])
+            self.assertEqual(
+                ingest_audit_lines,
+                [first_audit.to_dict(), second_audit.to_dict()],
+            )
+            self.assertEqual(
+                compilation_summary,
+                {
+                    "session_id": "session-001",
+                    "runtime_evidence_count": 1,
+                    "ingest_audit_count": 2,
+                    "runtime_evidence_ids": ["evidence-persistent"],
+                    "ingest_audit_evidence_ids": [
+                        "evidence-nonpersistent",
+                        "evidence-persistent",
+                    ],
+                },
+            )
+
+    def test_phase13_archive_does_not_inspect_evidence_type(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            storage = PersistentStorageManager(root / "accepted_records.jsonl")
+            surprising_persistent = RuntimeEvidenceMessage(
+                evidence_id="evidence-surprising",
+                session_id="session-001",
+                evidence_type="not_a_mandatory_category",
+                source_id="node-001",
+                payload={},
+                is_persistent=True,
+            )
+
+            paths = storage.write_evidence_archive(
+                "session-001",
+                {
+                    "runtime_evidence": (surprising_persistent,),
+                    "ingest_audit": (),
+                },
+            )
+
+            self.assertEqual(
+                self._read_jsonl(paths["runtime_evidence"]),
+                [surprising_persistent.to_dict()],
+            )
+
     def test_persistent_storage_writes_and_reads_accepted_envelopes(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             records_path = Path(temporary_directory) / "accepted_records.jsonl"
@@ -338,6 +472,28 @@ class PersistentStorageManagerTests(unittest.TestCase):
                 },
             )
             self.assertEqual(session_record["warnings_or_failures"], [])
+
+    @staticmethod
+    def _minimal_session_record_evidence(session_id):
+        return {
+            "accepted_session_config": {"session_id": session_id},
+            "lifecycle_evidence": (),
+            "readiness_evidence": (),
+            "device_readiness_evidence": (),
+            "service_readiness_evidence": (),
+            "accepted_acquisition_envelopes": (),
+            "ingest_audit_records": (),
+            "final_session_status": None,
+            "cleanup_evidence": {},
+        }
+
+    @staticmethod
+    def _read_jsonl(path):
+        return [
+            json.loads(line)
+            for line in path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
 
 
 if __name__ == "__main__":

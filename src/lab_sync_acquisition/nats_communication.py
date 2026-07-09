@@ -598,6 +598,7 @@ class NatsAcquisitionNodeCommunication:
                 evidence_type="health_interpretation",
                 source_id=self._boundary.component_id,
                 payload=evidence.to_dict(),
+                is_persistent=True,
             )
             await self._boundary.publish_evidence(message)
             self._published_health_interpretation_count += 1

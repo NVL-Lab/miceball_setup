@@ -305,14 +305,35 @@ The canonical runtime evidence-intake component responsible for receiving and au
 
 The Ingestor owns:
 
-* record intake
-* record validation
-* record forwarding
+* runtime evidence intake
+* intake validation
 * ingest auditing
+* temporary runtime retention
+* compilation of persistent runtime evidence
 
-The Ingestor does not own scientific time.
+The Ingestor does not own scientific time, evidence interpretation, lifecycle, scientific meaning, or persistence decisions. It must not infer persistence from evidence type, payload, source component, or domain meaning; it uses the explicit persistence intent carried by `RuntimeEvidenceMessage`.
 
 The Ingestor is not the universal online pipe for every scientific sample, frame, continuous data row, or large artifact byte. Producing components may store authoritative scientific data locally and represent artifact lifecycle through durable manifests.
+
+---
+
+# RuntimeEvidenceMessage
+
+The runtime evidence boundary between evidence-producing components and runtime evidence consumers.
+
+It carries plain runtime evidence across the communication boundary without transferring domain ownership or meaning. Its accepted Phase 13 architecture includes an `is_persistent` flag that records producer-supplied persistence intent.
+
+Evidence-producing components decide whether their own evidence is persistent. Ingestor must not infer persistence from the message's evidence type, payload, source component, or domain meaning.
+
+RuntimeEvidenceMessage does not own lifecycle, scientific interpretation, persistence policy, Session Time, storage semantics, or evidence archive layout.
+
+---
+
+# Persistent Runtime Evidence
+
+Runtime evidence explicitly marked by its producing component as intended for persistent preservation.
+
+Architecture-defined mandatory persistent evidence categories remain mandatory, but the responsible producer sets `is_persistent = True`; Ingestor compiles persistent runtime evidence and StorageManager writes the resulting persistent records.
 
 ---
 
@@ -550,7 +571,7 @@ Device streaming is source-specific. Session running and Acquisition Runtime act
 
 # Session Record
 
-A durable evidence package for one Session.
+A durable record describing one Session.
 
 Examples include:
 
@@ -569,7 +590,21 @@ Examples include:
 
 The Session Record preserves what was intended, what was ready, what ran, what was acquired, what was ingested, how the Session ended, and what failed.
 
-The final folder layout, manifest format, detailed schemas, reconstruction outputs, and export formats are defined separately.
+The Session Record is separate from the Evidence Archive. The Session Record describes the Session itself; the Evidence Archive stores persistent runtime observations that support the Session Record.
+
+The accepted v1 conceptual persistence layout includes `session_record_initial.json`, `session_record_final.json`, and an `evidence/` directory containing `runtime_evidence.jsonl`, `ingest_audit.jsonl`, and `compilation_summary.json`. Category-specific evidence folders are not part of the v1 concept.
+
+The detailed manifest format, schema evolution, reconstruction outputs, and export formats are defined separately.
+
+---
+
+# Evidence Archive
+
+The persistent archive of runtime observations supporting a Session Record.
+
+The Evidence Archive is written by StorageManager from persistent information compiled by Ingestor. It is not a replacement for the Session Record and does not decide evidence meaning, lifecycle, retention, artifact transfer, reconstruction, NWB export, or global scientific data collection.
+
+The accepted v1 conceptual layout stores persistent runtime evidence in one `runtime_evidence.jsonl` stream, with separate ingest audit and compilation summary files.
 
 ---
 
@@ -601,7 +636,7 @@ Reconstructed Timing may refine estimates or identify degraded intervals, but it
 
 # Storage Manager
 
-The component responsible for persistent storage of session records.
+The component responsible for persistent writing.
 
 Responsibilities include:
 
@@ -609,7 +644,9 @@ Responsibilities include:
 * organizing records
 * validating storage operations
 
-The Storage Manager does not own synchronization.
+StorageManager receives compiled persistent information and writes persistent records, including the Evidence Archive and final Session Record in the accepted persistence lifecycle.
+
+The Storage Manager does not own synchronization, Session lifecycle, Experiment lifecycle, acquisition, runtime evidence meaning, or Ingestor intake policy.
 
 ---
 
@@ -969,13 +1006,13 @@ It describes runtime execution state and is distinct from Device Readiness.
 
 The durable preservation of acquisition records beyond runtime memory.
 
-Persistent Storage begins after records leave the Ingestor and are accepted by the Storage Manager.
+Persistent Storage begins after persistent information is compiled by the Ingestor and accepted by the Storage Manager for writing.
 
 For v1, accepted Acquisition Record Envelopes may be stored as JSONL, with one envelope dictionary per line.
 
 JSONL is a storage backend detail, not a replacement for the Storage Manager architectural boundary.
 
-The final storage format is defined separately from the Storage Manager architecture.
+The Phase 13 conceptual Evidence Archive also uses JSONL for persistent runtime evidence. Archive evolution, retention/deletion, artifact transfer, reconstruction, NWB export, and global scientific data collection remain future architecture.
 
 ---
 

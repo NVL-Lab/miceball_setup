@@ -169,32 +169,88 @@ class PersistentStorageManager:
 
         path = Path(session_record_path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        session_record = {
-            "accepted_session_config": _to_plain_data(accepted_session_config),
-            "session_lifecycle_evidence": _to_plain_data(lifecycle_evidence),
-            "readiness_evidence": _to_plain_data(readiness_evidence),
-            "device_readiness_evidence": _to_plain_data(
-                device_readiness_evidence
-            ),
-            "service_readiness_evidence": _to_plain_data(
-                service_readiness_evidence
-            ),
-            "accepted_acquisition_envelopes": _to_plain_data(
-                accepted_acquisition_envelopes
-            ),
-            "ingest_audit_records": _to_plain_data(ingest_audit_records),
-            "runtime_evidence": _to_plain_data(runtime_evidence),
-            "runtime_evidence_audit": _to_plain_data(runtime_evidence_audit),
-            "final_session_status": _to_plain_data(final_session_status),
-            "cleanup_evidence": _to_plain_data(cleanup_evidence),
-            "warnings_or_failures": _to_plain_data(warnings_or_failures),
-            "experiment_lifecycle_evidence": _to_plain_data(
-                experiment_lifecycle_evidence
-            ),
-            "experiment_descriptors": _to_plain_data(experiment_descriptors),
-        }
+        session_record = _session_record_from_evidence(
+            accepted_session_config=accepted_session_config,
+            lifecycle_evidence=lifecycle_evidence,
+            readiness_evidence=readiness_evidence,
+            device_readiness_evidence=device_readiness_evidence,
+            service_readiness_evidence=service_readiness_evidence,
+            accepted_acquisition_envelopes=accepted_acquisition_envelopes,
+            ingest_audit_records=ingest_audit_records,
+            final_session_status=final_session_status,
+            cleanup_evidence=cleanup_evidence,
+            warnings_or_failures=warnings_or_failures,
+            experiment_lifecycle_evidence=experiment_lifecycle_evidence,
+            experiment_descriptors=experiment_descriptors,
+            runtime_evidence=runtime_evidence,
+            runtime_evidence_audit=runtime_evidence_audit,
+        )
         with path.open("w", encoding="utf-8") as session_record_file:
             json.dump(session_record, session_record_file, indent=2)
+
+    def write_initial_session_record(
+        self,
+        session_id: str,
+        **session_record_evidence: Any,
+    ) -> Path:
+        """Write the initial Phase 13 Session Record to its accepted path."""
+
+        path = self._session_directory(session_id) / "session_record_initial.json"
+        self.write_session_record(path, **session_record_evidence)
+        return path
+
+    def write_final_session_record(
+        self,
+        session_id: str,
+        **session_record_evidence: Any,
+    ) -> Path:
+        """Write the final Phase 13 Session Record to its accepted path."""
+
+        path = self._session_directory(session_id) / "session_record_final.json"
+        self.write_session_record(path, **session_record_evidence)
+        return path
+
+    def write_evidence_archive(
+        self,
+        session_id: str,
+        compiled_runtime_evidence: dict[str, Iterable[Any]],
+    ) -> dict[str, Path]:
+        """Write the Phase 13 Evidence Archive from Ingestor compilation."""
+
+        archive_directory = self._session_directory(session_id) / "evidence"
+        archive_directory.mkdir(parents=True, exist_ok=True)
+        runtime_evidence = tuple(
+            compiled_runtime_evidence.get("runtime_evidence", ())
+        )
+        ingest_audit = tuple(compiled_runtime_evidence.get("ingest_audit", ()))
+        runtime_evidence_path = archive_directory / "runtime_evidence.jsonl"
+        ingest_audit_path = archive_directory / "ingest_audit.jsonl"
+        compilation_summary_path = archive_directory / "compilation_summary.json"
+
+        _write_jsonl(runtime_evidence_path, runtime_evidence)
+        _write_jsonl(ingest_audit_path, ingest_audit)
+        summary = {
+            "session_id": session_id,
+            "runtime_evidence_count": len(runtime_evidence),
+            "ingest_audit_count": len(ingest_audit),
+            "runtime_evidence_ids": [
+                _plain_field(evidence, "evidence_id")
+                for evidence in runtime_evidence
+            ],
+            "ingest_audit_evidence_ids": [
+                _plain_field(audit, "evidence_id")
+                for audit in ingest_audit
+            ],
+        }
+        with compilation_summary_path.open(
+            "w", encoding="utf-8"
+        ) as summary_file:
+            json.dump(summary, summary_file, indent=2)
+        return {
+            "runtime_evidence": runtime_evidence_path,
+            "ingest_audit": ingest_audit_path,
+            "compilation_summary": compilation_summary_path,
+        }
 
     def read_session_record(
         self,
@@ -205,6 +261,9 @@ class PersistentStorageManager:
         path = Path(session_record_path)
         with path.open("r", encoding="utf-8") as session_record_file:
             return json.load(session_record_file)
+
+    def _session_directory(self, session_id: str) -> Path:
+        return self._records_path.parent / f"session_{session_id}"
 
 
 def _to_plain_data(value: Any) -> Any:
@@ -221,3 +280,60 @@ def _to_plain_data(value: Any) -> Any:
             for item in value
         ]
     return value
+
+
+def _session_record_from_evidence(
+    *,
+    accepted_session_config: Any,
+    lifecycle_evidence: Iterable[Any],
+    readiness_evidence: Iterable[Any],
+    device_readiness_evidence: Iterable[Any],
+    service_readiness_evidence: Iterable[Any],
+    accepted_acquisition_envelopes: Iterable[AcquisitionRecordEnvelope],
+    ingest_audit_records: Iterable[Any],
+    final_session_status: dict[str, Any] | None,
+    cleanup_evidence: dict[str, Any],
+    warnings_or_failures: Iterable[Any] = (),
+    experiment_lifecycle_evidence: Iterable[Any] = (),
+    experiment_descriptors: Iterable[Any] = (),
+    runtime_evidence: Iterable[Any] = (),
+    runtime_evidence_audit: Iterable[Any] = (),
+) -> dict[str, Any]:
+    return {
+        "accepted_session_config": _to_plain_data(accepted_session_config),
+        "session_lifecycle_evidence": _to_plain_data(lifecycle_evidence),
+        "readiness_evidence": _to_plain_data(readiness_evidence),
+        "device_readiness_evidence": _to_plain_data(
+            device_readiness_evidence
+        ),
+        "service_readiness_evidence": _to_plain_data(
+            service_readiness_evidence
+        ),
+        "accepted_acquisition_envelopes": _to_plain_data(
+            accepted_acquisition_envelopes
+        ),
+        "ingest_audit_records": _to_plain_data(ingest_audit_records),
+        "runtime_evidence": _to_plain_data(runtime_evidence),
+        "runtime_evidence_audit": _to_plain_data(runtime_evidence_audit),
+        "final_session_status": _to_plain_data(final_session_status),
+        "cleanup_evidence": _to_plain_data(cleanup_evidence),
+        "warnings_or_failures": _to_plain_data(warnings_or_failures),
+        "experiment_lifecycle_evidence": _to_plain_data(
+            experiment_lifecycle_evidence
+        ),
+        "experiment_descriptors": _to_plain_data(experiment_descriptors),
+    }
+
+
+def _write_jsonl(path: Path, items: Iterable[Any]) -> None:
+    with path.open("w", encoding="utf-8") as jsonl_file:
+        for item in items:
+            jsonl_file.write(json.dumps(_to_plain_data(item)))
+            jsonl_file.write("\n")
+
+
+def _plain_field(value: Any, field_name: str) -> Any:
+    plain = _to_plain_data(value)
+    if isinstance(plain, dict):
+        return plain.get(field_name)
+    return None

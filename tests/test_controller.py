@@ -1,6 +1,7 @@
 import sys
 import tempfile
 import unittest
+import json
 from pathlib import Path
 
 
@@ -46,6 +47,16 @@ class DeviceHandoffFailingIngestor(InMemoryIngestor):
 class FirstSessionRecordWriteFailingStorage(PersistentStorageManager):
     def write_session_record(self, *args, **kwargs):
         raise OSError("session record unavailable")
+
+
+class EvidenceArchiveWriteFailingStorage(PersistentStorageManager):
+    def write_evidence_archive(self, *args, **kwargs):
+        raise OSError("evidence archive unavailable")
+
+
+class FinalSessionRecordWriteFailingStorage(PersistentStorageManager):
+    def write_final_session_record(self, *args, **kwargs):
+        raise OSError("final session record unavailable")
 
 
 class StopFailingSynchronizationManager(SynchronizationManager):
@@ -154,6 +165,7 @@ class ControllerWorkflowTests(unittest.TestCase):
                     "artifact_id": "camera-video-001",
                     "local_reference": "camera/video-001",
                 },
+                is_persistent=True,
             )
             runtime_audit = ingestor.receive_runtime_evidence(artifact_manifest)
 
@@ -175,19 +187,47 @@ class ControllerWorkflowTests(unittest.TestCase):
             ]
 
             status = controller.get_status()
-            session_record = storage.read_session_record(session_record_path)
+            session_directory = root / "session_controller-session-001"
+            initial_record_path = (
+                session_directory / "session_record_initial.json"
+            )
+            final_record_path = session_directory / "session_record_final.json"
+            runtime_evidence_path = (
+                session_directory / "evidence" / "runtime_evidence.jsonl"
+            )
+            ingest_audit_path = (
+                session_directory / "evidence" / "ingest_audit.jsonl"
+            )
+            compilation_summary_path = (
+                session_directory / "evidence" / "compilation_summary.json"
+            )
+            initial_record = storage.read_session_record(initial_record_path)
+            session_record = storage.read_session_record(final_record_path)
+            archived_runtime_evidence = self._read_jsonl(runtime_evidence_path)
+            archived_ingest_audit = self._read_jsonl(ingest_audit_path)
+            compilation_summary = json.loads(
+                compilation_summary_path.read_text(encoding="utf-8")
+            )
             self.assertTrue(all(result.succeeded for result in results))
             self.assertEqual(status["session_id"], "controller-session-001")
             self.assertEqual(status["session_state"], "completed")
             self.assertFalse(status["acquisition_runtime"]["is_running"])
             self.assertEqual(status["acquisition_runtime"]["iteration_count"], 1)
             self.assertEqual(status["last_command"].command, "finalize_session")
+            self.assertTrue(initial_record_path.exists())
+            self.assertEqual(
+                [
+                    transition["to_state"]
+                    for transition in initial_record["session_lifecycle_evidence"]
+                ],
+                ["initialized", "running"],
+            )
             self.assertEqual(
                 [
                     transition["to_state"]
                     for transition in session_record["session_lifecycle_evidence"]
                 ],
-                ["initialized", "running", "stopping", "completed"],
+                ["initialized", "running", "stopping"],
             )
             self.assertEqual(
                 len(session_record["accepted_acquisition_envelopes"]),
@@ -205,6 +245,18 @@ class ControllerWorkflowTests(unittest.TestCase):
                 "artifact_bytes",
                 session_record["runtime_evidence"][0]["payload"],
             )
+            self.assertEqual(archived_runtime_evidence, [artifact_manifest.to_dict()])
+            self.assertEqual(archived_ingest_audit, [runtime_audit.to_dict()])
+            self.assertEqual(
+                compilation_summary,
+                {
+                    "session_id": "controller-session-001",
+                    "runtime_evidence_count": 1,
+                    "ingest_audit_count": 1,
+                    "runtime_evidence_ids": ["artifact-manifest-001"],
+                    "ingest_audit_evidence_ids": ["artifact-manifest-001"],
+                },
+            )
             self.assertTrue(
                 all(
                     envelope["record_kind"] != ARTIFACT_MANIFEST_EVIDENCE_TYPE
@@ -213,7 +265,8 @@ class ControllerWorkflowTests(unittest.TestCase):
                     ]
                 )
             )
-            self.assertTrue(session_record["cleanup_evidence"]["cleanup_occurred"])
+            self.assertFalse(session_record["cleanup_evidence"]["cleanup_occurred"])
+            self.assertIsNone(session_record["final_session_status"])
 
     def test_start_runtime_failure_marks_initialized_session_failed(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -385,7 +438,11 @@ class ControllerWorkflowTests(unittest.TestCase):
             controller.finalize_session()
             session_record = PersistentStorageManager(
                 root / "accepted_records.jsonl"
-            ).read_session_record(root / "session_record.json")
+            ).read_session_record(
+                root
+                / "session_controller-failure-session-001"
+                / "session_record_final.json"
+            )
             self.assertNotIn("runtime_health_mapping", session_record)
             self.assertNotIn(
                 "active_experiment_runtime_health_mapping",
@@ -522,13 +579,13 @@ class ControllerWorkflowTests(unittest.TestCase):
             self.assertIn("clock stop failed", result.error)
             self.assertEqual(controller.get_status()["session_state"], "failed")
 
-    def test_first_session_record_write_failure_leaves_session_failed(self):
+    def test_evidence_archive_write_failure_leaves_session_failed(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             config = self._config(root)
             adapter = ControllerFakeAdapter()
             manager = DeviceManager((adapter,))
-            storage = FirstSessionRecordWriteFailingStorage(
+            storage = EvidenceArchiveWriteFailingStorage(
                 root / "accepted_records.jsonl"
             )
             ingestor = InMemoryIngestor(storage_manager=storage)
@@ -554,7 +611,42 @@ class ControllerWorkflowTests(unittest.TestCase):
             result = controller.finalize_session()
 
             self.assertFalse(result.succeeded)
-            self.assertIn("session record unavailable", result.error)
+            self.assertIn("evidence archive unavailable", result.error)
+            self.assertEqual(controller.get_status()["session_state"], "failed")
+
+    def test_final_session_record_write_failure_leaves_session_failed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = self._config(root)
+            adapter = ControllerFakeAdapter()
+            manager = DeviceManager((adapter,))
+            storage = FinalSessionRecordWriteFailingStorage(
+                root / "accepted_records.jsonl"
+            )
+            ingestor = InMemoryIngestor(storage_manager=storage)
+            node = AcquisitionNode(
+                session_id=config.session_id,
+                device_manager=manager,
+                synchronization_manager=SynchronizationManager(),
+                ingestor=ingestor,
+                error_evidence_location=config.error_evidence_location,
+            )
+            controller = Controller(
+                node, ingestor, storage, root / "session_record.json"
+            )
+            manager.initialize_all(config={"mode": "finalization-failure"})
+            readiness = node.check_ready()
+            controller.create_session(config)
+            controller.initialize_session(
+                readiness["device_readiness"], readiness["service_readiness"]
+            )
+            controller.start_session()
+            controller.stop_session()
+
+            result = controller.finalize_session()
+
+            self.assertFalse(result.succeeded)
+            self.assertIn("final session record unavailable", result.error)
             self.assertEqual(controller.get_status()["session_state"], "failed")
 
     def _controller_fixture(
@@ -607,6 +699,14 @@ class ControllerWorkflowTests(unittest.TestCase):
             acquisition_configuration=acquisition_configuration,
             acquisition_health_policies=acquisition_health_policies,
         )
+
+    @staticmethod
+    def _read_jsonl(path):
+        return [
+            json.loads(line)
+            for line in path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
 
 
 if __name__ == "__main__":

@@ -1178,16 +1178,16 @@ The artifact-manifest bullets above validate the implemented Phase 10 transport 
 
 ---
 
-# W028 - Persistent Runtime Evidence in Session Record
+# W028 - Persistent Runtime Evidence in Evidence Archive
 
 ## Purpose
 
-Validate that Controller finalization gathers Ingestor-owned durable runtime evidence and runtime-evidence audit records into the persistent Session Record without changing acquisition-envelope storage.
+Validate that Controller finalization gathers Ingestor-owned durable runtime evidence and runtime-evidence audit records into the separate Phase 13 Evidence Archive without changing acquisition-envelope storage.
 
 ## Validates
 
-- accepted `RuntimeEvidenceMessage` records persist under `runtime_evidence`
-- `RuntimeEvidenceAuditRecord` intake evidence persists separately under `runtime_evidence_audit`
+- accepted `RuntimeEvidenceMessage` records persist in `evidence/runtime_evidence.jsonl`
+- `RuntimeEvidenceAuditRecord` intake evidence persists separately in `evidence/ingest_audit.jsonl`
 - artifact manifests remain lightweight runtime evidence and introduce no artifact bytes or transfer behavior
 - accepted acquisition envelopes and their ingest audit remain unchanged and separate
 - StorageManager writes evidence supplied by the finalization caller without taking runtime-evidence ownership

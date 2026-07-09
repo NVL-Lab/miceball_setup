@@ -393,8 +393,11 @@ class RuntimeEvidenceMessage:
     evidence_type: str
     source_id: str
     payload: dict[str, Any]
+    is_persistent: bool = False
 
     def __post_init__(self) -> None:
+        if not isinstance(self.is_persistent, bool):
+            raise ValueError("RuntimeEvidenceMessage is_persistent must be boolean")
         _validate_plain_data(self.payload)
 
     def to_dict(self) -> dict[str, Any]:
@@ -406,6 +409,7 @@ class RuntimeEvidenceMessage:
             "evidence_type": self.evidence_type,
             "source_id": self.source_id,
             "payload": dict(self.payload),
+            "is_persistent": self.is_persistent,
         }
 
     @classmethod
@@ -418,6 +422,7 @@ class RuntimeEvidenceMessage:
             evidence_type=data["evidence_type"],
             source_id=data["source_id"],
             payload=dict(data["payload"]),
+            is_persistent=data.get("is_persistent", False),
         )
 
 

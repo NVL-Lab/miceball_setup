@@ -276,6 +276,7 @@ class Controller:
             if self._runtime_start_failed(runtime_result):
                 raise RuntimeError("AcquisitionNode runtime start reported failure")
             session.start()
+            self._write_initial_session_record()
         except Exception as error:
             self._attempt_runtime_stop()
             self._mark_session_failed(str(error))
@@ -408,25 +409,32 @@ class Controller:
         )
 
     def finalize_session(self) -> ControllerCommandResult:
-        """Complete Session and write its existing v1 persistent evidence."""
+        """Persist Phase 13 evidence products, then complete the Session."""
 
         session = self._require_session()
         try:
-            self._write_session_record()
+            compiled_runtime_evidence = (
+                self._ingestor.compile_persistent_runtime_evidence()
+            )
+            archive_paths = self._storage_manager.write_evidence_archive(
+                session.session_id,
+                compiled_runtime_evidence,
+            )
+            final_record_path = self._write_final_session_record()
         except Exception as error:
             self._mark_session_failed(str(error))
             return self._record_failed_command("finalize_session", error)
 
         session.complete()
-        try:
-            self._write_session_record()
-        except Exception as error:
-            return self._record_failed_command("finalize_session", error)
         return self._record_successful_command(
             "finalize_session",
             {
                 "session_state": session.current_state.value,
-                "session_record_path": str(self._session_record_path),
+                "evidence_archive_paths": {
+                    name: str(path)
+                    for name, path in archive_paths.items()
+                },
+                "session_record_path": str(final_record_path),
             },
         )
 
@@ -510,29 +518,44 @@ class Controller:
         if session.current_state in {SessionState.INITIALIZED, SessionState.STOPPING}:
             session.fail(reason=reason)
 
-    def _write_session_record(self) -> None:
+    def _session_record_evidence(self) -> dict[str, Any]:
         session = self._require_session()
-        self._storage_manager.write_session_record(
-            self._session_record_path,
-            accepted_session_config=session.configuration,
-            lifecycle_evidence=session.transition_history,
-            readiness_evidence=session.readiness_checks,
-            device_readiness_evidence=session.device_readiness_summary,
-            service_readiness_evidence=session.service_readiness_checks,
-            accepted_acquisition_envelopes=self._storage_manager.read_envelopes(),
-            ingest_audit_records=self._ingestor.ingest_audit,
-            runtime_evidence=self._ingestor.accepted_runtime_evidence,
-            runtime_evidence_audit=self._ingestor.runtime_evidence_audit,
-            final_session_status=session.final_status,
-            cleanup_evidence={
+        return {
+            "accepted_session_config": session.configuration,
+            "lifecycle_evidence": session.transition_history,
+            "readiness_evidence": session.readiness_checks,
+            "device_readiness_evidence": session.device_readiness_summary,
+            "service_readiness_evidence": session.service_readiness_checks,
+            "accepted_acquisition_envelopes": (
+                self._storage_manager.read_envelopes()
+            ),
+            "ingest_audit_records": self._ingestor.ingest_audit,
+            "runtime_evidence": self._ingestor.accepted_runtime_evidence,
+            "runtime_evidence_audit": self._ingestor.runtime_evidence_audit,
+            "final_session_status": session.final_status,
+            "cleanup_evidence": {
                 "cleanup_occurred": session.cleanup_occurred,
                 "cleanup_sequence": session.cleanup_sequence,
             },
-            warnings_or_failures=tuple(
+            "warnings_or_failures": tuple(
                 result for result in self._command_results if not result.succeeded
             ),
-            experiment_lifecycle_evidence=session.experiment_lifecycle_evidence,
-            experiment_descriptors=session.experiment_descriptors,
+            "experiment_lifecycle_evidence": session.experiment_lifecycle_evidence,
+            "experiment_descriptors": session.experiment_descriptors,
+        }
+
+    def _write_initial_session_record(self) -> Path:
+        session = self._require_session()
+        return self._storage_manager.write_initial_session_record(
+            session.session_id,
+            **self._session_record_evidence(),
+        )
+
+    def _write_final_session_record(self) -> Path:
+        session = self._require_session()
+        return self._storage_manager.write_final_session_record(
+            session.session_id,
+            **self._session_record_evidence(),
         )
 
     def _current_session_time_s(self) -> float | None:
