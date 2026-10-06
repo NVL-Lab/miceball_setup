@@ -288,7 +288,9 @@ scientific/runtime timing is rejected rather than silently rewritten.
 
 ## scripts/manual_opencv_camera_smoke.py
 
-- main(argv=None): Runs one metadata-only camera iteration by default, or an opt-in duration-bounded Controller scientific workflow with HDF5 readback verification, diagnostic output, and nonzero failure exits.
+- main(argv=None): Runs a metadata-only camera iteration, an opt-in scientific acquisition with optional post-validation visualization, or read-only inspection of an existing HDF5 recording without camera/Session startup.
+- view_hdf5_frames(path): Reads up to six evenly spaced camera frames read-only, labels recorded indices, converts BGR/BGRA for Matplotlib display, and returns a saved PNG path when graphical display is unavailable.
+- _inspect_frames: Reports visualization errors as nonzero CLI exits without changing the recording or acquisition behavior.
 - verify_scientific_artifact(manifest, experiment_start_session_time_s, frame_shape, frame_dtype): Reopens a finalized camera HDF5 artifact read-only and verifies manifest counts, declared shape/dtype, ordered indices, aligned runtime timing, and per-frame metadata.
 - _camera_source: Converts a CLI camera index to an integer while preserving backend source strings.
 - _run_scientific: Orchestrates the existing Controller/AcquisitionNode scientific acquisition and local persistence path using explicit camera-product declarations and selections.

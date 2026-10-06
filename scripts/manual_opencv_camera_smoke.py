@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import sys
 from pathlib import Path
 from time import monotonic
@@ -39,6 +40,97 @@ def _camera_source(value: str) -> int | str:
         return int(value)
     except ValueError:
         return value
+
+
+def view_hdf5_frames(path: str | Path) -> Path | None:
+    """Inspect up to six selected frames read-only; save PNG if display is unavailable."""
+    import h5py
+    import numpy as np
+    try:
+        import matplotlib
+    except ImportError as error:
+        raise RuntimeError("Frame visualization requires optional Matplotlib: pip install matplotlib") from error
+
+    path = Path(path).resolve()
+    with h5py.File(path, "r") as artifact:
+        if "frames" not in artifact or "frame_index" not in artifact:
+            raise ValueError("Recording requires frames and frame_index datasets")
+        dataset = artifact["frames"]
+        count = len(dataset)
+        if count == 0:
+            raise ValueError("Cannot inspect an empty recording")
+        if len(artifact["frame_index"]) != count:
+            raise ValueError("Frame/index dataset lengths disagree")
+        positions = np.linspace(0, count - 1, min(6, count), dtype=int)
+        selected = [(int(artifact["frame_index"][position]), dataset[int(position)])
+                    for position in positions]
+
+    # Do not attempt to initialize a GUI on a headless Linux/Jetson session.
+    if sys.platform.startswith("linux") and not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
+        matplotlib.use("Agg", force=True)
+    import matplotlib.pyplot as plt
+
+    def draw():
+        figure, axes = plt.subplots(2, 3, figsize=(12, 7), squeeze=False)
+        try:
+            for axis in axes.flat:
+                axis.set_axis_off()
+            for axis, (index, frame) in zip(axes.flat, selected):
+                if frame.ndim == 3 and frame.shape[-1] == 1:
+                    frame = frame[..., 0]
+                if frame.ndim == 2:
+                    axis.imshow(frame, cmap="gray")
+                elif frame.ndim == 3 and frame.shape[-1] in (3, 4):
+                    channels = [2, 1, 0] if frame.shape[-1] == 3 else [2, 1, 0, 3]
+                    image = frame[..., channels]
+                    # Matplotlib RGB accepts uint8 or floats in [0, 1]. Scaling
+                    # wider integer pixels is display-only; stored pixels stay raw.
+                    if image.dtype.kind in "iu" and image.dtype != np.dtype("uint8"):
+                        limits = np.iinfo(image.dtype)
+                        image = (image.astype(float) - limits.min) / (limits.max - limits.min)
+                    axis.imshow(image)
+                else:
+                    raise ValueError(f"Unsupported frame shape for visualization: {frame.shape}")
+                axis.set_title(f"Frame {index}")
+            figure.suptitle(path.name)
+            figure.tight_layout()
+            return figure
+        except Exception:
+            plt.close(figure)
+            raise
+
+    try:
+        figure = draw()
+    except (ImportError, RuntimeError) as error:
+        print(f"display_unavailable={error}", file=sys.stderr)
+        plt.switch_backend("Agg")
+        figure = draw()
+    try:
+        backend = str(matplotlib.get_backend()).lower()
+        interactive = any(name in backend for name in ("qtagg", "qt5agg", "qtcairo", "qt5cairo",
+                          "tkagg", "tkcairo", "gtk3", "gtk4", "wx", "macosx"))
+        if interactive:
+            try:
+                plt.show()
+                print("frame_inspection=displayed")
+                return None
+            except (ImportError, RuntimeError) as error:
+                print(f"display_unavailable={error}", file=sys.stderr)
+        destination = path.with_name(f"{path.stem}_contact_sheet.png")
+        figure.savefig(destination, dpi=150)
+        print(f"contact_sheet={destination}")
+        return destination
+    finally:
+        plt.close(figure)
+
+
+def _inspect_frames(path: str | Path) -> int:
+    try:
+        view_hdf5_frames(path)
+    except (Exception, KeyboardInterrupt) as error:
+        print(f"frame_inspection_error={type(error).__name__}: {error}", file=sys.stderr)
+        return 130 if isinstance(error, KeyboardInterrupt) else 1
+    return 0
 
 
 def verify_scientific_artifact(manifest, experiment_start_session_time_s: float,
@@ -203,6 +295,8 @@ def _run_scientific(args, adapter, manager, config) -> int:
     for key, value in report.items():
         print(f"{key}={value}")
     print("validation=PASS")
+    if args.show_frames:
+        return _inspect_frames(report["artifact_path"])
     return 0
 
 
@@ -235,12 +329,20 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--height", type=int)
     parser.add_argument("--fps", type=float)
     parser.add_argument("--scientific", action="store_true", help="Acquire and verify scientific HDF5 frames.")
+    parser.add_argument("--show-frames", action="store_true", help="Visually inspect recorded frames after scientific validation.")
+    parser.add_argument("--view-hdf5", type=Path, help="Inspect an existing HDF5 recording without camera acquisition.")
     parser.add_argument("--duration", type=float, default=10.0)
     parser.add_argument("--output-dir", type=Path, default=Path("camera_smoke_output"))
     parser.add_argument("--channels", type=int, choices=(1, 3, 4), default=3)
     parser.add_argument("--frame-dtype", default="uint8")
     parser.add_argument("--max-buffered-rows", type=int, default=20)
     args = parser.parse_args(argv)
+    if args.view_hdf5 is not None:
+        if args.scientific:
+            parser.error("--view-hdf5 cannot be combined with --scientific")
+        return _inspect_frames(args.view_hdf5)
+    if args.show_frames and not args.scientific:
+        parser.error("--show-frames requires --scientific or --view-hdf5")
     if not math.isfinite(args.duration) or args.duration <= 0:
         parser.error("--duration must be finite and positive")
     if any(value is not None and value <= 0 for value in

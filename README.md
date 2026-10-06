@@ -258,6 +258,35 @@ remain supported. Opt in to scientific acquisition and post-closure HDF5 readbac
 python scripts/manual_opencv_camera_smoke.py 0 --scientific --duration 10 --width 640 --height 480 --output-dir ./camera_smoke_output
 ```
 
+For optional visual inspection after successful acquisition, HDF5 validation,
+and camera cleanup, add `--show-frames`:
+
+```bash
+python scripts/manual_opencv_camera_smoke.py 0 --scientific --duration 10 --show-frames
+```
+
+Inspect an existing recording without OpenCV, camera access, or Session startup:
+
+```bash
+python scripts/manual_opencv_camera_smoke.py --view-hdf5 ./path/to/frames.h5
+```
+
+Visualization requires optional Matplotlib (`python -m pip install matplotlib`);
+ordinary smoke checks do not import or require it. The viewer reads only six
+evenly spaced frames (or all available frames when fewer than six exist), labels
+them with their recorded frame indices, and converts OpenCV BGR/BGRA to RGB/RGBA.
+Grayscale is supported; wider integer color pixels are scaled to their dtype
+range for display only. The original HDF5 file is always opened read-only.
+This is visual inspection, not a replacement for scientific HDF5 validation.
+
+With a graphical Matplotlib backend the contact sheet opens in a window. On
+headless systems, with a noninteractive backend, or if graphical display fails,
+the viewer saves `frames_contact_sheet.png` next to `frames.h5` and prints
+`contact_sheet=<absolute path>`. `MPLBACKEND=Agg` can explicitly request this
+PNG behavior. Repeated inspection replaces the contact-sheet PNG, never the
+recording. Missing/unreadable/empty recordings or visualization failures return
+a nonzero status without altering the recording.
+
 This uses Controller Session/Experiment commands, explicit camera-product
 declarations/selections, AcquisitionNode collection, and LocalStorageManager
 persistence. It does not write frames directly or send raw arrays to Ingestor.
@@ -267,6 +296,9 @@ Options:
 - `camera_source`: optional index (default 0) or OpenCV source/pipeline string.
 - `--api-preference`: OpenCV backend integer (default `cv2.CAP_ANY`).
 - `--scientific`: enable raw-frame HDF5 acquisition and verification.
+- `--show-frames`: inspect recorded frames after successful scientific validation.
+- `--view-hdf5 PATH`: inspect an existing recording without acquisition; cannot
+  be combined with `--scientific`.
 - `--duration`: positive acquisition-loop duration in seconds (default 10).
 - `--output-dir`: output root (default `camera_smoke_output`).
 - `--width`, `--height`: requested capture dimensions; scientific defaults 640x480,
