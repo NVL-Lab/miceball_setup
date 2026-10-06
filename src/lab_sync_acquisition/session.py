@@ -4,13 +4,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, ClassVar, Iterable
+from pathlib import Path
+from typing import Any, ClassVar, Iterable, TYPE_CHECKING
 
 from lab_sync_acquisition.acquisition_health import AcquisitionHealthPolicy
 from lab_sync_acquisition.communication import RuntimeParticipant
 from lab_sync_acquisition.device import DeviceDeclaration
 from lab_sync_acquisition.device_adapter import DeviceReadiness
 from lab_sync_acquisition.service_readiness import ServiceReadiness
+from lab_sync_acquisition.local_storage import LocalStorageManager
+
+if TYPE_CHECKING:
+    from lab_sync_acquisition.acquisition_node import AcquisitionNode
 
 
 class SessionState(str, Enum):
@@ -43,12 +48,14 @@ class SessionConfig:
     storage_configuration: dict[str, Any] | None = None
     protocol_reference: Any | None = None
     expected_runtime_participants: tuple[RuntimeParticipant, ...] = ()
+    local_storage_roots: dict[str, str] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-like plain-data representation."""
 
         return {
             "session_id": self.session_id,
+            "local_storage_roots": self.local_storage_roots,
             "selected_devices": (
                 [
                     device.to_dict()
@@ -150,12 +157,48 @@ class ExpectedParticipant:
 
 
 @dataclass(frozen=True)
+class ScientificOutputSelection:
+    """Explicit reference to a declared product, without schema or format overrides."""
+
+    source_device_id: str
+    source_node_id: str
+    data_product_id: str
+
+    def __post_init__(self) -> None:
+        for name in ("source_device_id", "source_node_id", "data_product_id"):
+            if not isinstance(getattr(self, name), str) or not getattr(self, name):
+                raise ValueError(f"{name} must be a nonempty string")
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return only the selected product's existing identities."""
+        return {
+            "source_device_id": self.source_device_id,
+            "source_node_id": self.source_node_id,
+            "data_product_id": self.data_product_id,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> ScientificOutputSelection:
+        """Reconstruct an explicit output selection from plain data."""
+        return cls(**data)
+
+
+@dataclass(frozen=True)
 class ExperimentDescriptor:
     """Persistent scientific identity for one Experiment in a Session."""
 
     experiment_id: str
     details: dict[str, Any] | None = None
     expected_participants: tuple[ExpectedParticipant, ...] = ()
+    scientific_outputs: tuple[ScientificOutputSelection, ...] = ()
+
+    def __post_init__(self) -> None:
+        outputs = tuple(self.scientific_outputs)
+        if any(not isinstance(output, ScientificOutputSelection) for output in outputs):
+            raise TypeError("scientific_outputs must contain ScientificOutputSelection objects")
+        if len(set(outputs)) != len(outputs):
+            raise ValueError("Duplicate scientific output selection")
+        object.__setattr__(self, "scientific_outputs", outputs)
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-like plain-data representation."""
@@ -163,6 +206,7 @@ class ExperimentDescriptor:
         return {
             "experiment_id": self.experiment_id,
             "details": self.details,
+            "scientific_outputs": [output.to_dict() for output in self.scientific_outputs],
             "expected_participants": [
                 participant.to_dict()
                 for participant in self.expected_participants
@@ -179,6 +223,10 @@ class ExperimentDescriptor:
             expected_participants=tuple(
                 ExpectedParticipant.from_dict(participant)
                 for participant in data.get("expected_participants", ())
+            ),
+            scientific_outputs=tuple(
+                ScientificOutputSelection.from_dict(output)
+                for output in data.get("scientific_outputs", ())
             ),
         )
 
@@ -297,17 +345,23 @@ class Session:
         experiment_id: str,
         details: dict[str, Any] | None = None,
         expected_participants: Iterable[ExpectedParticipant] = (),
+        *,
+        scientific_outputs: Iterable[ScientificOutputSelection] = (),
     ) -> ExperimentDescriptor:
         """Create one descriptor for an Experiment or return the existing one."""
 
+        outputs = tuple(scientific_outputs)
         for descriptor in self._experiment_descriptors:
             if descriptor.experiment_id == experiment_id:
+                if outputs and outputs != descriptor.scientific_outputs:
+                    raise ValueError("Scientific outputs conflict with existing Experiment descriptor")
                 return descriptor
 
         descriptor = ExperimentDescriptor(
             experiment_id=experiment_id,
             details=dict(details) if details is not None else None,
             expected_participants=tuple(expected_participants),
+            scientific_outputs=outputs,
         )
         self._experiment_descriptors.append(descriptor)
         return descriptor
@@ -331,6 +385,8 @@ class Session:
             "experiment_fail",
         }:
             raise ValueError(f"Unsupported Experiment lifecycle event: {event_type}")
+        if event_type == "experiment_start":
+            self.check_experiment_can_start(experiment_id)
         evidence = ExperimentLifecycleEvidence(
             experiment_id=experiment_id,
             event_type=event_type,
@@ -341,14 +397,55 @@ class Session:
         self._experiment_lifecycle_evidence.append(evidence)
         return evidence
 
+    def check_experiment_can_start(self, experiment_id: str) -> None:
+        """Reject reuse of a terminal execution identity before preparation starts."""
+        if not experiment_id:
+            raise ValueError("experiment_id is required")
+        if any(evidence.experiment_id == experiment_id and evidence.event_type in {
+            "experiment_stop", "experiment_fail", "experiment_abort",
+        } for evidence in self._experiment_lifecycle_evidence):
+            raise SessionLifecycleError(
+                f"Experiment '{experiment_id}' is terminal; another execution requires a new experiment_id"
+            )
+
+    def record_service_readiness(self, records: Iterable[ServiceReadiness]) -> None:
+        """Preserve service/preparation results in the existing readiness evidence."""
+        self._record_service_readiness(records)
+
     def initialize(
         self,
         device_readiness_summary: Iterable[DeviceReadiness] | None = None,
         service_readiness: Iterable[ServiceReadiness] | None = None,
+        *,
+        acquisition_nodes: Iterable[AcquisitionNode] = (),
     ) -> None:
         """Move from created to initialized after declaration checks pass."""
 
         self._ensure_transition_allowed(SessionState.INITIALIZED)
+        local_storage_readiness = []
+        for node in acquisition_nodes:
+            declarations = (self.configuration.selected_devices or ()) if self.configuration else ()
+            roots = (self.configuration.local_storage_roots or {}) if self.configuration else {}
+            root = roots.get(node.node_id, node.default_local_storage_root)
+            manager = node.local_storage_manager
+            if root is None and manager is None and not any(d.scientific_products for d in declarations):
+                continue
+            try:
+                if not node.node_id:
+                    raise ValueError("Local scientific storage requires explicit AcquisitionNode identity")
+                if manager is None:
+                    if root is None:
+                        raise ValueError("Local scientific storage root is not configured")
+                    manager = LocalStorageManager(root, self.session_id, node.node_id)
+                elif root is not None and manager.root_path != Path(root):
+                    raise ValueError("Attached LocalStorageManager root conflicts with Session configuration")
+                node.attach_local_storage_manager(manager, declarations)
+                local_storage_readiness.append(manager.check_ready())
+            except Exception as error:
+                local_storage_readiness.append(ServiceReadiness(
+                    node.node_id or "acquisition_node", "local_storage_manager", True, False,
+                    f"{type(error).__name__}: {error}",
+                ))
         checks = [
             (
                 "session_id_exists",
@@ -383,7 +480,9 @@ class Session:
         device_readiness_failures = self._record_device_readiness_summary(
             device_readiness_summary
         )
-        service_readiness_failures = self._record_service_readiness(service_readiness)
+        service_readiness_failures = self._record_service_readiness(
+            (*tuple(service_readiness or ()), *local_storage_readiness)
+        )
         failures = self._record_checks(checks)
         failures.extend(device_readiness_failures)
         failures.extend(service_readiness_failures)

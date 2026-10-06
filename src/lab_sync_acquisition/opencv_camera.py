@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from math import isfinite
 from typing import Any, Iterable
 
 from lab_sync_acquisition.device_adapter import (
@@ -10,6 +11,7 @@ from lab_sync_acquisition.device_adapter import (
     DeviceAdapterLifecycleError,
     DeviceAdapterState,
     DeviceReadiness,
+    _PartialScientificCollectionError,
 )
 
 
@@ -50,7 +52,7 @@ class SeeedIMX219OpenCVCameraAdapter(DeviceAdapter):
 
     @property
     def frame_index(self) -> int:
-        """Number of successful frames reduced to metadata records."""
+        """Number of successful acquired frames across both collection paths."""
 
         return self._frame_index
 
@@ -98,39 +100,84 @@ class SeeedIMX219OpenCVCameraAdapter(DeviceAdapter):
     def collect_records(self) -> dict[str, Any]:
         """Poll configured frame count and return metadata-only records."""
 
+        return self._collect_camera_records(include_frames=False)["runtime_records"]
+
+    def collect_scientific_records(self) -> dict[str, Any]:
+        """Return local NumPy frames and separate metadata from the same reads."""
+
+        return self._collect_camera_records(include_frames=True)
+
+    def _collect_camera_records(self, *, include_frames: bool) -> dict[str, Any]:
+
         if self.state is not DeviceAdapterState.RUNNING:
             raise RuntimeError("OpenCV camera records require a running adapter")
         if self._capture is None or self._camera_config is None:
             raise RuntimeError("OpenCV camera capture is not initialized")
 
         records = []
-        for _ in range(self._camera_config.frames_per_collect):
-            read_success, frame = self._capture.read()
-            if not read_success:
-                records.append(
-                    {
-                        "frame_index": self._frame_index,
-                        "read_success": False,
-                        "backend": self._backend_name,
-                    }
-                )
-                continue
-
-            metadata = self._metadata_from_frame(frame)
-            metadata.update(
-                {
-                    "frame_index": self._frame_index,
-                    "read_success": True,
-                    "backend": self._backend_name,
-                }
-            )
-            records.append(metadata)
-            self._frame_index += 1
-
-        return {
-            "record_kind": "camera_frame_metadata",
-            "records": tuple(records),
+        scientific_records = []
+        result = {
+            "runtime_records": {
+                "record_kind": "camera_frame_metadata",
+                "records": records,
+            },
+            "scientific_records": (
+                {"record_kind": "camera_frames", "records": scientific_records}
+                if include_frames else None
+            ),
         }
+        try:
+            for _ in range(self._camera_config.frames_per_collect):
+                read_success, frame = self._capture.read()
+                if not read_success:
+                    records.append(
+                        {"frame_index": self._frame_index, "read_success": False, "backend": self._backend_name}
+                    )
+                    continue
+
+                metadata = self._metadata_from_frame(frame)
+                metadata.update(
+                    {"frame_index": self._frame_index, "read_success": True, "backend": self._backend_name}
+                )
+                records.append(metadata)
+                if include_frames:
+                    import numpy as np
+
+                    if not isinstance(frame, np.ndarray):
+                        raise TypeError("Scientific camera frames must be NumPy arrays")
+                    scientific_records.append(
+                        {**metadata, **self._available_camera_metadata(), "frame": frame}
+                    )
+                self._frame_index += 1
+        except Exception as error:
+            if include_frames:
+                raise _PartialScientificCollectionError(error, result) from error
+            raise
+        result["runtime_records"]["records"] = tuple(records)
+        if include_frames:
+            result["scientific_records"]["records"] = tuple(scientific_records)
+        return result
+
+    def _available_camera_metadata(self) -> dict[str, Any]:
+        metadata = {}
+        if self._camera_config.fps is not None:
+            metadata["configured_fps"] = self._camera_config.fps
+        for name, property_name in (
+            ("reported_fps", "CAP_PROP_FPS"),
+            ("exposure", "CAP_PROP_EXPOSURE"),
+            ("gain", "CAP_PROP_GAIN"),
+        ):
+            property_id = getattr(self._cv2, property_name, None)
+            if property_id is None:
+                continue
+            try:
+                value = self._capture.get(property_id)
+                if value is not None and isfinite(value) and value != 0:
+                    metadata[name] = value
+            except Exception:
+                # Optional backend properties may be unsupported.
+                continue
+        return metadata
 
     def stop(self) -> None:
         """Stop acquisition while keeping capture available for shutdown."""
@@ -179,10 +226,14 @@ class SeeedIMX219OpenCVCameraAdapter(DeviceAdapter):
         property_id = getattr(self._cv2, "CAP_PROP_POS_MSEC", None)
         if property_id is None:
             return None
-        value = self._capture.get(property_id)
-        if value in (None, 0):
+        try:
+            value = self._capture.get(property_id)
+            if value in (None, 0):
+                return None
+            return float(value)
+        except Exception:
+            # Optional backend timing metadata may be unavailable.
             return None
-        return float(value)
 
     def _read_backend_name(self, capture: Any) -> str | None:
         get_backend_name = getattr(capture, "getBackendName", None)

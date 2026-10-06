@@ -21,6 +21,7 @@ from lab_sync_acquisition.session import (
     Session,
     SessionConfig,
     SessionState,
+    ScientificOutputSelection,
 )
 from lab_sync_acquisition.storage import PersistentStorageManager
 from lab_sync_acquisition.synchronization import SynchronizationManager
@@ -201,10 +202,9 @@ class Controller:
                         f"Active Experiment is '{self._active_experiment_id}', "
                         f"not '{decision.experiment_id}'"
                     )
-                evidence = session.record_experiment_lifecycle(
+                evidence = self._end_experiment(
                     experiment_id=decision.experiment_id,
                     event_type="experiment_fail",
-                    session_time_s=self._current_session_time_s(),
                     details={
                         "originating_observation_id": (
                             decision.originating_observation_id
@@ -216,11 +216,7 @@ class Controller:
                         "controller_decision": decision.controller_decision,
                     },
                 )
-                self._active_experiment_id = None
-                self._active_experiment_runtime_health_mapping = ()
-                self._acquisition_node.clear_experiment_runtime_context()
-                self._acquisition_node.clear_experiment_runtime_health_mapping()
-                return evidence.to_dict()
+                return evidence
             if decision.controller_decision == "session_fail":
                 self._attempt_runtime_stop()
                 self._mark_session_failed(
@@ -262,6 +258,7 @@ class Controller:
             session.initialize(
                 device_readiness_summary=device_readiness_summary,
                 service_readiness=service_readiness,
+                acquisition_nodes=(self._acquisition_node,),
             )
             return {"session_state": session.current_state.value}
 
@@ -308,6 +305,8 @@ class Controller:
         details: dict[str, Any] | None = None,
         expected_participants: Iterable[ExpectedParticipant] = (),
         runtime_health_mapping: Iterable[ExperimentRuntimeHealthMapping] = (),
+        *,
+        scientific_outputs: Iterable[ScientificOutputSelection] = (),
     ) -> ControllerCommandResult:
         """Record canonical Experiment start evidence inside a running Session."""
 
@@ -321,7 +320,27 @@ class Controller:
                 )
             if not experiment_id:
                 raise ValueError("experiment_id is required")
+            session.check_experiment_can_start(experiment_id)
+            if self._synchronization_manager is None:
+                raise RuntimeError("Experiment start requires SynchronizationManager Session Time")
             active_runtime_health_mapping = tuple(runtime_health_mapping)
+            participants = tuple(expected_participants)
+            start_details = dict(details) if details is not None else None
+            outputs = tuple(scientific_outputs)
+            if any(output.source_node_id != self._acquisition_node.node_id for output in outputs):
+                raise ValueError("Scientific output references an unknown AcquisitionNode")
+            existing = next((descriptor for descriptor in session.experiment_descriptors
+                             if descriptor.experiment_id == experiment_id), None)
+            if existing is not None:
+                if outputs and outputs != existing.scientific_outputs:
+                    raise ValueError("Scientific outputs conflict with existing Experiment descriptor")
+                outputs = existing.scientific_outputs
+            preparation = self._acquisition_node.prepare_experiment_scientific_outputs(
+                experiment_id, outputs
+            )
+            session.record_service_readiness((preparation,))
+            if not preparation.ready:
+                raise RuntimeError(f"Scientific output preparation failed: {preparation.reason}")
             experiment_start_session_time_s = self._current_session_time_s()
             if experiment_start_session_time_s is None:
                 raise RuntimeError(
@@ -329,14 +348,15 @@ class Controller:
                 )
             session.ensure_experiment_descriptor(
                 experiment_id,
-                details,
-                expected_participants,
+                start_details,
+                participants,
+                scientific_outputs=outputs,
             )
             evidence = session.record_experiment_lifecycle(
                 experiment_id=experiment_id,
                 event_type="experiment_start",
                 session_time_s=experiment_start_session_time_s,
-                details=details,
+                details=start_details,
             )
             self._active_experiment_id = experiment_id
             self._active_experiment_runtime_health_mapping = (
@@ -376,17 +396,11 @@ class Controller:
                     f"Active Experiment is '{self._active_experiment_id}', "
                     f"not '{experiment_id}'"
                 )
-            evidence = session.record_experiment_lifecycle(
+            return self._end_experiment(
                 experiment_id=experiment_id,
                 event_type="experiment_stop",
-                session_time_s=self._current_session_time_s(),
                 details=details,
             )
-            self._active_experiment_id = None
-            self._active_experiment_runtime_health_mapping = ()
-            self._acquisition_node.clear_experiment_runtime_context()
-            self._acquisition_node.clear_experiment_runtime_health_mapping()
-            return evidence.to_dict()
 
         return self._run_command("stop_experiment", command)
 
@@ -396,6 +410,8 @@ class Controller:
         session = self._require_session()
         try:
             runtime_result = self._acquisition_node.stop_runtime()
+            if self._active_experiment_id is not None:
+                self._end_experiment(self._active_experiment_id, "experiment_stop", details={"reason": reason})
         except Exception as error:
             self._mark_session_failed(str(error))
             return self._record_failed_command("stop_session", error)
@@ -508,12 +524,30 @@ class Controller:
     def _attempt_runtime_stop(self) -> None:
         try:
             self._acquisition_node.stop_runtime()
-        except Exception:
-            pass
+        except Exception as error:
+            self._record_failed_command("stop_runtime_cleanup", error)
+
+    def _end_experiment(
+        self, experiment_id: str, event_type: str, details: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        evidence = self._require_session().record_experiment_lifecycle(
+            experiment_id, event_type, self._current_session_time_s(), details,
+        )
+        self._active_experiment_id = None
+        self._active_experiment_runtime_health_mapping = ()
+        self._acquisition_node.clear_experiment_runtime_context()
+        self._acquisition_node.clear_experiment_runtime_health_mapping()
+        self._acquisition_node.finalize_experiment_scientific_outputs(experiment_id)
+        return evidence.to_dict()
 
     def _mark_session_failed(self, reason: str) -> None:
         session = self._require_session()
         if session.current_state == SessionState.RUNNING:
+            if self._active_experiment_id is not None:
+                try:
+                    self._end_experiment(self._active_experiment_id, "experiment_fail", {"reason": reason})
+                except Exception as error:
+                    self._record_failed_command("finalize_experiment_cleanup", error)
             session.stop(reason=reason)
         if session.current_state in {SessionState.INITIALIZED, SessionState.STOPPING}:
             session.fail(reason=reason)

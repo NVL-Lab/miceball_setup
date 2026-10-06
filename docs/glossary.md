@@ -127,6 +127,11 @@ Events are part of the scientific record.
 
 A scientific or protocol segment that runs within a Session.
 
+Its identity represents one execution. Once stopped, aborted, or failed, it
+cannot restart under the same `experiment_id`, including when it has no
+scientific outputs or recorded data. Repeating its configuration creates a new
+Experiment identity under Controller orchestration (Decision 238).
+
 Examples:
 
 * a behavioral task segment
@@ -176,6 +181,38 @@ It is handed explicitly to AcquisitionNode as `experiment_start_session_time_s` 
 The Session-owned plain-data description of one Experiment's scientific identity and declared expected participation.
 
 An Experiment Descriptor is persistent Session evidence. It does not own lifecycle state or live runtime resources, and it does not bind declarations to live objects.
+
+Descriptor configuration may be reused for a new execution, but the new
+Experiment has its own `experiment_id` and evidence; reuse does not mean
+restarting or replacing the original Experiment's identity.
+
+---
+
+# Experiment Identity
+
+The `experiment_id` identifying one execution within a Session. A terminal
+Experiment identity cannot be reused to restart acquisition. A repeated
+execution requires a new identity and its own canonical lifecycle, scientific
+streams, ArtifactManifests, and acquisition/timing evidence.
+
+---
+
+# Experiment Execution
+
+One bounded execution associated with one Experiment identity. Stopped,
+aborted, and failed are terminal lifecycle outcomes. Restarting a device while
+an Experiment is still active does not constitute restarting a terminal
+Experiment.
+
+---
+
+# Reusable Experiment Configuration
+
+The descriptor configuration, scientific-product selections, participating
+devices, and acquisition parameters that may be reused for another Experiment
+execution. Configuration reuse does not reuse the previous terminal identity,
+reopen finalized streams, or merge the two executions' evidence. This term does
+not introduce a new configuration object or public API.
 
 ---
 
@@ -363,9 +400,14 @@ An Artifact Manifest is not an acquisition row, frame, sample, artifact byte pay
 
 # LocalStorageManager
 
-The future co-located runtime collaborator that owns local persistence for exactly one AcquisitionNode. It incrementally writes local scientific streams, owns their creation and finalization, owns their ArtifactManifests, records local storage evidence, and participates in readiness without owning acquisition, Session Time, Experiment lifecycle, transfer, reconstruction, or NWB export.
+The co-located runtime collaborator that owns local persistence for exactly one AcquisitionNode. It incrementally writes local scientific streams, owns their creation and finalization, owns their ArtifactManifests, records local storage evidence, and participates in readiness without owning acquisition, Session Time, Experiment lifecycle, transfer, reconstruction, or NWB export.
 
-Phase 12 accepts this responsibility but does not yet implement the component or its API.
+The implemented core supports JSONL and camera HDF5. Decision 191 defines common
+ownership, interfaces, and lifecycle rather than a mandatory file format.
+Decisions 232-237 are implemented for explicit local roots, scientific-product
+selection, preparation, and persistence, with automated synthetic-frame tests.
+Corrective changes await manual validation and a targeted follow-up audit;
+real-camera HDF5 validation and Slice 20 closure are not claimed.
 
 ---
 
@@ -373,11 +415,72 @@ Phase 12 accepts this responsibility but does not yet implement the component or
 
 One incrementally written, timestamped local stream for one scientific data product. A stream has its own schema, lifecycle, runtime `storage_id`, and ArtifactManifest relationship; one device may produce multiple streams.
 
+Common stream responsibilities do not require a common file format. JSONL
+remains supported and raw camera-frame artifacts use the accepted HDF5 format.
+
+---
+
+# Camera HDF5 Artifact
+
+One local artifact per camera-frame scientific product per Experiment,
+owned by LocalStorageManager. It preserves actual image arrays without lossy
+compression, frame order, shape, channel organization, supported native dtype,
+and aligned per-frame indices and scientific timing. Available static device
+metadata are preserved without fabricating unavailable values. This artifact
+is implemented and covered by synthetic-array tests; real-camera hardware
+validation remains pending.
+
+---
+
+# Local Storage Root
+
+The explicitly resolved base location for AcquisitionNode-local scientific
+persistence. A Session override does not mutate the persistent AcquisitionNode
+default or affect subsequent Sessions. LocalStorageManager owns the actual
+paths, organized deterministically by Session and Experiment; the external
+configuration model remains future work.
+
 ---
 
 # Scientific Data Product
 
-One scientifically meaningful output available from a resource, such as measured data, events, indices, or references into an external artifact. Device declarations describe available products, Experiments select required products through a future declaration mechanism, and AcquisitionNode translates selected products into local stream requests.
+One scientifically meaningful output available from a resource, such as measured
+data, events, indices, or references into an external artifact. Device
+declarations describe available products; Experiment configuration explicitly
+selects declared products by existing source device, AcquisitionNode, and
+product identities. AcquisitionNode translates selections into local stream
+requests without directly writing artifacts.
+
+---
+
+# Scientific-Product Declaration
+
+A device declaration's description of an available scientific product. It
+includes, as applicable, the existing product identity, type, scientific schema,
+known size/rate, and storage requirements including persistence format. It does
+not create storage, invent unavailable characteristics, or add redundant
+identities. Experiment selection cannot override its declared storage format.
+
+---
+
+# Experiment Scientific-Output Selection
+
+Explicit Experiment configuration references to declared products using their
+existing source device, AcquisitionNode, and scientific product identities.
+Selection identifies required outputs without defining new device capabilities
+or inferring requirements from connected or healthy devices. Each selected
+product maps to one local scientific stream for the Experiment.
+
+---
+
+# Experiment Scientific Stream Preparation
+
+Controller-coordinated Experiment initialization using existing preparation and
+readiness results before scientific acquisition. AcquisitionNode translates
+selected products into creation requests; LocalStorageManager creates each
+stream, artifact, and authoritative ArtifactManifest, including zero-record
+streams. This implemented Slice 20.3 responsibility uses the existing lifecycle
+and readiness authority and is covered by automated preparation tests.
 
 ---
 

@@ -9,6 +9,7 @@ from lab_sync_acquisition.device_adapter import (
     DeviceAdapter,
     DeviceReadiness,
     DeviceStatus,
+    _PartialScientificCollectionError,
 )
 
 
@@ -40,6 +41,23 @@ class DeviceRecordCollection:
     source_device_id: str
     record_kind: str
     records: tuple[Any, ...]
+
+
+@dataclass(frozen=True)
+class DeviceCollectionResult:
+    """Separate lightweight runtime records from local-only scientific data."""
+
+    runtime_records: DeviceRecordCollection
+    scientific_records: DeviceRecordCollection | None
+
+
+class _PartialDeviceCollectionError(RuntimeError):
+    """Preserve completed device collections alongside their original failure."""
+
+    def __init__(self, original_error: Exception, partial_results: tuple[DeviceCollectionResult, ...]) -> None:
+        super().__init__(f"{type(original_error).__name__}: {original_error}")
+        self.original_error = original_error
+        self.partial_results = partial_results
 
 
 class DeviceManager:
@@ -126,6 +144,45 @@ class DeviceManager:
                 )
             )
         return tuple(collections)
+
+    def collect_scientific_records(
+        self, *, scientific_source_device_ids: Iterable[str] | None = None,
+    ) -> tuple[DeviceCollectionResult, ...]:
+        """Explicitly request local scientific data and its lightweight records.
+
+        Each adapter is collected once. Scientific collections are local data,
+        not acquisition envelopes or messages for ingestion.
+        """
+
+        selected = set(scientific_source_device_ids) if scientific_source_device_ids is not None else None
+        results = []
+        for adapter in self._adapters:
+            try:
+                collected = (
+                    adapter.collect_scientific_records()
+                    if selected is None or adapter.device_id in selected
+                    else {"runtime_records": adapter.collect_records(), "scientific_records": None}
+                )
+                results.append(self._scientific_collection_result(adapter, collected))
+            except _PartialScientificCollectionError as error:
+                results.append(self._scientific_collection_result(adapter, error.partial_collection))
+                raise _PartialDeviceCollectionError(error.original_error, tuple(results)) from error
+            except Exception as error:
+                raise _PartialDeviceCollectionError(error, tuple(results)) from error
+        return tuple(results)
+
+    def _scientific_collection_result(
+        self, adapter: DeviceAdapter, collected: dict[str, Any],
+    ) -> DeviceCollectionResult:
+        runtime = collected["runtime_records"]
+        scientific = collected["scientific_records"]
+        return DeviceCollectionResult(
+            runtime_records=DeviceRecordCollection(adapter.device_id, runtime["record_kind"], tuple(runtime["records"])),
+            scientific_records=(
+                DeviceRecordCollection(adapter.device_id, scientific["record_kind"], tuple(scientific["records"]))
+                if scientific is not None else None
+            ),
+        )
 
     def _call_lifecycle(
         self,

@@ -211,9 +211,149 @@ Phase 12 Local Storage and Session Record architecture is accepted in
 Decisions 178-218. Its first implementation slice now provides the co-located
 `LocalStorageManager` core for readiness, incremental JSONL scientific streams,
 authoritative local artifact manifests, local storage evidence, flush,
-finalization, and local completion summaries. Session, Controller, and
-AcquisitionNode integration plus global collection, transfer, reconstruction,
-and export remain future slices.
+finalization, and local completion summaries. Slice 20.3 implements Session,
+Controller, and AcquisitionNode integration for explicitly selected scientific
+products. Global collection, transfer, reconstruction, and export remain future
+slices.
+
+Local HDF5 scientific persistence is now implemented and covered by synthetic
+array tests. Select `storage_format="hdf5"` in
+`LocalStorageManager.create_stream()` and supply
+`schema={"frame_shape": [height, width, channels], "frame_dtype": "uint8"}`
+(two-dimensional grayscale shapes are also supported). JSONL remains the default.
+Append rows containing a NumPy `frame`, integer `frame_index`, `experiment_id`,
+`session_time_s`, `experiment_time_s`, `acquisition_node_local_time_s`, and
+`timestamp_status`. Frame shape and dtype must match the declared schema;
+pixel values are stored without conversion or compression.
+
+The local artifact is `frames.h5` alongside the existing readable metadata and
+manifest JSON files. Its extendable `frames` dataset has shape
+`(N, *frame_shape)`. Aligned one-dimensional datasets contain `frame_index`,
+the three scientific time fields, and UTF-8 `timestamp_status`.
+`record_metadata_json` preserves the other per-frame information, including
+optional device-native timestamps with missing values left absent.
+The `metadata_json` attribute stores static stream metadata; artifact identity
+and committed `persisted_frame_count` are also stored as attributes.
+
+Use the existing `max_buffered_rows` and `max_flush_interval_s` constructor
+options for bounded persistence batching; 20 frames is an explicit example,
+not a framework default. With no row buffer configured, HDF5 flushes each frame.
+Buffered arrays are copied to preserve pixels when callers reuse their arrays.
+The interval is checked during append; idle periods require an explicit
+`flush()` call. Finalization flushes the remainder and closes the artifact.
+
+### Manual Camera HDF5 Check (Jetson)
+
+From the repository root, the existing smoke script defaults to one metadata-only
+iteration on camera index 0, with no image persistence:
+
+```bash
+python scripts/manual_opencv_camera_smoke.py
+```
+
+The original positional camera source and `--error-evidence-location` arguments
+remain supported. Opt in to scientific acquisition and post-closure HDF5 readback:
+
+```bash
+python scripts/manual_opencv_camera_smoke.py 0 --scientific --duration 10 --width 640 --height 480 --output-dir ./camera_smoke_output
+```
+
+This uses Controller Session/Experiment commands, explicit camera-product
+declarations/selections, AcquisitionNode collection, and LocalStorageManager
+persistence. It does not write frames directly or send raw arrays to Ingestor.
+
+Options:
+
+- `camera_source`: optional index (default 0) or OpenCV source/pipeline string.
+- `--api-preference`: OpenCV backend integer (default `cv2.CAP_ANY`).
+- `--scientific`: enable raw-frame HDF5 acquisition and verification.
+- `--duration`: positive acquisition-loop duration in seconds (default 10).
+- `--output-dir`: output root (default `camera_smoke_output`).
+- `--width`, `--height`: requested capture dimensions; scientific defaults 640x480,
+  while metadata-only mode leaves them unset.
+- `--channels`: scientific shape declaration, 1, 3, or 4 (default 3); 1 declares
+  a two-dimensional grayscale frame. It does not convert camera frames.
+- `--frame-dtype`: scientific dtype declaration (default `uint8`), not conversion.
+- `--fps`: optional requested camera frame rate.
+- `--frames-per-collect`: bounded camera batch size (default 1).
+- `--max-buffered-rows`: explicit scientific persistence batch size (default 20).
+- `--error-evidence-location`: failure evidence root (default `<output-dir>/errors`).
+
+Each scientific run has a unique Session subdirectory below the output root.
+The script prints the exact `artifact_path`; `frames.h5`, `metadata.json`, and
+`artifact_manifest.json` live together in the framework-managed scientific stream
+directory. Session Records and runtime metadata are also retained for diagnosis.
+
+Example successful output (values and paths vary; additional diagnostics omitted):
+
+```text
+camera_device=0
+experiment_id=camera-validation
+artifact_path=.../frames.h5
+frame_count=250
+frame_shape=(480, 640, 3)
+frame_dtype=uint8
+frame_indices=(0, 249)
+session_time_range_s=(0.1, 10.1)
+experiment_time_range_s=(0.01, 10.01)
+manifest_status=finalized
+finalization=finalized
+validation=PASS
+```
+
+PASS means nonempty, finalized, readable HDF5 with consistent manifest counts,
+declared shape/dtype, ordered indices, aligned Session/Experiment Time, and
+readable per-frame metadata. Optional native timestamps may be absent. FAIL
+returns a nonzero exit status and preserves available artifacts/error diagnostics;
+interruption returns 130. Neither result establishes wider scientific validity.
+
+Use the supported Python 3.12 environment with NumPy and h5py installed, plus a
+Jetson-compatible OpenCV build and camera/backend access. No display or external
+service is required. CSI cameras may need an appropriate source pipeline and
+`--api-preference`; USB cameras commonly use an index. Capture backends may ignore
+requested dimensions: set the declaration to the actual frame shape/dtype if
+validation reports a mismatch. Duration is checked between bounded collections;
+a blocking hardware read can overrun it. This script has simulated test coverage;
+Jetson hardware validation is still pending and Slice 20 is not declared closed.
+Manifests and local completion summaries distinguish accepted from successfully
+persisted frames and report frame/time bounds, duration, and finalization outcome.
+Handled write, flush, and closure failures produce local evidence and do not
+claim successful finalization. Failed HDF5 streams do not accept further writes.
+
+JSONL failure evidence, manifests, and completion summaries distinguish
+`accepted_row_count`, `buffered_row_count`, `written_row_count`, and
+`durable_row_count`. Written rows count complete file-write calls; durability
+is confirmed only after successful flush and `fsync`. An incomplete write or
+failed file flush leaves an uncertain tail: `row_count` is null and successful
+finalization is rejected. A caller may explicitly flush or finalize after an
+`fsync` failure without re-appending already written rows; no automatic retry
+or recovery is introduced.
+
+Explicit local scientific camera collection is also implemented and tested with
+synthetic NumPy frames. `DeviceManager.collect_scientific_records()` returns
+`DeviceCollectionResult` objects with separate `runtime_records` and optional
+`scientific_records`; the camera's scientific rows contain the original `frame`
+array plus frame index and available device metadata. Both collections are
+produced by the same camera reads. The adapter's `collect_records()` and the
+manager's existing default path remain metadata-only. Neither DeviceAdapter nor
+DeviceManager assigns Session Time or Experiment Time. Scientific results are
+local collections and are not automatically enveloped, transported, or ingested.
+OpenCV zero-valued optional properties are ambiguous with unsupported-property
+responses and are left absent rather than treated as measured metadata.
+Exceptions from optional native-timestamp, FPS, exposure, or gain queries also
+leave that metadata absent without failing a frame read or ending acquisition.
+Genuine camera read exceptions retain the existing partial-data failure path.
+
+Experiment/AcquisitionNode-to-local-storage integration is implemented and
+covered by automated synthetic-frame workflows. AcquisitionNode validates
+product-scoped frame/metadata associations before writing a collection.
+Completed frames and lightweight metadata survive later camera-read or adapter
+exceptions; the original failure is still reported through the existing
+Controller failure path. If partial-data persistence also fails, both errors
+remain visible. No implicit hardware retry is performed.
+
+The corrective changes await manual validation and a targeted follow-up audit.
+Real-camera HDF5 validation and Slice 20 closure are not claimed.
 
 Reproducing the manual runtime validation requires a separate
 JetStream-enabled NATS server:

@@ -1000,7 +1000,7 @@ Validate that each Experiment receives one Session-owned scientific descriptor, 
 ## Validates
 
 - first start creates one descriptor from `experiment_id` and caller-supplied `details`
-- stopping or restarting the same Experiment does not duplicate or replace its descriptor
+- stopping an Experiment does not duplicate or replace its descriptor; repeating its configuration requires a new Experiment identity
 - different Experiments receive distinct descriptors
 - ordered Expected Participant declarations survive plain-data round trip and Session Record persistence
 - Expected Participant evidence preserves `participant_id`, `participant_type`, `expected_contribution`, and `required`
@@ -1008,6 +1008,18 @@ Validate that each Experiment receives one Session-owned scientific descriptor, 
 - persistent Session Record finalization includes Experiment descriptors
 - descriptors do not bind, own, start, stop, validate, enforce, or otherwise manage live runtime resources
 - descriptors do not introduce protocol schemas, lifecycle state, or timestamps
+
+**Architecture clarification:** Earlier validation permitted same-identity
+restart. Decision 238 now requires a new Experiment
+identity for every execution after a terminal outcome, even without recorded
+data. It supersedes that restart assumption, not the historical validation
+record. Session/Controller terminal-identity enforcement is now covered by
+automated tests, including metadata-only executions and new-identity repeats.
+The user reported Step 4 manual validation complete; the comprehensive Slice 20
+audit subsequently identified data-integrity defects. Corrective regression
+tests cover partial-data preservation, frame associations, and JSONL accounting.
+Manual validation of those corrections and the targeted follow-up audit remain
+pending; this clarification does not declare Slice 20 complete.
 
 ---
 
@@ -1174,7 +1186,7 @@ monitoring subscriber
 
 The brokered command, readiness, group-command, unresolved-outcome, independent evidence-consumer, artifact-manifest, and telemetry paths were manually validated against a real local JetStream server. This remains a manual validation rather than an automated live-server test required by the normal test suite.
 
-The artifact-manifest bullets above validate the implemented Phase 10 transport and intake path only. Accepted Phase 12 Decisions 178-218 assign authoritative local ArtifactManifest ownership to the future LocalStorageManager; that local storage ownership, stream lifecycle, and collection workflow are not yet implemented or validated here.
+The artifact-manifest bullets above validate the Phase 10 transport and intake path only. Phase 12 Decisions 178-218 assign authoritative local ArtifactManifest ownership to LocalStorageManager, whose local stream lifecycle is now implemented separately. This historical brokered workflow does not validate local scientific collection or HDF5 persistence.
 
 ---
 
@@ -1193,7 +1205,7 @@ Validate that Controller finalization gathers Ingestor-owned durable runtime evi
 - StorageManager writes evidence supplied by the finalization caller without taking runtime-evidence ownership
 - no Session or Experiment lifecycle semantics, retry, replay, reconnect, or buffering behavior changes
 
-This workflow validates persistence of the current runtime-evidence representation. It does not validate the accepted but unimplemented Phase 12 LocalStorageManager, authoritative local ArtifactManifest lifecycle, LocalStorageCompletionSummary, or future global collection path.
+This workflow validates persistence of the runtime-evidence representation. It does not validate the separately implemented Phase 12 LocalStorageManager, authoritative local ArtifactManifest lifecycle, or LocalStorageCompletionSummary, nor the future global collection path.
 
 ---
 

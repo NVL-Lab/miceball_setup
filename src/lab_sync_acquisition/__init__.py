@@ -36,7 +36,7 @@ from lab_sync_acquisition.communication import (
     build_runtime_subject,
     parse_runtime_subject,
 )
-from lab_sync_acquisition.device import DeviceDeclaration
+from lab_sync_acquisition.device import DeviceDeclaration, ScientificProductDeclaration
 from lab_sync_acquisition.device_adapter import (
     DeviceAdapter,
     DeviceAdapterLifecycleError,
@@ -46,6 +46,7 @@ from lab_sync_acquisition.device_adapter import (
     DeviceStatus,
 )
 from lab_sync_acquisition.device_manager import (
+    DeviceCollectionResult,
     DeviceLifecycleResult,
     DeviceManager,
     DeviceRecordCollection,
@@ -81,6 +82,7 @@ from lab_sync_acquisition.session import (
     SessionConfig,
     SessionLifecycleError,
     SessionState,
+    ScientificOutputSelection,
 )
 from lab_sync_acquisition.service_readiness import ServiceReadiness
 from lab_sync_acquisition.opencv_camera import (
@@ -110,6 +112,8 @@ __all__ = [
     "DeviceAdapterLifecycleError",
     "DeviceAdapterState",
     "DeviceDeclaration",
+    "ScientificProductDeclaration",
+    "ScientificOutputSelection",
     "AcquisitionRecordEnvelope",
     "Controller",
     "ControllerActionDecision",
@@ -128,6 +132,7 @@ __all__ = [
     "OpenCVCameraConfig",
     "SeeedIMX219OpenCVCameraAdapter",
     "DeviceLifecycleResult",
+    "DeviceCollectionResult",
     "DeviceManager",
     "DeviceRecordCollection",
     "DeviceReadinessSummary",

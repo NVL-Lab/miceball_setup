@@ -5538,7 +5538,18 @@ The payload may represent:
 - frame/sample indices
 - references into external artifacts
 
-The storage mechanism is identical regardless of payload type.
+Local scientific stream persistence uses a common ownership model, interface,
+and lifecycle independently of the scientific payload's meaning. This does not
+require an identical file format for every scientific data product.
+
+LocalStorageManager retains the common persistence responsibilities and
+interfaces while using product-appropriate storage formats. JSONL remains
+supported; HDF5 is accepted for raw camera-frame artifacts.
+
+**Clarification:** The original requirement for an identical storage mechanism
+refers to common persistence ownership, interfaces, and lifecycle, not a
+mandatory common file format. It does not introduce a CameraStorageManager or
+a generic storage plugin architecture.
 
 ---
 
@@ -5764,6 +5775,11 @@ Device declarations do not create storage.
 Experiments select the scientific outputs required from participating resources.
 
 The mechanism by which Experiments declare outputs is future Experiment architecture.
+
+**Clarification:** Decision 235 now settles explicit selection of declared
+scientific products by existing source device, AcquisitionNode, and product
+identities. The implementation and external configuration representation remain
+separate work; output-selection ownership is no longer unresolved.
 
 LocalStorageManager does not determine required outputs.
 
@@ -6098,6 +6114,191 @@ RuntimeEvidenceMessage remains the boundary. Ingestor compiles persistent runtim
 
 ********************************************************************************
 
+## Decision 232: Raw camera-frame artifacts preserve image data and aligned timing in HDF5
+
+**Status:** Accepted
+
+One camera-frame scientific data product produces one local HDF5 artifact per
+Experiment through the existing DeviceAdapter, DeviceManager, AcquisitionNode,
+and LocalStorageManager responsibilities. The camera is the first concrete
+validation case, not the basis for camera-specific general interfaces.
+
+Persist actual OpenCV-acquired image arrays while preserving original pixel
+values, frame order, image shape and channel organization, and native dtype
+where supported. Acquisition is append-oriented and uses no lossy compression.
+An extendable frame dataset conceptually shaped `(N, height, width, channels)`
+is acceptable for fixed-shape color frames; this does not prescribe a complete
+HDF5 schema.
+
+Each stored frame remains aligned with its frame index, `session_time_s`,
+`experiment_time_s`, `acquisition_node_local_time_s`, and `timestamp_status`.
+AcquisitionNode attaches scientific timing before persistence batching under
+SynchronizationManager authority. Device-native timestamps remain separate
+when available; their absence is represented without fabricated values.
+
+Preserve available device/SDK metadata, including dimensions, dtype, backend,
+configured or reported frame rate, and exposure/gain when available. Static
+metadata belong at artifact or stream level where appropriate. Camera-specific
+metadata are not mandatory for other scientific products.
+
+Scientific identity includes `session_id`, `experiment_id`, `source_node_id`,
+`source_device_id`, and `artifact_manifest_id`; `storage_id` remains the separate
+runtime write handle. Existing stream creation and manifest requirements in
+Decisions 197-218 remain unchanged, including creation before acquisition and
+valid zero-record artifacts. Raw image arrays do not travel through NATS or
+Ingestor. LocalStorageManager owns the artifact and authoritative manifest.
+
+**Implementation status:** HDF5 camera persistence is implemented and covered
+by automated synthetic-array tests. The Slice 20 corrective changes await
+manual validation and a targeted follow-up audit; real-camera HDF5 validation
+and Slice 20 closure are not claimed.
+
+---
+
+## Decision 233: Persistence batching and handled finalization preserve partial scientific artifacts
+
+**Status:** Accepted
+
+LocalStorageManager persistence batching remains bounded and explicitly
+configured under Decisions 205-206. A 20-frame batch is a configurable starting
+value for the camera, not a framework-wide constant. Persistence batching is
+distinct from AcquisitionNode acquisition-envelope batching.
+
+On normal termination, operator-requested termination, or handled failure,
+attempt to preserve pending data, flush, close the artifact, update its manifest,
+and produce local completion or failure evidence. This requirement does not
+define new termination commands or change Session or Experiment lifecycle.
+
+Partial recordings may remain scientifically usable. Writing, flushing, or
+closure failure must not be reported as successful finalization. Existing
+ArtifactManifest and LocalStorageCompletionSummary concepts describe local
+completion only. For camera artifacts, completion information reflects actual
+stored frame count, first and last stored frame indices, acquisition timing,
+duration, and finalization outcome where applicable.
+
+---
+
+## Decision 234: Session local storage roots override persistent AcquisitionNode defaults without mutation
+
+**Status:** Accepted
+
+Each AcquisitionNode has an explicitly resolved persistent default local storage
+root. A Session may override that root without modifying the persistent default
+or affecting later Sessions.
+
+LocalStorageManager owns actual storage paths and organizes artifacts
+deterministically by Session and Experiment. General components must not
+hardcode developer-specific or camera-specific paths.
+
+The final external configuration model remains unresolved; this decision does
+not prescribe configuration files or introduce a configuration system.
+
+---
+
+## Decision 235: Experiment configuration explicitly selects declared scientific products
+
+**Status:** Accepted
+
+Experiment configuration explicitly selects the scientific products required
+for that Experiment. Each selection references the existing source device
+identity, AcquisitionNode identity, and scientific product identity.
+
+An Experiment selects products declared by devices under Decision 208; it does
+not define new device capabilities or introduce redundant product identities.
+Required scientific outputs must not be inferred from connected or healthy
+devices.
+
+This resolves the architectural output-selection deferral in Decision 209.
+It does not prescribe a new configuration-file system or an implementation API.
+
+---
+
+## Decision 236: Scientific-product declarations own persistence format requirements
+
+**Status:** Accepted
+
+The device's scientific-product declaration defines its storage requirements,
+including the appropriate persistence format. Experiments select products and
+cannot override their declared storage format.
+
+Under Decision 208, declarations include, as applicable, the existing product
+identity, scientific product type, scientific data schema, expected size and
+acquisition rate when known, and storage requirements. Unavailable acquisition
+characteristics must not be invented.
+
+This preserves Decision 191's common persistence ownership, interface, and
+lifecycle while allowing product-specific formats, including camera HDF5 under
+Decision 232.
+
+---
+
+## Decision 237: Controller coordinates Experiment scientific stream preparation through existing readiness
+
+**Status:** Accepted
+
+Controller coordinates Experiment initialization and waits for the existing
+preparation/readiness results before scientific acquisition begins. No parallel
+Experiment lifecycle or independent readiness authority is introduced.
+
+Under Decisions 198-210, AcquisitionNode translates selected scientific products
+into local stream-creation requests. LocalStorageManager creates the streams,
+storage artifacts, and authoritative ArtifactManifests; AcquisitionNode does
+not directly write HDF5 or JSONL artifacts.
+
+Each selected product produces one local scientific stream for the Experiment.
+The stream and its ArtifactManifest exist before scientific acquisition begins,
+even if no records arrive. An empty finalized stream remains distinct from a
+stream that was never created.
+
+Existing Controller, Session, AcquisitionNode, DeviceManager, and
+LocalStorageManager ownership boundaries remain unchanged.
+
+**Implementation status:** Slice 20.3 scientific stream preparation and
+integration are implemented and covered by automated tests. The corrective
+changes await manual validation and a targeted follow-up audit; this does not
+declare Slice 20 complete.
+
+---
+
+## Decision 238: Experiment identity represents one execution
+
+**Status:** Accepted
+
+An Experiment identity represents one execution within a Session.
+
+Once an Experiment reaches a terminal lifecycle state (`stopped`, `aborted`,
+or `failed`), scientific acquisition cannot restart under that same
+`experiment_id`.
+
+If an operator requests another execution using the same configuration,
+Controller creates a new Experiment with a new `experiment_id`.
+
+The new Experiment may reuse the previous descriptor, scientific-product
+selections, participating devices, and acquisition parameters, but must have
+its own canonical lifecycle, scientific streams, ArtifactManifests, and
+acquisition/timing evidence.
+
+This applies universally, including Experiments without scientific outputs or
+recorded data.
+
+Restarting a device within an active Experiment is distinct from restarting a
+terminal Experiment.
+
+**Consequences:**
+
+* Never reopen finalized scientific streams.
+* Never silently reuse a terminal Experiment identity.
+* Distinguish repeating a configuration from restarting an Experiment execution.
+* Preserve existing Session, Controller, and Experiment lifecycle ownership.
+
+This decision does not implement `experiment_abort` or add lifecycle APIs.
+
+**Implementation status:** Session and Controller enforce terminal identity
+in Slice 20.3, including executions without scientific outputs. Corrective
+changes await manual validation and a targeted follow-up audit.
+
+---
+
 # Accepted Architectural Principles
 
 The following principles summarize the accepted decisions so far.
@@ -6292,7 +6493,7 @@ The following principles summarize the accepted decisions so far.
 188. LocalStorageManager is a caller-created runtime collaborator of AcquisitionNode.
 189. LocalStorageManager writes scientific streams incrementally.
 190. Stable stream metadata are written once; appends use `storage_id` and changing rows.
-191. Local scientific stream persistence is independent of payload meaning.
+191. Local scientific persistence shares ownership, interfaces, and lifecycle while permitting product-appropriate formats, including JSONL and camera HDF5.
 192. External-artifact timing and index information use the same stream abstraction.
 193. ArtifactManifest describes every locally managed scientific artifact and exists even for zero-row streams.
 194. LocalStorageManager finalization means local completion only.
@@ -6310,7 +6511,7 @@ The following principles summarize the accepted decisions so far.
 206. Flush persists current batches; finalization closes the local stream lifecycle.
 207. One local scientific stream represents one scientific data product, not one device.
 208. Device declarations describe available products and storage requirements but do not create storage.
-209. Experiments select required scientific outputs; the declaration mechanism remains future architecture.
+209. Experiments explicitly select declared scientific products under Decision 235; external configuration representation remains future work.
 210. One requested scientific data product maps to one local stream.
 211. Each product has an independent stream, schema, lifecycle, and manifest relationship.
 212. LocalStorageCompletionSummary describes local finalization only.
@@ -6333,6 +6534,13 @@ The following principles summarize the accepted decisions so far.
 229. Session completion requires final persistence success and otherwise uses the existing failed-session path.
 230. Evidence Archive v1 does not resolve archive evolution, retention, artifact transfer, reconstruction, NWB, or global scientific collection.
 231. The RuntimeEvidenceMessage persistence flag does not create new ownership.
+232. Camera HDF5 artifacts preserve raw arrays, available metadata, frame indices, and aligned scientific timing through existing local persistence ownership.
+233. Explicit persistence batching and handled finalization preserve partial artifacts without claiming success after write, flush, or closure failure.
+234. Session local storage root overrides do not mutate persistent AcquisitionNode defaults; LocalStorageManager owns deterministic artifact paths.
+235. Experiment configuration explicitly selects declared products by existing source device, AcquisitionNode, and product identities without inferring outputs from connected or healthy devices.
+236. Scientific-product declarations own persistence format requirements; Experiments select products without overriding formats or inventing unavailable characteristics.
+237. Controller coordinates preparation through existing readiness; AcquisitionNode requests one LocalStorageManager-owned stream and manifest per selected product before scientific acquisition.
+238. Each Experiment identity represents one execution; terminal identities cannot restart, and repeated configurations require new Experiment identities and independent lifecycle, streams, manifests, and timing evidence.
 
 ---
 

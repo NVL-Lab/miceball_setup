@@ -425,8 +425,9 @@ class ControllerWorkflowTests(unittest.TestCase):
             )
             self.assertTrue(second_started.succeeded)
             self.assertTrue(second_stopped.succeeded)
-            self.assertTrue(restarted.succeeded)
-            self.assertTrue(restopped.succeeded)
+            self.assertFalse(restarted.succeeded)
+            self.assertIn("terminal", restarted.error)
+            self.assertFalse(restopped.succeeded)
             self.assertEqual(started.details["event_type"], "experiment_start")
             self.assertEqual(stopped.details["event_type"], "experiment_stop")
             self.assertIsNotNone(started.details["session_time_s"])
@@ -458,8 +459,6 @@ class ControllerWorkflowTests(unittest.TestCase):
                     "experiment_stop",
                     "experiment_start",
                     "experiment_stop",
-                    "experiment_start",
-                    "experiment_stop",
                 ],
             )
             self.assertEqual(
@@ -472,8 +471,6 @@ class ControllerWorkflowTests(unittest.TestCase):
                     "experiment-001",
                     "experiment-002",
                     "experiment-002",
-                    "experiment-001",
-                    "experiment-001",
                 ],
             )
             self.assertEqual(
@@ -490,6 +487,7 @@ class ControllerWorkflowTests(unittest.TestCase):
                     {
                         "experiment_id": "experiment-001",
                         "details": {"protocol": "baseline"},
+                        "scientific_outputs": [],
                         "expected_participants": [
                             {
                                 "participant_id": "camera-001",
@@ -508,6 +506,7 @@ class ControllerWorkflowTests(unittest.TestCase):
                     {
                         "experiment_id": "experiment-002",
                         "details": None,
+                        "scientific_outputs": [],
                         "expected_participants": [],
                     },
                 ],

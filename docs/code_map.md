@@ -18,6 +18,8 @@
 - DeviceAdapterLifecycleError: Public import for invalid live adapter lifecycle operations.
 - DeviceAdapterState: Public import for minimum live adapter lifecycle states.
 - DeviceDeclaration: Public import for persistent/config declarations of intended session devices.
+- ScientificProductDeclaration: Public import for immutable available-product declarations containing schema, storage format, and optional known size/rate and storage requirements.
+- ScientificOutputSelection: Public import for immutable Experiment selections referencing source device, AcquisitionNode, and declared product identities without format overrides.
 - DeviceLifecycleResult: Public import for per-adapter Device Manager lifecycle call results.
 - DeviceManager: Public import for coordinating already-created live Device Adapters.
 - DeviceRecordCollection: Public import for records collected by DeviceManager from one already-created adapter.
@@ -60,7 +62,7 @@
 - ReadinessCheck: Public import for recorded readiness checks.
 - Session: Public import for the runtime session lifecycle model.
 - SessionConfig: Public import for the immutable accepted run configuration, including Session-scoped AcquisitionHealthPolicy definitions and its explicit error evidence location, owned by a Session and preserved as part of the Session Record.
-- SeeedIMX219OpenCVCameraAdapter: Public import for the concrete OpenCV-backed metadata-only adapter for a Seeed IMX219 camera.
+- SeeedIMX219OpenCVCameraAdapter: Public import for the concrete OpenCV-backed Seeed IMX219 adapter with metadata-only default collection and explicit local scientific-frame collection.
 - SessionLifecycleError: Public import for lifecycle operation failures.
 - SessionState: Public import for accepted Phase 1 session lifecycle states.
 - ServiceReadiness: Public import for readiness records produced by framework services and consumed by Session initialization.
@@ -113,16 +115,41 @@
 - AcquisitionNode.activate_experiment_runtime_context: Stores immutable active Experiment identity and start Session Time for Experiment Time derivation without owning lifecycle evidence.
 - AcquisitionNode.clear_experiment_runtime_context: Clears active Experiment timing context without stopping Acquisition Runtime or changing health mapping.
 - AcquisitionNode.receive_active_synchronization_mapping: Passively replaces AcquisitionNode's stored reference to the SynchronizationManager-owned active mapping without applying mapping mathematics.
+- AcquisitionNode.default_local_storage_root: Exposes the explicitly configured persistent root without mutation by Session overrides.
+- AcquisitionNode.node_id: Exposes the configured AcquisitionNode identity used by scientific output selections.
+- AcquisitionNode.local_storage_manager: Exposes the Session-attached local persistence collaborator without transferring persistence ownership.
+- AcquisitionNode.attach_local_storage_manager: Attaches one Session-created LocalStorageManager and device declarations after checking Session/node identity and preventing manager replacement.
+- AcquisitionNode.prepare_experiment_scientific_outputs: Returns existing ServiceReadiness evidence after resolving explicit products and requesting one empty local stream per Experiment/device/product, reusing open preparations and preserving/finalizing newly created partial artifacts on failure.
+- AcquisitionNode.scientific_output_storage_ids: Returns a readback copy of Experiment/device/product associations with LocalStorageManager runtime write handles.
+- AcquisitionNode.finalize_experiment_scientific_outputs: Retires the Experiment's runtime identity and attempts LocalStorageManager finalization of every associated stream, returning finalized manifests or raising an error containing all failures without affecting other Experiments.
+- AcquisitionNode.stop_runtime: Stops devices through existing runtime cleanup and attempts finalization of all prepared scientific artifacts, clearing Experiment timing and health context and reporting persistence failures.
+- AcquisitionNode.run_one_iteration: Collects selected scientific devices once, timestamps and persists scientific records, sends only lightweight runtime metadata, and attempts to preserve completed partial collections before propagating collection failure through the existing cleanup path.
+- AcquisitionNode._persist_scientific_collection: Resolves product and active context, validates product-scoped one-to-one frame/metadata associations for a whole collection before appending, and shares framework timing without transporting frames.
+- AcquisitionNode._send_runtime_collection: Applies existing runtime timestamping, health observation, batching, and envelope handoff to one completed lightweight collection.
+- AcquisitionNode._preserve_partial_scientific_collections: Attempts local persistence and metadata handoff for completed partial collections, retaining both acquisition and preservation errors when preservation fails.
+
+Scientific camera timestamps are assigned per record after collection by
+AcquisitionNode, not precise hardware exposure timestamps. Available
+device-native timing remains separate and unchanged; unknown values are not
+fabricated. Existing timestamped records retain their timing, and conflicting
+scientific/runtime timing is rejected rather than silently rewritten.
 
 ## src/lab_sync_acquisition/device.py
 
-- DeviceDeclaration: Holds persistent Session participation intent and immutable capabilities without acquisition-health policy assignment.
+- ScientificProductDeclaration: Holds available scientific product identity, type, complete plain-data schema, declared storage format, and optional known characteristics with `to_dict()`/`from_dict()` round trips.
+- DeviceDeclaration: Holds persistent Session participation intent, immutable capabilities, and ordered scientific product declarations with unique per-device product identities, without acquisition-health policy assignment.
+- DeviceDeclaration.from_dict: Reconstructs device declarations and their scientific products, treating absent products in older representations as an empty collection.
 
 ## src/lab_sync_acquisition/controller.py
 
 - ControllerCommandResult: Records one command outcome and exposes its command, success, details, and error as plain evidence.
 - ControllerActionDecision: Records one health-derived Controller decision with Session, Experiment, source, policy, interpretation, and originating-observation provenance using the normalized local decision vocabulary.
 - Controller: Sequentially coordinates one Session, exposes accepted expected runtime participants, records normalized decisions, hands active Experiment timing context and health mapping separately to AcquisitionNode, creates canonical lifecycle evidence, handles runtime failure cleanup, and orchestrates Phase 13 initial record, evidence archive, final record, then Session completion.
+- Controller.start_experiment: Accepts keyword-only `scientific_outputs=()`, rejects terminal identities before preparation and unknown node selections, and gates canonical start evidence and runtime activation on AcquisitionNode scientific-output preparation using the existing readiness contract.
+- Controller.stop_experiment: Records canonical normal-stop evidence, clears active runtime context and health mapping, and requests finalization of only that Experiment's streams without stopping the Session or acquisition runtime.
+- Controller.execute_controller_action_decision: Executes accepted no-mutation or failure decisions, finalizing Experiment streams for `experiment_fail` and retaining the existing failed-Session cleanup path for `session_fail`.
+- Controller.stop_session: Stops runtime and scientific persistence, records normal-stop evidence for any active Experiment, and then stops the Session through its existing lifecycle.
+- Controller.initialize_session: Coordinates existing Session initialization with its AcquisitionNode collaborator so Session creates or reuses local storage and records its readiness.
 
 ## src/lab_sync_acquisition/device_adapter.py
 
@@ -132,13 +159,19 @@
 - DeviceAdapterLifecycleError: Signals invalid live adapter lifecycle operations.
 - DeviceReadinessNotImplementedError: Signals that a live adapter has no concrete readiness implementation.
 - DeviceAdapter: Provides the minimum live runtime control interface for one device adapter with externally read-only lifecycle state, explicit required participation metadata, and a concrete-adapter record exposure hook for DeviceManager collection.
+- DeviceAdapter.collect_scientific_records: Explicitly collects separate local scientific and lightweight runtime records, defaulting to one existing `collect_records()` call with no scientific data for unchanged adapters.
+- _PartialScientificCollectionError: Internal failure carrier retaining a camera's completed scientific/runtime records alongside its original collection exception.
 
 ## src/lab_sync_acquisition/device_manager.py
 
 - DeviceLifecycleResult: Records the result of one Device Manager lifecycle call against one adapter.
 - DeviceRecordCollection: Records the source device identity, record kind, and unmodified records collected from one already-created adapter.
+- DeviceCollectionResult: Holds separate `runtime_records` and optional local-only `scientific_records` DeviceRecordCollections without creating envelopes or transport messages.
 - DeviceReadinessSummary: Aggregates shared readiness records across already-created adapters and can be passed to Session initialization.
 - DeviceManager: Holds at least one already-created Device Adapter and coordinates lifecycle, readiness, status, and minimal acquisition record collection without creating adapters or envelopes.
+- DeviceManager.collect_scientific_records: Collects each adapter once with optional keyword-only `scientific_source_device_ids=None`, keeping unselected adapters metadata-only and retaining completed results in an internal failure carrier if a later collection raises.
+- _PartialDeviceCollectionError: Internal failure carrier retaining completed source-identified device collections and the original collection exception for AcquisitionNode preservation.
+- DeviceManager._scientific_collection_result: Converts one adapter's separate scientific/runtime collections into source-identified DeviceCollectionResults without assigning framework timing.
 
 ## src/lab_sync_acquisition/experiment_runtime.py
 
@@ -169,7 +202,8 @@
 ## src/lab_sync_acquisition/opencv_camera.py
 
 - OpenCVCameraConfig: Holds explicit OpenCV camera source, backend, frame polling count, and optional requested capture properties.
-- SeeedIMX219OpenCVCameraAdapter: Opens a Seeed IMX219-compatible OpenCV camera, reports readiness, reduces polled frames to metadata-only records, and releases the capture during shutdown.
+- SeeedIMX219OpenCVCameraAdapter: Opens an OpenCV camera, reports readiness, provides metadata-only default collection or explicit local frame-preserving collection, and releases the capture during shutdown.
+- SeeedIMX219OpenCVCameraAdapter.collect_scientific_records: Returns actual NumPy frames and separate metadata from the same reads, omits unavailable optional SDK metadata without failing acquisition, and preserves completed partial records if a later read raises without assigning framework timing or retrying reads.
 
 ## src/lab_sync_acquisition/storage.py
 
@@ -194,28 +228,35 @@
 ## src/lab_sync_acquisition/session.py
 
 - SessionState: Enumerates the accepted Phase 1 session lifecycle states.
-- SessionConfig: Holds the immutable accepted run configuration, including expected runtime participant identities and the explicit Session error evidence location, and exposes it as plain data for the persistent Session Record.
+- SessionConfig: Holds the immutable accepted run configuration, including expected runtime participants, error evidence location, and optional `local_storage_roots` node-ID-to-root overrides, and exposes it as plain Session Record data.
 - ReadinessCheck: Records the result of a readiness condition checked during lifecycle transitions and exposes it as plain data for Session Record evidence.
 - LifecycleTransition: Records an allowed lifecycle state transition in sequence order and exposes it as plain data for Session Record evidence.
 - ExpectedParticipant: Records participant identity, type, expected contribution, and required status as an inert plain-data declaration.
-- ExperimentDescriptor: Records the persistent scientific identity, caller-supplied details, and ordered Expected Participants of one Experiment as plain Session Record data.
+- ScientificOutputSelection: References `source_device_id`, `source_node_id`, and `data_product_id` with plain-data round trips, without duplicating schema or storage requirements.
+- ExperimentDescriptor: Records persistent Experiment identity, details, ordered Expected Participants, and unique ordered scientific output selections through plain-data round trips, without resolving selections against live devices.
+- Session.ensure_experiment_descriptor: Creates one descriptor with keyword-only `scientific_outputs=()` or returns the existing descriptor, rejecting conflicting nonempty selections rather than silently discarding them.
 - ExperimentLifecycleEvidence: Records canonical `experiment_start`, `experiment_stop`, or `experiment_fail` evidence in the Session timeline as plain data.
 - SessionLifecycleError: Signals invalid lifecycle operations or failed readiness requirements.
 - Session: Owns lifecycle, readiness, Experiment descriptors, canonical Experiment lifecycle evidence, cleanup status, and final status in memory.
+- Session.initialize: Accepts keyword-only `acquisition_nodes=()` and creates or reuses one LocalStorageManager per supplied Session/node, honoring Session root overrides ahead of unchanged node defaults and gating initialization on existing service readiness.
+- Session.record_service_readiness: Preserves preparation/service results in the existing Session-owned readiness evidence without introducing another readiness mechanism.
+- Session.check_experiment_can_start: Checks canonical lifecycle evidence and rejects terminal Experiment identity reuse, including metadata-only executions.
+- Session.record_experiment_lifecycle: Records canonical Experiment lifecycle evidence and applies the terminal-identity check to every `experiment_start`, including direct callers.
 
 ## src/lab_sync_acquisition/local_storage.py
 
 - ArtifactManifest: Immutable plain-data authoritative local discovery record for one LocalStorageManager-owned scientific artifact.
 - LocalStorageEvidence: Immutable plain-data evidence for local stream, manifest, write, finalization, and cleanup operations.
 - LocalStorageCompletionSummary: Immutable plain-data summary of local finalization without implying global Session Record completion.
-- LocalStorageManager: Owns JSONL-backed incremental local stream persistence with explicit bounded-buffer and append-time flush-interval configuration, manifests, evidence, readiness, cleanup, flush, and finalization for one Session and co-located AcquisitionNode.
+- LocalStorageManager: Owns explicitly selected JSONL or fixed-shape HDF5 incremental local stream persistence with bounded buffering, append-time flush intervals, manifests, evidence, readiness, cleanup, and finalization for one Session and co-located AcquisitionNode.
 - LocalStorageManager.check_ready: Verifies that the configured local persistence root is writable using the shared ServiceReadiness contract.
-- LocalStorageManager.create_stream: Creates one local scientific stream, stable metadata record, runtime storage handle, authoritative manifest, and creation evidence.
-- LocalStorageManager.append_rows: Validates required scientific timing/context fields and incrementally appends plain-data rows by storage ID.
-- LocalStorageManager.flush: Flushes current stream writes without finalizing the stream.
-- LocalStorageManager.finalize_stream: Closes one stream, finalizes its manifest, and records finalization evidence.
+- LocalStorageManager.create_stream: Creates one scientific stream and manifest using keyword-only `storage_format="jsonl"` or `"hdf5"`, with HDF5 requiring explicit `schema.frame_shape` and `schema.frame_dtype`.
+- LocalStorageManager.append_rows: Validates scientific timing/context and appends JSONL plain-data rows or HDF5 rows containing a NumPy `frame`, integer `frame_index`, and plain per-frame metadata by storage ID.
+- LocalStorageManager.flush: Flushes current writes without finalizing, counting complete JSONL file writes separately from rows whose durability is confirmed by successful file flush and `fsync`.
+- LocalStorageManager.finalize_stream: Flushes and closes one stream and records manifest/evidence with JSONL accepted/buffered/written/durable counts or HDF5 accepted/persisted frame counts, rejecting successful finalization when a partial write leaves an uncertain tail.
 - LocalStorageManager.finalize_all: Finalizes all created streams and returns a local-only completion summary.
 - LocalStorageManager.cleanup: Flushes and closes open local stream resources without deletion and records cleanup completion or failure evidence.
+- LocalStorageManager._jsonl_completion_details: Reports JSONL row accounting and write status for failure evidence, manifests, and summaries, leaving `row_count` unknown when a write or file flush leaves an uncertain tail.
 
 ## scripts/demo_cross_process_acquisition_writer.py
 
@@ -247,7 +288,12 @@
 
 ## scripts/manual_opencv_camera_smoke.py
 
-- main: Runs one optional bounded metadata-only AcquisitionNode iteration against a real OpenCV camera and releases the camera without writing image or video files.
+- main(argv=None): Runs one metadata-only camera iteration by default, or an opt-in duration-bounded Controller scientific workflow with HDF5 readback verification, diagnostic output, and nonzero failure exits.
+- verify_scientific_artifact(manifest, experiment_start_session_time_s, frame_shape, frame_dtype): Reopens a finalized camera HDF5 artifact read-only and verifies manifest counts, declared shape/dtype, ordered indices, aligned runtime timing, and per-frame metadata.
+- _camera_source: Converts a CLI camera index to an integer while preserving backend source strings.
+- _run_scientific: Orchestrates the existing Controller/AcquisitionNode scientific acquisition and local persistence path using explicit camera-product declarations and selections.
+- _require_success: Reports an unsuccessful Controller command without replacing its original error text.
+- _cleanup: Attempts camera/runtime and local storage resource cleanup independently and reports cleanup errors without hiding acquisition errors.
 
 ## scripts/demo_nats_runtime.py
 

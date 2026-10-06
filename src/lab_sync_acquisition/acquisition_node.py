@@ -17,7 +17,12 @@ from lab_sync_acquisition.acquisition_health import (
 )
 from lab_sync_acquisition.acquisition_record import AcquisitionRecordEnvelope
 from lab_sync_acquisition.acquisition_node_readiness import AcquisitionNodeReadiness
-from lab_sync_acquisition.device_manager import DeviceManager
+from lab_sync_acquisition.device_manager import (
+    DeviceManager, DeviceRecordCollection, _PartialDeviceCollectionError,
+)
+from lab_sync_acquisition.device import DeviceDeclaration
+from lab_sync_acquisition.local_storage import LocalStorageManager, ArtifactManifest
+from lab_sync_acquisition.session import ScientificOutputSelection
 from lab_sync_acquisition.experiment_runtime import (
     ActiveExperimentRuntimeContext,
     ExperimentRuntimeHealthMapping,
@@ -56,12 +61,22 @@ class AcquisitionNode:
         acquisition_configuration: Mapping[str, Any] | None = None,
         acquisition_health_policies: Iterable[AcquisitionHealthPolicy] = (),
         error_evidence_location: str | None = None,
+        *,
+        default_local_storage_root: str | Path | None = None,
     ) -> None:
         self._session_id = session_id
         self._device_manager = device_manager
         self._synchronization_manager = synchronization_manager
         self._ingestor = ingestor
         self._node_id = node_id
+        self._default_local_storage_root = (
+            Path(default_local_storage_root) if default_local_storage_root is not None else None
+        )
+        self._local_storage_manager: LocalStorageManager | None = None
+        self._device_declarations: tuple[DeviceDeclaration, ...] = ()
+        self._scientific_output_storage_ids: dict[tuple[str, str, str], str] = {}
+        self._prepared_scientific_outputs: dict[str, tuple[ScientificOutputSelection, ...]] = {}
+        self._ended_experiment_ids: set[str] = set()
         self._role = role
         self._error_evidence_location = error_evidence_location
         self._acquisition_health_policies = {
@@ -109,6 +124,145 @@ class AcquisitionNode:
         self._next_health_observation_id = 1
 
     @property
+    def node_id(self) -> str | None:
+        return self._node_id
+
+    @property
+    def default_local_storage_root(self) -> Path | None:
+        return self._default_local_storage_root
+
+    @property
+    def local_storage_manager(self) -> LocalStorageManager | None:
+        return self._local_storage_manager
+
+    @property
+    def scientific_output_storage_ids(self) -> dict[tuple[str, str, str], str]:
+        """Readback copy keyed by Experiment, source device, and product identity."""
+        return dict(self._scientific_output_storage_ids)
+
+    def attach_local_storage_manager(
+        self,
+        manager: LocalStorageManager,
+        device_declarations: Iterable[DeviceDeclaration],
+    ) -> None:
+        """Attach Session-created local storage without taking persistence ownership."""
+        if manager.session_id != self._session_id or manager.acquisition_node_id != self._node_id:
+            raise ValueError("Local storage Session/node identity does not match AcquisitionNode")
+        if self._local_storage_manager is not None and self._local_storage_manager is not manager:
+            raise ValueError("LocalStorageManager is already attached for this Session/node")
+        self._local_storage_manager = manager
+        self._device_declarations = tuple(device_declarations)
+
+    def prepare_experiment_scientific_outputs(
+        self,
+        experiment_id: str,
+        scientific_outputs: Iterable[ScientificOutputSelection],
+    ) -> ServiceReadiness:
+        """Resolve explicit declarations and request empty streams before acquisition."""
+        created: list[str] = []
+        try:
+            outputs = tuple(scientific_outputs)
+            if experiment_id in self._ended_experiment_ids:
+                raise ValueError("Experiment runtime identity has ended and cannot be reused")
+            if len(set(outputs)) != len(outputs):
+                raise ValueError("Duplicate scientific output selection")
+            if outputs and not experiment_id:
+                raise ValueError("experiment_id is required")
+            if outputs and self._local_storage_manager is None:
+                raise ValueError("LocalStorageManager is not attached")
+            manager = self._local_storage_manager
+            if outputs:
+                readiness = manager.check_ready()
+                if not readiness.ready:
+                    raise RuntimeError(readiness.reason)
+            for output in outputs:
+                if output.source_node_id != self._node_id:
+                    raise ValueError(f"Unknown AcquisitionNode: {output.source_node_id}")
+                devices = [device for device in self._device_declarations
+                           if device.device_id == output.source_device_id]
+                if len(devices) != 1 or not devices[0].enabled:
+                    raise ValueError(f"Unknown, ambiguous, or disabled device: {output.source_device_id}")
+                products = [product for product in devices[0].scientific_products
+                            if product.data_product_id == output.data_product_id]
+                if len(products) != 1:
+                    raise ValueError(f"Unknown scientific product: {output.data_product_id}")
+                key = (experiment_id, output.source_device_id, output.data_product_id)
+                if key in self._scientific_output_storage_ids:
+                    manifest = next(m for m in manager.manifests
+                                    if m.storage_id == self._scientific_output_storage_ids[key])
+                    if manifest.lifecycle_state != "open":
+                        raise ValueError("Prepared scientific stream is finalized and cannot reopen")
+                    continue
+                product = products[0]
+                manifest = manager.create_stream(
+                    session_id=self._session_id, experiment_id=experiment_id,
+                    acquisition_node_id=self._node_id,
+                    source_component_id=output.source_device_id,
+                    data_product_id=product.data_product_id, artifact_type=product.product_type,
+                    schema=product.schema, storage_format=product.storage_format,
+                    details={"storage_requirements": product.storage_requirements,
+                             "expected_data_size_bytes": product.expected_data_size_bytes,
+                             "expected_acquisition_rate_hz": product.expected_acquisition_rate_hz},
+                )
+                self._scientific_output_storage_ids[key] = manifest.storage_id
+                created.append(manifest.storage_id)
+        except Exception as error:
+            cleanup_errors = []
+            for storage_id in created:
+                try:
+                    self._local_storage_manager.finalize_stream(storage_id)
+                except Exception as cleanup_error:
+                    cleanup_errors.append(str(cleanup_error))
+            reason = f"{type(error).__name__}: {error}"
+            if cleanup_errors:
+                reason += f"; preparation cleanup failed: {cleanup_errors}"
+            return ServiceReadiness(self._node_id or "acquisition_node", "scientific_output_preparation",
+                                    True, False, reason)
+        self._prepared_scientific_outputs[experiment_id] = outputs
+        return ServiceReadiness(self._node_id or "acquisition_node", "scientific_output_preparation",
+                                True, True, "ready")
+
+    def finalize_experiment_scientific_outputs(self, experiment_id: str) -> tuple[ArtifactManifest, ...]:
+        """Attempt every prepared stream, preserving artifacts and reporting all failures."""
+        self._ended_experiment_ids.add(experiment_id)
+        if (self._active_experiment_runtime_context is not None
+                and self._active_experiment_runtime_context.experiment_id == experiment_id):
+            self.clear_experiment_runtime_context()
+        if self._active_experiment_id == experiment_id:
+            self.clear_experiment_runtime_health_mapping()
+        manifests = []
+        failures = []
+        for (owner_experiment_id, _, _), storage_id in self._scientific_output_storage_ids.items():
+            if owner_experiment_id != experiment_id:
+                continue
+            try:
+                manifests.append(self._local_storage_manager.finalize_stream(storage_id))
+            except Exception as error:
+                failures.append(f"{storage_id}: {type(error).__name__}: {error}")
+        if failures:
+            self._last_error = "; ".join(failures)
+            raise RuntimeError(f"Scientific stream finalization failed: {self._last_error}")
+        return tuple(manifests)
+
+    def _finalize_prepared_scientific_outputs(self) -> None:
+        failures = []
+        experiment_ids = set(self._prepared_scientific_outputs)
+        experiment_ids.update(key[0] for key in self._scientific_output_storage_ids)
+        if self._active_experiment_runtime_context is not None:
+            experiment_ids.add(self._active_experiment_runtime_context.experiment_id)
+        try:
+            for experiment_id in sorted(experiment_ids):
+                try:
+                    self.finalize_experiment_scientific_outputs(experiment_id)
+                except Exception as error:
+                    failures.append(str(error))
+        finally:
+            self.clear_experiment_runtime_context()
+            self.clear_experiment_runtime_health_mapping()
+        if failures:
+            raise RuntimeError("; ".join(failures))
+
+    @property
     def experiment_scoped_health_observations(
         self,
     ) -> tuple[ExperimentScopedHealthObservation, ...]:
@@ -131,6 +285,8 @@ class AcquisitionNode:
     ) -> None:
         """Store an immutable active Experiment runtime health mapping."""
 
+        if experiment_id in self._ended_experiment_ids:
+            raise ValueError("Experiment runtime identity has ended and cannot be reused")
         self._active_experiment_id = experiment_id
         self._active_experiment_runtime_health_mapping = tuple(
             runtime_health_mapping
@@ -147,6 +303,8 @@ class AcquisitionNode:
     ) -> None:
         """Store active Experiment timing context separately from health scope."""
 
+        if context.experiment_id in self._ended_experiment_ids:
+            raise ValueError("Experiment runtime identity has ended and cannot be reused")
         self._active_experiment_runtime_context = context
 
     def clear_experiment_runtime_context(self) -> None:
@@ -255,36 +413,40 @@ class AcquisitionNode:
         if not self._running:
             raise RuntimeError("AcquisitionNode must be running before iteration")
 
-        record_collections = self._device_manager.collect_records()
+        context = self._active_experiment_runtime_context
+        outputs = self._prepared_scientific_outputs.get(context.experiment_id, ()) if context else ()
+        try:
+            if outputs:
+                collected = self._device_manager.collect_scientific_records(
+                    scientific_source_device_ids={output.source_device_id for output in outputs}
+                )
+                record_collections = collected
+            else:
+                record_collections = self._device_manager.collect_records()
+        except _PartialDeviceCollectionError as error:
+            try:
+                self._preserve_partial_scientific_collections(error, outputs)
+            except Exception as preservation_error:
+                self._last_error = str(preservation_error)
+                raise
+            self._last_error = str(error)
+            raise
+        except Exception as error:
+            self._last_error = f"{type(error).__name__}: {error}"
+            raise
         self._iteration_index += 1
         envelopes_sent = 0
         accepted_count = 0
         rejected_count = 0
 
         for collection in record_collections:
-            records = tuple(
-                self._with_session_time(row)
-                for row in collection.records
-            )
-            self._observe_acquisition_health_records(
-                source_device_id=collection.source_device_id,
-                record_kind=collection.record_kind,
-                records=records,
-            )
-            if collection.record_kind == "stream" and self._stream_batching_enabled():
-                audits = self._append_stream_records(
-                    source_device_id=collection.source_device_id,
-                    record_kind=collection.record_kind,
-                    records=records,
-                )
-            else:
-                audits = (
-                    self._send_envelope(
-                        source_device_id=collection.source_device_id,
-                        record_kind=collection.record_kind,
-                        records=records,
-                    ),
-                )
+            try:
+                if outputs:
+                    collection = self._persist_scientific_collection(collection, outputs)
+                audits = self._send_runtime_collection(collection)
+            except Exception as error:
+                self._last_error = f"{type(error).__name__}: {error}"
+                raise
             envelopes_sent += len(audits)
             accepted_count += sum(audit.accepted for audit in audits)
             rejected_count += sum(not audit.accepted for audit in audits)
@@ -301,6 +463,105 @@ class AcquisitionNode:
             accepted_count=accepted_count,
             rejected_count=rejected_count,
         )
+
+    def _send_runtime_collection(self, collection: DeviceRecordCollection) -> tuple[Any, ...]:
+        records = tuple(self._with_session_time(row) for row in collection.records)
+        self._observe_acquisition_health_records(
+            source_device_id=collection.source_device_id, record_kind=collection.record_kind, records=records,
+        )
+        if collection.record_kind == "stream" and self._stream_batching_enabled():
+            return self._append_stream_records(
+                source_device_id=collection.source_device_id, record_kind=collection.record_kind, records=records,
+            )
+        return (self._send_envelope(
+            source_device_id=collection.source_device_id, record_kind=collection.record_kind, records=records,
+        ),)
+
+    def _preserve_partial_scientific_collections(
+        self, error: _PartialDeviceCollectionError, outputs: tuple[ScientificOutputSelection, ...],
+    ) -> None:
+        preservation_errors = []
+        for result in error.partial_results:
+            try:
+                collection = self._persist_scientific_collection(result, outputs)
+                self._send_runtime_collection(collection)
+            except Exception as preservation_error:
+                preservation_errors.append(preservation_error)
+        if preservation_errors:
+            reason = "; ".join(f"{type(failure).__name__}: {failure}" for failure in preservation_errors)
+            raise ExceptionGroup(
+                f"Collection failed: {error}; partial-data preservation failed: {reason}",
+                [error.original_error, *preservation_errors],
+            ) from error
+
+    def _persist_scientific_collection(self, result: Any, outputs: tuple[ScientificOutputSelection, ...]) -> DeviceRecordCollection:
+        runtime = result.runtime_records
+        runtime_rows = [dict(row) for row in runtime.records]
+        # Validate the lightweight half before any raw data can enter an envelope.
+        json.dumps(runtime_rows, allow_nan=False)
+        scientific = result.scientific_records
+        if scientific is not None:
+            context = self._active_experiment_runtime_context
+            if context is None or scientific.source_device_id != runtime.source_device_id:
+                raise ValueError("Scientific collection requires matching active Experiment/source context")
+            device = next((device for device in self._device_declarations
+                           if device.device_id == scientific.source_device_id), None)
+            if device is None:
+                raise ValueError("Scientific collection source has no device declaration")
+            selected_ids = {output.data_product_id for output in outputs
+                            if output.source_device_id == scientific.source_device_id}
+            pending_rows = []
+            used_metadata = set()
+            for row in scientific.records:
+                product_id = row.get("data_product_id")
+                candidates = [product for product in device.scientific_products
+                              if (product.data_product_id == product_id if product_id is not None
+                                  else product.product_type == scientific.record_kind)]
+                if len(candidates) != 1:
+                    raise ValueError("Scientific record product identity is unknown or ambiguous")
+                product = candidates[0]
+                if product.data_product_id not in selected_ids:
+                    continue
+                if row.get("experiment_id", context.experiment_id) != context.experiment_id:
+                    raise ValueError("Scientific record belongs to a different Experiment")
+                if row.get("session_id", self._session_id) != self._session_id:
+                    raise ValueError("Scientific record belongs to a different Session")
+                storage_id = self._scientific_output_storage_ids.get((
+                    context.experiment_id, scientific.source_device_id, product.data_product_id))
+                if storage_id is None or self._local_storage_manager is None:
+                    raise ValueError("Scientific product has no prepared storage mapping")
+                matches = [index for index, metadata in enumerate(runtime_rows)
+                           if "frame_index" in row and metadata.get("frame_index") == row["frame_index"]
+                           and metadata.get("data_product_id", product.data_product_id) == product.data_product_id
+                           and metadata.get("read_success", True)]
+                if len(matches) > 1:
+                    raise ValueError("Ambiguous runtime metadata for scientific frame")
+                if "frame" in row and not matches:
+                    raise ValueError("Scientific frame has no matching lightweight runtime metadata")
+                metadata_index = matches[0] if matches else None
+                if "frame" in row:
+                    association = (product.data_product_id, metadata_index)
+                    if association in used_metadata:
+                        raise ValueError("Ambiguous scientific frames reuse one runtime metadata record")
+                    used_metadata.add(association)
+                metadata = runtime_rows[metadata_index] if metadata_index is not None else None
+                timing_source = row if "session_time_s" in row else (metadata if metadata is not None else row)
+                timed = self._with_session_time(timing_source)
+                timing_fields = ("session_time_s", "experiment_time_s", "acquisition_node_local_time_s", "timestamp_status")
+                timing = {name: timed[name] for name in timing_fields if name in timed}
+                for original in (row, metadata):
+                    if original is not None and "session_time_s" in original:
+                        if any(name in original and original[name] != value for name, value in timing.items()):
+                            raise ValueError("Pre-existing scientific/runtime timing does not agree")
+                scientific_row = {**row, **timing, "experiment_id": context.experiment_id,
+                                  "session_id": self._session_id}
+                if metadata_index is not None:
+                    runtime_rows[metadata_index] = {**metadata, **timing}
+                pending_rows.append((storage_id, scientific_row))
+            # Validate associations for the entire bounded collection before writing.
+            for storage_id, scientific_row in pending_rows:
+                self._local_storage_manager.append_rows(storage_id, (scientific_row,))
+        return DeviceRecordCollection(runtime.source_device_id, runtime.record_kind, tuple(runtime_rows))
 
     def stop_runtime(self) -> dict[str, Any]:
         """Stop the Session acquisition runtime and perform existing cleanup."""
@@ -325,6 +586,7 @@ class AcquisitionNode:
                 device_stop_results = self._device_manager.stop_all()
                 device_shutdown_results = self._device_manager.shutdown_all()
                 self._running = False
+                self._finalize_prepared_scientific_outputs()
         return {
             "final_session_time_s": final_session_time_s,
             "session_stop_audit": session_stop_audit,

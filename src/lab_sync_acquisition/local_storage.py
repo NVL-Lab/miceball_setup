@@ -8,7 +8,7 @@ import os
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from time import monotonic
-from typing import Any, IO, Iterable
+from typing import Any, Iterable
 from uuid import uuid4
 
 from lab_sync_acquisition.service_readiness import ServiceReadiness
@@ -161,11 +161,16 @@ class LocalStorageCompletionSummary:
 class _OpenStream:
     metadata: dict[str, Any]
     manifest: ArtifactManifest
-    rows_file: IO[str] | None
+    rows_file: Any
     row_count: int = 0
     finalized: bool = False
-    buffered_rows: list[str] = field(default_factory=list)
+    buffered_rows: list[Any] = field(default_factory=list)
     last_flush_monotonic_s: float = field(default_factory=monotonic)
+    persisted_frame_count: int = 0
+    frame_bounds: dict[str, Any] = field(default_factory=dict)
+    write_failed: bool = False
+    written_row_count: int = 0
+    durable_row_count: int = 0
 
 
 class LocalStorageManager:
@@ -256,6 +261,7 @@ class LocalStorageManager:
         schema: dict[str, Any],
         details: dict[str, Any] | None = None,
         external_artifact_path: str | None = None,
+        storage_format: str = "jsonl",
     ) -> ArtifactManifest:
         """Create one stream, its stable metadata, and its manifest."""
 
@@ -263,10 +269,12 @@ class LocalStorageManager:
             raise ValueError("acquisition_node_id does not match LocalStorageManager")
         if session_id != self._session_id:
             raise ValueError("session_id does not match LocalStorageManager")
+        if storage_format not in {"jsonl", "hdf5"}:
+            raise ValueError("storage_format must be jsonl or hdf5")
         storage_id = uuid4().hex
         manifest_id = uuid4().hex
         stream_dir = self._root_path / session_id / experiment_id / storage_id
-        rows_path = stream_dir / "rows.jsonl"
+        rows_path = stream_dir / ("frames.h5" if storage_format == "hdf5" else "rows.jsonl")
         metadata_path = stream_dir / "metadata.json"
         manifest_path = stream_dir / "artifact_manifest.json"
         metadata = {
@@ -278,6 +286,7 @@ class LocalStorageManager:
             "artifact_type": artifact_type,
             "schema": dict(schema),
             "details": dict(details) if details is not None else {},
+            "storage_format": storage_format,
         }
         manifest = ArtifactManifest(
             artifact_manifest_id=manifest_id,
@@ -295,7 +304,7 @@ class LocalStorageManager:
                 str(rows_path),
                 str(manifest_path),
             ),
-            details=dict(details) if details is not None else {},
+            details={**(details or {}), **({"storage_format": "hdf5"} if storage_format == "hdf5" else {})},
         )
         rows_file: IO[str] | None = None
         try:
@@ -303,7 +312,11 @@ class LocalStorageManager:
             metadata_path.write_text(
                 json.dumps(metadata, indent=2), encoding="utf-8"
             )
-            rows_file = rows_path.open("a", encoding="utf-8")
+            rows_file = (
+                self._create_hdf5_file(rows_path, metadata, manifest)
+                if storage_format == "hdf5"
+                else rows_path.open("a", encoding="utf-8")
+            )
             self._write_manifest(manifest)
             self._streams[storage_id] = _OpenStream(
                 metadata,
@@ -319,7 +332,7 @@ class LocalStorageManager:
             )
             return manifest
         except Exception as error:
-            if rows_file is not None and not rows_file.closed:
+            if rows_file is not None:
                 rows_file.close()
             self._record_failure_evidence(
                 "write_failure",
@@ -335,7 +348,7 @@ class LocalStorageManager:
         storage_id: str,
         rows: Iterable[dict[str, Any]],
     ) -> None:
-        """Append validated timestamped rows immediately to JSONL."""
+        """Incrementally append timestamped JSONL rows or HDF5 frame rows."""
 
         stream = self._require_stream(storage_id)
         if stream.finalized or stream.rows_file is None:
@@ -347,6 +360,13 @@ class LocalStorageManager:
             )
             raise RuntimeError("Cannot append to a finalized local stream")
         for supplied_row in rows:
+            if stream.write_failed:
+                reason = f"{stream.metadata['storage_format'].upper()} stream has a recorded persistence failure"
+                self._record_failure_evidence(
+                    "write_failure", reason,
+                    manifest=stream.manifest, details={"operation": "row_append"},
+                )
+                raise RuntimeError(reason)
             try:
                 row = dict(supplied_row)
                 missing = REQUIRED_SCIENTIFIC_ROW_FIELDS.difference(row)
@@ -357,7 +377,11 @@ class LocalStorageManager:
                     )
                 if row["experiment_id"] != stream.manifest.experiment_id:
                     raise ValueError("row experiment_id does not match stream")
-                serialized_row = json.dumps(row)
+                serialized_row = (
+                    self._prepare_hdf5_row(stream, row)
+                    if stream.metadata["storage_format"] == "hdf5"
+                    else json.dumps(row)
+                )
             except (TypeError, ValueError) as error:
                 self._record_failure_evidence(
                     "write_failure",
@@ -367,13 +391,21 @@ class LocalStorageManager:
                 )
                 raise
 
+            if stream.metadata["storage_format"] == "hdf5":
+                stream.buffered_rows.append(serialized_row)
+                stream.row_count += 1
+                if len(stream.buffered_rows) >= (self._max_buffered_rows or 1):
+                    self.flush(storage_id)
+                if self._flush_interval_elapsed(stream):
+                    self.flush(storage_id)
+                continue
+            stream.row_count += 1
             if self._max_buffered_rows is None:
                 self._write_serialized_row(stream, serialized_row)
             else:
                 stream.buffered_rows.append(serialized_row)
                 if len(stream.buffered_rows) >= self._max_buffered_rows:
                     self.flush(storage_id)
-            stream.row_count += 1
             if self._flush_interval_elapsed(stream):
                 self.flush(storage_id)
 
@@ -384,20 +416,34 @@ class LocalStorageManager:
         if stream.rows_file is None:
             return
         try:
+            if stream.write_failed:
+                raise RuntimeError(f"{stream.metadata['storage_format'].upper()} stream has a recorded persistence failure")
+            if stream.metadata["storage_format"] == "hdf5":
+                self._flush_hdf5(stream)
+                stream.last_flush_monotonic_s = monotonic()
+                return
             while stream.buffered_rows:
                 serialized_row = stream.buffered_rows[0]
-                stream.rows_file.write(serialized_row)
-                stream.rows_file.write("\n")
+                self._write_serialized_row(stream, serialized_row)
                 del stream.buffered_rows[0]
-            stream.rows_file.flush()
+            try:
+                stream.rows_file.flush()
+            except (OSError, ValueError) as error:
+                # A failed file flush may have written an incomplete tail.
+                stream.write_failed = True
+                raise
             os.fsync(stream.rows_file.fileno())
+            stream.durable_row_count = stream.written_row_count
             stream.last_flush_monotonic_s = monotonic()
-        except (OSError, ValueError) as error:
+        except (OSError, ValueError, TypeError, RuntimeError) as error:
+            if stream.metadata["storage_format"] == "hdf5":
+                stream.write_failed = True
+                stream.finalized = False
             self._record_failure_evidence(
                 "write_failure",
                 str(error),
                 manifest=stream.manifest,
-                details={"operation": "flush"},
+                details={"operation": "flush", **self._jsonl_completion_details(stream)},
             )
             raise
 
@@ -409,6 +455,8 @@ class LocalStorageManager:
             return stream.manifest
         try:
             self.flush(storage_id)
+            if stream.write_failed:
+                raise RuntimeError(f"{stream.metadata['storage_format'].upper()} stream has a recorded persistence failure")
             if stream.rows_file is not None:
                 stream.rows_file.close()
                 stream.rows_file = None
@@ -416,8 +464,12 @@ class LocalStorageManager:
                 stream.manifest,
                 lifecycle_state="finalized",
                 details={
-                    **stream.manifest.details,
+                    **{name: value for name, value in stream.manifest.details.items()
+                       if name != "finalization_error"},
                     "row_count": stream.row_count,
+                    **self._jsonl_completion_details(stream),
+                    **self._hdf5_completion_details(stream),
+                    "finalization_outcome": "finalized",
                 },
             )
             self._write_manifest(finalized_manifest)
@@ -430,13 +482,42 @@ class LocalStorageManager:
                 "manifest_finalized", "finalized", manifest=stream.manifest
             )
             return stream.manifest
-        except (OSError, ValueError, TypeError) as error:
+        except (OSError, ValueError, TypeError, RuntimeError) as error:
+            stream.finalized = False
+            if stream.metadata["storage_format"] == "hdf5":
+                stream.write_failed = True
+            # Attempt closure even when flush failed; never claim finalization.
+            if stream.write_failed and stream.rows_file is not None:
+                try:
+                    stream.rows_file.close()
+                    stream.rows_file = None
+                except Exception as close_error:
+                    self._record_failure_evidence(
+                        "finalization_failure", str(close_error),
+                        manifest=stream.manifest, details={"operation": "close"},
+                    )
             self._record_failure_evidence(
                 "finalization_failure",
                 str(error),
                 manifest=stream.manifest,
                 details={"operation": "stream_finalization"},
             )
+            stream.manifest = replace(
+                stream.manifest, lifecycle_state="open", details={
+                    **stream.manifest.details,
+                    **self._jsonl_completion_details(stream),
+                    **self._hdf5_completion_details(stream),
+                    "finalization_error": str(error),
+                    "finalization_outcome": "failed",
+                },
+            )
+            try:
+                self._write_manifest(stream.manifest)
+            except (OSError, ValueError, TypeError) as manifest_error:
+                self._record_failure_evidence(
+                    "write_failure", str(manifest_error), manifest=stream.manifest,
+                    details={"operation": "failure_manifest"},
+                )
             raise
 
     def cleanup(self) -> None:
@@ -450,7 +531,13 @@ class LocalStorageManager:
                 self.flush(storage_id)
                 stream.rows_file.close()
                 stream.rows_file = None
-            except (OSError, ValueError) as error:
+            except (OSError, ValueError, TypeError, RuntimeError) as error:
+                if stream.metadata["storage_format"] == "hdf5" or stream.write_failed:
+                    try:
+                        stream.rows_file.close()
+                        stream.rows_file = None
+                    except Exception as close_error:
+                        failures.append(f"{storage_id}: {close_error}")
                 failures.append(f"{storage_id}: {error}")
         if failures:
             reason = "; ".join(failures)
@@ -478,6 +565,8 @@ class LocalStorageManager:
                 "data_product_id": stream.metadata["data_product_id"],
                 "row_count": stream.row_count,
                 "lifecycle_state": stream.manifest.lifecycle_state,
+                **self._jsonl_completion_details(stream),
+                **self._hdf5_completion_details(stream),
             }
             for storage_id, stream in self._streams.items()
         )
@@ -492,6 +581,116 @@ class LocalStorageManager:
             manifests=manifests,
             details={"scope": "local_completion_only"},
         )
+
+    def _create_hdf5_file(
+        self, path: Path, metadata: dict[str, Any], manifest: ArtifactManifest,
+    ) -> Any:
+        import h5py
+        import numpy as np
+
+        shape = tuple(metadata["schema"]["frame_shape"])
+        if len(shape) not in {2, 3} or any(
+            isinstance(size, bool) or not isinstance(size, int) or size < 1
+            for size in shape
+        ):
+            raise ValueError("frame_shape must contain two or three positive dimensions")
+        dtype = np.dtype(metadata["schema"]["frame_dtype"])
+        if dtype.kind not in "biuf":
+            raise ValueError("frame_dtype must be a supported numeric image dtype")
+        artifact = h5py.File(path, "w")
+        try:
+            artifact.attrs["metadata_json"] = json.dumps(metadata)
+            artifact.attrs["artifact_manifest_id"] = manifest.artifact_manifest_id
+            artifact.attrs["persisted_frame_count"] = 0
+            artifact.create_dataset(
+                "frames", shape=(0, *shape), maxshape=(None, *shape),
+                chunks=(1, *shape), dtype=dtype,
+            )
+            for name in ("session_time_s", "experiment_time_s", "acquisition_node_local_time_s"):
+                artifact.create_dataset(name, shape=(0,), maxshape=(None,), dtype="f8")
+            artifact.create_dataset("frame_index", shape=(0,), maxshape=(None,), dtype="i8")
+            for name in ("timestamp_status", "record_metadata_json"):
+                artifact.create_dataset(name, shape=(0,), maxshape=(None,), dtype=h5py.string_dtype("utf-8"))
+            artifact.flush()
+            return artifact
+        except Exception:
+            artifact.close()
+            raise
+
+    def _prepare_hdf5_row(self, stream: _OpenStream, row: dict[str, Any]) -> dict[str, Any]:
+        import numpy as np
+
+        frame = row.get("frame")
+        if not isinstance(frame, np.ndarray):
+            raise TypeError("HDF5 frame must be a NumPy array")
+        if frame.shape != tuple(stream.metadata["schema"]["frame_shape"]):
+            raise ValueError("frame shape does not match stream schema")
+        if frame.dtype != np.dtype(stream.metadata["schema"]["frame_dtype"]):
+            raise ValueError("frame dtype does not match stream schema")
+        index = row.get("frame_index")
+        if isinstance(index, bool) or not isinstance(index, (int, np.integer)):
+            raise ValueError("frame_index must be an integer")
+        if not -(2**63) <= int(index) < 2**63:
+            raise ValueError("frame_index is outside int64 range")
+        for name in ("session_time_s", "experiment_time_s", "acquisition_node_local_time_s"):
+            value = row[name]
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+                raise ValueError(f"{name} must be a finite number")
+        if not isinstance(row["timestamp_status"], str) or "\x00" in row["timestamp_status"]:
+            raise ValueError("timestamp_status must be a string without null characters")
+        record_metadata = {name: value for name, value in row.items() if name != "frame"}
+        record_metadata["frame_index"] = int(index)
+        metadata_json = json.dumps(record_metadata, allow_nan=False)
+        return {**record_metadata, "frame": frame.copy(), "record_metadata_json": metadata_json}
+
+    def _flush_hdf5(self, stream: _OpenStream) -> None:
+        artifact = stream.rows_file
+        start = stream.persisted_frame_count
+        rows = stream.buffered_rows
+        try:
+            for dataset in artifact.values():
+                dataset.resize(start + len(rows), axis=0)
+            for offset, row in enumerate(rows, start):
+                for name, dataset in artifact.items():
+                    dataset[offset] = row["frame"] if name == "frames" else row[name]
+            artifact.attrs["persisted_frame_count"] = start + len(rows)
+            artifact.flush()
+        except Exception:
+            # Restore aligned dataset lengths to the last successful flush.
+            for dataset in artifact.values():
+                dataset.resize(start, axis=0)
+            artifact.attrs["persisted_frame_count"] = start
+            artifact.flush()
+            raise
+        for row in rows:
+            if stream.persisted_frame_count == 0:
+                stream.frame_bounds["first_frame_index"] = row["frame_index"]
+                for name in ("session_time_s", "experiment_time_s", "acquisition_node_local_time_s"):
+                    stream.frame_bounds[f"first_{name}"] = row[name]
+            stream.frame_bounds["last_frame_index"] = row["frame_index"]
+            for name in ("session_time_s", "experiment_time_s", "acquisition_node_local_time_s"):
+                stream.frame_bounds[f"last_{name}"] = row[name]
+            stream.persisted_frame_count += 1
+        rows.clear()
+
+    def _hdf5_completion_details(self, stream: _OpenStream) -> dict[str, Any]:
+        if stream.metadata["storage_format"] != "hdf5":
+            return {}
+        bounds = stream.frame_bounds
+        return {
+            "accepted_frame_count": stream.row_count,
+            "persisted_frame_count": stream.persisted_frame_count,
+            "first_frame_index": bounds.get("first_frame_index"),
+            "last_frame_index": bounds.get("last_frame_index"),
+            "first_session_time_s": bounds.get("first_session_time_s"),
+            "last_session_time_s": bounds.get("last_session_time_s"),
+            "first_experiment_time_s": bounds.get("first_experiment_time_s"),
+            "last_experiment_time_s": bounds.get("last_experiment_time_s"),
+            "first_acquisition_node_local_time_s": bounds.get("first_acquisition_node_local_time_s"),
+            "last_acquisition_node_local_time_s": bounds.get("last_acquisition_node_local_time_s"),
+            "duration_s": (bounds["last_session_time_s"] - bounds["first_session_time_s"] if bounds else None),
+            "finalization_outcome": "finalized" if stream.finalized else "failed" if stream.write_failed else "open",
+        }
 
     def _require_stream(self, storage_id: str) -> _OpenStream:
         try:
@@ -513,16 +712,31 @@ class LocalStorageManager:
         if stream.rows_file is None:
             raise RuntimeError("Local stream has no open rows file")
         try:
-            stream.rows_file.write(serialized_row)
-            stream.rows_file.write("\n")
+            text = serialized_row + "\n"
+            if stream.rows_file.write(text) != len(text):
+                raise OSError("Incomplete JSONL row write")
+            stream.written_row_count += 1
         except (OSError, ValueError) as error:
+            stream.write_failed = True
             self._record_failure_evidence(
                 "write_failure",
                 str(error),
                 manifest=stream.manifest,
-                details={"operation": "row_append"},
+                details={"operation": "row_append", **self._jsonl_completion_details(stream)},
             )
             raise
+
+    def _jsonl_completion_details(self, stream: _OpenStream) -> dict[str, Any]:
+        if stream.metadata["storage_format"] != "jsonl":
+            return {}
+        return {
+            "row_count": None if stream.write_failed else stream.written_row_count,
+            "accepted_row_count": stream.row_count,
+            "buffered_row_count": len(stream.buffered_rows),
+            "written_row_count": stream.written_row_count,
+            "durable_row_count": stream.durable_row_count,
+            "write_status": "uncertain" if stream.write_failed else "complete_rows",
+        }
 
     def _flush_interval_elapsed(self, stream: _OpenStream) -> bool:
         return (

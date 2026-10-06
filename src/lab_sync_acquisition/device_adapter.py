@@ -83,6 +83,15 @@ class DeviceReadinessNotImplementedError(DeviceAdapterLifecycleError):
     """Raised when a live adapter has no concrete readiness implementation."""
 
 
+class _PartialScientificCollectionError(RuntimeError):
+    """Carry completed native records without disguising collection failure."""
+
+    def __init__(self, original_error: Exception, partial_collection: dict[str, Any]) -> None:
+        super().__init__(f"{type(original_error).__name__}: {original_error}")
+        self.original_error = original_error
+        self.partial_collection = partial_collection
+
+
 @dataclass
 class DeviceAdapter:
     """Minimum live runtime control interface for one device adapter."""
@@ -196,6 +205,18 @@ class DeviceAdapter:
             "DeviceAdapter.collect_records requires a concrete acquisition "
             "record implementation"
         )
+
+    def collect_scientific_records(self) -> dict[str, Any]:
+        """Collect once, keeping local scientific data separate from runtime records.
+
+        Adapters without a scientific collection implementation retain their
+        existing lightweight collection behavior and return no scientific data.
+        """
+
+        return {
+            "runtime_records": self.collect_records(),
+            "scientific_records": None,
+        }
 
     def _require_state(self, expected_state: DeviceAdapterState) -> None:
         if self._state is not expected_state:

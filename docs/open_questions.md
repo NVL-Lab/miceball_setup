@@ -136,6 +136,12 @@ The framework now has explicit `SessionConfig` buckets, separate
 objects such as `OpenCVCameraConfig`. The final external representation and
 propagation policy remain unresolved.
 
+Decision 234 settles local storage root precedence: each AcquisitionNode has
+an explicitly resolved persistent default and a Session may override it without
+mutating that default or affecting later Sessions. The external representation
+and propagation mechanism remain open; root ownership and override semantics
+are no longer open questions.
+
 ### Questions
 
 * What external configuration file format should be used?
@@ -295,13 +301,31 @@ Controller v1 now coordinates one bounded Session sequentially, records canonica
 
 Decisions 095–102 establish canonical Experiment lifecycle ownership, distinguish Readiness and Validation from Experiment, define expected participants as plain-data declarations, define an immutable live-source-keyed runtime health mapping, and scope AcquisitionNode Experiment health evaluation exclusively to that active mapping. Acquisition-health consequences remain tracked separately in Q013.
 
+The architectural scientific-output declaration and selection portion of Q015
+is resolved by Decisions 208-210 and 235-237. Devices declare available products
+and their storage requirements; Experiment configuration selects products by
+existing source device, AcquisitionNode, and product identities without
+overriding storage format. Controller coordinates preparation through existing
+readiness, AcquisitionNode requests streams, and LocalStorageManager creates
+them before scientific acquisition. Slice 20.3 implements this path and
+terminal identity enforcement; corrective changes await manual validation and
+a targeted follow-up audit, not an ownership decision. External configuration
+representation and propagation remain under Q008.
+
+Decision 238 resolves terminal Experiment identity reuse: each identity is one
+execution, including without scientific outputs. Repeating a configuration
+requires a new Experiment identity and independent lifecycle, streams,
+manifests, and acquisition/timing evidence. Device restart within an active
+Experiment remains distinct. The Slice 20.3 implementation dependency concerning
+same-identity restart is therefore resolved; abort-command implementation and
+the other orchestration questions below remain deferred.
+
 ### Questions
 
 * How is Validation requested and recorded without creating an Experiment?
 * What semantics distinguish a future abort command from framework failure and intentional stop?
 * What component, if any, coordinates multiple Sessions?
 * How is orchestration distributed across multiple Acquisition Nodes?
-* How do Experiments declare the scientific data products they require from participating resources?
 
 ### Blocks
 
