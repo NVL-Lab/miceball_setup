@@ -6356,6 +6356,112 @@ the audit, and these manual validations do not constitute a live NATS test.
 
 ---
 
+## Decision 240: Artifact collection handoff preserves existing component ownership
+
+**Status:** Accepted
+
+LocalStorageManager owns authoritative local scientific artifacts and
+ArtifactManifests. AcquisitionNode publishes artifact information through the
+existing runtime evidence pathway. Ingestor retains the information and compiles
+the post-session collection handoff. Controller initiates post-session collection
+and coordinates delivery of the handoff. StorageManager owns global artifact
+retrieval and storage.
+
+Artifact bytes travel separately through the pull-based Artifact Plane, never
+through Ingestor or NATS. The Session Record, Evidence Archive, and scientific
+artifact storage remain separate. AcquisitionNode publication communicates the
+LocalStorageManager-owned manifest; it does not create another authoritative
+manifest or transfer the ownership established by Decision 201.
+
+**Implementation status:** Slice 22 is implemented, manually validated, and
+independently audited with verdict PASS. W031 records validation and M010
+records completion; this does not imply artifact-byte retrieval.
+
+---
+
+## Decision 241: Complete authoritative manifests are published at creation and finalization
+
+**Status:** Accepted
+
+AcquisitionNode publishes the complete authoritative ArtifactManifest through
+the existing RuntimeEvidenceMessage mechanism, using evidence_type="artifact_manifest".
+Publication occurs when LocalStorageManager creates the artifact and its initial
+manifest, and when it finalizes the artifact and updates its manifest.
+
+The existing schema is preserved, including artifact_manifest_id, session_id,
+experiment_id, AcquisitionNode identity, and existing artifact metadata. No
+alternative manifest schema is introduced. These are artifact lifecycle
+publications, not per-row evidence. Existing producer-owned persistence intent
+and mandatory persistent evidence requirements remain unchanged.
+
+**Implementation status:** AcquisitionNode produces persistent manifest messages
+at creation and finalization through local Ingestor intake. The existing NATS
+adapter publishes newly produced messages after command execution or explicit
+publication. Independent consumers use the existing evidence subscription.
+Manual broker-double validation and independent audit passed as recorded in W031.
+
+---
+
+## Decision 242: Artifact information reuses Ingestor runtime evidence retention
+
+**Status:** Accepted
+
+Ingestor receives and retains artifact information using the existing runtime
+evidence intake and retention mechanism. No artifact database, pandas dependency,
+continuously synchronized artifact registry, or separate persistence mechanism
+is introduced.
+
+Current accepted runtime evidence retention is in memory. Reconstruction after
+process restart is outside Slice 22; its future roadmap placement remains a
+high-level architecture decision.
+
+**Implementation status:** Slice 22 reuses generic in-memory intake and retention;
+no restart reconstruction is implemented.
+Slice 22 validation and independent audit passed as recorded in W031.
+
+---
+
+## Decision 243: Ingestor compiles one complete manifest entry per artifact
+
+**Status:** Accepted
+
+When requested for a Session, Ingestor selects retained artifact_manifest evidence
+belonging to that Session and associates messages by artifact_manifest_id.
+It selects the finalized manifest when available; otherwise it selects the
+initial manifest and explicitly reports missing finalization evidence.
+
+The compiled handoff contains one entry per artifact with the complete selected
+ArtifactManifest and is made available to Controller. Session, Experiment,
+AcquisitionNode, and artifact identities are preserved, including session_id,
+experiment_id, and artifact_manifest_id. Ingestor does not invent missing fields
+or infer scientific meaning.
+
+**Implementation status:** Ingestor handoff compilation is implemented and
+Controller exposes its result during Session finalization. Automated tests
+cover this path; manual validation and independent audit passed. W031 records
+the results and M010 records Slice 22 completion.
+
+---
+
+## Decision 244: Slice 22 ends at artifact collection handoff
+
+**Status:** Accepted
+
+Slice 22 excludes diagnostic association or compilation, artifact-byte transfer,
+remote filesystem access or transfer protocols, checksums or artifact copying,
+Ingestor restart recovery, new artifact persistence infrastructure, and changes
+to Session lifecycle semantics.
+
+Existing runtime evidence and Evidence Archive behavior remain unchanged.
+Controller initiation and StorageManager retrieval ownership are settled;
+later Artifact Plane retrieval implementation remains outside this slice.
+
+**Implementation status:** Slice 22 is complete following implementation,
+manual validation, and independent audit PASS (W031, M010). All exclusions above
+remain in force.
+
+---
+
 # Accepted Architectural Principles
 
 The following principles summarize the accepted decisions so far.
@@ -6599,6 +6705,11 @@ The following principles summarize the accepted decisions so far.
 237. Controller coordinates preparation through existing readiness; AcquisitionNode requests one LocalStorageManager-owned stream and manifest per selected product before scientific acquisition.
 238. Each Experiment identity represents one execution; terminal identities cannot restart, and repeated configurations require new Experiment identities and independent lifecycle, streams, manifests, and timing evidence.
 239. Required preparation precedes canonical Experiment start; pre-start rejection uses persistent runtime evidence, optional failures do not override required success, and missing required results remain unresolved.
+240. LocalStorageManager owns artifacts and manifests; AcquisitionNode publishes information, Ingestor compiles the handoff, Controller initiates collection, and StorageManager retrieves bytes separately.
+241. Complete authoritative manifests are published as artifact_manifest evidence at creation and finalization.
+242. Artifact information reuses in-memory Ingestor retention; restart recovery placement remains future work.
+243. Session-scoped handoff compilation groups by artifact_manifest_id and prefers finalized manifests, explicitly reporting missing finalization otherwise.
+244. Slice 22 excludes diagnostics compilation, byte transfer, restart recovery, new persistence infrastructure, and lifecycle changes.
 
 ---
 

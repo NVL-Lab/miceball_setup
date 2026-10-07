@@ -373,11 +373,15 @@ Decisions 118-121, 147-149, and 178-218 establish a separate, pull-based Artifac
 
 ### Questions
 
-* Which component requests and performs artifact retrieval?
+* What endpoint/reference information resolves an AcquisitionNode-local artifact path?
 * What transfer protocol and authentication model are used?
 * How are transfer completion and verification represented as durable evidence?
 * What checksum, resume, retention, and cleanup policies apply?
-* How does the future global StorageManager collect finalized local discovery information and managed artifact copies?
+* How does StorageManager retrieve and verify managed copies from the accepted manifest handoff?
+
+Decisions 240-244 settle ownership: Controller initiates post-session collection,
+Ingestor compiles the manifest handoff, and StorageManager owns retrieval and
+global storage. Slice 22 does not implement the Artifact Plane transfer backend.
 
 ### Blocks
 
@@ -420,7 +424,15 @@ Why this matters
 Phase 12 established LocalStorageManager ownership of local scientific persistence. Decisions 219-231 establish that Ingestor compiles persistent runtime evidence and StorageManager writes the Evidence Archive and final Session Record. The framework still needs to define how the future global StorageManager assembles finalized local discovery information and scientific artifacts without taking ownership of the original local scientific records.
 
 Questions
-What finalized local discovery information does the global StorageManager accept?
+Decisions 240-244 settle the Slice 22 handoff: Ingestor groups Session-scoped
+manifest evidence by artifact_manifest_id, selects the complete finalized
+manifest or initial manifest with missing finalization reported, and makes the
+handoff available to Controller. Controller coordinates delivery to StorageManager.
+Compilation is implemented, manually validated, and independently audited with
+verdict PASS; Slice 22 is complete (W031, M010). Diagnostic association remains
+outside this slice, as do restart recovery and Artifact Plane retrieval.
+
+Where should reconstruction of in-memory Ingestor artifact information after process restart be placed in the future roadmap?
 Which finalized local evidence must every LocalStorageManager provide?
 When is evidence considered globally accepted?
 How are multiple LocalStorageManagers reconciled into one global Session view?
@@ -429,7 +441,7 @@ What evidence remains local even after global collection?
 Blocks
 Global evidence integration beyond the v1 Evidence Archive
 Global evidence persistence
-Session completion architecture
+Future global integration beyond the accepted handoff; no Slice 22 lifecycle change
 
 
 Q020: What is the global finalized scientific-data collection model?
@@ -438,7 +450,8 @@ Why this matters
 After local scientific records are finalized, the framework must define how finalized artifacts become globally managed copies while preserving the ownership boundaries established for LocalStorageManager.
 
 Questions
-Who initiates finalized data collection?
+Controller initiation and StorageManager retrieval ownership are settled by
+Decision 240; Slice 22 implements information handoff only, not byte collection.
 What constitutes a globally managed copy?
 How are transferred artifacts associated with their ArtifactManifest?
 What verification is required before global acceptance?
@@ -456,7 +469,7 @@ Why this matters
 The framework intentionally separates runtime acquisition from large-artifact movement. Future versions require an orchestration model that determines when transfers occur without interfering with acquisition.
 
 Questions
-Which component schedules artifact transfer?
+What later runtime scheduling policy complements accepted Controller-initiated post-session collection?
 How is AcquisitionNode availability monitored?
 When may transfers begin?
 How are interrupted transfers resumed or retried?

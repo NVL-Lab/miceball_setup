@@ -308,3 +308,21 @@ is complete; W030 records manual validation, focused tests, and audit reassessme
 ## scripts/demo_nats_runtime.py
 
 - main: Manually validates Controller command, AcquisitionNode execution/result/evidence, Ingestor evidence intake, and Core NATS telemetry against a real JetStream-enabled NATS server.
+
+## Phase 14 / Slice 22 Integration - Completed
+
+Decisions 240-244 are implemented through these existing components:
+
+M010 is complete following manual IPython validation and independent audit PASS;
+W031 records results and limitations. No artifact-byte retrieval is implemented.
+
+- LocalStorageManager retains artifact and manifest ownership; existing manifests and finalization results supply complete discovery information.
+- AcquisitionNode.artifact_manifest_evidence: Returns produced persistent RuntimeEvidenceMessage snapshots containing complete initial and finalized manifests, also submitted to the attached local Ingestor at the scientific lifecycle boundaries.
+- AcquisitionNode._record_artifact_manifest: Packages each manifest lifecycle state once using the authoritative to_dict representation without transferring local ownership.
+- NatsAcquisitionNodeCommunication.publish_new_artifact_manifest_evidence(): Publishes newly produced manifest messages through the existing JetStream evidence boundary, invoked after subscribed command execution or explicitly for caller-managed local operations.
+- InMemoryIngestor.compile_artifact_collection_handoff(session_id): Groups retained Session-scoped artifact_manifest messages by manifest identity, selects complete finalized or initial manifests, and returns session_id plus artifacts entries containing artifact_manifest and missing_finalization_evidence.
+- Controller.finalize_session(): Obtains the separate compiled handoff and exposes it in successful ControllerCommandResult.details["artifact_collection_handoff"] without changing Evidence Archive contents or retrieving artifact bytes.
+- StorageManager owns future global artifact retrieval and storage through the Artifact Plane; byte retrieval is outside Slice 22.
+
+Generic persistent-evidence compilation and Evidence Archive writing remain
+unchanged. Restart reconstruction and diagnostics compilation are deferred.

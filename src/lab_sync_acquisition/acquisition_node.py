@@ -16,6 +16,7 @@ from lab_sync_acquisition.acquisition_health import (
     HealthInterpretationEvidence,
 )
 from lab_sync_acquisition.acquisition_record import AcquisitionRecordEnvelope
+from lab_sync_acquisition.communication import ARTIFACT_MANIFEST_EVIDENCE_TYPE, RuntimeEvidenceMessage
 from lab_sync_acquisition.acquisition_node_readiness import AcquisitionNodeReadiness
 from lab_sync_acquisition.device_manager import (
     DeviceManager, DeviceRecordCollection, _PartialDeviceCollectionError,
@@ -77,6 +78,7 @@ class AcquisitionNode:
         self._scientific_output_storage_ids: dict[tuple[str, str, str], str] = {}
         self._prepared_scientific_outputs: dict[str, tuple[ScientificOutputSelection, ...]] = {}
         self._ended_experiment_ids: set[str] = set()
+        self._artifact_manifest_evidence: list[RuntimeEvidenceMessage] = []
         self._role = role
         self._error_evidence_location = error_evidence_location
         self._acquisition_health_policies = {
@@ -139,6 +141,24 @@ class AcquisitionNode:
     def scientific_output_storage_ids(self) -> dict[tuple[str, str, str], str]:
         """Readback copy keyed by Experiment, source device, and product identity."""
         return dict(self._scientific_output_storage_ids)
+
+    @property
+    def artifact_manifest_evidence(self) -> tuple[RuntimeEvidenceMessage, ...]:
+        """Produced artifact lifecycle evidence for independent transport publication."""
+        return tuple(self._artifact_manifest_evidence)
+
+    def _record_artifact_manifest(self, manifest: ArtifactManifest) -> None:
+        evidence_id = f"artifact-manifest-{manifest.artifact_manifest_id}-{manifest.lifecycle_state}"
+        if any(message.evidence_id == evidence_id for message in self._artifact_manifest_evidence):
+            return
+        message = RuntimeEvidenceMessage(
+            evidence_id=evidence_id, session_id=manifest.session_id,
+            evidence_type=ARTIFACT_MANIFEST_EVIDENCE_TYPE,
+            source_id=manifest.acquisition_node_id, payload=manifest.to_dict(),
+            is_persistent=True,
+        )
+        self._artifact_manifest_evidence.append(message)
+        self._ingestor.receive_runtime_evidence(message)
 
     def attach_local_storage_manager(
         self,
@@ -206,11 +226,13 @@ class AcquisitionNode:
                 )
                 self._scientific_output_storage_ids[key] = manifest.storage_id
                 created.append(manifest.storage_id)
+                self._record_artifact_manifest(manifest)
         except Exception as error:
             cleanup_errors = []
             for storage_id in created:
                 try:
-                    self._local_storage_manager.finalize_stream(storage_id)
+                    manifest = self._local_storage_manager.finalize_stream(storage_id)
+                    self._record_artifact_manifest(manifest)
                 except Exception as cleanup_error:
                     cleanup_errors.append(str(cleanup_error))
             reason = f"{type(error).__name__}: {error}"
@@ -236,7 +258,9 @@ class AcquisitionNode:
             if owner_experiment_id != experiment_id:
                 continue
             try:
-                manifests.append(self._local_storage_manager.finalize_stream(storage_id))
+                manifest = self._local_storage_manager.finalize_stream(storage_id)
+                manifests.append(manifest)
+                self._record_artifact_manifest(manifest)
             except Exception as error:
                 failures.append(f"{storage_id}: {type(error).__name__}: {error}")
         if failures:

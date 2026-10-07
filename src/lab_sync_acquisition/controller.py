@@ -486,6 +486,9 @@ class Controller:
             compiled_runtime_evidence = (
                 self._ingestor.compile_persistent_runtime_evidence()
             )
+            artifact_collection_handoff = self._ingestor.compile_artifact_collection_handoff(
+                session.session_id
+            )
             archive_paths = self._storage_manager.write_evidence_archive(
                 session.session_id,
                 compiled_runtime_evidence,
@@ -505,6 +508,7 @@ class Controller:
                     for name, path in archive_paths.items()
                 },
                 "session_record_path": str(final_record_path),
+                "artifact_collection_handoff": artifact_collection_handoff,
             },
         )
 

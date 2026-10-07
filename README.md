@@ -407,6 +407,25 @@ Required failures and unresolved results block canonical start; optional
 service failures are recorded without blocking confirmed required success.
 Selected scientific outputs remain required.
 
+Phase 14 / Slice 22 Artifact Collection Handoff architecture is accepted in
+Decisions 240-244 and is complete (M010), following implementation, successful
+manual IPython validation, and independent audit PASS. W031 records the results
+and limitations. AcquisitionNode produces
+complete LocalStorageManager-owned initial and finalized manifest messages
+through the existing runtime evidence pathway. Its NATS adapter publishes newly
+produced messages after commands or explicit publication. Ingestor can
+compile one complete manifest entry per artifact for a requested Session,
+preferring finalization evidence and explicitly reporting its absence.
+Controller initiates post-session collection and coordinates the handoff;
+StorageManager owns later retrieval through the separate Artifact Plane.
+Slice 22 does not implement artifact-byte transfer, diagnostics compilation,
+restart recovery, new persistence infrastructure, or Session lifecycle changes.
+Controller's finalize_session result exposes artifact_collection_handoff with
+session_id and artifacts entries containing artifact_manifest and
+missing_finalization_evidence. Current Ingestor retention is in memory. Slice 22
+validation used simulated devices and NATS broker doubles, not live NATS or
+hardware acquisition; no artifact-byte retrieval or global collection is implemented.
+
 The existing NATS dispatcher accepts `prepare_experiment_scientific_outputs`
 with payload `{"experiment_id": ..., "scientific_outputs": [...]}` using output
 selection `to_dict()` values. Use existing `publish_group_command()` and

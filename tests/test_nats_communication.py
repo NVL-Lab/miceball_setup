@@ -4,6 +4,7 @@ import unittest
 
 from lab_sync_acquisition import (
     ARTIFACT_MANIFEST_EVIDENCE_TYPE,
+    ArtifactManifest,
     Controller,
     DurablePublicationError,
     InMemoryIngestor,
@@ -96,12 +97,11 @@ class NatsCommunicationUnitTests(unittest.TestCase):
             session_id="session-001",
             evidence_type=ARTIFACT_MANIFEST_EVIDENCE_TYPE,
             source_id="node-001",
-            payload={
-                "artifact_id": "camera-video-001",
-                "artifact_type": "video",
-                "lifecycle_moment": "closed",
-                "local_reference": "camera/video-001",
-            },
+            payload=ArtifactManifest(
+                "camera-video-001", "session-001", "experiment-001",
+                "node-001", "camera-001", "video", "finalized", "storage-001",
+                "camera/video-001", None, ("camera/video-001",), {},
+            ).to_dict(),
             is_persistent=True,
         )
 

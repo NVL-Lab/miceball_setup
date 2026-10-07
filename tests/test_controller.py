@@ -11,6 +11,7 @@ sys.path.insert(0, str(SRC))
 
 from lab_sync_acquisition import (
     ARTIFACT_MANIFEST_EVIDENCE_TYPE,
+    ArtifactManifest,
     AcquisitionHealthPolicy,
     AcquisitionNode,
     Controller,
@@ -161,10 +162,12 @@ class ControllerWorkflowTests(unittest.TestCase):
                 session_id=config.session_id,
                 evidence_type=ARTIFACT_MANIFEST_EVIDENCE_TYPE,
                 source_id="node-001",
-                payload={
-                    "artifact_id": "camera-video-001",
-                    "local_reference": "camera/video-001",
-                },
+                payload=ArtifactManifest(
+                    "camera-video-001", config.session_id, "experiment-001",
+                    "node-001", "camera-001", "video", "finalized",
+                    "storage-001", "camera/video-001", None,
+                    ("camera/video-001",), {"row_count": 0},
+                ).to_dict(),
                 is_persistent=True,
             )
             runtime_audit = ingestor.receive_runtime_evidence(artifact_manifest)

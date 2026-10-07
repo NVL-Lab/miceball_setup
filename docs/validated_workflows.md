@@ -1399,6 +1399,94 @@ neither is required for closure. Additional live NATS validation is not required
 
 ---
 
+# W031 - Phase 14 / Slice 22 Artifact Collection Handoff
+
+**Status:** Completed - Slice 22 (M010)
+
+## Purpose
+
+Record successful implementation, manual IPython validation, and independent
+audit of Decisions 240-244 without claiming artifact-byte retrieval or global
+collection.
+
+## Workflow
+
+```text
+LocalStorageManager creates the artifact and authoritative initial manifest
+    -> AcquisitionNode produces persistent artifact_manifest RuntimeEvidenceMessage
+    -> existing local intake or NATS evidence publication to an independent Ingestor
+LocalStorageManager finalizes the artifact and authoritative manifest
+    -> AcquisitionNode produces finalized manifest evidence with the same identity
+Ingestor retains runtime evidence
+    -> Session-scoped compilation groups by artifact_manifest_id
+    -> one complete finalized manifest per artifact when available
+    -> otherwise initial manifest with missing_finalization_evidence=True
+Controller.finalize_session()
+    -> obtains the separate artifact_collection_handoff in command-result details
+    -> preserves existing Evidence Archive and Session Record finalization behavior
+```
+
+LocalStorageManager remains the authoritative artifact and manifest owner.
+Complete manifest serialization preserves Session, Experiment, AcquisitionNode,
+and artifact identities. The handoff is separate from the Session Record and
+Evidence Archive; no handoff persistence product or artifact-byte transfer is
+introduced. Controller obtains information for later collection, not confirmation
+that artifacts have been globally collected.
+
+## Manual IPython validation
+
+The implementation coordinator reported all five scenarios passing:
+
+1. **Normal artifact lifecycle - PASS:** Initial and finalized manifest evidence
+   preserved stable artifact identity. Compilation returned one entry containing
+   the complete finalized authoritative manifest.
+2. **Missing finalization - PASS:** Compilation retained the complete initial
+   manifest, explicitly reported missing finalization, and invented no metadata.
+3. **Controller integration and persistent outputs - PASS:** The finalization
+   result exposed the correct Session/artifact handoff while existing Session
+   Record and Evidence Archive outputs remained intact and separate.
+4. **Explicit NATS publication with broker double - PASS:** Caller-managed local
+   operations used explicit publication of newly produced initial/finalized
+   evidence through the existing JetStream boundary. Repeated publication did
+   not duplicate already successfully published messages on the same adapter.
+5. **Subscribed-command publication with broker double - PASS:** The existing
+   composed workflow exercised automatic publication after subscribed commands
+   and independent Ingestor consumption. This interactively invoked an existing
+   automated workflow; it was not independent live-broker validation.
+
+Manual checks used existing fixtures and simulated devices. Broker doubles do
+not establish live NATS connectivity or durability.
+
+## Automated tests and independent audit
+
+- Implementation full suite: **290 passed, seven optional rendering tests skipped**.
+- Independent audit: **72 focused tests passed**.
+- Audit verdict: **PASS**; Decisions 240-244 satisfied; no blocking defects found.
+
+The focused audit command was:
+
+```text
+python -B -m unittest tests.test_artifact_collection_handoff tests.test_controller tests.test_experiment_start_rejection tests.test_scientific_output_preparation tests.test_nats_communication tests.test_experiment_scientific_finalization tests.test_storage
+```
+
+These are previously executed or reported results. No tests or manual validations
+were run during this documentation closure. The full suite was not rerun during
+the independent audit.
+
+## Limitations and completion
+
+Slice 22 and M010 are complete for the artifact collection handoff only.
+No artifact-byte retrieval or global collection, live NATS validation, hardware
+acquisition validation, Ingestor restart recovery, or diagnostic association/
+compilation is included. Future Artifact Plane retrieval and restart-recovery
+roadmap placement remain open questions.
+
+Additional real two-node coverage, manifest-specific publication-failure checks,
+and malformed-manifest failure tests were nonblocking audit suggestions, not new
+architectural requirements or prerequisites for closure.
+
+---
+
 # Future Workflows
 
 The following workflows are expected to be added as the framework evolves.

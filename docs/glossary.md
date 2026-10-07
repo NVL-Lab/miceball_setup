@@ -520,6 +520,32 @@ The runtime write handle for one local scientific stream throughout its local ar
 
 The durable discovery identity of an ArtifactManifest used by later collection, reconstruction, and export. It is distinct from the stream's runtime `storage_id`.
 
+Decisions 240-243 use this identity to associate creation and finalization
+manifest evidence for the same artifact within a Session.
+
+---
+
+# Artifact Collection Handoff
+
+Accepted Phase 14, Slice 22 information compiled by Ingestor for a requested
+Session from retained artifact_manifest runtime evidence. Each artifact has one
+entry containing its complete authoritative ArtifactManifest: finalized when
+available, otherwise initial with missing finalization explicitly reported.
+Session, Experiment, AcquisitionNode, and artifact identities are preserved.
+
+AcquisitionNode publishes the LocalStorageManager-owned complete manifest at
+creation and finalization without taking manifest ownership. Controller initiates
+post-session collection and coordinates handoff delivery. StorageManager owns
+later retrieval through the separate pull-based Artifact Plane.
+
+AcquisitionNode now produces manifest lifecycle messages through existing local
+intake, and the NATS adapter publishes newly produced messages after commands
+or explicit publication. Ingestor handoff compilation and Controller finalization
+readback are implemented, manually validated, and independently audited with
+verdict PASS (W031). M010 is complete. The handoff contains information, not artifact bytes or compiled
+diagnostics. Current Ingestor retention is in memory; restart reconstruction
+and its roadmap placement are outside Slice 22.
+
 ---
 
 # LocalStorageCompletionSummary

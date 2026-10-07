@@ -304,6 +304,47 @@ Slice 21 is complete; no subsequent implementation slice is begun here.
 
 ---
 
+# M010 - Phase 14 / Slice 22 Artifact Collection Handoff
+
+**Status:** Completed
+
+## Goal
+
+Implement Decisions 240-244: publish complete LocalStorageManager-owned initial
+and finalized manifests through AcquisitionNode's existing runtime evidence
+pathway, and compile a Session-scoped artifact collection handoff in Ingestor.
+
+## Implemented scope
+
+- reuse existing runtime evidence intake and in-memory retention
+- associate messages by artifact_manifest_id while preserving Session, Experiment, and AcquisitionNode identities
+- select finalized manifests, otherwise initial manifests with missing finalization reported
+- make one complete manifest entry per artifact available to Controller
+- retain Controller initiation and handoff coordination, and StorageManager global retrieval ownership
+
+## Validation
+
+W031 records completed manual IPython validation of normal lifecycle, missing
+finalization, Controller integration and persistent outputs, explicit NATS
+publication with a broker double, and subscribed-command publication with a
+broker double. All five scenarios passed. The implementation full suite reported
+290 passed and seven optional rendering tests skipped; independent audit ran
+72 focused tests, all passing. The audit verdict was PASS, Decisions 240-244
+were satisfied, and no blocking defects were found. These are recorded results,
+not tests executed during documentation closure.
+
+## Boundaries and completion
+
+Slice 22 is complete. No live NATS or hardware acquisition validation is claimed
+for this slice, and no artifact-byte retrieval or global collection is implemented.
+Artifact-byte transfer, remote filesystem
+access, copying, checksums, diagnostics compilation, restart recovery, new
+persistence infrastructure, and Session lifecycle changes are excluded.
+Restart reconstruction roadmap placement and later Artifact Plane retrieval
+remain future architecture work. Existing Evidence Archive behavior is unchanged.
+
+---
+
 # Future Milestones
 
 Planned future milestones include:

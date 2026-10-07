@@ -484,6 +484,7 @@ class NatsAcquisitionNodeCommunication:
         self._acquisition_node = acquisition_node
         self._results_by_command_id: dict[str, RuntimeCommandResultMessage] = {}
         self._published_health_interpretation_count = 0
+        self._published_artifact_manifest_count = 0
 
     async def subscribe_commands(self) -> Subscription:
         """Consume commands routed to this AcquisitionNode instance."""
@@ -517,6 +518,7 @@ class NatsAcquisitionNodeCommunication:
                     result.command_id,
                     result.status,
                 )
+                await self.publish_new_artifact_manifest_evidence()
                 await self.publish_new_health_interpretation_evidence(
                     command.session_id
                 )
@@ -591,6 +593,13 @@ class NatsAcquisitionNodeCommunication:
             result = self._result(command, "failed", False, str(error), {})
         self._results_by_command_id[command.command_id] = result
         return result
+
+    async def publish_new_artifact_manifest_evidence(self) -> None:
+        """Publish produced manifest lifecycle evidence through the existing boundary."""
+        evidence = getattr(self._acquisition_node, "artifact_manifest_evidence", ())
+        for message in evidence[self._published_artifact_manifest_count:]:
+            await self.publish_evidence(message)
+            self._published_artifact_manifest_count += 1
 
     async def publish_new_health_interpretation_evidence(
         self,

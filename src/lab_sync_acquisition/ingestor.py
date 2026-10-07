@@ -7,7 +7,8 @@ from time import time
 from typing import Any
 
 from lab_sync_acquisition.acquisition_record import AcquisitionRecordEnvelope
-from lab_sync_acquisition.communication import RuntimeEvidenceMessage
+from lab_sync_acquisition.communication import ARTIFACT_MANIFEST_EVIDENCE_TYPE, RuntimeEvidenceMessage
+from lab_sync_acquisition.local_storage import ArtifactManifest
 from lab_sync_acquisition.service_readiness import ServiceReadiness
 from lab_sync_acquisition.storage import (
     InMemoryStorageManager,
@@ -108,6 +109,27 @@ class InMemoryIngestor:
                 if evidence.is_persistent
             ),
             "ingest_audit": self._runtime_evidence_audit,
+        }
+
+    def compile_artifact_collection_handoff(self, session_id: str) -> dict[str, Any]:
+        """Select complete manifests for one Session without collecting artifact bytes."""
+        selected: dict[str, ArtifactManifest] = {}
+        for message in self._accepted_runtime_evidence:
+            if message.session_id != session_id or message.evidence_type != ARTIFACT_MANIFEST_EVIDENCE_TYPE:
+                continue
+            manifest = ArtifactManifest.from_dict(message.payload)
+            if manifest.session_id != session_id:
+                raise ValueError("ArtifactManifest Session does not match runtime evidence")
+            previous = selected.get(manifest.artifact_manifest_id)
+            if previous is None or manifest.lifecycle_state == "finalized":
+                selected[manifest.artifact_manifest_id] = manifest
+        return {
+            "session_id": session_id,
+            "artifacts": [
+                {"artifact_manifest": manifest.to_dict(),
+                 "missing_finalization_evidence": manifest.lifecycle_state != "finalized"}
+                for manifest in selected.values()
+            ],
         }
 
     def receive_runtime_evidence(
