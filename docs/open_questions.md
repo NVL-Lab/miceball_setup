@@ -308,9 +308,21 @@ existing source device, AcquisitionNode, and product identities without
 overriding storage format. Controller coordinates preparation through existing
 readiness, AcquisitionNode requests streams, and LocalStorageManager creates
 them before scientific acquisition. Slice 20.3 implements this path and
-terminal identity enforcement; corrective changes await manual validation and
-a targeted follow-up audit, not an ownership decision. External configuration
+terminal identity enforcement; Slice 20 is complete as recorded in W029.
+External configuration
 representation and propagation remain under Q008.
+
+Decision 239 settles pre-start preparation failure ownership: Controller must
+confirm required preparation before canonical start, records persistent
+`experiment_start_rejected` runtime evidence on rejection, and does not record
+`experiment_fail` for an execution that never started. Optional failures do not
+block required success, and missing required results remain unresolved. These
+are accepted Slice 21 requirements now implemented, manually validated, and
+independently audited; Slice 21 is complete as recorded in W030 and M009,
+not an open ownership question. They do not change
+required scientific-output selection or introduce
+a Session rejection history. Representation/propagation work remains under
+Q008; the remaining orchestration questions below remain open.
 
 Decision 238 resolves terminal Experiment identity reuse: each identity is one
 execution, including without scientific outputs. Repeating a configuration

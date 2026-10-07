@@ -34,6 +34,7 @@ from lab_sync_acquisition.communication import (
 )
 from lab_sync_acquisition.ingestor import InMemoryIngestor
 from lab_sync_acquisition.controller import Controller, ControllerActionDecision
+from lab_sync_acquisition.session import ScientificOutputSelection
 from lab_sync_acquisition.service_readiness import ServiceReadiness
 
 
@@ -554,6 +555,16 @@ class NatsAcquisitionNodeCommunication:
                 payload = {
                     "acquisition_node_readiness": readiness.to_dict(),
                 }
+            elif command.command_type == "prepare_experiment_scientific_outputs":
+                experiment_id = command.payload["experiment_id"]
+                preparation = self._acquisition_node.prepare_experiment_scientific_outputs(
+                    experiment_id, tuple(ScientificOutputSelection.from_dict(item)
+                                         for item in command.payload["scientific_outputs"]))
+                payload = {"experiment_id": experiment_id, "preparation": preparation.to_dict()}
+                if preparation.required and not preparation.ready:
+                    result = self._result(command, "failed", False, preparation.reason, payload)
+                    self._results_by_command_id[command.command_id] = result
+                    return result
             elif command.command_type == "start_runtime":
                 outcome = self._acquisition_node.start_runtime()
                 payload = {"session_time_s": outcome["session_time_s"]}

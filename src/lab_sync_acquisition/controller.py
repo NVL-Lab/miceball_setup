@@ -5,10 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
+from uuid import uuid4
 
 from lab_sync_acquisition.acquisition_health import HealthInterpretationEvidence
 from lab_sync_acquisition.acquisition_node import AcquisitionNode
-from lab_sync_acquisition.communication import RuntimeParticipant
+from lab_sync_acquisition.communication import GroupCommandOutcome, RuntimeEvidenceMessage, RuntimeParticipant
 from lab_sync_acquisition.device_adapter import DeviceReadiness
 from lab_sync_acquisition.experiment_runtime import (
     ActiveExperimentRuntimeContext,
@@ -107,12 +108,17 @@ class Controller:
         storage_manager: PersistentStorageManager,
         session_record_path: str | Path,
         synchronization_manager: SynchronizationManager | None = None,
+        *,
+        component_id: str = "controller",
     ) -> None:
+        if not isinstance(component_id, str) or not component_id:
+            raise ValueError("Controller component_id must be a nonempty string")
         self._acquisition_node = acquisition_node
         self._ingestor = ingestor
         self._storage_manager = storage_manager
         self._session_record_path = Path(session_record_path)
         self._synchronization_manager = synchronization_manager
+        self._component_id = component_id
         self._session: Session | None = None
         self._active_experiment_id: str | None = None
         self._active_experiment_runtime_health_mapping: tuple[
@@ -307,10 +313,15 @@ class Controller:
         runtime_health_mapping: Iterable[ExperimentRuntimeHealthMapping] = (),
         *,
         scientific_outputs: Iterable[ScientificOutputSelection] = (),
+        preparation_readiness: Iterable[ServiceReadiness] = (),
+        preparation_outcomes: Iterable[GroupCommandOutcome] = (),
     ) -> ControllerCommandResult:
         """Record canonical Experiment start evidence inside a running Session."""
 
+        rejection_details = None
+
         def command() -> dict[str, Any]:
+            nonlocal rejection_details
             session = self._require_session()
             if session.current_state != SessionState.RUNNING:
                 raise RuntimeError("Experiment start requires a running Session")
@@ -327,20 +338,59 @@ class Controller:
             participants = tuple(expected_participants)
             start_details = dict(details) if details is not None else None
             outputs = tuple(scientific_outputs)
-            if any(output.source_node_id != self._acquisition_node.node_id for output in outputs):
-                raise ValueError("Scientific output references an unknown AcquisitionNode")
             existing = next((descriptor for descriptor in session.experiment_descriptors
                              if descriptor.experiment_id == experiment_id), None)
             if existing is not None:
                 if outputs and outputs != existing.scientific_outputs:
                     raise ValueError("Scientific outputs conflict with existing Experiment descriptor")
                 outputs = existing.scientific_outputs
-            preparation = self._acquisition_node.prepare_experiment_scientific_outputs(
-                experiment_id, outputs
-            )
-            session.record_service_readiness((preparation,))
-            if not preparation.ready:
-                raise RuntimeError(f"Scientific output preparation failed: {preparation.reason}")
+            records = []
+            outcomes = []
+            try:
+                records = list(preparation_readiness)
+                outcomes = list(preparation_outcomes)
+                if any(not isinstance(record, ServiceReadiness) for record in records):
+                    raise TypeError("Preparation readiness must use ServiceReadiness")
+                session.record_service_readiness(records)
+                if any(record.required and not record.ready for record in records):
+                    raise RuntimeError("Required Experiment preparation failed")
+                for outcome in outcomes:
+                    if (outcome.session_id != session.session_id or
+                            outcome.command_type != "prepare_experiment_scientific_outputs"):
+                        raise ValueError("Preparation command outcome does not match this Session/command")
+                    if outcome.unresolved_outcomes or outcome.outcome == "unresolved":
+                        raise RuntimeError("Required Experiment preparation remains unresolved")
+                    if outcome.outcome != "succeeded" or not outcome.command_results:
+                        raise RuntimeError("Required remote Experiment preparation failed")
+                    for result in outcome.command_results:
+                        if (result.session_id != session.session_id or result.command_id != outcome.command_id
+                                or result.payload.get("experiment_id") != experiment_id):
+                            raise ValueError("Preparation command result does not match requested Experiment")
+                        if result.status != "succeeded" or not result.success:
+                            raise RuntimeError("Required remote Experiment preparation is not confirmed successful")
+                        readiness = result.payload.get("preparation")
+                        if not isinstance(readiness, dict) or readiness.get("ready") is not True:
+                            raise RuntimeError("Required remote scientific preparation did not succeed")
+                if any(output.source_node_id != self._acquisition_node.node_id for output in outputs):
+                    raise ValueError("Scientific output references an unknown AcquisitionNode")
+                preparation = self._acquisition_node.prepare_experiment_scientific_outputs(experiment_id, outputs)
+                records.append(preparation)
+                session.record_service_readiness((preparation,))
+                if preparation.required and not preparation.ready:
+                    raise RuntimeError(f"Scientific output preparation failed: {preparation.reason}")
+            except Exception as error:
+                message = RuntimeEvidenceMessage(
+                    evidence_id=uuid4().hex, session_id=session.session_id,
+                    evidence_type="experiment_start_rejected", source_id=self._component_id,
+                    payload={"experiment_id": experiment_id, "reason": str(error),
+                             "session_time_s": self._current_session_time_s(),
+                             "preparations": [record.to_dict() for record in records if isinstance(record, ServiceReadiness)],
+                             "command_outcomes": [outcome.to_dict() for outcome in outcomes if isinstance(outcome, GroupCommandOutcome)]},
+                    is_persistent=True,
+                )
+                self._ingestor.receive_runtime_evidence(message)
+                rejection_details = {"rejection_evidence": message.to_dict()}
+                raise
             experiment_start_session_time_s = self._current_session_time_s()
             if experiment_start_session_time_s is None:
                 raise RuntimeError(
@@ -376,7 +426,11 @@ class Controller:
             )
             return evidence.to_dict()
 
-        return self._run_command("start_experiment", command)
+        try:
+            details = command()
+        except Exception as error:
+            return self._record_failed_command("start_experiment", error, rejection_details)
+        return self._record_successful_command("start_experiment", details)
 
     def stop_experiment(
         self,
@@ -483,12 +537,13 @@ class Controller:
             return self._record_successful_command(name, details)
 
     def _record_failed_command(
-        self, name: str, error: Exception
+        self, name: str, error: Exception, details: Any = None
     ) -> ControllerCommandResult:
         result = ControllerCommandResult(
             command=name,
             succeeded=False,
             error=f"{type(error).__name__}: {error}",
+            details=details,
         )
         return self._record_command_result(result)
 

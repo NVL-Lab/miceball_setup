@@ -345,8 +345,14 @@ service is required. CSI cameras may need an appropriate source pipeline and
 `--api-preference`; USB cameras commonly use an index. Capture backends may ignore
 requested dimensions: set the declaration to the actual frame shape/dtype if
 validation reports a mismatch. Duration is checked between bounded collections;
-a blocking hardware read can overrun it. This script has simulated test coverage;
-Jetson hardware validation is still pending and Slice 20 is not declared closed.
+a blocking hardware read can overrun it. Slice 20 is complete: the user-reported
+Jetson hardware validation recorded 256 `uint8` frames at 640 x 480 x 3 over
+10 seconds, with indices 0-255, finalized artifact and manifest, successful HDF5
+reopening, and `validation=PASS`. Recorded-frame display and visual inspection
+also succeeded on the Jetson. See W029 in
+[`docs/validated_workflows.md`](docs/validated_workflows.md) for the acquisition,
+`--show-frames`, and `--view-hdf5` commands and M008 in
+[`docs/framework_milestones.md`](docs/framework_milestones.md) for completion.
 Manifests and local completion summaries distinguish accepted from successfully
 persisted frames and report frame/time bounds, duration, and finalization outcome.
 Handled write, flush, and closure failures produce local evidence and do not
@@ -384,11 +390,43 @@ exceptions; the original failure is still reported through the existing
 Controller failure path. If partial-data persistence also fails, both errors
 remain visible. No implicit hardware retry is performed.
 
-The corrective changes await manual validation and a targeted follow-up audit.
-Real-camera HDF5 validation and Slice 20 closure are not claimed.
+Slice 20 software validation includes four successful independent manual
+validations and 284 passing automated tests in the environment with optional
+Matplotlib dependencies. The supported Python 3.12 suite passed 277 tests with
+seven optional rendering tests skipped. These simulated automated tests are
+distinct from the successful real Jetson acquisition and visual inspection
+recorded in W029. Slice 20 is complete; subsequent Slice 21 completion is
+recorded separately in W030 and M009.
 
-Reproducing the manual runtime validation requires a separate
-JetStream-enabled NATS server:
+Slice 21 is complete under Decision 239 following three successful manual
+IPython validations, 62 passing focused audit tests, and independent audit
+reassessment. W030 records validation scope and M009 records completion.
+`start_experiment()` accepts keyword-only `preparation_readiness=()` (existing `ServiceReadiness`
+records) and `preparation_outcomes=()` (existing `GroupCommandOutcome` records).
+Required failures and unresolved results block canonical start; optional
+service failures are recorded without blocking confirmed required success.
+Selected scientific outputs remain required.
+
+The existing NATS dispatcher accepts `prepare_experiment_scientific_outputs`
+with payload `{"experiment_id": ..., "scientific_outputs": [...]}` using output
+selection `to_dict()` values. Use existing `publish_group_command()` and
+`await_group_command_outcome()` to collect required remote preparation results,
+then pass the correlated outcome to Controller. Accepted/progress results are
+not preparation success. This does not introduce remote lifecycle activation.
+
+Preparation rejection returns an unsuccessful command result whose
+`details["rejection_evidence"]` is a persistent `RuntimeEvidenceMessage` plain
+dictionary. Controller submits it once to its local Ingestor for normal Evidence
+Archive finalization, without recording `experiment_start` or `experiment_fail`.
+For an independent brokered consumer, reconstruct this same message with
+`RuntimeEvidenceMessage.from_dict()` and publish it once through existing
+`NatsCommunicationBoundary.publish_evidence()`. Set Controller's keyword-only
+`component_id` to match that boundary's source identity. No automatic second
+delivery to the same Ingestor, relay, retry, or new rejection-history component
+is introduced.
+
+Reproducing the existing Phase 10 brokered runtime demo requires a separate
+JetStream-enabled NATS server; this is not a Slice 21 closure requirement:
 
 ```text
 nats-server -js

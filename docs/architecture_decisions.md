@@ -6254,9 +6254,10 @@ Existing Controller, Session, AcquisitionNode, DeviceManager, and
 LocalStorageManager ownership boundaries remain unchanged.
 
 **Implementation status:** Slice 20.3 scientific stream preparation and
-integration are implemented and covered by automated tests. The corrective
-changes await manual validation and a targeted follow-up audit; this does not
-declare Slice 20 complete.
+integration are implemented and covered by automated tests. Slice 20 is
+complete; W029 records the successful Jetson hardware validation. Decision 239
+adds Slice 21 pre-start rejection requirements; Slice 21 is complete following
+the validations and independent audit reassessment recorded in W030 and M009.
 
 ---
 
@@ -6294,8 +6295,64 @@ terminal Experiment.
 This decision does not implement `experiment_abort` or add lifecycle APIs.
 
 **Implementation status:** Session and Controller enforce terminal identity
-in Slice 20.3, including executions without scientific outputs. Corrective
-changes await manual validation and a targeted follow-up audit.
+in Slice 20.3, including executions without scientific outputs. Slice 20 is
+complete as recorded in W029; pre-start rejection under Decision 239 remains
+separate Slice 21 work, now complete as recorded in W030 and M009.
+
+---
+
+## Decision 239: Required Experiment preparation precedes canonical start
+
+**Status:** Accepted
+
+Controller must establish successful required Experiment preparation before
+recording canonical `experiment_start`. AcquisitionNode reports preparation
+outcomes but does not decide Experiment lifecycle. Existing preparation and
+readiness boundaries are reused; no parallel readiness authority is introduced.
+
+Required preparation failure prevents both `experiment_start` and
+`experiment_fail`: an Experiment that never started is not a failed active
+Experiment. Controller produces a `RuntimeEvidenceMessage` with:
+
+```text
+evidence_type = "experiment_start_rejected"
+is_persistent = True
+```
+
+The existing Controller command result reports the rejected start. Rejection
+evidence uses the existing runtime evidence boundary, Ingestor intake/audit and
+persistent-evidence compilation, and StorageManager Evidence Archive writing.
+It does not create a Session rejection history or canonical lifecycle event.
+
+Optional preparation failures do not prevent starting when required preparation
+succeeds. This does not relax the selected scientific-output requirements in
+Decisions 209 and 235-237: required streams and their manifests must be prepared
+before scientific acquisition.
+
+Missing required command results remain unresolved under the existing command
+outcome model. They cannot establish successful preparation or confirmed remote
+failure. Controller must not record canonical start without confirmed successful
+required preparation.
+
+LocalStorageManager retains ownership of streams, artifacts, manifests, and
+local persistence diagnostics. Controller retains lifecycle orchestration;
+Session retains canonical lifecycle evidence. AcquisitionNode reports execution
+outcomes. Ingestor and StorageManager retain their existing responsibilities.
+
+No new lifecycle states, evidence subsystem, Session rejection history, or
+ownership transfer is introduced.
+
+**Principle:** Required preparation succeeds before canonical Experiment start;
+pre-start rejection is persistent runtime evidence, not `experiment_fail`.
+
+**Implementation status:** The Slice 21 implementation extends existing gating
+with producer-marked persistent rejection evidence, required/optional service
+readiness, and correlated remote preparation outcomes. Scientific preparation
+uses the existing remote command dispatcher with caller-managed orchestration.
+Slice 21 is complete following three successful manual IPython validations,
+62 passing focused audit tests, and independent audit reassessment; W030 and
+M009 record validation and completion. The full suite was not rerun during
+the audit, and these manual validations do not constitute a live NATS test.
 
 ---
 
@@ -6541,6 +6598,7 @@ The following principles summarize the accepted decisions so far.
 236. Scientific-product declarations own persistence format requirements; Experiments select products without overriding formats or inventing unavailable characteristics.
 237. Controller coordinates preparation through existing readiness; AcquisitionNode requests one LocalStorageManager-owned stream and manifest per selected product before scientific acquisition.
 238. Each Experiment identity represents one execution; terminal identities cannot restart, and repeated configurations require new Experiment identities and independent lifecycle, streams, manifests, and timing evidence.
+239. Required preparation precedes canonical Experiment start; pre-start rejection uses persistent runtime evidence, optional failures do not override required success, and missing required results remain unresolved.
 
 ---
 

@@ -989,6 +989,16 @@ two-step Session Record finalization
 - persistent Session Record finalization includes canonical Experiment lifecycle evidence
 - no device commands, participant enforcement, Validation, protocol execution, or AcquisitionNode-owned Experiment lifecycle are introduced
 
+**Current architecture clarification:** The diagram records the historical
+canonical lifecycle workflow, not the full current `start_experiment()`
+signature or preparation path. Slice 20 adds scientific-output preparation
+before canonical start. Decision 239 requires confirmed successful required
+preparation and persistent `experiment_start_rejected` evidence for pre-start
+rejection, not `experiment_fail`. Its optional-preparation and missing-result
+rules are now implemented in Slice 21 but are not validated by this historical
+W020 workflow. W030 separately records the completed Slice 21 manual validations
+and independent audit reassessment.
+
 ---
 
 # W021 - Persistent Experiment Descriptors
@@ -1018,8 +1028,17 @@ automated tests, including metadata-only executions and new-identity repeats.
 The user reported Step 4 manual validation complete; the comprehensive Slice 20
 audit subsequently identified data-integrity defects. Corrective regression
 tests cover partial-data preservation, frame associations, and JSONL accounting.
-Manual validation of those corrections and the targeted follow-up audit remain
-pending; this clarification does not declare Slice 20 complete.
+Slice 20 is now complete following corrective work, four successful independent
+manual software validations, automated regression tests, and the reported
+Jetson scientific-camera acquisition and visual inspection recorded in W029.
+
+**Slice 21 clarification:** Decision 239 does not add rejection history to
+Session or convert a rejected preparation attempt into an Experiment execution.
+The current start path prepares outputs before ensuring the descriptor and
+recording canonical start. Rejection evidence belongs to the existing
+runtime Evidence Archive, separate from descriptors and lifecycle evidence.
+W021's historical descriptor validation does not validate Slice 21; W030
+separately records its completed validation.
 
 ---
 
@@ -1206,6 +1225,177 @@ Validate that Controller finalization gathers Ingestor-owned durable runtime evi
 - no Session or Experiment lifecycle semantics, retry, replay, reconnect, or buffering behavior changes
 
 This workflow validates persistence of the runtime-evidence representation. It does not validate the separately implemented Phase 12 LocalStorageManager, authoritative local ArtifactManifest lifecycle, or LocalStorageCompletionSummary, nor the future global collection path.
+
+---
+
+# W029 - Slice 20 Jetson Scientific Camera HDF5 Validation
+
+**Status:** Completed - Slice 20
+
+## Purpose
+
+Record the user-reported successful end-to-end NVIDIA Jetson hardware validation
+using `scripts/manual_opencv_camera_smoke.py`, separately from simulated tests.
+
+## Workflow
+
+```text
+Controller
+    -> AcquisitionNode
+    -> DeviceManager
+    -> OpenCVCameraAdapter
+    -> LocalStorageManager
+    -> finalized HDF5 artifact and ArtifactManifest
+    -> closed acquisition resources
+    -> HDF5 reopening and validation
+    -> read-only recorded-frame visualization
+```
+
+Real camera frames remained local scientific data; they were not sent through
+Ingestor. Canonical Experiment lifecycle, framework timestamp ownership, stream
+preparation, local persistence, and manifest ownership retained their existing
+boundaries.
+
+## Hardware validation
+
+The reported Jetson scientific acquisition passed with:
+
+- 10-second acquisition
+- 256 recorded frames
+- frame shape `(480, 640, 3)` (640 x 480 pixels, three channels)
+- frame dtype `uint8`
+- frame indices 0-255
+- successful HDF5 persistence and reopening
+- finalized artifact and manifest
+- `validation=PASS`
+
+The subsequent visualization test also succeeded on the Jetson: recorded HDF5
+frames were displayed and visually inspected using the existing script.
+
+## Commands
+
+Scientific acquisition and validation from the repository root:
+
+```bash
+python scripts/manual_opencv_camera_smoke.py 0 --scientific --duration 10 --width 640 --height 480 --output-dir ./camera_smoke_output
+```
+
+Scientific acquisition with post-validation visual inspection:
+
+```bash
+python scripts/manual_opencv_camera_smoke.py 0 --scientific --duration 10 --width 640 --height 480 --output-dir ./camera_smoke_output --show-frames
+```
+
+Separate read-only inspection of the resulting recording:
+
+```bash
+python scripts/manual_opencv_camera_smoke.py --view-hdf5 /path/to/recorded/frames.h5
+```
+
+Use the validated camera source/backend for the target Jetson; `0` is the script's
+default camera index. Replace the illustrative recording path with the actual
+`artifact_path` printed by acquisition. Visualization requires optional
+Matplotlib. Without a graphical display it saves a PNG contact sheet beside the
+recording; the reported Jetson run successfully displayed the frames.
+
+## Software validation
+
+- Four independent manual software validations passed.
+- Full automated suite with optional Matplotlib dependencies: 284 passed.
+- Supported Python 3.12 suite: 277 passed, seven optional rendering tests skipped.
+
+Automated camera tests use simulated hardware and are not the Jetson hardware
+validation. The hardware acquisition and subsequent visual inspection were
+performed separately and reported by the user. These are recorded results, not
+new test executions during this documentation update.
+
+## Completion
+
+Slice 20 is complete. At its closure, the next implementation phase remained
+for the architecture chat to determine; this workflow introduces no new
+architecture or future implementation requirements.
+
+---
+
+# W030 - Slice 21 Pre-start Experiment Preparation Failure
+
+**Status:** Completed - Slice 21
+
+## Purpose
+
+Record three successful, user-reported independent manual IPython validations
+using existing public framework workflows and test fixtures, the focused
+automated audit results, and the subsequent independent audit reassessment.
+
+## Workflow
+
+```text
+Required preparation and caller-collected remote outcomes
+    -> Controller start gate
+    -> confirmed required success: canonical experiment_start
+    -> required failure or unresolved outcome: rejected command result
+        -> persistent experiment_start_rejected RuntimeEvidenceMessage
+        -> Ingestor intake, audit, and persistent evidence compilation
+        -> StorageManager Evidence Archive writing
+```
+
+AcquisitionNode reports preparation outcomes; Controller orchestrates lifecycle
+and Session records canonical lifecycle evidence. LocalStorageManager retains
+stream, artifact, manifest, and local persistence diagnostic ownership.
+Distributed preparation uses caller-managed orchestration: the caller collects
+remote results through the existing communication boundary and supplies the
+outcome to Controller. These validations are not a live NATS broker end-to-end
+test and do not establish automatic remote preparation inside start_experiment.
+
+## Manual IPython validation
+
+Three independent scenarios passed:
+
+1. **Required scientific preparation failure:** An unknown required scientific
+   product rejected start without creating an active Experiment. The Session
+   remained running; one persistent rejection matching the generated evidence
+   was archived. No Experiment lifecycle events were recorded, and Session
+   finalization succeeded.
+2. **Optional preparation failure:** An optional service reported unavailable
+   while required preparation succeeded. Experiment start succeeded without
+   rejection evidence; normal experiment_start and experiment_stop events were
+   recorded. The Session Record preserved the optional failure, and Session
+   finalization succeeded.
+3. **Missing required distributed response:** A required remote participant
+   returned no preparation result. The supplied aggregate remained unresolved
+   with the original command ID and unresolved reason preserved. Start was
+   rejected without an active Experiment; the Session remained running.
+   Exactly one matching rejection was archived, no Experiment lifecycle events
+   were recorded, and Session finalization succeeded.
+
+These are completed manual validations reported by the user, not proposed
+tests or newly executed validations during documentation synchronization.
+
+## Automated validation
+
+The focused independent audit executed:
+
+```text
+python -B -m unittest tests.test_experiment_start_rejection tests.test_scientific_output_preparation tests.test_controller tests.test_nats_communication tests.test_experiment_scientific_finalization
+```
+
+Result: **62 tests passed.** The full suite was not rerun during the audit.
+Automated tests are deterministic software checks, distinct from manual IPython
+validation and live broker or camera hardware validation.
+
+## Completion
+
+Independent audit reassessment concluded CONDITIONAL PASS with documentation
+synchronization as the only remaining closure requirement. That synchronization
+is complete; Slice 21 is closed and M009 records the milestone.
+
+Session Record failure diagnostics are legitimate under Decisions 073 and 226.
+The complete rejection message currently appears twice within the Session
+Record, while one matching message is archived. This is a minor, nonblocking
+representation observation, not an architectural violation. Simplifying those
+copies while retaining diagnostics and adding a composed distributed-preparation
+test using existing NATS broker doubles are optional future improvements;
+neither is required for closure. Additional live NATS validation is not required.
 
 ---
 

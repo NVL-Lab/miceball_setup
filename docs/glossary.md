@@ -482,6 +482,32 @@ stream, artifact, and authoritative ArtifactManifest, including zero-record
 streams. This implemented Slice 20.3 responsibility uses the existing lifecycle
 and readiness authority and is covered by automated preparation tests.
 
+Decision 239 requires Controller to establish successful required preparation
+before canonical `experiment_start`. Optional preparation failure does not block
+confirmed required success; selected scientific outputs remain required under
+Decisions 209 and 235. Slice 21 now accepts existing service-readiness and group
+command outcomes at the Controller start gate; no optional scientific-product
+field is introduced. Slice 21 is complete following the manual validations,
+focused tests, and independent audit reassessment recorded in W030.
+
+---
+
+# Experiment Start Rejection
+
+A Controller-owned pre-start outcome when required Experiment preparation has
+not succeeded. It is reported through the existing Controller command result
+and persistent `RuntimeEvidenceMessage` vocabulary
+`evidence_type="experiment_start_rejected"`, with `is_persistent=True`.
+It creates neither `experiment_start` nor `experiment_fail`, a new lifecycle
+state, nor a Session rejection history. Missing required command results remain
+unresolved rather than proving success or confirmed remote failure. Ingestor
+compiles accepted persistent rejection evidence for the existing Evidence Archive.
+Decision 239 establishes this boundary; Controller now produces the message
+through existing Ingestor intake and includes its plain form in failed command
+result details for explicit broker publication. Slice 21 is complete as recorded
+in W030 and M009. Session Record failure diagnostics remain legitimate;
+the Evidence Archive preserves the complete persistent runtime evidence.
+
 ---
 
 # storage_id

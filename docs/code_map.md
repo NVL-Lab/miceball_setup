@@ -142,10 +142,17 @@ scientific/runtime timing is rejected rather than silently rewritten.
 
 ## src/lab_sync_acquisition/controller.py
 
+Slice 21 implementation note (Decision 239): the preparation gate produces
+persistent rejection evidence through existing Ingestor intake, with the same
+message available in failed command-result details for explicit publication to
+independent brokered consumers through caller-managed orchestration. Slice 21
+is complete; W030 records manual validation, focused tests, and audit reassessment.
+
 - ControllerCommandResult: Records one command outcome and exposes its command, success, details, and error as plain evidence.
 - ControllerActionDecision: Records one health-derived Controller decision with Session, Experiment, source, policy, interpretation, and originating-observation provenance using the normalized local decision vocabulary.
-- Controller: Sequentially coordinates one Session, exposes accepted expected runtime participants, records normalized decisions, hands active Experiment timing context and health mapping separately to AcquisitionNode, creates canonical lifecycle evidence, handles runtime failure cleanup, and orchestrates Phase 13 initial record, evidence archive, final record, then Session completion.
-- Controller.start_experiment: Accepts keyword-only `scientific_outputs=()`, rejects terminal identities before preparation and unknown node selections, and gates canonical start evidence and runtime activation on AcquisitionNode scientific-output preparation using the existing readiness contract.
+- Controller: Sequentially coordinates one Session with optional keyword-only `component_id="controller"` for producer identity, preserves existing ownership, and orchestrates preparation, lifecycle, runtime cleanup, and final persistence.
+- Controller.start_experiment: Accepts keyword-only `scientific_outputs=()`, `preparation_readiness=()`, and `preparation_outcomes=()`, gates start on required readiness and correlated final remote successes, and reports preparation rejection once as persistent runtime evidence in failed result details without lifecycle activation.
+- Controller._record_failed_command: Records an unsuccessful command with optional plain diagnostic details, including the produced rejection message for a pre-start preparation failure.
 - Controller.stop_experiment: Records canonical normal-stop evidence, clears active runtime context and health mapping, and requests finalization of only that Experiment's streams without stopping the Session or acquisition runtime.
 - Controller.execute_controller_action_decision: Executes accepted no-mutation or failure decisions, finalizing Experiment streams for `experiment_fail` and retaining the existing failed-Session cleanup path for `session_fail`.
 - Controller.stop_session: Stops runtime and scientific persistence, records normal-stop evidence for any active Experiment, and then stops the Session through its existing lifecycle.
@@ -192,7 +199,8 @@ scientific/runtime timing is rejected rather than silently rewritten.
 - DurablePublicationError: Reports failed JetStream publication with message class, message identity, subject, intended stream, and reason while leaving the original message caller-owned.
 - NatsCommunicationBoundary: Owns a real nats-py connection, reports NATS availability through ServiceReadiness, creates accepted JetStream streams, and handles JSON serialization, durable publication acknowledgement, and Core NATS telemetry mechanics without domain semantics.
 - NatsControllerCommunication: Publishes unicast or issuer-fanned group commands, consumes and aggregates addressed per-target command results over an issuer-defined window, records missing results as unresolved, and independently presents HealthInterpretationEvidence without relaying evidence.
-- NatsAcquisitionNodeCommunication: Consumes targeted commands, invokes existing node readiness or start_runtime, run_one_iteration, and stop_runtime behavior, deduplicates by command_id, and publishes explicit results and AcquisitionNode-owned evidence.
+- NatsAcquisitionNodeCommunication: Consumes targeted readiness, scientific-output preparation, or runtime commands, deduplicates by command_id, and publishes explicit outcomes without owning Experiment lifecycle.
+- NatsAcquisitionNodeCommunication.execute_command: Executes `prepare_experiment_scientific_outputs` through the existing node API with explicit Experiment/product identities and returns readiness diagnostics in the existing correlated final command result.
 - NatsIngestorCommunication: Consumes durable RuntimeEvidenceMessage records and passes them to InMemoryIngestor for separate evidence intake and audit.
 
 ## src/lab_sync_acquisition/service_readiness.py

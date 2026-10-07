@@ -224,6 +224,86 @@ The framework now preserves an auditable runtime chain from configured policy an
 
 ---
 
+# M008 - Slice 20 Scientific Camera Persistence and Jetson Validation
+
+**Status:** Completed
+
+## Goal
+
+Complete Slice 20 by demonstrating real camera-frame collection, Experiment-scoped
+local HDF5 persistence, finalization, reopening, and visual inspection on Jetson.
+
+## Demonstrated
+
+- Controller -> AcquisitionNode -> DeviceManager -> OpenCVCameraAdapter -> LocalStorageManager integration
+- explicit scientific-product selection and prepared scientific streams
+- real NVIDIA Jetson camera acquisition for 10 seconds
+- 256 `uint8` frames, shape `(480, 640, 3)`, indices 0-255
+- HDF5 persistence and reopening with finalized artifact and manifest
+- `validation=PASS` from the existing manual camera smoke script
+- recorded frames successfully displayed and visually inspected on Jetson
+
+## Validation
+
+W029 in `validated_workflows.md` records the hardware results and acquisition/
+visualization commands, including `--show-frames` and `--view-hdf5`.
+Four independent manual software validations passed. The automated suite passed
+284 tests with optional Matplotlib dependencies; the Python 3.12 suite passed
+277 tests with seven optional rendering tests skipped. Simulated automated
+tests are distinct from the user-performed Jetson hardware validation.
+
+## Confidence gained
+
+The scientific camera vertical slice preserves frames through the accepted
+framework ownership chain into finalized, readable local artifacts and supports
+subsequent read-only visual inspection. Slice 20 is complete; subsequent
+Slice 21 completion is recorded separately in M009.
+
+---
+
+# M009 - Slice 21 Pre-start Experiment Preparation Failure
+
+**Status:** Completed
+
+## Goal
+
+Establish successful required preparation before canonical Experiment start,
+preserving rejected attempts as persistent runtime evidence without introducing
+new lifecycle states or changing component ownership.
+
+## Demonstrated
+
+- required scientific preparation failure rejects start without an active Experiment
+- optional service failure permits start when all required preparation succeeds
+- supplied missing required remote responses remain unresolved and block start
+- rejected starts produce persistent experiment_start_rejected evidence, not experiment_start or experiment_fail
+- one matching rejection is preserved in the existing Evidence Archive
+- Session remains running after rejected preparation and can finalize successfully
+- Session Record retains useful failure diagnostics
+- distributed preparation retains caller-managed orchestration
+
+## Validation
+
+W030 records three successful independent manual IPython validations using
+existing public framework workflows and test fixtures. The focused independent
+audit passed 62 automated tests; the full suite was not rerun during that audit.
+These validations do not constitute a live NATS broker end-to-end test.
+
+The revised independent audit concluded CONDITIONAL PASS with documentation
+synchronization as its only remaining closure requirement. Synchronization is
+complete. Redundant raw rejection representation and a composed distributed
+preparation test remain nonblocking improvement opportunities, not closure
+requirements. Additional live NATS validation is not required.
+
+## Confidence gained
+
+Preparation failures and missing required outcomes cannot be mistaken for a
+successfully started or failed active Experiment in the validated workflows.
+Existing lifecycle and persistence boundaries preserve useful diagnostics.
+Slice 21 is complete; no subsequent implementation slice is begun here.
+
+---
+
 # Future Milestones
 
 Planned future milestones include:
