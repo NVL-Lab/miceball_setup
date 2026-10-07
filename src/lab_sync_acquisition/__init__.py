@@ -90,8 +90,11 @@ from lab_sync_acquisition.opencv_camera import (
     SeeedIMX219OpenCVCameraAdapter,
 )
 from lab_sync_acquisition.storage import (
+    ArtifactCollectionResult,
+    ArtifactRetrievalResult,
     InMemoryStorageManager,
     PersistentStorageManager,
+    SshRetrievalEndpoint,
 )
 from lab_sync_acquisition.synchronization import (
     AcquisitionNodeLocalTimeReport,
@@ -129,6 +132,9 @@ __all__ = [
     "RuntimeEvidenceAuditRecord",
     "InMemoryStorageManager",
     "PersistentStorageManager",
+    "ArtifactCollectionResult",
+    "ArtifactRetrievalResult",
+    "SshRetrievalEndpoint",
     "OpenCVCameraConfig",
     "SeeedIMX219OpenCVCameraAdapter",
     "DeviceLifecycleResult",

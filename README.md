@@ -200,8 +200,8 @@ Ingestor-accepted durable runtime evidence and its intake audit.
 
 Phase 10 is implemented through the accepted brokered Control Plane boundary,
 including configured group-command fan-out, issuer-owned result aggregation,
-and unresolved missing-response evidence. Recovery policy and the pull-based
-Artifact Plane backend remain intentionally deferred.
+and unresolved missing-response evidence. Recovery policy remains deferred.
+The separate Slice 23 SSH/SFTP Artifact Plane implementation is described below.
 
 The readiness, publication-failure, independent Controller/Ingestor evidence
 consumption, artifact-manifest, and Core NATS telemetry paths have also been
@@ -424,7 +424,104 @@ Controller's finalize_session result exposes artifact_collection_handoff with
 session_id and artifacts entries containing artifact_manifest and
 missing_finalization_evidence. Current Ingestor retention is in memory. Slice 22
 validation used simulated devices and NATS broker doubles, not live NATS or
-hardware acquisition; no artifact-byte retrieval or global collection is implemented.
+hardware acquisition; artifact-byte retrieval was not implemented by Slice 22.
+
+Slice 23 (Decisions 245-260, M011) now provides SSH/SFTP pull retrieval through
+`PersistentStorageManager.collect_artifacts(handoff)` and explicit post-session
+`Controller.collect_session_artifacts()`. Install the optional dependency with
+`pip install -e ".[artifact-retrieval]"` and supply `global_artifact_root` plus
+deployment-local `retrieval_endpoints` keyed by AcquisitionNode ID. Each manifest
+selects one source file; auxiliary managed paths are not a retrieval list.
+Collection returns per-artifact and aggregate outcomes without changing Session
+completion policy or authoritative local files. Automated tests use SSH/SFTP doubles;
+the Slice 24 software validation also exercises retrieval and handoff behavior
+(W032). Real Jetson/SSH-SFTP deployment validation remains pending; M011 is open.
+
+Phase 14 / Slice 24 light-verification architecture is accepted in Decisions
+261-270 and is complete (M012, W032), with 26 focused verification tests,
+21 retrieval/handoff regression tests, six independent manual IPython scenarios,
+and a corrected independent re-audit PASS. The final full suite ran 340 tests:
+333 passed, seven optional rendering tests skipped, and no failures. These are
+previously executed/reported software results, not real SSH/SFTP validation.
+It assigns
+StorageManager bounded, non-destructive structural checks after successful global
+copy publication, separate from retrieval success and scientific validation.
+The first contract covers the current LocalStorageManager HDF5 layout, not all
+HDF5 or a device-specific verifier; zero-record artifacts remain valid. Other
+formats are copied_unverified. Per-artifact retrieval success remains separate
+from verification; aggregate `succeeded` requires successful retrieval and verified
+status for every requested artifact (empty collections remain successful).
+No manifest redesign or Session lifecycle consequence policy is introduced.
+Existing retrieval remains Slice 23 behavior.
+
+The initial audit's HDF5 diagnostic-text classification defect was corrected:
+structural rejection without an underlying operational file-access failure is
+structurally_invalid; an operational access/read failure preventing a conclusion
+is verification_failed. Completed copies remain unchanged in either case.
+
+Phase 14 / Slice 25 Post-session Global Artifact Collection Evidence is accepted
+in Decisions 271-275 and is complete (M013, W033), following independent manual
+software validation and corrected independent re-audit PASS. StorageManager owns
+one compiled persistent `global_artifact_collection_evidence`
+record per completed pass through the existing runtime-evidence boundary and
+same-Session Evidence Archive. It records attempted-artifact collection/verification
+outcomes without a duplicate manifest or aggregate evidence status. Collection-pass
+timestamps are operational wall-clock audit time, not scientific Session Time.
+
+Session acquisition end freezes scientific Session Time and ends scientific
+acquisition; required post-session processing may remain. Controller orchestrates
+Session processing finalization after that work and handling of persistent evidence.
+Ending one Experiment does not trigger Session-wide collection. The archive must
+not be treated as finally complete before legitimate post-session evidence can
+be produced. Configure PersistentStorageManager with the existing async
+`evidence_publisher` callable and logical `component_id`; the explicit sequence is
+`Controller.stop_session()`, await `Controller.collect_session_artifacts_with_evidence()`,
+then `Controller.finalize_session()`. Publication failures are reported through
+the existing DurablePublicationError/Controller command-result path. Finalization
+rejects active collection/publication without lifecycle mutation; the guard clears
+after success, failure, or cancellation. Copied size comes from the temporary
+file position; unavailable size is null without changing actual outcomes or
+preventing later attempts. W033 records the initial audit FAIL, both corrections,
+manual Scenarios 1-5 and 6B PASS (Scenario 6 inconclusive), and final re-audit PASS.
+Final tests: 18 Slice 25, 21 retrieval/handoff, 26 verification, and 47
+Controller/communication/archive passed; full discovery 351 passed and 7 optional
+rendering skips (358 total). These are prior results, not new closure validation. The
+Session-wide evidence-drain/Ingestor-consumption guarantee remains OPEN in Q019
+and is not implemented; durable acceptance is not proof of consumption.
+Collection failure does not retroactively change acquisition success; further
+lifecycle consequences remain Q017. M011 remains open pending real Jetson/SSH-SFTP
+deployment validation, and M012 remains complete. W033 records Slice 25's software
+validation, not live NATS or real Jetson/SSH-SFTP deployment validation. The legacy
+unconfigured synchronous collection path remains supported.
+
+Phase 14 / Slice 27 Ingestor Crash Recovery and Handoff Reconstruction implements
+Decisions 276-280 and is complete (M014, W034), following independent manual
+software validation, correction of the initial audit's one blocking defect,
+and targeted independent re-audit PASS.
+Slice 26 was redundant with Slice 25 and did not become a separate implementation slice. Slice 27 adds an
+Ingestor-owned append-only local JSONL recovery journal for all accepted runtime
+evidence, regardless of permanent persistence intent, with durable journal-before-ACK
+acceptance, evidence_id deduplication, and normal-view restoration for a known
+Session. The existing artifact handoff compiler is reused; successful recovery
+produces persistent ingestor_recovery_evidence through normal acceptance.
+Configure `InMemoryIngestor(session_id=..., recovery_journal_path=...,
+component_id=...)` with an explicit known Session and caller-chosen JSONL path;
+the parent directory must already exist. Broker evidence subscriptions require
+matching journal configuration. Legacy local in-memory use remains available.
+W034 preserves the actual history: manual Scenarios 1-5 PASS; Scenario 6 exposed
+an uncertain-fsync architectural ambiguity, clarified within Decision 276;
+Scenario 6R PASS; initial audit FAIL for a separate corrupt-final classification
+defect; minimal correction; Scenario 7's nine checks PASS; targeted re-audit PASS
+with Decisions 276-280 all SATISFIED. No journal format or public API changed.
+Final automated results, confirmed independently: 25 recovery tests, 39
+storage/communication/NATS regressions, and 82 artifact/Controller regressions
+passed; full discovery 376 passed, zero failed, and seven optional rendering
+skips (383 total). These are prior validation results, not tests run during closure.
+Journal cleanup/retention and application-wide restart/discovery remain Q024;
+Q019's Session-wide evidence-consumption/finalization guarantee remains OPEN.
+Software closure does not validate hardware deployment, real Jetson/SSH-SFTP,
+or live JetStream server crash/recovery. M011 remains open; M012 and M013 remain
+complete.
 
 The existing NATS dispatcher accepts `prepare_experiment_scientific_outputs`
 with payload `{"experiment_id": ..., "scientific_outputs": [...]}` using output

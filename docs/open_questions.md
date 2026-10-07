@@ -142,6 +142,9 @@ mutating that default or affecting later Sessions. The external representation
 and propagation mechanism remain open; root ownership and override semantics
 are no longer open questions.
 
+Deployment-local retrieval configuration and its initialization handoff are
+tracked separately in Q022, as future work after Phase 14.
+
 ### Questions
 
 * What external configuration file format should be used?
@@ -249,6 +252,10 @@ Decision 143 keeps durable-message ownership with the producer until successful 
 
 Do not infer recovery behavior from JetStream durability. Publication recovery remains a separate future architecture decision.
 
+Slice 27's accepted Ingestor journal recovery (Decisions 276-280) concerns evidence
+after transport publication and normal JetStream redelivery, not unpublished
+producer messages. It does not resolve this publication-recovery question.
+
 ---
 
 ## Q013: What further framework behavior follows ControllerActionDecision execution?
@@ -273,6 +280,13 @@ Decisions 103-114 establish the runtime health evidence chain and normalized loc
 ### Why this matters
 
 Sender-side robustness now preserves evidence before handoff, while Decisions 219-231 assign Ingestor runtime evidence intake, intake validation, ingest audit, temporary runtime retention, and persistent runtime-evidence compilation. The detailed receiver-side validation model remains separate. The Ingestor may eventually need to detect malformed envelopes or messages, missing timing, duplicated evidence presentation, or incomplete sessions.
+
+Decisions 276-280 settle accepted RuntimeEvidenceMessage crash durability and
+evidence_id duplicate/conflict handling in completed Slice 27 (M014, W034),
+independently software-validated with corrected targeted re-audit PASS.
+General envelope/domain validation remains open; it must not reopen that settled
+runtime-message acceptance identity or imply journaled nonpersistent evidence
+becomes permanently persistent.
 
 ### Questions
 
@@ -353,6 +367,9 @@ the other orchestration questions below remain deferred.
 
 Decisions 115-149 settle the communication boundary, and the implemented Controller consumer now independently receives Session-scoped `HealthInterpretationEvidence` through JetStream. Operational recovery and duplicate-presentation behavior remain unresolved.
 
+Decisions 276-280 settle only Ingestor acceptance/reconstruction deduplication.
+They do not decide Controller restart or repeated-action execution, so Q016 remains open.
+
 ### Questions
 
 * How are consumer acknowledgement, restart, and duplicate presentation handled without repeating Controller actions?
@@ -365,29 +382,68 @@ Decisions 115-149 settle the communication boundary, and the implemented Control
 
 ---
 
-## Q017: What is the artifact transfer backend and verification workflow?
+## Q017: What Session lifecycle consequence follows artifact collection or verification failure?
+
+**Status:** OPEN / FUTURE - high-level architecture
 
 ### Why this matters
 
-Decisions 118-121, 147-149, and 178-218 establish a separate, pull-based Artifact Plane. LocalStorageManager owns the authoritative local ArtifactManifest and original local scientific record; transfer creates additional managed copies and never changes original ownership. The decisions intentionally do not choose the transfer backend, scheduling, verification, checksums, retention, cleanup, or destination layout.
+Decisions 245-260 settle the Slice 23 contract: StorageManager pulls one file per
+manifest using SSH/SFTP and deployment-local endpoint configuration, writes a
+deterministic global copy through a temporary destination, and reports independent
+per-artifact and aggregate outcomes. Local ownership remains unchanged. This
+architecture has software validation recorded in W032; real Jetson/SSH-SFTP
+deployment validation remains pending (M011 open).
+
+Slice 23 reports collection outcomes but does not decide whether failure fails
+the Session, leaves it completed, produces a warning, requires operator action,
+or has another lifecycle consequence. That policy requires an explicit decision
+in a future high-level architecture phase, not another Slice 23 requirement.
+
+Decisions 261-270 accept Slice 24 light verification and separate retrieval,
+per-artifact verification, and aggregate reporting, implemented and software-validated
+with M012 complete (W032). They do not resolve this question: copied_unverified,
+structurally_invalid, verification_failed, and
+retrieval failure do not themselves authorize Session lifecycle changes.
+
+Decisions 271-275 accept persistent post-session collection evidence and
+distinguish Session acquisition end from Session processing finalization.
+Collection failure must not retroactively change acquisition success, Experiment
+lifecycle, or local finalization. Further operational/lifecycle consequences
+remain open here; publication/consumption coordination before archive closure
+is tracked separately in Q019. Slice 25 is complete (M013, W033) after independent
+manual software validation and corrected independent re-audit PASS.
+
+Acquisition outcome, Experiment lifecycle outcome, local artifact finalization,
+global artifact collection, and Session lifecycle/final completion are distinct.
+Local completion is independent of global Session Record completion. Transfer
+creates additional managed copies without transferring ownership of the original
+local scientific record; post-session collection is not acquisition.
 
 ### Questions
 
-* What endpoint/reference information resolves an AcquisitionNode-local artifact path?
-* What transfer protocol and authentication model are used?
-* How are transfer completion and verification represented as durable evidence?
-* What checksum, resume, retention, and cleanup policies apply?
-* How does StorageManager retrieve and verify managed copies from the accepted manifest handoff?
+* Does failed post-session collection prevent successful Session completion?
+* Can a Session remain completed while global collection is failed, partial, or pending?
+* Should collection or verification failure, or copied_unverified status, require a warning or operator action while preserving completed acquisition status?
+* Should consequences depend on whether an artifact is required or optional, or whether it finalized locally?
+* Should consequences differ for a missing source file, unreachable node, missing retrieval configuration, permission denial, failed copy, or failed verification?
+* Which, if any, of Session lifecycle, Experiment lifecycle, local artifact status, and global collection status should change?
 
 Decisions 240-244 settle ownership: Controller initiates post-session collection,
 Ingestor compiles the manifest handoff, and StorageManager owns retrieval and
-global storage. Slice 22 does not implement the Artifact Plane transfer backend.
+global storage. Slice 22 does not implement the Artifact Plane transfer backend;
+Slice 23 implements that backend; real Jetson/SSH-SFTP deployment validation
+remains pending (M011 open), separate from W032's software validation.
+
+Related questions are kept separate: deployment initialization in Q022, source
+existence/reachability in Q023, extended global-copy verification and retention in
+Q020, extended transfer progress evidence, resume, and retry in Q021, and
+Session-wide evidence consumption before final archive closure in Q019.
 
 ### Blocks
 
-* Artifact transfer implementation
-* Storage consolidation
-* Reconstruction from transferred artifacts
+* Future high-level collection-consequence policy
+* Future Session completion policy for failed or partial global collection
 
 ---
 
@@ -418,10 +474,21 @@ The future synchronization design must preserve the accepted Phase 11 principles
 This question does not block current Phase 11 implementation slices that only require mapping ownership and evidence preservation.
 
 
-Q019: What is the Global StorageManager evidence model?
+Q019: How is Session-wide evidence consumption coordinated before processing finalization?
+**Status:** OPEN / FUTURE - Session processing/finalization architecture
+
 Why this matters
 
 Phase 12 established LocalStorageManager ownership of local scientific persistence. Decisions 219-231 establish that Ingestor compiles persistent runtime evidence and StorageManager writes the Evidence Archive and final Session Record. The framework still needs to define how the future global StorageManager assembles finalized local discovery information and scientific artifacts without taking ownership of the original local scientific records.
+
+Decisions 271-275 settle the narrow global collection evidence model: StorageManager
+produces one compiled persistent record per completed pass through the existing
+durable evidence boundary. Scientific acquisition end is not Session processing
+finalization, and the Evidence Archive must not be treated as finally complete
+before legitimate post-session evidence has an opportunity to be produced.
+The accepted model is implemented through explicit awaited publication before
+finalization; it does not resolve the broader
+Session-wide consumption guarantee below.
 
 Questions
 Decisions 240-244 settle the Slice 22 handoff: Ingestor groups Session-scoped
@@ -430,11 +497,29 @@ manifest or initial manifest with missing finalization reported, and makes the
 handoff available to Controller. Controller coordinates delivery to StorageManager.
 Compilation is implemented, manually validated, and independently audited with
 verdict PASS; Slice 22 is complete (W031, M010). Diagnostic association remains
-outside this slice, as do restart recovery and Artifact Plane retrieval.
+outside Slice 22, as do its historical restart-recovery and Artifact Plane
+retrieval exclusions. Decisions 276-280 now accept known-Session Ingestor journal
+recovery in completed Slice 27 (M014, W034), independently software-validated
+with corrected re-audit PASS, using the unchanged handoff compiler.
 
-Where should reconstruction of in-memory Ingestor artifact information after process restart be placed in the future roadmap?
+Known-Session reconstruction of the normal Ingestor evidence/handoff view is
+settled by Decisions 276-280 and completed under M014 after independent manual
+software validation and corrected targeted re-audit PASS (W034). Recovery-journal
+cleanup and application-level Session discovery/resumption remain deferred in Q024.
 Which finalized local evidence must every LocalStorageManager provide?
-When is evidence considered globally accepted?
+How does Controller know that all durably published evidence associated with a
+Session has actually been consumed/accepted by Ingestor before compiling and
+finally closing the Evidence Archive?
+What Session-wide publication/consumption ordering, JetStream consumer acknowledgment
+state, evidence draining, final shutdown guarantees, and Controller coordination
+establish that condition for all persistent runtime evidence?
+How is durable transport acceptance distinguished from Ingestor acceptance and
+final persistent archive completion?
+W033's manual Scenario 4 deliberately accepted publication without delivery:
+Ingestor retained zero collection records and finalization produced an archive
+without that undelivered evidence. This demonstrates the open consumption gap,
+not a Slice 25 implementation failure. The corrected active-operation guard
+prevents overtaking publication, but does not resolve post-publication consumption.
 How are multiple LocalStorageManagers reconciled into one global Session view?
 How are missing LocalStorageManagers or incomplete evidence represented?
 What evidence remains local even after global collection?
@@ -442,6 +527,13 @@ Blocks
 Global evidence integration beyond the v1 Evidence Archive
 Global evidence persistence
 Future global integration beyond the accepted handoff; no Slice 22 lifecycle change
+Future Session-wide processing/finalization and evidence-drain guarantees
+
+This remains OPEN and belongs to a future Session processing/finalization
+architecture phase. It is not StorageManager-specific. Slice 25 must not invent
+consumer-ACK waiting, polling, sleeps, arbitrary delays, evidence-count assumptions,
+or new broker protocols. If minimum Slice 25 ordering/wiring requires deciding
+this protocol, implementation must stop and report the dependency.
 
 
 Q020: What is the global finalized scientific-data collection model?
@@ -452,11 +544,20 @@ After local scientific records are finalized, the framework must define how fina
 Questions
 Controller initiation and StorageManager retrieval ownership are settled by
 Decision 240; Slice 22 implements information handoff only, not byte collection.
-What constitutes a globally managed copy?
-How are transferred artifacts associated with their ArtifactManifest?
-What verification is required before global acceptance?
-What remains owned locally after successful collection?
+Decisions 248-260 define the single-file global copy, manifest-identity destination,
+successful transfer/closure/promotion, and unchanged local ownership. Implementation
+has software coverage in W032; real Jetson/SSH-SFTP deployment validation remains
+pending (M011 open). These ownership and v1 success questions are no longer open.
+Decisions 261-270 settle StorageManager light-verification ownership and the first
+contract for the current LocalStorageManager HDF5 layout. This architecture is
+implemented and software-validated (M012 complete, W032); it does not redefine
+Slice 23 retrieval success, require nonempty scientific records, redesign manifests, or resolve Session
+lifecycle policy (Q017). Source reachability remains distinct under Q023.
+What future format/layout contracts should cover JSONL, additional HDF5 layouts, binary electrophysiology, and other scientific products?
+What future checksum or deeper verification policy, if any, extends the bounded Slice 24 contract?
+How should a future broader ScientificProduct structural contract describe arbitrary products and instantiated expectations, relate device/component capabilities to Experiment selections, and relate persisted layouts to verification contracts without assuming a universal HDF5 schema?
 What retention or deletion policies separate local and global copies?
+What future cleanup policy applies to local and global copies?
 Blocks
 Global scientific storage
 Reconstruction
@@ -474,12 +575,129 @@ How is AcquisitionNode availability monitored?
 When may transfers begin?
 How are interrupted transfers resumed or retried?
 How is transfer progress represented?
-How are transfer failures recorded?
-What operational evidence is generated during transfer?
+Decisions 271-274 settle post-session collection-pass evidence: one StorageManager-owned
+compiled persistent global_artifact_collection_evidence record containing actual
+per-artifact collection and verification outcomes through the existing evidence
+path. This is completed Slice 25 behavior (M013, W033), not an open
+ownership/granularity question. Session-wide archive-finalization coordination
+remains Q019.
+What additional operational progress evidence, if any, is required during future
+scheduled or resumable transfer beyond the accepted completed-pass evidence?
 Blocks
 Online deployment
 Large-artifact movement
 Distributed operation
+
+---
+
+## Q022: What is the deployment-local configuration and initialization model?
+
+**Status:** OPEN / FUTURE - a future phase after Phase 14, not another Phase 14 slice
+
+### Why this matters
+
+Decision 076 establishes public-repository configuration boundaries: deployment
+values belong in untracked local configuration derived from committed templates,
+not hard-coded or committed machine-specific values. Decision 247 settles
+endpoint ownership: StorageManager consumes deployment-local configuration that
+resolves logical `acquisition_node_id` to a retrieval endpoint; portable manifests
+and handoffs do not carry endpoint or authentication information.
+
+Slice 23 may consume an already-provided retrieval configuration/resolver. It
+does not define creation, loading, initialization-time validation, or propagation
+through startup/Controller/Session initialization. Q008 retains the broader
+configuration-model questions; this entry isolates deployment initialization.
+
+### Questions
+
+* How is deployment-local configuration created and maintained from repository templates?
+* How is logical `acquisition_node_id` mapped to retrieval endpoint information?
+* Where do SSH/SFTP host aliases, hostnames, usernames, key paths, and authentication references live, and how are they provisioned locally?
+* How is local-only configuration loaded and supplied to StorageManager through startup, Controller, or Session initialization?
+* How should existing readiness checks determine whether required retrieval configuration exists?
+* How are machine-specific values kept out of committed files, ArtifactManifest, Ingestor handoffs, portable Session evidence, and Experiment configuration while honoring Decisions 076 and 247?
+* How can this remain explicit and minimal without prematurely introducing a NetworkManager, dynamic discovery service, secret manager, database, transfer scheduler, or retry/replay system?
+
+### Blocks
+
+* Future deployment configuration and initialization architecture after Phase 14
+* Future initialization/readiness validation of deployment-local retrieval configuration
+
+---
+
+## Q023: When, where, and by whom should artifact source existence be verified?
+
+**Status:** OPEN / FUTURE
+
+### Why this matters
+
+Local finalization evidence, manifest/handoff evidence, current source
+existence/reachability, and global-copy verification answer different questions
+and are not equivalent statuses:
+
+* Local finalization evidence: did LocalStorageManager report the artifact finalized?
+* Manifest/handoff evidence: did Ingestor receive evidence describing the artifact?
+* Source existence/reachability: can the source still be found and opened or reached when collection is attempted?
+* Global-copy verification: was the retrieved copy successfully stored and checked under the accepted retrieval contract?
+
+LocalStorageManager knows about local creation/finalization; Ingestor retains
+manifest/completion evidence; StorageManager encounters remote reachability
+through retrieval. None of these alone proves the other statuses.
+
+Decision 251 remains accepted: Slice 23 attempts retrieval directly, without a
+separate `exists(source)` pre-probe. Its minimal retrieval checks and reported
+outcomes do not settle a broader source-verification or readiness-time policy.
+This question introduces no new required check and does not amend Decision 251.
+Decision 256 does not require checksum verification. Decisions 261-270 accept
+separate post-copy light verification for the current HDF5 layout, not source
+existence checks. Extended layout contracts and deeper global-copy verification
+remain separate in Q020; Session consequences remain in Q017.
+
+### Questions
+
+* Should future source-existence checks occur before acquisition, after local finalization, during handoff compilation, at retrieval, or at multiple stages?
+* Who owns each check, distinguishing LocalStorageManager local-file knowledge, Ingestor evidence intake, and StorageManager remote reachability?
+* How should local existence differ from remote reachability, and when, if ever, should existence checks also inspect size or metadata?
+* How should a missing local artifact, manifest with absent file, unreachable node, missing endpoint, permission denial, or invalid path be represented?
+* Should verification failure affect local artifact outcome or global collection only? Any Session lifecycle consequence remains the high-level question in Q017.
+* How should future checks preserve the independence of local completion and global collection?
+* How can checks avoid deep verification or large-file reads solely to answer existence, and avoid embedding network-reachability assumptions in portable manifests or handoffs?
+
+### Blocks
+
+* Future source-verification and readiness-time checking architecture
+* Future source-verification failure representation, without changing Slice 23
+
+## Q024: What is the application restart and recovery-journal lifecycle?
+
+**Status:** OPEN / FUTURE - outside Slice 27
+
+### Why this matters
+
+Decisions 276-280 accept Ingestor crash recovery for an already-known Session,
+not application-wide recovery or a journal deletion policy. Q020's scientific
+artifact retention is distinct from temporary Ingestor recovery-state lifecycle;
+Q019 still owns evidence-consumption/finalization coordination. Q022 retains
+deployment-local configuration responsibilities.
+
+### Questions
+
+* When is a recovery journal safe to delete, and which existing owner performs deletion?
+* How are journals retained across program restart and handled when Sessions are abandoned?
+* What cleanup is permitted after successful Session processing finalization without losing required recovery state?
+* How does a restarted application discover and select unfinished Sessions, rather than starting Ingestor with an already-known Session?
+* How are multiple unfinished Sessions and complete Controller/application lifecycle restoration handled?
+* How does future recovery orchestration relate to Q019's separate evidence-consumption/finalization guarantee?
+
+### Blocks
+
+* Future recovery-journal cleanup/retention and abandoned-journal handling
+* Application-wide restart/discovery/resumption and lifecycle restoration
+
+These questions do not block accepted known-Session journal recovery and must
+not become Slice 27 implementation requirements.
+
+---
 
 I also recommend slightly adjusting the roadmap now:
 

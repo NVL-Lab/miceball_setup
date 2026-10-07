@@ -111,7 +111,11 @@ async def run_demo(server_url: str) -> None:
         )
         controller = NatsControllerCommunication(controller_boundary)
         node_runtime = NatsAcquisitionNodeCommunication(node_boundary, node)
-        evidence_ingestor = InMemoryIngestor()
+        evidence_ingestor = InMemoryIngestor(
+            session_id=session_id,
+            recovery_journal_path=Path(directory) / "runtime-evidence-recovery.jsonl",
+            component_id="ingestor-001",
+        )
         ingestor = NatsIngestorCommunication(
             ingestor_boundary,
             evidence_ingestor,

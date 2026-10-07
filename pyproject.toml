@@ -8,5 +8,8 @@ version = "0.1.0"
 requires-python = ">=3.12,<3.13"
 dependencies = ["nats-py>=2.15,<3", "numpy>=1.26,<3", "h5py>=3.11,<4"]
 
+[project.optional-dependencies]
+artifact-retrieval = ["paramiko>=3.4,<5"]
+
 [tool.setuptools.packages.find]
 where = ["src"]

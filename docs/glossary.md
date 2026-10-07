@@ -43,6 +43,13 @@ Examples:
 
 The Controller coordinates existing components but does not own Session lifecycle state, Acquisition Runtime execution, Session Time, device lifecycle, ingest audit, or persistent writing.
 
+Decision 275 assigns Controller overall Session processing finalization through
+required post-session operations, distinct from scientific acquisition end.
+Controller orchestrates collection but does not translate StorageManager's
+operational results into StorageManager evidence. Slice 25 implements an explicit
+awaited collection-before-finalization path; the Session-wide evidence-drain
+guarantee remains Q019.
+
 The GUI and Controller are conceptually separate, even if they run on the same machine.
 
 The Controller owns canonical Experiment lifecycle orchestration. AcquisitionNodes record local execution evidence associated with an active Experiment. Controller records action decisions for Health Interpretation Evidence explicitly presented to it; it does not perform acquisition-health policy interpretation. Controller executes the accepted local no-mutation decisions and the existing Experiment- and Session-failure paths. Notification, retry, recovery, distributed delivery, and other future consequences remain deferred.
@@ -348,6 +355,14 @@ The Ingestor owns:
 * temporary runtime retention
 * compilation of persistent runtime evidence
 
+Decisions 276-280 additionally accept Ingestor-owned local recovery journaling,
+evidence_id acceptance deduplication, and restoration of the normal evidence view
+for a known Session. Slice 27 explicitly configured recovery journaling is complete
+after independent manual software validation and corrected targeted re-audit PASS
+(M014, W034). The normal working view remains
+in memory. This temporary crash durability is not a producer persistence decision
+or a transfer of permanent Evidence Archive ownership from StorageManager.
+
 The Ingestor does not own scientific time, evidence interpretation, lifecycle, scientific meaning, or persistence decisions. It must not infer persistence from evidence type, payload, source component, or domain meaning; it uses the explicit persistence intent carried by `RuntimeEvidenceMessage`.
 
 The Ingestor is not the universal online pipe for every scientific sample, frame, continuous data row, or large artifact byte. Producing components may store authoritative scientific data locally and represent artifact lifecycle through durable manifests.
@@ -380,6 +395,68 @@ The NATS-based runtime communication plane for commands, command results, lifecy
 
 ---
 
+# Ingestor Recovery Journal
+
+Accepted Slice 27 append-only local JSONL accepted-message history owned by
+Ingestor (Decisions 276-280), implemented with explicit Session/path configuration
+and software-validated with corrected independent re-audit PASS (M014, W034).
+Complete accepted
+RuntimeEvidenceMessages cross a flush/fsync-equivalent durable boundary before
+normal working-state update and broker ACK. Both persistence-flag values are
+journaled; nonpersistent evidence does not become permanently persistent.
+Live acceptance requires reported durability success. On restart, complete valid
+journal entries are authoritative for reconstruction even if a prior durability
+operation reported failure; that error does not prove that complete bytes were lost.
+This is temporary crash-recovery state, not a snapshot, database, ingest audit,
+Session Record, permanent Evidence Archive, or replacement for JetStream.
+Journal cleanup/retention and application restart/discovery remain Q024.
+
+---
+
+# Durable Ingestor Acceptance
+
+Live-process acceptance follows successful reported journal durability before
+working-state update and ACK. A reported append/durability failure prevents that
+process's accepted-state update and ACK, and closes further intake until restart
+because the durable outcome is uncertain. Restart reconstruction accepts complete
+valid journal history, including records surviving a previously reported error;
+no commit-marker or transactional protocol is required. JetStream handles normal
+redelivery without Ingestor retry machinery. evidence_id identifies acceptance:
+identical content is acknowledged without a second journal append or processing;
+conflicting content is an error, never an overwrite (Decisions 276-277).
+
+---
+
+# Known-Session Ingestor Reconstruction
+
+Startup for a known Session replays its existing recovery journal into the normal
+accepted-evidence view and deduplication knowledge, then resumes intake. Complete
+valid journal entries are authoritative even if their previous write
+operation reported a durability error; this differs from live-process acceptance.
+Identical redelivery of a reconstructed entry is ACKed without reappend or processing.
+The existing artifact handoff compiler is reused without a reconstructed marker,
+parallel model, special command, or new format. A clearly interrupted final JSONL
+entry may be omitted for broker redelivery; completed corruption fails reconstruction,
+not silent partial recovery. This is completed, independently software-validated
+and corrected re-audited Slice 27 behavior (M014, W034),
+not application-wide Session discovery or scientific timing reconstruction.
+
+---
+
+# Ingestor Recovery Evidence
+
+Ingestor-produced RuntimeEvidenceMessage with evidence_type
+`ingestor_recovery_evidence` and is_persistent=True after successful known-Session
+reconstruction. Conceptual content is Session/Ingestor identity,
+recovered_entry_count, and recovery_time using existing envelope conventions,
+without duplicate recovered IDs/contents. It enters the normal journal/acceptance
+path and later permanent compilation, not a separate evidence store (Decision 279).
+Slice 27 is complete (M014, W034) after automated tests, independent manual software
+validation, and corrected targeted independent re-audit PASS. W034 preserves
+the clarification and audit/correction history.
+
+---
+
 # Artifact Plane
 
 The separate, future pull-based path for transferring large scientific artifacts that remain local during acquisition. Artifact bytes do not travel through NATS.
@@ -390,7 +467,7 @@ The separate, future pull-based path for transferring large scientific artifacts
 
 The authoritative local discovery record for one locally managed scientific artifact. Phase 12 assigns exclusive ownership and persistence of the local `ArtifactManifest` to the co-located LocalStorageManager; AcquisitionNode supplies scientific metadata and LocalStorageManager supplies storage metadata.
 
-An ArtifactManifest is created with its scientific stream and remains valid when that stream is finalized with zero rows. Framework-generated artifacts identify their LocalStorageManager path; externally generated artifacts identify the external path and associated LocalStorageManager-managed timing/index path or paths. Its durable `artifact_manifest_id` is distinct from the runtime `storage_id`.
+An ArtifactManifest is created with its scientific stream and remains valid when that stream is finalized with zero rows. Decisions 248-249 establish one manifest = one scientific artifact = one file. Framework-generated artifacts use `local_storage_path` as their retrieval source; external artifacts use `external_artifact_path`. Each associated framework timing/index file is a separate artifact with its own manifest. `local_managed_paths` describes auxiliary managed paths, not a retrieval list. Its durable `artifact_manifest_id` is distinct from the runtime `storage_id`. Slice 23 source selection and retrieval have software coverage recorded in W032; M011 remains open pending real Jetson/SSH-SFTP deployment validation, and no new external acquisition workflow is implemented.
 
 The implemented Phase 10 `RuntimeEvidenceMessage` form with evidence type `artifact_manifest` remains a transport representation, not a transfer of ArtifactManifest ownership.
 
@@ -543,8 +620,113 @@ intake, and the NATS adapter publishes newly produced messages after commands
 or explicit publication. Ingestor handoff compilation and Controller finalization
 readback are implemented, manually validated, and independently audited with
 verdict PASS (W031). M010 is complete. The handoff contains information, not artifact bytes or compiled
-diagnostics. Current Ingestor retention is in memory; restart reconstruction
-and its roadmap placement are outside Slice 22.
+diagnostics. The normal Ingestor working view is in memory. Restart reconstruction was
+outside Slice 22; Decisions 276-280 accept known-Session journal recovery for
+Slice 27, complete after independent software validation and corrected re-audit
+PASS (M014, W034), without changing the handoff.
+Q019 remains open.
+
+---
+
+# Global Artifact Collection Evidence
+
+StorageManager-owned persistent operational evidence for one completed
+post-session collection pass, using the runtime evidence type
+`global_artifact_collection_evidence` and `is_persistent=True` (Decisions 271-274).
+The RuntimeEvidenceMessage envelope carries `session_id` and `source_id` as the
+logical StorageManager identity; its payload carries `started_at`, `finished_at`
+and attempted-artifact results: manifest/Experiment/AcquisitionNode
+identity, artifact type, collection and verification status, global locator,
+copied byte size, and failure information. Manifest identities/type come from
+the authoritative handoff, not inference.
+
+There is one compiled record per pass, not one RuntimeEvidenceMessage per artifact,
+a duplicate ArtifactManifest, or an aggregate evidence success/failure flag.
+Collection uses `success` / `failure`; verification uses the four existing Slice 24
+outcomes and is absent/null if no verification occurs. No `not_attempted` or
+`unattempted` status is introduced. The evidence does not describe scientific
+validity, acquisition outcome, Experiment lifecycle, or local finalization success.
+
+StorageManager publishes through the existing durable runtime-evidence boundary.
+Generic Ingestor compilation and the existing same-Session Evidence Archive
+preserve it without a new file/archive or evidence owner. Slice 25 implements
+packaging and awaited publication through an injected existing callable. Slice 25
+is complete (M013, W033) after manual software validation and corrected independent
+re-audit PASS; the Session-wide consumption guarantee remains open in Q019.
+
+---
+
+# Operational Collection Time
+
+Ordinary wall-clock audit timestamps `started_at` / `finished_at` spanning the
+complete global collection pass, including verification. They are not scientific
+Session Time, Experiment Time, AcquisitionNode local time, or synchronization
+evidence. Scientific Session Time freezes at acquisition end; no synchronized
+operational clock or Ingestor clock dependency is introduced (Decision 273).
+
+---
+
+# Light Verification
+
+StorageManager-owned, bounded structural inspection of a globally copied artifact
+after successful retrieval, destination closure, and publication. It does not
+interpret, normalize, transform, or scientifically validate data. Retrieval
+success and verification outcome are separate dimensions. Decisions 261-270 are
+implemented and software-validated Slice 24 architecture (M012 complete, W032),
+following corrected independent re-audit PASS.
+
+No separate Verifier component is introduced. Verification uses read-only
+structure and small attributes, not full scientific-data scans or mandatory
+checksums. It preserves copies even when invalid or verification is inconclusive.
+
+---
+
+# Verification Outcome
+
+The structural-inspection outcome associated with a completed global copy:
+
+- `verified`: every applicable required light check passed.
+- `copied_unverified`: copy succeeded but no applicable format/layout contract exists.
+- `structurally_invalid`: verification established a violation of the applicable contract.
+- `verification_failed`: an operational failure prevented a conclusion.
+
+An expected supported-layout artifact that cannot open as valid HDF5 is
+structurally_invalid; operational read/access failure is verification_failed.
+The implemented classifier follows underlying file-access failure provenance,
+not a whitelist of HDF5 diagnostic text.
+Retrieval failure is separate, and verification is not attempted without a
+completed copy. None of these outcomes chooses a Session lifecycle consequence.
+
+---
+
+# Current HDF5 Layout Verification
+
+The first accepted light-verification contract, specific to the existing
+LocalStorageManager layout rather than its producing device. Required root
+datasets are `frames`, `session_time_s`, `experiment_time_s`,
+`acquisition_node_local_time_s`, `frame_index`, `timestamp_status`, and
+`record_metadata_json`. Checks cover accessible nonzero-size HDF5, matching
+embedded artifact_manifest_id, dataset existence, aligned lengths, and agreement
+with persisted_frame_count and any available authoritative finalized manifest
+count. Missing finalization evidence does not supply an invented expected count.
+
+Zero-record artifacts remain valid. This is not a universal HDF5 schema, a
+camera-specific verification owner, JSONL verification, or the existing camera
+smoke script's deeper scientific readback. Other layouts/formats and broader
+ScientificProduct structural contracts remain future architecture. ArtifactManifest
+and ScientificProductDeclaration gain no Slice 24 schema fields.
+
+---
+
+# Verified Collection Outcome
+
+StorageManager aggregate reporting that distinguishes complete verified success
+from retrieval failures and copied_unverified, structurally_invalid, or
+verification_failed outcomes. Details remain per artifact; Controller need not
+interpret dataset names, individual checks, or transport errors. Slice 24 accepts
+this reporting responsibility without choosing Session completion/lifecycle policy.
+The implemented aggregate requires retrieval success and verified status for
+every requested artifact; empty collections remain successful.
 
 ---
 
@@ -724,6 +906,27 @@ Device streaming is source-specific. Session running and Acquisition Runtime act
 
 ---
 
+# Session Acquisition End
+
+Scientific acquisition has ended, scientific Session Time freezes, and Experiments
+have been appropriately ended; post-session framework processing may remain.
+Ending one Experiment within a Session does not trigger Session-wide collection
+or finalization (Decision 275).
+
+---
+
+# Session Processing Finalization
+
+Controller-orchestrated completion of required post-session processing and
+handling of persistent post-session evidence, after which the Evidence Archive
+can be finalized. Session retains lifecycle ownership; this distinction introduces
+no new lifecycle state or retroactive acquisition-failure policy. The Session-wide
+published-evidence consumption/drain guarantee remains open under Q019.
+Slice 25 exposes the explicit stopping-Session collection-before-finalization
+sequence (Decision 275), without claiming a Session-wide consumption guarantee.
+
+---
+
 # Session Record
 
 A durable record describing one Session.
@@ -761,6 +964,14 @@ The Evidence Archive is written by StorageManager from persistent information co
 
 The accepted v1 conceptual layout stores persistent runtime evidence in one `runtime_evidence.jsonl` stream, with separate ingest audit and compilation summary files.
 
+Decision 275 requires legitimate post-session persistent evidence to have an
+opportunity to be produced before the archive is finally closed. Slice 25 uses
+the same archive for global collection evidence, with no category-specific file
+or folder. The evidence-enabled Controller path awaits collection publication
+before the caller invokes existing finalization. How Controller
+knows every durable publication has reached Ingestor before final compilation
+remains a Session-wide open question (Q019), not an implemented drain protocol.
+
 ---
 
 # Session Time
@@ -770,6 +981,10 @@ The master scientific timebase within a Session used to align streams, events, E
 Session Time has exactly one owner: the Synchronization Manager.
 
 Components receive Session Time from SynchronizationManager or apply an explicit SynchronizationManager-authorized mapping. Session Time is distinct from AcquisitionNode Local Time, Device-Native Timing, Ingest Time, wall-clock time, broker time, message-arrival time, and other transport timestamps.
+
+Scientific Session Time freezes at acquisition end and is not extended through
+post-session collection or verification. Collection-pass evidence uses operational
+wall-clock audit timestamps instead (Decision 273).
 
 ---
 
@@ -801,7 +1016,19 @@ Responsibilities include:
 
 StorageManager receives compiled persistent information and writes persistent records, including the Evidence Archive and final Session Record in the accepted persistence lifecycle.
 
-The Storage Manager does not own synchronization, Session lifecycle, Experiment lifecycle, acquisition, runtime evidence meaning, or Ingestor intake policy.
+Decisions 245-260 assign global artifact retrieval to StorageManager. Decisions
+261-270 additionally define completed, software-validated light verification of
+the global copy (M012, W032); this does not transfer authoritative local artifact
+ownership or make StorageManager a scientific interpretation component.
+
+Decisions 271-274 additionally assign StorageManager its own post-session global
+collection evidence through the existing durable publication boundary. This is
+completed Slice 25 behavior (M013, W033), not a new transport or
+scientific interpretation responsibility.
+
+The Storage Manager does not own synchronization, Session lifecycle, Experiment
+lifecycle, acquisition, other components' runtime evidence meaning, scientific
+interpretation, or Ingestor intake policy.
 
 ---
 

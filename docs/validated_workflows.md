@@ -1481,9 +1481,447 @@ acquisition validation, Ingestor restart recovery, or diagnostic association/
 compilation is included. Future Artifact Plane retrieval and restart-recovery
 roadmap placement remain open questions.
 
+**Later architecture clarification:** Decisions 276-280 place known-Session
+Ingestor journal recovery in completed Slice 27 (M014), with independent manual
+software validation and corrected targeted re-audit PASS recorded separately in W034.
+This does not extend W031's historical validation or change its handoff semantics.
+Application-wide recovery/journal lifecycle remain Q024; evidence drain remains Q019.
+
 Additional real two-node coverage, manifest-specific publication-failure checks,
 and malformed-manifest failure tests were nonblocking audit suggestions, not new
 architectural requirements or prerequisites for closure.
+
+---
+
+# W032 - Phase 14 / Slice 24 Light Verification of Globally Copied Artifacts
+
+**Status:** Completed - Slice 24 (M012)
+
+## Purpose
+
+Record implementation, final automated validation, six independent manual
+IPython scenarios, and corrected independent re-audit PASS for Decisions 261-270.
+This validates the software verification contract, not real Jetson/SSH-SFTP
+deployment behavior. M011 remains open for that separate deployment validation.
+
+## Workflow
+
+```text
+LocalStorageManager persists the authoritative artifact and ArtifactManifest
+    -> existing Ingestor artifact-collection handoff
+    -> Controller.collect_session_artifacts()
+    -> StorageManager pulls one artifact per manifest through the Artifact Plane
+    -> closes the temporary destination and publishes the deterministic global copy
+    -> bounded, read-only verification of the completed global copy
+    -> separate per-artifact retrieval and verification outcomes
+    -> aggregate result returned without new Session lifecycle consequences
+```
+
+The current framework HDF5 contract applies when manifest details declare
+`storage_format="hdf5"` and `external_artifact_path` is absent. External HDF5,
+even with a compatible layout, and unsupported formats remain copied_unverified.
+Checks use file accessibility/nonzero byte size, read-only HDF5 opening, embedded
+artifact identity, shapes of the seven current datasets (`frames`,
+`session_time_s`, `experiment_time_s`, `acquisition_node_local_time_s`,
+`frame_index`, `timestamp_status`, `record_metadata_json`), and existing persisted
+counts. Finalized manifest counts are compared only when authoritative finalization
+evidence exists. Zero-record artifacts are valid; zero-byte files are not.
+
+Retrieval failure has no verification outcome. HDF5 structural rejection without
+underlying operational file-access failure is structurally_invalid; genuine
+operational access/read failure preventing a conclusion is verification_failed.
+Classification does not depend on a whitelist of HDF5 diagnostic strings.
+Invalid or inconclusive verification preserves the completed copy. Aggregate
+success requires every requested artifact to retrieve successfully and be verified;
+empty collections retain the existing successful result.
+
+## Independent manual IPython validation
+
+All six independently designed scenarios were reported PASS:
+
+1. **Normal current framework HDF5:** Retrieval succeeded, verification was
+   verified, and aggregate succeeded was True. The deterministic copy existed,
+   source and copied bytes were preserved, and no incomplete transfer remained.
+2. **Valid zero-record HDF5:** Verification was verified and aggregate succeeded
+   was True, distinguishing zero records from a zero-byte file.
+3. **Three independent structural defects:** Missing required dataset, embedded
+   identity mismatch, and dataset-length mismatch all copied successfully and
+   were structurally_invalid. Aggregate succeeded was False, all copies were
+   preserved, and artifact attempts remained independent.
+4. **Invalid HDF5 versus operational failure:** Invalid bytes were
+   structurally_invalid; simulated PermissionError was verification_failed.
+   Both retrievals succeeded, both copies were preserved, and aggregate succeeded
+   was False.
+5. **Applicability boundary:** Unsupported JSONL and external HDF5 deliberately
+   matching the current framework layout both copied successfully but remained
+   copied_unverified, with aggregate succeeded False. Slice 23 external source
+   selection remained intact.
+6. **Missing finalization and independent retrieval failure:** Initial-only
+   framework HDF5 verified using its valid embedded count despite a contradictory
+   non-authoritative manifest count; no finalized count was invented. Another
+   artifact's retrieval failed and received no verification outcome. Aggregate
+   succeeded was False.
+
+These were local framework software scenarios with simulated retrieval boundaries,
+not real Jetson, SSH/SFTP server, or hardware acquisition validation.
+
+## Automated validation
+
+- Focused Slice 24 verification: **26 passed**.
+- Slice 23 retrieval/handoff regressions: **21 passed**.
+- Full suite: **340 run, 333 passed, 7 optional rendering skips, 0 failures**.
+- The real current-layout corrupt-header regression also passed independently;
+  it is included in the 26 focused tests, not an additional test in that count.
+- Final test and independent reproduction processes exited normally with code 0;
+  no native crash was observed in final validation.
+
+These are previously executed/reported results. No tests, reproduction, or manual
+validation were run during this documentation closure.
+
+## Independent audit history
+
+The initial independent audit returned **FAIL**: Decision 263 was partially
+satisfied because a diagnostic-text whitelist misclassified the legitimate
+corrupt-header diagnostic `bad byte number in an address` as verification_failed.
+
+The correction removed that whitelist and classified failure by underlying I/O
+provenance. A regression used a real current-layout artifact with a corrupted
+HDF5 header. The targeted independent re-audit returned **PASS**, independently
+reproducing the original diagnostic and confirming the public collection result:
+retrieval success, structurally_invalid verification, and a preserved global copy.
+Genuine operational failures remained verification_failed; verification remained
+bounded/read-only, with no architectural expansion or regression.
+
+Decision 263 is satisfied. No blocking or nonblocking implementation findings
+remain from the final re-audit, and no further implementation change is required
+before Slice 24 closure.
+
+## Limitations and completion
+
+Slice 24 and M012 are complete for Decisions 261-270's software contract.
+M011 remains open pending real Jetson/SSH-SFTP deployment validation.
+No checksum, full-file/scientific scan, arbitrary or external HDF5 validation,
+scientific-correctness claim, repair, transformation, NWB conversion, retry,
+replay, recovery, or new Session lifecycle policy is included.
+
+Session consequences remain open in Q017. Broader product/layout contracts and
+deeper verification remain open in Q020; durable operational evidence and
+retry/resume remain in Q021, and source-existence/reachability policy in Q023.
+Software closure does not resolve those future architectural questions.
+
+---
+
+# W033 - Phase 14 / Slice 25 Post-session Global Artifact Collection Evidence
+
+**Status:** Completed - Slice 25 (M013)
+
+## Purpose
+
+Record completed implementation of Decisions 271-275, independent manual
+software validation, correction of the initial audit's two blockers, and final
+independent re-audit PASS. This validates the collection-evidence software
+contract, not real Jetson/SSH-SFTP deployment or a Session-wide evidence drain.
+
+## Workflow
+
+```text
+Controller.stop_session()
+    -> scientific acquisition ends; Session is stopping; Session Time freezes
+    -> await Controller.collect_session_artifacts_with_evidence()
+    -> StorageManager independently retrieves and lightly verifies artifacts
+    -> one compiled persistent RuntimeEvidenceMessage for the completed pass
+    -> existing durable evidence publication
+    -> generic Ingestor intake and persistent compilation when consumed
+    -> Controller.finalize_session()
+    -> existing Evidence Archive and final Session Record writing
+    -> Session completion
+```
+
+StorageManager, not Controller, constructs and publishes
+`global_artifact_collection_evidence` with `is_persistent=True`. The existing
+envelope preserves Session and StorageManager source identity plus evidence ID.
+Payload fields are only `started_at`, `finished_at`, and `artifact_results`.
+The timestamps use ordinary operational wall-clock time and cover collection
+and verification, not scientific Session/Experiment time.
+
+Each attempted artifact result contains `artifact_manifest_id`, `experiment_id`,
+`acquisition_node_id`, `artifact_type`, `collection_status`, `verification_status`,
+`global_artifact_locator`, `file_size_copied`, and `failure_information`.
+Identity/type come from the authoritative manifest/handoff. Collection uses
+`success` / `failure`; verification independently uses `verified`,
+`copied_unverified`, `structurally_invalid`, or `verification_failed`.
+Failed retrieval has null verification, locator, and size. No aggregate evidence
+status, duplicate manifest, invented unattempted result, or separate archive is
+introduced. Empty completed passes publish one record with `artifact_results=[]`.
+
+Collection while acquisition is running is rejected. Finalization rejects an
+already-active collection/publication operation without waiting or lifecycle
+mutation. Overlapping collection is rejected; the original operation's guard
+is released in `finally` after success, failure, or cancellation. Ending an
+individual Experiment does not initiate Session-wide collection. Collection
+does not change acquisition/Experiment outcomes, local finalization, scientific
+Session Time, or scientific Session-success policy.
+
+## Independent manual IPython validation
+
+The following results were reported from independent local software validation
+using genuine framework objects/artifacts and simulated publication/retrieval
+boundaries, not real Jetson, SSH/SFTP server, or live NATS validation:
+
+1. **Scenario 1 - PASS: successful multi-artifact collection.** Two genuine
+   framework HDF5 artifacts were attempted and appeared in exactly one persistent
+   compiled publication. Both were success + verified with correct identities,
+   locators, copied sizes, wall-clock bounds, and the three-field payload without
+   aggregate evidence status. The broker first accepted without delivery, leaving
+   zero Ingestor persistent records. Delivery of the same already-published message
+   through the generic NATS/Ingestor callback produced one persistent record.
+2. **Scenario 2 - PASS: mixed outcomes.** Retrieval failure for the first artifact
+   yielded failure and null verification/locator/size. The second copied successfully
+   but was structurally_invalid; its global copy remained present. Both were
+   attempted and represented in one compiled evidence record.
+3. **Scenario 3 - PASS: durable publication failure.** Retrieval/verification
+   completed success + verified; one publication attempt raised
+   DurablePublicationError without retry. The completed copy and correct copied
+   size remained intact.
+4. **Scenario 4 - PASS: acquisition-end/finalization boundary.** Running-Session
+   collection was rejected. stop_session() froze scientific Session Time and
+   entered stopping. An empty pass published one persistent record and left the
+   Session stopping; later finalization completed without advancing Session Time.
+   The broker deliberately did not deliver the publication, so Ingestor retained
+   zero records and the archive contained no collection evidence. This demonstrates
+   unresolved Q019; it does not establish a consumption guarantee.
+5. **Scenario 5 - PASS: corrected P1.** A controlled publisher remained pending.
+   finalize_session() returned `RuntimeError: Artifact collection/publication is
+   in progress`; the Session remained stopping and scientific Session Time frozen.
+   After release, collection succeeded, still leaving the Session stopping, and
+   finalization then completed normally with Session Time still frozen.
+6. **Scenario 6 - INCONCLUSIVE.** The initial P2 challenge wrapped the SFTP output
+   rather than the actual temporary destination whose position the corrected code
+   reads. This was an invalid failure-injection target, not failed implementation
+   validation.
+7. **Scenario 6B - PASS: corrected P2.** The first of two genuine framework HDF5
+   artifacts used a temporary destination whose tell() raised OSError. It remained
+   success + verified with null copied size and failure information; its copy
+   was preserved. The second was still attempted, succeeded + verified, retained
+   its copy, and reported size 91496. Both appeared in one evidence record and
+   the aggregate collection remained successful.
+
+## Automated validation
+
+- Slice 25 focused tests: **18 passed**.
+- Slice 23 retrieval/handoff regressions: **21 passed**.
+- Slice 24 verification regressions: **26 passed**.
+- Controller/communication/Evidence Archive regressions: **47 passed**.
+- Full discovery: **358 total, 351 passed, 7 optional rendering skips, 0 failures**.
+
+These are previously executed/reported implementation and independent re-audit
+results. No tests, manual validation, or new audit were run during this closure.
+
+## Independent audit history
+
+The initial audit returned **FAIL** with exactly two blocking findings:
+
+- **P1:** Finalization could overtake pending collection evidence publication.
+  Controller-local active-operation protection now rejects finalization and
+  overlapping collection, with deterministic release on success/failure/cancellation.
+- **P2:** An unprotected destination Path.stat() for copied size could abort the
+  pass before later attempts. Size now comes from the temporary output's byte
+  position; supported position failures yield null size without changing actual
+  outcomes, removing the copy, or stopping subsequent attempts.
+
+Targeted manual validations passed. The final code-first independent re-audit
+returned **PASS**, found P1 and P2 **FIXED**, and found Decisions 271-275
+**SATISFIED**. No blocking finding, new blocking race, guard-cleanup defect,
+public API signature change from the corrections, or Slice 23/24 regression
+remained. The two existing public async collection APIs were assessed as
+acceptable/minimal. No further implementation change was required for closure.
+
+## Limitations and completion
+
+Slice 25 and M013 are complete. M011 remains open pending real Jetson/SSH-SFTP
+deployment validation; M012 remains complete.
+
+**Q019 remains OPEN:** durable publication is not Ingestor consumption. The guard
+only prevents finalization from overtaking an already-started collection/publication
+operation. It does not prove that published evidence has been consumed/accepted
+before archive compilation. The workflow above records generic archive inclusion
+when evidence has been consumed; it does not promise automatic drain or delivery.
+
+No consumer-ACK waiting, polling, sleeps/delays, expected-count assumptions, new
+broker protocol, retry/replay/resume, background collection, checksum/deep
+verification, new archive/transport, reconstruction/export, or new Session or
+Experiment outcome policy is included. Further collection lifecycle consequences
+remain open in Q017; closure does not resolve Q019 or other deferred architecture.
+
+---
+
+# W034 - Phase 14 / Slice 27 Ingestor Crash Recovery and Handoff Reconstruction
+
+**Status:** Completed - Slice 27 (M014)
+
+## Purpose
+
+Record the implemented and validated known-Session Ingestor recovery contract
+of Decisions 276-280, including Decision 276's uncertain-durability clarification,
+the initial audit FAIL, the minimal integrity correction, independent manual
+validation, and final targeted independent re-audit PASS.
+
+## Workflow
+
+```text
+RuntimeEvidenceMessage arrives at Ingestor
+    -> validate identity/content and evidence_id deduplication
+    -> append complete new message to the Ingestor recovery journal
+    -> flush/fsync durable boundary reports success
+    -> update normal accepted runtime-evidence working view
+    -> application callback where applicable
+    -> ACK broker delivery
+
+Restart for the same known Session with an existing recovery journal
+    -> validate/stage complete journal history
+    -> omit/repair only a clearly interrupted final append
+       (corrupt completed history fails startup instead)
+    -> reconstruct normal accepted evidence and evidence_id deduplication knowledge
+    -> journal/accept persistent ingestor_recovery_evidence through normal intake
+    -> resume broker intake
+    -> identical redelivery converges as already_accepted and is ACKed
+```
+
+Configure `InMemoryIngestor(session_id=..., recovery_journal_path=...,
+component_id=...)` with an explicit known Session and caller-chosen path in an
+existing parent directory. `NatsIngestorCommunication.subscribe_evidence()`
+requires matching Session journal configuration. Legacy local in-memory use
+remains separate from broker intake.
+
+The journal contains complete accepted RuntimeEvidenceMessages, both persistent
+and nonpersistent. It is temporary crash-recovery state, not the Evidence Archive,
+Session Record, ingest audit, database, or a replacement for JetStream.
+`compile_persistent_runtime_evidence()` still selects messages only through
+`is_persistent`; journaling does not turn nonpersistent messages into permanent
+evidence. Restored messages feed the existing
+`compile_artifact_collection_handoff()` without a special reconstructed handoff.
+Original intake-audit timestamps are not reconstructed; startup creates recovered
+intake audit records at reconstruction time.
+
+Same evidence_id and canonical content is already accepted: no new journal append,
+working-state entry, or application callback, and broker redelivery is ACKed.
+Conflicting same-ID content is an error, never an overwrite or successful ACK.
+
+Reported append/durability failure prevents live accepted-state/audit update,
+application callback, and ACK, and fails closed for further new intake until
+restart. The durable outcome is uncertain: a reported failure does not prove
+that complete bytes were lost. On restart, complete valid surviving journal
+entries are authoritative, even after a prior reported fsync error. Genuine
+interrupted final bytes may be removed; corrupt completed history is fatal.
+Staging prevents exposure of a partially reconstructed working view.
+
+Successful reconstruction generates one persistent `ingestor_recovery_evidence`
+record for that startup through normal journaled acceptance. Its existing
+envelope preserves Session/Ingestor identity; payload records recovered-entry
+count before adding recovery evidence and ordinary operational wall-clock time,
+not scientific Session Time or copies of recovered IDs/content.
+
+## Independent manual IPython validation
+
+These results were reported from independent software validation using the
+current framework and actual NATS/Ingestor callback path with controlled delivery
+and failure injection. They do not establish live JetStream server crash/recovery
+or hardware deployment validation.
+
+1. **Scenario 1 - PASS:** Journal-before-ACK on the NATS callback path. Injected
+   durability failure produced no ACK, accepted working state, or acceptance
+   audit; Ingestor became unready/fail-closed.
+2. **Scenario 2 - PASS:** Crash-window/restart/redelivery convergence. Original
+   evidence was reconstructed, recovery evidence generated, and identical
+   redelivery ACKed as already_accepted without duplicate journal/application
+   processing; persistence intent was preserved.
+3. **Scenario 3 - PASS:** Clearly interrupted final append was omitted/repaired;
+   completed corruption caused reconstruction failure, not partial continuation.
+4. **Scenario 4 - PASS:** Conflicting same-ID content raised an error without ACK,
+   journal/state replacement, or callback; original accepted content survived.
+5. **Scenario 5 - PASS:** Restored initial/finalized artifact-manifest evidence
+   produced the same Slice 22 handoff as uninterrupted operation; recovery
+   evidence did not alter finalized-manifest selection.
+6. **Original Scenario 6 - ARCHITECTURAL AMBIGUITY DISCOVERY:** Real fsync completed
+   before the operation reported failure. Live acceptance/ACK correctly did not
+   occur, yet complete valid bytes survived and were reconstructed on restart.
+   Architecture review clarified Decision 276 in place, not through replacement
+   or a new decision. This is neither a final PASS nor an implementation FAIL.
+7. **Scenario 6R - PASS:** Under clarified Decision 276, failure reported after
+   real fsync left no live state/audit/ACK/application callback and closed new
+   intake. Restart recovered the surviving entry exactly once and produced
+   persistent recovery evidence. Identical redelivery was ACKed as already_accepted
+   without duplicate append/state/callback; the original remained nonpersistent.
+8. **Scenario 7 - PASS, all nine checks:** After the integrity correction,
+   corrupt `"node".` and `"node"e+` final entries each failed startup and left
+   their journal unchanged (four checks). Genuine interrupted numeric exponent
+   permitted recovery, reconstructed prior evidence exactly once, omitted the
+   interrupted evidence, produced one normal recovery record, and removed the
+   interrupted tail (five checks).
+
+## Architecture clarification and independent audit history
+
+Initial implementation was followed by manual Scenarios 1-5. Scenario 6's
+uncertain-fsync result prompted architecture review and the existing Decision
+276 clarification: live acceptance requires reported durability success, while
+restart accepts complete valid surviving history. Automated regression coverage
+was added and independent manual Scenario 6R passed. No candidate/commit protocol
+was introduced.
+
+The initial independent audit then returned **FAIL** for one DIFFERENT blocking
+**P2 recovery-integrity defect**. Numeric-looking suffixes after completed strings,
+including `"source_id":"node".` and `"source_id":"node"e+`, could be silently
+discarded as interrupted numbers even though appending a missing tail could not
+make them valid JSON. Decisions 276 and 278 were PARTIAL; 277, 279, and 280 were
+SATISFIED. This was a genuine implementation failure, not the earlier fsync ambiguity.
+
+The minimal correction required an appropriate adjacent numeric prefix/context;
+decimal continuation requires an integer and unfinished exponent requires a
+number without an existing exponent. Illegal suffixes after completed values
+are rejected. Public APIs, journal format, ownership, protocol, and accepted
+architecture did not change. Scenario 7 then passed all nine checks.
+
+The targeted code-first independent re-audit returned **PASS**, found the original
+P2 **FIXED**, and assessed Decisions 276-280 as all **SATISFIED**. Independent
+temporary probes passed for **102 corruption cases**, **80 genuine numeric-truncation
+cases**, and **one complete valid record without a final newline**. No false-positive
+or false-negative defect was found in the challenged contexts; no blocking finding
+or further implementation correction remained.
+
+## Final automated validation
+
+Final post-correction implementation results were independently confirmed during
+the re-audit:
+
+- Slice 27 recovery: **25 passed, 0 failed**.
+- Storage/communication/NATS regressions: **39 passed, 0 failed**.
+- Artifact handoff/retrieval/verification/global evidence/Controller/start-rejection
+  regressions: **82 passed, 0 failed**.
+- Full discovery: **383 total, 376 passed, 0 failed, 7 optional rendering skips**.
+
+These are previously executed implementation/re-audit results, not tests run
+during this documentation closure. Independent manual IPython results above are
+separate validation evidence. No new tests, manual validation, or audit were run
+for closure.
+
+## Limitations and completion
+
+Slice 27 and M014 are complete. M011 remains OPEN pending real Jetson/SSH-SFTP
+deployment validation; M012 and M013 remain COMPLETE.
+
+**Q019 remains OPEN:** Ingestor journal recovery does not establish how Controller
+knows all Session evidence durably published to JetStream was consumed/accepted
+before final archive closure. No Session-wide drain/finalization protocol is validated.
+
+**Q024 remains OPEN:** Restart assumes an already-known Session. Application-wide
+unfinished-Session discovery/selection, Session resumption, complete Controller/
+application lifecycle restoration, multiple unfinished-Session orchestration,
+safe journal deletion, cleanup/retention, and abandoned-journal handling are deferred.
+
+This is software closure only: no live JetStream server crash/recovery beyond the
+exercised software boundary, hardware deployment, real Jetson/SSH-SFTP, producer
+publication recovery, new retry service, or scientific artifact reconstruction
+beyond the existing handoff semantics was validated.
 
 ---
 

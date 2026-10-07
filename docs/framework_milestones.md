@@ -345,6 +345,201 @@ remain future architecture work. Existing Evidence Archive behavior is unchanged
 
 ---
 
+# M011 - Phase 14 / Slice 23 StorageManager Artifact Retrieval
+
+**Status:** Open - pending real Jetson/SSH-SFTP deployment validation
+
+## Goal
+
+Implement accepted Decisions 245-260 using the completed Slice 22 handoff:
+Controller-initiated, StorageManager-owned SSH/SFTP pull retrieval with deployment-local
+endpoint resolution, one file per manifest, deterministic global destinations,
+independent attempts, temporary-file promotion, and per-artifact/aggregate outcomes.
+
+## Implementation progress
+
+SSH/SFTP pull retrieval, deployment-local endpoint configuration, and explicit
+Controller collection are implemented with mock-backed automated tests. W032
+records software retrieval/handoff regression coverage and independent manual
+IPython validation of the Slice 24 collection/verification path. M011 remains
+open pending deployment validation against the real Jetson/SSH-SFTP environment;
+software validation does not establish real SSH/SFTP deployment behavior.
+
+## Boundaries
+
+Authoritative local files remain unchanged. Artifact bytes do not pass through
+NATS or Ingestor. No retry/replay, resumable transfer, checksum verification,
+cleanup/retention policy, restart recovery, or export is included. Aggregate failure
+consequences for Session completion remain open. No real SSH/SFTP deployment
+validation is claimed.
+
+---
+
+# M012 - Phase 14 / Slice 24 Light Verification of Globally Copied Artifacts
+
+**Status:** Completed
+
+## Goal
+
+Implement Decisions 261-270: StorageManager-owned, bounded, non-destructive
+structural verification after successful publication of a global artifact copy,
+with separate retrieval and verification outcomes and aggregate reporting.
+
+## Accepted scope
+
+- first format/layout-specific contract for the current LocalStorageManager HDF5 layout, not camera-specific or universal HDF5 verification
+- accessible nonzero-size HDF5, matching embedded identity, required datasets, aligned lengths, and existing persisted counts
+- valid zero-record artifacts and no invented finalized count when finalization evidence is missing
+- verified, copied_unverified, structurally_invalid, and verification_failed outcomes
+- concise per-artifact information and aggregate visibility without Controller interpreting checks
+- preservation of global copies regardless of verification outcome
+
+## Validation status
+
+Slice 24 implementation and automated validation are complete: 26 focused
+verification tests and 21 Slice 23 retrieval/handoff regression tests passed.
+Full unittest discovery ran 340 tests: 333 passed, 7 optional rendering tests
+were skipped, and there were no failures. Six independent manual IPython
+scenarios passed; W032 records their outcomes separately from automated results.
+
+The initial independent audit failed on Decision 263's diagnostic-text classifier.
+The implementation correction replaced the whitelist with failure-provenance
+classification. The corrupt-header regression passed independently, and the
+targeted independent re-audit returned PASS: Decision 263 satisfied, no remaining
+blocking or nonblocking implementation findings, and no further code changes
+required for closure. Final test/reproduction processes exited normally with
+code 0. These are previously executed/reported results, not new validation during
+documentation closure. Decisions 261-270 are implemented and M012 is complete.
+M011 remains separately open for real Jetson/SSH-SFTP deployment validation.
+
+## Boundaries
+
+No new manifest/product schema fields, JSONL verifier, universal HDF5 layout,
+full-file checksums, deep scientific-data scans, repair/deletion, reconstruction,
+NWB transformation/validation, retry/replay, resume, separate verification service,
+or verifier plugin framework. Session lifecycle consequences remain future
+high-level architecture (Q017); broader ScientificProduct structural contracts
+and extended verification remain open in Q020.
+
+---
+
+# M013 - Phase 14 / Slice 25 Post-session Global Artifact Collection Evidence
+
+**Status:** Completed
+
+## Goal
+
+Implement Decisions 271-275: StorageManager-owned, persistent operational evidence
+for one completed post-session collection pass through the existing durable
+runtime-evidence path and same-Session Evidence Archive.
+
+## Accepted scope
+
+- one compiled collection-level record with actual attempted-artifact results, not one evidence message per artifact or a duplicate manifest
+- existing independent collection and verification vocabularies, without aggregate evidence status or invented unattempted outcomes
+- operational wall-clock pass timestamps, never extended scientific Session Time
+- smallest existing publication-capability wiring; Controller orchestrates but does not translate StorageManager evidence
+- distinction between Session acquisition end and processing finalization, with minimum ordering allowing post-session evidence before final archive closure
+
+## Implementation status and dependency
+
+StorageManager publishes one persistent record through an injected existing
+async publication callable. Controller exposes an explicit stopping-Session
+collection path before existing archive finalization. Focused Slice 25 tests:
+18 passed; Slice 23 regression: 21 passed; Slice 24 regression: 26 passed;
+communication/archive regression: 47 passed. Full discovery: 351 passed and
+7 optional rendering tests skipped (358 total). W033 records independent manual
+Scenarios 1-5 and 6B PASS, Scenario 6's inconclusive injection, initial audit FAIL,
+the P1/P2 corrections, and final independent re-audit PASS with Decisions 271-275
+satisfied and both blockers fixed. Controller rejects finalization during active
+collection/publication and clears its guard after success, failure, or cancellation.
+Unavailable temporary-file position yields null copied size without changing
+outcomes or stopping later attempts. These are previously executed/reported results;
+no validation was run during documentation closure. The broader guarantee that all
+durable evidence has been consumed/accepted before final archive closure remains
+OPEN in Q019; no consumer-drain protocol is implemented.
+
+## Boundaries
+
+No StorageManager-specific consumer-ACK waiting, polling, sleeps, arbitrary delays,
+count assumptions, new broker protocol/transport/archive, scientific timing or
+Experiment lifecycle change, checksum, export, retry/resume, or background transfer.
+Collection outcome must not retroactively change acquisition success or local
+finalization; further consequences remain Q017. M011 stays open pending real
+Jetson/SSH-SFTP deployment validation; M012 stays complete for Slice 24.
+
+---
+
+# M014 - Phase 14 / Slice 27 Ingestor Crash Recovery and Handoff Reconstruction
+
+**Status:** Completed
+
+## Goal
+
+Implement Decisions 276-280: preserve all accepted runtime evidence through an
+Ingestor-owned local append-only JSONL recovery journal, durably before ACK,
+and reconstruct the normal evidence/handoff working view for the same known Session.
+Slice 26 was redundant with completed Slice 25 and is not a separate implementation
+slice; Slice 27 numbering is preserved.
+
+## Accepted scope
+
+- Journal all accepted messages, regardless of is_persistent, without changing permanent selection.
+- Use evidence_id for identical-redelivery deduplication and conflicting-content rejection.
+- Rebuild normal accepted state and deduplication before intake; reuse the Slice 22 compiler.
+- Preserve successful reconstruction as persistent ingestor_recovery_evidence through normal acceptance.
+- Tolerate a clearly truncated final append, but fail clearly on earlier completed-entry corruption.
+
+## Completed validation and audit history
+
+Decisions 276-280 are implemented and all SATISFIED in the final independent
+re-audit. W034 records the completed software workflow and the actual sequence:
+
+1. Initial implementation and independent manual Scenarios 1-5 PASS.
+2. Original Scenario 6 exposed uncertain-fsync architectural ambiguity, not an
+   implementation failure: complete valid bytes survived a reported durability
+   failure despite correct live rejection/no ACK. Decision 276 was clarified
+   in place, without a new decision or commit protocol; regression coverage was added.
+3. Independent manual Scenario 6R PASS under the clarified live/restart semantics.
+4. Initial independent audit FAIL for one separate blocking P2: corrupt final
+   numeric-looking suffixes could be silently treated as interrupted JSON.
+5. Minimal numeric-prefix/context correction without public API, journal-format,
+   ownership, protocol, or architecture changes; Scenario 7's nine manual checks PASS.
+6. Targeted independent re-audit PASS: original P2 FIXED, no blocking findings,
+   102 corruption probes, 80 genuine numeric-truncation probes, and one valid
+   complete-record/no-newline probe passed.
+
+Final automated results, reported after correction and independently confirmed:
+
+- Slice 27 recovery: **25 passed, 0 failed**.
+- Storage/communication/NATS regressions: **39 passed, 0 failed**.
+- Artifact handoff/retrieval/verification/global evidence/Controller/start-rejection
+  regressions: **82 passed, 0 failed**.
+- Full discovery: **383 total, 376 passed, 0 failed, 7 optional rendering skips**.
+
+These are prior implementation/re-audit results, distinct from independent manual
+IPython validation. No tests, new manual validation, or new audit were run during
+documentation closure. Original Scenario 6 remains an ambiguity discovery, not
+a final PASS or implementation FAIL.
+
+## Boundaries and dependencies
+
+Implementation, automated tests, and independent manual software validation cover
+durable ordering, journal failure without ACK, restart/deduplication, interrupted
+final writes, corruption rejection,
+recovery evidence, and unchanged handoff/persistent compilation. W034 records
+the final corrected independent re-audit PASS and software closure. No new
+component/database/snapshot/identity/handoff, producer
+retry machinery, application restart orchestration, or Session cleanup policy is
+accepted. Journal lifecycle and application-wide discovery/resumption remain Q024.
+Q019 remains OPEN: durable Ingestor recovery does not prove Session-wide consumption
+to Controller before archive closure. M013 and M012 stay complete; M011 stays open.
+Closure does not validate live JetStream server crash/recovery, hardware deployment,
+real Jetson/SSH-SFTP, application-wide restart/discovery, or scientific artifact
+reconstruction beyond the existing handoff semantics.
+
+---
+
 # Future Milestones
 
 Planned future milestones include:

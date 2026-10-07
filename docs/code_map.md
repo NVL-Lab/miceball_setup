@@ -49,7 +49,7 @@
 - DeviceStatus: Public import for live adapter status snapshots.
 - DurablePublicationError: Public import for explicit durable publication failure context without buffering or retry behavior.
 - IngestAuditRecord: Public import for ingest audit evidence recorded for each received acquisition envelope.
-- InMemoryIngestor: Public import for the minimal in-memory envelope receiver that can forward accepted envelopes to storage.
+- InMemoryIngestor: Public import for envelope intake and runtime evidence intake with optional explicit known-Session recovery journaling.
 - RuntimeEvidenceAuditRecord: Public import for one Ingestor audit record associated with durable runtime evidence intake.
 - NatsCommunicationBoundary: Public import for real NATS connection, JetStream stream setup, message serialization, publication, subscription, and transport acknowledgement mechanics.
 - NatsControllerCommunication: Public import for Controller-side durable command publication and command-result consumption.
@@ -57,6 +57,7 @@
 - NatsIngestorCommunication: Public import for durable runtime evidence consumption into the existing Ingestor ownership boundary.
 - InMemoryStorageManager: Public import for the minimal in-memory acquisition envelope storage boundary.
 - PersistentStorageManager: Public import for the v1 persistent StorageManager implementation that stores accepted envelopes as JSONL and writes caller-supplied Session Record and Evidence Archive products.
+- SshRetrievalEndpoint, ArtifactRetrievalResult, ArtifactCollectionResult: Public imports for deployment-local SSH configuration and StorageManager artifact collection results.
 - LifecycleTransition: Public import for recorded lifecycle transitions.
 - OpenCVCameraConfig: Public import for explicit OpenCV camera initialization and polling configuration.
 - ReadinessCheck: Public import for recorded readiness checks.
@@ -189,10 +190,31 @@ is complete; W030 records manual validation, focused tests, and audit reassessme
 ## src/lab_sync_acquisition/ingestor.py
 
 - IngestAuditRecord: Records ingest order, receive time, accepted status, and reason for one received acquisition envelope and exposes audit evidence as plain data.
-- InMemoryIngestor: Receives AcquisitionRecordEnvelope objects and RuntimeEvidenceMessage objects in memory, reports service readiness, records separate ingest audit evidence, compiles persistent runtime evidence by message flag, and optionally forwards accepted envelopes to storage without mutating rows.
+- InMemoryIngestor: Receives envelopes and runtime evidence, optionally journals/reconstructs the normal evidence view for a known Session, deduplicates evidence_id content, and compiles persistent evidence without interpreting meaning.
+- InMemoryIngestor.__init__(storage_manager=None, *, session_id=None, recovery_journal_path=None, component_id="ingestor"): Optionally configures one explicit Session journal, reconstructs it on restart, and accepts persistent recovery evidence through normal intake.
+- InMemoryIngestor.session_id: Returns the configured known Session identity or None for legacy in-memory use.
+- InMemoryIngestor.recovery_journal_path: Returns the caller-supplied journal Path or None for legacy in-memory use.
 - RuntimeEvidenceAuditRecord: Records intake order, receive time, evidence identity, acceptance, and reason for one durable RuntimeEvidenceMessage.
-- InMemoryIngestor.receive_runtime_evidence: Accepts and audits durable runtime evidence separately from acquisition-envelope intake.
+- InMemoryIngestor.receive_runtime_evidence: Validates evidence, durably journals new messages before working-state acceptance when configured, audits intake, acknowledges identical content as already accepted, and raises on conflicting evidence_id content.
+- InMemoryIngestor._sync_journal_directory: Durably records initial journal creation in its parent directory on POSIX systems.
+- InMemoryIngestor._evidence_content: Validates message identity and configured Session scope and serializes full content for journal storage and deduplication.
+- InMemoryIngestor._append_runtime_evidence: Appends one complete UTF-8 JSONL message and flushes/fsyncs before acceptance, refusing further new intake after a failed append until restart.
+- InMemoryIngestor._restore_runtime_evidence: Stages valid journal entries before restoring the normal evidence view, repairs only an interrupted final append, and rejects completed corruption or conflicting identities.
+- InMemoryIngestor._is_interrupted_json: Recognizes incomplete final JSON tokens without treating completed malformed lines as interrupted writes.
 - InMemoryIngestor.compile_persistent_runtime_evidence: Returns accepted runtime evidence marked persistent plus runtime-evidence intake audit without inferring persistence from evidence meaning.
+
+Slice 27 (Decisions 276-280) is complete (M014, W034) after independent manual
+software validation and corrected targeted re-audit PASS. W034 preserves the
+uncertain-durability clarification and initial audit FAIL/correction history.
+Supply session_id and
+recovery_journal_path together; the caller chooses the exact file location and
+its parent directory must already exist. Legacy local in-memory use remains
+available without these arguments; broker evidence subscriptions require them.
+Journal entries preserve messages, not original ingest audit timestamps: startup
+generates intake audit records marked recovered at reconstruction time. The
+existing Slice 22 compiler is unchanged. No journal cleanup or Session discovery
+is implemented (Q024); acceptance deduplication is not Controller action
+deduplication, and Session-wide consumption/finalization remains open (Q019).
 
 ## src/lab_sync_acquisition/nats_communication.py
 
@@ -202,6 +224,7 @@ is complete; W030 records manual validation, focused tests, and audit reassessme
 - NatsAcquisitionNodeCommunication: Consumes targeted readiness, scientific-output preparation, or runtime commands, deduplicates by command_id, and publishes explicit outcomes without owning Experiment lifecycle.
 - NatsAcquisitionNodeCommunication.execute_command: Executes `prepare_experiment_scientific_outputs` through the existing node API with explicit Experiment/product identities and returns readiness diagnostics in the existing correlated final command result.
 - NatsIngestorCommunication: Consumes durable RuntimeEvidenceMessage records and passes them to InMemoryIngestor for separate evidence intake and audit.
+- NatsIngestorCommunication.subscribe_evidence(session_id, callback=None): Requires a matching Session recovery journal and ACKs after successful durable acceptance, invoking the callback only for newly accepted evidence, not identical redelivery.
 
 ## src/lab_sync_acquisition/service_readiness.py
 
@@ -217,6 +240,17 @@ is complete; W030 records manual validation, focused tests, and audit reassessme
 
 - InMemoryStorageManager: Reports service readiness, stores accepted AcquisitionRecordEnvelope objects in memory, and exposes all, session-filtered, and source-filtered readback without file writing or transformation.
 - PersistentStorageManager: Reports service readiness, stores accepted envelopes, and writes/reads v1 Session Record and Phase 13 Evidence Archive products from caller-supplied evidence.
+- PersistentStorageManager constructor: Accepts `records_path` and keyword-only `global_artifact_root=None`, `retrieval_endpoints=None`, `evidence_publisher=None`, and `component_id="storage"`; the publisher is an existing async runtime-evidence publication callable and component_id supplies the evidence source identity.
+- SshRetrievalEndpoint(host, username, port=22, key_filename=None, known_hosts_path=None): Immutable deployment-local SSH configuration keyed by logical AcquisitionNode ID, using trusted host keys and optional explicit private-key/known-hosts files.
+- ArtifactRetrievalResult(artifact_manifest_id, outcome, global_destination=None, failure_information=None, verification_outcome=None, verification_information=None): Immutable per-artifact result whose `to_dict()` preserves retrieval success/failure separately from verification information, absent when retrieval failed.
+- ArtifactCollectionResult(artifact_results): Immutable aggregate whose `succeeded` requires every requested artifact to have retrieval success and verified status, with `to_dict()` retaining ordered per-artifact details without lifecycle interpretation; empty collections remain successful.
+- PersistentStorageManager.collect_artifacts(handoff): Independently retrieves one file per manifest through SSH/SFTP, including missing-finalization candidates, then lightly verifies completed global copies without changing authoritative sources or Session products.
+- PersistentStorageManager.collect_artifacts_with_evidence(handoff): Awaits publication of one persistent global_artifact_collection_evidence message after a completed pass, preserving separate per-artifact retrieval/verification outcomes and operational wall-clock bounds.
+- Configured evidence publication requires the awaited collection method; collect_artifacts rejects that configuration rather than silently bypassing publication, while legacy unconfigured synchronous collection remains supported.
+- PersistentStorageManager._verify_artifact: Selects the current framework-managed HDF5 contract from existing manifest format metadata and checks read-only structure, identity, and counts without reading scientific datasets or altering copies.
+- _VerificationReader: Private read-only HDF5 file-access wrapper tracking actual I/O failure without retaining callback tracebacks, so format rejection is classified independently of diagnostic wording.
+- PersistentStorageManager._retrieve_artifact: Selects the existing manifest source, captures copied size from the temporary file position when available, and returns the deterministic destination/size after closed-file non-overwriting promotion and best-effort temporary removal.
+- PersistentStorageManager._pull_sftp_file: Uses Paramiko to open the source directly and copy bounded chunks through SFTP without a source existence/stat pre-probe.
 - PersistentStorageManager.write_initial_session_record: Writes caller-supplied initial Session Record evidence to `session_<session_id>/session_record_initial.json`.
 - PersistentStorageManager.write_evidence_archive: Writes compiled persistent runtime evidence, runtime-evidence audit, and compilation summary to the accepted Phase 13 Evidence Archive files.
 - PersistentStorageManager.write_final_session_record: Writes caller-supplied final Session Record evidence to `session_<session_id>/session_record_final.json`.
@@ -258,7 +292,7 @@ is complete; W030 records manual validation, focused tests, and audit reassessme
 - LocalStorageCompletionSummary: Immutable plain-data summary of local finalization without implying global Session Record completion.
 - LocalStorageManager: Owns explicitly selected JSONL or fixed-shape HDF5 incremental local stream persistence with bounded buffering, append-time flush intervals, manifests, evidence, readiness, cleanup, and finalization for one Session and co-located AcquisitionNode.
 - LocalStorageManager.check_ready: Verifies that the configured local persistence root is writable using the shared ServiceReadiness contract.
-- LocalStorageManager.create_stream: Creates one scientific stream and manifest using keyword-only `storage_format="jsonl"` or `"hdf5"`, with HDF5 requiring explicit `schema.frame_shape` and `schema.frame_dtype`.
+- LocalStorageManager.create_stream: Creates one framework scientific file and manifest using keyword-only `storage_format="jsonl"` or `"hdf5"` (explicit HDF5 shape/dtype), with `external_artifact_path=None`; the obsolete combined external-file argument is removed and external files/timing files require separate manifests.
 - LocalStorageManager.append_rows: Validates scientific timing/context and appends JSONL plain-data rows or HDF5 rows containing a NumPy `frame`, integer `frame_index`, and plain per-frame metadata by storage ID.
 - LocalStorageManager.flush: Flushes current writes without finalizing, counting complete JSONL file writes separately from rows whose durability is confirmed by successful file flush and `fsync`.
 - LocalStorageManager.finalize_stream: Flushes and closes one stream and records manifest/evidence with JSONL accepted/buffered/written/durable counts or HDF5 accepted/persisted frame counts, rejecting successful finalization when a partial write leaves an uncertain tail.
@@ -314,7 +348,9 @@ is complete; W030 records manual validation, focused tests, and audit reassessme
 Decisions 240-244 are implemented through these existing components:
 
 M010 is complete following manual IPython validation and independent audit PASS;
-W031 records results and limitations. No artifact-byte retrieval is implemented.
+W031 records results and limitations. Slice 22 implements no artifact-byte retrieval;
+the separate Slice 23 implementation below still awaits real Jetson/SSH-SFTP
+deployment validation (M011), distinct from W032's software validation.
 
 - LocalStorageManager retains artifact and manifest ownership; existing manifests and finalization results supply complete discovery information.
 - AcquisitionNode.artifact_manifest_evidence: Returns produced persistent RuntimeEvidenceMessage snapshots containing complete initial and finalized manifests, also submitted to the attached local Ingestor at the scientific lifecycle boundaries.
@@ -325,4 +361,64 @@ W031 records results and limitations. No artifact-byte retrieval is implemented.
 - StorageManager owns future global artifact retrieval and storage through the Artifact Plane; byte retrieval is outside Slice 22.
 
 Generic persistent-evidence compilation and Evidence Archive writing remain
-unchanged. Restart reconstruction and diagnostics compilation are deferred.
+unchanged. Slice 27 adds known-Session restart reconstruction without modifying
+this compiler; diagnostics compilation and application-wide restart remain deferred.
+
+## Phase 14 / Slice 23 Integration - Pending Real Deployment Validation
+
+- Controller.collect_session_artifacts(): Explicitly initiates collection after the Session ends, compiles the existing handoff, and returns aggregate results in ControllerCommandResult.details without changing Session lifecycle or persistent Session products.
+- Controller.collect_session_artifacts_with_evidence(): Requires a stopping Session and stopped acquisition runtime, guards active collection/publication against overlapping collection or finalization, and releases the guard on success, failure, or cancellation without translating evidence or changing lifecycle.
+
+Install the optional SSH dependency with `pip install -e ".[artifact-retrieval]"`.
+PersistentStorageManager maps logical node IDs to SshRetrievalEndpoint objects;
+Paramiko uses trusted known-hosts and explicit keys or existing agent/local keys.
+No endpoint configuration is added to portable evidence. External manifests are
+consumed as supplied; no new external acquisition/registration workflow is introduced.
+Promotion requires hard-link support in the global destination filesystem; lack of
+support is a retrieval failure, not an overwrite fallback. M011 remains open
+pending real Jetson/SSH-SFTP deployment validation; W032 records software coverage.
+
+## Phase 14 / Slice 24 Responsibility - Completed
+
+Decisions 261-270 assign StorageManager bounded, non-destructive light verification
+after a global copy is successfully transferred, closed, and published. Retrieval
+and verification outcomes remain separate, with per-artifact information and
+aggregate reporting. The first contract applies to the existing LocalStorageManager
+HDF5 layout, not a device type or all HDF5. The contract applies when existing
+manifest details declare `storage_format="hdf5"` and `external_artifact_path` is
+absent; other copies are copied_unverified. Checks use shapes and small attributes,
+including finalized manifest persisted counts only when available. Controller
+does not interpret verification checks or choose new Session lifecycle policy.
+M012 is complete. W032 records automated results, six independent manual IPython
+scenarios, the initial audit failure, and corrected targeted re-audit PASS.
+Classification follows underlying operational file-access failure provenance,
+not an HDF5 diagnostic-text whitelist. No public API changed during closure.
+
+## Phase 14 / Slice 25 Responsibility - Complete (M013, W033)
+
+Decisions 271-275 assign StorageManager one compiled persistent
+`global_artifact_collection_evidence` record per completed global collection pass.
+It contains operational wall-clock bounds and actual attempted-artifact outcomes
+from the authoritative manifest/handoff; collection and verification remain
+separate, and no aggregate evidence status or duplicate manifest is introduced.
+
+Existing reusable surfaces are RuntimeEvidenceMessage,
+NatsCommunicationBoundary.publish_evidence(),
+InMemoryIngestor.receive_runtime_evidence()/compile_persistent_runtime_evidence(),
+and PersistentStorageManager.write_evidence_archive(). StorageManager receives
+the existing async publication callable, for example boundary.publish_evidence,
+without owning the boundary, interpreting transport, or adding an evidence queue.
+
+Controller coordinates Session processing finalization after acquisition end
+and required post-session processing; ending one Experiment does not trigger
+Session-wide collection. The explicit evidence-enabled sequence is stop_session(),
+await collect_session_artifacts_with_evidence(), then finalize_session(). Generic
+Ingestor compilation and archive writing are unchanged. finalize_session() rejects
+an active collection/publication operation without waiting or mutating lifecycle.
+Unavailable copied-size metadata is null and does not change retrieval/verification
+outcomes or prevent later artifact attempts. Durable publication alone
+does not guarantee Ingestor consumption before finalization; that Session-wide
+guarantee remains OPEN in Q019, with no ACK wait or drain protocol implemented.
+M013 is complete. W033 records manual software validation, the initial audit FAIL,
+P1/P2 corrections, and final independent re-audit PASS. M011 remains open and
+M012 remains complete; Q019 is not resolved by software closure.

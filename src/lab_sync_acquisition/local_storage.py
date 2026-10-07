@@ -260,7 +260,6 @@ class LocalStorageManager:
         artifact_type: str,
         schema: dict[str, Any],
         details: dict[str, Any] | None = None,
-        external_artifact_path: str | None = None,
         storage_format: str = "jsonl",
     ) -> ArtifactManifest:
         """Create one stream, its stable metadata, and its manifest."""
@@ -298,7 +297,7 @@ class LocalStorageManager:
             lifecycle_state="open",
             storage_id=storage_id,
             local_storage_path=str(rows_path),
-            external_artifact_path=external_artifact_path,
+            external_artifact_path=None,
             local_managed_paths=(
                 str(metadata_path),
                 str(rows_path),

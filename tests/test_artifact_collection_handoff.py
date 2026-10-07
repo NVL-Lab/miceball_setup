@@ -111,7 +111,7 @@ class ArtifactCollectionHandoffTests(unittest.TestCase):
             boundary = NatsCommunicationBoundary("acquisition_node", "node-001")
             sender = NatsCommunicationBoundary("controller", "controller")
             receiver_boundary = NatsCommunicationBoundary("ingestor", "receiver")
-            receiver = InMemoryIngestor()
+            receiver = InMemoryIngestor(session_id="session-001", recovery_journal_path=Path(root) / "receiver-recovery.jsonl")
             with patch("lab_sync_acquisition.nats_communication.nats.connect", AsyncMock(return_value=client)):
                 for connection in (boundary, sender, receiver_boundary):
                     await connection.connect()

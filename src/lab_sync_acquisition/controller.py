@@ -127,6 +127,7 @@ class Controller:
         self._last_result: ControllerCommandResult | None = None
         self._command_results: list[ControllerCommandResult] = []
         self._controller_action_decisions: list[ControllerActionDecision] = []
+        self._artifact_collection_in_progress = False
 
     @property
     def controller_action_decisions(self) -> tuple[ControllerActionDecision, ...]:
@@ -482,6 +483,9 @@ class Controller:
         """Persist Phase 13 evidence products, then complete the Session."""
 
         session = self._require_session()
+        if self._artifact_collection_in_progress:
+            return self._record_failed_command(
+                "finalize_session", RuntimeError("Artifact collection/publication is in progress"))
         try:
             compiled_runtime_evidence = (
                 self._ingestor.compile_persistent_runtime_evidence()
@@ -511,6 +515,47 @@ class Controller:
                 "artifact_collection_handoff": artifact_collection_handoff,
             },
         )
+
+    def collect_session_artifacts(self) -> ControllerCommandResult:
+        """Initiate post-session collection without changing lifecycle policy."""
+        try:
+            session = self._require_session()
+            if session.current_state not in {SessionState.COMPLETED, SessionState.FAILED, SessionState.ABORTED}:
+                raise RuntimeError("Artifact collection requires an ended Session")
+            handoff = self._ingestor.compile_artifact_collection_handoff(session.session_id)
+            result = self._storage_manager.collect_artifacts(handoff)
+        except Exception as error:
+            return self._record_failed_command("collect_session_artifacts", error)
+        details = {"artifact_collection_result": result.to_dict()}
+        if not result.succeeded:
+            return self._record_failed_command(
+                "collect_session_artifacts", RuntimeError("Artifact collection had failures"), details)
+        return self._record_successful_command("collect_session_artifacts", details)
+
+    async def collect_session_artifacts_with_evidence(self) -> ControllerCommandResult:
+        """Await collection evidence publication after acquisition end, before finalization."""
+        if self._artifact_collection_in_progress:
+            return self._record_failed_command(
+                "collect_session_artifacts_with_evidence",
+                RuntimeError("Artifact collection/publication is already in progress"))
+        self._artifact_collection_in_progress = True
+        try:
+            session = self._require_session()
+            if session.current_state != SessionState.STOPPING:
+                raise RuntimeError("Collection evidence requires acquisition end before processing finalization")
+            if self._acquisition_node.status()["is_running"]:
+                raise RuntimeError("Artifact collection requires stopped acquisition runtime")
+            handoff = self._ingestor.compile_artifact_collection_handoff(session.session_id)
+            result = await self._storage_manager.collect_artifacts_with_evidence(handoff)
+        except Exception as error:
+            return self._record_failed_command("collect_session_artifacts_with_evidence", error)
+        finally:
+            self._artifact_collection_in_progress = False
+        details = {"artifact_collection_result": result.to_dict()}
+        if not result.succeeded:
+            return self._record_failed_command(
+                "collect_session_artifacts_with_evidence", RuntimeError("Artifact collection had failures"), details)
+        return self._record_successful_command("collect_session_artifacts_with_evidence", details)
 
     def get_status(self) -> dict[str, Any]:
         """Return a small Controller view without redefining owned lifecycles."""

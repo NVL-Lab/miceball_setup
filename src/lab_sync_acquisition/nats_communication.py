@@ -669,14 +669,16 @@ class NatsIngestorCommunication:
     ) -> Subscription:
         """Consume and audit durable runtime evidence for one Session."""
 
+        if self._ingestor.recovery_journal_path is None or self._ingestor.session_id != session_id:
+            raise ValueError("Broker evidence intake requires the matching Session recovery journal")
         subject = f"messages.{session_id}.evidence.>"
 
         async def receive(message: Any) -> None:
             evidence = RuntimeEvidenceMessage.from_dict(
                 json.loads(message.data.decode("utf-8"))
             )
-            self._ingestor.receive_runtime_evidence(evidence)
-            if callback is not None:
+            audit = self._ingestor.receive_runtime_evidence(evidence)
+            if callback is not None and audit.accepted and audit.reason != "already_accepted":
                 await callback(evidence)
             await message.ack()
 

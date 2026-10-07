@@ -169,7 +169,8 @@ class ExperimentStartRejectionTests(unittest.TestCase):
             client = SimpleNamespace(jetstream=lambda: jetstream, is_connected=True)
             publisher = NatsCommunicationBoundary("controller", "controller")
             consumer_boundary = NatsCommunicationBoundary("ingestor", "ingestor")
-            ingestor = InMemoryIngestor(InMemoryStorageManager())
+            ingestor = InMemoryIngestor(InMemoryStorageManager(), session_id=message.session_id,
+                                       recovery_journal_path=Path(root) / "rejection-recovery.jsonl")
             with patch("lab_sync_acquisition.nats_communication.nats.connect", AsyncMock(return_value=client)):
                 await publisher.connect()
                 await consumer_boundary.connect()

@@ -1,5 +1,7 @@
 import asyncio
 import json
+import tempfile
+from pathlib import Path
 import unittest
 
 from lab_sync_acquisition import (
@@ -137,7 +139,10 @@ class NatsCommunicationUnitTests(unittest.TestCase):
         )
         self.assertTrue(controller.create_session(self._session_config()).succeeded)
         controller_communication = NatsControllerCommunication(controller_boundary)
-        ingestor = InMemoryIngestor()
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        ingestor = InMemoryIngestor(session_id="session-001",
+                                   recovery_journal_path=Path(temporary.name) / "recovery.jsonl")
         ingestor_communication = NatsIngestorCommunication(
             ingestor_boundary,
             ingestor,
