@@ -14,7 +14,7 @@ class AcquisitionNodeReadiness:
     """Aggregates existing readiness evidence with explicit node identity."""
 
     node_id: str
-    session_id: str
+    reserved_for_session_id: str | None
     role: str
     device_readiness: DeviceReadinessSummary
     service_readiness: tuple[ServiceReadiness, ...]
@@ -23,25 +23,21 @@ class AcquisitionNodeReadiness:
     def __init__(
         self,
         node_id: str,
-        session_id: str,
+        reserved_for_session_id: str | None,
         role: str,
         device_readiness: DeviceReadinessSummary,
         service_readiness: Iterable[ServiceReadiness],
     ) -> None:
         services = tuple(service_readiness)
         object.__setattr__(self, "node_id", node_id)
-        object.__setattr__(self, "session_id", session_id)
+        object.__setattr__(self, "reserved_for_session_id", reserved_for_session_id)
         object.__setattr__(self, "role", role)
         object.__setattr__(self, "device_readiness", device_readiness)
         object.__setattr__(self, "service_readiness", services)
         object.__setattr__(
             self,
             "ready",
-            all(
-                not item.required or item.ready
-                for item in device_readiness.results
-            )
-            and all(not item.required or item.ready for item in services),
+            all(not item.required or item.ready for item in services),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -49,7 +45,7 @@ class AcquisitionNodeReadiness:
 
         return {
             "node_id": self.node_id,
-            "session_id": self.session_id,
+            "reserved_for_session_id": self.reserved_for_session_id,
             "role": self.role,
             "device_readiness": [
                 item.to_dict() for item in self.device_readiness.results

@@ -173,12 +173,31 @@ class SynchronizationManager:
     """Owns the Phase 1 session clock and reports Session Time in seconds."""
 
     def __init__(self) -> None:
+        self._prepared_session_id: str | None = None
         self._started_at_monotonic_s: float | None = None
         self._stopped_session_time_s: float | None = None
         self._active_mappings: dict[
             tuple[str, str], SynchronizationMapping
         ] = {}
         self._mapping_update_evidence: tuple[MappingUpdateEvidence, ...] = ()
+
+    def prepare_session(self, session_id: str) -> ServiceReadiness:
+        """Prepare one Session's synchronization state without changing timing evidence."""
+        if not isinstance(session_id, str) or not session_id:
+            raise ValueError("Synchronization preparation requires session_id")
+        if self._prepared_session_id not in {None, session_id}:
+            raise RuntimeError("SynchronizationManager already prepared for another Session")
+        self._prepared_session_id = session_id
+        return self.check_ready()
+
+    def abort_session_initialization(self, session_id: str) -> bool:
+        """Clear only preparation binding, preserving all established timing evidence."""
+        if not isinstance(session_id, str) or not session_id:
+            raise ValueError("Synchronization initialization abort requires session_id")
+        if self._prepared_session_id not in {None, session_id}:
+            raise RuntimeError("Synchronization initialization abort Session mismatch")
+        self._prepared_session_id = None
+        return True
 
     @property
     def mapping_update_evidence(self) -> tuple[MappingUpdateEvidence, ...]:

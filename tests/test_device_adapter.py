@@ -25,7 +25,70 @@ def fake_adapter() -> ReadyFakeAdapter:
     )
 
 
+class ResourceAdapter(ReadyFakeAdapter):
+    def __init__(self):
+        super().__init__("resource", "simulated", ("records",), True)
+        self.cleanup_fails = False
+        self.cleanup_attempts = 0
+        self.cleanup_states = []
+
+    def _shutdown_resources(self):
+        self.cleanup_attempts += 1
+        self.cleanup_states.append(self.state)
+        if self.cleanup_fails:
+            raise OSError("resource cleanup failed")
+
+
 class DeviceAdapterTests(unittest.TestCase):
+    def test_retained_adapter_reuses_declared_lifecycle_with_independent_configuration(self):
+        adapter = ResourceAdapter()
+        for config in ({"rate": 1}, {"rate": 2}):
+            self.assertTrue(adapter.check_ready().ready)
+            self.assertEqual(adapter.state, DeviceAdapterState.DECLARED)
+            self.assertFalse(adapter.get_status().ready)
+            adapter.initialize(config)
+            self.assertEqual(adapter.initialization_config, config)
+            self.assertFalse(adapter.get_status().shutdown)
+            adapter.check_ready()
+            adapter.start()
+            adapter.stop()
+            adapter.shutdown()
+            self.assertEqual(adapter.state, DeviceAdapterState.DECLARED)
+            self.assertIsNone(adapter.initialization_config)
+            self.assertTrue(adapter.get_status().shutdown)
+            adapter.shutdown()
+        self.assertEqual(adapter.cleanup_attempts, 2)
+        self.assertEqual(adapter.cleanup_states, [DeviceAdapterState.STOPPED] * 2)
+
+    def test_failed_device_cleanup_blocks_reinitialization_until_cleanup_succeeds(self):
+        adapter = ResourceAdapter()
+        adapter.initialize({"rate": 1})
+        adapter.cleanup_fails = True
+        for _ in range(2):
+            with self.assertRaisesRegex(OSError, "resource cleanup failed"):
+                adapter.shutdown()
+            self.assertEqual(adapter.state, DeviceAdapterState.FAILED)
+            self.assertFalse(adapter.get_status().shutdown)
+            with self.assertRaises(DeviceAdapterLifecycleError):
+                adapter.initialize({"rate": 2})
+        self.assertEqual(adapter.cleanup_attempts, 2)
+        adapter.cleanup_fails = False
+        adapter.shutdown()
+        self.assertEqual(adapter.state, DeviceAdapterState.DECLARED)
+        adapter.initialize({"rate": 2})
+        self.assertEqual(adapter.initialization_config, {"rate": 2})
+
+    def test_declared_readiness_does_not_authorize_acquisition_or_repeated_initialization(self):
+        adapter = fake_adapter()
+        self.assertTrue(adapter.check_ready().ready)
+        self.assertEqual(adapter.state, DeviceAdapterState.DECLARED)
+        with self.assertRaises(DeviceAdapterLifecycleError):
+            adapter.start()
+        other = fake_adapter()
+        other.initialize({})
+        with self.assertRaises(DeviceAdapterLifecycleError):
+            other.initialize({})
+
     def test_adapter_can_be_initialized(self) -> None:
         adapter = fake_adapter()
 
@@ -100,13 +163,12 @@ class DeviceAdapterTests(unittest.TestCase):
 
         adapter.shutdown()
         shutdown_status = adapter.get_status()
-        self.assertIs(shutdown_status.state, DeviceAdapterState.SHUTDOWN)
+        self.assertIs(shutdown_status.state, DeviceAdapterState.DECLARED)
         self.assertTrue(shutdown_status.shutdown)
-        self.assertTrue(shutdown_status.stopped)
+        self.assertFalse(shutdown_status.stopped)
 
     def test_adapter_rejects_invalid_lifecycle_order(self) -> None:
         cases = [
-            ("check_ready_before_initialize", lambda adapter: adapter.check_ready()),
             ("start_before_ready", lambda adapter: adapter.start()),
             ("stop_before_start", lambda adapter: adapter.stop()),
             ("shutdown_before_stop", lambda adapter: adapter.shutdown()),

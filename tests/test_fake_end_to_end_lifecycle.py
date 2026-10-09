@@ -82,7 +82,7 @@ class FakeEndToEndLifecycleTests(unittest.TestCase):
         )
         self.assertTrue(
             all(
-                adapter_status.state is DeviceAdapterState.SHUTDOWN
+                adapter_status.state is DeviceAdapterState.DECLARED
                 for adapter_status in status
             )
         )

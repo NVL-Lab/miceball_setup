@@ -102,7 +102,6 @@ class DeviceManagerTests(unittest.TestCase):
         self.assertFalse(summary.all_ready)
         self.assertEqual(len(summary.results), 1)
         self.assertEqual(summary.results[0].device_id, "base-001")
-        self.assertTrue(summary.results[0].required)
         self.assertFalse(summary.results[0].ready)
         self.assertEqual(summary.results[0].capabilities_available, ())
 
@@ -121,7 +120,7 @@ class DeviceManagerTests(unittest.TestCase):
 
         self.assertFalse(summary.all_ready)
         self.assertEqual([result.device_id for result in summary.results], ["camera-001", "camera-002"])
-        self.assertTrue(summary.results[0].required)
+        self.assertEqual(summary.results[0].device_id, "camera-001")
         self.assertFalse(summary.results[0].ready)
         self.assertEqual(summary.results[0].reason, "readiness unavailable")
         self.assertEqual(summary.results[0].capabilities_available, ())
@@ -188,8 +187,21 @@ class DeviceManagerTests(unittest.TestCase):
 
         self.assertTrue(all(result.succeeded for result in results))
         self.assertTrue(
-            all(adapter.get_status().state is DeviceAdapterState.SHUTDOWN for adapter in adapters)
+            all(adapter.get_status().state is DeviceAdapterState.DECLARED for adapter in adapters)
         )
+
+    def test_manager_reuses_retained_adapters_across_sequential_runs(self):
+        adapters = [fake_adapter("camera-001"), fake_adapter("camera-002")]
+        manager = DeviceManager(adapters)
+        for configuration in ({"rate": 1}, {"rate": 2}):
+            self.assertTrue(manager.check_readiness().all_ready)
+            self.assertTrue(all(result.succeeded for result in manager.initialize_all(configuration)))
+            self.assertTrue(manager.check_readiness().all_ready)
+            self.assertTrue(all(result.succeeded for result in manager.start_all()))
+            self.assertTrue(all(result.succeeded for result in manager.stop_all()))
+            self.assertTrue(all(result.succeeded for result in manager.shutdown_all()))
+            self.assertTrue(all(adapter.state == DeviceAdapterState.DECLARED for adapter in manager.adapters))
+            self.assertEqual(manager.adapters, tuple(adapters))
 
     def test_manager_can_collect_status_summaries(self) -> None:
         adapters = [fake_adapter("camera-001"), fake_adapter("camera-002")]

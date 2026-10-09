@@ -232,7 +232,7 @@ def _cleanup_runtime(
         if adapter.state is DeviceAdapterState.STOPPED:
             manager.shutdown_all()
     final_state = adapter.state.value if adapter is not None else "not_created"
-    completed = final_state in {"not_created", "shutdown"}
+    completed = adapter is None or adapter.get_status().shutdown
     return {
         "attempted": attempted,
         "completed": completed,

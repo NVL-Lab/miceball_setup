@@ -376,7 +376,6 @@ class PersistentStorageManagerTests(unittest.TestCase):
                 [
                     {
                         "device_id": "adapter-camera-001",
-                        "required": True,
                         "ready": True,
                         "reason": "ready",
                         "capabilities_available": ["tiny_stream"],

@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from copy import deepcopy
 from dataclasses import dataclass
 import json
 from math import isfinite
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from time import monotonic
+from threading import RLock
 from typing import Any, Iterable
 
 from lab_sync_acquisition.acquisition_health import (
@@ -16,12 +18,16 @@ from lab_sync_acquisition.acquisition_health import (
     HealthInterpretationEvidence,
 )
 from lab_sync_acquisition.acquisition_record import AcquisitionRecordEnvelope
-from lab_sync_acquisition.communication import ARTIFACT_MANIFEST_EVIDENCE_TYPE, RuntimeEvidenceMessage
+from lab_sync_acquisition.communication import (
+    ARTIFACT_MANIFEST_EVIDENCE_TYPE, RuntimeEvidenceMessage,
+)
 from lab_sync_acquisition.acquisition_node_readiness import AcquisitionNodeReadiness
 from lab_sync_acquisition.device_manager import (
-    DeviceManager, DeviceRecordCollection, _PartialDeviceCollectionError,
+    DeviceManager, DeviceReadinessSummary, DeviceRecordCollection,
+    _PartialDeviceCollectionError,
 )
 from lab_sync_acquisition.device import DeviceDeclaration
+from lab_sync_acquisition.device_adapter import DeviceAdapterState, DeviceReadiness
 from lab_sync_acquisition.local_storage import LocalStorageManager, ArtifactManifest
 from lab_sync_acquisition.session import ScientificOutputSelection
 from lab_sync_acquisition.experiment_runtime import (
@@ -53,10 +59,10 @@ class AcquisitionNode:
 
     def __init__(
         self,
-        session_id: str,
-        device_manager: DeviceManager,
-        synchronization_manager: SynchronizationManager,
-        ingestor: InMemoryIngestor,
+        session_id: str | None = None,
+        device_manager: DeviceManager | None = None,
+        synchronization_manager: SynchronizationManager | None = None,
+        ingestor: InMemoryIngestor | None = None,
         node_id: str | None = None,
         role: str | None = None,
         acquisition_configuration: Mapping[str, Any] | None = None,
@@ -64,9 +70,28 @@ class AcquisitionNode:
         error_evidence_location: str | None = None,
         *,
         default_local_storage_root: str | Path | None = None,
+        device_declarations: Iterable[DeviceDeclaration] | None = None,
     ) -> None:
         self._session_id = session_id
+        # Explicitly pre-bound nodes retain the historical caller-prepared workflow.
+        self._session_prepared = session_id is not None
+        if device_manager is None or synchronization_manager is None or ingestor is None:
+            raise ValueError("AcquisitionNode requires deployment runtime collaborators")
         self._device_manager = device_manager
+        self._deployment_device_configurations = {
+            adapter.device_id: deepcopy(adapter.initialization_config)
+            for adapter in device_manager.adapters
+        }
+        self._runtime_device_manager = device_manager
+        self._reservation_lock = RLock()
+        self._reserved_for_session_id: str | None = None
+        self._initialization_cleanup_confirmed = True
+        self._initialization_touched_adapters = []
+        self._declared_devices = tuple(device_declarations) if device_declarations is not None else tuple(
+            DeviceDeclaration(a.device_id, a.device_type, True, a.required, a.declared_capabilities)
+            for a in device_manager.adapters)
+        if len({d.device_id for d in self._declared_devices}) != len(self._declared_devices):
+            raise ValueError("Duplicate device identity in node inventory")
         self._synchronization_manager = synchronization_manager
         self._ingestor = ingestor
         self._node_id = node_id
@@ -130,6 +155,180 @@ class AcquisitionNode:
         return self._node_id
 
     @property
+    def declared_devices(self) -> tuple[DeviceDeclaration, ...]:
+        """Deployment inventory, independent of Session selections and availability."""
+        return self._declared_devices
+
+    @property
+    def reserved_for_session_id(self) -> str | None:
+        with self._reservation_lock:
+            return self._reserved_for_session_id
+
+    def reserve(self, session_id: str) -> bool:
+        """Atomically reserve this node, idempotently for the same Session."""
+        self._validate_session_id(session_id)
+        with self._reservation_lock:
+            if self._reserved_for_session_id not in {None, session_id}:
+                return False
+            if self._session_id not in {None, session_id}:
+                return False
+            self._reserved_for_session_id = session_id
+            return True
+
+    def release_reservation(self, session_id: str) -> bool:
+        """Release only the owner's reservation after confirmed local cleanup."""
+        self._validate_session_id(session_id)
+        with self._reservation_lock:
+            if self._reserved_for_session_id != session_id:
+                return False
+            if self._running or not self._initialization_cleanup_confirmed:
+                return False
+            if self._local_storage_manager is not None and any(m.lifecycle_state != "finalized" for m in self._local_storage_manager.manifests):
+                return False
+            self._reserved_for_session_id = None
+            self._session_id = None
+            self._session_prepared = False
+            self._local_storage_manager = None
+            self._device_declarations = ()
+            self._active_synchronization_mapping = None
+            self.clear_experiment_runtime_context()
+            self.clear_experiment_runtime_health_mapping()
+            return True
+
+    @staticmethod
+    def _validate_session_id(session_id: str) -> None:
+        if not isinstance(session_id, str) or not session_id.strip():
+            raise ValueError("A real nonempty session_id is required")
+
+    def prepare_local_storage(
+        self,
+        session_id: str,
+        declarations: Iterable[DeviceDeclaration],
+        root_path: str | Path | None = None,
+    ) -> LocalStorageManager:
+        """Physically create Session-authorized storage in this node's process."""
+        root = root_path if root_path is not None else self._default_local_storage_root
+        if root is None or not self._node_id:
+            raise ValueError("Node local storage root and identity must be configured")
+        manager = LocalStorageManager(root, session_id, self._node_id)
+        self.attach_local_storage_manager(manager, declarations)
+        return manager
+
+    def initialize_session(
+        self,
+        session_id: str,
+        selected_devices: Iterable[DeviceDeclaration],
+        device_configurations: dict[str, Any] | None = None,
+        scientific_outputs: Iterable[ScientificOutputSelection] = (),
+    ) -> ServiceReadiness:
+        """Prepare reserved Session runtime locally without creating a Session replica."""
+        self._validate_session_id(session_id)
+        with self._reservation_lock:
+            if self._reserved_for_session_id != session_id:
+                raise RuntimeError("Session initialization requires matching reservation")
+            if self._session_id is not None:
+                raise RuntimeError("Session binding is already established; abort before reinitializing")
+            self._session_id = session_id
+            self._session_prepared = False
+            self._initialization_cleanup_confirmed = False
+            self._initialization_touched_adapters = []
+            declarations = tuple(selected_devices)
+            inventory = {d.device_id: d for d in self._declared_devices if d.enabled}
+            adapters = {a.device_id: a for a in self._device_manager.adapters}
+            selected_adapters = []
+            for declaration in declarations:
+                if declaration.device_id not in inventory or declaration.device_id not in adapters:
+                    raise ValueError(f"Selected device is unavailable: {declaration.device_id}")
+                declared = inventory[declaration.device_id]
+                if declaration.scientific_products != declared.scientific_products:
+                    raise ValueError("Session cannot redefine declared scientific products")
+                selected_adapters.append(adapters[declaration.device_id])
+            self._runtime_device_manager = DeviceManager(selected_adapters)
+            for adapter in selected_adapters:
+                self._initialization_touched_adapters.append(adapter)
+                configuration = (device_configurations or {}).get(adapter.device_id)
+                if configuration is None:
+                    configuration = deepcopy(self._deployment_device_configurations[adapter.device_id])
+                if (adapter.state in {DeviceAdapterState.INITIALIZED, DeviceAdapterState.READY}
+                        and configuration != adapter.initialization_config):
+                    adapter.shutdown()
+                if adapter.state == DeviceAdapterState.DECLARED:
+                    adapter.initialize(configuration)
+                elif configuration is not None and configuration != adapter.initialization_config:
+                    raise ValueError(f"Device already prepared with different configuration: {adapter.device_id}")
+                readiness = adapter.check_ready()
+                if not isinstance(readiness, DeviceReadiness) or readiness.ready is not True:
+                    raise RuntimeError(f"Selected device preparation failed: {adapter.device_id}")
+            self._scientific_output_storage_ids.clear()
+            self._prepared_scientific_outputs.clear()
+            self._ended_experiment_ids.clear()
+            self._acquisition_health_observed_counts.clear()
+            self._acquisition_health_observations_recorded.clear()
+            self._acquisition_start_session_time_s = None
+            self._consecutive_must_preserve_handoff_failures = 0
+            self._iteration_index = 0
+            self._failed = False
+            self._last_error = None
+            self.prepare_local_storage(session_id, declarations)
+            readiness = self._local_storage_manager.check_ready()
+            if not readiness.ready:
+                raise RuntimeError(readiness.reason)
+            for selection in scientific_outputs:
+                if selection.source_node_id != self._node_id or selection.source_device_id not in {d.device_id for d in declarations}:
+                    raise ValueError("Scientific selection is not assigned to this Session/node")
+                declaration = inventory[selection.source_device_id]
+                if not any(product.data_product_id == selection.data_product_id
+                           for product in declaration.scientific_products):
+                    raise ValueError(f"Unknown scientific product: {selection.data_product_id}")
+            self._session_prepared = True
+            return ServiceReadiness(self._node_id, "acquisition_node", True, True, "session_prepared")
+
+    def abort_session_initialization(self, session_id: str) -> bool:
+        """Idempotently clean partial initialization while protecting reservation."""
+        self._validate_session_id(session_id)
+        with self._reservation_lock:
+            if self._reserved_for_session_id != session_id or self._session_id not in {None, session_id}:
+                raise RuntimeError("Initialization abort requires matching reservation/binding")
+            self._session_prepared = False
+            if self._initialization_cleanup_confirmed:
+                return True
+            cleanup_confirmed = False
+            try:
+                if self._running:
+                    outcome = self.stop_runtime()
+                    if any(not r.succeeded for r in (*outcome["device_stop_results"], *outcome["device_shutdown_results"])):
+                        raise RuntimeError("Device runtime cleanup failed")
+                    if self._local_storage_manager is not None:
+                        self._local_storage_manager.cleanup()
+                else:
+                    failures = []
+                    for adapter in self._initialization_touched_adapters:
+                        try:
+                            if adapter.state == DeviceAdapterState.RUNNING:
+                                adapter.stop()
+                            if adapter.state in {DeviceAdapterState.INITIALIZED, DeviceAdapterState.READY,
+                                                 DeviceAdapterState.FAILED, DeviceAdapterState.STOPPED}:
+                                adapter.shutdown()
+                        except Exception as error:
+                            failures.append(error)
+                    try:
+                        self._finalize_prepared_scientific_outputs()
+                    except Exception as error:
+                        failures.append(error)
+                    if self._local_storage_manager is not None:
+                        try:
+                            self._local_storage_manager.cleanup()
+                        except Exception as error:
+                            failures.append(error)
+                    if failures:
+                        raise ExceptionGroup("Local initialization cleanup failed", failures)
+                cleanup_confirmed = True
+                return True
+            finally:
+                # stop_runtime confirms its own stages, not the entire abort.
+                self._initialization_cleanup_confirmed = cleanup_confirmed
+
+    @property
     def default_local_storage_root(self) -> Path | None:
         return self._default_local_storage_root
 
@@ -165,7 +364,7 @@ class AcquisitionNode:
         manager: LocalStorageManager,
         device_declarations: Iterable[DeviceDeclaration],
     ) -> None:
-        """Attach Session-created local storage without taking persistence ownership."""
+        """Attach Session-authorized storage without taking persistence ownership."""
         if manager.session_id != self._session_id or manager.acquisition_node_id != self._node_id:
             raise ValueError("Local storage Session/node identity does not match AcquisitionNode")
         if self._local_storage_manager is not None and self._local_storage_manager is not manager:
@@ -355,14 +554,14 @@ class AcquisitionNode:
     def check_ready(self) -> dict[str, Any]:
         """Return acquisition-side readiness using existing readiness contracts."""
 
-        device_readiness = self._device_manager.check_readiness()
+        device_readiness = self._inventory_readiness()
         service_readiness = (
             self._synchronization_manager.check_ready(),
             self._ingestor.check_ready(),
             self._failure_evidence_readiness(),
         )
-        ready = device_readiness.all_ready and all(
-            readiness.ready for readiness in service_readiness
+        ready = all(
+            not readiness.required or readiness.ready for readiness in service_readiness
         )
         return {
             "ready": ready,
@@ -374,11 +573,11 @@ class AcquisitionNode:
         self,
         additional_service_readiness: Iterable[ServiceReadiness] = (),
     ) -> AcquisitionNodeReadiness:
-        """Return Phase 2 readiness with explicit node and session identity."""
+        """Return node-scoped technical readiness and independent reservation state."""
 
         if not self._node_id or not self._role:
             raise ValueError("Phase 2 node readiness requires node_id and role")
-        device_readiness = self._device_manager.check_readiness()
+        device_readiness = self._inventory_readiness()
         service_readiness = (
             self._synchronization_manager.check_ready(),
             self._ingestor.check_ready(),
@@ -387,22 +586,38 @@ class AcquisitionNode:
         )
         readiness = AcquisitionNodeReadiness(
             node_id=self._node_id,
-            session_id=self._session_id,
+            reserved_for_session_id=self.reserved_for_session_id,
             role=self._role,
             device_readiness=device_readiness,
             service_readiness=service_readiness,
         )
         return readiness
 
+    def _inventory_readiness(self) -> DeviceReadinessSummary:
+        reports = {r.device_id: r for r in self._device_manager.check_readiness()}
+        if not self._session_prepared and not self._initialization_cleanup_confirmed:
+            for adapter in self._initialization_touched_adapters:
+                reports[adapter.device_id] = DeviceReadiness(
+                    adapter.device_id, False, "session_cleanup_unconfirmed", adapter.declared_capabilities)
+        results = tuple(reports.get(d.device_id, DeviceReadiness(
+            d.device_id, False, "declared_device_has_no_adapter", d.declared_capabilities or ()))
+            for d in self._declared_devices if d.enabled)
+        return DeviceReadinessSummary(results, all(r.ready for r in results))
+
     def start_runtime(self) -> dict[str, Any]:
         """Start the Session acquisition runtime and its existing evidence path."""
 
+        if self._session_id is None:
+            raise RuntimeError("Acquisition requires an active Session binding")
+        if not self._session_prepared:
+            raise RuntimeError("Acquisition requires successful Session preparation")
         failure_evidence_readiness = self._failure_evidence_readiness()
         if not failure_evidence_readiness.ready:
             raise RuntimeError(
                 "AcquisitionNode cannot start; failure evidence location is not writable: "
                 f"{failure_evidence_readiness.reason}"
             )
+        self._initialization_cleanup_confirmed = False
         session_time_s = self._synchronization_manager.start()
         self._acquisition_start_session_time_s = session_time_s
         session_start_audit = self._send_envelope(
@@ -416,7 +631,7 @@ class AcquisitionNode:
                 }
             ],
         )
-        device_start_results = self._device_manager.start_all()
+        device_start_results = self._runtime_device_manager.start_all()
         self._running = True
         return {
             "session_time_s": session_time_s,
@@ -434,6 +649,8 @@ class AcquisitionNode:
 
         if self._failed:
             raise RuntimeError("AcquisitionNode has failed and cannot run new iterations")
+        if not self._session_prepared:
+            raise RuntimeError("Acquisition requires successful Session preparation")
         if not self._running:
             raise RuntimeError("AcquisitionNode must be running before iteration")
 
@@ -441,12 +658,12 @@ class AcquisitionNode:
         outputs = self._prepared_scientific_outputs.get(context.experiment_id, ()) if context else ()
         try:
             if outputs:
-                collected = self._device_manager.collect_scientific_records(
+                collected = self._runtime_device_manager.collect_scientific_records(
                     scientific_source_device_ids={output.source_device_id for output in outputs}
                 )
                 record_collections = collected
             else:
-                record_collections = self._device_manager.collect_records()
+                record_collections = self._runtime_device_manager.collect_records()
         except _PartialDeviceCollectionError as error:
             try:
                 self._preserve_partial_scientific_collections(error, outputs)
@@ -590,6 +807,8 @@ class AcquisitionNode:
     def stop_runtime(self) -> dict[str, Any]:
         """Stop the Session acquisition runtime and perform existing cleanup."""
 
+        self._session_prepared = False
+        self._initialization_cleanup_confirmed = False
         try:
             self._flush_pending_stream_batches()
         finally:
@@ -607,10 +826,11 @@ class AcquisitionNode:
                     ],
                 )
             finally:
-                device_stop_results = self._device_manager.stop_all()
-                device_shutdown_results = self._device_manager.shutdown_all()
+                device_stop_results = self._runtime_device_manager.stop_all()
+                device_shutdown_results = self._runtime_device_manager.shutdown_all()
                 self._running = False
                 self._finalize_prepared_scientific_outputs()
+        self._initialization_cleanup_confirmed = all(r.succeeded for r in (*device_stop_results, *device_shutdown_results))
         return {
             "final_session_time_s": final_session_time_s,
             "session_stop_audit": session_stop_audit,
@@ -637,6 +857,7 @@ class AcquisitionNode:
 
         return {
             "session_id": self._session_id,
+            "reserved_for_session_id": self.reserved_for_session_id,
             "is_running": self._running,
             "iteration_count": self._iteration_index,
             "last_error": self._last_error,

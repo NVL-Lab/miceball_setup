@@ -24,7 +24,7 @@ LAB_EVIDENCE = "messages.*.evidence.>"
 
 @dataclass(frozen=True)
 class RuntimeParticipant:
-    """Plain Session configuration identity for one expected runtime component."""
+    """Deployment identity, also reused to declare expected Session participation."""
 
     component_type: str
     component_id: str
@@ -164,12 +164,12 @@ def _validate_plain_data(value: Any, path: str = "payload") -> None:
 
 
 def _validate_subject_token(name: str, value: str) -> None:
-    if not value or "." in value or value in {"*", ">"}:
+    if not isinstance(value, str) or not value or any(c.isspace() for c in value) or "." in value or value in {"*", ">"}:
         raise ValueError(f"{name} must be one concrete NATS subject token")
 
 
 def build_runtime_subject(
-    session_id: str,
+    session_id: str | None,
     message_class: str,
     component_type: str,
     component_id: str,
@@ -179,6 +179,12 @@ def build_runtime_subject(
 
     if message_class not in MESSAGE_CLASSES:
         raise ValueError(f"Unsupported runtime message class: {message_class}")
+    if session_id is None:
+        if message_class not in {"command", "command_result"}:
+            raise ValueError("Only participant commands/results may omit Session identity")
+        for name, value in (("component_type", component_type), ("component_id", component_id), ("message_type", message_type)):
+            _validate_subject_token(name, value)
+        return f"messages.{message_class}.{component_type}.{component_id}.{message_type}"
     for name, value in (
         ("session_id", session_id),
         ("component_type", component_type),
@@ -192,13 +198,17 @@ def build_runtime_subject(
     )
 
 
-def parse_runtime_subject(subject: str) -> dict[str, str]:
+def parse_runtime_subject(subject: str) -> dict[str, str | None]:
     """Parse one concrete runtime subject into routing-only fields."""
 
     parts = subject.split(".")
-    if len(parts) != 6 or parts[0] != "messages":
+    if len(parts) not in {5, 6} or parts[0] != "messages":
         raise ValueError(f"Invalid runtime message subject: {subject}")
-    session_id, message_class, component_type, component_id, message_type = parts[1:]
+    if len(parts) == 5:
+        session_id = None
+        message_class, component_type, component_id, message_type = parts[1:]
+    else:
+        session_id, message_class, component_type, component_id, message_type = parts[1:]
     build_runtime_subject(
         session_id,
         message_class,
@@ -220,13 +230,17 @@ class RuntimeCommandMessage:
     """Plain-data command intent routed to one component or component group."""
 
     command_id: str
-    session_id: str
+    session_id: str | None
     command_type: str
     source_id: str
     target_id: str
     payload: dict[str, Any]
 
     def __post_init__(self) -> None:
+        if self.session_id is None and self.command_type not in {"check_readiness", "get_inventory"}:
+            raise ValueError("Session-specific command requires session_id")
+        if self.session_id is not None:
+            _validate_subject_token("session_id", self.session_id)
         _validate_plain_data(self.payload)
 
     def to_dict(self) -> dict[str, Any]:
@@ -247,7 +261,7 @@ class RuntimeCommandMessage:
 
         return cls(
             command_id=data["command_id"],
-            session_id=data["session_id"],
+            session_id=data.get("session_id"),
             command_type=data["command_type"],
             source_id=data["source_id"],
             target_id=data["target_id"],
@@ -261,7 +275,7 @@ class RuntimeCommandResultMessage:
 
     result_id: str
     command_id: str
-    session_id: str
+    session_id: str | None
     source_id: str
     target_id: str
     status: str
@@ -296,7 +310,7 @@ class RuntimeCommandResultMessage:
         return cls(
             result_id=data["result_id"],
             command_id=data["command_id"],
-            session_id=data["session_id"],
+            session_id=data.get("session_id"),
             source_id=data["source_id"],
             target_id=data["target_id"],
             status=data["status"],

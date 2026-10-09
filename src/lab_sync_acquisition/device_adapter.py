@@ -24,7 +24,6 @@ class DeviceReadiness:
     """Readiness result reported by a live device adapter."""
 
     device_id: str
-    required: bool
     ready: bool
     reason: str
     capabilities_available: tuple[str, ...]
@@ -32,13 +31,11 @@ class DeviceReadiness:
     def __init__(
         self,
         device_id: str,
-        required: bool,
         ready: bool,
         reason: str,
         capabilities_available: Iterable[str],
     ) -> None:
         object.__setattr__(self, "device_id", device_id)
-        object.__setattr__(self, "required", required)
         object.__setattr__(self, "ready", ready)
         object.__setattr__(self, "reason", reason)
         object.__setattr__(
@@ -52,7 +49,6 @@ class DeviceReadiness:
 
         return {
             "device_id": self.device_id,
-            "required": self.required,
             "ready": self.ready,
             "reason": self.reason,
             "capabilities_available": list(self.capabilities_available),
@@ -118,6 +114,7 @@ class DeviceAdapter:
         self.required = required
         self._state = DeviceAdapterState.DECLARED
         self._initialization_config = None
+        self._shutdown_completed = False
 
     @property
     def state(self) -> DeviceAdapterState:
@@ -135,12 +132,15 @@ class DeviceAdapter:
         """Initialize the live adapter with explicit configuration."""
 
         self._require_state(DeviceAdapterState.DECLARED)
+        self._shutdown_completed = False
         self._initialization_config = config
         self._set_state(DeviceAdapterState.INITIALIZED)
 
     def check_ready(self) -> DeviceReadiness:
-        """Check whether the initialized adapter is ready to start."""
+        """Report declared eligibility or concrete initialized acquisition readiness."""
 
+        if self.state == DeviceAdapterState.DECLARED:
+            return self._mark_ready()
         self._require_state(DeviceAdapterState.INITIALIZED)
         self._set_state(DeviceAdapterState.FAILED)
         raise DeviceReadinessNotImplementedError(
@@ -160,10 +160,28 @@ class DeviceAdapter:
         self._set_state(DeviceAdapterState.STOPPED)
 
     def shutdown(self) -> None:
-        """Shut down the live adapter after it has stopped."""
+        """Complete device cleanup before returning the retained adapter to DECLARED."""
 
-        self._require_state(DeviceAdapterState.STOPPED)
-        self._set_state(DeviceAdapterState.SHUTDOWN)
+        if self.state == DeviceAdapterState.DECLARED and self._shutdown_completed:
+            return
+        if self.state not in {
+            DeviceAdapterState.INITIALIZED,
+            DeviceAdapterState.READY,
+            DeviceAdapterState.FAILED,
+            DeviceAdapterState.SHUTDOWN,
+        }:
+            self._require_state(DeviceAdapterState.STOPPED)
+        try:
+            self._shutdown_resources()
+        except Exception:
+            self._set_state(DeviceAdapterState.FAILED)
+            raise
+        self._initialization_config = None
+        self._shutdown_completed = True
+        self._set_state(DeviceAdapterState.DECLARED)
+
+    def _shutdown_resources(self) -> None:
+        """Release adapter-specific resources before the generic cleanup transition."""
 
     def get_status(self) -> DeviceStatus:
         """Return a status snapshot for the live adapter."""
@@ -195,7 +213,10 @@ class DeviceAdapter:
                 DeviceAdapterState.SHUTDOWN,
             },
             failed=self._state is DeviceAdapterState.FAILED,
-            shutdown=self._state is DeviceAdapterState.SHUTDOWN,
+            shutdown=(
+                self._state is DeviceAdapterState.SHUTDOWN
+                or (self._state is DeviceAdapterState.DECLARED and self._shutdown_completed)
+            ),
         )
 
     def collect_records(self) -> Any:
@@ -228,11 +249,16 @@ class DeviceAdapter:
             )
 
     def _mark_ready(self) -> DeviceReadiness:
-        self._require_state(DeviceAdapterState.INITIALIZED)
-        self._set_state(DeviceAdapterState.READY)
+        if self.state == DeviceAdapterState.DECLARED:
+            return DeviceReadiness(
+                self.device_id, True, "declared_for_initialization", self.declared_capabilities
+            )
+        if self.state not in {DeviceAdapterState.READY, DeviceAdapterState.RUNNING}:
+            self._require_state(DeviceAdapterState.INITIALIZED)
+        if self.state != DeviceAdapterState.RUNNING:
+            self._set_state(DeviceAdapterState.READY)
         return DeviceReadiness(
             device_id=self.device_id,
-            required=self.required,
             ready=True,
             reason="ready",
             capabilities_available=self.declared_capabilities,

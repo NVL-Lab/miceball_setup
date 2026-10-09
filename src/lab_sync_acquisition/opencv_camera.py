@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from math import isfinite
 from typing import Any, Iterable
@@ -56,9 +57,11 @@ class SeeedIMX219OpenCVCameraAdapter(DeviceAdapter):
 
         return self._frame_index
 
-    def initialize(self, config: OpenCVCameraConfig) -> None:
+    def initialize(self, config: OpenCVCameraConfig | Mapping[str, Any]) -> None:
         """Open the OpenCV camera capture using explicit camera configuration."""
 
+        if isinstance(config, Mapping):
+            config = OpenCVCameraConfig(**config)
         if not isinstance(config, OpenCVCameraConfig):
             raise TypeError("SeeedIMX219OpenCVCameraAdapter requires OpenCVCameraConfig")
         if config.frames_per_collect < 1:
@@ -70,27 +73,28 @@ class SeeedIMX219OpenCVCameraAdapter(DeviceAdapter):
         try:
             cv2 = self._cv2 if self._cv2 is not None else self._import_cv2()
             capture = cv2.VideoCapture(config.camera_source, config.api_preference)
+            self._capture = capture
             self._apply_requested_properties(cv2, capture, config)
             if not capture.isOpened():
                 self._set_state(DeviceAdapterState.FAILED)
                 raise DeviceAdapterLifecycleError("OpenCV camera capture did not open")
-            self._capture = capture
             self._backend_name = self._read_backend_name(capture)
         except Exception:
+            self._set_state(DeviceAdapterState.FAILED)
             self._release_capture()
-            if self.state is not DeviceAdapterState.FAILED:
-                self._set_state(DeviceAdapterState.FAILED)
             raise
 
     def check_ready(self) -> DeviceReadiness:
-        """Report ready only when the OpenCV capture is open."""
+        """Report declared eligibility or verify that an initialized capture is open."""
 
-        self._require_state(DeviceAdapterState.INITIALIZED)
+        if self.state == DeviceAdapterState.DECLARED:
+            return self._mark_ready()
+        if self.state not in {DeviceAdapterState.READY, DeviceAdapterState.RUNNING}:
+            self._require_state(DeviceAdapterState.INITIALIZED)
         if self._capture is None or not self._capture.isOpened():
             self._set_state(DeviceAdapterState.FAILED)
             return DeviceReadiness(
                 device_id=self.device_id,
-                required=self.required,
                 ready=False,
                 reason="opencv_capture_not_open",
                 capabilities_available=self.declared_capabilities,
@@ -184,11 +188,12 @@ class SeeedIMX219OpenCVCameraAdapter(DeviceAdapter):
 
         super().stop()
 
-    def shutdown(self) -> None:
-        """Release the OpenCV camera capture after acquisition stops."""
+    def _shutdown_resources(self) -> None:
+        """Release the capture before the generic lifecycle confirms cleanup."""
 
-        super().shutdown()
         self._release_capture()
+        self._camera_config = None
+        self._backend_name = None
 
     def _apply_requested_properties(
         self,

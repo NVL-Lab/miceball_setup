@@ -138,12 +138,21 @@ propagation policy remain unresolved.
 
 Decision 234 settles local storage root precedence: each AcquisitionNode has
 an explicitly resolved persistent default and a Session may override it without
-mutating that default or affecting later Sessions. The external representation
-and propagation mechanism remain open; root ownership and override semantics
-are no longer open questions.
+mutating that default or affecting later Sessions in the historical local path.
+Decision 298 qualifies distributed initialization: the node uses deployment-local
+roots/configuration and Controller cannot select/override remote roots through
+SessionConfig.local_storage_roots. External representation/provisioning remains
+open; root authority is settled, not a new configuration-model requirement.
 
 Deployment-local retrieval configuration and its initialization handoff are
 tracked separately in Q022, as future work after Phase 14.
+
+Decisions 281-301 settle Slice 28's ownership and ordering: AcquisitionNode owns
+pre-Session inventory, Controller resolves selections/readiness/reservations,
+and SessionConfig is the final accepted configuration. Reuse existing device
+and product declarations without SessionLaunchIntent or product requiredness.
+External deployment/configuration representation and propagation remain open;
+these settled selection and launch semantics are not Q008 schema questions.
 
 ### Questions
 
@@ -307,11 +316,15 @@ becomes permanently persistent.
 
 ---
 
-## Q015: What orchestration follows Phase 5?
+## Q015: What orchestration remains beyond accepted Session launch?
 
 ### Why this matters
 
-Controller v1 now coordinates one bounded Session sequentially, records canonical Experiment evidence, and activates explicit Experiment runtime health mappings on AcquisitionNode. Phase 5 completes this narrow Experiment lifecycle and health-scope architecture. Validation, abort semantics, multi-session control, and distributed orchestration remain intentionally deferred.
+Controller v1 implements sequential orchestration for one bounded Session,
+canonical Experiment evidence, and explicit runtime health mappings on
+AcquisitionNode. Phase 5 completed that narrow lifecycle/health-scope architecture.
+Slice 28 now accepts pre-Session distributed launch ownership; Validation, abort
+commands, and broader multi-Session scheduling/supervision remain deferred.
 
 Decisions 095–102 establish canonical Experiment lifecycle ownership, distinguish Readiness and Validation from Experiment, define expected participants as plain-data declarations, define an immutable live-source-keyed runtime health mapping, and scope AcquisitionNode Experiment health evaluation exclusively to that active mapping. Acquisition-health consequences remain tracked separately in Q013.
 
@@ -338,6 +351,35 @@ required scientific-output selection or introduce
 a Session rejection history. Representation/propagation work remains under
 Q008; the remaining orchestration questions below remain open.
 
+Decisions 281-301 now settle Controller-owned pre-Session launch/runtime
+assembly, node-owned inventory and atomic reservation, service-only node
+readiness, selected-device criticality, resolved SessionConfig, and failed-launch
+rollback. Controller may exist before Session and uses existing communication
+boundaries with participants already available to it. The existing Slice 28 launch
+path and sequential reuse have automated broker-double tests; M015 remains open
+pending independent validation and audit of the correction and is not validated
+by earlier workflows.
+Those ownership/ordering questions are no longer open. Unknown is absence of a
+valid current report, not a new readiness enum; no product-level criticality or
+device-level reservation is introduced.
+
+Decision 302 resolves the sequential device-reuse lifecycle ambiguity: successful
+shutdown and required cleanup return retained adapters to DECLARED, while failed
+or unconfirmed cleanup prohibits reuse. Safely reusable declared adapters must
+participate in existing pre-Session readiness, and each Session supplies its own
+configuration. This is accepted architecture, not another open lifecycle question;
+implementation has automated regression coverage, with independent validation
+and audit pending under M015. It does not resolve
+concurrent sharing, multi-Session scheduling, or normal service binding lifetimes.
+
+Decisions 295-301 resolve the distributed initialization handoff: pre-Session
+participant commands use existing NATS conventions without fabricated Session
+IDs; nodes own binding/local initialization; Session authorizes node-process
+LocalStorageManager creation; all mandatory participants confirm preparation.
+Controller coordinates participant-local cleanup on failed/unconfirmed launch,
+but unconfirmed node cleanup prevents reservation release. These accepted
+responsibilities are implemented, not open ownership questions.
+
 Decision 238 resolves terminal Experiment identity reuse: each identity is one
 execution, including without scientific outputs. Repeating a configuration
 requires a new Experiment identity and independent lifecycle, streams,
@@ -350,14 +392,18 @@ the other orchestration questions below remain deferred.
 
 * How is Validation requested and recorded without creating an Experiment?
 * What semantics distinguish a future abort command from framework failure and intentional stop?
-* What component, if any, coordinates multiple Sessions?
-* How is orchestration distributed across multiple Acquisition Nodes?
+* What future client/GUI/CLI interfaces request Controller-owned launch?
+* What central scheduling, device-level sharing, or shared multi-Session Ingestor/StorageManager scheduling, if any, is accepted beyond Slice 28?
+* What daemon/service supervision and coordination between multiple Controllers, if any, is needed without changing deployment-independent ownership?
+* What future startup automation replaces temporary manual-shell development startup without making Controller a process supervisor?
+* What are normal end-of-Session binding lifetimes for Ingestor and SynchronizationManager beyond accepted initialization/rollback?
+* What future durable pre-Session launch auditing is accepted beyond operational results, without forcing failed attempts through Ingestor?
 
 ### Blocks
 
 * Validation orchestration
 * Abort semantics
-* Multi-session and distributed orchestration
+* Future shared multi-Session scheduling and service supervision beyond accepted launch/initialization
 
 ---
 
@@ -575,6 +621,11 @@ How is AcquisitionNode availability monitored?
 When may transfers begin?
 How are interrupted transfers resumed or retried?
 How is transfer progress represented?
+Decisions 287-288 settle that acquisition reservations end after local artifact
+finalization and do not cover global collection. Later retrieval needs no
+original reservation, even after the node participates in another Session.
+Monitoring and global collection scheduling remain future work, not authority
+to retain/reacquire acquisition reservations or delete source artifacts.
 Decisions 271-274 settle post-session collection-pass evidence: one StorageManager-owned
 compiled persistent global_artifact_collection_evidence record containing actual
 per-artifact collection and verification outcomes through the existing evidence
@@ -608,9 +659,35 @@ does not define creation, loading, initialization-time validation, or propagatio
 through startup/Controller/Session initialization. Q008 retains the broader
 configuration-model questions; this entry isolates deployment initialization.
 
+Slice 28 (Decisions 281-301) uses existing communication mechanisms and
+participants already available to Controller. RuntimeParticipant contains only
+component_type/component_id; AcquisitionNode inventory membership supplies device
+placement without another node ID in DeviceDeclaration. Participant registration,
+discovery, adapter installation/configuration, address resolution, and deployment
+file formats remain open here. Session launch ownership does not resolve them.
+
+Decision 298 settles root authority: remote AcquisitionNodes use their own
+deployment-defined local storage roots/configuration. Controller does not choose
+those roots or artifact paths, and the current SessionConfig.local_storage_roots
+override path is historical, not remote launch authority. This resolves ownership,
+not the future deployment configuration file format or provisioning mechanism.
+Manual independent-process startup is development infrastructure; intended
+long-lived service deployment/supervision remains future work (Decision 295).
+
+Decision 302 additionally settles retained adapter reuse without process or adapter
+recreation: AcquisitionNode retains deployment configuration, but subsequent
+Session-specific settings come from that Session's resolved SessionConfig and
+must not be silently inherited. The generic return-to-DECLARED/readiness contract
+is implemented with automated coverage; independent validation and audit remain
+pending under M015. Deployment file formats and provisioning below
+remain open; no new configuration model or lifecycle API is introduced.
+
 ### Questions
 
 * How is deployment-local configuration created and maintained from repository templates?
+* How are deployment participants and declared devices installed/registered, discovered if desired, and exposed to Controller without assuming automatic lab-wide discovery?
+* What policy applies to duplicate RuntimeParticipant identities in deployment?
+* How are node-owned local storage roots/configuration provisioned without Controller selecting remote filesystem paths?
 * How is logical `acquisition_node_id` mapped to retrieval endpoint information?
 * Where do SSH/SFTP host aliases, hostnames, usernames, key paths, and authentication references live, and how are they provisioned locally?
 * How is local-only configuration loaded and supplied to StorageManager through startup, Controller, or Session initialization?
@@ -688,6 +765,8 @@ deployment-local configuration responsibilities.
 * How does a restarted application discover and select unfinished Sessions, rather than starting Ingestor with an already-known Session?
 * How are multiple unfinished Sessions and complete Controller/application lifecycle restoration handled?
 * How does future recovery orchestration relate to Q019's separate evidence-consumption/finalization guarantee?
+* How does Controller crash recovery find and release stale AcquisitionNode reservations without changing node-owned reservation authority?
+* What future leases, timeouts, or heartbeats, if any, are accepted beyond Slice 28's atomic Session-keyed reservation without automatic expiry?
 
 ### Blocks
 
@@ -695,7 +774,15 @@ deployment-local configuration responsibilities.
 * Application-wide restart/discovery/resumption and lifecycle restoration
 
 These questions do not block accepted known-Session journal recovery and must
-not become Slice 27 implementation requirements.
+not become Slice 27 implementation requirements. Decisions 287-294 also defer
+Controller crash recovery and stale-reservation handling; ordinary failed-launch
+rollback is accepted, not application restart recovery. Q019 remains separately
+OPEN and Slice 28 does not invent a Session-wide evidence-drain protocol.
+
+Decision 300 accepts initialization cleanup confirmation before node release.
+An unconfirmed cleanup protects the reservation; how future crash/recovery or
+stale-reservation handling resolves that condition remains deferred here, without
+automatic expiry, retry, leases, or a new recovery service in Slice 28.
 
 ---
 
@@ -703,7 +790,10 @@ I also recommend slightly adjusting the roadmap now:
 
 Phase 13 — Global StorageManager (Evidence)
 Phase 14 — Global StorageManager (Finalized Scientific Data)
-Phase 15 — Runtime Artifact Transfer & Monitoring
+Phase 15 — Controller-owned Session Launch & Runtime Assembly (launch path and Decision 302 sequential reuse implemented; independent validation/audit and M015 closure pending)
 Phase 16 — Configuration Model
 Phase 17 — Device Acceptance / Validation
 Phase 18 — End-to-End Demo Architecture
+
+Runtime artifact-transfer scheduling and monitoring remain future work under
+Q021; they are not silently included in Slice 28 by the earlier roadmap label.

@@ -2,15 +2,21 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, TYPE_CHECKING
+from collections.abc import Mapping
 from uuid import uuid4
 
 from lab_sync_acquisition.acquisition_health import HealthInterpretationEvidence
 from lab_sync_acquisition.acquisition_node import AcquisitionNode
-from lab_sync_acquisition.communication import GroupCommandOutcome, RuntimeEvidenceMessage, RuntimeParticipant
+from lab_sync_acquisition.communication import (
+    GroupCommandOutcome,
+    RuntimeEvidenceMessage,
+    RuntimeParticipant,
+)
 from lab_sync_acquisition.device_adapter import DeviceReadiness
+from lab_sync_acquisition.device import DeviceDeclaration
 from lab_sync_acquisition.experiment_runtime import (
     ActiveExperimentRuntimeContext,
     ExperimentRuntimeHealthMapping,
@@ -26,6 +32,9 @@ from lab_sync_acquisition.session import (
 )
 from lab_sync_acquisition.storage import PersistentStorageManager
 from lab_sync_acquisition.synchronization import SynchronizationManager
+
+if TYPE_CHECKING:
+    from lab_sync_acquisition.nats_communication import NatsControllerCommunication
 
 
 @dataclass(frozen=True)
@@ -99,14 +108,14 @@ class ControllerActionDecision:
 
 
 class Controller:
-    """Coordinates one Session through already-created runtime collaborators."""
+    """Owns one Session's local or brokered orchestration, not participant startup."""
 
     def __init__(
         self,
-        acquisition_node: AcquisitionNode,
-        ingestor: InMemoryIngestor,
-        storage_manager: PersistentStorageManager,
-        session_record_path: str | Path,
+        acquisition_node: AcquisitionNode | None = None,
+        ingestor: InMemoryIngestor | None = None,
+        storage_manager: PersistentStorageManager | None = None,
+        session_record_path: str | Path | None = None,
         synchronization_manager: SynchronizationManager | None = None,
         *,
         component_id: str = "controller",
@@ -116,7 +125,9 @@ class Controller:
         self._acquisition_node = acquisition_node
         self._ingestor = ingestor
         self._storage_manager = storage_manager
-        self._session_record_path = Path(session_record_path)
+        self._session_record_path = (
+            Path(session_record_path) if session_record_path is not None else None
+        )
         self._synchronization_manager = synchronization_manager
         self._component_id = component_id
         self._session: Session | None = None
@@ -128,6 +139,270 @@ class Controller:
         self._command_results: list[ControllerCommandResult] = []
         self._controller_action_decisions: list[ControllerActionDecision] = []
         self._artifact_collection_in_progress = False
+        self._launch_communication: NatsControllerCommunication | None = None
+        self._reserved_participants: tuple[RuntimeParticipant, ...] = ()
+        self._launch_result_window_s: float | None = None
+        self._launch_subscriptions = ()
+
+    async def launch_session(
+        self,
+        selections: Mapping[str, Iterable[DeviceDeclaration]],
+        *,
+        communication: NatsControllerCommunication,
+        participants: Iterable[RuntimeParticipant],
+        config_parameters: dict[str, Any],
+        result_window_s: float,
+        scientific_outputs: Iterable[ScientificOutputSelection] = (),
+    ) -> ControllerCommandResult:
+        """Resolve/reserve resources and confirm distributed preparation before initialization."""
+        session_id = uuid4().hex
+        acquired = []
+        initializing = []
+        subscriptions = []
+        rollback = []
+        unconfirmed_reservations = []
+        initialization_outcomes = []
+        try:
+            if self._session is not None:
+                raise RuntimeError("Controller already owns a Session")
+            if result_window_s < 0:
+                raise ValueError("result_window_s must be nonnegative")
+            if communication.check_ready().ready is not True:
+                raise ConnectionError("Controller NATS communication is not ready")
+            if config_parameters.get("local_storage_roots") is not None:
+                raise ValueError("Distributed launch cannot select node-local storage roots")
+            participants = tuple(participants)
+            scientific_outputs = tuple(scientific_outputs)
+            mandatory = []
+            for component_type in ("ingestor", "synchronization_manager"):
+                matches = [p for p in participants if p.component_type == component_type]
+                if len(matches) != 1:
+                    raise ValueError(f"Launch requires one configured {component_type}")
+                mandatory.extend(matches)
+            nodes = {p.component_id: p for p in participants if p.component_type == "acquisition_node"}
+            subscriptions.append(await communication.subscribe_command_results(None))
+            subscriptions.append(await communication.subscribe_command_results(session_id))
+
+            async def request(participant, operation, payload=None, session_scoped=True):
+                return await communication.request_command(
+                    participant, operation, session_id if session_scoped else None,
+                    payload or {}, result_window_s,
+                )
+
+            def confirmed(result):
+                return result is not None and result.success is True and result.status == "succeeded"
+
+            for participant in mandatory:
+                result = await request(participant, "check_readiness", session_scoped=False)
+                report = result.payload.get("service_readiness") if confirmed(result) else None
+                if (
+                    not isinstance(report, dict)
+                    or report.get("ready") is not True
+                    or report.get("required") is not True
+                    or report.get("component_id") != participant.component_id
+                    or report.get("component_type") != participant.component_type
+                ):
+                    raise RuntimeError(f"Mandatory {participant.component_type} readiness is unready or unknown")
+            resolved = {}
+            device_reports = []
+            for node_id, requested in selections.items():
+                requested = tuple(d for d in requested if d.enabled)
+                if not requested:
+                    continue
+                critical = any(d.required for d in requested)
+                participant = nodes.get(node_id)
+                if participant is None:
+                    if critical:
+                        raise RuntimeError(f"Required node is not configured: {node_id}")
+                    continue
+                inventory_result = await request(participant, "get_inventory", session_scoped=False)
+                readiness_result = await request(participant, "check_readiness", session_scoped=False)
+                inventory = {}
+                report = readiness_result.payload.get("acquisition_node_readiness") if confirmed(readiness_result) else None
+                try:
+                    if (
+                        not confirmed(inventory_result)
+                        or not isinstance(report, dict)
+                        or report.get("node_id") != node_id
+                        or type(report.get("ready")) is not bool
+                        or "reserved_for_session_id" not in report
+                    ):
+                        raise ValueError("Missing or invalid current node report")
+                    inventory = {d.device_id: d for d in (DeviceDeclaration.from_dict(data) for data in inventory_result.payload["devices"])}
+                    if report["ready"] is not True or report.get("reserved_for_session_id") not in {None, session_id}:
+                        raise ValueError("Node is not ready or available")
+                    reports = {r["device_id"]: r for r in report["device_readiness"]}
+                    services = report["service_readiness"]
+                    if not isinstance(services, list) or any(
+                        type(s.get("required")) is not bool
+                        or type(s.get("ready")) is not bool
+                        or (s["required"] and not s["ready"])
+                        for s in services
+                    ):
+                        raise ValueError("Invalid node service readiness")
+                    if any(d.enabled and (d.device_id not in reports or type(reports[d.device_id].get("ready")) is not bool) for d in inventory.values()):
+                        raise ValueError("Incomplete or invalid device readiness")
+                except (KeyError, TypeError, ValueError) as error:
+                    if critical:
+                        raise RuntimeError(f"Required node readiness is unknown/unavailable: {node_id}") from error
+                    continue
+                selected = []
+                for selection in requested:
+                    declaration = inventory.get(selection.device_id)
+                    ready = declaration is not None and declaration.enabled and reports.get(selection.device_id, {}).get("ready") is True
+                    if not ready:
+                        if selection.required:
+                            raise RuntimeError(f"Required device is unavailable: {selection.device_id}")
+                        continue
+                    selected.append(replace(declaration, required=selection.required))
+                if not selected:
+                    continue
+                publication_error = None
+                try:
+                    reservation = await request(participant, "reserve")
+                except Exception as error:
+                    reservation = None
+                    publication_error = str(error)
+                if not confirmed(reservation) or reservation.payload.get("confirmed") is not True:
+                    if reservation is None:
+                        # No initialization was requested: owner-keyed release is safe,
+                        # but an absent release result still leaves ownership unresolved.
+                        release_confirmed = False
+                        try:
+                            release = await request(participant, "release_reservation")
+                            release_confirmed = confirmed(release) and release.payload.get("confirmed") is True
+                        except Exception:
+                            pass
+                        unconfirmed_reservations.append({"participant": participant.to_dict(),
+                                                        "release_confirmed": release_confirmed,
+                                                        "error": publication_error})
+                    if any(d.required for d in selected):
+                        raise RuntimeError(f"Required node reservation unconfirmed/rejected: {node_id}")
+                    continue
+                acquired.append(participant)
+                resolved[node_id] = tuple(selected)
+                device_reports.extend(DeviceReadiness(d.device_id, True, reports[d.device_id].get("reason", "ready"),
+                    reports[d.device_id].get("capabilities_available", ())) for d in selected)
+            parameters = dict(config_parameters)
+            parameters.pop("session_id", None)
+            parameters.pop("selected_devices", None)
+            parameters.pop("expected_runtime_participants", None)
+            config = SessionConfig(**parameters, session_id=session_id,
+                selected_devices=[d for devices in resolved.values() for d in devices],
+                expected_runtime_participants=tuple((*mandatory, *acquired)))
+            self._session = Session(session_id, config)
+            preparation_reports = []
+            for participant in (*mandatory, *acquired):
+                # Record the cleanup obligation before publication: a missing result
+                # cannot prove participant preparation never started.
+                initializing.append(participant)
+                payload = {}
+                if participant.component_type == "acquisition_node":
+                    payload = {"selected_devices": [d.to_dict() for d in resolved[participant.component_id]],
+                               "device_configurations": {d.device_id: (config.device_configurations or {}).get(d.device_id)
+                                   for d in resolved[participant.component_id]},
+                               "scientific_outputs": [s.to_dict() for s in scientific_outputs
+                                   if s.source_node_id == participant.component_id and s.source_device_id in {d.device_id for d in resolved[participant.component_id]}]}
+                result = await request(participant, "initialize_session", payload)
+                preparation = result.payload.get("preparation") if confirmed(result) else None
+                prepared = isinstance(preparation, dict) and preparation.get("ready") is True and preparation.get("component_id") == participant.component_id and preparation.get("component_type") == participant.component_type
+                outcome = "succeeded" if prepared else ("failed" if result is not None and result.status == "failed" and result.success is False else "unconfirmed")
+                initialization_outcomes.append({"participant": participant.to_dict(), "outcome": outcome,
+                                                "reason": result.reason if result is not None else "No confirmed initialization result"})
+                if not prepared:
+                    raise RuntimeError(f"Participant initialization {outcome}: {participant.component_id}; {initialization_outcomes[-1]['reason']}")
+                preparation_reports.append(ServiceReadiness(participant.component_id, participant.component_type, True, True, "session_prepared"))
+            self._session.initialize(device_reports, preparation_reports)
+            self._launch_communication = communication
+            self._reserved_participants = tuple(acquired)
+            self._launch_result_window_s = result_window_s
+            self._launch_subscriptions = tuple(subscriptions)
+            return self._record_successful_command("launch_session", {"session_id": session_id,
+                "session_state": self._session.current_state.value, "configuration": config.to_dict(),
+                "unconfirmed_reservations": unconfirmed_reservations, "initialization": initialization_outcomes})
+        except Exception as error:
+            clean = set()
+            for participant in initializing:
+                try:
+                    result = await communication.request_command(participant, "abort_session_initialization", session_id, {}, result_window_s)
+                    succeeded = result is not None and result.success is True and result.payload.get("confirmed") is True
+                    if succeeded:
+                        clean.add(participant)
+                    rollback.append({"participant": participant.to_dict(), "operation": "abort_session_initialization", "confirmed": succeeded})
+                except Exception as cleanup_error:
+                    rollback.append({"participant": participant.to_dict(), "operation": "abort_session_initialization", "confirmed": False, "error": str(cleanup_error)})
+            for participant in acquired:
+                if participant in initializing and participant not in clean:
+                    rollback.append({"participant": participant.to_dict(), "operation": "release_reservation", "confirmed": False, "reason": "cleanup_unconfirmed"})
+                    continue
+                try:
+                    result = await communication.request_command(participant, "release_reservation", session_id, {}, result_window_s)
+                    rollback.append({"participant": participant.to_dict(), "operation": "release_reservation", "confirmed": result is not None and result.success is True and result.payload.get("confirmed") is True})
+                except Exception as release_error:
+                    rollback.append({"participant": participant.to_dict(), "operation": "release_reservation", "confirmed": False, "error": str(release_error)})
+            if self._session is not None and self._session.session_id == session_id:
+                self._mark_session_failed(str(error))
+                self._session = None
+            for subscription in subscriptions:
+                try:
+                    await subscription.unsubscribe()
+                except Exception as unsubscribe_error:
+                    rollback.append({"operation": "unsubscribe_command_results", "confirmed": False, "error": str(unsubscribe_error)})
+            result = ControllerCommandResult("launch_session", False,
+                {"session_id": session_id, "rollback": rollback,
+                 "unconfirmed_reservations": unconfirmed_reservations,
+                 "initialization": initialization_outcomes}, str(error))
+            self._command_results.append(result)
+            self._last_result = result
+            return result
+
+    async def start_launched_session(self) -> ControllerCommandResult:
+        """Start reserved distributed acquisition through existing runtime commands."""
+        session = self._require_session()
+        try:
+            for participant in self._reserved_participants:
+                result = await self._launch_communication.request_command(participant, "start_runtime", session.session_id, {}, self._launch_result_window_s)
+                if result is None or result.success is not True:
+                    raise RuntimeError(f"Runtime start unconfirmed/failed: {participant.component_id}")
+            session.start()
+            if self._storage_manager is not None:
+                self._write_initial_session_record()
+            return self._record_successful_command("start_session", {"session_state": session.current_state.value})
+        except Exception as error:
+            rollback = []
+            for participant in session.configuration.expected_runtime_participants:
+                try:
+                    cleanup = await self._launch_communication.request_command(participant, "abort_session_initialization", session.session_id, {}, self._launch_result_window_s)
+                    confirmed = cleanup is not None and cleanup.success is True and cleanup.payload.get("confirmed") is True
+                    if participant in self._reserved_participants and confirmed:
+                        release = await self._launch_communication.request_command(participant, "release_reservation", session.session_id, {}, self._launch_result_window_s)
+                        confirmed = release is not None and release.success is True and release.payload.get("confirmed") is True
+                    rollback.append({"participant": participant.to_dict(), "confirmed": confirmed})
+                except Exception as cleanup_error:
+                    rollback.append({"participant": participant.to_dict(), "confirmed": False, "error": str(cleanup_error)})
+            self._mark_session_failed(str(error))
+            return self._record_failed_command("start_session", error, {"rollback": rollback})
+
+    async def stop_launched_session(self, reason: str | None = None) -> ControllerCommandResult:
+        """Stop/finalize every reserved node before releasing it, independently of global collection."""
+        session = self._require_session()
+        outcomes = []
+        for participant in self._reserved_participants:
+            try:
+                result = await self._launch_communication.request_command(participant, "stop_runtime", session.session_id, {}, self._launch_result_window_s)
+                if result is None or result.success is not True:
+                    raise RuntimeError("Node stop/local finalization unconfirmed")
+                release = await self._launch_communication.request_command(participant, "release_reservation", session.session_id, {}, self._launch_result_window_s)
+                if release is None or release.success is not True or release.payload.get("confirmed") is not True:
+                    raise RuntimeError("Reservation release unconfirmed")
+                outcomes.append({"participant": participant.to_dict(), "released": True})
+            except Exception as error:
+                outcomes.append({"participant": participant.to_dict(), "released": False, "error": str(error)})
+        if any(not o["released"] for o in outcomes):
+            self._mark_session_failed("Distributed runtime cleanup unconfirmed")
+            return self._record_failed_command("stop_session", RuntimeError("Distributed runtime cleanup unconfirmed"), {"nodes": outcomes})
+        session.stop(reason)
+        return self._record_successful_command("stop_session", {"session_state": session.current_state.value, "nodes": outcomes})
 
     @property
     def controller_action_decisions(self) -> tuple[ControllerActionDecision, ...]:
@@ -565,7 +840,9 @@ class Controller:
             "session_state": (
                 self._session.current_state.value if self._session else None
             ),
-            "acquisition_runtime": self._acquisition_node.status(),
+            "acquisition_runtime": (
+                self._acquisition_node.status() if self._acquisition_node is not None else None
+            ),
             "active_experiment_runtime_health_mapping": (
                 self._active_experiment_runtime_health_mapping
             ),
@@ -667,9 +944,9 @@ class Controller:
             "accepted_acquisition_envelopes": (
                 self._storage_manager.read_envelopes()
             ),
-            "ingest_audit_records": self._ingestor.ingest_audit,
-            "runtime_evidence": self._ingestor.accepted_runtime_evidence,
-            "runtime_evidence_audit": self._ingestor.runtime_evidence_audit,
+            "ingest_audit_records": self._ingestor.ingest_audit if self._ingestor is not None else (),
+            "runtime_evidence": self._ingestor.accepted_runtime_evidence if self._ingestor is not None else (),
+            "runtime_evidence_audit": self._ingestor.runtime_evidence_audit if self._ingestor is not None else (),
             "final_session_status": session.final_status,
             "cleanup_evidence": {
                 "cleanup_occurred": session.cleanup_occurred,

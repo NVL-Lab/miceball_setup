@@ -145,7 +145,7 @@ async def run_demo(server_url: str) -> None:
                 session_id,
                 result_received,
             )
-            command_subscription = await node_runtime.subscribe_commands()
+            command_subscriptions = await node_runtime.subscribe_commands()
             evidence_subscription = await ingestor.subscribe_evidence(
                 session_id,
                 evidence_received,
@@ -156,7 +156,8 @@ async def run_demo(server_url: str) -> None:
             )
 
             await result_subscription.consumer_info()
-            await command_subscription.consumer_info()
+            for command_subscription in command_subscriptions:
+                await command_subscription.consumer_info()
             await evidence_subscription.consumer_info()
             for boundary in boundaries:
                 await boundary.flush()

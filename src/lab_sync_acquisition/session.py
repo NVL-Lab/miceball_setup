@@ -436,7 +436,7 @@ class Session:
                 if manager is None:
                     if root is None:
                         raise ValueError("Local scientific storage root is not configured")
-                    manager = LocalStorageManager(root, self.session_id, node.node_id)
+                    manager = node.prepare_local_storage(self.session_id, declarations, root)
                 elif root is not None and manager.root_path != Path(root):
                     raise ValueError("Attached LocalStorageManager root conflicts with Session configuration")
                 node.attach_local_storage_manager(manager, declarations)
@@ -638,7 +638,9 @@ class Session:
         failures = []
         for record in device_readiness_summary:
             self._device_readiness_summary.append(record)
-            if record.required and not record.ready:
+            required = any(declaration.device_id == record.device_id and declaration.required
+                           for declaration in self.configuration.selected_devices or ())
+            if required and not record.ready:
                 failures.append(f"device_readiness[{record.device_id}]")
         return failures
 

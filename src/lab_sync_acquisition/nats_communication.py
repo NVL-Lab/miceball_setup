@@ -35,6 +35,8 @@ from lab_sync_acquisition.communication import (
 from lab_sync_acquisition.ingestor import InMemoryIngestor
 from lab_sync_acquisition.controller import Controller, ControllerActionDecision
 from lab_sync_acquisition.session import ScientificOutputSelection
+from lab_sync_acquisition.device import DeviceDeclaration
+from lab_sync_acquisition.synchronization import SynchronizationManager
 from lab_sync_acquisition.service_readiness import ServiceReadiness
 
 
@@ -106,10 +108,10 @@ class NatsCommunicationBoundary:
     async def connect(self) -> None:
         """Connect to NATS without adding reconnect or recovery policy."""
 
-        self._client = await nats.connect(
-            servers=list(self.servers),
-            allow_reconnect=False,
-        )
+        try:
+            self._client = await nats.connect(servers=list(self.servers), allow_reconnect=False)
+        except Exception as error:
+            raise ConnectionError(f"NATS startup connection failed: {error}") from error
         self._jetstream = self._client.jetstream()
 
     async def close(self) -> None:
@@ -135,12 +137,18 @@ class NatsCommunicationBoundary:
             ("LAB_EVIDENCE", LAB_EVIDENCE),
         ):
             try:
-                await jetstream.stream_info(stream_name)
+                info = await jetstream.stream_info(stream_name)
+                if stream_name != "LAB_EVIDENCE":
+                    extra = "messages.command.>" if stream_name == "LAB_COMMANDS" else "messages.command_result.>"
+                    if extra not in info.config.subjects:
+                        info.config.subjects = [*info.config.subjects, extra]
+                        await jetstream.update_stream(config=info.config)
             except NotFoundError:
                 await jetstream.add_stream(
                     config=StreamConfig(
                         name=stream_name,
-                        subjects=[subject],
+                        subjects=[subject] if stream_name == "LAB_EVIDENCE" else [subject,
+                            "messages.command.>" if stream_name == "LAB_COMMANDS" else "messages.command_result.>"],
                         storage=StorageType.FILE,
                     )
                 )
@@ -314,6 +322,32 @@ class NatsControllerCommunication:
 
         return self._command_results
 
+    def check_ready(self) -> ServiceReadiness:
+        return self._boundary.check_ready()
+
+    async def request_command(self, participant: RuntimeParticipant, command_type: str,
+                              session_id: str | None, payload: dict[str, Any],
+                              result_window_s: float) -> RuntimeCommandResultMessage | None:
+        """Issue once and await the correlated final result; missing remains unconfirmed."""
+        from uuid import uuid4
+        if result_window_s < 0:
+            raise ValueError("result_window_s must be nonnegative")
+        command_id = uuid4().hex
+        event = self._command_result_events.setdefault(command_id, asyncio.Event())
+        try:
+            await self.publish_command(RuntimeCommandMessage(command_id, session_id, command_type,
+                self._boundary.component_id, participant.component_id, payload), participant.component_type)
+            if not any(r.command_id == command_id for r in self._command_results):
+                await asyncio.wait_for(event.wait(), result_window_s)
+            return next((r for r in self._command_results if r.command_id == command_id
+                and r.session_id == session_id and r.source_id == participant.component_id
+                and r.target_id == self._boundary.component_id and r.status in {"succeeded", "failed"}
+                and type(r.success) is bool and r.success == (r.status == "succeeded")), None)
+        except TimeoutError:
+            return None
+        finally:
+            self._command_result_events.pop(command_id, None)
+
     async def publish_command(
         self,
         message: RuntimeCommandMessage,
@@ -398,12 +432,12 @@ class NatsControllerCommunication:
 
     async def subscribe_command_results(
         self,
-        session_id: str,
+        session_id: str | None,
         callback: RuntimeResultCallback | None = None,
     ) -> Subscription:
         """Consume durable results addressed to this command issuer."""
 
-        subject = f"messages.{session_id}.command_result.>"
+        subject = "messages.command_result.>" if session_id is None else f"messages.{session_id}.command_result.>"
 
         async def receive(message: Any) -> None:
             result = RuntimeCommandResultMessage.from_dict(
@@ -472,6 +506,9 @@ class NatsAcquisitionNodeCommunication:
             "start_runtime",
             "run_one_iteration",
             "stop_runtime",
+            "get_inventory", "reserve", "release_reservation",
+            "initialize_session", "abort_session_initialization",
+            "prepare_experiment_scientific_outputs",
         }
     )
 
@@ -486,14 +523,11 @@ class NatsAcquisitionNodeCommunication:
         self._published_health_interpretation_count = 0
         self._published_artifact_manifest_count = 0
 
-    async def subscribe_commands(self) -> Subscription:
+    async def subscribe_commands(self) -> tuple[Subscription, Subscription]:
         """Consume commands routed to this AcquisitionNode instance."""
 
-        session_id = self._acquisition_node.status()["session_id"]
-        subject = (
-            f"messages.{session_id}.command.acquisition_node."
-            f"{self._boundary.component_id}.>"
-        )
+        subjects = (f"messages.*.command.acquisition_node.{self._boundary.component_id}.>",
+                    f"messages.command.acquisition_node.{self._boundary.component_id}.>")
 
         async def receive(message: Any) -> None:
             try:
@@ -519,19 +553,17 @@ class NatsAcquisitionNodeCommunication:
                     result.status,
                 )
                 await self.publish_new_artifact_manifest_evidence()
-                await self.publish_new_health_interpretation_evidence(
-                    command.session_id
-                )
+                if command.session_id is not None:
+                    await self.publish_new_health_interpretation_evidence(command.session_id)
                 await message.ack()
             except Exception:
                 logger.exception("command_delivery_processing_failed")
                 raise
 
-        return await self._boundary._require_jetstream().subscribe(
-            subject,
-            cb=receive,
-            manual_ack=True,
-        )
+        subscriptions = []
+        for subject in subjects:
+            subscriptions.append(await self._boundary._require_jetstream().subscribe(subject, cb=receive, manual_ack=True))
+        return tuple(subscriptions)
 
     def execute_command(
         self,
@@ -550,10 +582,27 @@ class NatsAcquisitionNodeCommunication:
         )
 
         try:
-            if command.session_id != self._acquisition_node.status()["session_id"]:
+            if command.target_id != self._boundary.component_id:
+                raise ValueError("Command target does not match participant")
+            if command.command_type not in {"check_readiness", "get_inventory", "reserve", "release_reservation", "initialize_session", "abort_session_initialization"} and command.session_id != self._acquisition_node.status()["session_id"]:
                 raise RuntimeError("Command session_id does not match AcquisitionNode")
-            if command.command_type == "check_readiness":
-                readiness = self._acquisition_node.check_node_readiness()
+            if command.command_type == "get_inventory":
+                payload = {"devices": [d.to_dict() for d in self._acquisition_node.declared_devices]}
+            elif command.command_type in {"reserve", "release_reservation", "abort_session_initialization"}:
+                succeeded = getattr(self._acquisition_node, command.command_type)(command.session_id)
+                payload = {"confirmed": succeeded}
+                if not succeeded:
+                    raise RuntimeError(f"Node rejected {command.command_type}")
+            elif command.command_type == "initialize_session":
+                preparation = self._acquisition_node.initialize_session(command.session_id,
+                    tuple(DeviceDeclaration.from_dict(d) for d in command.payload["selected_devices"]),
+                    command.payload.get("device_configurations"),
+                    tuple(ScientificOutputSelection.from_dict(s) for s in command.payload.get("scientific_outputs", ())))
+                payload = {"preparation": preparation.to_dict()}
+                if not preparation.ready:
+                    raise RuntimeError(preparation.reason)
+            elif command.command_type == "check_readiness":
+                readiness = self._acquisition_node.check_node_readiness((self._boundary.check_ready(),))
                 payload = {
                     "acquisition_node_readiness": readiness.to_dict(),
                 }
@@ -569,6 +618,8 @@ class NatsAcquisitionNodeCommunication:
                     return result
             elif command.command_type == "start_runtime":
                 outcome = self._acquisition_node.start_runtime()
+                if any(not item.succeeded for item in outcome.get("device_start_results", ())):
+                    raise RuntimeError("Device runtime start failed")
                 payload = {"session_time_s": outcome["session_time_s"]}
             elif command.command_type == "run_one_iteration":
                 summary = self._acquisition_node.run_one_iteration()
@@ -581,6 +632,8 @@ class NatsAcquisitionNodeCommunication:
                 }
             elif command.command_type == "stop_runtime":
                 outcome = self._acquisition_node.stop_runtime()
+                if any(not item.succeeded for item in (*outcome.get("device_stop_results", ()), *outcome.get("device_shutdown_results", ()))):
+                    raise RuntimeError("Device stop/shutdown did not confirm successful cleanup")
                 payload = {
                     "final_session_time_s": outcome["final_session_time_s"]
                 }
@@ -661,6 +714,35 @@ class NatsIngestorCommunication:
     ) -> None:
         self._boundary = boundary
         self._ingestor = ingestor
+        self._results_by_command_id = {}
+        self._evidence_subscriptions: dict[str, Subscription] = {}
+
+    async def subscribe_commands(self) -> tuple[Subscription, Subscription]:
+        """Receive readiness and Session preparation over the existing command stream."""
+        async def receive(message: Any) -> None:
+            command = RuntimeCommandMessage.from_dict(json.loads(message.data.decode("utf-8")))
+            if command.target_id != self._boundary.component_id:
+                await message.ack()
+                return
+            result = _execute_service_command(self._boundary, self._ingestor, command, self._results_by_command_id)
+            if result.success and command.command_type == "initialize_session" and command.session_id not in self._evidence_subscriptions:
+                try:
+                    self._evidence_subscriptions[command.session_id] = await self.subscribe_evidence(command.session_id)
+                except Exception as error:
+                    result = _participant_result(self._boundary, command, False, str(error), {})
+                    self._results_by_command_id[command.command_id] = result
+            if result.success and command.command_type == "abort_session_initialization":
+                subscription = self._evidence_subscriptions.get(command.session_id)
+                if subscription is not None:
+                    try:
+                        await subscription.unsubscribe()
+                        del self._evidence_subscriptions[command.session_id]
+                    except Exception as error:
+                        result = _participant_result(self._boundary, command, False, str(error), {})
+                        self._results_by_command_id[command.command_id] = result
+            await self._boundary.publish_command_result(result, command.command_type)
+            await message.ack()
+        return await _subscribe_participant_commands(self._boundary, receive)
 
     async def subscribe_evidence(
         self,
@@ -687,3 +769,71 @@ class NatsIngestorCommunication:
             cb=receive,
             manual_ack=True,
         )
+
+
+def _participant_result(boundary: NatsCommunicationBoundary, command: RuntimeCommandMessage,
+                        success: bool, reason: str | None, payload: dict[str, Any]) -> RuntimeCommandResultMessage:
+    return RuntimeCommandResultMessage(f"result-{boundary.component_id}-{command.command_id}",
+        command.command_id, command.session_id, boundary.component_id, command.source_id,
+        "succeeded" if success else "failed", success, reason, payload)
+
+
+def _execute_service_command(boundary: NatsCommunicationBoundary, service: Any,
+                             command: RuntimeCommandMessage, results: dict) -> RuntimeCommandResultMessage:
+    if command.command_id in results:
+        return results[command.command_id]
+    try:
+        if command.target_id != boundary.component_id:
+            raise ValueError("Command target does not match participant")
+        if not boundary.check_ready().ready:
+            raise ConnectionError("Required NATS connection is not ready")
+        if command.command_type == "check_readiness":
+            report = service.check_ready().to_dict()
+            report.update(component_id=boundary.component_id, component_type=boundary.component_type)
+            payload = {"service_readiness": report}
+        elif command.command_type == "initialize_session":
+            preparation = service.prepare_session(command.session_id)
+            if not preparation.ready:
+                raise RuntimeError(preparation.reason)
+            report = preparation.to_dict()
+            report.update(component_id=boundary.component_id, component_type=boundary.component_type)
+            payload = {"preparation": report}
+        elif command.command_type == "abort_session_initialization":
+            payload = {"confirmed": service.abort_session_initialization(command.session_id)}
+            if payload["confirmed"] is not True:
+                raise RuntimeError("Participant cleanup is unconfirmed")
+        else:
+            raise ValueError(f"Unsupported service command: {command.command_type}")
+        result = _participant_result(boundary, command, True, None, payload)
+    except Exception as error:
+        result = _participant_result(boundary, command, False, str(error), {})
+    results[command.command_id] = result
+    return result
+
+
+async def _subscribe_participant_commands(boundary: NatsCommunicationBoundary, receive: Callable) -> tuple[Subscription, Subscription]:
+    subscriptions = []
+    for subject in (f"messages.*.command.{boundary.component_type}.{boundary.component_id}.>",
+                    f"messages.command.{boundary.component_type}.{boundary.component_id}.>"):
+        subscriptions.append(await boundary._require_jetstream().subscribe(subject, cb=receive, manual_ack=True))
+    return tuple(subscriptions)
+
+
+class NatsSynchronizationManagerCommunication:
+    """Routes preparation commands; SynchronizationManager retains timing ownership."""
+
+    def __init__(self, boundary: NatsCommunicationBoundary, synchronization_manager: SynchronizationManager) -> None:
+        self._boundary = boundary
+        self._synchronization_manager = synchronization_manager
+        self._results_by_command_id = {}
+
+    async def subscribe_commands(self) -> tuple[Subscription, Subscription]:
+        async def receive(message: Any) -> None:
+            command = RuntimeCommandMessage.from_dict(json.loads(message.data.decode("utf-8")))
+            if command.target_id != self._boundary.component_id:
+                await message.ack()
+                return
+            result = _execute_service_command(self._boundary, self._synchronization_manager, command, self._results_by_command_id)
+            await self._boundary.publish_command_result(result, command.command_type)
+            await message.ack()
+        return await _subscribe_participant_commands(self._boundary, receive)

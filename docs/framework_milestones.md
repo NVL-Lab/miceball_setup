@@ -540,6 +540,95 @@ reconstruction beyond the existing handoff semantics.
 
 ---
 
+# M015 - Phase 15 / Slice 28 Controller-owned Session Launch and Runtime Assembly
+
+**Status:** Open - sequential DeviceAdapter reuse implemented; independent validation and audit pending
+
+## Goal
+
+Implement accepted Decisions 281-302 without adding another startup authority
+or changing domain ownership: Controller resolves prospective selections and
+current participant/device readiness, atomically reserves AcquisitionNodes,
+constructs final SessionConfig, and creates/initializes Session.
+
+## Implemented scope (independent validation pending)
+
+- Session-independent RuntimeParticipant identities and node-owned declared inventory using existing declarations/products.
+- Pre-Session node reports with reserved_for_session_id, complete enabled-device readiness, and service-only aggregate ready.
+- Controller-interpreted unknown for missing/invalid current reports, without a readiness enum.
+- DeviceDeclaration.required governs selected-device criticality; DeviceReadiness no longer carries required.
+- Mandatory Ingestor and SynchronizationManager launch readiness, without global StorageManager as a prerequisite.
+- Atomic node-owned reservation with same-Session idempotency and owner-keyed release after acquisition/local finalization, not global collection.
+- Nonreusable intended Session IDs, resolved optional omissions, required initialization/preparation before success, and Controller rollback of failed launches.
+- Operational launch results without durable pre-Session journaling or another lifecycle state.
+- Participant-scoped pre-Session NATS communication without fabricated Session IDs, while Session-specific commands validate real identities.
+- Node-owned Session binding and local initialization; Session authorizes local storage creation and nodes physically create managers using deployment-local roots.
+- Confirmed mandatory-participant preparation, independently of service readiness; missing/invalid/unresolved responses do not prove success or absence of remote state.
+- Idempotent Session-keyed initialization cleanup; unconfirmed cleanup protects node reservation until confirmation allows release and binding clearance.
+- Ingestor intake/recovery-journal and SynchronizationManager synchronization-state preparation preserve existing evidence durability and scientific timing ownership.
+
+Decisions 295-301 resolved the earlier distributed initialization handoff blocker.
+The subsequent implementation uses existing NATS messages and domain components
+for readiness, reservation, participant-local preparation, and cleanup-confirmed
+rollback. No remote Session replicas or participant-process startup authority
+were introduced.
+
+## Validation and boundaries
+
+### Sequential-reuse implementation (Decision 302)
+
+The generic DeviceAdapter lifecycle correction is implemented with automated
+regression coverage. Successful device shutdown returns retained adapters to
+DECLARED only after adapter-specific cleanup, keeping initialize(config) restricted
+to DECLARED. Failed cleanup retains FAILED; unconfirmed local Session cleanup
+continues to protect readiness, reservation release, and subsequent binding.
+Declared readiness does not open hardware. AcquisitionNode retains instances,
+inventory, and deployment configuration; each Session receives its own settings
+through resolved SessionConfig rather than inheriting the previous Session's.
+
+Tests cover generic DeviceAdapter/DeviceManager reuse and OpenCV capture release,
+Session A -> Session B on retained node/adapter/communication-handler instances,
+confirmed initialization-abort reuse, repeated cleanup failures, independent
+configuration, and preservation of Session A artifacts and evidence. Sequential
+normal-completion coverage uses fresh central Ingestor/SynchronizationManager
+contexts; their normal binding lifetimes remain deferred below. Independent
+manual validation and audit of this correction remain pending. No Controller
+reset workaround, new lifecycle state/reset API, concurrent sharing, or recovery
+subsystem was introduced; automated coverage alone does not close M015.
+
+### Existing validation boundaries
+
+Automated tests exercise actual message serialization, command/result handlers,
+Controller launch, mandatory participant preparation, node-owned cleanup and
+reservation release with controlled in-process broker doubles. Live NATS,
+multi-process, hardware, independent manual IPython validation, independent audit,
+and a Slice 28 validated workflow are not claimed. M015 is not complete.
+The first deployment target (one PC, one Jetson, one camera) is not
+a cardinality limit; existing communication boundaries must support separate
+processes/machines and multiple nodes/Controllers.
+
+Current development starts NATS/JetStream and each participant manually in
+independent processes. Intended deployment uses long-lived independent services.
+Controller does not manage NATS or launch participant processes. Required startup
+NATS connectivity precedes claimed operational distributed readiness; connection
+failure is explicit and does not wait indefinitely or introduce automatic retry.
+
+Client/GUI design, scheduling/device sharing, discovery/deployment configuration,
+service supervision, shared multi-Session scheduling, crash/stale-reservation
+recovery, leases/heartbeats/timeouts, retry, durable launch auditing, global
+collection scheduling, retention/deletion, application restart/journal cleanup,
+and Session-wide archive-consumption coordination remain deferred. Q019 and
+Q024 remain open; Q022 retains deployment configuration ownership. Completed
+M014/W034 and other completed milestones/workflows are unchanged. No validated
+Slice 28 workflow is added.
+
+Normal end-of-Session binding lifetimes for Ingestor/SynchronizationManager,
+duplicate participant identity policy, and startup automation remain deferred;
+Decision 302 settles generic device cleanup/reuse, not those service binding
+lifetimes or supervision.
+
+---
+
 # Future Milestones
 
 Planned future milestones include:

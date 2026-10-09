@@ -59,7 +59,6 @@ def device_readiness(
 ) -> DeviceReadiness:
     return DeviceReadiness(
         device_id=device_id,
-        required=required,
         ready=ready,
         reason=reason,
         capabilities_available=["reports_health"],
@@ -481,6 +480,7 @@ class SessionLifecycleTests(unittest.TestCase):
 
     def test_required_not_ready_device_blocks_initialization(self) -> None:
         session = Session(session_id="session-001", configuration=config())
+        session.configuration.selected_devices.append(device_declaration())
 
         with self.assertRaises(SessionLifecycleError):
             session.initialize(
@@ -514,7 +514,7 @@ class SessionLifecycleTests(unittest.TestCase):
 
         self.assertIs(session.current_state, SessionState.INITIALIZED)
         self.assertFalse(session.device_readiness_summary[0].ready)
-        self.assertFalse(session.device_readiness_summary[0].required)
+        self.assertEqual(session.device_readiness_summary[0].device_id, "auxiliary-camera-001")
 
     def test_session_records_device_readiness_summary(self) -> None:
         session = Session(session_id="session-001", configuration=config())
@@ -531,7 +531,7 @@ class SessionLifecycleTests(unittest.TestCase):
 
         recorded = session.device_readiness_summary[0]
         self.assertEqual(recorded.device_id, "camera-001")
-        self.assertTrue(recorded.required)
+        self.assertEqual(recorded.device_id, "camera-001")
         self.assertTrue(recorded.ready)
         self.assertEqual(recorded.reason, "ready")
         self.assertEqual(recorded.capabilities_available, ("reports_health",))
@@ -628,6 +628,7 @@ class SessionLifecycleTests(unittest.TestCase):
         manager.initialize_all(config={})
         readiness_summary = manager.check_readiness()
         session = Session(session_id="session-001", configuration=config())
+        session.configuration.selected_devices.append(device_declaration())
 
         with self.assertRaises(SessionLifecycleError):
             session.initialize(device_readiness_summary=readiness_summary)
@@ -652,7 +653,7 @@ class SessionLifecycleTests(unittest.TestCase):
         session.initialize(device_readiness_summary=readiness_summary)
 
         self.assertIs(session.current_state, SessionState.INITIALIZED)
-        self.assertFalse(session.device_readiness_summary[0].required)
+        self.assertEqual(session.device_readiness_summary[0].device_id, "camera-001")
         self.assertFalse(session.device_readiness_summary[0].ready)
 
     def test_services_report_readiness_for_session_initialization(self) -> None:

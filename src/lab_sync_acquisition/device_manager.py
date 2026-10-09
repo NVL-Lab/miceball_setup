@@ -92,11 +92,13 @@ class DeviceManager:
             except Exception as error:
                 readiness = DeviceReadiness(
                     device_id=adapter.device_id,
-                    required=adapter.required,
                     ready=False,
                     reason=str(error),
                     capabilities_available=adapter.declared_capabilities,
                 )
+            if not isinstance(readiness, DeviceReadiness) or readiness.device_id != adapter.device_id or type(readiness.ready) is not bool:
+                readiness = DeviceReadiness(adapter.device_id, False,
+                    "invalid_device_readiness", adapter.declared_capabilities)
             results.append(readiness)
         readiness_results = tuple(results)
         return DeviceReadinessSummary(

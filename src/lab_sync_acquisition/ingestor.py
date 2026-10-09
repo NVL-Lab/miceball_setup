@@ -75,6 +75,7 @@ class InMemoryIngestor:
         session_id: str | None = None,
         recovery_journal_path: str | Path | None = None,
         component_id: str = "ingestor",
+        recovery_journal_root: str | Path | None = None,
     ) -> None:
         if (session_id is None) != (recovery_journal_path is None):
             raise ValueError("Session identity and recovery journal path must be supplied together")
@@ -83,6 +84,8 @@ class InMemoryIngestor:
         if session_id is not None and (not isinstance(session_id, str) or not session_id):
             raise ValueError("Recovery requires a nonempty known Session identity")
         self._storage_manager = storage_manager
+        self._recovery_journal_root = Path(recovery_journal_root) if recovery_journal_root is not None else None
+        self._session_prepared = session_id is not None
         self._session_id = session_id
         self._component_id = component_id
         self._recovery_journal_path = (
@@ -94,15 +97,18 @@ class InMemoryIngestor:
         self._ingest_audit: tuple[IngestAuditRecord, ...] = ()
         self._accepted_runtime_evidence: tuple[RuntimeEvidenceMessage, ...] = ()
         self._runtime_evidence_audit: tuple[RuntimeEvidenceAuditRecord, ...] = ()
+        self._initialize_recovery_journal()
+
+    def _initialize_recovery_journal(self) -> None:
         if self._recovery_journal_path is not None:
             if self._recovery_journal_path.exists():
                 self._restore_runtime_evidence()
                 self.receive_runtime_evidence(
                     RuntimeEvidenceMessage(
                         evidence_id=uuid4().hex,
-                        session_id=session_id,
+                        session_id=self._session_id,
                         evidence_type="ingestor_recovery_evidence",
-                        source_id=component_id,
+                        source_id=self._component_id,
                         payload={
                             "recovered_entry_count": len(self._accepted_runtime_evidence),
                             "recovery_time": time(),
@@ -121,6 +127,43 @@ class InMemoryIngestor:
         """Known Session identity for journal-backed runtime evidence intake."""
 
         return self._session_id
+
+    def prepare_session(self, session_id: str) -> ServiceReadiness:
+        """Prepare known-Session intake using deployment-local journal configuration."""
+        if not isinstance(session_id, str) or not session_id:
+            raise ValueError("Session preparation requires a real Session identity")
+        if self._session_id == session_id:
+            if self._journal_failed or self._recovery_journal_path is None:
+                raise RuntimeError("Session journal is not ready")
+            self._session_prepared = True
+            return self.check_ready()
+        if self._session_id is not None or self._accepted_runtime_evidence:
+            raise RuntimeError("Ingestor already has Session evidence/binding")
+        if self._recovery_journal_root is None:
+            raise ValueError("Ingestor deployment recovery journal root is not configured")
+        self._recovery_journal_root.mkdir(parents=True, exist_ok=True)
+        self._session_id = session_id
+        self._recovery_journal_path = self._recovery_journal_root / f"session_{session_id}.jsonl"
+        self._session_prepared = True
+        try:
+            self._initialize_recovery_journal()
+        except Exception:
+            self._session_prepared = False
+            self._journal_failed = True
+            raise
+        return self.check_ready()
+
+    def abort_session_initialization(self, session_id: str) -> bool:
+        """Stop prepared intake without deleting accepted evidence or journal history."""
+        if not isinstance(session_id, str) or not session_id:
+            raise ValueError("Initialization abort requires session_id")
+        if self._session_id not in {None, session_id}:
+            raise RuntimeError("Initialization abort does not match Ingestor Session")
+        self._session_prepared = False
+        if not self._accepted_runtime_evidence:
+            self._session_id = None
+            self._recovery_journal_path = None
+        return True
 
     @property
     def recovery_journal_path(self) -> Path | None:
@@ -299,6 +342,9 @@ class InMemoryIngestor:
         evidence: RuntimeEvidenceMessage,
     ) -> RuntimeEvidenceAuditRecord:
         """Journal new evidence before acceptance when configured; deduplicate intake."""
+
+        if self._session_id is not None and not self._session_prepared:
+            raise RuntimeError("Session evidence intake initialization has been aborted")
 
         accepted = bool(
             evidence.evidence_id

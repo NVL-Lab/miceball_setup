@@ -66,7 +66,7 @@ class RemoteAcquisitionNodeTests(unittest.TestCase):
 
         self.assertFalse(readiness.ready)
         self.assertEqual(readiness.node_id, "jetson-like-001")
-        self.assertEqual(readiness.session_id, "remote-session-001")
+        self.assertIsNone(readiness.reserved_for_session_id)
         self.assertEqual(readiness.role, "acquisition_node")
         self.assertEqual(readiness.device_readiness.results[0].device_id, "remote-device-001")
         self.assertIn(storage_not_ready, readiness.service_readiness)

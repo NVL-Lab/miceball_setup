@@ -16,6 +16,15 @@ The Jetson is the Phase 1 Acquisition Node.
 
 The Acquisition Node is not the GUI, Controller, Ingestor, or Storage Manager.
 
+Under accepted Slice 28 architecture, AcquisitionNode also owns its pre-Session
+declared device inventory and atomic Session-keyed exclusive reservation. Its
+readiness report separates framework/service readiness, individual device
+readiness, and reservation availability. It owns local Session binding and
+initialization, physically creates Session-authorized LocalStorageManagers using
+deployment-local configuration, and confirms Session-keyed initialization cleanup
+before reservation release. These additions are implemented with automated
+broker-double coverage; M015 awaits independent manual validation and audit.
+
 ---
 
 # Acquisition Runtime
@@ -30,7 +39,22 @@ Acquisition Runtime active does not imply that an Experiment is running or that 
 
 # Controller
 
-The component responsible for sequential orchestration and command results for one Session in Controller v1.
+The component responsible for Session launch, runtime assembly, orchestration,
+stopping, and finalization, while Session retains lifecycle ownership.
+
+Controller may exist before Session, accepts prospective selections, resolves
+readiness and node reservations, then constructs final SessionConfig and creates
+Session. It owns rollback until required initialization/preparation establishes
+launch success. Slice 28 implements this expanded boundary through brokered
+commands; existing sequential local workflows with caller-created collaborators
+remain supported.
+Runtime participants may be remote; shared Python objects are not an architectural
+requirement. Multiple Controllers and AcquisitionNodes remain possible.
+
+Controller requests distributed participant preparation and requires confirmed
+success from all mandatory participants. It coordinates rollback, but unconfirmed
+node cleanup prevents reservation release. Controller neither starts/stops NATS
+nor launches participant processes or selects node-local filesystem roots.
 
 Examples:
 
@@ -92,7 +116,11 @@ The Device Adapter owns device-specific communication and exposes device capabil
 
 It may expose Device-Native Timing evidence but does not know Session Time, apply SynchronizationMappings, derive Experiment Time, or detect Phase 11 timing-quality failures.
 
-The Device Adapter does not own device lifecycle management.
+The Device Adapter owns its lifecycle state and device-specific initialization
+and cleanup; DeviceManager coordinates lifecycle management. Under Decision 302,
+successful shutdown and required cleanup return the retained adapter to DECLARED
+for sequential Sessions. That transition has automated regression coverage;
+independent validation and audit remain pending under M015.
 
 ---
 
@@ -102,7 +130,6 @@ The component responsible for device lifecycle management.
 
 Responsibilities include:
 
-* discovery
 * initialization
 * configuration
 * start
@@ -110,6 +137,15 @@ Responsibilities include:
 * shutdown
 
 The Device Manager does not own device-specific communication.
+
+Current DeviceManager receives already-created adapters and does not discover
+devices or create them from declarations. AcquisitionNode owns declared
+inventory; installation, registration, and discovery mechanisms remain deferred.
+
+Decision 302 requires generic lifecycle coordination across sequential Sessions,
+not device-specific reset workarounds or adapter recreation. AcquisitionNode
+retains the adapter instances and deployment configuration; Controller orchestrates
+launch without directly initializing or resetting hardware.
 
 ---
 
@@ -479,6 +515,12 @@ An Artifact Manifest is not an acquisition row, frame, sample, artifact byte pay
 
 The co-located runtime collaborator that owns local persistence for exactly one AcquisitionNode. It incrementally writes local scientific streams, owns their creation and finalization, owns their ArtifactManifests, records local storage evidence, and participates in readiness without owning acquisition, Session Time, Experiment lifecycle, transfer, reconstruction, or NWB export.
 
+Accepted Decision 298 distinguishes Session initialization authorization from
+physical creation by AcquisitionNode in its own process using deployment-local
+roots/configuration. Controller does not instantiate a remote manager or choose
+its paths. Slice 28 implements this authorization/creation boundary while retaining
+historical local-workflow root overrides.
+
 The implemented core supports JSONL and camera HDF5. Decision 191 defines common
 ownership, interfaces, and lifecycle rather than a mandatory file format.
 Decisions 232-237 are implemented for explicit local roots, scientific-product
@@ -512,10 +554,12 @@ validation remains pending.
 # Local Storage Root
 
 The explicitly resolved base location for AcquisitionNode-local scientific
-persistence. A Session override does not mutate the persistent AcquisitionNode
-default or affect subsequent Sessions. LocalStorageManager owns the actual
-paths, organized deterministically by Session and Experiment; the external
-configuration model remains future work.
+persistence. Historical local Session overrides do not mutate the persistent
+node default or affect subsequent Sessions (Decision 234). Accepted distributed
+initialization uses the node's deployment-defined root/configuration instead;
+Controller cannot choose or override remote roots via SessionConfig.local_storage_roots
+(Decision 298). LocalStorageManager owns actual paths, organized deterministically
+by Session and Experiment; the external configuration model remains future work.
 
 ---
 
@@ -774,7 +818,7 @@ The Session-initialization readiness condition confirming that co-located local 
 
 # Runtime Message
 
-A minimal plain-data command, command-result, evidence, or telemetry message routed through the communication boundary. Runtime messages use Session-scoped NATS subjects; routing does not transfer domain ownership.
+A minimal plain-data command, command-result, evidence, or telemetry message routed through the communication boundary. Implemented runtime messages use Session-scoped NATS subjects; accepted Slice 28 additionally permits participant-scoped pre-Session commands without a Session identity. Session operations and evidence remain Session-scoped. Routing does not transfer domain ownership.
 
 ---
 
@@ -1256,13 +1300,146 @@ Phase 10 narrows this assumption for large-artifact workflows: NATS carries runt
 
 # Acquisition Node Readiness
 
-Readiness evidence for one explicitly identified acquisition-capable system.
+Node/deployment-scoped technical readiness evidence created by AcquisitionNode,
+queryable before Session creation (Decisions 284-286).
 
-`AcquisitionNodeReadiness` records `node_id`, `session_id`, and role while
-aggregating the existing Device Readiness Summary and Service Readiness records.
-It does not replace those existing readiness contracts.
+The accepted contract replaces session_id with reserved_for_session_id: str | None.
+None means unreserved; a value identifies the reserving Session. Its ready boolean
+describes required framework/service prerequisites, not whether every scientific
+device is ready. Every declared enabled device has individual DeviceReadiness;
+missing adapters or failed determination produce ready=False with a reason.
+Controller evaluates those devices against prospective Session selections.
 
-It is created by the AcquisitionNode, not by Device Adapters.
+Technical readiness and reservation are independent. A valid ready/unreserved
+report means available; ready but reserved for another Session means unavailable.
+A valid ready=False report means not ready. No valid current report means unknown
+to Controller, not a new readiness enum. Atomic reservation is authoritative;
+the report is only a snapshot.
+
+The implemented class uses reserved_for_session_id and aggregates required
+services only, retaining complete independent device reports. Controlled
+broker-double tests cover this contract; they are not live NATS, cross-process,
+or hardware validation. M015 remains pending follow-up validation and audit.
+
+---
+
+# Runtime Participant
+
+A deployment/lab-scoped active framework actor identified by the existing
+RuntimeParticipant component_type and component_id, independently of Session.
+Examples are Controller, AcquisitionNode, Ingestor, StorageManager, and
+SynchronizationManager. Scientific devices are not RuntimeParticipants.
+
+The identity contains no machine/network addresses, subjects, or retrieval paths.
+Final SessionConfig specifies expected participation for that Session, not
+identity creation. Current code uses these identities for pre-Session commands
+and expected Session participation. Discovery/registration remains deferred.
+
+---
+
+# AcquisitionNode Declared Device Inventory
+
+The node-scoped declarations of expected devices and supported scientific
+products, owned by AcquisitionNode before Session creation. Reuses
+DeviceDeclaration and ScientificProductDeclaration; inventory membership
+identifies the owning node without a redundant node ID in each declaration.
+Declared devices remain visible when unavailable or disconnected.
+
+This is not automatic discovery or Session-selected availability. Session
+selection consumes the inventory and does not redefine it. Slice 28 implements
+inventory and upward reporting through existing NATS command/result handlers,
+with controlled broker-double coverage rather than live deployment validation.
+
+---
+
+# AcquisitionNode Reservation
+
+Exclusive node-owned allocation to one intended session_id at a time. A Session
+may reserve multiple nodes; devices are not separately reserved. Unreserved
+nodes atomically accept, the same Session succeeds idempotently, and another
+Session is rejected without changing ownership. Only the owning Session identity
+may release. No reservation ID, lease, timeout, heartbeat, or central scheduler
+is introduced.
+
+Reservation covers acquisition and local artifact finalization, not global
+collection. Controller releases after local completion; later retrieval needs
+no original reservation and release does not delete local artifacts.
+
+Failed-launch release is qualified by Decision 300: if initialization may have
+started, the node must confirm cleanup first. Missing initialization or cleanup
+responses leave availability unconfirmed and the reservation protected.
+
+---
+
+# Pre-Session Communication
+
+Accepted participant-scoped commands addressed by RuntimeParticipant
+component_type/component_id before Session creation. The general command envelope
+may omit session_id for operations such as check_readiness that do not concern a
+Session. Reservation, initialization, and acquisition require a real Session ID;
+acquisition additionally requires matching active binding. No fabricated Session
+ID or second communication framework is used. Existing NATS handlers implement
+this contract with controlled broker-double coverage; live distributed deployment
+validation is not implied.
+
+---
+
+# Session Binding
+
+AcquisitionNode-owned association with at most one active Session, separate from
+its deployment identity, technical readiness, and Session-keyed reservation.
+Initialization verifies reservation ownership before establishing binding.
+Partial binding is retained for cleanup after preparation failure; binding alone
+does not establish acquisition eligibility. Distributed acquisition requires
+successful local Session preparation, and abort or runtime cleanup clears that
+eligibility. Historical explicitly pre-bound local nodes retain their
+caller-prepared workflow. Session-specific acquisition commands must match the
+binding. The NATS handler routes and
+checks against node state, remains connected across Sessions, and owns no separate
+binding authority. No remote Session replica is introduced.
+
+---
+
+# Initialization Confirmation
+
+Explicit participant result confirming its required Session-specific preparation.
+For a node this includes binding, selected-device preparation, Session-scoped
+LocalStorageManager initialization, and required local preparation. Ingestor
+confirms evidence intake/recovery-journal preparation; SynchronizationManager
+confirms synchronization-state preparation. Missing/invalid/unresolved results
+are unconfirmed, not success or proof of absent remote state. Session retains
+the initialization-completion boundary; Controller requires every mandatory
+confirmation before declaring launch successful.
+
+---
+
+# Initialization Abort
+
+Idempotent Session-keyed cleanup of potentially partially initialized node
+runtime, requested by Controller and performed/confirmed by AcquisitionNode.
+Confirmed cleanup precedes reservation release and binding clearance; unconfirmed
+cleanup leaves the reservation protected, including when runtime stop succeeds
+but subsequent storage cleanup fails. A later explicit abort must complete any
+unfinished cleanup before confirming success; this is not an automatic retry.
+All potentially initialized mandatory
+participants, including previously successful ones, participate in failed-launch
+cleanup. Accepted evidence, recovery journals, finalized artifacts, and established
+timing evidence are preserved. This is not Experiment abort, a new lifecycle
+state, retry, or crash recovery.
+
+---
+
+# Participant Startup and Service Deployment
+
+Current development/validation starts NATS/JetStream separately and participants
+manually in independent processes, potentially on different PCs/Jetsons, with
+each independently connecting to NATS. Intended deployment uses independently
+running long-lived services; manual shells/startup scripts are temporary
+development infrastructure, not deployment architecture. Controller does not
+launch processes or manage NATS. Required connectivity precedes distributed
+readiness; startup connection failure is explicit, not indefinite waiting or
+claimed readiness. Supervision, automation, retry/reconnection, registration,
+and discovery remain deferred.
 
 ---
 
@@ -1280,7 +1457,14 @@ The detailed stream/event schema is defined separately.
 
 A standardized readiness report produced by framework services such as the Ingestor, StorageManager, and SynchronizationManager.
 
-Service Readiness is consumed by Session during initialization to determine whether required services are ready for acquisition.
+ServiceReadiness.required identifies required framework/service prerequisites.
+Accepted Slice 28 launch uses this evidence through Controller before Session
+creation as well as existing initialization evidence. Ingestor and
+SynchronizationManager readiness are mandatory launch prerequisites; unready,
+unreachable, or unknown blocks launch. They do not use exclusive node reservations.
+StorageManager is not a launch prerequisite; its later persistence duties and
+final-persistence success requirements remain unchanged. Acquisition-local
+storage prerequisites are separate from global StorageManager availability.
 
 It does not describe device readiness.
 
@@ -1288,11 +1472,23 @@ It does not describe device readiness.
 
 # Device Readiness
 
-A readiness summary describing whether one or more Device Adapters are prepared for acquisition.
+Technical readiness of one scientific device, separate from Session-selection
+criticality. Under accepted Slice 28, DeviceReadiness omits required;
+DeviceDeclaration.required determines criticality for selected Session devices.
+The implemented DeviceReadiness contract omits that historical required field.
 
-Device Readiness is produced by the DeviceManager by aggregating the readiness of its managed Device Adapters.
+DeviceManager obtains adapter readiness. AcquisitionNode's report additionally
+accounts for every declared enabled device, including ready=False with a reason
+for missing adapters, disconnection, or failed determination. DeviceReadinessSummary
+collects device results, but does not determine node service-only readiness.
 
 It is distinct from Service Readiness.
+
+Decision 302 additionally requires a safely cleaned adapter in DECLARED to be
+eligible for existing pre-Session readiness evaluation, without pretending it is
+already initialized or acquiring. Failed or unconfirmed cleanup must not report
+safe reuse. This sequential-reuse readiness behavior is implemented without
+a new readiness enum or preparation operation.
 
 ---
 
@@ -1337,6 +1533,43 @@ Typical lifecycle states include:
 Device Lifecycle is owned by the DeviceAdapter and coordinated by the DeviceManager.
 
 It is distinct from Session Lifecycle.
+
+Decision 302 accepts successful shutdown and required cleanup returning to
+DECLARED, while initialize(config) continues to require DECLARED. The implementation
+completes adapter-specific resource release before returning to DECLARED and
+retains FAILED if release fails. The legacy SHUTDOWN enum value remains available
+but is not the normal cleanup result. DeviceStatus.shutdown reports completed
+cleanup even in DECLARED and resets on the next initialization. No state was added.
+
+---
+
+# Declared DeviceAdapter
+
+A retained live adapter with its deployment declaration, eligible for the existing
+initialize(config) operation. Under Decision 302, this is also the state reached
+after successful shutdown and confirmed required cleanup, not merely after
+reservation clearance or closing one handle. Failed or unconfirmed cleanup does
+not authorize return to DECLARED or subsequent initialization.
+
+Deployment inventory and configuration remain retained. Session-specific settings
+must be supplied for the next Session through its resolved SessionConfig rather
+than silently inherited from the previous Session.
+
+---
+
+# Sequential Session Reuse
+
+Consecutive Sessions using the same retained AcquisitionNode and DeviceAdapter
+instances after confirmed cleanup and reservation release (Decision 302).
+AcquisitionNode coordinates subsequent initialization; DeviceAdapter owns its
+state and device-specific work; DeviceManager coordinates lifecycle operations;
+Controller evaluates readiness and orchestrates launch without hardware reset.
+
+Previous artifacts and evidence remain preserved, and each Session has its own
+configuration and scientific outputs. This is not concurrent sharing, scheduling,
+crash recovery, or automatic retry. The generic return-to-DECLARED and readiness
+path is implemented with simulated and broker-double regression coverage;
+independent manual validation and audit remain pending, and M015 remains open.
 
 ---
 
@@ -1400,7 +1633,9 @@ The Phase 13 conceptual Evidence Archive also uses JSONL for persistent runtime 
 
 # Readiness
 
-An automatic framework operation during Session initialization that determines whether components can safely participate and whether the Session may proceed.
+An automatic framework operation before Session creation during Controller-owned
+launch, and during initialization, that determines whether components can safely
+participate. Technical readiness remains separate from reservation availability.
 
 Readiness is not operator-initiated and does not create an Experiment.
 
@@ -1408,13 +1643,15 @@ Readiness is not operator-initiated and does not create an Experiment.
 
 # Readiness Gating
 
-The process of determining whether Session initialization may proceed based on readiness evidence.
+The process of determining whether launch/initialization may proceed from
+readiness evidence. In Slice 28 Controller evaluates selected device readiness
+using DeviceDeclaration.required and required framework/service readiness before
+constructing final SessionConfig. Required device failure blocks launch;
+unavailable optional selections may be omitted and must not remain selected.
 
-Session performs Readiness Gating using Device Readiness and Service Readiness.
-
-Required components that are not ready prevent Session initialization.
-
-Optional components are recorded but do not block initialization.
+AcquisitionNodes are launch-critical only when they contain required selected
+resources. Existing Session initialization evidence/gates are historical
+implementation, not a replacement for accepted pre-Session launch resolution.
 
 ---
 
@@ -1424,7 +1661,10 @@ The common readiness record shared between DeviceManager and Session.
 
 The shared readiness contract is produced by DeviceManager and consumed unchanged by Session.
 
-Session records the readiness evidence but does not transform or reinterpret the readiness records beyond required-device gating.
+Shared evidence remains reusable without a new Session-only type. The historical
+DeviceReadiness.required/direct required-device gate is superseded by Decision
+286: Controller applies Session-selection criticality while node reports carry
+technical readiness only. Session retains its recorded readiness evidence.
 
 ---
 
@@ -1442,7 +1682,8 @@ It is intended to document expected framework usage as well as verify behavior.
 
 # Device Declaration
 
-A persistent configuration object describing an intended participant in a Session.
+A plain-data declaration reused for AcquisitionNode inventory and selected
+Session devices, independent of live hardware availability.
 
 A Device Declaration identifies a device independently of any live hardware connection.
 
@@ -1454,23 +1695,45 @@ Typical fields include:
 * required
 * declared_capabilities
 
-Device Declarations are stored in Session Configuration.
+AcquisitionNode inventory contains declarations before Session creation. Final
+Session Configuration contains selected declarations after launch resolution;
+it does not own or create deployment inventory. Inventory membership identifies
+the node without another node ID on DeviceDeclaration.
 
 They are used by caller code to explicitly construct live DeviceAdapters.
 
 A Device Declaration is not a live device and does not communicate with hardware.
 
-A Device Declaration establishes Session-level availability and intent. It does not contain or assign an acquisition-health policy; the active Experiment Runtime Health Mapping owns that assignment.
+A Device Declaration describes supported products and Session-selection intent.
+Its required flag defines selected-device criticality, not device technical
+readiness or permanent node criticality. It does not contain or assign an
+acquisition-health policy; the active Experiment Runtime Health Mapping owns
+that assignment. No product-level required flag is introduced.
 
 ---
 
 # Session Configuration
 
-The accepted run configuration owned by a Session.
+The final resolved run configuration owned by the Session that will actually run.
 
 Session Configuration declares the intended runtime configuration of a Session, including selected Device Declarations, session parameters, device configuration, synchronization configuration, acquisition configuration, ingestion/storage configuration, protocol intent or reference, and the available `AcquisitionHealthPolicy` definitions.
 
 Session Configuration is also authoritative for expected runtime participants, represented as plain component type and component identifier declarations rather than discovered live services.
+
+Controller constructs SessionConfig after readiness checks, node reservation
+outcomes, and optional-resource resolution. It is not a prospective wish list;
+unavailable optional resources that were omitted do not remain in selected_devices.
+RuntimeParticipant identities exist independently of this Session selection.
+Experiment-scoped ScientificOutputSelection remains separate and gains no
+required field for Slice 28. The historical workflow still accepts caller-created
+SessionConfig; Controller.launch_session implements pre-Session resource resolution
+and distributed preparation, pending independent validation and audit.
+
+SessionConfig.local_storage_roots currently represents caller-supplied overrides
+in the historical local implementation. Under accepted distributed initialization
+(Decision 298), each node uses its deployment-defined root/configuration; Controller
+does not select or override remote filesystem roots or artifact paths. No new
+deployment configuration format is defined by that clarification.
 
 Acquisition-health policy definitions are persistent Session-scoped configuration. Experiment Runtime Health Mappings assign those definitions to live sources as Experiment-scoped runtime intent.
 
@@ -1483,6 +1746,36 @@ It represents intended execution rather than runtime state.
 Session Configuration is validated during Session initialization.
 
 It does not contain runtime objects such as DeviceAdapters, DeviceManagers, or other live framework components.
+
+---
+
+# Session Launch
+
+Controller-owned resolution and runtime assembly for prospective Session
+selections. Controller allocates an intended nonreusable Session ID, obtains
+current readiness/availability, resolves device criticality, reserves selected
+AcquisitionNodes, constructs final SessionConfig, and creates/initializes Session.
+Launch succeeds only after acquisition-critical participants complete required
+initialization/preparation, not merely when Session exists.
+
+Before success, Controller coordinates cleanup for every mandatory participant
+whose initialization may have started and returns operational failure. Nodes
+confirm cleanup before reservation release; unconfirmed cleanup leaves the
+reservation in place. Each participant prepares and cleans up its own runtime,
+without remote Session replicas or a second lifecycle authority. No SessionLaunchIntent, new lifecycle
+state, durable pre-Session launch journal, or mandatory Ingestor submission is
+introduced. Slice 28 launch is implemented with controlled broker-double tests;
+the audit corrections require follow-up validation and audit before M015 closure.
+
+---
+
+# Unknown Readiness
+
+Controller's interpretation when no valid current readiness report is available.
+It is not a third boolean value or readiness enum and does not assert confirmed
+remote failure. A successful node report instead represents failed device
+readiness determination as ready=False with a reason. Missing required Ingestor
+or SynchronizationManager readiness blocks launch.
 
 ---
 

@@ -1,5 +1,50 @@
 # Code Map
 
+## Slice 28 implementation (independent validation and audit pending)
+
+Decisions 281-301 now have a Controller-owned pre-Session launch path over the
+existing NATS command/result boundary. Controlled broker-double tests exercise
+real message serialization, handlers, resource resolution, participant-local
+preparation, cleanup-confirmed rollback, and local-finalization reservation
+release. They are not live NATS, multi-process, hardware, manual IPython, or
+independent audit validation. M015 remains pending; no new workflow is claimed.
+
+**Implemented correction (Decision 302):** Successful device shutdown and required
+device cleanup return retained adapters to DECLARED; failed cleanup retains FAILED.
+DeviceAdapter completes adapter-specific resource cleanup before the generic state
+transition, and DeviceManager coordinates it without device-specific resets.
+AcquisitionNode retains instances and deployment configuration, applies each
+Session's own configuration, and withholds safe-reuse readiness and reservation
+release until all required local Session cleanup is confirmed. Declared readiness
+does not initialize hardware or authorize acquisition. Controller only evaluates
+readiness and orchestrates launch/release. Simulated and broker-double regression
+tests cover sequential reuse; independent validation/audit and M015 closure remain
+pending. No public reset operation or lifecycle state was added.
+
+Controller may be constructed without local participant references. AcquisitionNode
+still receives its existing deployment-local runtime collaborators and explicit
+device declarations; no remote Python references or Session replicas are sent.
+Missing/invalid reports remain unknown, and unconfirmed initialization or cleanup
+never becomes assumed success. Node reservations remain protected without cleanup
+confirmation. Session retains the initialization-completion and lifecycle boundary.
+
+Participants independently connect to external NATS. Session-specific commands
+use real identities; readiness/inventory commands may omit Session identity.
+Ingestor prepares a deployment-local recovery journal before subscribing to Session
+evidence. SynchronizationManager prepares Session state without new timing math.
+Nodes create their own LocalStorageManagers using deployment roots. Historical
+direct-object Session initialization still permits explicit local root overrides;
+distributed launch rejects Controller-selected node roots.
+
+Existing local Experiment orchestration and persistence/finalization APIs remain
+available; Slice 28 does not add remote Experiment lifecycle activation or a new
+remote evidence-compilation/persistence protocol. Normal end-of-Session
+Ingestor/SynchronizationManager binding lifetimes remain deferred.
+
+Discovery, deployment configuration, scheduling, stale reservations/restart,
+retention/deletion, durable pre-Session auditing, and Q019's evidence-consumption
+guarantee remain deferred. M014/W034 retain completed Slice 27 scope and status.
+
 ## src/lab_sync_acquisition/__init__.py
 
 - AcquisitionHealthPolicy: Public import for immutable plain-data acquisition-health policy definitions and observation-vocabulary validation.
@@ -7,10 +52,10 @@
 - AcquisitionNodeLocalTimeReport: Public import for immutable plain local-time samples reported to SynchronizationManager without becoming synchronization evidence.
 - AcquisitionIterationSummary: Public import for the result of one bounded AcquisitionNode iteration.
 - AcquisitionNode: Public import for bounded acquisition runtime execution, AcquisitionNode-owned runtime timestamping, separate active Experiment timing and health context, linked observation/interpretation evidence, configured batching, writable failure-evidence readiness, and sender-side failure handling.
-- AcquisitionNodeReadiness: Public import for Phase 2 node identity and aggregated device/service readiness evidence.
+- AcquisitionNodeReadiness: Public import for node-scoped required-service readiness, independent per-device reports, and Session-keyed reservation status.
 - AcquisitionRecordEnvelope: Public import for the transferable acquisition record envelope shared across the acquisition-to-ingestion boundary.
 - ARTIFACT_MANIFEST_EVIDENCE_TYPE: Public evidence-type vocabulary for artifact lifecycle manifests carried through RuntimeEvidenceMessage and LAB_EVIDENCE.
-- Controller: Public import for sequential single-session orchestration using already-created runtime collaborators.
+- Controller: Public import for local single-session orchestration or pre-Session distributed resource resolution, reservation, launch, and cleanup orchestration.
 - ControllerActionDecision: Public import for one immutable Controller decision using the normalized local execution vocabulary and derived from explicitly presented HealthInterpretationEvidence.
 - ControllerCommandResult: Public import for one Controller command outcome.
 - COMMAND_RESULT_STATUSES: Public immutable vocabulary of accepted runtime command-result statuses.
@@ -42,7 +87,7 @@
 - RuntimeCommandMessage: Public immutable plain-data runtime command message.
 - RuntimeCommandResultMessage: Public immutable plain-data runtime command-result message.
 - RuntimeEvidenceMessage: Public immutable plain-data durable evidence message carrying producer-supplied persistence intent.
-- RuntimeParticipant: Public immutable SessionConfig declaration of one expected runtime component identity.
+- RuntimeParticipant: Public immutable component_type/component_id identity currently used in SessionConfig to declare expected runtime participation.
 - UnresolvedCommandOutcome: Public immutable issuer evidence that one expected command target did not return a result within the issuer-defined window.
 - GroupCommandOutcome: Public immutable issuer-owned aggregate of returned command results and unresolved expected targets for one component group.
 - RuntimeTelemetryMessage: Public immutable plain-data transient telemetry message.
@@ -55,6 +100,7 @@
 - NatsControllerCommunication: Public import for Controller-side durable command publication and command-result consumption.
 - NatsAcquisitionNodeCommunication: Public import for targeted AcquisitionNode command consumption, local duplicate detection, explicit command execution, command-result publication, and runtime evidence publication.
 - NatsIngestorCommunication: Public import for durable runtime evidence consumption into the existing Ingestor ownership boundary.
+- NatsSynchronizationManagerCommunication: Public import for participant-scoped readiness and Session preparation/abort command handling without transport-owned timing semantics.
 - InMemoryStorageManager: Public import for the minimal in-memory acquisition envelope storage boundary.
 - PersistentStorageManager: Public import for the v1 persistent StorageManager implementation that stores accepted envelopes as JSONL and writes caller-supplied Session Record and Evidence Archive products.
 - SshRetrievalEndpoint, ArtifactRetrievalResult, ArtifactCollectionResult: Public imports for deployment-local SSH configuration and StorageManager artifact collection results.
@@ -78,7 +124,7 @@
 
 - ARTIFACT_MANIFEST_EVIDENCE_TYPE: Identifies artifact-level lifecycle manifests as durable runtime evidence without defining transfer or storage schemas.
 - MAPPING_UPDATE_EVIDENCE_TYPE: Identifies MappingUpdateEvidence carried as durable runtime evidence without changing timing ownership.
-- RuntimeParticipant: Stores one expected runtime component type and identifier as plain Session configuration data.
+- RuntimeParticipant: Stores one plain component type and identifier, currently referenced by Session configuration, without transport addresses or a second identity system.
 - UnresolvedCommandOutcome: Stores inspectable plain-data evidence for one expected target whose command result was absent from the issuer-defined result window.
 - GroupCommandOutcome: Stores the issuer-owned aggregate outcome, individual results, and unresolved target evidence for one group command intent.
 - RuntimeCommandMessage: Stores one immutable plain-data command intent with explicit source, target, Session, command identity, type, and payload.
@@ -98,7 +144,7 @@
 
 ## src/lab_sync_acquisition/acquisition_node_readiness.py
 
-- AcquisitionNodeReadiness: Holds explicit node, session, and role identity while aggregating existing device and service readiness evidence.
+- AcquisitionNodeReadiness(node_id, reserved_for_session_id, role, device_readiness, service_readiness): Holds node-scoped readiness with reservation identity and computes ready from required services only, while retaining independent per-device results.
 
 ## src/lab_sync_acquisition/acquisition_health.py
 
@@ -113,18 +159,29 @@
 
 - AcquisitionIterationSummary: Records the small inspectable summary returned by one bounded acquisition iteration.
 - AcquisitionNode: Owns bounded acquisition runtime execution and timestamping, stores separate active Experiment timing and health context, and emits explicitly linked ExperimentScopedHealthObservation and HealthInterpretationEvidence records without executing framework actions.
+- AcquisitionNode.__init__(session_id=None, device_manager=None, synchronization_manager=None, ingestor=None, node_id=None, role=None, acquisition_configuration=None, acquisition_health_policies=(), error_evidence_location=None, *, default_local_storage_root=None, device_declarations=None): Allows pre-Session construction with deployment-local collaborators and inventory, capturing adapter deployment configuration independently of subsequent Session-specific overrides while preserving the historical bound local path.
+- AcquisitionNode.declared_devices: Returns the node's declared DeviceDeclaration/ScientificProductDeclaration inventory independently of Session selection and device availability.
+- AcquisitionNode.reserved_for_session_id: Returns the current exclusive Session reservation or None under the node-owned lock.
+- AcquisitionNode.reserve(session_id): Atomically acquires an unreserved node, confirms the same owner's reservation idempotently, or rejects another owner without changing state.
+- AcquisitionNode.release_reservation(session_id): Clears only the owner's confirmed-clean, nonrunning, locally finalized binding without deleting artifacts or waiting for global retrieval.
+- AcquisitionNode.initialize_session(session_id, selected_devices, device_configurations=None, scientific_outputs=()): Checks the reservation and prepares selected adapters/storage/outputs using that Session's overrides or retained deployment configuration, retaining partial binding for cleanup and returning ServiceReadiness without a Session replica.
+- AcquisitionNode.abort_session_initialization(session_id): Clears acquisition eligibility and confirms matching local device/storage cleanup only when every required stage succeeds, preserving reservation protection on failure and permitting later explicit completion without deleting evidence or finalized artifacts.
+- AcquisitionNode.prepare_local_storage(session_id, declarations, root_path=None): Physically creates and attaches Session-authorized local storage using the node deployment root or an explicit historical local-workflow override.
+- AcquisitionNode.check_node_readiness(additional_service_readiness=()): Reports every enabled declared device, including missing adapters, with service-only aggregate readiness and separate reservation state.
+- AcquisitionNode._inventory_readiness: Completes deployment inventory readiness using DeviceManager results or explicit missing-adapter diagnostics without Session requiredness.
 - AcquisitionNode.activate_experiment_runtime_context: Stores immutable active Experiment identity and start Session Time for Experiment Time derivation without owning lifecycle evidence.
 - AcquisitionNode.clear_experiment_runtime_context: Clears active Experiment timing context without stopping Acquisition Runtime or changing health mapping.
 - AcquisitionNode.receive_active_synchronization_mapping: Passively replaces AcquisitionNode's stored reference to the SynchronizationManager-owned active mapping without applying mapping mathematics.
 - AcquisitionNode.default_local_storage_root: Exposes the explicitly configured persistent root without mutation by Session overrides.
 - AcquisitionNode.node_id: Exposes the configured AcquisitionNode identity used by scientific output selections.
 - AcquisitionNode.local_storage_manager: Exposes the Session-attached local persistence collaborator without transferring persistence ownership.
-- AcquisitionNode.attach_local_storage_manager: Attaches one Session-created LocalStorageManager and device declarations after checking Session/node identity and preventing manager replacement.
+- AcquisitionNode.attach_local_storage_manager: Attaches one Session-authorized LocalStorageManager and device declarations after checking Session/node identity and preventing manager replacement.
 - AcquisitionNode.prepare_experiment_scientific_outputs: Returns existing ServiceReadiness evidence after resolving explicit products and requesting one empty local stream per Experiment/device/product, reusing open preparations and preserving/finalizing newly created partial artifacts on failure.
 - AcquisitionNode.scientific_output_storage_ids: Returns a readback copy of Experiment/device/product associations with LocalStorageManager runtime write handles.
 - AcquisitionNode.finalize_experiment_scientific_outputs: Retires the Experiment's runtime identity and attempts LocalStorageManager finalization of every associated stream, returning finalized manifests or raising an error containing all failures without affecting other Experiments.
-- AcquisitionNode.stop_runtime: Stops devices through existing runtime cleanup and attempts finalization of all prepared scientific artifacts, clearing Experiment timing and health context and reporting persistence failures.
-- AcquisitionNode.run_one_iteration: Collects selected scientific devices once, timestamps and persists scientific records, sends only lightweight runtime metadata, and attempts to preserve completed partial collections before propagating collection failure through the existing cleanup path.
+- AcquisitionNode.start_runtime(): Requires active binding and successful Session preparation before starting acquisition, retaining compatibility with historical explicitly pre-bound caller-prepared nodes.
+- AcquisitionNode.stop_runtime: Clears acquisition eligibility, stops devices, and finalizes prepared scientific artifacts, confirming cleanup only after successful completion while retaining existing failure reporting and Experiment context clearance.
+- AcquisitionNode.run_one_iteration: Requires successful preparation and running acquisition, collects selected scientific devices once, timestamps and persists scientific records, and preserves completed partial collections before propagating failure through existing cleanup.
 - AcquisitionNode._persist_scientific_collection: Resolves product and active context, validates product-scoped one-to-one frame/metadata associations for a whole collection before appending, and shares framework timing without transporting frames.
 - AcquisitionNode._send_runtime_collection: Applies existing runtime timestamping, health observation, batching, and envelope handoff to one completed lightweight collection.
 - AcquisitionNode._preserve_partial_scientific_collections: Attempts local persistence and metadata handoff for completed partial collections, retaining both acquisition and preservation errors when preservation fails.
@@ -152,22 +209,32 @@ is complete; W030 records manual validation, focused tests, and audit reassessme
 - ControllerCommandResult: Records one command outcome and exposes its command, success, details, and error as plain evidence.
 - ControllerActionDecision: Records one health-derived Controller decision with Session, Experiment, source, policy, interpretation, and originating-observation provenance using the normalized local decision vocabulary.
 - Controller: Sequentially coordinates one Session with optional keyword-only `component_id="controller"` for producer identity, preserves existing ownership, and orchestrates preparation, lifecycle, runtime cleanup, and final persistence.
+- Controller.__init__(acquisition_node=None, ingestor=None, storage_manager=None, session_record_path=None, synchronization_manager=None, *, component_id="controller"): Supports Controller creation before Session and without remote participant references while retaining existing local collaborators.
+- Controller.launch_session(selections, *, communication, participants, config_parameters, result_window_s, scientific_outputs=()): Asynchronously allocates a fresh intended Session ID, resolves node-scoped device selections, reserves resources, constructs final SessionConfig, confirms participant preparation, and returns operational success or cleanup-aware rollback diagnostics.
+- Controller.start_launched_session(): Starts reserved nodes through correlated NATS commands and then starts the Session, returning ControllerCommandResult and attempting cleanup if startup fails.
+- Controller.stop_launched_session(reason=None): Stops and locally finalizes all reserved nodes through NATS, releases only confirmed-clean reservations, and stops the Session without waiting for global collection.
+- Controller.get_status(): Returns Session and command status with the existing local AcquisitionNode snapshot or None when no local node is attached, without fabricating remote runtime status.
 - Controller.start_experiment: Accepts keyword-only `scientific_outputs=()`, `preparation_readiness=()`, and `preparation_outcomes=()`, gates start on required readiness and correlated final remote successes, and reports preparation rejection once as persistent runtime evidence in failed result details without lifecycle activation.
 - Controller._record_failed_command: Records an unsuccessful command with optional plain diagnostic details, including the produced rejection message for a pre-start preparation failure.
 - Controller.stop_experiment: Records canonical normal-stop evidence, clears active runtime context and health mapping, and requests finalization of only that Experiment's streams without stopping the Session or acquisition runtime.
 - Controller.execute_controller_action_decision: Executes accepted no-mutation or failure decisions, finalizing Experiment streams for `experiment_fail` and retaining the existing failed-Session cleanup path for `session_fail`.
 - Controller.stop_session: Stops runtime and scientific persistence, records normal-stop evidence for any active Experiment, and then stops the Session through its existing lifecycle.
-- Controller.initialize_session: Coordinates existing Session initialization with its AcquisitionNode collaborator so Session creates or reuses local storage and records its readiness.
+- Controller.initialize_session: Retains the historical direct-object workflow, with Session-authorized local storage now physically created by AcquisitionNode and criticality evaluated from selected DeviceDeclarations.
 
 ## src/lab_sync_acquisition/device_adapter.py
 
 - DeviceAdapterState: Enumerates the minimum lifecycle states for a live device adapter.
-- DeviceReadiness: Records device readiness fields shared by DeviceManager and Session and exposes them as plain data for Session Record evidence.
+- DeviceReadiness(device_id, ready, reason, capabilities_available): Records technical device readiness without requiredness, which is evaluated from selected DeviceDeclaration.required.
 - DeviceStatus: Reports the current live adapter lifecycle status without scientific data.
 - DeviceAdapterLifecycleError: Signals invalid live adapter lifecycle operations.
 - DeviceReadinessNotImplementedError: Signals that a live adapter has no concrete readiness implementation.
 - DeviceAdapter: Provides the minimum live runtime control interface for one device adapter with externally read-only lifecycle state, explicit required participation metadata, and a concrete-adapter record exposure hook for DeviceManager collection.
 - DeviceAdapter.collect_scientific_records: Explicitly collects separate local scientific and lightweight runtime records, defaulting to one existing `collect_records()` call with no scientific data for unchanged adapters.
+- DeviceAdapter.shutdown: Completes adapter-specific cleanup after initialization/readiness/failure or normal stop, then returns to DECLARED; failed cleanup retains FAILED and completed shutdown is idempotent.
+- DeviceAdapter._shutdown_resources: Adapter-specific resource-release hook executed before the generic successful-cleanup transition.
+- DeviceAdapter.initialize(config): Requires DECLARED and applies fresh configuration for the next initialization without a reset operation.
+- DeviceAdapter.check_ready: Reports declared eligibility without opening hardware or changing state, while initialized acquisition readiness remains concrete-adapter-owned.
+- DeviceStatus.shutdown: Reports completed device cleanup even when the reusable adapter state is DECLARED, resetting on subsequent initialization.
 - _PartialScientificCollectionError: Internal failure carrier retaining a camera's completed scientific/runtime records alongside its original collection exception.
 
 ## src/lab_sync_acquisition/device_manager.py
@@ -191,7 +258,10 @@ is complete; W030 records manual validation, focused tests, and audit reassessme
 
 - IngestAuditRecord: Records ingest order, receive time, accepted status, and reason for one received acquisition envelope and exposes audit evidence as plain data.
 - InMemoryIngestor: Receives envelopes and runtime evidence, optionally journals/reconstructs the normal evidence view for a known Session, deduplicates evidence_id content, and compiles persistent evidence without interpreting meaning.
-- InMemoryIngestor.__init__(storage_manager=None, *, session_id=None, recovery_journal_path=None, component_id="ingestor"): Optionally configures one explicit Session journal, reconstructs it on restart, and accepts persistent recovery evidence through normal intake.
+- InMemoryIngestor.__init__(storage_manager=None, *, session_id=None, recovery_journal_path=None, component_id="ingestor", recovery_journal_root=None): Preserves explicit known-Session recovery while optionally configuring a deployment root for later Session-specific preparation.
+- InMemoryIngestor.prepare_session(session_id): Creates or reconstructs the intended Session recovery journal from its deployment root before confirming evidence intake preparation.
+- InMemoryIngestor.abort_session_initialization(session_id): Disables prepared intake while preserving durable journal entries and accepted evidence, clearing empty preparation bindings without deleting files.
+- InMemoryIngestor._initialize_recovery_journal: Reuses journal creation/reconstruction and ordinary recovery-evidence intake for constructor and distributed preparation paths.
 - InMemoryIngestor.session_id: Returns the configured known Session identity or None for legacy in-memory use.
 - InMemoryIngestor.recovery_journal_path: Returns the caller-supplied journal Path or None for legacy in-memory use.
 - RuntimeEvidenceAuditRecord: Records intake order, receive time, evidence identity, acceptance, and reason for one durable RuntimeEvidenceMessage.
@@ -209,7 +279,9 @@ uncertain-durability clarification and initial audit FAIL/correction history.
 Supply session_id and
 recovery_journal_path together; the caller chooses the exact file location and
 its parent directory must already exist. Legacy local in-memory use remains
-available without these arguments; broker evidence subscriptions require them.
+available without these arguments; broker evidence subscriptions require a
+matching journal, either constructor-configured or prepared through
+prepare_session(session_id) with recovery_journal_root.
 Journal entries preserve messages, not original ingest audit timestamps: startup
 generates intake audit records marked recovered at reconstruction time. The
 existing Slice 22 compiler is unchanged. No journal cleanup or Session discovery
@@ -221,9 +293,20 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 - DurablePublicationError: Reports failed JetStream publication with message class, message identity, subject, intended stream, and reason while leaving the original message caller-owned.
 - NatsCommunicationBoundary: Owns a real nats-py connection, reports NATS availability through ServiceReadiness, creates accepted JetStream streams, and handles JSON serialization, durable publication acknowledgement, and Core NATS telemetry mechanics without domain semantics.
 - NatsControllerCommunication: Publishes unicast or issuer-fanned group commands, consumes and aggregates addressed per-target command results over an issuer-defined window, records missing results as unresolved, and independently presents HealthInterpretationEvidence without relaying evidence.
+- NatsControllerCommunication.check_ready(): Returns required NATS communication readiness for launch gating.
+- NatsControllerCommunication.request_command(participant, command_type, session_id, payload, result_window_s): Publishes once and awaits the correlated final result, returning None for missing/invalid confirmation without retry or assuming remote state is absent.
+- NatsControllerCommunication.subscribe_command_results(session_id, callback=None): Accepts None for participant-scoped results and a real Session ID for Session-scoped results.
+- NatsCommunicationBoundary.ensure_streams(): Retains Session stream filters and adds messages.command.> and messages.command_result.> to their existing JetStream streams for pre-Session commands, leaving evidence and Core NATS telemetry unchanged.
+- NatsAcquisitionNodeCommunication.subscribe_commands(): Returns two subscriptions for participant-scoped and Session-scoped addressed commands, keeping the same handler usable across binding changes.
 - NatsAcquisitionNodeCommunication: Consumes targeted readiness, scientific-output preparation, or runtime commands, deduplicates by command_id, and publishes explicit outcomes without owning Experiment lifecycle.
 - NatsAcquisitionNodeCommunication.execute_command: Executes `prepare_experiment_scientific_outputs` through the existing node API with explicit Experiment/product identities and returns readiness diagnostics in the existing correlated final command result.
 - NatsIngestorCommunication: Consumes durable RuntimeEvidenceMessage records and passes them to InMemoryIngestor for separate evidence intake and audit.
+- NatsIngestorCommunication.subscribe_commands(): Returns participant- and Session-scoped subscriptions for readiness, journal preparation and evidence-subscription establishment, or initialization abort with intake-subscription cleanup before confirmation.
+- NatsSynchronizationManagerCommunication(boundary, synchronization_manager): Routes readiness and Session prepare/abort commands to the timing owner over existing command/result streams.
+- NatsSynchronizationManagerCommunication.subscribe_commands(): Returns participant- and Session-scoped command subscriptions without implementing transport synchronization or remapping.
+- _participant_result: Builds an existing correlated final command-result message for one service-owned operation.
+- _execute_service_command: Delegates readiness, Session preparation, or abort to the service owner and retains existing command-ID deduplication.
+- _subscribe_participant_commands: Establishes the two addressed command subscriptions reused by mandatory service handlers.
 - NatsIngestorCommunication.subscribe_evidence(session_id, callback=None): Requires a matching Session recovery journal and ACKs after successful durable acceptance, invoking the callback only for newly accepted evidence, not identical redelivery.
 
 ## src/lab_sync_acquisition/service_readiness.py
@@ -234,6 +317,9 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 
 - OpenCVCameraConfig: Holds explicit OpenCV camera source, backend, frame polling count, and optional requested capture properties.
 - SeeedIMX219OpenCVCameraAdapter: Opens an OpenCV camera, reports readiness, provides metadata-only default collection or explicit local frame-preserving collection, and releases the capture during shutdown.
+- SeeedIMX219OpenCVCameraAdapter.shutdown(): Uses generic shutdown to report FAILED and retain the capture after release failure, returning to DECLARED only after successful release with idempotent subsequent shutdown.
+- SeeedIMX219OpenCVCameraAdapter.initialize(config): Accepts OpenCVCameraConfig or its plain-data mapping through the existing DECLARED lifecycle, owning each capture before fallible setup and retaining FAILED plus the capture if initialization cleanup cannot release it.
+- SeeedIMX219OpenCVCameraAdapter.check_ready(): Reports declared eligibility without opening capture, and checks initialized capture readiness separately.
 - SeeedIMX219OpenCVCameraAdapter.collect_scientific_records: Returns actual NumPy frames and separate metadata from the same reads, omits unavailable optional SDK metadata without failing acquisition, and preserves completed partial records if a later read raises without assigning framework timing or retrying reads.
 
 ## src/lab_sync_acquisition/storage.py
@@ -262,6 +348,8 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 - MappingUpdateEvidence: Stores immutable created, replaced, or retired mapping evidence with optional previous/new mappings and a plain-data round trip.
 - MappingUpdateEvidence.to_runtime_evidence_message: Wraps mapping update plain data in the existing RuntimeEvidenceMessage boundary using evidence type `mapping_update_evidence`.
 - SynchronizationManager: Owns the Session clock plus per-AcquisitionNode active mapping creation, replacement, retirement, lookup, and in-memory mapping-update evidence without implementing mapping mathematics or drift estimation.
+- SynchronizationManager.prepare_session(session_id): Confirms Session-specific preparation independently of pre-Session service readiness, rejecting a different active preparation binding.
+- SynchronizationManager.abort_session_initialization(session_id): Clears only matching preparation state without altering mapping or established timing evidence.
 - SynchronizationManager.create_and_activate_mapping: Creates and atomically activates one initial immutable mapping for an AcquisitionNode.
 - SynchronizationManager.replace_active_mapping: Atomically replaces one active mapping and records replacement evidence.
 - SynchronizationManager.retire_active_mapping: Retires one active mapping and records retirement evidence.
@@ -270,7 +358,7 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 ## src/lab_sync_acquisition/session.py
 
 - SessionState: Enumerates the accepted Phase 1 session lifecycle states.
-- SessionConfig: Holds the immutable accepted run configuration, including expected runtime participants, error evidence location, and optional `local_storage_roots` node-ID-to-root overrides, and exposes it as plain Session Record data.
+- SessionConfig: Holds the immutable accepted run configuration, including expected runtime participants, error evidence location, and current historical `local_storage_roots` overrides; Decision 298 does not authorize Controller-selected remote roots.
 - ReadinessCheck: Records the result of a readiness condition checked during lifecycle transitions and exposes it as plain data for Session Record evidence.
 - LifecycleTransition: Records an allowed lifecycle state transition in sequence order and exposes it as plain data for Session Record evidence.
 - ExpectedParticipant: Records participant identity, type, expected contribution, and required status as an inert plain-data declaration.
@@ -280,7 +368,7 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 - ExperimentLifecycleEvidence: Records canonical `experiment_start`, `experiment_stop`, or `experiment_fail` evidence in the Session timeline as plain data.
 - SessionLifecycleError: Signals invalid lifecycle operations or failed readiness requirements.
 - Session: Owns lifecycle, readiness, Experiment descriptors, canonical Experiment lifecycle evidence, cleanup status, and final status in memory.
-- Session.initialize: Accepts keyword-only `acquisition_nodes=()` and creates or reuses one LocalStorageManager per supplied Session/node, honoring Session root overrides ahead of unchanged node defaults and gating initialization on existing service readiness.
+- Session.initialize: Accepts confirmed readiness from distributed preparation or historical `acquisition_nodes=()` authorization, delegates physical local storage creation to nodes, and owns the initialization-completion transition without remote Session replicas.
 - Session.record_service_readiness: Preserves preparation/service results in the existing Session-owned readiness evidence without introducing another readiness mechanism.
 - Session.check_experiment_can_start: Checks canonical lifecycle evidence and rejects terminal Experiment identity reuse, including metadata-only executions.
 - Session.record_experiment_lifecycle: Records canonical Experiment lifecycle evidence and applies the terminal-identity check to every `experiment_start`, including direct callers.

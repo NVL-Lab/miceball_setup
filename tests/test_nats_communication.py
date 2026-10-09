@@ -21,6 +21,7 @@ from lab_sync_acquisition import (
     Session,
     SessionConfig,
     SessionLifecycleError,
+    ServiceReadiness,
 )
 
 
@@ -320,7 +321,7 @@ class NatsCommunicationUnitTests(unittest.TestCase):
             result.payload["acquisition_node_readiness"],
             {
                 "node_id": "node-001",
-                "session_id": "session-001",
+                "reserved_for_session_id": None,
                 "role": "acquisition_node",
                 "device_readiness": [],
                 "service_readiness": [],
@@ -448,7 +449,7 @@ class NatsCommunicationUnitTests(unittest.TestCase):
         self.assertEqual(duplicate, first)
         self.assertEqual(node.start_count, 1)
 
-    def test_command_subscription_is_scoped_to_acquisition_node_session(self):
+    def test_command_subscription_addresses_node_before_and_between_sessions(self):
         boundary = _SubscribingBoundary("acquisition_node", "node-001")
         adapter = NatsAcquisitionNodeCommunication(
             boundary,
@@ -459,7 +460,8 @@ class NatsCommunicationUnitTests(unittest.TestCase):
 
         self.assertEqual(
             subject,
-            "messages.session-001.command.acquisition_node.node-001.>",
+            ("messages.*.command.acquisition_node.node-001.>",
+             "messages.command.acquisition_node.node-001.>"),
         )
 
     def test_unsupported_command_returns_failed_result(self):
@@ -554,6 +556,9 @@ class _BoundaryIdentity:
     def __init__(self, component_type, component_id):
         self.component_type = component_type
         self.component_id = component_id
+
+    def check_ready(self):
+        return ServiceReadiness("nats", "communication", True, True, "connected")
 
 
 class _ConnectedBoundary(NatsCommunicationBoundary):
@@ -687,7 +692,7 @@ class _CountingAcquisitionNode:
         self.start_count += 1
         return {"session_time_s": 0.0}
 
-    def check_node_readiness(self):
+    def check_node_readiness(self, additional_service_readiness=()):
         return _ReadyNodeEvidence()
 
     def run_one_iteration(self):
@@ -706,7 +711,7 @@ class _ReadyNodeEvidence:
     def to_dict(self):
         return {
             "node_id": "node-001",
-            "session_id": "session-001",
+            "reserved_for_session_id": None,
             "role": "acquisition_node",
             "device_readiness": [],
             "service_readiness": [],

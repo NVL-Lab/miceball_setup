@@ -523,6 +523,67 @@ Software closure does not validate hardware deployment, real Jetson/SSH-SFTP,
 or live JetStream server crash/recovery. M011 remains open; M012 and M013 remain
 complete.
 
+Phase 15 / Slice 28 Controller-owned Session Launch and Runtime Assembly is
+implemented for the launch path in Decisions 281-301; M015 remains open with
+Decision 302 sequential reuse implemented and covered by automated regressions;
+independent validation and audit of the correction remain pending.
+Controller resolves prospective selections and current readiness,
+requests atomic node-owned reservations, constructs final SessionConfig with
+unavailable optional selections omitted, and waits for required initialization/
+preparation before launch success. RuntimeParticipant identity and AcquisitionNode
+declared inventory exist independently of Session. Accepted node reports replace
+session_id with reserved_for_session_id, retain complete per-device readiness,
+and aggregate required framework/service prerequisites only. DeviceReadiness
+no longer carries required; DeviceDeclaration.required governs selected-device
+criticality. Missing/invalid current reports mean unknown to Controller, not a
+new readiness enum.
+
+Ingestor and SynchronizationManager readiness are mandatory launch prerequisites;
+global StorageManager availability is not. Existing local persistence and final
+archive-writing responsibilities remain unchanged. Reservations last through
+acquisition/local finalization, not later global retrieval. Current direct-object,
+caller-created SessionConfig examples retain the historical local workflow.
+Automated Slice 28 tests exercise real framework objects and NATS handlers with
+controlled broker doubles; they do not constitute live NATS, multi-process,
+hardware, or manual IPython validation. No Slice 28 validated workflow or
+independent audit completion is claimed; M014/W034 remain complete.
+Discovery/configuration, scheduling, crash/stale-reservation recovery, durable
+pre-Session launch auditing, retention/deletion, and Q019/Q024 remain deferred.
+
+Accepted distributed initialization clarifies that Session authorizes local
+storage creation while each node physically creates its LocalStorageManager
+using deployment-local roots, not Controller-selected remote paths. Participants
+confirm Session-specific preparation independently of readiness; missing results
+are unconfirmed, and node cleanup must be confirmed before failed-launch
+reservation release. Node binding remains node-owned and its communication
+handler stays connected across binding changes. These contracts are implemented
+through Controller.launch_session(), node-owned reserve/initialize/abort/release
+operations, and participant-specific preparation handlers. See docs/code_map.md
+for signatures. Distributed launch does not accept local_storage_roots;
+historical local Session initialization still supports explicit local overrides.
+
+For development/validation, NATS/JetStream and framework participants start
+manually in independent processes, potentially on different PCs/Jetsons, and
+each connects independently. Intended deployment uses long-lived independent
+services; Controller does not manage NATS or launch participant processes.
+Required connectivity must succeed before distributed readiness, without
+indefinite startup waiting or automatic retry/reconnection policy. Pre-Session
+commands use participant identity without fabricated Session IDs; Session
+operations require real identities. Service supervision, startup automation,
+duplicate identity policy, and normal end-of-Session Ingestor/SynchronizationManager
+binding lifetimes remain deferred. M015 remains pending and M014/W034 unchanged.
+
+Decision 302 accepts generic sequential reuse of retained DeviceAdapter instances:
+successful shutdown and required cleanup return to DECLARED, failed/unconfirmed
+cleanup prohibits reuse, and safely reusable declared adapters participate in
+existing pre-Session readiness. AcquisitionNode retains deployment inventory and
+configuration; each Session supplies its own Session-specific settings through
+resolved SessionConfig. This transition/readiness behavior is implemented with
+simulated and broker-double regression coverage; independent manual validation
+and audit remain pending. No new reset operation, lifecycle state, or Controller
+hardware initialization responsibility is introduced. Previously validated
+workflows remain historical evidence, not validation of sequential Session reuse.
+
 The existing NATS dispatcher accepts `prepare_experiment_scientific_outputs`
 with payload `{"experiment_id": ..., "scientific_outputs": [...]}` using output
 selection `to_dict()` values. Use existing `publish_group_command()` and

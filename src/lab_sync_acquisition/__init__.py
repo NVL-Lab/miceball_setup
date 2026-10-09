@@ -71,6 +71,7 @@ from lab_sync_acquisition.nats_communication import (
     NatsCommunicationBoundary,
     NatsControllerCommunication,
     NatsIngestorCommunication,
+    NatsSynchronizationManagerCommunication,
 )
 from lab_sync_acquisition.session import (
     ExpectedParticipant,
@@ -171,6 +172,7 @@ __all__ = [
     "NatsCommunicationBoundary",
     "NatsControllerCommunication",
     "NatsIngestorCommunication",
+    "NatsSynchronizationManagerCommunication",
     "Session",
     "SessionConfig",
     "SessionLifecycleError",

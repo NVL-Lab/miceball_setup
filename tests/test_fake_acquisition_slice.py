@@ -209,7 +209,7 @@ class FakeAcquisitionSliceTests(unittest.TestCase):
         self.assertIs(session.current_state, SessionState.COMPLETED)
         self.assertTrue(
             all(
-                adapter_status.state is DeviceAdapterState.SHUTDOWN
+                adapter_status.state is DeviceAdapterState.DECLARED
                 for adapter_status in status
             )
         )
@@ -375,6 +375,7 @@ class FakeAcquisitionSliceTests(unittest.TestCase):
             initial_node_status,
             {
                 "session_id": "session-001",
+                "reserved_for_session_id": None,
                 "is_running": False,
                 "iteration_count": 0,
                 "last_error": None,
@@ -557,7 +558,7 @@ class FakeAcquisitionSliceTests(unittest.TestCase):
         self.assertIs(session.current_state, SessionState.COMPLETED)
         self.assertTrue(
             all(
-                adapter_status.state is DeviceAdapterState.SHUTDOWN
+                adapter_status.state is DeviceAdapterState.DECLARED
                 for adapter_status in status
             )
         )
