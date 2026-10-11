@@ -184,6 +184,7 @@ class PersistentStorageManager:
         self._preservation_lock = RLock()
         self._archive_confirmation: dict[str, Any] | None = None
         self._framework_archive_confirmation: dict[str, Any] | None = None
+        self._framework_closeout_compilation: dict[str, Any] | None = None
         self._unfinished_archive_scopes: set[str | None] = set()
         self._unfinished_record_paths: set[Path] = set()
         self._final_record_confirmation: tuple[str, Path] | None = None
@@ -658,10 +659,24 @@ class PersistentStorageManager:
             return deepcopy(actual) if actual == expected else None
 
     @contextmanager
-    def framework_preservation_guard(self):
-        """Keep framework archival coverage stable through a synchronous closeout commit."""
+    def framework_preservation_guard(self, *, require_closeout: bool = False):
+        """Keep current archival and optional final intake coverage stable through commit."""
         with self._preservation_lock:
-            yield self.get_framework_preservation_confirmation()
+            confirmation = self.get_framework_preservation_confirmation()
+            if require_closeout and (
+                    self._framework_closeout_compilation is None or confirmation is None
+                    or any(confirmation[name] != required
+                           for name, required in self._framework_closeout_compilation.items())):
+                confirmation = None
+            yield confirmation
+
+    def _retain_framework_closeout_compilation(self, compilation):
+        """Retain Ingestor's final required coverage, independently of archive rewrites."""
+        with self._preservation_lock:
+            self._framework_closeout_compilation = {
+                name: deepcopy([_to_plain_data(item) for item in compilation[name]])
+                for name in ("runtime_evidence", "ingest_audit")
+            }
 
     @contextmanager
     def session_preservation_guard(self, session_id: str) -> Iterator[dict[str, Any] | None]:

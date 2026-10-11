@@ -8249,14 +8249,17 @@ remain low-level dependencies under Q025; no new evidence type or schema is
 chosen here. Q019's Session-wide evidence consumption/final archive coordination
 remains independently unresolved.
 
-**Phase 16 implementation status (Decisions 304-312):** Accepted architecture
-only. Framework stop/kill is not implemented or validated. Existing Session,
+**Phase 16 implementation status (Decisions 304-312):** Session-binding release
+(W035), individual-service maintenance (W036), and progressive two-phase framework
+shutdown (W037) are implemented, manually software-validated, and independently
+audited PASS. Independent startup/returning-service integration remains unfinished;
+Phase 16 and M015 remain open. Existing Session,
 Experiment, acquisition, storage, timing, reservation, initialization, and adapter
 cleanup/reuse contracts remain unchanged. Q017 remains resolved by Decision 303;
 Q019, Q020, Q021, Q023, Q024, and other unresolved questions stay open. No new
 operational service, GUI control, supervisor, framework-wide state machine,
 transport, public API, persisted schema, or automatic post-session processing is
-introduced by this documentation synchronization.
+introduced by the original documentation synchronization.
 
 ---
 
@@ -8523,10 +8526,12 @@ Q022; application recovery and recovery-journal retention remain Q024. No GUI,
 new Session lifecycle state, or automatic post-session collection, verification,
 transfer, export, or transfer scheduling is introduced by maintenance/startup.
 
-**Phase 16 low-level status (Decisions 313-321):** Accepted architecture only;
-unimplemented and unvalidated. These contracts resolve Q025's five narrowed
+**Phase 16 low-level status (Decisions 313-321):** Binding release, individual-service
+maintenance, and progressive coordinated shutdown are implemented and validated
+in W035-W037; independent startup/returning-service integration remains unfinished.
+These contracts resolve Q025's five narrowed
 questions without changing the exact historical text of Decisions 304-312.
-Concrete APIs, schemas, and implementation are not added by this synchronization.
+The original documentation synchronization did not add APIs, schemas, or implementation.
 M015 remains open pending independent validation/audit; Q019, Q021, Q024, and
 unrelated future questions remain open. Historical validation records are unchanged.
 
@@ -8590,13 +8595,15 @@ Evidence Archive finalization semantics, or resolve Q019.
 persistent Controller decision packaging, submission to an attached Ingestor,
 and exact decision-message archival confirmation before binding release.
 Caller-managed broker publication uses the existing boundary and does not itself
-confirm archival. Decision 313 remains partially implemented; evidence-bearing
-Ingestor/SynchronizationManager release now has narrow implementation paths:
+confirm archival. The narrow Decision 313 Session-binding release paths are
+implemented and validated in W035, including evidence-bearing
+Ingestor/SynchronizationManager release:
 Ingestor checks exact persistent-message/runtime-audit archive coverage and existing
 terminal Session Record evidence under its intake lock; SynchronizationManager
 checks stopped time, retired mappings, and durable Ingestor handoff. Nonpersistent
 messages retain producer-declared intent. Q019 remains unresolved architecture,
-and broader Phase 16 closeout remains unimplemented. Phase 16 is unvalidated and M015 open.
+and progressive coordinated closeout is separately validated in W037. Independent
+startup/returning-service integration remains unfinished; Phase 16 and M015 remain open.
 Existing accepted requirements and historical validation records are preserved.
 
 ---
@@ -8804,8 +8811,11 @@ W035/W036. The GUI shutdown design notes remain proposed future interface ideas,
 not approved implementation contracts.
 
 **Implementation status:** Progressive Controller-coordinated general shutdown
-is accepted but not implemented or validated. Phase 16 and M015 remain open;
-Q019 and Q024 remain unresolved. Existing validated workflows are unchanged.
+is implemented, independently manually software-validated, and independently
+re-audited PASS under Decisions 325-326 (W037). The Evidence Archive preservation
+correction passed regressions and independent validation. Phase 16 and M015 remain
+open for their separate remaining criteria; Q019 and Q024 remain unresolved.
+Historical validated workflows are preserved.
 
 ---
 
@@ -8888,9 +8898,16 @@ receipt file, archive, or post-retirement persistence mechanism is introduced.
   rollback, restart, or retry is introduced.
 
 **Implementation status:** This two-phase coordinated-closeout contract is
-accepted but not implemented or validated. Historical decisions and validated
-workflows remain unchanged. Phase 16 and M015 remain open; Q019 and Q024 remain
-unresolved.
+implemented, independently manually software-validated, and independently
+re-audited PASS (W037). Prepared orderly retirement requires current complete
+Evidence Archive coverage of Ingestor's retained final persistent-evidence and
+all-intake-audit compilation, checked before and after asynchronous callbacks and
+held stable through retirement commitment. Missing coverage prevents confirmed
+retirement and completed shutdown. W037 records 174 focused tests passed and
+574 full-suite tests run, 567 passed, 7 optional rendering skips, zero failures.
+Historical decisions and validation records are preserved. Independent
+startup/returning-service integration remains unfinished; Phase 16 and M015 remain
+open, and Q019/Q024 remain unresolved.
 
 ---
 
@@ -9206,7 +9223,7 @@ requirements remain authoritative.
 309. Kill is operator-authorized forced continuation of the same blocked stop attempt, without repeating the entire readiness check or claiming unresolved work completed; original blockers and actual forced results remain recorded.
 310. Declining kill ends that attempt as failed without forced action; a later retry has a new identity and does not automatically change an unrelated Session lifecycle.
 311. Stop/kill protect shared services and unrelated scopes; narrow operator authority is not administrative infrastructure termination authority.
-312. Stop/kill require durable attempt/outcome evidence using existing boundaries where applicable; transport acceptance is neither persistence nor execution confirmation, and unresolved low-level durability details stay in Q025, without resolving Q019. Phase 16 is accepted, not implemented or validated.
+312. Stop/kill require durable attempt/outcome evidence using existing boundaries where applicable; transport acceptance is neither persistence nor execution confirmation, and unresolved low-level durability details stay in Q025, without resolving Q019. Q025 is now architecturally resolved; W036-W037 validate maintenance/shutdown, not completion of Phase 16.
 313. Services independently release confirmed Session bindings for successive-Session reuse without terminating services, losing evidence, or discarding outstanding obligations.
 314. General framework shutdown is Controller-coordinated and stops no service if pre-stop evaluation blocks; individual administrative service maintenance is independent and service-owned.
 315. Maintenance outcomes are completed for confirmed orderly/authorized forced termination, blocked before shutdown begins, and failed for incomplete shutdown, failed/unconfirmed force, or declined kill; kill continues the same attempt.
@@ -9215,12 +9232,12 @@ requirements remain authoritative.
 318. Framework evidence may lack Session identity through minimally extended existing runtime-evidence/Ingestor/Evidence Archive contracts; Session evidence retains its identity and no separate evidence system is introduced.
 319. Required evidence submission and confirmed durable preservation precede orderly closeout; authorized kill preserves whatever the initiator can confirm without promising complete preservation or resolving Q019.
 320. Unexpected stop or forced termination does not automatically stop/restart other services; missing dependencies affect required operations without promising interrupted-work recovery.
-321. Services start independently, load required durable configuration/records, use existing communication/dependency mechanisms, report actual readiness, and recognize returning services without automatic Session/transfer recovery. Q025 is resolved architecturally; Phase 16 remains unimplemented/unvalidated and M015 open.
-322. Every ControllerActionDecision is producer-marked persistent through the existing RuntimeEvidenceMessage/Ingestor/StorageManager/Evidence Archive pathway; Controller binding release requires confirmed archival of its Session's decisions plus required cleanup and Session Record obligations, not merely NATS publication. Temporary decisions may then be retired without deleting durable evidence; the Controller-specific path is implemented, Decision 313 remains partial, Phase 16 unvalidated, and Q019 open.
+321. Services start independently, load required durable configuration/records, use existing communication/dependency mechanisms, report actual readiness, and recognize returning services without automatic Session/transfer recovery. Q025 is resolved architecturally; independent startup/returning-service integration remains unfinished, and Phase 16/M015 remain open.
+322. Every ControllerActionDecision is producer-marked persistent through the existing RuntimeEvidenceMessage/Ingestor/StorageManager/Evidence Archive pathway; Controller binding release requires confirmed archival of its Session's decisions plus required cleanup and Session Record obligations, not merely NATS publication. Temporary decisions may then be retired without deleting durable evidence; the narrow Decision 313/322 binding-release implementation is validated in W035, while Phase 16 remains incomplete and Q019 open.
 323. Session-independent framework evidence uses the existing framework/evidence partition with JSON-null Session identity and exact persistent-message, intake-audit, and summary confirmation, without a Session Record, fabricated Session binding, new receipt file, or commit protocol.
 324. Individual-service maintenance preserves confirmed cleanup and readiness-for-retirement evidence before retiring required evidence capabilities; only actual retirement confirmation permits a completed result, without impossible post-retirement self-persistence.
-325. General framework shutdown uses explicit Session-independent participant scope, an informational local readiness survey, and progressive dependency-safe stops; each blocked service needs separate kill authorization, stopped services remain stopped, and existing evidence preservation contracts apply. Coordinated shutdown is accepted, not implemented or validated.
-326. Coordinated shutdown prepares actual StorageManager and Controller cleanup and durably preserves its evidence before Ingestor retirement; later retirement confirmations use existing command/results, not invented archive records. Preparation is not retirement, the operational retirement order is unchanged, and W036 remains unchanged outside coordinated shutdown. This contract is accepted, not implemented or validated.
+325. General framework shutdown uses explicit Session-independent participant scope, an informational local readiness survey, and progressive dependency-safe stops; each blocked service needs separate kill authorization, stopped services remain stopped, and existing evidence preservation contracts apply. Coordinated shutdown is implemented, manually software-validated, and independently re-audited PASS (W037).
+326. Coordinated shutdown prepares actual StorageManager and Controller cleanup and durably preserves its evidence before Ingestor retirement; later retirement confirmations use existing command/results, not invented archive records. Preparation is not retirement, the operational retirement order is unchanged, and W036 remains unchanged outside coordinated shutdown. This contract is implemented, manually software-validated, and independently re-audited PASS (W037); Phase 16 and M015 remain open.
 
 ---
 

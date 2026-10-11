@@ -647,8 +647,10 @@ mechanisms remain unresolved here. Decisions 313-321 settle maintenance,
 independent startup/readiness, and service-owned Session-binding release without
 choosing deployment formats, a discovery/registration system, or supervision.
 Q025 is resolved architecturally. Session-binding release (W035) and individual-service
-maintenance (W036) are complete and software-validated; general coordinated
-shutdown and independent startup integration remain pending.
+maintenance (W036) are complete and software-validated. Progressive two-phase
+coordinated shutdown is also complete, manually software-validated, and
+independently re-audited PASS (W037); independent startup/returning-service
+integration remains pending.
 
 Decision 302 additionally settles retained adapter reuse without process or adapter
 recreation: AcquisitionNode retains deployment configuration, but subsequent
@@ -765,7 +767,7 @@ automatic expiry, retry, leases, or a new recovery service in Slice 28.
 
 ## Q025: What low-level contracts implement scoped framework stop/kill and durable attempt evidence?
 
-**Status:** RESOLVED architecturally by Decisions 313-321 and 323-326 - individual-service maintenance validated (W036); progressive coordinated shutdown unimplemented
+**Status:** RESOLVED architecturally by Decisions 313-321 and 323-326 - individual-service maintenance validated (W036); progressive two-phase coordinated shutdown validated and independently re-audited PASS (W037)
 
 ### Accepted boundaries
 
@@ -825,15 +827,20 @@ protocol questions.
    while Ingestor remains operational. The final archival checkpoint distinguishes
    completed actions from outstanding retirement obligations. Later retirement
    confirmations remain existing command/results, not newly archived evidence.
-   This contract is unimplemented and does not resolve Q019 or Q024.
+   This contract is implemented and validated in W037. Prepared orderly retirement
+   checks complete current persistent-evidence and all-intake-audit coverage through
+   commitment, including after asynchronous callbacks; incomplete coverage prevents
+   confirmed retirement. This does not resolve Q019 or Q024.
 
 All five narrowed architecture questions are resolved. Decision 323's framework
 partition and individual-service administrative stop/kill/cancel now have narrow
 implementation paths using existing runtime messages, journals, compilation,
 and exact preservation checks. W036 records successful manual software validation
 and final independent audit PASS for individual-service maintenance, including
-Decision 324 closeout ordering. General coordinated shutdown and startup integration
-remain unfinished.
+Decision 324 closeout ordering. W037 separately records successful manual validation
+and independent re-audit PASS for coordinated shutdown and its complete Evidence
+Archive preservation guard. Independent startup/returning-service integration
+remains unfinished; Phase 16 and M015 remain open.
 Transport publication alone is not permanent persistence, and the framework
 partition never requires a Session Record or fabricated Session binding.
 
@@ -847,7 +854,8 @@ configuration questions; restart recovery remains Q024. Accepted administrative
 maintenance adds no permission infrastructure, remote OS process management,
 framework-wide state machine, new Session state, automatic retry, or remote process
 termination. W036 validates the narrow individual-service maintenance slice;
-W035 remains limited to Session-binding release. Independent startup/returning-service
+W035 remains limited to Session-binding release. W037 validates progressive
+coordinated shutdown, not broader Phase 16 or M015 completion. Independent startup/returning-service
 recognition does not resume interrupted Sessions, transfers, or messages.
 
 ---
@@ -857,7 +865,7 @@ The roadmap distinguishes accepted architecture from implemented milestones:
 Phase 13 — Global StorageManager (Evidence)
 Phase 14 — Global StorageManager (Finalized Scientific Data)
 Phase 15 — Controller-owned Session Launch & Runtime Assembly (launch path and Decision 302 sequential reuse implemented; independent validation/audit and M015 closure pending)
-Phase 16 — Operational Service Lifetime and Framework Stop/Kill (Decisions 304-326 accepted; Q025 resolved architecturally; narrow Session-binding release under Decisions 313/322 complete, manually software-validated and independently audited PASS in W035; individual-service maintenance complete, manually software-validated and independently audited PASS in W036; progressive two-phase coordinated shutdown unimplemented and startup integration unfinished)
+Phase 16 — Operational Service Lifetime and Framework Stop/Kill (Decisions 304-326 accepted; Q025 resolved architecturally; narrow Session-binding release under Decisions 313/322 complete, manually software-validated and independently audited PASS in W035; individual-service maintenance complete, manually software-validated and independently audited PASS in W036; progressive two-phase coordinated shutdown complete, manually software-validated and independently re-audited PASS in W037; independent startup/returning-service integration unfinished; Phase 16 and M015 remain open)
 Phase 17 — Device Acceptance / Validation
 Phase 18 — End-to-End Demo Architecture
 

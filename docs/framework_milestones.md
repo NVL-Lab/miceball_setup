@@ -652,11 +652,12 @@ accepted in Decisions 304-326. At the earlier checkpoint implementation was
 limited to the Session-binding release slice. Decision 323 adds the accepted
 framework Evidence Archive partition; individual-service stop/kill/cancel is now
 complete, manually software-validated, and independently audited PASS (W036),
-including Decision 324 closeout ordering. General coordinated shutdown remains
-unimplemented. Decision 325 replaces the global all-or-nothing precheck with an
+including Decision 324 closeout ordering. Progressive coordinated shutdown is
+also complete, manually software-validated, and independently re-audited PASS
+(W037). Decision 325 replaces the global all-or-nothing precheck with an
 informational local survey and progressive dependency-safe shutdown, with separate
 authorization for each blocked service and no automatic rollback or restart.
-Decision 326 adds accepted, unimplemented two-phase closeout: StorageManager and
+Decision 326's validated two-phase closeout has StorageManager and
 Controller prepare actual cleanup and preserve its evidence before Ingestor
 retirement, without changing retirement order or W036 individual maintenance.
 The narrow Controller/Ingestor/SynchronizationManager
@@ -672,7 +673,8 @@ infrastructure; independent startup/returning-service recognition does not resum
 interrupted work. Q025 is resolved architecturally, while Q019's Session-wide
 evidence-consumption coordination, Q021, and Q024 remain open.
 This does not close M015 or establish a completed Phase 16 milestone. W035 records
-only the completed Session-binding release slice. Controller release after confirmed cleanup
+only the completed Session-binding release slice; W036 records individual-service
+maintenance and W037 records coordinated shutdown. Controller release after confirmed cleanup
 and final persistence, plus empty Ingestor/synchronization binding release, are
 implemented. The narrow follow-up also implements evidence-bearing Ingestor release
 after exact persistent-message/all-runtime-audit archive coverage and existing
@@ -697,8 +699,8 @@ exact inclusion checks against compiled archive input, and confirmation after
 successful archive/final-record writes. Missing decisions or changes during/after
 the snapshot cannot authorize release. Confirmed release retires temporary decision
 records without deleting durable evidence. W035 validates these owner-specific
-release paths under Decisions 313 and 322; it does not validate the newly implemented
-individual-service maintenance/framework evidence or complete coordinated shutdown/startup responsibilities,
+release paths under Decisions 313 and 322; it does not itself validate the separate
+individual-service maintenance (W036), coordinated shutdown (W037), or startup responsibilities,
 close M015, or resolve Q019/Q024.
 
 ## Completed individual-service maintenance slice validation
@@ -714,10 +716,39 @@ independent re-audit of the latter. W036 records the manual scenarios and report
 full-suite result: 541 run, 534 passed, 7 optional rendering skips, zero failures.
 
 This completes only individual-service maintenance, not Phase 16 or M015.
-General coordinated shutdown and independent startup/returning-service integration
-remain unfinished. M015 retains its separate launch/reuse validation and audit
+Coordinated shutdown is separately validated in W037; independent
+startup/returning-service integration remains unfinished. M015 retains its separate launch/reuse validation and audit
 criteria; Q019 and Q024 remain open. No hardware or external live NATS validation
 is claimed, and no tests were rerun during documentation synchronization.
+
+## Completed progressive framework shutdown slice validation
+
+**Status:** Complete - narrow software implementation, independent manual IPython
+validation, and final independent re-audit PASS under Decisions 325-326 (W037).
+
+The validated sequence is informational survey; progressive AcquisitionNode and
+SynchronizationManager stops; StorageManager then Controller preparation and
+archival confirmation; Ingestor retirement; StorageManager retirement; Controller
+retirement. Prepared orderly retirement requires complete current Evidence Archive
+coverage of Ingestor's retained final persistent runtime evidence and all intake
+audit. Coverage is rechecked after asynchronous callbacks and remains guarded
+through retirement commitment; missing coverage prevents confirmed retirement.
+
+- Independent manual validation passed normal shutdown and fault-injection
+  scenarios, including earlier-compilation replacement, audit-only loss, and
+  audit loss during StorageManager's asynchronous retirement callback.
+- Final independent re-audit: PASS, no blocking defects or architectural ambiguities.
+- Focused regressions: 174 passed, zero failures or skips.
+- Full suite: 574 run, 567 passed, 7 optional rendering skips, zero failures.
+- Four independent memory-only negative controls detected removal of the final
+  compilation enforcement; the unmodified correction passed regression coverage.
+
+These are preceding validation/audit results, not new tests performed during
+documentation closure. W037 records the workflow and preservation correction;
+W035/W036 historical results are preserved. No real hardware, live cross-process,
+or external NATS deployment validation is claimed. Phase 16 remains incomplete
+because independent startup/returning-service integration remains unfinished;
+M015 retains its separate launch/reuse validation criteria, and Q019/Q024 remain open.
 
 ## Completed Session-binding release slice validation
 

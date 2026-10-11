@@ -11,7 +11,7 @@ from lab_sync_acquisition import (
     NatsAcquisitionNodeCommunication, NatsControllerCommunication,
     NatsIngestorCommunication, NatsServiceMaintenanceCommunication,
     NatsSynchronizationManagerCommunication, PersistentStorageManager,
-    RuntimeCommandMessage, RuntimeParticipant, ServiceMaintenanceInterface, SessionConfig,
+    RuntimeCommandMessage, RuntimeEvidenceMessage, RuntimeParticipant, ServiceMaintenanceInterface, SessionConfig,
     SynchronizationManager,
 )
 from tests.test_session_launch import _Boundary, _Broker
@@ -388,6 +388,147 @@ class FrameworkShutdownTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result.succeeded)
         self.assertFalse(self.interfaces["storage_manager"].terminated)
         self.assertFalse(self.interfaces["controller"].terminated)
+
+    async def test_earlier_compilation_cannot_authorize_prepared_retirement(self):
+        earlier = {}
+        def rewrite(command):
+            if command["target_id"] == "ingestor" and command["command_type"] == "stop":
+                earlier.update(self.ingestor.compile_framework_runtime_evidence())
+            if command["target_id"] == "storage_manager" and command["command_type"] == "stop":
+                self.storage.write_framework_evidence_archive(earlier)
+        self.broker.on_command = rewrite
+        result = await self.shutdown()
+        self.assertFalse(result.succeeded)
+        self.assertTrue(self.interfaces["ingestor"].terminated)
+        self.assertFalse(self.interfaces["storage_manager"].terminated)
+        self.assertFalse(self.interfaces["controller"].terminated)
+        archived = self.archive()
+        for kind in ("storage_manager", "controller"):
+            self.assertTrue(all(m.to_dict() in archived for m in self.interfaces[kind].evidence))
+        self.assertFalse(any(m["source_id"] == "ingestor" for m in archived))
+        self.assertTrue((self.root / "framework-journal.jsonl").exists())
+
+    async def test_earlier_compilation_during_retirement_cannot_lose_ingestor_cleanup(self):
+        earlier = {}
+        entered, resume = asyncio.Event(), asyncio.Event()
+        def capture(command):
+            if command["target_id"] == "ingestor" and command["command_type"] == "stop":
+                earlier.update(self.ingestor.compile_framework_runtime_evidence())
+        async def retire(force):
+            entered.set()
+            await resume.wait()
+            return True
+        self.broker.on_command = capture
+        self.interfaces["storage_manager"].retire_resources = retire
+        task = asyncio.create_task(self.shutdown())
+        try:
+            await asyncio.wait_for(entered.wait(), 10)
+            complete = self.storage.get_framework_preservation_confirmation()
+            self.storage.write_framework_evidence_archive(earlier)
+            archived = self.archive()
+            omitted = [m for m in complete["runtime_evidence"] if m not in archived]
+            self.assertEqual([m["payload"].get("checkpoint") for m in omitted],
+                             ["initial", "cleanup_confirmed", "ready_for_retirement"])
+            self.assertTrue(all(m["source_id"] == "ingestor" for m in omitted))
+        finally:
+            resume.set()
+            result = await task
+        self.assertFalse(result.succeeded)
+        self.assertEqual(result.details["outcome"], "failed")
+        self.assertFalse(self.interfaces["storage_manager"].terminated)
+        self.assertFalse(self.interfaces["controller"].terminated)
+        self.assertFalse(result.details["results"][-1]["result"]["payload"]["termination_confirmed"])
+        self.closes["storage_manager"].assert_awaited_once_with(False)
+
+    async def test_audit_only_rewrite_cannot_authorize_prepared_retirement(self):
+        original = {}
+        def rewrite(command):
+            if command["target_id"] == "storage_manager" and command["command_type"] == "stop":
+                original.update(self.storage.get_framework_preservation_confirmation())
+                self.storage.write_framework_evidence_archive({
+                    "runtime_evidence": original["runtime_evidence"], "ingest_audit": []})
+        self.broker.on_command = rewrite
+        result = await self.shutdown()
+        self.assertFalse(result.succeeded)
+        confirmation = self.storage.get_framework_preservation_confirmation()
+        self.assertEqual(confirmation["runtime_evidence"], original["runtime_evidence"])
+        self.assertGreater(len(original["ingest_audit"]), 0)
+        self.assertEqual(confirmation["ingest_audit"], [])
+        self.assertFalse(self.interfaces["storage_manager"].terminated)
+        self.assertFalse(self.interfaces["controller"].terminated)
+
+    async def test_audit_only_rewrite_during_retirement_cannot_authorize_completion(self):
+        entered, resume = asyncio.Event(), asyncio.Event()
+        async def retire(force):
+            entered.set()
+            await resume.wait()
+            return True
+        self.interfaces["storage_manager"].retire_resources = retire
+        task = asyncio.create_task(self.shutdown())
+        try:
+            await asyncio.wait_for(entered.wait(), 10)
+            complete = self.storage.get_framework_preservation_confirmation()
+            self.storage.write_framework_evidence_archive({
+                "runtime_evidence": complete["runtime_evidence"], "ingest_audit": []})
+        finally:
+            resume.set()
+            result = await task
+        self.assertFalse(result.succeeded)
+        self.assertEqual(result.details["outcome"], "failed")
+        self.assertFalse(self.interfaces["storage_manager"].terminated)
+        self.assertFalse(self.interfaces["controller"].terminated)
+        self.closes["storage_manager"].assert_awaited_once_with(False)
+
+    async def test_partial_archive_rewrite_during_retirement_prevents_commit(self):
+        entered, resume = asyncio.Event(), asyncio.Event()
+        async def retire(force):
+            entered.set()
+            await resume.wait()
+            return True
+        self.interfaces["storage_manager"].retire_resources = retire
+        task = asyncio.create_task(self.shutdown())
+        try:
+            await asyncio.wait_for(entered.wait(), 10)
+            complete = self.storage.get_framework_preservation_confirmation()
+            original = Path.open
+            def fail_summary(path, *args, **kwargs):
+                if path.name == "compilation_summary.json" and args and args[0] == "w":
+                    raise OSError("summary write failed")
+                return original(path, *args, **kwargs)
+            with patch.object(Path, "open", fail_summary), self.assertRaises(OSError):
+                self.storage.write_framework_evidence_archive(complete)
+            self.assertIsNone(self.storage.get_framework_preservation_confirmation())
+        finally:
+            resume.set()
+            result = await task
+        self.assertFalse(result.succeeded)
+        self.assertFalse(self.interfaces["storage_manager"].terminated)
+        self.assertFalse(self.interfaces["controller"].terminated)
+
+    async def test_shutdown_preserves_duplicate_rejected_and_nonpersistent_intake_audit(self):
+        message = RuntimeEvidenceMessage("nonpersistent", None, "service_maintenance_evidence", "node", {})
+        self.assertTrue(self.ingestor.receive_runtime_evidence(message).accepted)
+        self.assertTrue(self.ingestor.receive_runtime_evidence(message).accepted)
+        rejected = RuntimeEvidenceMessage("rejected", None, "", "node", {})
+        self.assertFalse(self.ingestor.receive_runtime_evidence(rejected).accepted)
+        intake_audit = self.ingestor.compile_framework_runtime_evidence()["ingest_audit"]
+        result = await self.shutdown()
+        self.assertTrue(result.succeeded, result.error)
+        confirmation = self.storage.get_framework_preservation_confirmation()
+        self.assertFalse(any(m["evidence_id"] == "nonpersistent" for m in confirmation["runtime_evidence"]))
+        self.assertEqual(confirmation["ingest_audit"][:3], [a.to_dict() for a in intake_audit])
+
+    async def test_authorized_ingestor_retirement_retains_complete_intake_coverage(self):
+        self.interfaces["ingestor"].operational_dependents[
+            RuntimeParticipant("acquisition_node", "shared-node")] = lambda: True
+        authorize = AsyncMock(return_value=True)
+        result = await self.shutdown(authorize_kill=authorize)
+        self.assertTrue(result.succeeded, result.error)
+        authorize.assert_awaited_once()
+        self.assertEqual(authorize.await_args.args[0].component_type, "ingestor")
+        archived = self.archive()
+        self.assertTrue(all(m.to_dict() in archived for m in self.interfaces["ingestor"].evidence))
+        self.assertTrue(all(i.terminated for i in self.interfaces.values()))
 
     async def test_prepared_final_stop_requires_same_participant_and_framework_attempt(self):
         interface = self.interfaces["storage_manager"]

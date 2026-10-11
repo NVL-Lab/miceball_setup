@@ -635,19 +635,31 @@ outcomes. Decision 325 supersedes the all-or-nothing global precheck: an
 informational local survey precedes progressive dependency-safe stops, using
 explicit Session-independent participant scope and separate authorization for
 each blocked service. Already stopped services remain stopped; coordinated
-shutdown is not implemented or validated. General shutdown preserves evidence in
+shutdown is implemented, manually software-validated, and independently re-audited
+PASS (W037). General shutdown preserves evidence in
 producer -> Ingestor -> StorageManager -> Controller order; individual service maintenance may use a local
 administrative interface without Controller orchestration or remote OS control.
 Decision 326 accepts preparatory StorageManager and Controller cleanup with durable
 evidence preservation before Ingestor retirement. Retirement order is unchanged;
-later confirmations remain command results, not newly archived evidence. This
-two-phase coordinated-closeout contract is not implemented or validated.
+later confirmations remain command results, not newly archived evidence. The
+validated sequence is informational survey; AcquisitionNode and SynchronizationManager
+stops; StorageManager then Controller preparation and archival confirmation;
+Ingestor retirement; StorageManager retirement; Controller retirement. Prepared
+orderly retirement requires complete current Evidence Archive coverage of the final
+persistent runtime evidence and all intake audit, including rejected, duplicate,
+and nonpersistent-message intake. Missing coverage, including loss during an
+asynchronous retirement callback, prevents confirmed retirement and completed
+shutdown. W037 records the independent preservation-guard re-audit PASS, 174 focused
+tests passed, and 574 full-suite tests run (567 passed, 7 optional rendering skips,
+zero failures). These are preceding validation results, not new tests run during
+documentation closure or hardware/live external NATS validation.
 Framework evidence may lack Session identity through minimally extended existing
 Ingestor/Evidence Archive infrastructure. Decision 323's `framework/evidence/`
 partition now supports journal-backed framework intake and exact archive/audit/
 summary confirmation without a Session Record. Independent startup and returning-service recognition do not
 promise automatic recovery of interrupted work. Q025 is resolved architecturally,
-with coordinated shutdown and startup integration still pending; Q019,
+with coordinated shutdown validated in W037 and independent startup/returning-service
+integration still pending; Q019,
 Q021, Q024, and deployment configuration remain open.
 Q017 remains resolved.
 M015 remains open with its separate launch/reuse validation criteria; historical

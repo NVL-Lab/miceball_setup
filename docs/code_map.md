@@ -1,6 +1,6 @@
 # Code Map
 
-## Phase 16 accepted responsibilities (binding release and individual maintenance slices complete)
+## Phase 16 accepted responsibilities (binding release, maintenance, and coordinated shutdown slices complete)
 
 Decision 323 accepts the existing Evidence Archive's deployment-scoped
 `framework/evidence/` partition for Session-independent runtime evidence with
@@ -29,13 +29,20 @@ SynchronizationManager retires before Ingestor, then StorageManager and Controll
 each blocked service requires separate kill authorization, without restarting
 already stopped services. Controller preserves required coordination evidence
 while Ingestor and StorageManager remain available. This coordinated shutdown
-contract now has an implementation awaiting independent manual validation and audit. Decision 326 accepts a coordinated
+implementation is complete, manually software-validated, and independently
+re-audited PASS (W037). Decision 326 accepts a coordinated
 `prepare_stop` operation for StorageManager followed by Controller while Ingestor
 is operational: actual cleanup results and the final preservation checkpoint are
 archived before Ingestor retirement. Preparation is not operational retirement.
 Prepared StorageManager and Controller then retire in the accepted order without
 invoking retired evidence capabilities; later confirmations are retained through
-existing command/results, not described as newly archived evidence. The public
+existing command/results, not described as newly archived evidence. The
+prepared-retirement guards require complete current Evidence Archive coverage of
+Ingestor's retained final persistent evidence and all intake audit, including
+rejected, duplicate, and nonpersistent-message intake. They check before and after
+asynchronous callbacks and hold preservation/admission locks through commitment;
+missing coverage prevents orderly retirement confirmation. No synchronous lock
+spans an await and no new post-Ingestor archival obligation is introduced.
 `Controller.shutdown_framework()` coordinates these stages; W036 remains unchanged outside
 coordinated shutdown. Decisions 318-319 accept Session-independent
 framework evidence through existing infrastructure, not a separate evidence system. Independent
@@ -43,8 +50,9 @@ startup/readiness and returning-service recognition do not resume interrupted
 work. Q025 is resolved architecturally; Q019 and Q024 remain open.
 Individual-service maintenance now has a narrow implementation through the
 target-owned ServiceMaintenanceInterface and existing participant commands.
-It is manually software-validated and independently audited PASS (W036). General
-coordinated shutdown awaits independent validation/audit and independent startup integration remains unfinished;
+It is manually software-validated and independently audited PASS (W036). Progressive
+two-phase coordinated shutdown is separately validated in W037; independent
+startup/returning-service integration remains unfinished and Phase 16/M015 remain open;
 W035's Session-binding release validation is unchanged.
 
 Decision 322 additionally makes every ControllerActionDecision persistent,
@@ -436,18 +444,19 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 - _subscribe_participant_commands: Establishes the two addressed command subscriptions reused by mandatory service handlers.
 - NatsIngestorCommunication.subscribe_evidence(session_id, callback=None): Requires the matching Session journal or a configured framework journal for None and ACKs after successful durable acceptance, invoking callbacks only for newly accepted evidence.
 - NatsControllerCommunication.maintenance_requests: Returns detached administrative command intent (including survey and preparation), attempt identity, and authorization retained by the existing command issuer independently of received command results.
-- NatsServiceMaintenanceCommunication(boundary, maintenance): Provides an existing participant-command/result endpoint for Controller or StorageManager maintenance without Controller-coordinated framework shutdown.
+- NatsServiceMaintenanceCommunication(boundary, maintenance): Provides the existing participant-command/result endpoint for Controller or StorageManager individual maintenance and coordinated shutdown, while orchestration remains Controller-owned.
 - NatsServiceMaintenanceCommunication.subscribe_commands(): Routes correlated maintenance commands through the existing JetStream subscriptions and publishes service-owned results.
 - _execute_maintenance_command: Connects existing service handlers to their configured administrative interface and brokered evidence publisher without a local publication fallback.
 
 ## src/lab_sync_acquisition/service_maintenance.py
 
 - ServiceMaintenanceInterface(service, participant, *, ingestor, storage_manager, preservation_window_s, close_resources, operational_dependents=None, evidence_publisher=None, retire_resources=None): Attaches one service-owned administrative interface with an explicit bounded preservation window, ordinary-cleanup callback, optional final-retirement callback, and explicitly configured operational Ingestor dependencies.
-- ServiceMaintenanceInterface.execute_command(command): Serializes/deduplicates read-only check_stop_readiness and stop/kill/cancel/prepare_stop commands; coordinated preparation archives actual cleanup without retirement, and a same-attempt final stop rechecks current archival through retirement commitment without invoking retired Ingestor operations.
+- ServiceMaintenanceInterface.execute_command(command): Serializes/deduplicates read-only check_stop_readiness and stop/kill/cancel/prepare_stop commands; Ingestor retirement retains its final complete intake compilation in StorageManager, and prepared final stops recheck that evidence/all-audit coverage before and after retirement callbacks through commitment without invoking retired Ingestor operations or repeating cleanup.
 - ServiceMaintenanceInterface.prepared: Reports confirmed ordinary cleanup awaiting final retirement, not a lifecycle state or completed stop; only StorageManager and Controller support preparation with an explicit framework attempt identity.
 - ServiceMaintenanceInterface.command_results: Returns detached correlated last-confirmed results with separate completed/blocked/failed outcomes and termination confirmation.
 - ServiceMaintenanceInterface.evidence: Returns retained producer-owned persistent attempt evidence, including preservation failures.
 - ServiceMaintenanceInterface.terminated: Reports confirmed operational-service retirement rather than OS process death.
+- ServiceMaintenanceInterface._retirement_guard(force=False): Commits retirement under intake/storage/admission locks as applicable and retains final Ingestor compilation without imposing orderly preservation prerequisites on authorized kill.
 - service_operation(new_work=False): Tracks active operations and rejects new unrelated work during pending maintenance while permitting nested admitted calls only within the same task or thread, not through inherited child-task context.
 
 Maintenance must be configured with an explicit service-owned resource closeout
@@ -528,7 +537,8 @@ recovery is introduced. Phase 16 and M015 remain open.
 - PersistentStorageManager.session_preservation_guard(session_id): Synchronous context manager yielding current confirmation while holding the archive/final-record write lock through the caller's release commit; callers must not await or acquire a new Ingestor intake lock while holding it.
 - PersistentStorageManager.write_framework_evidence_archive(compiled_runtime_evidence): Writes and flushes/fsyncs the existing evidence/audit/summary products under the records_path parent framework/evidence partition, invalidating previous confirmation before a rewrite.
 - PersistentStorageManager.get_framework_preservation_confirmation(): Compares all three current durable framework products with the exact successful compilation, without requiring a Session Record or accepting stale/partial writes.
-- PersistentStorageManager.framework_preservation_guard(): Holds the existing storage lock through a synchronous framework evidence preservation check and retirement commit.
+- PersistentStorageManager.framework_preservation_guard(*, require_closeout=False): Holds the existing storage lock through a synchronous preservation check and retirement commit, optionally requiring exact final Ingestor evidence/all-audit coverage retained before its retirement; archive rewrites do not replace that requirement.
+- PersistentStorageManager._retain_framework_closeout_compilation(compilation): Retains detached final Ingestor coverage within the existing confirmation mechanism without writing new archive products or interpreting evidence.
 - PersistentStorageManager.maintenance_blockers(ingestor, storage_manager): Reports failed persistence or unpreserved owned collection evidence, while active operations are separately tracked and future collections are not blockers.
 - Controller.maintenance_blockers(ingestor, storage_manager): Reports active Session, unfinished work, cleanup, final-record, and current decision-archive obligations without requiring other idle services to stop.
 - AcquisitionNode.maintenance_blockers(ingestor, storage_manager): Reports owned Session participation, reservations, unfinished acquisition/streams, unpreserved manifests, and unreleased devices.

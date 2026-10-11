@@ -237,9 +237,7 @@ class ServiceMaintenanceInterface:
                         if self.retire_resources is not None:
                             if await self.retire_resources(True) is not True:
                                 raise RuntimeError("Operational retirement is unconfirmed; manual intervention required")
-                        with self._admission_lock:
-                            if self._active_operations:
-                                raise RuntimeError("Forced termination remains unconfirmed; service operations are active")
+                        with self._retirement_guard(force=True):
                             self._terminated = True
                             self._attempt = None
                             attempt["actions"].append("operational_retirement_confirmed")
@@ -263,7 +261,7 @@ class ServiceMaintenanceInterface:
                         if self.retire_resources is not None:
                             if await self.retire_resources(False) is not True:
                                 raise RuntimeError("Operational retirement is unconfirmed; manual intervention required")
-                        with self._orderly_preservation_guard():
+                        with self._retirement_guard():
                             self._terminated = True
                             self._attempt = None
                         attempt["actions"].append("operational_retirement_confirmed")
@@ -309,7 +307,8 @@ class ServiceMaintenanceInterface:
     def _prepared_preservation_guard(self, *, force=False):
         # Preparation already confirmed journal acceptance. Recheck current durable
         # contents through retirement commit without requiring retired Ingestor intake.
-        preservation = nullcontext(None) if force else self.storage_manager.framework_preservation_guard()
+        preservation = (nullcontext(None) if force else
+                        self.storage_manager.framework_preservation_guard(require_closeout=True))
         with preservation as confirmation, self._admission_lock:
             if force:
                 yield
@@ -386,6 +385,31 @@ class ServiceMaintenanceInterface:
         return blockers
 
     @contextmanager
+    def _retirement_guard(self, *, force=False):
+        if not force:
+            with self._orderly_preservation_guard() as confirmation:
+                if self.participant.component_type == "ingestor":
+                    self.storage_manager._retain_framework_closeout_compilation(confirmation)
+                yield
+            return
+        intake = (self.ingestor._framework_ingestor
+                  if self.participant.component_type == "ingestor" else None)
+        # Forced retirement may lack archival confirmation, but must retain the
+        # actual required intake coverage rather than blessing an older archive.
+        with (
+            self.ingestor._intake_lock if intake is not None else nullcontext(),
+            intake._intake_lock if intake is not None else nullcontext(),
+            self.storage_manager.framework_preservation_guard() if intake is not None else nullcontext(),
+            self._admission_lock,
+        ):
+            if self._active_operations:
+                raise RuntimeError("Forced termination remains unconfirmed; service operations are active")
+            if intake is not None:
+                self.storage_manager._retain_framework_closeout_compilation(
+                    self.ingestor.compile_framework_runtime_evidence())
+            yield
+
+    @contextmanager
     def _orderly_preservation_guard(self):
         # Same intake -> storage -> admission order as the existing synchronous commit.
         with self.ingestor._intake_lock, self.ingestor.framework_preservation_guard(self.storage_manager) as confirmation, self._admission_lock:
@@ -397,7 +421,7 @@ class ServiceMaintenanceInterface:
             blockers = self._closeout_blockers()
             if blockers:
                 raise RuntimeError("Closeout obligations changed: " + "; ".join(blockers))
-            yield
+            yield confirmation
 
     async def _preserve(self, attempt, checkpoint=None):
         payload = deepcopy({**attempt, "recorded_at": time()})

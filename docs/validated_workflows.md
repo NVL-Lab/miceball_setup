@@ -2103,14 +2103,115 @@ Historical results and W035 are preserved.
 ## Limitations and completion
 
 Only the individual-service maintenance implementation slice is complete.
-Phase 16 remains incomplete: general coordinated shutdown and independent
-startup/returning-service integration remain unfinished. M015 remains OPEN with
+At the W036 validation checkpoint, coordinated shutdown and independent
+startup/returning-service integration were unfinished. W037 now separately records
+validated coordinated shutdown; independent startup/returning-service integration
+remains unfinished. Phase 16 remains incomplete and M015 remains OPEN with
 its separate launch/reuse validation and audit criteria. Q019 and Q024 remain OPEN.
 
 This is software validation, including controlled broker doubles, not real hardware,
 live cross-process, or external NATS deployment validation. No new lifecycle state,
 supervisor, evidence subsystem, automatic replay/recovery, or remote OS process
 management was introduced.
+
+---
+
+# W037 - Phase 16 Progressive Framework Shutdown and Complete Archival Coverage
+
+**Status:** Complete - narrow software implementation, independent manual IPython
+validation, and final independent re-audit PASS under Decisions 325-326.
+
+## Purpose
+
+Validate Controller-coordinated shutdown of an explicit Session-independent
+RuntimeParticipant scope using existing NATS command/result, W036 maintenance,
+RuntimeEvidenceMessage, Ingestor, and StorageManager boundaries. Services retain
+their own cleanup and retirement responsibilities; the informational survey is
+not an all-or-nothing shutdown gate.
+
+## Workflow
+
+```text
+Informational local stop-readiness survey
+    -> preserve survey and evaluate fresh blockers at each actual stop
+    -> progressively stop AcquisitionNodes, then SynchronizationManager
+    -> StorageManager prepare_stop, then Controller prepare_stop
+    -> archive actual preparation/coordination evidence and confirm final checkpoint
+    -> Ingestor preserves its cleanup/readiness evidence and final intake compilation
+    -> retire Ingestor
+    -> retire prepared StorageManager with complete current archival coverage
+    -> retire prepared Controller last with complete current archival coverage
+    -> initiating interface retains actual confirmations and the overall result
+```
+
+Preparation performs ordinary cleanup while retaining required operational
+capabilities; it is not retirement or a new lifecycle state. Prepared retirement
+does not repeat ordinary cleanup or create post-Ingestor archival obligations.
+Later retirement confirmations remain command/results, not newly archived records.
+
+Before Ingestor retires, StorageManager retains its final compilation of all
+accepted persistent runtime evidence and all intake audit, including duplicate,
+rejected, and nonpersistent-message intake. Nonpersistent messages are not promoted
+to persistent evidence. Prepared orderly retirement compares current durable
+runtime evidence, intake audit, and compilation summary against confirmed products
+and the retained complete requirement, before and after asynchronous callbacks.
+Preservation and admission locks protect final retirement commitment without
+spanning an await. Missing coverage prevents confirmed retirement and completed
+shutdown, even if the retiring service's own evidence remains present.
+
+Each blocked participant requires a separate explicit administrator authorization
+for kill; declining authorization, failed kill, missing results, or unconfirmed
+retirement cannot produce completed shutdown. Authorized kill retains W036's
+separate semantics and does not promise complete evidence preservation. Already
+stopped services remain stopped without automatic rollback or restart.
+
+## Independent manual IPython validation
+
+Reported independent validation passed the complete five-service shutdown and
+fault injections for authorization denial, failed kill, archival failure, and
+missing retirement confirmation. Following the preservation correction:
+
+- An earlier valid compilation retaining prepared-service evidence but losing
+  later Ingestor evidence/audit correctly rejected retirement.
+- Removing intake audit while retaining all runtime evidence correctly rejected
+  retirement.
+- Audit-only loss during StorageManager's asynchronous retirement callback was
+  rejected by the final guard.
+
+## Automated validation and independent audit
+
+- Focused regressions: **174 passed, zero failures or skips**, covering framework
+  shutdown, individual maintenance, framework evidence, Session-binding release,
+  NATS communication, and Ingestor recovery.
+- Full discovery: **574 run, 567 passed, 0 failed, 7 optional rendering skips**.
+- Final independent re-audit: **PASS**, Decisions 325-326 satisfied, no blocking
+  defects or architectural ambiguities.
+- Controlled-event regressions exercised earlier-compilation replacement,
+  audit-only loss before/during retirement, partial archive rewrites, and complete
+  duplicate/rejected/nonpersistent intake-audit preservation.
+- Independent public-workflow checks confirmed mixed-intake audit loss rejects
+  retirement, restored complete coverage restores confirmation, and the
+  post-callback guard prevents a false completed outcome.
+- Four memory-only negative controls reproduced regression failures when final
+  compilation enforcement was disabled; no repository files were altered.
+
+These are preceding implementation, manual validation, and independent audit
+results, not new tests performed during documentation closure. The initial FAIL
+identified incomplete archival coverage; the corrected preservation guard passed
+independent validation and re-audit. W035/W036 historical validation is preserved.
+
+## Limitations and completion
+
+Only the progressive coordinated-shutdown implementation under Decisions 325-326
+is closed here. Phase 16 remains incomplete: independent startup/returning-service
+integration remains unfinished. M015 remains OPEN with its separate launch/reuse
+validation and audit criteria; Q019 and Q024 remain OPEN.
+
+This is controlled software/broker-double validation, not real hardware, live
+cross-process, or external NATS deployment validation. No new lifecycle state,
+evidence subsystem, supervisor, automatic recovery, or remote OS termination is
+introduced. Nonblocking test improvements identified by the audit are not new
+architectural requirements.
 
 ---
 
