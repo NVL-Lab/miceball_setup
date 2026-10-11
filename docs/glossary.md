@@ -6,6 +6,183 @@ These definitions take precedence over informal usage.
 
 ---
 
+# Long-lived Operational Service
+
+A principal framework service whose lifetime is independent of individual
+Sessions and the GUI: Controller, AcquisitionNode, Ingestor, StorageManager, or
+SynchronizationManager (Decision 304). A service may participate in successive
+Sessions and be idle or inactive between runs without being recreated.
+
+Long-lived does not mean continuously acquiring, retaining all Session data
+without bounds, occupying hardware continuously, or requiring its own OS process.
+Session-specific objects may still be created, finalized, and released.
+DeviceManager remains AcquisitionNode-owned, and DeviceAdapters remain managed
+runtime objects under their existing lifecycle and cleanup/reuse contracts.
+Accepted lifetime architecture does not claim that every current collaborator
+already implements reuse or that Phase 16 stop/kill has been validated.
+Decision 313 requires each service to release its own confirmed Session binding
+without terminating the service, deleting evidence, or discarding obligations.
+Decisions 320-321 accept independent startup and recognition of returning services,
+not automatic recovery of interrupted work.
+
+---
+
+# GUI Client
+
+A client of the framework, not one of its principal operational services. It may
+connect, disconnect, or restart independently of operational service lifetime.
+Controller remains operational independently of GUI lifetime. A future GUI may
+request framework stop/kill, but Controller coordinates execution and participants
+own their operational actions; no GUI implementation is introduced here.
+
+---
+
+# Framework Stop
+
+Operator-requested orderly closeout of a specified operational scope for
+maintenance, restart, or downtime. Controller coordinates through existing
+distributed commands/results while each participant owns cleanup, resource
+release, and operational behavior (Decisions 305-308).
+
+Framework stop is distinct from Session stop. Normal Session end does not
+automatically stop operational services or request framework stop, and framework
+stop does not indiscriminately shut down all services. Required closeout outcomes
+must be confirmed; missing responses are unresolved, not success. Framework stop
+must not initiate post-session collection, verification, transfer, or export.
+This is accepted, unimplemented architecture, not a new framework-wide lifecycle.
+Decisions 314-319 distinguish general framework shutdown from individual service
+maintenance and settle pre-stop evaluation, outcomes, dependencies, and evidence
+preservation. General shutdown stops no service if required preconditions block.
+
+---
+
+# General Framework Shutdown
+
+Administrator-requested orderly closeout coordinated by Controller. All required
+service/dependency readiness is evaluated before any service stops. Unsatisfied
+preconditions block the whole attempt; successful prechecks permit dependency-safe
+closeout in producer -> Ingestor -> StorageManager -> Controller order. Failure
+after shutdown begins is failed, with confirmed results retained and no automatic
+rollback/restart. Controller stops last after required evidence is durably
+preserved, recording readiness for final exit rather than claiming its own death
+confirmation (Decisions 314 and 317).
+
+---
+
+# Individual Service Maintenance
+
+Administrative stop or authorized kill of one service without requiring general
+shutdown or Controller orchestration. A local administrative interface may be
+used, including for a service on another computer, without remote OS process
+management. The service owns closeout conditions and cleanup; the initiator uses
+the same attempt identity, outcomes, authorization, evidence, and unrelated-scope
+protection as general shutdown (Decisions 314-315 and 319).
+
+---
+
+# Operational Dependency
+
+An explicit directional requirement for a service's actual operation, not a
+relationship inferred merely from communication traffic. Services evaluate local
+closeout blockers; Controller also evaluates relevant cross-service dependencies
+for general shutdown. An operational node configured to send to Ingestor blocks
+its orderly stop even without a Session; an idle node does not by itself block
+SynchronizationManager. Closed-out services cease to be operational blockers.
+No dependency manager or generalized graph infrastructure is implied (Decision 316).
+
+---
+
+# Framework Evidence
+
+Runtime evidence of framework service startup, readiness, or stop/kill that may
+exist without a Session identity. Decision 318 accepts minimal extension of the
+existing RuntimeEvidenceMessage, Ingestor, StorageManager, and Evidence Archive
+contracts, not fabricated Sessions or a separate evidence system. Session-related
+evidence retains its real Session identity. This distinction is accepted but not
+implemented; it adds no public model, serialized schema, or archive layout here.
+
+---
+
+# Stop Attempt
+
+One uniquely identified framework stop request, separate from Session identity
+and lifecycle. Its durable `stop_attempt_id` associates the requested scope,
+operator/requester identity, relevant timestamps, actions, original blocking
+conditions, and outcome (Decision 306).
+
+Kill, when authorized, continues the same blocked attempt. A later retry creates
+a new attempt with a new identity, not automatic retry or reuse of the old
+identity. Identifier format, public representation, and persisted schema are not
+defined by this term. Decisions 315 and 318-319 settle the accepted correlation,
+outcomes, and evidence-preservation contracts; Q025 is architecturally resolved,
+not implemented.
+
+---
+
+# Blocked Stop
+
+A stop attempt whose pre-stop evaluation finds unresolved closeout conditions
+before shutdown begins. Controller reports blockers for general shutdown; the
+target service reports its own blockers for individual maintenance. General
+shutdown stops no service while required preconditions are unsatisfied. Missing
+participant responses are unresolved blockers.
+`blocked` is an administrator decision point, not successful completion, a
+confirmed remote failure, or a Session lifecycle state (Decisions 308 and 315).
+
+---
+
+# Framework Kill
+
+Operator-authorized forced continuation available only for an existing blocked
+stop attempt, referencing its `stop_attempt_id`. Controller proceeds without
+repeating the entire status/readiness check, preserves the original blockers, and
+records actual forced actions/results through existing boundaries (Decision 309).
+
+Participants retain their own forced-closeout responsibilities; kill does not
+guarantee cleanup or data preservation, confirm unresolved work as completed,
+expand scope, or override shared-service protection. Declining kill ends the
+attempt as `failed` without forced action; a later retry has a new identity.
+Kill must not initiate post-session collection, verification, transfer, or export.
+No process-killing API or device reset/lifecycle operation is implied.
+For individual service maintenance, the service/initiator uses the same principles
+without requiring Controller orchestration. Confirmed authorized forced termination
+is completed; failed/unconfirmed force is failed and requires manual intervention.
+The initiator preserves available evidence; the terminated service need not report
+its own death (Decisions 314-315 and 319).
+
+---
+
+# Stop Attempt Outcome
+
+The framework stop-attempt vocabulary is exactly `completed`, `blocked`, and
+`failed` (Decisions 306-310 and 315). Completed means confirmed requested orderly
+closeout or confirmed authorized forced termination. Blocked means pre-stop
+evaluation found unresolved conditions before shutdown began. Failed means
+shutdown began but did not complete, forced termination failed/remained
+unconfirmed, or the administrator declined kill. Confirmed force does not imply
+successful unresolved cleanup or complete data preservation.
+
+These are attempt outcomes, not Session states, individual command results,
+artifact retrieval/verification outcomes, or a generalized framework status model.
+The same word in another domain does not transfer ownership or semantics.
+
+---
+
+# Shared versus Exclusive Participant
+
+For framework stop/kill, a shared participant serves unrelated scopes and must
+remain protected from indiscriminate termination by a narrower request. It may
+release the requested scope's resources while remaining operational for other
+uses. An exclusive participant may stop or enter a supported inactive/sleep
+state as appropriate (Decision 311).
+
+This distinction respects existing ownership and reservations; it adds no new
+participant model, lifecycle state, concurrent scheduling contract, or permission
+subsystem. Ordinary operator authority does not implicitly authorize administrative
+termination of shared infrastructure, and scope must not expand automatically.
+
+---
+
 # Acquisition Node
 
 A hardware-facing runtime responsible for acquiring data from devices, attaching framework scientific Runtime Timing, generating acquisition records, forwarding records to the Ingestor, evaluating Experiment-scoped acquisition health, executing assigned AcquisitionHealthPolicy interpretation, and recording Health Interpretation Evidence.
@@ -67,6 +244,12 @@ Examples:
 
 The Controller coordinates existing components but does not own Session lifecycle state, Acquisition Runtime execution, Session Time, device lifecycle, ingest audit, or persistent writing.
 
+Accepted Phase 16 separately assigns Controller coordination of scoped framework
+stop/kill while preserving participant-owned operational actions. It does not
+make Controller a service supervisor or hardware manager. These operations are
+not implemented; they neither replace Session stop/finalization nor automatically
+initiate global processing workflows.
+
 Decision 275 assigns Controller overall Session processing finalization through
 required post-session operations, distinct from scientific acquisition end.
 Controller orchestrates collection but does not translate StorageManager's
@@ -89,6 +272,21 @@ It preserves Session, Experiment, live-source, policy, interpretation, and origi
 A Controller Action Decision is evidence of a decision. It is not itself a lifecycle transition, retry, recovery action, notification, or distributed-delivery mechanism.
 
 The normalized local vocabulary is `record_only`, `record_warning`, `record_recoverable_failure`, `operator_required`, `experiment_fail`, and `session_fail`. The first four execute successfully without lifecycle mutation; the failure decisions use the accepted Experiment- and Session-lifecycle owners.
+
+Decision 322 makes every Controller Action Decision persistent, including all six
+outcomes, independently of operational consequences or lifecycle mutation.
+Controller sets `is_persistent = True` in the corresponding RuntimeEvidenceMessage;
+Ingestor accepts, audits, retains, and compiles it, and StorageManager writes it
+to the Evidence Archive. Neither consumer selects which decisions deserve
+persistence. The narrow Phase 16 Slice 1 follow-up implements persistent messages
+with `evidence_type="controller_action_decision"` and the decision's plain-data
+payload, local submission to an attached Ingestor, and exact archival confirmation
+before Controller binding release. `controller_action_decision_evidence` exposes
+retained messages for caller-managed publication through the existing boundary.
+An externally supplied accepted decision is recorded on execution; executing an
+already recorded instance does not produce another message. Controller must
+confirm archival of all its decisions for a Session before releasing that binding;
+NATS publication alone is insufficient. Independent validation is not claimed.
 
 ---
 
@@ -273,7 +471,7 @@ Expected Participant identifiers are not matched implicitly to Device Declaratio
 
 ---
 
-# Experiment Participant Runtime Mapping
+# Experiment Runtime Health Mapping
 
 An explicit caller/orchestration-provided mapping for one active Experiment, keyed by live acquisition source ID.
 
@@ -283,7 +481,12 @@ The mapping is immutable for the active Experiment's lifetime and may differ bet
 
 The mapping is also the authoritative acquisition-health policy assignment for each mapped live source during that Experiment. A different Experiment may assign a different policy to the same source.
 
-Experiment Participant Runtime Mapping, represented by `ExperimentRuntimeHealthMapping`, does not contain Experiment lifecycle timing. Active Experiment Runtime Context is the separate handoff for `experiment_id` and `experiment_start_session_time_s`.
+The current public model is `ExperimentRuntimeHealthMapping`. Historical
+documentation calls it Experiment Participant Runtime Mapping; that term is a
+cross-reference to this health-assignment mapping, not another runtime model.
+It does not contain Experiment lifecycle timing. Active Experiment Runtime
+Context is the separate handoff for `experiment_id` and
+`experiment_start_session_time_s`.
 
 ---
 
@@ -335,11 +538,21 @@ Immutable plain-data Experiment-scoped runtime evidence recording how Acquisitio
 
 Each emitted Health Observation produces at most one corresponding Health Interpretation Evidence record. Its `originating_observation_id` explicitly references the originating observation's `observation_id`, preserving an auditable one-to-one runtime chain. If the assigned policy has no configured interpretation for the observation, the recorded outcome is `uninterpreted`.
 
-Its fields preserve the originating observation reference, Experiment, live source, Expected Participant, observation type, assigned policy, interpretation label, required status, Session Time, and plain-data details. AcquisitionNode now produces it immediately after its originating observation through the existing evidence-envelope path. Persistence in the final Session Record remains separate work.
+Its fields preserve the originating observation reference, Experiment, live
+source, Expected Participant, observation type, assigned policy, interpretation
+label, required status, Session Time, and plain-data details. AcquisitionNode
+produces it immediately after its originating observation. Existing acquisition
+envelopes and the RuntimeEvidenceMessage communication path carry this evidence
+without changing ownership. Runtime messages marked persistent by their producer
+are compiled by Ingestor for the separate Evidence Archive, not conceptually a
+raw runtime-evidence dump in the final Session Record.
 
 Health Interpretation Evidence is original runtime evidence. It is not regenerated or silently reinterpreted during reconstruction. A later reinterpretation under a different policy must be separate derived analysis or reconstruction evidence.
 
-Health Interpretation Evidence records policy interpretation only. It does not itself stop an Experiment, fail a Session, notify an operator, initiate retry or recovery, or perform orchestration. Future Controller behavior owns framework actions based on this evidence.
+Health Interpretation Evidence records policy interpretation only. It does not
+itself stop an Experiment, fail a Session, notify an operator, initiate retry or
+recovery, or perform orchestration. Controller owns the implemented decision and
+execution paths; notification and recovery policy remain separate future work.
 
 ---
 
@@ -350,6 +563,11 @@ An operator-initiated operational activity inside a Session that records validat
 Examples include playing a test tone, dispensing one reward, acquiring one camera frame, flashing an LED, moving an actuator, or operational calibration such as autofocus.
 
 Not every Device or runtime component must support Validation.
+
+This operational activity is distinct from automated testing, independent manual
+software validation, and physical hardware validation of the framework. Reported
+validation results must identify which of those activities was performed; a
+simulated adapter or broker-double test is not hardware or live-network validation.
 
 ---
 
@@ -414,6 +632,11 @@ It carries plain runtime evidence across the communication boundary without tran
 Evidence-producing components decide whether their own evidence is persistent. Ingestor must not infer persistence from the message's evidence type, payload, source component, or domain meaning.
 
 RuntimeEvidenceMessage does not own lifecycle, scientific interpretation, persistence policy, Session Time, storage semantics, or evidence archive layout.
+
+Decision 318 accepts minimally extending this same boundary for framework
+evidence that may lack Session identity. Session evidence retains its identity;
+current serializers, subjects, and persistence paths remain Session-specific.
+This documentation does not implement fields, routing, or storage formats.
 
 ---
 
@@ -495,7 +718,12 @@ the clarification and audit/correction history.
 
 # Artifact Plane
 
-The separate, future pull-based path for transferring large scientific artifacts that remain local during acquisition. Artifact bytes do not travel through NATS.
+The separate pull-based path for transferring large scientific artifacts that
+remain local during acquisition. Artifact bytes do not travel through NATS.
+Slice 23 implements StorageManager-owned SSH/SFTP retrieval with software
+validation (W032); real Jetson/SSH-SFTP deployment validation remains pending
+under M011. Broader transfer scheduling, resume/retry, and retention remain future
+work, rather than making the entire Artifact Plane unimplemented.
 
 ---
 
@@ -525,8 +753,10 @@ The implemented core supports JSONL and camera HDF5. Decision 191 defines common
 ownership, interfaces, and lifecycle rather than a mandatory file format.
 Decisions 232-237 are implemented for explicit local roots, scientific-product
 selection, preparation, and persistence, with automated synthetic-frame tests.
-Corrective changes await manual validation and a targeted follow-up audit;
-real-camera HDF5 validation and Slice 20 closure are not claimed.
+Slice 20 is complete (M008, W029), with synthetic-frame automated coverage,
+four independent manual software validations, and separately reported real
+Jetson camera HDF5 acquisition and recorded-frame visualization. This does not
+claim hardware validation for every device, deployment, or later integration.
 
 ---
 
@@ -546,8 +776,9 @@ owned by LocalStorageManager. It preserves actual image arrays without lossy
 compression, frame order, shape, channel organization, supported native dtype,
 and aligned per-frame indices and scientific timing. Available static device
 metadata are preserved without fabricating unavailable values. This artifact
-is implemented and covered by synthetic-array tests; real-camera hardware
-validation remains pending.
+is implemented and covered by synthetic-array tests. W029 records the separately
+reported successful Jetson real-camera acquisition, HDF5 reopening, and visual
+inspection; simulated tests are not that hardware validation.
 
 ---
 
@@ -768,9 +999,30 @@ StorageManager aggregate reporting that distinguishes complete verified success
 from retrieval failures and copied_unverified, structurally_invalid, or
 verification_failed outcomes. Details remain per artifact; Controller need not
 interpret dataset names, individual checks, or transport errors. Slice 24 accepts
-this reporting responsibility without choosing Session completion/lifecycle policy.
+this reporting responsibility. Decision 303 separately establishes that later
+global processing failures cannot retroactively change a completed Session.
 The implemented aggregate requires retrieval success and verified status for
 every requested artifact; empty collections remain successful.
+
+---
+
+# Artifact Retrieval Outcome
+
+The per-artifact `success` or `failure` reported by StorageManager for creation of
+a completed global copy. Retrieval success does not mean light verification
+passed, local ownership changed, scientific data are valid, or Session lifecycle
+changed. Verification Outcome and Verified Collection Outcome describe separate
+dimensions using their existing vocabularies.
+
+---
+
+# Export Outcome
+
+The operational outcome of a later export, such as NWB export, distinct from
+acquisition, local finalization, global retrieval, and verification. Export does
+not determine Session completion (Decision 041), and later export failure cannot
+retroactively change a completed Session (Decision 303). This term introduces no
+export implementation or serialized status vocabulary.
 
 ---
 
@@ -818,7 +1070,7 @@ The Session-initialization readiness condition confirming that co-located local 
 
 # Runtime Message
 
-A minimal plain-data command, command-result, evidence, or telemetry message routed through the communication boundary. Implemented runtime messages use Session-scoped NATS subjects; accepted Slice 28 additionally permits participant-scoped pre-Session commands without a Session identity. Session operations and evidence remain Session-scoped. Routing does not transfer domain ownership.
+A minimal plain-data command, command-result, evidence, or telemetry message routed through the communication boundary. Implemented evidence uses Session-scoped NATS subjects; Slice 28 also implements participant-scoped pre-Session commands without a Session identity. Session operations retain real Session identity. Decision 318 accepts framework evidence without a Session through minimal extension of existing contracts; this is not implemented yet. Routing does not transfer domain ownership.
 
 ---
 
@@ -832,7 +1084,14 @@ An unresolved outcome is not automatically a target failure, command failure, Ex
 
 # JetStream
 
-The durable NATS messaging facility used for commands, command results, and evidence. JetStream acceptance confirms durable transport acceptance only, not command execution, evidence consumption, ingest audit, or persistent Session Record storage.
+The durable NATS messaging facility used for commands, command results, and
+evidence. Successful publication confirms durable transport acceptance only,
+not command execution, Ingestor acceptance, ingest audit, or permanent Evidence
+Archive persistence. Producer `is_persistent` intent is separate from JetStream
+durability. Where recovery journaling is configured, durable Ingestor acceptance
+also requires its local journal boundary; StorageManager later writes the
+permanent archive from compiled persistent evidence. Q019 retains the unresolved
+Session-wide consumption/final archive coordination guarantee.
 
 ---
 
@@ -938,6 +1197,11 @@ A bounded temporal and evidence container with accepted configuration, selected 
 
 A Session may last minutes or hours.
 
+Session is a bounded runtime entity, not a long-lived operational service. Its
+identity, configuration, lifecycle, scientific records, and Session-specific
+objects remain distinct from the operational services that participate. Starting
+or ending it does not inherently create or terminate those services (Decision 304).
+
 A running Session does not imply that an Experiment is running or that all declared devices are streaming. It indicates Session lifecycle state, not protocol or device-production state.
 
 ---
@@ -969,6 +1233,14 @@ published-evidence consumption/drain guarantee remains open under Q019.
 Slice 25 exposes the explicit stopping-Session collection-before-finalization
 sequence (Decision 275), without claiming a Session-wide consumption guarantee.
 
+Framework stop/kill is a separate operational closeout, not a request to perform
+this collection/finalization workflow. Phase 16 forbids those operations from
+initiating artifact collection, verification, transfer, or export.
+
+Decision 303 prevents later global processing failure from changing a Session
+that already reached `completed`. It does not bypass required pre-completion
+cleanup or final persistence.
+
 ---
 
 # Session Record
@@ -984,8 +1256,6 @@ Examples include:
 * session_start and session_stop acquisition events
 * accepted acquisition envelopes
 * ingest audit records
-* accepted durable runtime evidence
-* runtime evidence intake audit records
 * final session status
 * warnings, recoverable failures, and fatal failures
 * cleanup evidence
@@ -993,6 +1263,16 @@ Examples include:
 The Session Record preserves what was intended, what was ready, what ran, what was acquired, what was ingested, how the Session ended, and what failed.
 
 The Session Record is separate from the Evidence Archive. The Session Record describes the Session itself; the Evidence Archive stores persistent runtime observations that support the Session Record.
+
+ControllerActionDecision evidence belongs in the Evidence Archive under Decision
+322, not as a raw runtime-evidence dump in the Session Record. Its preservation
+does not expand Session Record responsibilities.
+
+Persistent RuntimeEvidenceMessages and their runtime-evidence intake audit belong
+in the Evidence Archive (Decisions 226-227). Controller evidence gathering excludes
+these raw runtime records from initial and final Session Records. The existing
+`ingest_audit_records` field instead preserves acquisition-envelope intake audit
+required by Decision 073; it is distinct from runtime-evidence intake audit.
 
 The accepted v1 conceptual persistence layout includes `session_record_initial.json`, `session_record_final.json`, and an `evidence/` directory containing `runtime_evidence.jsonl`, `ingest_audit.jsonl`, and `compilation_summary.json`. Category-specific evidence folders are not part of the v1 concept.
 
@@ -1002,7 +1282,10 @@ The detailed manifest format, schema evolution, reconstruction outputs, and expo
 
 # Evidence Archive
 
-The persistent archive of runtime observations supporting a Session Record.
+The persistent archive of runtime observations. Session evidence supports its
+Session Record and retains Session identity. Decision 318 also accepts
+Session-independent framework evidence through the same infrastructure; the
+current implementation and v1 layout remain Session-specific.
 
 The Evidence Archive is written by StorageManager from persistent information compiled by Ingestor. It is not a replacement for the Session Record and does not decide evidence meaning, lifecycle, retention, artifact transfer, reconstruction, NWB export, or global scientific data collection.
 
@@ -1015,6 +1298,9 @@ or folder. The evidence-enabled Controller path awaits collection publication
 before the caller invokes existing finalization. How Controller
 knows every durable publication has reached Ingestor before final compilation
 remains a Session-wide open question (Q019), not an implemented drain protocol.
+Decisions 317-319 separately define service-maintenance preservation order and
+require confirmed durable evidence preservation before orderly service closeout.
+They neither resolve Q019 nor implement a new archive layout or subsystem.
 
 ---
 
@@ -1029,6 +1315,11 @@ Components receive Session Time from SynchronizationManager or apply an explicit
 Scientific Session Time freezes at acquisition end and is not extended through
 post-session collection or verification. Collection-pass evidence uses operational
 wall-clock audit timestamps instead (Decision 273).
+
+Historical envelope workflows use the row field `session_time`; current runtime
+timestamping and scientific persistence use `session_time_s`. Both describe
+Session Time in their respective contracts. This terminology clarification does
+not rename either serialized field or change readback compatibility.
 
 ---
 
@@ -1164,9 +1455,16 @@ Its minimum fields are `session_id`, `acquisition_node_id`, `update_type`, optio
 
 Mapping updates are not hidden state and never modify previously timestamped runtime evidence.
 
-Mapping Update Evidence remains in SynchronizationManager memory during runtime and is preserved as RuntimeEvidenceMessage through existing Ingestor intake/audit and Session Record finalization. No separate timing-storage component owns it.
+Mapping Update Evidence remains in SynchronizationManager memory during runtime.
+Its persistent RuntimeEvidenceMessage form uses existing Ingestor intake/audit
+and persistent compilation for StorageManager's separate Evidence Archive. No
+separate timing-storage component owns it; conversion alone does not publish,
+ingest, or persist the evidence.
 
-Its durable runtime wrapper uses `evidence_type: mapping_update_evidence`, with the MappingUpdateEvidence plain-data form in `RuntimeEvidenceMessage.payload`. This vocabulary value changes neither timing ownership nor communication, ingestion, or Session Record ownership.
+Its durable runtime wrapper uses `evidence_type: mapping_update_evidence` and
+`is_persistent=True`, with the MappingUpdateEvidence plain-data form in
+`RuntimeEvidenceMessage.payload`. This vocabulary value changes neither timing
+ownership nor communication, ingestion, or persistence ownership.
 
 ---
 
@@ -1216,6 +1514,10 @@ An auditable indication of the timing state or quality under which an Acquisitio
 
 Timestamp Status accompanies Runtime Timing or associated Timing Audit Evidence. It is not a transport timestamp or a replacement for Session Time.
 
+Current Slice 1 runtime timestamp attachment uses `runtime_timestamped`.
+Additional timing-quality semantics remain deferred; this value does not claim
+that drift estimation, uncertainty evaluation, or reconstruction occurred.
+
 ---
 
 # Timing Quality Observation
@@ -1257,9 +1559,12 @@ Warnings are recorded as events.
 
 # Recoverable Failure
 
-A failure from which the system can safely continue after recording the failure and performing recovery actions.
-
-Recoverable Failures are recorded as events.
+A recorded failure interpreted as potentially recoverable, not proof that
+recovery has been performed or that continuation is always safe. An
+AcquisitionHealthPolicy `recoverable_failure` interpretation produces evidence;
+the current Controller `record_recoverable_failure` decision executes successfully
+without automatic recovery or lifecycle mutation. Recovery actions and their
+policy remain deferred.
 
 ---
 
@@ -1281,7 +1586,13 @@ A Device Record Collection identifies the source device, the kind of records col
 
 It is not a transport message and is not sent directly to the Ingestor.
 
-Device Record Collections are converted into Acquisition Record Envelopes by the AcquisitionNode.
+Runtime Record Collections are converted into Acquisition Record Envelopes by
+AcquisitionNode for the existing ingestion path. Scientific Record Collections
+contain selected scientific products, including local NumPy camera frames;
+AcquisitionNode timestamps and submits them to LocalStorageManager rather than
+putting frame bytes into runtime envelopes or NATS. DeviceCollectionResult keeps
+`runtime_records` and `scientific_records` separate. Neither collection owns
+Experiment identity, framework timing authority, artifact paths, or manifests.
 
 ---
 
@@ -1386,6 +1697,37 @@ validation is not implied.
 
 # Session Binding
 
+The association between an operational service and its active Session-specific
+state, separate from service lifetime. Decision 313 assigns independent release
+to each service after its own cleanup/evidence obligations are confirmed.
+Controller releases its active Session reference after terminal cleanup/durable
+records; Ingestor after required evidence handoff or durable preservation;
+SynchronizationManager after Session Time stops and synchronization evidence
+obligations are satisfied. Phase 16 Slice 1 partially implements explicit Controller
+release after cleanup/final persistence and empty Ingestor/synchronization binding
+release. Decision 322 requires Controller to confirm durable archival of every
+ControllerActionDecision associated with the Session, as well as required cleanup
+and durable Session Record obligations, before release. Only then may corresponding
+temporary decision records be retired; durable evidence and outstanding obligations
+must remain intact. Controller-specific decision archival confirmation is now
+implemented: missing compiled messages, unsuccessful archive writes, and stale
+decision snapshots block release. Evidence-bearing Ingestor release now checks
+StorageManager's exact successful archive input against all currently accepted
+persistent messages and all runtime-evidence intake audit, including audit of
+nonpersistent messages. Existing terminal Session Record evidence and the separate
+acquisition-envelope persistence obligations must also be confirmed. Intake and
+release commitment are serialized; stale coverage cannot discard additional intake.
+Nonpersistent messages are not added to the archive to permit release.
+SynchronizationManager releases after Session Time stops, active mappings retire,
+and mapping updates have confirmed durable Ingestor acceptance; downstream archival
+is not a producer-side prerequisite. These narrow paths leave durable files intact
+and retire confirmed temporary state for reuse. Publication alone does not satisfy Controller's archival
+obligation. Q019's Session-wide evidence-consumption guarantee remains open.
+Independent validation is
+not claimed, and node cleanup/reuse remains unchanged.
+
+The existing AcquisitionNode binding is the following narrower implemented case:
+
 AcquisitionNode-owned association with at most one active Session, separate from
 its deployment identity, technical readiness, and Session-keyed reservation.
 Initialization verifies reservation ownership before establishing binding.
@@ -1438,8 +1780,19 @@ running long-lived services; manual shells/startup scripts are temporary
 development infrastructure, not deployment architecture. Controller does not
 launch processes or manage NATS. Required connectivity precedes distributed
 readiness; startup connection failure is explicit, not indefinite waiting or
-claimed readiness. Supervision, automation, retry/reconnection, registration,
-and discovery remain deferred.
+claimed readiness. Supervision, deployment automation, publication-recovery
+retry/replay policy, registration, and new discovery mechanisms remain deferred.
+Decisions 320-321 accept independent startup and communication reestablishment
+through existing mechanisms when a service returns, not automatic interrupted-work
+recovery.
+
+Decision 304 now explicitly establishes Session-independent and GUI-independent
+lifetime for the five principal operational services, without requiring one
+process per service. Decisions 313-321 subsequently settle confirmed binding
+release, general shutdown versus individual administrative maintenance, and
+independent startup/readiness using existing mechanisms. They do not introduce
+remote OS process control, service supervision, a registry, automatic recovery,
+or deployment automation. These responsibilities remain unimplemented.
 
 ---
 
@@ -1498,7 +1851,10 @@ Information recorded as part of the scientific acquisition record.
 
 Examples include acquisition data, session_start events, session_stop events, timing information, and other acquisition-side records.
 
-Acquisition Evidence is created by the AcquisitionNode and preserved by the Ingestor and StorageManager.
+Acquisition Evidence is created by AcquisitionNode. Runtime envelope evidence is
+preserved through Ingestor and StorageManager; authoritative local scientific
+records are persisted by LocalStorageManager, with manifests communicated through
+the runtime-evidence path.
 
 It is distinct from Session lifecycle state.
 
@@ -1508,11 +1864,43 @@ It is distinct from Session lifecycle state.
 
 The runtime state of a Session.
 
-Examples include initialized, running, stopped, completed, failed, and aborted.
+The accepted states are `created`, `initialized`, `running`, `stopping`,
+`completed`, `failed`, and `aborted`. `stopped` is a Device lifecycle state,
+not a Session state.
 
 Session lifecycle is owned by the Session and records framework execution state.
 
 It is distinct from Acquisition Evidence.
+
+---
+
+# Session Lifecycle Outcome
+
+The terminal Session state `completed`, `failed`, or `aborted`, owned by Session
+after the accepted lifecycle and required cleanup/final persistence. Later global
+collection, verification, transfer, or export failure is a separate operational
+outcome and cannot retroactively change `completed` (Decision 303).
+
+---
+
+# Scientific Acquisition Outcome
+
+What acquisition evidence establishes about the recorded run: which data were
+acquired, unavailable, or affected by recorded failures. This is distinct from
+Session lifecycle state and later global processing outcomes. Session completion
+is not a claim of scientific validity, successful artifact transfer, light
+verification, or export. This term adds no runtime status model or vocabulary.
+
+---
+
+# Cleanup Confirmation
+
+Confirmation by the resource-owning participant that its required local cleanup
+has completed. Closing one handle, stopping runtime, or receiving a method return
+alone does not confirm every required cleanup operation. Unconfirmed cleanup
+keeps adapter reuse blocked and protects AcquisitionNode reservation release;
+confirmed cleanup restores the accepted lifecycle/reuse boundary (Decisions 300
+and 302). This is not transfer completion, data deletion, or automatic recovery.
 
 ---
 
@@ -1611,7 +1999,8 @@ A summary describing the current runtime state of a live Device Adapter.
 
 Device Status includes lifecycle state and runtime status information such as initialization, readiness, running, stopped, failed, and shutdown.
 
-Device Status is produced by the DeviceManager.
+DeviceAdapter produces Device Status snapshots through `get_status()`;
+DeviceManager collects those snapshots into its status summary.
 
 It describes runtime execution state and is distinct from Device Readiness.
 
@@ -1619,15 +2008,23 @@ It describes runtime execution state and is distinct from Device Readiness.
 
 # Persistent Storage
 
-The durable preservation of acquisition records beyond runtime memory.
-
-Persistent Storage begins after persistent information is compiled by the Ingestor and accepted by the Storage Manager for writing.
+The durable preservation of records beyond runtime memory, with distinct owners
+and purposes. LocalStorageManager incrementally persists authoritative local
+scientific records during acquisition. Ingestor's explicitly configured recovery
+journal provides temporary crash durability for accepted runtime messages, not
+permanent persistence intent. StorageManager writes the permanent Evidence
+Archive from Ingestor's compiled persistent evidence and separately writes Session
+Records. JetStream durable publication acceptance is a transport boundary, not
+completion of any of these storage responsibilities.
 
 For v1, accepted Acquisition Record Envelopes may be stored as JSONL, with one envelope dictionary per line.
 
 JSONL is a storage backend detail, not a replacement for the Storage Manager architectural boundary.
 
-The Phase 13 conceptual Evidence Archive also uses JSONL for persistent runtime evidence. Archive evolution, retention/deletion, artifact transfer, reconstruction, NWB export, and global scientific data collection remain future architecture.
+The Phase 13 Evidence Archive also uses JSONL for persistent runtime evidence.
+Accepted single-file Artifact Plane retrieval and light verification are
+implemented with software validation; broader global integration, archive
+evolution, retention/deletion, reconstruction, and NWB export remain future work.
 
 ---
 

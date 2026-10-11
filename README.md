@@ -135,7 +135,10 @@ using OpenCV/V4L2 and metadata-only acquisition envelopes.
 
 Phase 4 Controller v1 now provides validated sequential orchestration for one
 bounded Session, including normal completion, runtime failure outcomes, cleanup,
-and two-step persistent Session Record finalization.
+and the historically validated two-step persistent Session Record finalization.
+Phase 13 subsequently separates the Evidence Archive from the Session Record and
+writes both before `Session.complete()`; this does not claim a persisted
+post-completion terminal snapshot, whose representation remains for separate review.
 
 Phase 5 now provides validated Controller-owned Experiment lifecycle, persistent
 Experiment descriptors and Expected Participant declarations, explicit runtime
@@ -196,7 +199,10 @@ authoritative scientific data remain local to the producing component.
 
 Controller finalization now preserves the Phase 13 separation: the Session
 Record describes the Session, while the separate Evidence Archive stores
-Ingestor-accepted durable runtime evidence and its intake audit.
+Ingestor-compiled producer-marked persistent runtime evidence and runtime-evidence
+intake audit. This describes the accepted conceptual separation; reconciliation
+of runtime evidence also retained in current Session Record contents remains for
+separate architectural review.
 
 Phase 10 is implemented through the accepted brokered Control Plane boundary,
 including configured group-command fan-out, issuer-owned result aggregation,
@@ -213,8 +219,9 @@ Decisions 178-218. Its first implementation slice now provides the co-located
 authoritative local artifact manifests, local storage evidence, flush,
 finalization, and local completion summaries. Slice 20.3 implements Session,
 Controller, and AcquisitionNode integration for explicitly selected scientific
-products. Global collection, transfer, reconstruction, and export remain future
-slices.
+products. Global retrieval, light verification, and collection-pass evidence are
+implemented in the later slices described below; broader global integration,
+transfer scheduling, reconstruction, and export remain future work.
 
 Local HDF5 scientific persistence is now implemented and covered by synthetic
 array tests. Select `storage_format="hdf5"` in
@@ -488,8 +495,12 @@ Controller/communication/archive passed; full discovery 351 passed and 7 optiona
 rendering skips (358 total). These are prior results, not new closure validation. The
 Session-wide evidence-drain/Ingestor-consumption guarantee remains OPEN in Q019
 and is not implemented; durable acceptance is not proof of consumption.
-Collection failure does not retroactively change acquisition success; further
-lifecycle consequences remain Q017. M011 remains open pending real Jetson/SSH-SFTP
+Decision 303 resolves Q017: later global collection, verification, transfer, or
+export failure cannot retroactively change a Session that reached `completed`.
+These are operational outcomes, not Session acquisition lifecycle outcomes.
+Required pre-completion cleanup and final persistence remain necessary, and
+Q019's evidence-consumption/final archive coordination remains open.
+M011 remains open pending real Jetson/SSH-SFTP
 deployment validation, and M012 remains complete. W033 records Slice 25's software
 validation, not live NATS or real Jetson/SSH-SFTP deployment validation. The legacy
 unconfigured synchronous collection path remains supported.
@@ -570,8 +581,13 @@ Required connectivity must succeed before distributed readiness, without
 indefinite startup waiting or automatic retry/reconnection policy. Pre-Session
 commands use participant identity without fabricated Session IDs; Session
 operations require real identities. Service supervision, startup automation,
-duplicate identity policy, and normal end-of-Session Ingestor/SynchronizationManager
-binding lifetimes remain deferred. M015 remains pending and M014/W034 unchanged.
+and duplicate identity policy remain deferred. Decision 313 now defines normal
+service Session-binding release after confirmed cleanup/evidence obligations;
+that integration is partially implemented in Phase 16 Slice 1. Controller now has
+explicit `await release_session()` after confirmed cleanup/final persistence.
+Ingestor and SynchronizationManager also support narrow evidence-bearing release
+after confirmed archival or durable mapping-evidence handoff, respectively.
+Existing records remain intact. M015 remains pending and M014/W034 unchanged.
 
 Decision 302 accepts generic sequential reuse of retained DeviceAdapter instances:
 successful shutdown and required cleanup return to DECLARED, failed/unconfirmed
@@ -583,6 +599,71 @@ simulated and broker-double regression coverage; independent manual validation
 and audit remain pending. No new reset operation, lifecycle state, or Controller
 hardware initialization responsibility is introduced. Previously validated
 workflows remain historical evidence, not validation of sequential Session reuse.
+
+Phase 16 Operational Service Lifetime and Framework Stop/Kill architecture is
+accepted in Decisions 304-322; Slice 1 binding release is partially implemented
+with automated tests, but independent validation and Phase 16 completion are not claimed.
+Controller, AcquisitionNode, Ingestor, StorageManager, and SynchronizationManager
+have lifetimes independent of Sessions and GUI. They may be idle between runs;
+Session-specific objects still follow their existing creation, finalization,
+cleanup, and reuse contracts. This does not require one OS process per service
+or continuous acquisition, and does not make DeviceManager/DeviceAdapters
+independently operating services.
+
+Framework stop is operator-requested scoped orderly closeout, not Session stop.
+Controller coordinates existing distributed commands/results; participants own
+their actions and shared resources serving unrelated scopes remain protected.
+Each request has a durable stop_attempt_id with completed/blocked/failed outcomes
+separate from Session lifecycle. Kill is authorized forced continuation only of
+the same blocked attempt; declining kill ends it as failed without forced action.
+Neither operation initiates artifact collection, verification, transfer, or export,
+and normal Session end does not automatically stop operational services. No new
+framework-wide lifecycle, service supervisor, GUI control, stop/kill API, or schema
+is implemented. Decisions 313-321 settle independent Session-binding release,
+general shutdown versus individual administrative maintenance, all-participant
+pre-stop evaluation, directional service-owned blockers, and exact forced-action
+outcomes. General shutdown preserves evidence in producer -> Ingestor ->
+StorageManager -> Controller order; individual service maintenance may use a local
+administrative interface without Controller orchestration or remote OS control.
+Framework evidence may lack Session identity through minimally extended existing
+Ingestor/Evidence Archive infrastructure; current implementation remains
+Session-specific. Independent startup and returning-service recognition do not
+promise automatic recovery of interrupted work. Q025 is resolved architecturally,
+with implementation beyond the limited Decision 313 paths still pending; Q019,
+Q021, Q024, and deployment configuration remain open.
+Q017 remains resolved.
+Existing milestone statuses and validation records are unchanged.
+
+Decision 322 accepts persistence for every ControllerActionDecision, including
+no-mutation outcomes, with Controller-supplied is_persistent=True through the
+existing Ingestor/StorageManager Evidence Archive pathway. Controller binding
+release requires confirmed archival of its Session's decisions, not merely NATS
+publication. The narrow Slice 1 follow-up now packages decisions with their plain
+payloads, submits them to an attached Ingestor, and confirms exact inclusion in
+successfully written archive input before release. The public
+`controller_action_decision_evidence` property also supplies the same retained
+messages for caller-managed publication through the existing boundary. Late or
+missing decisions invalidate release confirmation; successful release retires
+temporary decisions, never durable evidence. Decision 313 stays partially
+implemented. Evidence-bearing Ingestor release now checks exact archived persistent
+messages and all runtime-evidence intake audit against the current intake snapshot,
+plus existing terminal Session Record and acquisition-envelope preservation.
+Concurrent intake and release commit are serialized; nonpersistent messages remain
+nonpersistent. Ingestor holds StorageManager's preservation guard through release
+commitment so concurrent archive or final-record writes cannot invalidate its
+confirmation. Controller checks its decisions against the current archive, not
+only historical finalization, and holds the same guard through its final
+synchronous commit after asynchronous unsubscription. No guard is held across
+an await; future archive writes are not frozen. SynchronizationManager can release retired mapping state after
+Session Time stops and exact journal-backed Ingestor acceptance is confirmed,
+without waiting for archival. Both retire temporary state without deleting durable
+files. These are narrow implementation paths with automated tests, not independent
+validation or audit. Phase 16 remains unvalidated, M015 open, and Q019 unresolved. Session Record
+construction now keeps raw runtime evidence and its intake audit in the separate
+Evidence Archive, preserving Session context and acquisition-envelope audit in
+the Session Record. Local Session start and finalization require an explicit
+Controller Ingestor reference; the optional constructor remains available for
+brokered orchestration without introducing a node-owned Ingestor fallback.
 
 The existing NATS dispatcher accepts `prepare_experiment_scientific_outputs`
 with payload `{"experiment_id": ..., "scientific_outputs": [...]}` using output

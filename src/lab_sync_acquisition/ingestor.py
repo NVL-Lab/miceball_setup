@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from contextlib import ExitStack
+from copy import deepcopy
 import json
 import os
 from pathlib import Path
 import re
+from threading import RLock
 from time import time
 from typing import Any
 from uuid import uuid4
@@ -84,8 +87,10 @@ class InMemoryIngestor:
         if session_id is not None and (not isinstance(session_id, str) or not session_id):
             raise ValueError("Recovery requires a nonempty known Session identity")
         self._storage_manager = storage_manager
+        self._intake_lock = RLock()
         self._recovery_journal_root = Path(recovery_journal_root) if recovery_journal_root is not None else None
         self._session_prepared = session_id is not None
+        self._requires_prepared_session = session_id is not None or recovery_journal_root is not None
         self._session_id = session_id
         self._component_id = component_id
         self._recovery_journal_path = (
@@ -130,40 +135,98 @@ class InMemoryIngestor:
 
     def prepare_session(self, session_id: str) -> ServiceReadiness:
         """Prepare known-Session intake using deployment-local journal configuration."""
-        if not isinstance(session_id, str) or not session_id:
-            raise ValueError("Session preparation requires a real Session identity")
-        if self._session_id == session_id:
-            if self._journal_failed or self._recovery_journal_path is None:
-                raise RuntimeError("Session journal is not ready")
+        with self._intake_lock:
+            if not isinstance(session_id, str) or not session_id:
+                raise ValueError("Session preparation requires a real Session identity")
+            if self._session_id == session_id:
+                if self._journal_failed or self._recovery_journal_path is None:
+                    raise RuntimeError("Session journal is not ready")
+                self._session_prepared = True
+                return self.check_ready()
+            if self._session_id is not None or self._accepted_runtime_evidence:
+                raise RuntimeError("Ingestor already has Session evidence/binding")
+            if self._recovery_journal_root is None:
+                raise ValueError("Ingestor deployment recovery journal root is not configured")
+            self._recovery_journal_root.mkdir(parents=True, exist_ok=True)
+            self._session_id = session_id
+            self._recovery_journal_path = self._recovery_journal_root / f"session_{session_id}.jsonl"
+            self._requires_prepared_session = True
             self._session_prepared = True
+            try:
+                self._initialize_recovery_journal()
+            except Exception:
+                self._session_prepared = False
+                self._journal_failed = True
+                raise
             return self.check_ready()
-        if self._session_id is not None or self._accepted_runtime_evidence:
-            raise RuntimeError("Ingestor already has Session evidence/binding")
-        if self._recovery_journal_root is None:
-            raise ValueError("Ingestor deployment recovery journal root is not configured")
-        self._recovery_journal_root.mkdir(parents=True, exist_ok=True)
-        self._session_id = session_id
-        self._recovery_journal_path = self._recovery_journal_root / f"session_{session_id}.jsonl"
-        self._session_prepared = True
-        try:
-            self._initialize_recovery_journal()
-        except Exception:
-            self._session_prepared = False
-            self._journal_failed = True
-            raise
-        return self.check_ready()
 
     def abort_session_initialization(self, session_id: str) -> bool:
         """Stop prepared intake without deleting accepted evidence or journal history."""
-        if not isinstance(session_id, str) or not session_id:
-            raise ValueError("Initialization abort requires session_id")
-        if self._session_id not in {None, session_id}:
-            raise RuntimeError("Initialization abort does not match Ingestor Session")
-        self._session_prepared = False
-        if not self._accepted_runtime_evidence:
+        with self._intake_lock:
+            if not isinstance(session_id, str) or not session_id:
+                raise ValueError("Initialization abort requires session_id")
+            if self._session_id not in {None, session_id}:
+                raise RuntimeError("Initialization abort does not match Ingestor Session")
+            self._session_prepared = False
+            if not self._accepted_runtime_evidence:
+                self._session_id = None
+                self._recovery_journal_path = None
+            return True
+
+    def release_session(
+        self, session_id: str, *, storage_manager: PersistentStorageManager | None = None,
+    ) -> bool:
+        """Release confirmed terminal evidence, or an empty binding, without deleting its journal."""
+        with self._intake_lock, ExitStack() as preservation:
+            if not isinstance(session_id, str) or not session_id:
+                raise ValueError("Session release requires session_id")
+            if self._session_id != session_id:
+                raise RuntimeError("Session release does not match Ingestor Session")
+            if self._journal_failed:
+                raise RuntimeError("Recovery journal integrity is unresolved")
+            if (self._accepted_runtime_evidence or self._runtime_evidence_audit
+                    or self._accepted_envelopes or self._ingest_audit):
+                storage = storage_manager if storage_manager is not None else self._storage_manager
+                if not isinstance(storage, PersistentStorageManager):
+                    raise RuntimeError("Evidence preservation confirmation is required before release")
+                # Lock order is intake -> storage; retain both through state retirement.
+                confirmation = preservation.enter_context(storage.session_preservation_guard(session_id))
+                if confirmation is None:
+                    raise RuntimeError("Evidence preservation confirmation is unavailable")
+                record = confirmation["session_record"]
+                state = (record.get("final_session_status") or {}).get("state")
+                lifecycle = record.get("session_lifecycle_evidence", [])
+                if (record.get("accepted_session_config", {}).get("session_id") != session_id
+                        or state not in {"completed", "failed", "aborted"}
+                        or not lifecycle or lifecycle[-1].get("to_state") != state):
+                    raise RuntimeError("Terminal Session completion evidence is unconfirmed")
+                compiled = self.compile_persistent_runtime_evidence()
+                if any(confirmation[name] != [item.to_dict() for item in compiled[name]]
+                       for name in ("runtime_evidence", "ingest_audit")):
+                    raise RuntimeError("Archive confirmation does not cover current runtime intake")
+                # Acquisition envelopes and their audit stay on the existing Session Record path.
+                if (record.get("accepted_acquisition_envelopes") != [
+                        envelope.to_dict() for envelope in self._accepted_envelopes]
+                        or record.get("ingest_audit_records") != [
+                            audit.to_dict() for audit in self._ingest_audit]):
+                    raise RuntimeError("Acquisition-envelope preservation is unconfirmed")
+            self._session_prepared = False
             self._session_id = None
             self._recovery_journal_path = None
-        return True
+            self._accepted_evidence_content.clear()
+            self._accepted_runtime_evidence = ()
+            self._runtime_evidence_audit = ()
+            self._accepted_envelopes = ()
+            self._ingest_audit = ()
+            return True
+
+    def has_durable_runtime_evidence(self, evidence: RuntimeEvidenceMessage) -> bool:
+        """Confirm exact journal-backed acceptance, not publication or final archival."""
+        with self._intake_lock:
+            if (self._journal_failed or self._recovery_journal_path is None
+                    or evidence.session_id != self._session_id):
+                return False
+            return self._accepted_evidence_content.get(evidence.evidence_id) == self._evidence_content(evidence)
 
     @property
     def recovery_journal_path(self) -> Path | None:
@@ -307,14 +370,15 @@ class InMemoryIngestor:
     ) -> dict[str, tuple[RuntimeEvidenceMessage | RuntimeEvidenceAuditRecord, ...]]:
         """Return accepted persistent runtime evidence and intake audit records."""
 
-        return {
-            "runtime_evidence": tuple(
-                evidence
-                for evidence in self._accepted_runtime_evidence
-                if evidence.is_persistent
-            ),
-            "ingest_audit": self._runtime_evidence_audit,
-        }
+        with self._intake_lock:
+            return {
+                "runtime_evidence": tuple(
+                    RuntimeEvidenceMessage.from_dict(deepcopy(evidence.to_dict()))
+                    for evidence in self._accepted_runtime_evidence
+                    if evidence.is_persistent
+                ),
+                "ingest_audit": self._runtime_evidence_audit,
+            }
 
     def compile_artifact_collection_handoff(self, session_id: str) -> dict[str, Any]:
         """Select complete manifests for one Session without collecting artifact bytes."""
@@ -343,37 +407,35 @@ class InMemoryIngestor:
     ) -> RuntimeEvidenceAuditRecord:
         """Journal new evidence before acceptance when configured; deduplicate intake."""
 
-        if self._session_id is not None and not self._session_prepared:
-            raise RuntimeError("Session evidence intake initialization has been aborted")
+        with self._intake_lock:
+            if self._requires_prepared_session and not self._session_prepared:
+                raise RuntimeError("Session evidence intake is not prepared or has been aborted/released")
 
-        accepted = bool(
-            evidence.evidence_id
-            and evidence.session_id
-            and evidence.evidence_type
-            and evidence.source_id
-        )
-        duplicate = False
-        if accepted:
-            content = self._evidence_content(evidence)
-            previous = self._accepted_evidence_content.get(evidence.evidence_id)
-            if previous is not None and previous != content:
-                raise ValueError("Conflicting runtime evidence content for evidence_id")
-            duplicate = previous is not None
-            if not duplicate:
-                self._append_runtime_evidence(content)
-                evidence = RuntimeEvidenceMessage.from_dict(json.loads(content))
-        audit = RuntimeEvidenceAuditRecord(
-            ingest_order=len(self._runtime_evidence_audit) + 1,
-            ingest_received_at=time(),
-            evidence_id=evidence.evidence_id,
-            accepted=accepted,
-            reason=("already_accepted" if duplicate else "accepted") if accepted else "missing_required_identity",
-        )
-        self._runtime_evidence_audit += (audit,)
-        if accepted and not duplicate:
-            self._accepted_runtime_evidence += (evidence,)
-            self._accepted_evidence_content[evidence.evidence_id] = content
-        return audit
+            accepted = bool(
+                evidence.evidence_id and evidence.session_id and evidence.evidence_type and evidence.source_id
+            )
+            duplicate = False
+            if accepted:
+                content = self._evidence_content(evidence)
+                previous = self._accepted_evidence_content.get(evidence.evidence_id)
+                if previous is not None and previous != content:
+                    raise ValueError("Conflicting runtime evidence content for evidence_id")
+                duplicate = previous is not None
+                if not duplicate:
+                    self._append_runtime_evidence(content)
+                    evidence = RuntimeEvidenceMessage.from_dict(json.loads(content))
+            audit = RuntimeEvidenceAuditRecord(
+                ingest_order=len(self._runtime_evidence_audit) + 1,
+                ingest_received_at=time(),
+                evidence_id=evidence.evidence_id,
+                accepted=accepted,
+                reason=("already_accepted" if duplicate else "accepted") if accepted else "missing_required_identity",
+            )
+            self._runtime_evidence_audit += (audit,)
+            if accepted and not duplicate:
+                self._accepted_runtime_evidence += (evidence,)
+                self._accepted_evidence_content[evidence.evidence_id] = content
+            return audit
 
     def check_ready(self) -> ServiceReadiness:
         """Report readiness, rejecting new intake after uncertain journal writes."""
@@ -392,21 +454,21 @@ class InMemoryIngestor:
     ) -> IngestAuditRecord:
         """Receive one acquisition envelope and forward it if accepted."""
 
-        accepted, reason = self._validate_envelope(envelope)
-        audit = IngestAuditRecord(
-            ingest_order=len(self._ingest_audit) + 1,
-            ingest_received_at=time(),
-            accepted=accepted,
-            reason=reason,
-        )
-        self._ingest_audit = self._ingest_audit + (audit,)
+        with self._intake_lock:
+            if self._requires_prepared_session and not self._session_prepared:
+                raise RuntimeError("Session envelope intake is not prepared or has been aborted/released")
 
-        if accepted:
-            self._accepted_envelopes = self._accepted_envelopes + (envelope,)
-            if self._storage_manager is not None:
-                self._storage_manager.store_envelopes((envelope,))
-
-        return audit
+            accepted, reason = self._validate_envelope(envelope)
+            audit = IngestAuditRecord(
+                ingest_order=len(self._ingest_audit) + 1,
+                ingest_received_at=time(), accepted=accepted, reason=reason,
+            )
+            self._ingest_audit += (audit,)
+            if accepted:
+                self._accepted_envelopes += (envelope,)
+                if self._storage_manager is not None:
+                    self._storage_manager.store_envelopes((envelope,))
+            return audit
 
     def _validate_envelope(self, envelope: AcquisitionRecordEnvelope) -> tuple[bool, str]:
         if not envelope.session_id:

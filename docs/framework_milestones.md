@@ -138,11 +138,16 @@ Replace manual single-Session sequencing with a minimal synchronous Controller w
 - sequential create, initialize, start, iteration, stop, and finalization commands
 - Controller command-result evidence
 - pre-running, iteration, runtime-stop, and first-write finalization failure outcomes
-- two-step Session Record persistence ending with durable completed evidence
+- historical Controller v1 two-step Session Record persistence ending with durable completed evidence
 
 ## Confidence gained
 
 One bounded Session can be orchestrated and finalized through public framework APIs without introducing GUI behavior, asynchronous execution, retry, or new ownership boundaries.
+
+This records the Phase 4 validation, not the current persisted terminal-record
+shape. Phase 13 subsequently separates archive/record persistence and writes
+both before `Session.complete()`; terminal snapshot representation remains for
+separate review. M004's historical validation and completion status are unchanged.
 
 ---
 
@@ -369,8 +374,10 @@ software validation does not establish real SSH/SFTP deployment behavior.
 
 Authoritative local files remain unchanged. Artifact bytes do not pass through
 NATS or Ingestor. No retry/replay, resumable transfer, checksum verification,
-cleanup/retention policy, restart recovery, or export is included. Aggregate failure
-consequences for Session completion remain open. No real SSH/SFTP deployment
+cleanup/retention policy, restart recovery, or export is included. Decision 303
+prevents later global processing failure from retroactively changing a completed
+Session. Required pre-completion persistence remains unchanged; Q019's final
+archive consumption coordination remains open. No real SSH/SFTP deployment
 validation is claimed.
 
 ---
@@ -417,8 +424,9 @@ M011 remains separately open for real Jetson/SSH-SFTP deployment validation.
 No new manifest/product schema fields, JSONL verifier, universal HDF5 layout,
 full-file checksums, deep scientific-data scans, repair/deletion, reconstruction,
 NWB transformation/validation, retry/replay, resume, separate verification service,
-or verifier plugin framework. Session lifecycle consequences remain future
-high-level architecture (Q017); broader ScientificProduct structural contracts
+or verifier plugin framework. Decision 303 resolves the former Q017: later global
+processing failure does not retroactively change a completed Session's lifecycle.
+Broader ScientificProduct structural contracts
 and extended verification remain open in Q020.
 
 ---
@@ -465,7 +473,8 @@ No StorageManager-specific consumer-ACK waiting, polling, sleeps, arbitrary dela
 count assumptions, new broker protocol/transport/archive, scientific timing or
 Experiment lifecycle change, checksum, export, retry/resume, or background transfer.
 Collection outcome must not retroactively change acquisition success or local
-finalization; further consequences remain Q017. M011 stays open pending real
+finalization. Decision 303 also preserves a Session's completed lifecycle despite
+later global processing failure; Q019 remains open. M011 stays open pending real
 Jetson/SSH-SFTP deployment validation; M012 stays complete for Slice 24.
 
 ---
@@ -591,7 +600,7 @@ Session A -> Session B on retained node/adapter/communication-handler instances,
 confirmed initialization-abort reuse, repeated cleanup failures, independent
 configuration, and preservation of Session A artifacts and evidence. Sequential
 normal-completion coverage uses fresh central Ingestor/SynchronizationManager
-contexts; their normal binding lifetimes remain deferred below. Independent
+contexts; normal binding release remains unimplemented under Decision 313. Independent
 manual validation and audit of this correction remain pending. No Controller
 reset workaround, new lifecycle state/reset API, concurrent sharing, or recovery
 subsystem was introduced; automated coverage alone does not close M015.
@@ -622,14 +631,56 @@ Q024 remain open; Q022 retains deployment configuration ownership. Completed
 M014/W034 and other completed milestones/workflows are unchanged. No validated
 Slice 28 workflow is added.
 
-Normal end-of-Session binding lifetimes for Ingestor/SynchronizationManager,
-duplicate participant identity policy, and startup automation remain deferred;
-Decision 302 settles generic device cleanup/reuse, not those service binding
-lifetimes or supervision.
+Normal end-of-Session binding release for Controller, Ingestor, and
+SynchronizationManager is now architecturally defined by Decision 313 but not
+implemented by Slice 28. Duplicate participant identity policy, deployment/startup
+automation, and supervision remain deferred. Decision 302 settles generic device
+cleanup/reuse, not implementation of those service binding-release contracts.
 
 ---
 
 # Future Milestones
+
+Phase 16 Operational Service Lifetime and Framework Stop/Kill architecture is
+accepted in Decisions 304-322, with limited Slice 1 binding release partially
+implemented and automated-tested, not independently validated. Principal
+service lifetime is independent of Session and GUI lifetime; scoped operational
+stop/kill remains distinct from existing Session stop/finalization and must not
+initiate global processing. Decisions 313-321 settle binding release, general
+shutdown versus individual service maintenance, pre-stop evaluation, explicit
+directional blockers, exact forced outcomes, and evidence-preservation order.
+Session-independent framework evidence uses minimally extended existing
+infrastructure; independent startup/returning-service recognition does not resume
+interrupted work. Q025 is resolved architecturally, while Q019's Session-wide
+evidence-consumption coordination, Q021, and Q024 remain open.
+This note creates no demonstrated milestone, changes no existing milestone
+status, and adds no validated workflow. Controller release after confirmed cleanup
+and final persistence, plus empty Ingestor/synchronization binding release, are
+implemented. The narrow follow-up also implements evidence-bearing Ingestor release
+after exact persistent-message/all-runtime-audit archive coverage and existing
+terminal Session Record evidence, and SynchronizationManager release after stopped
+time, retired mappings, and durable Ingestor acceptance. Concurrent intake/release,
+failed-write retention, and successive reuse have automated coverage only; this
+does not establish independent validation, Q019 completeness, or milestone closure. Service
+supervision and deployment configuration remain future
+work. M015 remains open pending independent validation/audit.
+
+Decision 322 accepts persistence for every ControllerActionDecision, including
+no-mutation outcomes, through the existing runtime evidence and Evidence Archive
+pathway. Controller release additionally requires confirmed archival of its
+Session's decisions; publication alone is insufficient. The narrow Slice 1
+follow-up implements persistent decision packaging, attached-Ingestor submission,
+exact inclusion checks against compiled archive input, and confirmation after
+successful archive/final-record writes. Missing decisions or changes during/after
+the snapshot cannot authorize release. Confirmed release retires temporary decision
+records without deleting durable evidence. Automated coverage does not complete
+Decision 313, independently validate Phase 16, close M015, or resolve Q019. No
+validated workflow is added.
+
+Follow-up implementation test results: 27 focused Controller decision/release
+tests and 137 relevant regressions passed; full discovery ran 465 tests with
+458 passed, zero failures, and seven optional rendering skips. These are local
+automated results, not independent manual validation or audit evidence.
 
 Planned future milestones include:
 

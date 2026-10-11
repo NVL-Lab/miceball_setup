@@ -3,14 +3,18 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from threading import RLock
 from time import monotonic
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from lab_sync_acquisition.communication import (
     MAPPING_UPDATE_EVIDENCE_TYPE,
     RuntimeEvidenceMessage,
 )
 from lab_sync_acquisition.service_readiness import ServiceReadiness
+
+if TYPE_CHECKING:
+    from lab_sync_acquisition.ingestor import InMemoryIngestor
 
 
 @dataclass(frozen=True)
@@ -173,6 +177,7 @@ class SynchronizationManager:
     """Owns the Phase 1 session clock and reports Session Time in seconds."""
 
     def __init__(self) -> None:
+        self._mapping_lock = RLock()
         self._prepared_session_id: str | None = None
         self._started_at_monotonic_s: float | None = None
         self._stopped_session_time_s: float | None = None
@@ -183,21 +188,56 @@ class SynchronizationManager:
 
     def prepare_session(self, session_id: str) -> ServiceReadiness:
         """Prepare one Session's synchronization state without changing timing evidence."""
-        if not isinstance(session_id, str) or not session_id:
-            raise ValueError("Synchronization preparation requires session_id")
-        if self._prepared_session_id not in {None, session_id}:
-            raise RuntimeError("SynchronizationManager already prepared for another Session")
-        self._prepared_session_id = session_id
-        return self.check_ready()
+        with self._mapping_lock:
+            if not isinstance(session_id, str) or not session_id:
+                raise ValueError("Synchronization preparation requires session_id")
+            if self._prepared_session_id not in {None, session_id}:
+                raise RuntimeError("SynchronizationManager already prepared for another Session")
+            self._prepared_session_id = session_id
+            return self.check_ready()
 
     def abort_session_initialization(self, session_id: str) -> bool:
         """Clear only preparation binding, preserving all established timing evidence."""
-        if not isinstance(session_id, str) or not session_id:
-            raise ValueError("Synchronization initialization abort requires session_id")
-        if self._prepared_session_id not in {None, session_id}:
-            raise RuntimeError("Synchronization initialization abort Session mismatch")
-        self._prepared_session_id = None
-        return True
+        with self._mapping_lock:
+            if not isinstance(session_id, str) or not session_id:
+                raise ValueError("Synchronization initialization abort requires session_id")
+            if self._prepared_session_id not in {None, session_id}:
+                raise RuntimeError("Synchronization initialization abort Session mismatch")
+            self._prepared_session_id = None
+            return True
+
+    def release_session(self, session_id: str, *, ingestor: InMemoryIngestor | None = None) -> bool:
+        """Release stopped preparation after mappings retire and evidence is durably handed off."""
+        with self._mapping_lock:
+            if not isinstance(session_id, str) or not session_id:
+                raise ValueError("Synchronization release requires session_id")
+            if self._prepared_session_id != session_id:
+                raise RuntimeError("Synchronization release Session mismatch")
+            if self.is_running:
+                raise RuntimeError("Session Time must stop before Session release")
+            if any(key[0] == session_id for key in self._active_mappings):
+                raise RuntimeError("Active mappings remain; retirement/preservation confirmation is required")
+            evidence = [item for item in self._mapping_update_evidence if item.session_id == session_id]
+            if evidence:
+                if ingestor is None:
+                    raise RuntimeError("Synchronization evidence preservation confirmation is required before release")
+                available = [message for message in ingestor.accepted_runtime_evidence
+                             if message.session_id == session_id
+                             and message.evidence_type == MAPPING_UPDATE_EVIDENCE_TYPE
+                             and message.is_persistent]
+                for update in evidence:
+                    match = next((message for message in available
+                                  if message.payload == update.to_dict()
+                                  and ingestor.has_durable_runtime_evidence(message)), None)
+                    if match is None:
+                        raise RuntimeError("Synchronization evidence durable acceptance is unconfirmed")
+                    available.remove(match)
+            self._mapping_update_evidence = tuple(
+                item for item in self._mapping_update_evidence if item.session_id != session_id)
+            self._prepared_session_id = None
+            self._started_at_monotonic_s = None
+            self._stopped_session_time_s = None
+            return True
 
     @property
     def mapping_update_evidence(self) -> tuple[MappingUpdateEvidence, ...]:
@@ -226,25 +266,18 @@ class SynchronizationManager:
     ) -> SynchronizationMapping:
         """Create and activate an initial mapping for one AcquisitionNode."""
 
-        key = (session_id, acquisition_node_id)
-        if key in self._active_mappings:
-            raise RuntimeError("An active synchronization mapping already exists")
-        mapping = self._new_mapping(
-            session_id,
-            acquisition_node_id,
-            local_time_anchor_s,
-            session_time_anchor_s,
-            scale,
-        )
-        self._active_mappings[key] = mapping
-        self._record_mapping_update(
-            mapping=mapping,
-            previous=None,
-            update_type="created",
-            reason=reason,
-            details=details,
-        )
-        return mapping
+        with self._mapping_lock:
+            key = (session_id, acquisition_node_id)
+            if key in self._active_mappings:
+                raise RuntimeError("An active synchronization mapping already exists")
+            mapping = self._new_mapping(
+                session_id, acquisition_node_id, local_time_anchor_s, session_time_anchor_s, scale,
+            )
+            self._active_mappings[key] = mapping
+            self._record_mapping_update(
+                mapping=mapping, previous=None, update_type="created", reason=reason, details=details,
+            )
+            return mapping
 
     def replace_active_mapping(
         self,
@@ -258,26 +291,19 @@ class SynchronizationManager:
     ) -> SynchronizationMapping:
         """Atomically replace one active mapping and preserve update evidence."""
 
-        key = (session_id, acquisition_node_id)
-        previous = self._active_mappings.get(key)
-        if previous is None:
-            raise RuntimeError("No active synchronization mapping exists")
-        mapping = self._new_mapping(
-            session_id,
-            acquisition_node_id,
-            local_time_anchor_s,
-            session_time_anchor_s,
-            scale,
-        )
-        self._active_mappings[key] = mapping
-        self._record_mapping_update(
-            mapping=mapping,
-            previous=previous,
-            update_type="replaced",
-            reason=reason,
-            details=details,
-        )
-        return mapping
+        with self._mapping_lock:
+            key = (session_id, acquisition_node_id)
+            previous = self._active_mappings.get(key)
+            if previous is None:
+                raise RuntimeError("No active synchronization mapping exists")
+            mapping = self._new_mapping(
+                session_id, acquisition_node_id, local_time_anchor_s, session_time_anchor_s, scale,
+            )
+            self._active_mappings[key] = mapping
+            self._record_mapping_update(
+                mapping=mapping, previous=previous, update_type="replaced", reason=reason, details=details,
+            )
+            return mapping
 
     def retire_active_mapping(
         self,
@@ -288,17 +314,14 @@ class SynchronizationManager:
     ) -> MappingUpdateEvidence:
         """Retire one active mapping and preserve update evidence."""
 
-        key = (session_id, acquisition_node_id)
-        previous = self._active_mappings.pop(key, None)
-        if previous is None:
-            raise RuntimeError("No active synchronization mapping exists")
-        return self._record_mapping_update(
-            mapping=None,
-            previous=previous,
-            update_type="retired",
-            reason=reason,
-            details=details,
-        )
+        with self._mapping_lock:
+            key = (session_id, acquisition_node_id)
+            previous = self._active_mappings.pop(key, None)
+            if previous is None:
+                raise RuntimeError("No active synchronization mapping exists")
+            return self._record_mapping_update(
+                mapping=None, previous=previous, update_type="retired", reason=reason, details=details,
+            )
 
     def _new_mapping(
         self,
@@ -374,12 +397,14 @@ class SynchronizationManager:
     def start(self) -> float:
         """Start the session clock and return the initial Session Time."""
 
-        self._started_at_monotonic_s = monotonic()
-        self._stopped_session_time_s = None
-        return 0.0
+        with self._mapping_lock:
+            self._started_at_monotonic_s = monotonic()
+            self._stopped_session_time_s = None
+            return 0.0
 
     def stop(self) -> float:
         """Stop the session clock and freeze the final Session Time."""
 
-        self._stopped_session_time_s = self.current_session_time_s
-        return self._stopped_session_time_s
+        with self._mapping_lock:
+            self._stopped_session_time_s = self.current_session_time_s
+            return self._stopped_session_time_s

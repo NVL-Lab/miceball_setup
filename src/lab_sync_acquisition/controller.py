@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Iterable, TYPE_CHECKING
@@ -138,11 +139,16 @@ class Controller:
         self._last_result: ControllerCommandResult | None = None
         self._command_results: list[ControllerCommandResult] = []
         self._controller_action_decisions: list[ControllerActionDecision] = []
+        self._controller_action_decision_evidence: list[RuntimeEvidenceMessage] = []
+        self._archived_controller_action_decisions: dict[str, dict[str, Any]] = {}
         self._artifact_collection_in_progress = False
         self._launch_communication: NatsControllerCommunication | None = None
         self._reserved_participants: tuple[RuntimeParticipant, ...] = ()
         self._launch_result_window_s: float | None = None
         self._launch_subscriptions = ()
+        self._runtime_cleanup_confirmed = False
+        self._finalization_confirmation = None
+        self._last_released_session: dict[str, Any] | None = None
 
     async def launch_session(
         self,
@@ -359,6 +365,7 @@ class Controller:
     async def start_launched_session(self) -> ControllerCommandResult:
         """Start reserved distributed acquisition through existing runtime commands."""
         session = self._require_session()
+        self._runtime_cleanup_confirmed = False
         try:
             for participant in self._reserved_participants:
                 result = await self._launch_communication.request_command(participant, "start_runtime", session.session_id, {}, self._launch_result_window_s)
@@ -381,11 +388,13 @@ class Controller:
                 except Exception as cleanup_error:
                     rollback.append({"participant": participant.to_dict(), "confirmed": False, "error": str(cleanup_error)})
             self._mark_session_failed(str(error))
+            self._runtime_cleanup_confirmed = bool(rollback) and all(item["confirmed"] for item in rollback)
             return self._record_failed_command("start_session", error, {"rollback": rollback})
 
     async def stop_launched_session(self, reason: str | None = None) -> ControllerCommandResult:
         """Stop/finalize every reserved node before releasing it, independently of global collection."""
         session = self._require_session()
+        self._runtime_cleanup_confirmed = False
         outcomes = []
         for participant in self._reserved_participants:
             try:
@@ -402,6 +411,7 @@ class Controller:
             self._mark_session_failed("Distributed runtime cleanup unconfirmed")
             return self._record_failed_command("stop_session", RuntimeError("Distributed runtime cleanup unconfirmed"), {"nodes": outcomes})
         session.stop(reason)
+        self._runtime_cleanup_confirmed = True
         return self._record_successful_command("stop_session", {"session_state": session.current_state.value, "nodes": outcomes})
 
     @property
@@ -409,6 +419,12 @@ class Controller:
         """Recorded health-derived decisions in presentation order."""
 
         return tuple(self._controller_action_decisions)
+
+    @property
+    def controller_action_decision_evidence(self) -> tuple[RuntimeEvidenceMessage, ...]:
+        """Persistent decision messages available for existing caller-managed publication."""
+
+        return tuple(self._controller_action_decision_evidence)
 
     @property
     def expected_runtime_participants(self) -> tuple[RuntimeParticipant, ...]:
@@ -447,8 +463,44 @@ class Controller:
                 "required": evidence.required,
             },
         )
-        self._controller_action_decisions.append(decision)
+        self._record_action_decision(decision)
         return decision
+
+    def _record_action_decision(self, decision: ControllerActionDecision) -> None:
+        if any(recorded is decision for recorded in self._controller_action_decisions):
+            return
+        message = RuntimeEvidenceMessage(
+            evidence_id=uuid4().hex,
+            session_id=decision.session_id,
+            evidence_type="controller_action_decision",
+            source_id=self._component_id,
+            payload=deepcopy(decision.to_dict()),
+            is_persistent=True,
+        )
+        # Retain ownership even if the existing intake handoff fails.
+        self._controller_action_decisions.append(decision)
+        self._controller_action_decision_evidence.append(message)
+        if self._ingestor is not None:
+            audit = self._ingestor.receive_runtime_evidence(message)
+            if not audit.accepted:
+                raise RuntimeError("Controller decision evidence intake was not accepted")
+
+    def _controller_decision_evidence_snapshot(self, session_id: str) -> dict[str, dict[str, Any]]:
+        return {
+            message.evidence_id: deepcopy(message.to_dict())
+            for message in self._controller_action_decision_evidence
+            if message.session_id == session_id
+        }
+
+    def _require_controller_decision_archival(
+        self, session_id: str, confirmation: dict[str, Any] | None,
+    ) -> None:
+        decisions = self._controller_decision_evidence_snapshot(session_id)
+        if confirmation is None or decisions != self._archived_controller_action_decisions:
+            raise RuntimeError("Controller decision Evidence Archive preservation is unconfirmed")
+        archived = {message["evidence_id"]: message for message in confirmation["runtime_evidence"]}
+        if any(archived.get(identity) != contents for identity, contents in decisions.items()):
+            raise RuntimeError("Current Evidence Archive does not preserve required Controller decisions")
 
     def execute_controller_action_decision(
         self,
@@ -462,6 +514,14 @@ class Controller:
                 raise RuntimeError(
                     "ControllerActionDecision session_id does not match active Session"
                 )
+            if decision.controller_decision not in {
+                "record_only", "record_warning", "record_recoverable_failure",
+                "operator_required", "experiment_fail", "session_fail",
+            }:
+                raise RuntimeError(
+                    f"ControllerActionDecision is not executable in Phase 8b: {decision.controller_decision}"
+                )
+            self._record_action_decision(decision)
             if decision.controller_decision in {
                 "record_only",
                 "record_warning",
@@ -550,6 +610,11 @@ class Controller:
         """Start runtime first, then move Session lifecycle to running."""
 
         session = self._require_session()
+        if self._ingestor is None:
+            return self._record_failed_command(
+                "start_session", RuntimeError("Local Session start requires an explicit Ingestor reference")
+            )
+        self._runtime_cleanup_confirmed = False
         try:
             runtime_result = self._acquisition_node.start_runtime()
             if self._runtime_start_failed(runtime_result):
@@ -738,8 +803,10 @@ class Controller:
         """Stop runtime cleanup first, then move Session to stopping."""
 
         session = self._require_session()
+        self._runtime_cleanup_confirmed = False
         try:
             runtime_result = self._acquisition_node.stop_runtime()
+            self._runtime_cleanup_confirmed = self._acquisition_node.status()["cleanup_confirmed"]
             if self._active_experiment_id is not None:
                 self._end_experiment(self._active_experiment_id, "experiment_stop", details={"reason": reason})
         except Exception as error:
@@ -755,16 +822,33 @@ class Controller:
         )
 
     def finalize_session(self) -> ControllerCommandResult:
-        """Persist Phase 13 evidence products, then complete the Session."""
+        """Persist Phase 13 products, completing only a stopping Session."""
 
         session = self._require_session()
         if self._artifact_collection_in_progress:
             return self._record_failed_command(
                 "finalize_session", RuntimeError("Artifact collection/publication is in progress"))
+        if session.current_state not in {
+                SessionState.STOPPING, SessionState.COMPLETED, SessionState.FAILED, SessionState.ABORTED}:
+            return self._record_failed_command(
+                "finalize_session", RuntimeError("Session must end acquisition before finalization"))
+        self._finalization_confirmation = None
+        self._archived_controller_action_decisions = {}
         try:
+            if self._ingestor is None:
+                raise RuntimeError("Session finalization requires an explicit Ingestor reference")
+            ingest_state = self._session_ingest_state()
             compiled_runtime_evidence = (
                 self._ingestor.compile_persistent_runtime_evidence()
             )
+            decision_snapshot = self._controller_decision_evidence_snapshot(session.session_id)
+            compiled_messages = {
+                message.evidence_id: message.to_dict()
+                for message in compiled_runtime_evidence["runtime_evidence"]
+            }
+            if any(compiled_messages.get(identity) != contents
+                   for identity, contents in decision_snapshot.items()):
+                raise RuntimeError("Required Controller decision evidence is missing from persistent compilation")
             artifact_collection_handoff = self._ingestor.compile_artifact_collection_handoff(
                 session.session_id
             )
@@ -772,12 +856,22 @@ class Controller:
                 session.session_id,
                 compiled_runtime_evidence,
             )
+            if not isinstance(archive_paths, dict) or not all(
+                isinstance(archive_paths.get(name), Path)
+                for name in ("runtime_evidence", "ingest_audit", "compilation_summary")
+            ):
+                raise RuntimeError("Evidence Archive write confirmation is unavailable")
             final_record_path = self._write_final_session_record()
+            if decision_snapshot != self._controller_decision_evidence_snapshot(session.session_id):
+                raise RuntimeError("Controller decision evidence changed during final persistence")
         except Exception as error:
             self._mark_session_failed(str(error))
             return self._record_failed_command("finalize_session", error)
 
-        session.complete()
+        if session.current_state == SessionState.STOPPING:
+            session.complete()
+        self._archived_controller_action_decisions = decision_snapshot
+        self._finalization_confirmation = (ingest_state, str(final_record_path))
         return self._record_successful_command(
             "finalize_session",
             {
@@ -790,6 +884,77 @@ class Controller:
                 "artifact_collection_handoff": artifact_collection_handoff,
             },
         )
+
+    async def release_session(self) -> ControllerCommandResult:
+        """Release a terminal binding after confirmed cleanup and final persistence."""
+        session = self._session
+        try:
+            session = self._require_session()
+            if session.current_state not in {SessionState.COMPLETED, SessionState.FAILED, SessionState.ABORTED}:
+                raise RuntimeError("Session release requires a terminal Session")
+            if not session.cleanup_occurred or not self._runtime_cleanup_confirmed:
+                raise RuntimeError("Session runtime cleanup is unconfirmed")
+            if self._artifact_collection_in_progress or self._active_experiment_id is not None:
+                raise RuntimeError("Session-specific work remains active")
+            if self._acquisition_node is not None:
+                status = self._acquisition_node.status()
+                if status["is_running"] or not status["cleanup_confirmed"]:
+                    raise RuntimeError("AcquisitionNode cleanup is unconfirmed")
+            if self._synchronization_manager is not None and self._synchronization_manager.is_running:
+                raise RuntimeError("Session Time is still running")
+            if self._finalization_confirmation is None:
+                raise RuntimeError("Required final persistence is unconfirmed")
+            ingest_state, record_path = self._finalization_confirmation
+            if ingest_state != self._session_ingest_state():
+                raise RuntimeError("Accepted intake changed after final persistence")
+            with self._storage_manager.session_preservation_guard(session.session_id) as confirmation:
+                self._require_controller_decision_archival(session.session_id, confirmation)
+                # Refresh the pre-completion record to preserve the actual terminal outcome.
+                record_path = str(self._write_final_session_record())
+            subscriptions = self._launch_subscriptions
+            for subscription in subscriptions:
+                await subscription.unsubscribe()
+                if self._session is not session:
+                    raise RuntimeError("Controller Session binding changed during release")
+            # No await inside this guard: archive/record writes cannot overtake commitment.
+            with self._storage_manager.session_preservation_guard(session.session_id) as confirmation:
+                if ingest_state != self._session_ingest_state():
+                    raise RuntimeError("Accepted intake changed during Session release")
+                self._require_controller_decision_archival(session.session_id, confirmation)
+                record = confirmation["session_record"]
+                lifecycle = record.get("session_lifecycle_evidence", [])
+                if (record.get("accepted_session_config", {}).get("session_id") != session.session_id
+                        or record.get("final_session_status") != session.final_status
+                        or not lifecycle or lifecycle[-1].get("to_state") != session.current_state.value):
+                    raise RuntimeError("Terminal Session Record preservation is unconfirmed")
+                outcome = {"session_id": session.session_id,
+                           "session_state": session.current_state.value,
+                           "final_session_status": dict(session.final_status),
+                           "session_record_path": record_path}
+                if self._session is not session:
+                    raise RuntimeError("Controller Session binding changed during release")
+                self._last_released_session = outcome
+                self._session = None
+                self._launch_communication = None
+                self._reserved_participants = ()
+                self._launch_result_window_s = None
+                self._launch_subscriptions = ()
+                self._runtime_cleanup_confirmed = False
+                self._finalization_confirmation = None
+                self._archived_controller_action_decisions = {}
+                self._controller_action_decisions.clear()
+                self._controller_action_decision_evidence.clear()
+                self._active_experiment_runtime_health_mapping = ()
+                self._command_results.clear()
+        except Exception as error:
+            if self._session is not session:
+                # A stale operation must not record its failure in a newer binding.
+                return ControllerCommandResult(
+                    "release_session", False, {"session_id": session.session_id},
+                    f"{type(error).__name__}: {error}",
+                )
+            return self._record_failed_command("release_session", error)
+        return self._record_successful_command("release_session", outcome)
 
     def collect_session_artifacts(self) -> ControllerCommandResult:
         """Initiate post-session collection without changing lifecycle policy."""
@@ -847,6 +1012,7 @@ class Controller:
                 self._active_experiment_runtime_health_mapping
             ),
             "last_command": self._last_result,
+            "last_released_session": self._last_released_session,
         }
 
     def _require_session(self) -> Session:
@@ -903,8 +1069,10 @@ class Controller:
         return False
 
     def _attempt_runtime_stop(self) -> None:
+        self._runtime_cleanup_confirmed = False
         try:
             self._acquisition_node.stop_runtime()
+            self._runtime_cleanup_confirmed = self._acquisition_node.status()["cleanup_confirmed"]
         except Exception as error:
             self._record_failed_command("stop_runtime_cleanup", error)
 
@@ -942,11 +1110,9 @@ class Controller:
             "device_readiness_evidence": session.device_readiness_summary,
             "service_readiness_evidence": session.service_readiness_checks,
             "accepted_acquisition_envelopes": (
-                self._storage_manager.read_envelopes()
+                self._storage_manager.get_envelopes_for_session(session.session_id)
             ),
             "ingest_audit_records": self._ingestor.ingest_audit if self._ingestor is not None else (),
-            "runtime_evidence": self._ingestor.accepted_runtime_evidence if self._ingestor is not None else (),
-            "runtime_evidence_audit": self._ingestor.runtime_evidence_audit if self._ingestor is not None else (),
             "final_session_status": session.final_status,
             "cleanup_evidence": {
                 "cleanup_occurred": session.cleanup_occurred,
@@ -958,6 +1124,10 @@ class Controller:
             "experiment_lifecycle_evidence": session.experiment_lifecycle_evidence,
             "experiment_descriptors": session.experiment_descriptors,
         }
+
+    def _session_ingest_state(self) -> tuple[Any, ...]:
+        return (self._ingestor.accepted_envelopes, self._ingestor.ingest_audit,
+                self._ingestor.accepted_runtime_evidence, self._ingestor.runtime_evidence_audit)
 
     def _write_initial_session_record(self) -> Path:
         session = self._require_session()

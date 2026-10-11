@@ -236,17 +236,17 @@ class ControllerWorkflowTests(unittest.TestCase):
                 len(session_record["accepted_acquisition_envelopes"]),
                 3,
             )
+            for record in (initial_record, session_record):
+                self.assertEqual(record["runtime_evidence"], [])
+                self.assertEqual(record["runtime_evidence_audit"], [])
             self.assertEqual(
-                session_record["runtime_evidence"],
-                [artifact_manifest.to_dict()],
+                session_record["ingest_audit_records"],
+                [audit.to_dict() for audit in ingestor.ingest_audit],
             )
-            self.assertEqual(
-                session_record["runtime_evidence_audit"],
-                [runtime_audit.to_dict()],
-            )
+            self.assertEqual(len(session_record["ingest_audit_records"]), 3)
             self.assertNotIn(
                 "artifact_bytes",
-                session_record["runtime_evidence"][0]["payload"],
+                archived_runtime_evidence[0]["payload"],
             )
             self.assertEqual(archived_runtime_evidence, [artifact_manifest.to_dict()])
             self.assertEqual(archived_ingest_audit, [runtime_audit.to_dict()])
@@ -270,6 +270,28 @@ class ControllerWorkflowTests(unittest.TestCase):
             )
             self.assertFalse(session_record["cleanup_evidence"]["cleanup_occurred"])
             self.assertIsNone(session_record["final_session_status"])
+
+    def test_local_start_without_controller_ingestor_is_rejected_before_runtime_start(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            _, manager, node, config = self._controller_fixture(root)
+            storage = PersistentStorageManager(root / "accepted_records.jsonl")
+            controller = Controller(acquisition_node=node, storage_manager=storage)
+            manager.initialize_all(config={"mode": "missing-controller-ingestor"})
+            readiness = node.check_ready()
+            self.assertTrue(controller.create_session(config).succeeded)
+            self.assertTrue(controller.initialize_session(
+                readiness["device_readiness"], readiness["service_readiness"]
+            ).succeeded)
+
+            result = controller.start_session()
+
+            self.assertFalse(result.succeeded)
+            self.assertIn("Local Session start requires an explicit Ingestor reference", result.error)
+            self.assertEqual(controller.get_status()["session_state"], "initialized")
+            self.assertFalse(node.status()["is_running"])
+            self.assertFalse((root / f"session_{config.session_id}" / "session_record_initial.json").exists())
+            manager.shutdown_all()
 
     def test_start_runtime_failure_marks_initialized_session_failed(self):
         with tempfile.TemporaryDirectory() as directory:

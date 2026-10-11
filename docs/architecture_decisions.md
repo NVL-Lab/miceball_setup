@@ -3062,6 +3062,14 @@ Device streaming is source-specific and not implied by Session start.
 
 **Status:** Accepted
 
+**Historical finalization note:** The Controller v1 two-write sequence below
+records the Phase 4 design and validation. Decisions 226-229 subsequently separate
+the Evidence Archive from the Session Record and require final persistence before
+successful completion. Current Phase 13 finalization writes the archive and final
+record before `Session.complete()`; this note does not assert that the persisted
+record contains a post-completion terminal snapshot. That representation remains
+for separate architectural review, as does Q019's evidence-consumption guarantee.
+
 A Session may transition directly from `initialized` to `failed` when a pre-running framework or runtime failure prevents acquisition from safely starting.
 
 Session completion requires persistent Session Record finalization. Controller v1 uses two persistence steps:
@@ -4683,6 +4691,12 @@ Controller consumes evidence that requires Controller decision-making.
 
 Ingestor consumes durable evidence for preservation as part of the Session Record.
 
+**Phase 13 destination clarification (Decisions 219-227):** The historical
+Session Record wording above now refers to preservation supporting that record.
+Producer-marked persistent runtime evidence and runtime-evidence audit are
+compiled by Ingestor for StorageManager's separate Evidence Archive. Independent
+consumption and evidence ownership remain unchanged.
+
 Components do not relay, forward, or republish evidence on behalf of other components.
 
 NATS is the communication hub.
@@ -5367,6 +5381,12 @@ SynchronizationManager creates and owns MappingUpdateEvidence. Ingestor owns run
 
 No new timing-storage component is introduced.
 
+**Phase 13 destination clarification (Decisions 219-227):** Preserve the
+historical Phase 11 wording above; persistent MappingUpdateEvidence now follows
+Ingestor compilation into StorageManager's separate Evidence Archive, not a
+conceptual runtime-evidence dump in the Session Record. Timing, intake, and
+persistence ownership are unchanged.
+
 ## Decision 176: Synchronization mapping ownership handoff is explicit
 
 **Status:** Accepted
@@ -5432,6 +5452,10 @@ It does not create:
 - a new transport path
 - a new timing owner
 - a new Session Record owner
+
+**Phase 13 destination clarification:** In the historical ownership chain above,
+StorageManager remains the persistence owner; Decisions 226-227 distinguish its
+Evidence Archive for persistent runtime evidence from the Session Record itself.
 
 ## Phase 11 ownership chain
 
@@ -6725,6 +6749,11 @@ fully or had failures. Controller need not interpret filenames, paths, SFTP deta
 or per-file exceptions. Session lifecycle/completion consequences of aggregate
 collection failure remain undecided and outside Slice 23.
 
+**Subsequent clarification (Decision 303):** The former Q017 is resolved: later
+global processing failure cannot retroactively change a completed Session.
+This does not change Slice 23's retrieval/result contract or required
+pre-completion cleanup and persistence.
+
 **Slice 24 clarification:** Decision 270 extends aggregate reporting to include
 light-verification outcomes. The historical Slice 23 retrieval aggregate remains
 distinct from complete verified collection; no Session lifecycle policy is implied.
@@ -6990,6 +7019,11 @@ completion consequences remain a future high-level architecture question; Slice
 24 does not choose them. No retry/replay, resumable transfer, repair, deletion,
 new verification service, or new Session lifecycle policy is introduced.
 
+**Subsequent clarification (Decision 303):** The historical open-policy wording
+above is resolved for later global processing: failure cannot retroactively
+change a completed Session's lifecycle. Verification outcomes, aggregate
+reporting, pre-completion requirements, and Q019's open coordination are unchanged.
+
 **Implementation status for Decisions 261-270:** Complete (M012, W032), with
 26 focused verification tests, 21 retrieval/handoff regressions, and six independent
 manual IPython scenarios passed. Final discovery ran 340 tests: 333 passed,
@@ -7151,6 +7185,12 @@ Collection evidence must not reopen Experiments, rewrite their lifecycle, change
 acquisition success into failure, change local artifact finalization outcomes,
 or reinterpret scientific Session success. Global collection remains a separate
 operational outcome; further lifecycle policy stays open under Q017.
+
+**Subsequent clarification (Decision 303):** Q017 is resolved: later global
+processing failure cannot retroactively change a completed Session's lifecycle.
+The historical open-policy wording above does not reopen that question. Required
+pre-completion persistence/cleanup and Q019's consumption coordination remain
+unchanged; collection evidence and ownership remain governed by Decisions 271-275.
 
 The evidence-enabled implementation exposes an explicit sequence:
 `stop_session()`, await `collect_session_artifacts_with_evidence()`, then
@@ -7939,9 +7979,626 @@ the next Session's own configuration.
 
 ---
 
+## Decision 303: Later global processing failures do not retroactively change Session lifecycle
+
+**Status:** Accepted
+
+This resolves Q017 while preserving Decisions 032, 034, 041, and 271-275.
+
+Post-session global artifact collection, verification, transfer, or later export
+failures must not retroactively change Session lifecycle. A Session that reached
+`completed` under its accepted lifecycle remains `completed`, even if subsequent
+global processing operations fail.
+
+These failures are operational outcomes, not Session acquisition lifecycle
+outcomes. Scientific acquisition outcome, Experiment lifecycle, local artifact
+finalization, global retrieval, verification, and export remain distinct; their
+domain-specific result vocabularies are not replaced by a common status model.
+
+The Session lifecycle remains:
+
+```text
+created
+initialized
+running
+stopping
+completed
+failed
+aborted
+```
+
+This rule does not eliminate failure handling during Session initialization,
+acquisition, stopping, or required cleanup before terminal completion. Decisions
+228-229 still require successful final persistence before successful completion;
+this decision neither changes that order nor defines a terminal-record schema.
+
+Session retains lifecycle ownership. Controller retains orchestration ownership;
+StorageManager retains collection, verification, persistence, and its own
+operational-evidence responsibilities. No new processing status model, lifecycle
+state, notification mechanism, or evidence subsystem is introduced.
+
+Q019's Session-wide evidence consumption and final Evidence Archive closure
+coordination remain unresolved. Q020, Q021, Q023, and Q024 retain their separate
+future architecture scope. This decision does not settle retention/deletion,
+recovery, transfer scheduling, reconstruction, or export implementation.
+
+**Principle**
+
+A completed Session remains completed. Later global processing failures are
+reported as operational outcomes, not retroactive acquisition lifecycle failures.
+
+---
+
+## Decision 304: Principal operational services have Session-independent and GUI-independent lifetimes
+
+**Status:** Accepted
+
+The framework's principal operational services - Controller, AcquisitionNode,
+Ingestor, StorageManager, and SynchronizationManager - have lifetimes independent
+of individual Sessions and the GUI. Their internal components may be retained
+and reused according to their existing ownership and lifecycle contracts.
+
+Starting or ending a Session does not inherently create or terminate these
+services. They may participate in successive Sessions without service recreation
+and may be idle or inactive between acquisition runs. Long-lived does not mean
+continuously acquiring or consuming hardware resources, and does not require one
+operating-system process per service.
+
+Session remains a bounded runtime entity with its own identity, configuration,
+lifecycle, and scientific records. Session-specific runtime objects may be
+created, finalized, and released under their existing contracts. DeviceManager
+remains owned by AcquisitionNode; DeviceAdapters remain managed runtime objects,
+not independently operating services merely because they may be retained.
+
+GUI is a client, not an operational service. It may connect, disconnect, or
+restart independently; Controller remains operational independently of GUI
+lifetime. Ending a Session does not automatically terminate its participating
+operational services.
+
+This foundational lifetime decision preserves bounded-memory requirements,
+resource ownership, participant initialization, and DeviceAdapter cleanup/reuse
+under Decisions 300 and 302. It does not settle Session-binding release details,
+service supervision, or concurrent scheduling, and does not claim that every
+current collaborator already supports service reuse.
+
+**Principle**
+
+Operational service lifetime is independent of Session and GUI lifetime;
+Session-specific resources retain their existing lifecycle contracts.
+
+---
+
+## Decision 305: Framework stop is scoped Controller-coordinated closeout, not Session stop
+
+**Status:** Accepted
+
+Session stop belongs to the bounded Session lifecycle and its scientific
+acquisition/cleanup behavior. Framework `stop` is an operator-requested orderly
+closeout of a specified operational scope for maintenance, restart, or downtime.
+Ending a Session normally does not automatically trigger framework stop.
+
+Controller coordinates framework stop using existing distributed command and
+result mechanisms. GUI may eventually request it, but does not own execution.
+Each participating service or component retains ownership of its cleanup,
+resource release, and operational behavior; Controller coordinates and evaluates
+results rather than taking over component internals.
+
+Framework stop respects the requested scope and protects shared services and
+resources serving unrelated scopes. It does not automatically shut down every
+running service or expand the operation to the entire framework. NATS remains
+external infrastructure under Decision 295.
+
+Framework stop must not initiate post-session artifact collection, verification,
+transfer, or export workflows. These retain their existing architectural
+contracts. No framework-wide lifecycle state machine or additional Session
+lifecycle state is introduced.
+
+---
+
+## Decision 306: Each framework stop request has a durable stop-attempt identity
+
+**Status:** Accepted
+
+Each framework stop request creates a uniquely identified attempt with a durable
+`stop_attempt_id`. The attempt preserves its requested scope, operator/requester
+identity, relevant timestamps, actions, blocking conditions, and outcome.
+
+Subsequent retries create new attempts with new identities; this does not
+introduce an automatic retry mechanism. Stop attempts are distinct from Session
+identity and Session lifecycle.
+
+The accepted attempt outcomes are exactly:
+
+```text
+completed
+blocked
+failed
+```
+
+These describe framework stop attempts, not Session states or individual
+distributed command results. No additional outcome vocabulary, identifier format,
+public model, or persisted schema is defined by this decision.
+
+---
+
+## Decision 307: Orderly framework stop requires confirmed closeout conditions
+
+**Status:** Accepted
+
+Before declaring orderly framework stop completed, Controller obtains relevant
+participant status/readiness information, uses bounded waiting for responses,
+identifies conditions preventing safe or orderly closeout, and confirms the
+outcomes required by the stop contract.
+
+Participants retain ownership of cleanup and operational actions. Controller
+respects authorized scope and shared-service protections throughout closeout.
+Missing, delayed, or unconfirmed participant responses are not evidence of
+success. An orderly stop attempt cannot be reported completed while required
+closeout conditions remain unresolved.
+
+Waiting durations, response windows, concrete closeout commands, and any polling
+details require subsequent low-level definition. This decision invents no timeout
+constant, polling protocol, transport mechanism, or component-specific cleanup
+behavior beyond existing contracts.
+
+---
+
+## Decision 308: Blocked framework stop is an explicit operator decision point
+
+**Status:** Accepted
+
+A framework stop attempt is `blocked` when unresolved conditions prevent orderly
+closeout. Controller reports concise, actionable blocking conditions grouped by
+the responsible participant or architectural domain and identifies the affected
+scope. Missing responses are unresolved blocking conditions, not confirmed remote
+failures or successful closeout.
+
+`blocked` is not successful completion. The operator may authorize forced
+closeout through framework `kill` or decline it. No separate health subsystem or
+generalized framework status model is introduced.
+
+---
+
+## Decision 309: Framework kill is authorized forced continuation of a blocked stop attempt
+
+**Status:** Accepted
+
+Framework `kill` is available only after a stop attempt reaches `blocked` and
+references that existing `stop_attempt_id`. It is not an independent, unrelated
+shutdown request. Operator authorization is required.
+
+Once authorized, Controller proceeds without repeating the entire stop
+status/readiness check. The original blocking conditions remain recorded, along
+with actual forced actions and their outcomes. Kill must not claim that
+unresolved work was successfully completed or assume that forced closeout
+guarantees successful cleanup or data preservation.
+
+Participating services and components retain responsibility for their own
+forced-closeout behavior. Controller coordinates through existing command/result
+boundaries; kill remains restricted to authorized scope and protects shared
+services and resources serving unrelated scopes. Decisions 300 and 302's
+cleanup-confirmation and safe-reuse contracts are unchanged.
+
+Kill must not initiate post-session artifact collection, verification, transfer,
+or export workflows. No process-termination API, new adapter state/reset
+operation, or component-specific forced-closeout mechanism is defined here.
+
+---
+
+## Decision 310: Declining framework kill ends the blocked attempt as failed
+
+**Status:** Accepted
+
+If the operator declines forced closeout after a blocked stop, the stop attempt
+ends as `failed`. Its original blocking conditions remain recorded and no forced
+closeout is executed. A later retry requires a new stop attempt with a new
+`stop_attempt_id`.
+
+This operational outcome does not automatically change an unrelated Session
+lifecycle. Decision 303 continues to protect completed Session lifecycle from
+retroactive changes due to later global processing failures.
+
+---
+
+## Decision 311: Framework stop and kill protect shared participants and unrelated scopes
+
+**Status:** Accepted
+
+Shared services must not be indiscriminately terminated by an operation affecting
+only one Session or another narrower scope. They may release resources belonging
+to the requested scope while remaining operational for unrelated uses.
+
+Exclusive participants may be stopped or moved into a supported inactive/sleep
+state as appropriate. This does not invent a new operational or lifecycle state.
+Ordinary operator stop/kill authority must not implicitly include administrative
+authority to terminate shared infrastructure.
+
+Scope and ownership must be explicit enough to prevent accidental disruption of
+unrelated Sessions or services. Stop/kill must not automatically expand from the
+requested scope to the entire framework. No complete administrative shutdown,
+service-supervision, or permission-management subsystem is introduced.
+
+---
+
+## Decision 312: Framework stop and kill preserve durable attempt evidence through existing boundaries where applicable
+
+**Status:** Accepted
+
+Framework stop/kill must preserve durable evidence of each attempt and its actual
+outcomes, distinguishing:
+
+- operator request and authorization;
+- stop-attempt identity and requested scope;
+- relevant timestamps;
+- participant status and blocking conditions;
+- orderly closeout actions and results;
+- kill authorization, when applicable;
+- forced actions and results;
+- final attempt outcome.
+
+Reuse existing runtime-evidence, distributed communication, and persistence
+mechanisms where applicable. Transport publication alone proves neither durable
+storage nor successful participant execution. Do not redesign Session Record,
+Evidence Archive, Ingestor, or StorageManager merely to support this phase.
+
+If existing mechanisms cannot support a required durability guarantee, report
+the architectural dependency rather than inventing a new subsystem. Evidence
+representation and preservation for attempts outside a Session, persistence
+confirmation, and ordering of evidence preservation versus service closeout
+remain low-level dependencies under Q025; no new evidence type or schema is
+chosen here. Q019's Session-wide evidence consumption/final archive coordination
+remains independently unresolved.
+
+**Phase 16 implementation status (Decisions 304-312):** Accepted architecture
+only. Framework stop/kill is not implemented or validated. Existing Session,
+Experiment, acquisition, storage, timing, reservation, initialization, and adapter
+cleanup/reuse contracts remain unchanged. Q017 remains resolved by Decision 303;
+Q019, Q020, Q021, Q023, Q024, and other unresolved questions stay open. No new
+operational service, GUI control, supervisor, framework-wide state machine,
+transport, public API, persisted schema, or automatic post-session processing is
+introduced by this documentation synchronization.
+
+---
+
+## Decision 313: Operational services independently release confirmed Session bindings for reuse
+
+**Status:** Accepted
+
+The principal operational services retain the Session-independent and
+GUI-independent lifetimes accepted in Decision 304. Each service independently
+releases its active Session binding when its own Session-specific cleanup and
+evidence responsibilities are confirmed:
+
+- Controller releases its active Session reference after terminal cleanup and
+  required durable-record obligations.
+- Ingestor releases its active Session binding after required evidence is handed
+  off or durably preserved.
+- SynchronizationManager releases its prepared Session binding after Session
+  Time stops and required synchronization evidence obligations are satisfied.
+- AcquisitionNode retains its existing cleanup and reuse behavior.
+
+Binding release does not terminate a service, delete durable evidence, or discard
+outstanding obligations. Successive Sessions must be supported without
+unnecessary service recreation. Bounded-memory requirements and existing
+internal component ownership remain unchanged.
+
+This resolves the binding-release ownership and conditions left open by
+Decisions 301 and 304; it does not claim implementation or M015 validation.
+
+---
+
+## Decision 314: General framework shutdown and individual service maintenance are distinct operations
+
+**Status:** Accepted
+
+An administrator may request orderly general framework shutdown through
+Controller. Controller evaluates closeout readiness of participating services
+and relevant dependencies before stopping any service. If any required condition
+is unsatisfied, the entire attempt is blocked, no service is stopped, and
+Controller reports blockers for administrator authorization of kill or refusal.
+
+When all checks pass, Controller executes orderly shutdown in dependency-safe
+order. If shutdown begins but cannot finish successfully, the attempt is failed;
+confirmed results are preserved. No automatic rollback or restart is required.
+Each service owns its cleanup; Controller coordinates the overall operation.
+
+An administrator may independently stop or kill an individual service, including
+one on another computer, without stopping the entire framework or requiring
+Controller orchestration. A local administrative interface may be used. The
+target service evaluates closeout conditions and reports blockers, using the
+same stop-attempt identity, outcomes, authorization, evidence, and service-owned
+cleanup principles. No remote OS process management is introduced.
+
+This specifies the two maintenance scopes under Decisions 305-311. General
+framework shutdown remains Controller-coordinated; individual service
+maintenance is not a hidden peer-to-peer framework orchestration path. Normal
+Experiment stop, Session stop, and GUI close remain separate operations. Narrow
+requests do not acquire authority over unrelated shared services or infrastructure.
+
+---
+
+## Decision 315: Maintenance attempts use existing correlation and exact closeout outcomes
+
+**Status:** Accepted
+
+Use existing distributed-command/result infrastructure where applicable. Common
+contracts carry target identity, stop_attempt_id, command correlation, blocking
+information, and outcome without a new command mechanism.
+
+The accepted attempt outcomes have these meanings:
+
+- completed: requested orderly closeout completed, or authorized forced
+  termination was confirmed.
+- blocked: pre-stop evaluation found unresolved conditions before shutdown began.
+- failed: shutdown began but did not complete, forced termination failed or
+  remained unconfirmed, or the administrator declined kill.
+
+Kill is explicitly authorized forced continuation of the same blocked attempt,
+using its existing stop_attempt_id without repeating the entire status/readiness
+check. Preserve original blockers and actual actions/results. Forced termination
+confirmation does not assert that unresolved cleanup or data-preservation work
+succeeded. Declining kill executes no forced action; a later retry has a new
+attempt identity under Decisions 306 and 310.
+
+If forced termination fails or cannot be confirmed, report failed, identify the
+affected service, and inform the administrator that manual intervention is
+required. The terminated service need not report its own death; the initiator
+preserves the last confirmed results and available evidence.
+
+No additional attempt states, error taxonomy, permission infrastructure,
+supervisor, remote OS termination, or automatic process restart is introduced.
+Decisions 300 and 302's cleanup-confirmation and safe-reuse contracts remain.
+
+---
+
+## Decision 316: Services own explicit directional closeout dependencies and blockers
+
+**Status:** Accepted
+
+Dependencies are explicit and directional, based on actual operational
+requirements. Controller must not infer dependencies merely from communication
+traffic or create reciprocal dependencies merely because services communicate.
+Each service evaluates its own conditions; Controller additionally evaluates
+relevant cross-service dependencies during general shutdown.
+
+- AcquisitionNode: active Session participation, unfinished acquisition/storage/
+  evidence obligations, or devices and reservations not safely released block
+  orderly stop. An idle AcquisitionNode may stop independently.
+- SynchronizationManager: active Session synchronization requirements or
+  unfinished synchronization/evidence obligations block orderly stop. An idle
+  AcquisitionNode does not by itself block SynchronizationManager.
+- StorageManager: active transfers, unfinished writes, or outstanding persistence
+  obligations block orderly stop. Completed artifacts awaiting a future manually
+  requested transfer do not block shutdown.
+- Ingestor: unpreserved accepted evidence or operational services configured to
+  depend on it block orderly stop. An operational AcquisitionNode configured to
+  send messages to Ingestor blocks its orderly shutdown even without an active
+  Session. A running service without an actual Ingestor dependency is not a blocker.
+- Controller: an active Session, unfinished Controller-coordinated distributed
+  operations, or outstanding Controller-owned cleanup/evidence obligations block
+  orderly stop. Other idle services do not automatically block Controller.
+
+Services that have completed closeout cease to be operational blockers. Reuse
+existing status, readiness, and participant mechanisms, extending them minimally;
+do not introduce a dependency manager or generalized dependency graph.
+
+---
+
+## Decision 317: General shutdown preserves evidence in dependency-safe service order
+
+**Status:** Accepted
+
+General shutdown begins with complete pre-stop readiness evaluation. Once all
+required participants confirm readiness, Controller executes dependency-safe
+shutdown in the accepted evidence-preservation order:
+
+```text
+Evidence-producing services -> Ingestor -> StorageManager -> Controller
+```
+
+SynchronizationManager completes synchronization and evidence obligations before
+Ingestor closes. Controller remains operational to coordinate closeout and record
+the overall result, and stops last after required final evidence is durably
+preserved.
+
+Controller cannot confirm its own termination after exiting. It records readiness
+for final termination and initiates exit without requiring a new supervisor.
+This does not require the terminated service to report its own death or claim
+post-exit confirmation that was not obtained.
+
+No new global evidence-drain subsystem is introduced. Q019's separate Session-wide
+consumption/final Evidence Archive coordination remains unresolved.
+
+---
+
+## Decision 318: Existing runtime evidence and Evidence Archive support Session-independent framework evidence
+
+**Status:** Accepted
+
+Ingestor and Evidence Archive are general framework infrastructure even though
+their current implementation is Session-specific. Session evidence retains
+Session identity. Framework-level evidence, including service startup, readiness,
+and stop/kill evidence, may exist without a Session identity.
+
+Extend existing evidence contracts minimally to support this distinction; never
+fabricate Session identifiers or create a separate evidence system. Reuse
+RuntimeEvidenceMessage, Ingestor, StorageManager, and Evidence Archive boundaries
+without transferring evidence meaning or persistence ownership.
+
+Stop-attempt evidence preserves:
+
+- stop_attempt_id;
+- target service or framework scope;
+- blocking conditions;
+- administrator authorization or refusal;
+- confirmed orderly and forced actions;
+- final outcome;
+- failures and unconfirmed termination results.
+
+Decision 306's requester identity and relevant timestamps remain required.
+This supplements the historical Session-only scope of Decisions 219-231 and
+312; Session Record remains the record of a Session, not a fabricated container
+for Session-independent framework evidence. No message schema, persisted format,
+archive layout extension, category-specific archive, or new public API is
+implemented by this documentation decision.
+
+---
+
+## Decision 319: Required evidence preservation precedes orderly service closeout
+
+**Status:** Accepted
+
+Each service completes required evidence submission before confirming orderly
+closeout. Ingestor confirms accepted evidence has been durably preserved before
+closing. StorageManager remains available until Ingestor's required evidence
+preservation is confirmed, then completes its own outstanding writes.
+
+Individual service maintenance also uses Ingestor and StorageManager to preserve
+required evidence before termination. If required evidence cannot be preserved,
+orderly stop is blocked. During general shutdown this is subject to Decision 314's
+pre-stop evaluation: no service stops while required preconditions are unsatisfied;
+failure after shutdown begins is failed under Decision 315.
+
+Authorized kill may proceed despite an evidence-preservation blocker. The
+initiator preserves whatever evidence it can confirm; forced termination does
+not guarantee complete evidence preservation. Transport publication alone remains
+neither Ingestor acceptance nor permanent persistence confirmation.
+
+Reuse existing evidence/persistence infrastructure; do not introduce a new archive,
+transport, or persistence subsystem or silently resolve Q019.
+
+---
+
+## Decision 320: Service failure and forced termination do not cascade service lifetime
+
+**Status:** Accepted
+
+If a service stops unexpectedly or is forcibly terminated, other services remain
+alive and do not automatically stop or restart. Missing dependencies are reported
+through existing health/readiness mechanisms. Operations requiring the missing
+service cannot proceed normally; unrelated operations may continue.
+
+Communication can be reestablished when the service returns without restarting
+the entire framework. This does not promise automatic recovery of interrupted
+Sessions, transfers, or messages, introduce automatic process restart, or change
+Session lifecycle. Q011, Q016, and Q024 retain their separate recovery questions.
+
+---
+
+## Decision 321: Operational services start independently and report current dependency readiness
+
+**Status:** Accepted
+
+Each operational service supports independent startup. At startup it:
+
+1. Initializes its own components.
+2. Loads existing durable configuration and records required for normal operation.
+3. Connects to existing communication infrastructure.
+4. Discovers available dependencies through existing mechanisms.
+5. Reports actual readiness.
+6. Supports operations whose dependencies are available.
+
+A service may start successfully while some dependencies are unavailable.
+Readiness reflects dependencies appearing or disappearing. Other services
+recognize a restarted service without requiring framework-wide restart.
+Unresolved previous operations are reported using existing mechanisms;
+interrupted Sessions or transfers are not automatically resumed.
+
+This does not introduce a discovery service, registry, recovery subsystem,
+supervisor, remote OS/SSH/systemd process management, automatic rollback after
+partial shutdown, or automatic process restart. Deployment configuration remains
+Q022; application recovery and recovery-journal retention remain Q024. No GUI,
+new Session lifecycle state, or automatic post-session collection, verification,
+transfer, export, or transfer scheduling is introduced by maintenance/startup.
+
+**Phase 16 low-level status (Decisions 313-321):** Accepted architecture only;
+unimplemented and unvalidated. These contracts resolve Q025's five narrowed
+questions without changing the exact historical text of Decisions 304-312.
+Concrete APIs, schemas, and implementation are not added by this synchronization.
+M015 remains open pending independent validation/audit; Q019, Q021, Q024, and
+unrelated future questions remain open. Historical validation records are unchanged.
+
+---
+
+## Decision 322: Every ControllerActionDecision is persistent and requires confirmed archival before Controller Session-binding release
+
+**Status:** Accepted
+
+Every `ControllerActionDecision` is persistent, including:
+
+- `record_only`
+- `record_warning`
+- `record_recoverable_failure`
+- `operator_required`
+- `experiment_fail`
+- `session_fail`
+
+Persistence does not depend on whether the decision produces an operational
+consequence or changes lifecycle state. Controller owns each decision and sets
+`is_persistent = True` in its corresponding `RuntimeEvidenceMessage`. No further
+persistence-selection criteria apply.
+
+Reuse the existing evidence pathway:
+
+```text
+Controller -> RuntimeEvidenceMessage -> Ingestor -> StorageManager -> Evidence Archive
+```
+
+Controller produces the evidence and declares its persistence. Ingestor owns
+intake, validation, audit, temporary retention, and persistent-evidence
+compilation. StorageManager owns durable writing. Neither Ingestor nor
+StorageManager independently determines whether a Controller decision deserves
+persistence. No new evidence hierarchy, subsystem, transport, or storage
+mechanism is introduced.
+
+This clarifies Controller's evidence obligations under Decision 313. Controller
+may release its active Session binding only after:
+
+1. Required Session cleanup and durable Session Record obligations are complete.
+2. Every Controller-owned persistent ControllerActionDecision associated with
+   that Session has confirmed durable preservation through the existing Evidence
+   Archive pathway.
+
+Successful NATS publication alone is not sufficient. Once those obligations are
+confirmed, Controller may release its binding and retire the corresponding
+temporary in-memory decision records. Binding release must not delete durable
+evidence or discard outstanding obligations.
+
+Decision 226 remains unchanged: Session Record describes the Session; Evidence
+Archive stores persistent runtime evidence. ControllerActionDecision evidence
+belongs in the Evidence Archive, not as a raw runtime-evidence dump in the Session
+Record. Session Record responsibilities are not expanded to satisfy this contract.
+
+This establishes Controller-specific preservation obligations, not a guarantee
+that all Session evidence published by all participants has been consumed. It
+does not introduce a Session-wide drain or acknowledgment protocol, change global
+Evidence Archive finalization semantics, or resolve Q019.
+
+**Implementation status:** The narrow Phase 16 Slice 1 follow-up implements
+persistent Controller decision packaging, submission to an attached Ingestor,
+and exact decision-message archival confirmation before binding release.
+Caller-managed broker publication uses the existing boundary and does not itself
+confirm archival. Decision 313 remains partially implemented; evidence-bearing
+Ingestor/SynchronizationManager release now has narrow implementation paths:
+Ingestor checks exact persistent-message/runtime-audit archive coverage and existing
+terminal Session Record evidence under its intake lock; SynchronizationManager
+checks stopped time, retired mappings, and durable Ingestor handoff. Nonpersistent
+messages retain producer-declared intent. Q019 remains unresolved architecture,
+and broader Phase 16 closeout remains unimplemented. Phase 16 is unvalidated and M015 open.
+Existing accepted requirements and historical validation records are preserved.
+
+---
+
 # Accepted Architectural Principles
 
 The following principles summarize the accepted decisions so far.
+
+Earlier entries retain their historical decision context. Decisions 313-321
+subsequently resolve the service-binding and Q025 deferrals recorded in entries
+301 and 304-312; those original decisions are preserved, not implementation claims.
+Decision 322 subsequently clarifies persistent Controller decision evidence and
+the Controller-specific archival obligation before binding release; it does not
+resolve Q019 or claim implementation.
 
 1. The GUI is a client.
 2. The Controller and GUI are conceptually separate.
@@ -8034,7 +8691,7 @@ The following principles summarize the accepted decisions so far.
 90. AcquisitionNode requires a writable configured Session failure-evidence location before acquisition starts.
 91. AcquisitionNode runtime active means the Session acquisition runtime is capable of recording evidence; it does not imply all devices are streaming.
 92. Controller commands and orchestrates one Session. Session owns lifecycle. AcquisitionNode owns runtime execution. Device streaming is source-specific and not implied by Session start.
-93. Pre-running framework failures may fail an initialized Session; normal completion uses stopping-state persistence followed by completed-state Session Record update.
+93. Pre-running framework failures may fail an initialized Session; the historical Controller v1 two-write sequence is qualified by Decisions 226-229's archive/record separation and final persistence before completion, without claiming a persisted terminal snapshot.
 94. Project is the scientific study; Session is the acquisition/evidence container; Experiment is protocol activity inside a Session.
 95. Controller owns canonical Session-scoped Experiment lifecycle; AcquisitionNodes record local execution evidence.
 96. Readiness, Validation, and Experiment are distinct; Calibration is a purpose rather than an architectural category.
@@ -8117,7 +8774,7 @@ The following principles summarize the accepted decisions so far.
 172. SynchronizationMapping is immutable SynchronizationManager-owned plain data with an accepted minimum schema.
 173. AcquisitionNode local-time reports use a minimum plain-data schema and are not SynchronizationObservation evidence.
 174. SynchronizationManager creates MappingUpdateEvidence for active mapping creation, replacement, and retirement.
-175. MappingUpdateEvidence uses existing runtime-evidence ingestion and Session Record preservation paths without a new storage component.
+175. MappingUpdateEvidence uses existing runtime-evidence ingestion and, under Decisions 219-227, persistent compilation into the separate Evidence Archive without a new storage component.
 176. AcquisitionNode reports samples and passively applies mappings; SynchronizationManager owns observation, mapping, drift, remapping, and update-evidence behavior.
 177. MappingUpdateEvidence uses runtime evidence type `mapping_update_evidence` with its plain-data form as RuntimeEvidenceMessage payload.
 178. Each AcquisitionNode has one co-located LocalStorageManager for authoritative local persistence.
@@ -8187,7 +8844,7 @@ The following principles summarize the accepted decisions so far.
 242. Slice 22 artifact information reuses the normal Ingestor working view; Decisions 276-280 accept later known-Session journal recovery without changing the existing handoff.
 243. Session-scoped handoff compilation groups by artifact_manifest_id and prefers finalized manifests, explicitly reporting missing finalization otherwise.
 244. Slice 22 excludes diagnostics compilation, byte transfer, restart recovery, new persistence infrastructure, and lifecycle changes.
-245-260. Slice 23 accepts Controller-initiated StorageManager SSH/SFTP pull collection, deployment-local endpoint resolution, one scientific file per manifest, explicit source paths, deterministic destinations, independent attempts and outcomes, temporary promotion, collision failure, inclusion of missing-finalization candidates, and unchanged authoritative local ownership. Software validation is recorded in W032; M011 remains open pending real Jetson/SSH-SFTP deployment validation, and aggregate failure lifecycle policy is undecided.
+245-260. Slice 23 accepts Controller-initiated StorageManager SSH/SFTP pull collection, deployment-local endpoint resolution, one scientific file per manifest, explicit source paths, deterministic destinations, independent attempts and outcomes, temporary promotion, collision failure, inclusion of missing-finalization candidates, and unchanged authoritative local ownership. Software validation is recorded in W032; M011 remains open pending real Jetson/SSH-SFTP deployment validation. Decision 303 prevents later global processing failure from retroactively changing a completed Session.
 261. StorageManager owns light structural verification of global copies without taking local artifact ownership or interpreting scientific data.
 262. Retrieval and verification have separate outcomes; verification follows successful transfer, closure, and publication only.
 263. Verification outcomes are verified, copied_unverified, structurally_invalid, and verification_failed.
@@ -8197,7 +8854,7 @@ The following principles summarize the accepted decisions so far.
 267. Invalid or inconclusive verification preserves the global copy unchanged.
 268. Existing product and manifest contracts remain unchanged; other layouts, JSONL verification, and broader structural-contract design remain future work.
 269. Per-artifact results represent separate retrieval and verification information without a new reporting subsystem.
-270. Aggregates reflect retrieval and verification while Session lifecycle consequences remain open; Slice 24 is complete (M012, W032) following software validation and corrected independent re-audit PASS.
+270. Aggregates reflect retrieval and verification separately from Session lifecycle; Decision 303 resolves the former Q017 without changing those outcomes. Slice 24 is complete (M012, W032) following software validation and corrected independent re-audit PASS.
 271. StorageManager produces one compiled persistent global_artifact_collection_evidence record per completed collection pass, not one message per artifact or a duplicate manifest.
 272. Collection evidence contains only attempted artifacts with separate existing collection/verification outcomes and no aggregate evidence status.
 273. Collection-pass timestamps are operational wall-clock audit time, never extended scientific Session Time.
@@ -8230,6 +8887,26 @@ The following principles summarize the accepted decisions so far.
 300. Failed initialization invokes participant-local cleanup; confirmed cleanup precedes node reservation release and subsequent binding clearance, preserving artifacts, evidence, and timing.
 301. Ingestor and SynchronizationManager independently confirm Session-specific preparation without hardware reservations; recovery durability and timing ownership remain unchanged, normal service binding lifetimes stay deferred, and M015 remains pending.
 302. Successful DeviceAdapter shutdown and required cleanup return retained adapters to DECLARED for sequential Sessions; failed/unconfirmed cleanup prohibits reuse, pre-Session readiness distinguishes safe reuse, and each Session supplies its own configuration. Implementation has automated regression coverage; independent validation/audit and M015 closure remain pending.
+303. Later global collection, verification, transfer, or export failures are operational outcomes and cannot retroactively change a completed Session's lifecycle; required pre-completion failure handling remains, and Q019's consumption/final archive coordination stays open.
+304. Controller, AcquisitionNode, Ingestor, StorageManager, and SynchronizationManager have Session-independent and GUI-independent lifetimes; Session-specific objects and managed devices retain their existing ownership, cleanup, reuse, and bounded-memory contracts.
+305. Controller coordinates operator-requested framework stop for an explicit scope, distinct from Session stop, without automatically initiating collection, verification, transfer, or export.
+306. Every stop request has a durable stop_attempt_id and preserves scope, requester, timestamps, actions, blockers, and completed/blocked/failed outcome, separate from Session and command results.
+307. Orderly stop requires bounded participant-response waiting and confirmed required closeout conditions; missing or unconfirmed results are not success, and concrete windows/commands remain low-level work.
+308. Blocked stop reports actionable unresolved conditions by responsible participant/domain and scope, allowing the operator to authorize kill or decline.
+309. Kill is operator-authorized forced continuation of the same blocked stop attempt, without repeating the entire readiness check or claiming unresolved work completed; original blockers and actual forced results remain recorded.
+310. Declining kill ends that attempt as failed without forced action; a later retry has a new identity and does not automatically change an unrelated Session lifecycle.
+311. Stop/kill protect shared services and unrelated scopes; narrow operator authority is not administrative infrastructure termination authority.
+312. Stop/kill require durable attempt/outcome evidence using existing boundaries where applicable; transport acceptance is neither persistence nor execution confirmation, and unresolved low-level durability details stay in Q025, without resolving Q019. Phase 16 is accepted, not implemented or validated.
+313. Services independently release confirmed Session bindings for successive-Session reuse without terminating services, losing evidence, or discarding outstanding obligations.
+314. General framework shutdown is Controller-coordinated and stops no service if pre-stop evaluation blocks; individual administrative service maintenance is independent and service-owned.
+315. Maintenance outcomes are completed for confirmed orderly/authorized forced termination, blocked before shutdown begins, and failed for incomplete shutdown, failed/unconfirmed force, or declined kill; kill continues the same attempt.
+316. Explicit directional operational dependencies and service-owned blockers govern closeout; communication alone does not imply a dependency or require a dependency manager.
+317. General shutdown preserves evidence in producer -> Ingestor -> StorageManager -> Controller order; Controller records readiness for its own exit and stops last without a supervisor.
+318. Framework evidence may lack Session identity through minimally extended existing runtime-evidence/Ingestor/Evidence Archive contracts; Session evidence retains its identity and no separate evidence system is introduced.
+319. Required evidence submission and confirmed durable preservation precede orderly closeout; authorized kill preserves whatever the initiator can confirm without promising complete preservation or resolving Q019.
+320. Unexpected stop or forced termination does not automatically stop/restart other services; missing dependencies affect required operations without promising interrupted-work recovery.
+321. Services start independently, load required durable configuration/records, use existing communication/dependency mechanisms, report actual readiness, and recognize returning services without automatic Session/transfer recovery. Q025 is resolved architecturally; Phase 16 remains unimplemented/unvalidated and M015 open.
+322. Every ControllerActionDecision is producer-marked persistent through the existing RuntimeEvidenceMessage/Ingestor/StorageManager/Evidence Archive pathway; Controller binding release requires confirmed archival of its Session's decisions plus required cleanup and Session Record obligations, not merely NATS publication. Temporary decisions may then be retired without deleting durable evidence; the Controller-specific path is implemented, Decision 313 remains partial, Phase 16 unvalidated, and Q019 open.
 
 ---
 

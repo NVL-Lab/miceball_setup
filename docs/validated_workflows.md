@@ -941,8 +941,8 @@ completed
 - Controller uses `AcquisitionNode.start_runtime()` and `stop_runtime()`
 - Session enters running only after runtime start succeeds
 - normal stop preserves `session_stop` evidence and moves Session to stopping
-- Session Record persistence uses a stopping-state write followed by a completed-state update
-- successful finalization leaves a completed Session and durable completed evidence
+- historical Controller v1 Session Record persistence uses a stopping-state write followed by a completed-state update
+- historical successful finalization leaves a completed Session and durable completed evidence
 
 ## Validated Failure Scenarios
 
@@ -952,6 +952,12 @@ completed
 - failure of the first Session Record write leaves the Session failed rather than completed
 
 These tests validate sequential command outcomes only. They do not define Experiment orchestration, abort semantics, retry, asynchronous execution, multi-session control, or distributed orchestration.
+
+This preserves the original Phase 4 validation claim. Current Phase 13
+finalization writes the separate Evidence Archive and final Session Record before
+`Session.complete()`. W019 does not establish that the current final record is a
+post-completion terminal snapshot; that representation remains for separate
+review, and Q019's evidence-consumption coordination remains open.
 
 ---
 
@@ -974,7 +980,7 @@ Controller.stop_experiment(experiment_id, details=None)
         |
 Session-owned experiment_stop evidence
         |
-two-step Session Record finalization
+historical Controller v1 two-step Session Record finalization
 ```
 
 ## Validates
@@ -1604,7 +1610,11 @@ No checksum, full-file/scientific scan, arbitrary or external HDF5 validation,
 scientific-correctness claim, repair, transformation, NWB conversion, retry,
 replay, recovery, or new Session lifecycle policy is included.
 
-Session consequences remain open in Q017. Broader product/layout contracts and
+Decision 303 subsequently resolves Q017: later global processing failure cannot
+retroactively change a completed Session's lifecycle. This is an architecture
+clarification, not additional validation performed for W032. Required
+pre-completion cleanup/persistence and Q019 remain unchanged. Broader product/layout
+contracts and
 deeper verification remain open in Q020; durable operational evidence and
 retry/resume remain in Q021, and source-existence/reachability policy in Q023.
 Software closure does not resolve those future architectural questions.
@@ -1750,8 +1760,10 @@ when evidence has been consumed; it does not promise automatic drain or delivery
 No consumer-ACK waiting, polling, sleeps/delays, expected-count assumptions, new
 broker protocol, retry/replay/resume, background collection, checksum/deep
 verification, new archive/transport, reconstruction/export, or new Session or
-Experiment outcome policy is included. Further collection lifecycle consequences
-remain open in Q017; closure does not resolve Q019 or other deferred architecture.
+Experiment outcome policy was included in this historical validation. Decision 303
+subsequently resolves Q017 by preserving completed Session lifecycle despite later
+global processing failure; no new validation is claimed here. Closure does not
+resolve Q019 or other deferred architecture.
 
 ---
 

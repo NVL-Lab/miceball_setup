@@ -859,6 +859,7 @@ class AcquisitionNode:
             "session_id": self._session_id,
             "reserved_for_session_id": self.reserved_for_session_id,
             "is_running": self._running,
+            "cleanup_confirmed": self._initialization_cleanup_confirmed,
             "iteration_count": self._iteration_index,
             "last_error": self._last_error,
             "failed": self._failed,

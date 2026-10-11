@@ -377,6 +377,7 @@ class FakeAcquisitionSliceTests(unittest.TestCase):
                 "session_id": "session-001",
                 "reserved_for_session_id": None,
                 "is_running": False,
+                "cleanup_confirmed": True,
                 "iteration_count": 0,
                 "last_error": None,
                 "failed": False,

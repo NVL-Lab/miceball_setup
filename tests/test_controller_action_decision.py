@@ -47,6 +47,13 @@ class ControllerActionDecisionTests(unittest.TestCase):
                     evidence.originating_observation_id,
                 )
                 self.assertEqual(len(controller.controller_action_decisions), index)
+                messages = controller.controller_action_decision_evidence
+                self.assertEqual(len(messages), index)
+                self.assertTrue(messages[-1].is_persistent)
+                self.assertEqual(messages[-1].evidence_type, "controller_action_decision")
+                self.assertEqual(messages[-1].source_id, "controller")
+                self.assertEqual(messages[-1].session_id, decision.session_id)
+                self.assertEqual(messages[-1].payload, decision.to_dict())
 
             after = controller.get_status()
             self.assertEqual(after["session_state"], before["session_state"])
@@ -114,6 +121,13 @@ class ControllerActionDecisionTests(unittest.TestCase):
                 before["active_experiment_runtime_health_mapping"],
             )
             self.assertTrue(node.status()["is_running"])
+            self.assertEqual(len(controller.controller_action_decision_evidence), len(decisions))
+            self.assertEqual(
+                [message.payload for message in controller.controller_action_decision_evidence],
+                [decision.to_dict() for decision in decisions],
+            )
+            self.assertTrue(all(message.is_persistent
+                                for message in controller.controller_action_decision_evidence))
             controller.stop_session()
 
     def test_experiment_failure_ends_only_active_experiment(self):

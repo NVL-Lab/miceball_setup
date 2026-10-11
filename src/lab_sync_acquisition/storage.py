@@ -6,12 +6,15 @@ import json
 import os
 import shutil
 from collections.abc import Awaitable, Callable
+from contextlib import contextmanager
+from copy import deepcopy
 from dataclasses import dataclass
 from numbers import Integral
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from tempfile import NamedTemporaryFile
+from threading import RLock
 from time import time
-from typing import Any, Iterable, Mapping
+from typing import Any, Iterable, Iterator, Mapping
 from uuid import uuid4
 
 from lab_sync_acquisition.acquisition_record import AcquisitionRecordEnvelope
@@ -175,6 +178,9 @@ class PersistentStorageManager:
         if not isinstance(component_id, str) or not component_id:
             raise ValueError("StorageManager component_id must be a nonempty string")
         self._records_path = Path(records_path)
+        self._preservation_lock = RLock()
+        self._archive_confirmation: dict[str, Any] | None = None
+        self._final_record_confirmation: tuple[str, Path] | None = None
         self._evidence_publisher = evidence_publisher
         self._component_id = component_id
         self._global_artifact_root = (
@@ -508,9 +514,12 @@ class PersistentStorageManager:
     ) -> Path:
         """Write the final Phase 13 Session Record to its accepted path."""
 
-        path = self._session_directory(session_id) / "session_record_final.json"
-        self.write_session_record(path, **session_record_evidence)
-        return path
+        with self._preservation_lock:
+            self._final_record_confirmation = None
+            path = self._session_directory(session_id) / "session_record_final.json"
+            self.write_session_record(path, **session_record_evidence)
+            self._final_record_confirmation = (session_id, path)
+            return path
 
     def write_evidence_archive(
         self,
@@ -519,40 +528,60 @@ class PersistentStorageManager:
     ) -> dict[str, Path]:
         """Write the Phase 13 Evidence Archive from Ingestor compilation."""
 
-        archive_directory = self._session_directory(session_id) / "evidence"
-        archive_directory.mkdir(parents=True, exist_ok=True)
-        runtime_evidence = tuple(
-            compiled_runtime_evidence.get("runtime_evidence", ())
-        )
-        ingest_audit = tuple(compiled_runtime_evidence.get("ingest_audit", ()))
-        runtime_evidence_path = archive_directory / "runtime_evidence.jsonl"
-        ingest_audit_path = archive_directory / "ingest_audit.jsonl"
-        compilation_summary_path = archive_directory / "compilation_summary.json"
+        with self._preservation_lock:
+            # A failed rewrite must never leave an earlier receipt authorizing release.
+            self._archive_confirmation = None
+            runtime_evidence = deepcopy([
+                _to_plain_data(item) for item in compiled_runtime_evidence.get("runtime_evidence", ())
+            ])
+            ingest_audit = deepcopy([
+                _to_plain_data(item) for item in compiled_runtime_evidence.get("ingest_audit", ())
+            ])
+            archive_directory = self._session_directory(session_id) / "evidence"
+            archive_directory.mkdir(parents=True, exist_ok=True)
+            runtime_evidence_path = archive_directory / "runtime_evidence.jsonl"
+            ingest_audit_path = archive_directory / "ingest_audit.jsonl"
+            compilation_summary_path = archive_directory / "compilation_summary.json"
 
-        _write_jsonl(runtime_evidence_path, runtime_evidence)
-        _write_jsonl(ingest_audit_path, ingest_audit)
-        summary = {
-            "session_id": session_id,
-            "runtime_evidence_count": len(runtime_evidence),
-            "ingest_audit_count": len(ingest_audit),
-            "runtime_evidence_ids": [
-                _plain_field(evidence, "evidence_id")
-                for evidence in runtime_evidence
-            ],
-            "ingest_audit_evidence_ids": [
-                _plain_field(audit, "evidence_id")
-                for audit in ingest_audit
-            ],
-        }
-        with compilation_summary_path.open(
-            "w", encoding="utf-8"
-        ) as summary_file:
-            json.dump(summary, summary_file, indent=2)
-        return {
-            "runtime_evidence": runtime_evidence_path,
-            "ingest_audit": ingest_audit_path,
-            "compilation_summary": compilation_summary_path,
-        }
+            _write_jsonl(runtime_evidence_path, runtime_evidence)
+            _write_jsonl(ingest_audit_path, ingest_audit)
+            summary = {
+                "session_id": session_id,
+                "runtime_evidence_count": len(runtime_evidence),
+                "ingest_audit_count": len(ingest_audit),
+                "runtime_evidence_ids": [item.get("evidence_id") for item in runtime_evidence],
+                "ingest_audit_evidence_ids": [item.get("evidence_id") for item in ingest_audit],
+            }
+            with compilation_summary_path.open("w", encoding="utf-8") as summary_file:
+                json.dump(summary, summary_file, indent=2)
+            self._archive_confirmation = {
+                "session_id": session_id,
+                "runtime_evidence": runtime_evidence,
+                "ingest_audit": ingest_audit,
+            }
+            return {
+                "runtime_evidence": runtime_evidence_path,
+                "ingest_audit": ingest_audit_path,
+                "compilation_summary": compilation_summary_path,
+            }
+
+    def get_session_preservation_confirmation(self, session_id: str) -> dict[str, Any] | None:
+        """Confirm exact archive input and read the successfully written final Session Record."""
+        with self._preservation_lock:
+            if (self._archive_confirmation is None
+                    or self._archive_confirmation["session_id"] != session_id
+                    or self._final_record_confirmation is None
+                    or self._final_record_confirmation[0] != session_id):
+                return None
+            confirmation = deepcopy(self._archive_confirmation)
+            confirmation["session_record"] = self.read_session_record(self._final_record_confirmation[1])
+            return confirmation
+
+    @contextmanager
+    def session_preservation_guard(self, session_id: str) -> Iterator[dict[str, Any] | None]:
+        """Keep current preservation confirmation stable through a synchronous release commit."""
+        with self._preservation_lock:
+            yield self.get_session_preservation_confirmation(session_id)
 
     def read_session_record(
         self,

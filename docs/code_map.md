@@ -1,5 +1,45 @@
 # Code Map
 
+## Phase 16 accepted responsibility clarification (Slice 1 partially implemented)
+
+Decisions 304-321 establish Session-independent and GUI-independent lifetime for
+Controller, AcquisitionNode, Ingestor, StorageManager, and SynchronizationManager.
+Session-specific collaborators remain subject to existing creation, binding,
+cleanup, and bounded-memory contracts; DeviceManager and DeviceAdapters are not
+new independently operating services. This is not a claim that all current
+collaborators already implement successive-Session reuse.
+
+Controller will coordinate general framework shutdown through existing
+distributed command/result boundaries; individual administrative service
+maintenance may be independent through a local interface. Participants retain
+closeout ownership and independently release confirmed Session bindings under
+Decision 313. These responsibilities are distinct from implemented Session
+stop/finalization and must not initiate collection, verification, transfer, or
+export. General shutdown evaluates all required preconditions before stopping
+any service and preserves evidence in producer -> Ingestor -> StorageManager ->
+Controller order. Decisions 318-319 accept Session-independent framework evidence
+through existing infrastructure, not a separate evidence system. Independent
+startup/readiness and returning-service recognition do not resume interrupted
+work. Q025 is resolved architecturally; Q019 and Q024 remain open.
+No future stop/kill API, runtime model, persisted schema, or validated behavior is
+listed as implemented here.
+
+Decision 322 additionally makes every ControllerActionDecision persistent,
+including no-mutation outcomes. Accepted ownership remains Controller-produced
+RuntimeEvidenceMessage with is_persistent=True -> Ingestor compilation ->
+StorageManager Evidence Archive writing. Controller binding release requires
+confirmed archival of all its Session's decisions plus required cleanup and
+Session Record obligations, not merely publication. The narrow follow-up now
+implements decision-message packaging, submission to an attached Ingestor, and
+owner-specific confirmation of the exact messages in the current successfully
+written archive, held stable through binding-release commitment. Without an attached Ingestor, retained messages are available for
+caller-managed publication through the existing boundary; publication alone
+cannot confirm archival. Local Session start and finalization require an explicit
+Ingestor reference and report its absence without using a node-owned fallback.
+Controller Session Records retain acquisition-envelope audit and Session context,
+but do not include raw runtime evidence or runtime-evidence intake audit; those
+are written through the Evidence Archive. Q019 remains open and Phase 16 is unvalidated.
+
 ## Slice 28 implementation (independent validation and audit pending)
 
 Decisions 281-301 now have a Controller-owned pre-Session launch path over the
@@ -38,8 +78,41 @@ distributed launch rejects Controller-selected node roots.
 
 Existing local Experiment orchestration and persistence/finalization APIs remain
 available; Slice 28 does not add remote Experiment lifecycle activation or a new
-remote evidence-compilation/persistence protocol. Normal end-of-Session
-Ingestor/SynchronizationManager binding lifetimes remain deferred.
+remote evidence-compilation/persistence protocol. Normal binding release is now
+partially implemented under Decision 313. Controller explicitly releases a terminal
+reference after confirmed runtime cleanup and successful final persistence, retaining
+a bounded last-release outcome and leaving durable files untouched. Ingestor and
+SynchronizationManager can release empty bindings (synchronization also requires
+stopped Session Time). Evidence-bearing Ingestor release now requires the exact
+persistent-message and complete runtime-audit snapshot confirmed by StorageManager,
+plus terminal lifecycle evidence in the existing final Session Record. Acquisition
+envelopes and their audit retain their existing persistence path. Intake and release
+commit share a lock; additional intake invalidates earlier archive coverage.
+Ingestor also holds StorageManager's preservation guard through commitment,
+with intake locked before storage. Archive/final-record writers never acquire
+Ingestor intake. Controller rechecks current archival coverage after asynchronous
+unsubscription and holds the same storage guard through its synchronous commit;
+it never holds that guard across an await. Release captures the Session object
+identity and its subscriptions, rechecks identity after each unsubscription await
+and before retirement, and returns stale-operation failures without recording
+them against a newer binding. Archive rewrites and release commits
+are serialized, without freezing future archive writes or resolving Q019/Q024.
+SynchronizationManager releases after active mappings retire, Session Time stops,
+and every mapping update has confirmed journal-backed Ingestor acceptance, without
+waiting for subsequent archival. Controller
+decision-bearing release now requires exact decision-message inclusion in
+successfully written archive input, with changes after compilation invalidating
+that confirmation. Confirmed release retires temporary decisions and leaves
+durable evidence intact. No Q019 drain protocol is implemented. Automated
+broker-double tests exercise successive Sessions with empty central evidence-owner
+bindings; this is not independent/manual validation or full Decision 313 completion.
+Follow-up tests additionally exercise Controller-specific evidence-bearing release,
+subset/stale compilation, publication without archival confirmation, failure
+retention, evidence-bearing service reuse, and concurrent intake/release. These
+are automated implementation checks, not independent validation or audit.
+The existing local Controller release refreshes the terminal Session Record before
+Ingestor release; synchronization handoff is confirmed while Ingestor retains its
+accepted evidence. These checks do not establish Session-wide producer completeness.
 
 Discovery, deployment configuration, scheduling, stale reservations/restart,
 retention/deletion, durable pre-Session auditing, and Q019's evidence-consumption
@@ -159,6 +232,7 @@ guarantee remain deferred. M014/W034 retain completed Slice 27 scope and status.
 
 - AcquisitionIterationSummary: Records the small inspectable summary returned by one bounded acquisition iteration.
 - AcquisitionNode: Owns bounded acquisition runtime execution and timestamping, stores separate active Experiment timing and health context, and emits explicitly linked ExperimentScopedHealthObservation and HealthInterpretationEvidence records without executing framework actions.
+- AcquisitionNode.status(): Includes existing local cleanup confirmation as `cleanup_confirmed` for safe Session-binding release, alongside runtime, reservation, and active-context status.
 - AcquisitionNode.__init__(session_id=None, device_manager=None, synchronization_manager=None, ingestor=None, node_id=None, role=None, acquisition_configuration=None, acquisition_health_policies=(), error_evidence_location=None, *, default_local_storage_root=None, device_declarations=None): Allows pre-Session construction with deployment-local collaborators and inventory, capturing adapter deployment configuration independently of subsequent Session-specific overrides while preserving the historical bound local path.
 - AcquisitionNode.declared_devices: Returns the node's declared DeviceDeclaration/ScientificProductDeclaration inventory independently of Session selection and device availability.
 - AcquisitionNode.reserved_for_session_id: Returns the current exclusive Session reservation or None under the node-owned lock.
@@ -208,18 +282,27 @@ is complete; W030 records manual validation, focused tests, and audit reassessme
 
 - ControllerCommandResult: Records one command outcome and exposes its command, success, details, and error as plain evidence.
 - ControllerActionDecision: Records one health-derived Controller decision with Session, Experiment, source, policy, interpretation, and originating-observation provenance using the normalized local decision vocabulary.
+- Controller.controller_action_decision_evidence: Returns retained persistent RuntimeEvidenceMessages for Controller decisions, using existing evidence identities and plain decision payloads for caller-managed publication.
+- Controller.process_health_interpretation(evidence): Records one decision and its persistent runtime message per presentation, submitting to an attached Ingestor without changing lifecycle.
+- Controller._record_action_decision(decision): Retains one persistent message per decision instance before optional Ingestor submission, including externally supplied executable decisions, without duplicating an already recorded instance.
+- Controller._controller_decision_evidence_snapshot(session_id): Copies Session-specific owned message identities and contents for exact compilation and archival confirmation.
+- Controller._require_controller_decision_archival(session_id): Blocks release unless all current owned decision messages match the successful finalization snapshot.
 - Controller: Sequentially coordinates one Session with optional keyword-only `component_id="controller"` for producer identity, preserves existing ownership, and orchestrates preparation, lifecycle, runtime cleanup, and final persistence.
 - Controller.__init__(acquisition_node=None, ingestor=None, storage_manager=None, session_record_path=None, synchronization_manager=None, *, component_id="controller"): Supports Controller creation before Session and without remote participant references while retaining existing local collaborators.
 - Controller.launch_session(selections, *, communication, participants, config_parameters, result_window_s, scientific_outputs=()): Asynchronously allocates a fresh intended Session ID, resolves node-scoped device selections, reserves resources, constructs final SessionConfig, confirms participant preparation, and returns operational success or cleanup-aware rollback diagnostics.
 - Controller.start_launched_session(): Starts reserved nodes through correlated NATS commands and then starts the Session, returning ControllerCommandResult and attempting cleanup if startup fails.
 - Controller.stop_launched_session(reason=None): Stops and locally finalizes all reserved nodes through NATS, releases only confirmed-clean reservations, and stops the Session without waiting for global collection.
-- Controller.get_status(): Returns Session and command status with the existing local AcquisitionNode snapshot or None when no local node is attached, without fabricating remote runtime status.
+- Controller.get_status(): Returns Session/command status, the bounded last released terminal outcome, and the local AcquisitionNode snapshot or None, without fabricating remote runtime status.
+- Controller.release_session(): Asynchronously releases only its captured terminal Session binding after confirmed cleanup and current archival under StorageManager's preservation guard, revalidating object identity after every unsubscription await and before retirement; stale operations return a failed ControllerCommandResult for the original Session without changing the current binding or command history, while cancellation propagates and retains outstanding obligations.
+- Controller._session_ingest_state(): Snapshots existing intake views to detect acceptance/audit changes after final persistence or during subscription release.
 - Controller.start_experiment: Accepts keyword-only `scientific_outputs=()`, `preparation_readiness=()`, and `preparation_outcomes=()`, gates start on required readiness and correlated final remote successes, and reports preparation rejection once as persistent runtime evidence in failed result details without lifecycle activation.
 - Controller._record_failed_command: Records an unsuccessful command with optional plain diagnostic details, including the produced rejection message for a pre-start preparation failure.
 - Controller.stop_experiment: Records canonical normal-stop evidence, clears active runtime context and health mapping, and requests finalization of only that Experiment's streams without stopping the Session or acquisition runtime.
-- Controller.execute_controller_action_decision: Executes accepted no-mutation or failure decisions, finalizing Experiment streams for `experiment_fail` and retaining the existing failed-Session cleanup path for `session_fail`.
+- Controller.execute_controller_action_decision: Records persistent evidence for an externally supplied accepted decision once, then executes unchanged no-mutation or failure semantics, finalizing Experiment streams for `experiment_fail` and retaining the failed-Session cleanup path for `session_fail`.
 - Controller.stop_session: Stops runtime and scientific persistence, records normal-stop evidence for any active Experiment, and then stops the Session through its existing lifecycle.
 - Controller.initialize_session: Retains the historical direct-object workflow, with Session-authorized local storage now physically created by AcquisitionNode and criticality evaluated from selected DeviceDeclarations.
+- Controller.start_session(): Requires an explicit Ingestor reference before local runtime startup, then starts acquisition, starts the Session, and writes the initial Session Record through existing persistence.
+- Controller._session_record_evidence(): Gathers Session configuration, lifecycle, readiness, cleanup, command failures, Experiment evidence, accepted acquisition envelopes, and their audit without copying runtime evidence or runtime-evidence audit into the Session Record.
 
 ## src/lab_sync_acquisition/device_adapter.py
 
@@ -261,6 +344,8 @@ is complete; W030 records manual validation, focused tests, and audit reassessme
 - InMemoryIngestor.__init__(storage_manager=None, *, session_id=None, recovery_journal_path=None, component_id="ingestor", recovery_journal_root=None): Preserves explicit known-Session recovery while optionally configuring a deployment root for later Session-specific preparation.
 - InMemoryIngestor.prepare_session(session_id): Creates or reconstructs the intended Session recovery journal from its deployment root before confirming evidence intake preparation.
 - InMemoryIngestor.abort_session_initialization(session_id): Disables prepared intake while preserving durable journal entries and accepted evidence, clearing empty preparation bindings without deleting files.
+- InMemoryIngestor.release_session(session_id, *, storage_manager=None): Releases a matching healthy binding, requiring exact persistent runtime evidence/all runtime-audit archive coverage and existing terminal Session Record/acquisition-envelope preservation for evidence-bearing bindings; intake and storage guards remain held through temporary-state retirement without deleting journals.
+- InMemoryIngestor.has_durable_runtime_evidence(evidence): Confirms exact journal-backed message acceptance for a producer handoff, returning False for memory-only intake or uncertain journal state without claiming final archival.
 - InMemoryIngestor._initialize_recovery_journal: Reuses journal creation/reconstruction and ordinary recovery-evidence intake for constructor and distributed preparation paths.
 - InMemoryIngestor.session_id: Returns the configured known Session identity or None for legacy in-memory use.
 - InMemoryIngestor.recovery_journal_path: Returns the caller-supplied journal Path or None for legacy in-memory use.
@@ -271,7 +356,7 @@ is complete; W030 records manual validation, focused tests, and audit reassessme
 - InMemoryIngestor._append_runtime_evidence: Appends one complete UTF-8 JSONL message and flushes/fsyncs before acceptance, refusing further new intake after a failed append until restart.
 - InMemoryIngestor._restore_runtime_evidence: Stages valid journal entries before restoring the normal evidence view, repairs only an interrupted final append, and rejects completed corruption or conflicting identities.
 - InMemoryIngestor._is_interrupted_json: Recognizes incomplete final JSON tokens without treating completed malformed lines as interrupted writes.
-- InMemoryIngestor.compile_persistent_runtime_evidence: Returns accepted runtime evidence marked persistent plus runtime-evidence intake audit without inferring persistence from evidence meaning.
+- InMemoryIngestor.compile_persistent_runtime_evidence: Returns a detached, consistent snapshot of accepted persistent runtime messages and all runtime-evidence audit records under the intake lock without inferring persistence from evidence meaning.
 
 Slice 27 (Decisions 276-280) is complete (M014, W034) after independent manual
 software validation and corrected targeted re-audit PASS. W034 preserves the
@@ -338,8 +423,10 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 - PersistentStorageManager._retrieve_artifact: Selects the existing manifest source, captures copied size from the temporary file position when available, and returns the deterministic destination/size after closed-file non-overwriting promotion and best-effort temporary removal.
 - PersistentStorageManager._pull_sftp_file: Uses Paramiko to open the source directly and copy bounded chunks through SFTP without a source existence/stat pre-probe.
 - PersistentStorageManager.write_initial_session_record: Writes caller-supplied initial Session Record evidence to `session_<session_id>/session_record_initial.json`.
-- PersistentStorageManager.write_evidence_archive: Writes compiled persistent runtime evidence, runtime-evidence audit, and compilation summary to the accepted Phase 13 Evidence Archive files.
-- PersistentStorageManager.write_final_session_record: Writes caller-supplied final Session Record evidence to `session_<session_id>/session_record_final.json`.
+- PersistentStorageManager.write_evidence_archive: Writes compiled persistent runtime evidence, runtime-evidence audit, and compilation summary to the unchanged Phase 13 files, retaining exact successful write input and invalidating prior confirmation on a failed rewrite.
+- PersistentStorageManager.write_final_session_record: Writes caller-supplied final Session Record evidence to `session_<session_id>/session_record_final.json`, confirming its path only after successful writing.
+- PersistentStorageManager.get_session_preservation_confirmation(session_id): Returns a detached snapshot of exact archived message/audit dictionaries and the existing successfully written final Session Record for the latest matching Session, or None when required writes lack confirmation; the snapshot alone does not guard a later release commit.
+- PersistentStorageManager.session_preservation_guard(session_id): Synchronous context manager yielding current confirmation while holding the archive/final-record write lock through the caller's release commit; callers must not await or acquire a new Ingestor intake lock while holding it.
 
 ## src/lab_sync_acquisition/synchronization.py
 
@@ -350,6 +437,7 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 - SynchronizationManager: Owns the Session clock plus per-AcquisitionNode active mapping creation, replacement, retirement, lookup, and in-memory mapping-update evidence without implementing mapping mathematics or drift estimation.
 - SynchronizationManager.prepare_session(session_id): Confirms Session-specific preparation independently of pre-Session service readiness, rejecting a different active preparation binding.
 - SynchronizationManager.abort_session_initialization(session_id): Clears only matching preparation state without altering mapping or established timing evidence.
+- SynchronizationManager.release_session(session_id, *, ingestor=None): Releases matching stopped preparation after mappings retire and each mapping update has exact durable Ingestor acceptance, retiring temporary history without waiting for downstream archival or terminating the service.
 - SynchronizationManager.create_and_activate_mapping: Creates and atomically activates one initial immutable mapping for an AcquisitionNode.
 - SynchronizationManager.replace_active_mapping: Atomically replaces one active mapping and records replacement evidence.
 - SynchronizationManager.retire_active_mapping: Retires one active mapping and records retirement evidence.
@@ -445,8 +533,8 @@ deployment validation (M011), distinct from W032's software validation.
 - AcquisitionNode._record_artifact_manifest: Packages each manifest lifecycle state once using the authoritative to_dict representation without transferring local ownership.
 - NatsAcquisitionNodeCommunication.publish_new_artifact_manifest_evidence(): Publishes newly produced manifest messages through the existing JetStream evidence boundary, invoked after subscribed command execution or explicitly for caller-managed local operations.
 - InMemoryIngestor.compile_artifact_collection_handoff(session_id): Groups retained Session-scoped artifact_manifest messages by manifest identity, selects complete finalized or initial manifests, and returns session_id plus artifacts entries containing artifact_manifest and missing_finalization_evidence.
-- Controller.finalize_session(): Obtains the separate compiled handoff and exposes it in successful ControllerCommandResult.details["artifact_collection_handoff"] without changing Evidence Archive contents or retrieving artifact bytes.
-- StorageManager owns future global artifact retrieval and storage through the Artifact Plane; byte retrieval is outside Slice 22.
+- Controller.finalize_session(): Requires an explicit Ingestor reference and every owned decision message in persistent compilation, writes runtime evidence/audit to the archive separately from the Session Record, rejects changed decision snapshots before completion, and confirms exact decision archival for release without asserting Session-wide consumption or retrieving artifact bytes.
+- StorageManager owns Artifact Plane retrieval and global storage; byte retrieval was outside Slice 22 and is now implemented separately in Slice 23, with real Jetson/SSH-SFTP deployment validation still pending under M011.
 
 Generic persistent-evidence compilation and Evidence Archive writing remain
 unchanged. Slice 27 adds known-Session restart reconstruction without modifying
@@ -510,3 +598,9 @@ guarantee remains OPEN in Q019, with no ACK wait or drain protocol implemented.
 M013 is complete. W033 records manual software validation, the initial audit FAIL,
 P1/P2 corrections, and final independent re-audit PASS. M011 remains open and
 M012 remains complete; Q019 is not resolved by software closure.
+
+Decision 303 resolves the former Q017 without changing these APIs or result
+vocabularies: later global collection, verification, transfer, or export failure
+cannot retroactively change a completed Session's lifecycle. Required
+pre-completion failure handling remains unchanged, as does Q019's unresolved
+Session-wide consumption/final archive coordination.

@@ -44,7 +44,12 @@ Raw acquisition records and NWB exports have separate lifecycles.
 
 Decision 073 defines the minimum evidence categories that belong in the persistent Session Record.
 
-Decisions 178-218 now separate AcquisitionNode-local scientific persistence and local completion from future global Session Record completion. The future global StorageManager will consume finalized `ArtifactManifest`, `LocalStorageCompletionSummary`, and local storage evidence without taking ownership of original local records. Its implementation and the exact global integration schema remain unresolved.
+Decisions 178-218 separate AcquisitionNode-local scientific persistence and local
+completion from global Session Record completion. StorageManager already writes
+the Phase 13 persistence products and implements the accepted artifact retrieval,
+light verification, and collection-evidence slices. These capabilities do not
+transfer ownership of original local records or settle the broader global
+integration schema and diagnostic compilation.
 
 Decisions 219-231 separate the Session Record from the Evidence Archive, assign persistent runtime-evidence compilation to Ingestor, assign persistent writing to StorageManager, and accept the v1 conceptual layout:
 
@@ -252,7 +257,7 @@ Decision 143 keeps durable-message ownership with the producer until successful 
 ### Questions
 
 * What future recovery mechanism, if any, is accepted after an explicit `DurablePublicationError`?
-* When and how are reconnect, retry, or replay permitted?
+* What automatic reconnection, retry, or replay policy, if any, applies to publication recovery beyond Decisions 320-321's accepted communication reestablishment when a service returns?
 * May newer durable messages publish after an earlier publication failure?
 * How are successful recovery and permanently unpublished messages recorded?
 * If future local preservation is accepted, what ownership and storage limits apply?
@@ -260,6 +265,11 @@ Decision 143 keeps durable-message ownership with the producer until successful 
 ### Current direction
 
 Do not infer recovery behavior from JetStream durability. Publication recovery remains a separate future architecture decision.
+
+Decisions 320-321 permit independent service startup and communication
+reestablishment when a service returns, without framework-wide restart. They do
+not define automatic retry/replay, unpublished-message recovery, or automatic
+resumption of interrupted Sessions or transfers; those questions remain open.
 
 Slice 27's accepted Ingestor journal recovery (Decisions 276-280) concerns evidence
 after transport publication and normal JetStream redelivery, not unpublished
@@ -370,7 +380,14 @@ participate in existing pre-Session readiness, and each Session supplies its own
 configuration. This is accepted architecture, not another open lifecycle question;
 implementation has automated regression coverage, with independent validation
 and audit pending under M015. It does not resolve
-concurrent sharing, multi-Session scheduling, or normal service binding lifetimes.
+concurrent sharing or multi-Session scheduling. Decision 313 subsequently settles
+normal binding release after each service's confirmed cleanup/evidence obligations;
+that integration is partially implemented in Phase 16 Slice 1, including the
+Controller-specific decision archival/release contract in Decision 322.
+Evidence-bearing Ingestor/SynchronizationManager release now has narrow paths for
+exact persistent-message/runtime-audit archival coverage and durable synchronization
+handoff respectively. This does not resolve Session-wide consumption or application
+recovery; independent validation is not claimed.
 
 Decisions 295-301 resolve the distributed initialization handoff: pre-Session
 participant commands use existing NATS conventions without fabricated Session
@@ -396,7 +413,6 @@ the other orchestration questions below remain deferred.
 * What central scheduling, device-level sharing, or shared multi-Session Ingestor/StorageManager scheduling, if any, is accepted beyond Slice 28?
 * What daemon/service supervision and coordination between multiple Controllers, if any, is needed without changing deployment-independent ownership?
 * What future startup automation replaces temporary manual-shell development startup without making Controller a process supervisor?
-* What are normal end-of-Session binding lifetimes for Ingestor and SynchronizationManager beyond accepted initialization/rollback?
 * What future durable pre-Session launch auditing is accepted beyond operational results, without forcing failed attempts through Ingestor?
 
 ### Blocks
@@ -425,71 +441,6 @@ They do not decide Controller restart or repeated-action execution, so Q016 rema
 
 * Distributed health consequence handling
 * Multi-node Controller integration
-
----
-
-## Q017: What Session lifecycle consequence follows artifact collection or verification failure?
-
-**Status:** OPEN / FUTURE - high-level architecture
-
-### Why this matters
-
-Decisions 245-260 settle the Slice 23 contract: StorageManager pulls one file per
-manifest using SSH/SFTP and deployment-local endpoint configuration, writes a
-deterministic global copy through a temporary destination, and reports independent
-per-artifact and aggregate outcomes. Local ownership remains unchanged. This
-architecture has software validation recorded in W032; real Jetson/SSH-SFTP
-deployment validation remains pending (M011 open).
-
-Slice 23 reports collection outcomes but does not decide whether failure fails
-the Session, leaves it completed, produces a warning, requires operator action,
-or has another lifecycle consequence. That policy requires an explicit decision
-in a future high-level architecture phase, not another Slice 23 requirement.
-
-Decisions 261-270 accept Slice 24 light verification and separate retrieval,
-per-artifact verification, and aggregate reporting, implemented and software-validated
-with M012 complete (W032). They do not resolve this question: copied_unverified,
-structurally_invalid, verification_failed, and
-retrieval failure do not themselves authorize Session lifecycle changes.
-
-Decisions 271-275 accept persistent post-session collection evidence and
-distinguish Session acquisition end from Session processing finalization.
-Collection failure must not retroactively change acquisition success, Experiment
-lifecycle, or local finalization. Further operational/lifecycle consequences
-remain open here; publication/consumption coordination before archive closure
-is tracked separately in Q019. Slice 25 is complete (M013, W033) after independent
-manual software validation and corrected independent re-audit PASS.
-
-Acquisition outcome, Experiment lifecycle outcome, local artifact finalization,
-global artifact collection, and Session lifecycle/final completion are distinct.
-Local completion is independent of global Session Record completion. Transfer
-creates additional managed copies without transferring ownership of the original
-local scientific record; post-session collection is not acquisition.
-
-### Questions
-
-* Does failed post-session collection prevent successful Session completion?
-* Can a Session remain completed while global collection is failed, partial, or pending?
-* Should collection or verification failure, or copied_unverified status, require a warning or operator action while preserving completed acquisition status?
-* Should consequences depend on whether an artifact is required or optional, or whether it finalized locally?
-* Should consequences differ for a missing source file, unreachable node, missing retrieval configuration, permission denial, failed copy, or failed verification?
-* Which, if any, of Session lifecycle, Experiment lifecycle, local artifact status, and global collection status should change?
-
-Decisions 240-244 settle ownership: Controller initiates post-session collection,
-Ingestor compiles the manifest handoff, and StorageManager owns retrieval and
-global storage. Slice 22 does not implement the Artifact Plane transfer backend;
-Slice 23 implements that backend; real Jetson/SSH-SFTP deployment validation
-remains pending (M011 open), separate from W032's software validation.
-
-Related questions are kept separate: deployment initialization in Q022, source
-existence/reachability in Q023, extended global-copy verification and retention in
-Q020, extended transfer progress evidence, resume, and retry in Q021, and
-Session-wide evidence consumption before final archive closure in Q019.
-
-### Blocks
-
-* Future high-level collection-consequence policy
-* Future Session completion policy for failed or partial global collection
 
 ---
 
@@ -535,6 +486,16 @@ before legitimate post-session evidence has an opportunity to be produced.
 The accepted model is implemented through explicit awaited publication before
 finalization; it does not resolve the broader
 Session-wide consumption guarantee below.
+
+Decision 322 settles Controller-specific persistence and binding-release
+obligations: every ControllerActionDecision is persistent, and Controller must
+confirm durable archival of all its decisions for that Session before releasing
+the binding. Publication alone is insufficient. The narrow Phase 16 Slice 1
+follow-up implements packaging, attached-Ingestor submission, and confirmation of
+exact Controller decision messages in successful archive input; this is not an
+open persistence-selection question or a claim of independent validation.
+This does not establish that all participants' published evidence has been consumed,
+change global finalization semantics, or resolve the Session-wide questions below.
 
 Questions
 Decisions 240-244 settle the Slice 22 handoff: Ingestor groups Session-scoped
@@ -597,8 +558,10 @@ pending (M011 open). These ownership and v1 success questions are no longer open
 Decisions 261-270 settle StorageManager light-verification ownership and the first
 contract for the current LocalStorageManager HDF5 layout. This architecture is
 implemented and software-validated (M012 complete, W032); it does not redefine
-Slice 23 retrieval success, require nonempty scientific records, redesign manifests, or resolve Session
-lifecycle policy (Q017). Source reachability remains distinct under Q023.
+Slice 23 retrieval success, require nonempty scientific records, or redesign
+manifests. Decision 303 resolves the former Q017: later global processing failure
+does not retroactively change a completed Session's lifecycle. Source reachability
+remains distinct under Q023, and evidence-consumption coordination remains Q019.
 What future format/layout contracts should cover JSONL, additional HDF5 layouts, binary electrophysiology, and other scientific products?
 What future checksum or deeper verification policy, if any, extends the bounded Slice 24 contract?
 How should a future broader ScientificProduct structural contract describe arbitrary products and instantiated expectations, relate device/component capabilities to Experiment selections, and relate persisted layouts to verification contracts without assuming a universal HDF5 schema?
@@ -673,6 +636,13 @@ override path is historical, not remote launch authority. This resolves ownershi
 not the future deployment configuration file format or provisioning mechanism.
 Manual independent-process startup is development infrastructure; intended
 long-lived service deployment/supervision remains future work (Decision 295).
+Decision 304 explicitly settles the Session-independent and GUI-independent
+lifetime of the five principal operational services, without requiring one
+process per service. Deployment automation, supervision, and configuration
+mechanisms remain unresolved here. Decisions 313-321 settle maintenance,
+independent startup/readiness, and service-owned Session-binding release without
+choosing deployment formats, a discovery/registration system, or supervision.
+Q025 is resolved architecturally; Phase 16 implementation remains pending.
 
 Decision 302 additionally settles retained adapter reuse without process or adapter
 recreation: AcquisitionNode retains deployment configuration, but subsequent
@@ -728,7 +698,8 @@ This question introduces no new required check and does not amend Decision 251.
 Decision 256 does not require checksum verification. Decisions 261-270 accept
 separate post-copy light verification for the current HDF5 layout, not source
 existence checks. Extended layout contracts and deeper global-copy verification
-remain separate in Q020; Session consequences remain in Q017.
+remain separate in Q020. Decision 303 keeps later global processing failures
+separate from a completed Session's lifecycle; Q019 remains open.
 
 ### Questions
 
@@ -736,7 +707,7 @@ remain separate in Q020; Session consequences remain in Q017.
 * Who owns each check, distinguishing LocalStorageManager local-file knowledge, Ingestor evidence intake, and StorageManager remote reachability?
 * How should local existence differ from remote reachability, and when, if ever, should existence checks also inspect size or metadata?
 * How should a missing local artifact, manifest with absent file, unreachable node, missing endpoint, permission denial, or invalid path be represented?
-* Should verification failure affect local artifact outcome or global collection only? Any Session lifecycle consequence remains the high-level question in Q017.
+* How should future source-verification failures be reported while preserving authoritative local finalization evidence and separate global collection outcomes? Decision 303 prevents retroactive changes to a completed Session's lifecycle.
 * How should future checks preserve the independence of local completion and global collection?
 * How can checks avoid deep verification or large-file reads solely to answer existence, and avoid embedding network-reachability assumptions in portable manifests or handoffs?
 
@@ -786,14 +757,81 @@ automatic expiry, retry, leases, or a new recovery service in Slice 28.
 
 ---
 
-I also recommend slightly adjusting the roadmap now:
+## Q025: What low-level contracts implement scoped framework stop/kill and durable attempt evidence?
+
+**Status:** RESOLVED architecturally by Decisions 313-321 - implementation pending
+
+### Accepted boundaries
+
+Decisions 304-312 settle principal operational service lifetime, Controller-owned
+coordination, participant-owned actions, scope protection, durable stop-attempt
+identity, and the exact `completed`, `blocked`, `failed` attempt vocabulary.
+Kill is operator-authorized continuation of a blocked attempt; declining it ends
+that attempt as failed. These are not open ownership or lifecycle questions.
+Session end does not automatically terminate operational services, and stop/kill
+must not initiate collection, verification, transfer, or export.
+
+### Resolved low-level contracts
+
+Existing RuntimeParticipant identities, Session associations, distributed
+command/result envelopes, issuer-configured bounded result windows, and command
+correlation are reusable mechanisms. Stop-attempt identity, explicit kill
+authorization, and correlation with the original blocked attempt are accepted
+requirements requiring implementation integration, not reopened ownership or
+protocol questions.
+
+1. Scope: general shutdown is Controller-coordinated; individual administrative
+   maintenance targets its service independently. Existing participant identity,
+   resource ownership, and protection of unrelated shared scopes remain
+   authoritative (Decisions 314 and 316).
+2. Closeout: services own explicit directional dependencies, readiness/blockers,
+   cleanup, and forced actions. Active Session obligations block orderly stop;
+   confirmed binding release is independent of service termination (Decisions
+   313-314 and 316).
+3. Outcomes: pre-stop blockers produce blocked; incomplete shutdown, failed or
+   unconfirmed force, and declined kill produce failed. Confirmed orderly closeout
+   or authorized forced termination produces completed, without asserting that
+   unresolved cleanup succeeded (Decision 315).
+4. Evidence: framework-level evidence may lack Session identity using minimally
+   extended existing RuntimeEvidenceMessage, Ingestor, and Evidence Archive
+   contracts; Session evidence retains real Session identity. No fabricated
+   Session or separate evidence system is allowed (Decision 318).
+5. Preservation: services submit required evidence, Ingestor confirms durable
+   preservation, StorageManager completes its writes, and Controller stops last.
+   Authorized kill preserves whatever the initiator can confirm (Decisions 317
+   and 319).
+
+All five narrowed architecture questions are resolved. Concrete implementation
+representations and integration are not completed by these decisions. Current
+runtime-evidence, archive, and journal implementations remain Session-specific;
+this status does not claim a new schema, public API, archive layout, or validated
+maintenance behavior. Transport publication alone is not permanent persistence.
+
+### Boundaries
+
+Q019 remains the separate Session-wide consumption/final Evidence Archive
+coordination question. Q020, Q021, Q023, and Q024 remain open. Q017 stays resolved
+by Decision 303; no completed Session is retroactively failed by later global
+processing. Service supervision/configuration remain in Q022 and broader
+configuration questions; restart recovery remains Q024. Accepted administrative
+maintenance adds no permission infrastructure, remote OS process management,
+framework-wide state machine, new Session state, automatic retry, forced-closeout
+implementation, or validated workflow. Independent startup/returning-service
+recognition does not resume interrupted Sessions, transfers, or messages.
+
+---
+
+The roadmap distinguishes accepted architecture from implemented milestones:
 
 Phase 13 — Global StorageManager (Evidence)
 Phase 14 — Global StorageManager (Finalized Scientific Data)
 Phase 15 — Controller-owned Session Launch & Runtime Assembly (launch path and Decision 302 sequential reuse implemented; independent validation/audit and M015 closure pending)
-Phase 16 — Configuration Model
+Phase 16 — Operational Service Lifetime and Framework Stop/Kill (Decisions 304-322 accepted; Q025 resolved architecturally; Decision 313 partially implemented with Controller decision archival/release implemented under Decision 322; Phase 16 unvalidated)
 Phase 17 — Device Acceptance / Validation
 Phase 18 — End-to-End Demo Architecture
+
+The Configuration Model remains future work under Q008/Q022; its phase placement
+is not reassigned by this Phase 16 decision synchronization.
 
 Runtime artifact-transfer scheduling and monitoring remain future work under
 Q021; they are not silently included in Slice 28 by the earlier roadmap label.
