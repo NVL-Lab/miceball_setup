@@ -9,6 +9,7 @@ from contextvars import ContextVar
 from copy import deepcopy
 from functools import wraps
 from inspect import iscoroutinefunction
+from threading import current_thread
 from time import time
 from uuid import uuid4
 
@@ -23,14 +24,19 @@ def service_operation(*, new_work: bool = False):
         @contextmanager
         def enter(owner):
             interface = getattr(owner, "_maintenance", None)
+            try:
+                execution = asyncio.current_task()
+            except RuntimeError:
+                execution = None
+            call = (id(owner), execution if execution is not None else current_thread())
             with owner._service_operation_lock:
                 if interface is not None and interface.terminated:
                     raise RuntimeError("Service has terminated")
-                if (interface is not None and new_work and id(owner) not in _service_calls.get()
+                if (interface is not None and new_work and call not in _service_calls.get()
                         and (interface._attempt is not None or interface._closeout_started)):
                     raise RuntimeError("Service maintenance rejects new unrelated work")
                 owner._active_service_operations += 1
-            token = _service_calls.set((*_service_calls.get(), id(owner)))
+            token = _service_calls.set((*_service_calls.get(), call))
             try:
                 yield
             finally:
@@ -52,13 +58,21 @@ def service_operation(*, new_work: bool = False):
 
 
 class ServiceMaintenanceInterface:
-    """A target-owned administrative interface, not a framework shutdown coordinator."""
+    """Target-owned cleanup and retirement, not a framework shutdown coordinator.
+
+    close_resources(force) confirms ordinary cleanup and must retain required
+    evidence intake, journaling, archival, and result capabilities. Optional
+    retire_resources(force) closes remaining capabilities only after the durable
+    readiness checkpoint. Both callbacks must return exactly True to confirm.
+    Without retire_resources, final retirement only closes operational admission.
+    """
 
     def __init__(self, service, participant: RuntimeParticipant, *, ingestor, storage_manager,
                  preservation_window_s: float,
                  close_resources: Callable[[bool], Awaitable[bool]],
                  operational_dependents: Mapping[RuntimeParticipant, Callable[[], bool]] | None = None,
-                 evidence_publisher: Callable[[RuntimeEvidenceMessage], Awaitable[None]] | None = None):
+                 evidence_publisher: Callable[[RuntimeEvidenceMessage], Awaitable[None]] | None = None,
+                 retire_resources: Callable[[bool], Awaitable[bool]] | None = None):
         if getattr(service, "_maintenance", None) is not None:
             raise ValueError("Service already has an administrative interface")
         if participant.component_type not in {"controller", "acquisition_node", "ingestor", "storage_manager", "synchronization_manager"}:
@@ -70,6 +84,8 @@ class ServiceMaintenanceInterface:
             raise ValueError("Maintenance scope does not match service ownership")
         if not callable(close_resources):
             raise ValueError("Confirmed service-owned resource closeout is required")
+        if retire_resources is not None and not callable(retire_resources):
+            raise ValueError("Final resource retirement must be callable")
         from math import isfinite
         if not isinstance(preservation_window_s, (int, float)) or not isfinite(preservation_window_s) or preservation_window_s < 0:
             raise ValueError("Preservation window must be finite and nonnegative")
@@ -78,6 +94,7 @@ class ServiceMaintenanceInterface:
         self.ingestor = ingestor
         self.storage_manager = storage_manager
         self.close_resources = close_resources
+        self.retire_resources = retire_resources
         self.preservation_window_s = preservation_window_s
         self.evidence_publisher = evidence_publisher
         self.operational_dependents = dict(operational_dependents or {})
@@ -122,6 +139,7 @@ class ServiceMaintenanceInterface:
                     return self._result(command, "failed", "Conflicting command identity")
                 return RuntimeCommandResultMessage.from_dict(deepcopy(self._results[command.command_id].to_dict()))
             attempt = None
+            cleanup_started = False
             try:
                 if command.target_id != self.participant.component_id or command.session_id is not None:
                     raise ValueError("Maintenance requires the matching participant and session_id=None")
@@ -147,9 +165,7 @@ class ServiceMaintenanceInterface:
                             attempt["blockers"].append("Unfinished service operations")
                     self._attempts[attempt_id] = attempt
                     attempt["blockers"].extend(self.service.maintenance_blockers(self.ingestor, self.storage_manager))
-                    for participant, operational in self.operational_dependents.items():
-                        if operational() is not False:
-                            attempt["blockers"].append(f"Operational dependency: {participant.component_type}/{participant.component_id}")
+                    attempt["blockers"].extend(self._dependency_blockers())
                 else:
                     if self._attempt is None or self._attempt["stop_attempt_id"] != attempt_id:
                         raise RuntimeError("No matching blocked maintenance attempt")
@@ -172,41 +188,53 @@ class ServiceMaintenanceInterface:
                     result = self._result(command, "blocked", "Closeout blockers", attempt)
                 else:
                     force = command.command_type == "kill"
+                    attempt["outcome"] = None
                     # Confirm submission/preservation before initiating orderly cleanup.
                     if not force:
-                        try:
-                            await self._preserve(attempt)
-                        except Exception as error:
-                            attempt["blockers"].append(f"Required evidence preservation: {error}")
-                            return self._remember(command, self._result(command, "blocked", str(error), attempt))
+                        await self._preserve(attempt, "initial")
+                        with self._orderly_preservation_guard():
+                            pass
                     self._closeout_started = True
+                    cleanup_started = True
                     await self.service._close_maintenance_resources(force)
                     confirmed = await self.close_resources(force)
                     if confirmed is not True:
-                        raise RuntimeError("Resource termination is unconfirmed; manual intervention required")
+                        raise RuntimeError("Resource cleanup is unconfirmed; manual intervention required")
                     attempt["actions"].append("forced_resources_closed" if force else "orderly_resources_closed")
-                    attempt["outcome"] = "completed"
                     if force:
+                        # Preserve actual cleanup, not a claim of confirmed retirement.
                         try:
-                            await self._preserve(attempt)
+                            await self._preserve(attempt, "cleanup_confirmed")
                         except Exception as error:
                             attempt["failures"].append(f"Evidence preservation unconfirmed: {error}")
+                        if self.retire_resources is not None:
+                            if await self.retire_resources(True) is not True:
+                                raise RuntimeError("Operational retirement is unconfirmed; manual intervention required")
                         with self._admission_lock:
                             if self._active_operations:
                                 raise RuntimeError("Forced termination remains unconfirmed; service operations are active")
                             self._terminated = True
                             self._attempt = None
+                            attempt["actions"].append("operational_retirement_confirmed")
+                            attempt["outcome"] = "completed"
                     else:
-                        await self._preserve(attempt)
-                        # No await or new intake acquisition under the storage guard.
-                        with self.ingestor._intake_lock, self.ingestor.framework_preservation_guard(self.storage_manager), self._admission_lock:
-                            if self._active_operations:
-                                raise RuntimeError("Service obligations changed during closeout")
-                            blockers = self.service.maintenance_blockers(self.ingestor, self.storage_manager)
-                            if blockers:
-                                raise RuntimeError("Closeout obligations changed: " + "; ".join(blockers))
+                        attempt["remaining_obligations"] = self._closeout_blockers()
+                        await self._preserve(attempt, "cleanup_confirmed")
+                        with self._orderly_preservation_guard():
+                            pass
+                        await self._preserve(attempt, "ready_for_retirement")
+                        with self._orderly_preservation_guard():
+                            pass
+                        # Do not hold synchronous intake/storage locks across retirement.
+                        if self.retire_resources is not None:
+                            if await self.retire_resources(False) is not True:
+                                raise RuntimeError("Operational retirement is unconfirmed; manual intervention required")
+                        with self._orderly_preservation_guard():
                             self._terminated = True
                             self._attempt = None
+                        attempt["actions"].append("operational_retirement_confirmed")
+                        attempt["outcome"] = "completed"
+                        # The initiator retains the actual result; evidence paths may be closed.
                     result = self._result(command, "completed", None, attempt)
             except asyncio.CancelledError:
                 if attempt is not None:
@@ -222,9 +250,16 @@ class ServiceMaintenanceInterface:
             except Exception as error:
                 if attempt is not None:
                     attempt["failures"].append(str(error))
+                    if cleanup_started:
+                        try:
+                            attempt["remaining_obligations"] = self._closeout_blockers()
+                        except Exception as observation_error:
+                            attempt["failures"].append(f"Closeout obligations unconfirmed: {observation_error}")
                     # Preservation failure before cleanup is still a pre-stop blocker.
-                    outcome = "blocked" if not self._closeout_started and attempt["outcome"] == "blocked" else "failed"
+                    outcome = "blocked" if not cleanup_started and command.command_type == "stop" else "failed"
                     attempt["outcome"] = outcome
+                    if outcome == "blocked":
+                        attempt["blockers"].append(f"Required closeout precondition: {error}")
                     if outcome == "failed":
                         self._attempt = None
                     try:
@@ -236,9 +271,38 @@ class ServiceMaintenanceInterface:
                     result = self._result(command, "failed", str(error))
             return self._remember(command, result)
 
-    async def _preserve(self, attempt):
+    def _dependency_blockers(self):
+        return [f"Operational dependency: {participant.component_type}/{participant.component_id}"
+                for participant, operational in self.operational_dependents.items() if operational() is not False]
+
+    def _closeout_blockers(self):
+        blockers = self.service.maintenance_blockers(self.ingestor, self.storage_manager)
+        blockers.extend(self._dependency_blockers())
+        with self._admission_lock:
+            if self._active_operations:
+                blockers.append("Unfinished service operations")
+        return blockers
+
+    @contextmanager
+    def _orderly_preservation_guard(self):
+        # Same intake -> storage -> admission order as the existing synchronous commit.
+        with self.ingestor._intake_lock, self.ingestor.framework_preservation_guard(self.storage_manager) as confirmation, self._admission_lock:
+            archived = {message["evidence_id"]: message for message in confirmation["runtime_evidence"]}
+            for message in self._evidence:
+                if message.is_persistent and (not self.ingestor.has_durable_runtime_evidence(message)
+                        or archived.get(message.evidence_id) != message.to_dict()):
+                    raise RuntimeError(f"Outstanding maintenance evidence: {message.evidence_id}")
+            blockers = self._closeout_blockers()
+            if blockers:
+                raise RuntimeError("Closeout obligations changed: " + "; ".join(blockers))
+            yield
+
+    async def _preserve(self, attempt, checkpoint=None):
+        payload = deepcopy({**attempt, "recorded_at": time()})
+        if checkpoint is not None:
+            payload["checkpoint"] = checkpoint
         message = RuntimeEvidenceMessage(uuid4().hex, None, "service_maintenance_evidence",
-                                         self.participant.component_id, deepcopy({**attempt, "recorded_at": time()}), True)
+                                         self.participant.component_id, payload, True)
         self._evidence.append(message)
         if self.evidence_publisher is None:
             audit = self.ingestor.receive_runtime_evidence(message)

@@ -1,13 +1,13 @@
 # Code Map
 
-## Phase 16 accepted responsibilities (Session-binding release slice complete)
+## Phase 16 accepted responsibilities (binding release and individual maintenance slices complete)
 
 Decision 323 accepts the existing Evidence Archive's deployment-scoped
 `framework/evidence/` partition for Session-independent runtime evidence with
 `session_id=None`. It requires exact evidence/audit/summary preservation without
 a Session Record. Individual-service stop/kill/cancel remains separate from
-Session-binding release and coordinated framework shutdown; this documentation
-does not claim maintenance validation.
+Session-binding release and coordinated framework shutdown; W036 records its
+completed software validation and independent audit.
 
 Decisions 304-321 establish Session-independent and GUI-independent lifetime for
 Controller, AcquisitionNode, Ingestor, StorageManager, and SynchronizationManager.
@@ -30,8 +30,9 @@ startup/readiness and returning-service recognition do not resume interrupted
 work. Q025 is resolved architecturally; Q019 and Q024 remain open.
 Individual-service maintenance now has a narrow implementation through the
 target-owned ServiceMaintenanceInterface and existing participant commands.
-It is not independently validated or audited. General coordinated shutdown and
-independent startup integration remain unfinished; W035 is unchanged.
+It is manually software-validated and independently audited PASS (W036). General
+coordinated shutdown and independent startup integration remain unfinished;
+W035's Session-binding release validation is unchanged.
 
 Decision 322 additionally makes every ControllerActionDecision persistent,
 including no-mutation outcomes. Accepted ownership remains Controller-produced
@@ -427,25 +428,55 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 
 ## src/lab_sync_acquisition/service_maintenance.py
 
-- ServiceMaintenanceInterface(service, participant, *, ingestor, storage_manager, preservation_window_s, close_resources, operational_dependents=None, evidence_publisher=None): Attaches one service-owned administrative interface with an explicit bounded preservation window, confirmed resource-closeout callback, and optional explicitly configured operational Ingestor dependencies.
-- ServiceMaintenanceInterface.execute_command(command): Serializes and deduplicates stop/kill/cancel attempts, preserves original blockers and authorization, and confirms orderly evidence preservation before retiring only the target service's operational admission.
+- ServiceMaintenanceInterface(service, participant, *, ingestor, storage_manager, preservation_window_s, close_resources, operational_dependents=None, evidence_publisher=None, retire_resources=None): Attaches one service-owned administrative interface with an explicit bounded preservation window, ordinary-cleanup callback, optional final-retirement callback, and explicitly configured operational Ingestor dependencies.
+- ServiceMaintenanceInterface.execute_command(command): Serializes and deduplicates stop/kill/cancel attempts, preserves original blockers and authorization, and requires current archival of all producer-owned persistent maintenance evidence and current closeout obligations before orderly retirement.
 - ServiceMaintenanceInterface.command_results: Returns detached correlated last-confirmed results with separate completed/blocked/failed outcomes and termination confirmation.
 - ServiceMaintenanceInterface.evidence: Returns retained producer-owned persistent attempt evidence, including preservation failures.
 - ServiceMaintenanceInterface.terminated: Reports confirmed operational-service retirement rather than OS process death.
-- service_operation(new_work=False): Tracks active operations and rejects new unrelated work during pending maintenance while allowing already-admitted workflows and evidence/cleanup obligations to continue until retirement.
+- service_operation(new_work=False): Tracks active operations and rejects new unrelated work during pending maintenance while permitting nested admitted calls only within the same task or thread, not through inherited child-task context.
 
 Maintenance must be configured with an explicit service-owned resource closeout
 callback and preservation window. Local callers may use attached intake;
 configured NATS handlers publish evidence through JetStream and boundedly await
 actual acceptance through the configured Ingestor confirmation interface.
-Publication acknowledgment alone cannot complete stop. Resource callbacks must
-not cut off required evidence/archival capabilities prematurely: lost capabilities
-produce blocked or failed outcomes, never fabricated preservation. Operational
-admission retires only after confirmed cleanup and exact guarded archival;
-administrative result retention does not assert OS process death. Kill may leave
-scientific/evidence obligations unresolved and reports required manual
-intervention when force cannot be confirmed. No cross-host preservation
-acknowledgment protocol or automatic service recovery is added.
+Publication acknowledgment alone cannot complete stop.
+
+Decision 324 closeout ordering is implemented, manually software-validated, and
+independently audited PASS (W036). `close_resources(force)` confirms ordinary cleanup and must
+leave required evidence intake, journaling, archival, and result capabilities
+available. Optional `retire_resources(force)` closes the remaining capabilities
+after durable readiness preservation. Both callbacks must return exactly `True`;
+without the optional callback, final retirement closes operational admission only,
+not an OS process or caller-owned transport connection.
+
+Orderly maintenance preserves `initial`, `cleanup_confirmed`, and
+`ready_for_retirement` checkpoints using the existing runtime evidence pathway.
+Pending checkpoints use `outcome=None`, not a new attempt or lifecycle state;
+they never claim completed retirement. The initiating interface retains the final
+`completed` result only after confirmed retirement, and the existing command/result
+path delivers it where available. Missing delivery is not success. No post-retirement
+self-preservation through unavailable Ingestor/StorageManager infrastructure is
+required. Preservation failure before cleanup blocks stop; failure after cleanup
+begins produces `failed`. Authorized kill semantics remain separate and unchanged.
+
+Authorized kill best-effort preserves a `cleanup_confirmed` checkpoint with
+`outcome=None` before final retirement. Active-operation checking and operational
+retirement commitment occur together under the admission lock, without an await;
+only confirmed retirement produces a retained `completed` command result. Active
+operations instead produce `failed` evidence with confirmed cleanup actions and
+remaining obligations. No completed evidence is published before confirmation,
+and retired evidence services need not archive their own final event.
+
+Orderly preservation guards require exact journal-backed acceptance and current
+archival of every retained persistent maintenance message, including prior failed
+publications. Explicit producer-managed submission through the existing pathway
+may fulfill an outstanding obligation; maintenance does not replay old messages.
+Configured Ingestor dependency predicates and service-owned obligations are
+rechecked before final resource retirement and at operational-admission commitment.
+The synchronous commitment uses intake, storage-preservation, then admission
+locking; no such lock is held across an awaited callback. No new supervisor,
+evidence subsystem, shutdown coordinator, lifecycle state, automatic replay, or
+recovery is introduced. Phase 16 and M015 remain open.
 
 ## src/lab_sync_acquisition/service_readiness.py
 

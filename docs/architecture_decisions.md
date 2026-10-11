@@ -8631,6 +8631,60 @@ or commit protocol is introduced.
 
 ---
 
+## Decision 324: Individual-service maintenance preserves confirmed cleanup evidence before retiring evidence capabilities
+
+**Status:** Accepted
+
+This clarifies individual-service maintenance closeout ordering under Decisions
+312, 315, 317, 319, and 323 without changing their existing meaning or ownership:
+
+1. Ordinary service resource cleanup and final operational retirement are
+   distinct when retirement would disable required evidence capabilities.
+2. Before orderly cleanup, preserve the initial maintenance checkpoint.
+3. During ordinary resource cleanup, retain the Ingestor acceptance, journaling,
+   and StorageManager archival capabilities necessary to preserve confirmed
+   cleanup results.
+4. After ordinary cleanup, durably preserve actual confirmed actions, failures,
+   and remaining obligations, not merely the intention to close.
+5. Before irreversible retirement of evidence capabilities, durably preserve the
+   last-confirmed readiness-for-retirement checkpoint.
+6. Final operational retirement occurs only after required preservation is
+   confirmed. Transport publication acknowledgment alone is not sufficient.
+7. Confirmed retirement is distinct from readiness for retirement and from OS
+   process death. A readiness checkpoint does not claim that retirement has
+   already occurred.
+8. The initiating interface determines the final outcome from actual
+   confirmation. `completed` requires confirmed operational retirement;
+   otherwise report `failed` once cleanup has begun.
+9. Ingestor and StorageManager are not required to preserve post-retirement
+   events through their own unavailable infrastructure. The initiating interface
+   retains the confirmed result and communicates it through the existing
+   command/result path where possible.
+10. Missing command-result delivery cannot be interpreted as successful
+    retirement.
+11. Preservation failure before cleanup begins blocks orderly stop. Failures
+    after cleanup begins produce `failed` outcomes.
+12. A minimal two-phase closeout callback contract or optional final-retirement
+    callback is permitted. No new supervisor, evidence subsystem, shutdown
+    coordinator, or lifecycle state is introduced.
+
+Decision 315's meanings of `blocked`, `failed`, and `completed` remain unchanged.
+Authorized kill remains separate: it may proceed despite evidence-preservation
+blockers, retains original blockers and actual confirmed results, and does not
+assert complete cleanup or evidence preservation. This clarification neither
+expands individual maintenance into general framework shutdown nor resolves
+Q019 or Q024. Existing RuntimeEvidenceMessage, Ingestor, StorageManager, Evidence
+Archive, and command/result ownership remain unchanged.
+
+**Implementation status:** Individual-service closeout ordering and the four
+original audit corrections are implemented and validated. The subsequent
+premature-completion finding in authorized kill is corrected, manually validated,
+and independently re-audited PASS. W036 records completion of this narrow software
+implementation slice, including Decision 324's preservation and retirement
+ordering. Phase 16 and M015 remain open; historical validation records are preserved.
+
+---
+
 # Accepted Architectural Principles
 
 The following principles summarize the accepted decisions so far.

@@ -2032,6 +2032,88 @@ validation.
 
 ---
 
+# W036 - Phase 16 Individual-service Maintenance and Confirmed Retirement
+
+**Status:** Complete - narrow software implementation, manual IPython validation,
+and final independent audit PASS, including Decision 324 closeout ordering.
+
+## Purpose
+
+Validate target-owned individual-service stop, authorized kill, and cancel through
+the existing maintenance interface and command/result/evidence pathways. This is
+distinct from Session-binding release (W035) and general coordinated framework
+shutdown.
+
+## Workflow
+
+```text
+Orderly stop evaluates service-owned blockers
+    -> preserve initial maintenance checkpoint before cleanup
+    -> perform ordinary resource cleanup while evidence capabilities remain available
+    -> durably preserve confirmed actions, failures, and remaining obligations
+    -> preserve readiness-for-retirement checkpoint
+    -> recheck obligations and atomically commit operational retirement
+    -> initiating interface retains the confirmed command result
+```
+
+Pre-cleanup preservation failure blocks orderly stop; failure after cleanup starts
+produces a failed outcome. Readiness for retirement and successful resource cleanup
+do not imply confirmed retirement or OS process death. Evidence-owning services
+need not preserve their own post-retirement events through unavailable infrastructure.
+Missing command-result delivery is not successful retirement.
+
+Authorized kill remains forced continuation of the same blocked attempt with
+explicit authorization; cancel declines that continuation. Forced cleanup may
+leave obligations unresolved. A truthful cleanup checkpoint uses `outcome=None`;
+only confirmed operational retirement permits a completed result. Active-operation
+checking and retirement commitment share the admission lock without an await.
+
+## Independent manual IPython validation
+
+Reported manual validation passed, including the authorized-kill failure scenario:
+an admitted StorageManager collection remained active during stop and kill.
+Orderly stop returned `blocked`, authorized kill returned `failed`, and
+`termination_confirmed=False`. The durable framework Evidence Archive contained
+outcomes `["blocked", None, "failed"]`, with forced cleanup actions and remaining
+obligations recorded and no false completed termination evidence.
+
+Successful authorized retirement was also independently exercised. Its confirmed
+command result and retained evidence remained consistent without requiring
+impossible post-retirement self-persistence by a retired evidence service.
+
+## Automated validation and independent audit
+
+- Two targeted authorized-kill regression tests passed.
+- Focused regressions: **141 passed** across maintenance, framework evidence,
+  Ingestor recovery, Session-binding release, and NATS communication tests.
+- Full discovery: **541 run, 534 passed, 0 failed, 7 optional rendering skips**.
+- Final independent audit: **PASS**; no blocking defects.
+- The original four audit findings were corrected and validated: two-stage
+  preservation/retirement ordering, asynchronous child-task admission protection,
+  outstanding producer-owned persistent evidence guards, and explicit Ingestor
+  operational-dependency rechecks.
+- The subsequent authorized-kill premature-completion evidence defect was
+  corrected and independently re-audited; controlled events exercised the active
+  collection failure window and successful evidence-service retirement.
+
+These are preceding implementation, manual validation, and independent audit
+results, not new tests or validation executed during this documentation task.
+Historical results and W035 are preserved.
+
+## Limitations and completion
+
+Only the individual-service maintenance implementation slice is complete.
+Phase 16 remains incomplete: general coordinated shutdown and independent
+startup/returning-service integration remain unfinished. M015 remains OPEN with
+its separate launch/reuse validation and audit criteria. Q019 and Q024 remain OPEN.
+
+This is software validation, including controlled broker doubles, not real hardware,
+live cross-process, or external NATS deployment validation. No new lifecycle state,
+supervisor, evidence subsystem, automatic replay/recovery, or remote OS process
+management was introduced.
+
+---
+
 # Future Workflows
 
 The following workflows are expected to be added as the framework evolves.

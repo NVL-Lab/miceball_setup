@@ -603,7 +603,7 @@ Slice 28 workflows remain historical evidence, not closure of its sequential-reu
 requirements. W035 separately validates the Phase 16 service binding-release path.
 
 Phase 16 Operational Service Lifetime and Framework Stop/Kill architecture is
-accepted in Decisions 304-323. The narrow Controller/Ingestor/SynchronizationManager
+accepted in Decisions 304-324. The narrow Controller/Ingestor/SynchronizationManager
 Session-binding release slice under Decisions 313 and 322 is complete, manually
 software-validated, and independently audited PASS (W035). Remaining Phase 16
 responsibilities are unfinished; Phase 16 completion is not claimed.
@@ -624,8 +624,11 @@ Neither operation initiates artifact collection, verification, transfer, or expo
 and normal Session end does not automatically stop operational services. No new
 framework-wide lifecycle, service supervisor, or GUI control is implemented.
 Individual-service stop/kill/cancel now has a target-owned administrative interface
-and existing NATS command/result entry points, with independent manual validation
-and audit pending. Decisions 313-321 settle independent Session-binding release,
+and existing NATS command/result entry points. This narrow implementation slice is
+complete, manually software-validated, and independently audited PASS (W036),
+including Decision 324 closeout ordering and the authorized-kill evidence correction.
+This does not claim hardware or live external NATS deployment validation.
+Decisions 313-321 settle independent Session-binding release,
 general shutdown versus individual administrative maintenance, all-participant
 pre-stop evaluation, directional service-owned blockers, and exact forced-action
 outcomes. General shutdown preserves evidence in producer -> Ingestor ->
@@ -639,7 +642,8 @@ promise automatic recovery of interrupted work. Q025 is resolved architecturally
 with coordinated shutdown and startup integration still pending; Q019,
 Q021, Q024, and deployment configuration remain open.
 Q017 remains resolved.
-Existing milestone statuses and validation records are unchanged.
+M015 remains open with its separate launch/reuse validation criteria; historical
+validation records are preserved.
 
 Decision 322 accepts persistence for every ControllerActionDecision, including
 no-mutation outcomes, with Controller-supplied is_persistent=True through the

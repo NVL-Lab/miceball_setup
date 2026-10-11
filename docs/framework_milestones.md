@@ -648,11 +648,12 @@ cleanup/reuse, not implementation of those service binding-release contracts.
 # Future Milestones
 
 Phase 16 Operational Service Lifetime and Framework Stop/Kill architecture is
-accepted in Decisions 304-323. At the earlier checkpoint implementation was
-limited to the Session-binding release slice. Decision 323 now
-adds the accepted framework Evidence Archive partition; individual-service
-stop/kill/cancel has a new software implementation, with manual validation and
-independent audit pending. General coordinated shutdown remains unimplemented.
+accepted in Decisions 304-324. At the earlier checkpoint implementation was
+limited to the Session-binding release slice. Decision 323 adds the accepted
+framework Evidence Archive partition; individual-service stop/kill/cancel is now
+complete, manually software-validated, and independently audited PASS (W036),
+including Decision 324 closeout ordering. General coordinated shutdown remains
+unimplemented.
 The narrow Controller/Ingestor/SynchronizationManager
 binding-release slice is complete and independently software-validated (W035);
 Phase 16 as a whole is not complete. Principal service lifetime is independent
@@ -694,6 +695,24 @@ records without deleting durable evidence. W035 validates these owner-specific
 release paths under Decisions 313 and 322; it does not validate the newly implemented
 individual-service maintenance/framework evidence or complete coordinated shutdown/startup responsibilities,
 close M015, or resolve Q019/Q024.
+
+## Completed individual-service maintenance slice validation
+
+**Status:** Complete - narrow software implementation, manual IPython validation,
+and final independent audit PASS (W036).
+
+Individual-service stop, authorized kill, and cancel are implemented and validated.
+Decision 324's two-stage cleanup, evidence preservation, and retirement ordering
+are satisfied. The original four audit findings and subsequent authorized-kill
+premature-completion evidence defect were corrected and validated, including
+independent re-audit of the latter. W036 records the manual scenarios and reported
+full-suite result: 541 run, 534 passed, 7 optional rendering skips, zero failures.
+
+This completes only individual-service maintenance, not Phase 16 or M015.
+General coordinated shutdown and independent startup/returning-service integration
+remain unfinished. M015 retains its separate launch/reuse validation and audit
+criteria; Q019 and Q024 remain open. No hardware or external live NATS validation
+is claimed, and no tests were rerun during documentation synchronization.
 
 ## Completed Session-binding release slice validation
 

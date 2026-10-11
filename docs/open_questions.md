@@ -646,8 +646,9 @@ process per service. Deployment automation, supervision, and configuration
 mechanisms remain unresolved here. Decisions 313-321 settle maintenance,
 independent startup/readiness, and service-owned Session-binding release without
 choosing deployment formats, a discovery/registration system, or supervision.
-Q025 is resolved architecturally; Phase 16 implementation beyond the completed
-Session-binding release slice (W035) remains pending.
+Q025 is resolved architecturally. Session-binding release (W035) and individual-service
+maintenance (W036) are complete and software-validated; general coordinated
+shutdown and independent startup integration remain pending.
 
 Decision 302 additionally settles retained adapter reuse without process or adapter
 recreation: AcquisitionNode retains deployment configuration, but subsequent
@@ -816,8 +817,10 @@ protocol questions.
 All five narrowed architecture questions are resolved. Decision 323's framework
 partition and individual-service administrative stop/kill/cancel now have narrow
 implementation paths using existing runtime messages, journals, compilation,
-and exact preservation checks. Independent manual validation and audit remain
-pending; general coordinated shutdown and startup integration remain unfinished.
+and exact preservation checks. W036 records successful manual software validation
+and final independent audit PASS for individual-service maintenance, including
+Decision 324 closeout ordering. General coordinated shutdown and startup integration
+remain unfinished.
 Transport publication alone is not permanent persistence, and the framework
 partition never requires a Session Record or fabricated Session binding.
 
@@ -829,9 +832,9 @@ by Decision 303; no completed Session is retroactively failed by later global
 processing. Service supervision/configuration remain in Q022 and broader
 configuration questions; restart recovery remains Q024. Accepted administrative
 maintenance adds no permission infrastructure, remote OS process management,
-framework-wide state machine, new Session state, automatic retry, remote process
-termination, or validated maintenance workflow. W035 is limited to Session-binding
-release and does not validate administrative stop/kill. Independent startup/returning-service
+framework-wide state machine, new Session state, automatic retry, or remote process
+termination. W036 validates the narrow individual-service maintenance slice;
+W035 remains limited to Session-binding release. Independent startup/returning-service
 recognition does not resume interrupted Sessions, transfers, or messages.
 
 ---
@@ -841,7 +844,7 @@ The roadmap distinguishes accepted architecture from implemented milestones:
 Phase 13 — Global StorageManager (Evidence)
 Phase 14 — Global StorageManager (Finalized Scientific Data)
 Phase 15 — Controller-owned Session Launch & Runtime Assembly (launch path and Decision 302 sequential reuse implemented; independent validation/audit and M015 closure pending)
-Phase 16 — Operational Service Lifetime and Framework Stop/Kill (Decisions 304-323 accepted; Q025 resolved architecturally; narrow Session-binding release under Decisions 313/322 complete, manually software-validated and independently audited PASS in W035; individual-service maintenance and framework evidence implemented pending manual validation/audit; coordinated shutdown and startup integration unfinished)
+Phase 16 — Operational Service Lifetime and Framework Stop/Kill (Decisions 304-324 accepted; Q025 resolved architecturally; narrow Session-binding release under Decisions 313/322 complete, manually software-validated and independently audited PASS in W035; individual-service maintenance complete, manually software-validated and independently audited PASS in W036; coordinated shutdown and startup integration unfinished)
 Phase 17 — Device Acceptance / Validation
 Phase 18 — End-to-End Demo Architecture
 
