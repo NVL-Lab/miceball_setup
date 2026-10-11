@@ -753,7 +753,8 @@ M015 retains its separate launch/reuse validation criteria, and Q019/Q024 remain
 ## Accepted independent startup and returning-service integration
 
 **Status:** Low-level architecture accepted and synchronized (Decisions 327-331);
-implementation, automated testing, independent manual validation, and audit pending.
+implementation has automated broker-double coverage; independent manual validation
+and audit pending. This is not a completed or validated slice.
 
 Starting and returning services announce existing identity/readiness through NATS;
 configured dependencies receive announcements directly and update their own

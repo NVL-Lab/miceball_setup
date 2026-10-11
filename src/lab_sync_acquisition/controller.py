@@ -28,7 +28,7 @@ from lab_sync_acquisition.experiment_runtime import (
     ExperimentRuntimeHealthMapping,
 )
 from lab_sync_acquisition.ingestor import InMemoryIngestor
-from lab_sync_acquisition.service_readiness import ServiceReadiness
+from lab_sync_acquisition.service_readiness import ServiceReadiness, apply_dependency_readiness
 from lab_sync_acquisition.session import (
     ExpectedParticipant,
     Session,
@@ -162,6 +162,13 @@ class Controller:
         self._framework_shutdown_active = False
         self._framework_shutdown_attempt_id: str | None = None
         self._framework_shutdown_attempts: dict[str, dict[str, Any]] = {}
+
+    def check_ready(self) -> ServiceReadiness:
+        """Report service readiness independently of Session lifecycle and reservations."""
+        terminated = getattr(getattr(self, "_maintenance", None), "terminated", False)
+        return apply_dependency_readiness(self, ServiceReadiness(
+            self._component_id, "controller", True, not terminated,
+            "service_terminated" if terminated else "ready"))
 
     async def shutdown_framework(
         self, participants: Iterable[RuntimeParticipant], *,

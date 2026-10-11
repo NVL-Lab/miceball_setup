@@ -36,7 +36,7 @@ from lab_sync_acquisition.experiment_runtime import (
     ExperimentScopedHealthObservation,
 )
 from lab_sync_acquisition.ingestor import InMemoryIngestor
-from lab_sync_acquisition.service_readiness import ServiceReadiness
+from lab_sync_acquisition.service_readiness import ServiceReadiness, dependency_readiness_reports
 from lab_sync_acquisition.service_maintenance import service_operation
 from lab_sync_acquisition.synchronization import (
     SynchronizationManager,
@@ -575,6 +575,7 @@ class AcquisitionNode:
             self._synchronization_manager.check_ready(),
             self._ingestor.check_ready(),
             self._failure_evidence_readiness(),
+            *dependency_readiness_reports(self),
         )
         ready = all(
             not readiness.required or readiness.ready for readiness in service_readiness
@@ -598,6 +599,7 @@ class AcquisitionNode:
             self._synchronization_manager.check_ready(),
             self._ingestor.check_ready(),
             self._failure_evidence_readiness(),
+            *dependency_readiness_reports(self),
             *additional_service_readiness,
         )
         if getattr(getattr(self, "_maintenance", None), "terminated", False):

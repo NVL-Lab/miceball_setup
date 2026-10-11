@@ -58,9 +58,11 @@ W035's Session-binding release validation is unchanged.
 Decisions 327-331 now accept and synchronize startup/return announcements using
 existing RuntimeParticipant/ServiceReadiness contracts, direct configured-dependency
 updates, protected reuse, and framework evidence for unresolved work and explicit
-administrator decisions. Implementation and validation remain pending; this entry
-does not add or name new public APIs. Existing NATS, readiness, and framework
-evidence interfaces are candidates for reuse. Resume/drop execution remains Q024,
+administrator decisions. Startup/return integration is implemented with automated
+broker-double coverage; independent manual validation and audit remain pending.
+Existing service-owned administrative,
+NATS, readiness, and framework evidence interfaces are extended below, without
+a registry or another service-management component. Resume/drop execution remains Q024,
 deployment/discovery details remain Q022, and Session-wide consumption remains Q019.
 
 Decision 322 additionally makes every ControllerActionDecision persistent,
@@ -222,8 +224,8 @@ guarantee remain deferred. M014/W034 retain completed Slice 27 scope and status.
 - NatsAcquisitionNodeCommunication: Public import for targeted AcquisitionNode command consumption, local duplicate detection, explicit command execution, command-result publication, and runtime evidence publication.
 - NatsIngestorCommunication: Public import for durable runtime evidence consumption into the existing Ingestor ownership boundary.
 - NatsSynchronizationManagerCommunication: Public import for participant-scoped readiness and Session preparation/abort command handling without transport-owned timing semantics.
-- NatsServiceMaintenanceCommunication: Public import for participant-scoped Controller/StorageManager administrative commands using existing NATS command/result paths.
-- ServiceMaintenanceInterface: Public import for target-owned correlated stop/kill/cancel and evidence-confirmed operational retirement.
+- NatsServiceMaintenanceCommunication: Public import for service-owned startup/readiness announcements and participant-scoped administrative commands using existing NATS pathways.
+- ServiceMaintenanceInterface: Public import for service-owned dependency readiness, framework evidence, correlated stop/kill/cancel, and evidence-confirmed operational retirement.
 - InMemoryStorageManager: Public import for the minimal in-memory acquisition envelope storage boundary.
 - PersistentStorageManager: Public import for the v1 persistent StorageManager implementation that stores accepted envelopes as JSONL and writes caller-supplied Session Record and Evidence Archive products.
 - SshRetrievalEndpoint, ArtifactRetrievalResult, ArtifactCollectionResult: Public imports for deployment-local SSH configuration and StorageManager artifact collection results.
@@ -344,6 +346,7 @@ is complete; W030 records manual validation, focused tests, and audit reassessme
 - Controller.start_launched_session(): Starts reserved nodes through correlated NATS commands and then starts the Session, returning ControllerCommandResult and attempting cleanup if startup fails.
 - Controller.stop_launched_session(reason=None): Stops and locally finalizes all reserved nodes through NATS, releases only confirmed-clean reservations, and stops the Session without waiting for global collection.
 - Controller.get_status(): Returns Session/command status, the bounded last released terminal outcome, and the local AcquisitionNode snapshot or None, without fabricating remote runtime status.
+- Controller.check_ready(): Returns Session-independent service readiness, combining confirmed configured dependencies and refusing to fabricate a ready/unready report when dependency availability is unknown.
 - Controller.release_session(): Asynchronously releases only its captured terminal Session binding after confirmed cleanup and current archival under StorageManager's preservation guard, revalidating object identity after every unsubscription await and before retirement; stale operations return a failed ControllerCommandResult for the original Session without changing the current binding or command history, while cancellation propagates and retains outstanding obligations.
 - Controller._session_ingest_state(): Snapshots existing intake views to detect acceptance/audit changes after final persistence or during subscription release.
 - Controller.start_experiment: Accepts keyword-only `scientific_outputs=()`, `preparation_readiness=()`, and `preparation_outcomes=()`, gates start on required readiness and correlated final remote successes, and reports preparation rejection once as persistent runtime evidence in failed result details without lifecycle activation.
@@ -437,9 +440,10 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 - NatsCommunicationBoundary: Owns a real nats-py connection, reports NATS availability through ServiceReadiness, creates accepted JetStream streams, and handles JSON serialization, durable publication acknowledgement, and Core NATS telemetry mechanics without domain semantics.
 - NatsControllerCommunication: Publishes unicast or issuer-fanned group commands, consumes and aggregates addressed per-target command results over an issuer-defined window, records missing results as unresolved, and independently presents HealthInterpretationEvidence without relaying evidence.
 - NatsControllerCommunication.check_ready(): Returns required NATS communication readiness for launch gating.
-- NatsControllerCommunication.request_command(participant, command_type, session_id, payload, result_window_s, *, command_id=None): Publishes once with a generated or caller-correlated non-overlapping command identity and awaits the final result over a finite bounded window, returning None for missing/invalid confirmation without retry or assuming remote state is absent.
+- NatsControllerCommunication.request_command(participant, command_type, session_id, payload, result_window_s, *, command_id=None): Publishes once and awaits the bounded correlated result; when startup integration is attached to the same boundary, it also informs the service owner of missing results or explicit readiness observations without inferring technical unreadiness or using stale subscription bindings.
 - NatsControllerCommunication.subscribe_command_results(session_id, callback=None): Accepts None for participant-scoped results and a real Session ID for Session-scoped results.
 - NatsCommunicationBoundary.ensure_streams(): Retains Session stream filters and adds participant command/result filters and messages.evidence.> for framework evidence to the existing three JetStream streams, leaving telemetry Core NATS only.
+- NatsCommunicationBoundary.subscribe_readiness_announcements(participant, callback): Subscribes the existing framework evidence subject with DeliverPolicy.NEW and AckPolicy.NONE so operational readiness never comes from retained history or redelivery; Ingestor's durable historical consumer is unchanged.
 - NatsAcquisitionNodeCommunication.subscribe_commands(): Returns two subscriptions for participant-scoped and Session-scoped addressed commands, keeping the same handler usable across binding changes.
 - NatsAcquisitionNodeCommunication: Consumes targeted readiness, scientific-output preparation, or runtime commands, deduplicates by command_id, and publishes explicit outcomes without owning Experiment lifecycle.
 - NatsAcquisitionNodeCommunication.execute_command: Executes `prepare_experiment_scientific_outputs` through the existing node API with explicit Experiment/product identities and returns readiness diagnostics in the existing correlated final command result.
@@ -452,20 +456,47 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 - _subscribe_participant_commands: Establishes the two addressed command subscriptions reused by mandatory service handlers.
 - NatsIngestorCommunication.subscribe_evidence(session_id, callback=None): Requires the matching Session journal or a configured framework journal for None and ACKs after successful durable acceptance, invoking callbacks only for newly accepted evidence.
 - NatsControllerCommunication.maintenance_requests: Returns detached administrative command intent (including survey and preparation), attempt identity, and authorization retained by the existing command issuer independently of received command results.
-- NatsServiceMaintenanceCommunication(boundary, maintenance): Provides the existing participant-command/result endpoint for Controller or StorageManager individual maintenance and coordinated shutdown, while orchestration remains Controller-owned.
-- NatsServiceMaintenanceCommunication.subscribe_commands(): Routes correlated maintenance commands through the existing JetStream subscriptions and publishes service-owned results.
+- NatsServiceMaintenanceCommunication(boundary, maintenance): Extends the existing service-owned interface with startup/readiness communication for any of the five operational service types; Controller/StorageManager maintenance and framework coordination retain their existing ownership.
+- NatsServiceMaintenanceCommunication.start(): Requires connected NATS, subscribes configured dependencies directly, and announces startup/return through existing framework evidence without redundant readiness queries or launching a process.
+- NatsServiceMaintenanceCommunication.close(): Removes its subscriptions and invalidates current dependency reports while preserving last-known reports, service state, and producer evidence obligations.
+- NatsServiceMaintenanceCommunication.publish_readiness(): Publishes only meaningful readiness/obligation changes and creates no new archival work after resource closeout begins.
+- NatsServiceMaintenanceCommunication.request_dependency_command(participant, command_type, session_id, payload, result_window_s): Reuses the existing bounded correlated command issuer, invalidating current availability on unconfirmed communication without interpreting a confirmed command failure as technical unreadiness or allowing an older communication binding to alter a newer one.
+- NatsServiceMaintenanceCommunication.check_dependency_readiness(participant, result_window_s): Performs an explicit operational check and returns ServiceReadiness or None for unknown, preserving historical readiness separately.
+- NatsServiceMaintenanceCommunication._observe_dependency_result(participant, command_type, result): Updates configured service-owned dependency readiness from existing command outcomes, including other role-specific command issuers sharing the same boundary.
+- NatsServiceMaintenanceCommunication.subscribe_commands(): Routes maintenance and check_readiness requests through existing JetStream command/result subscriptions without changing cleanup, kill authorization, or lifecycle ownership.
 - _execute_maintenance_command: Connects existing service handlers to their configured administrative interface and brokered evidence publisher without a local publication fallback.
 
 ## src/lab_sync_acquisition/service_maintenance.py
 
-- ServiceMaintenanceInterface(service, participant, *, ingestor, storage_manager, preservation_window_s, close_resources, operational_dependents=None, evidence_publisher=None, retire_resources=None): Attaches one service-owned administrative interface with an explicit bounded preservation window, ordinary-cleanup callback, optional final-retirement callback, and explicitly configured operational Ingestor dependencies.
+- ServiceMaintenanceInterface(service, participant, *, ingestor, storage_manager, preservation_window_s, close_resources, operational_dependents=None, evidence_publisher=None, retire_resources=None, dependency_participants=()): Attaches one service-owned administrative interface with existing maintenance callbacks and an explicit caller-provided tuple of dependency identities, without discovery or a deployment-file model.
 - ServiceMaintenanceInterface.execute_command(command): Serializes/deduplicates read-only check_stop_readiness and stop/kill/cancel/prepare_stop commands; Ingestor retirement retains its final complete intake compilation in StorageManager, and prepared final stops recheck that evidence/all-audit coverage before and after retirement callbacks through commitment without invoking retired Ingestor operations or repeating cleanup.
 - ServiceMaintenanceInterface.prepared: Reports confirmed ordinary cleanup awaiting final retirement, not a lifecycle state or completed stop; only StorageManager and Controller support preparation with an explicit framework attempt identity.
 - ServiceMaintenanceInterface.command_results: Returns detached correlated last-confirmed results with separate completed/blocked/failed outcomes and termination confirmation.
-- ServiceMaintenanceInterface.evidence: Returns retained producer-owned persistent attempt evidence, including preservation failures.
+- ServiceMaintenanceInterface.evidence: Returns retained producer-owned persistent framework evidence, including startup/readiness, administrator choices, maintenance attempts, and preservation failures.
+- ServiceMaintenanceInterface.dependency_readiness: Returns a detached mapping of configured RuntimeParticipants to current ServiceReadiness or None for unknown.
+- ServiceMaintenanceInterface.last_known_dependency_readiness: Returns historical confirmed reports, never substituted for missing current operational readiness.
+- ServiceMaintenanceInterface.receive_dependency_readiness(participant, readiness): Updates or invalidates only a configured dependency's current report without changing Session lifecycle, reservations, or cleanup obligations.
+- ServiceMaintenanceInterface.dependency_reports(): Returns current dependency records or raises RuntimeError for missing current evidence, retaining the existing boolean readiness schema.
+- ServiceMaintenanceInterface.announce_readiness(*, startup=False): Creates producer-persistent service_readiness RuntimeEvidenceMessage records for startup/return or changed snapshots, including existing node/reservation and obligation evidence, and suppresses unchanged snapshots without replaying failed publications.
+- ServiceMaintenanceInterface.record_administrator_decision(administrator_id, decision, details): Records explicit resume/drop choices as persistent administrator_decision framework evidence without executing recovery/deletion, clearing obligations, or claiming an operational outcome.
 - ServiceMaintenanceInterface.terminated: Reports confirmed operational-service retirement rather than OS process death.
 - ServiceMaintenanceInterface._retirement_guard(force=False): Commits retirement under intake/storage/admission locks as applicable and retains final Ingestor compilation without imposing orderly preservation prerequisites on authorized kill.
-- service_operation(new_work=False): Tracks active operations and rejects new unrelated work during pending maintenance while permitting nested admitted calls only within the same task or thread, not through inherited child-task context.
+- ServiceMaintenanceInterface._preserve_message(message, status=None): Reuses one publication/handoff, durable intake confirmation, and framework archival path for maintenance, startup/readiness, and administrator-decision evidence while retaining the producer's original record.
+- ServiceMaintenanceInterface._readiness_payload(): Packages existing participant, service/node readiness, configured-dependency reports, and owner diagnostics as plain runtime-evidence data without guessing technical unreadiness for unavailable reports.
+- ServiceMaintenanceInterface._record_framework_evidence(message, status=None): Exposes separate preservation observations and an operator warning on failure, without turning independent startup into an orderly-stop preservation gate.
+- service_operation(new_work=False): Tracks service operations, including existing administrative interfaces and their outgoing NATS dependency requests, rejecting new unrelated work during pending maintenance while permitting nested admitted calls only within the same task or thread, not through inherited child-task context.
+
+Startup and administrator-decision APIs return detached evidence plus separate
+`publication_confirmed`, `acceptance_confirmed`, and `archival_confirmed` submission
+observations; an unchanged snapshot returns its previous submission result, not a
+new current archival confirmation. `preservation_warning` and logging expose unconfirmed archival
+without blocking independent startup. Producers retain the original evidence in
+the existing evidence readback; orderly closeout still checks every outstanding
+persistent record. No unpublished-message queue, retry, replay, or second archive
+is created. Known obligations come from existing owner diagnostics, not discovery
+of abandoned applications. Delivery loss is detected only by existing operations
+or explicit checks; there is no proactive detection guarantee. Startup/readiness
+implementation has automated coverage, not independent validation or audit yet.
 
 Maintenance must be configured with an explicit service-owned resource closeout
 callback and preservation window. Local callers may use attached intake;
@@ -513,6 +544,8 @@ recovery is introduced. Phase 16 and M015 remain open.
 ## src/lab_sync_acquisition/service_readiness.py
 
 - ServiceReadiness: Holds the shared framework-service readiness fields consumed by Session initialization and exposes them as plain data for Session Record evidence.
+- dependency_readiness_reports(service): Reads the attached service-owned dependency records, preserving unknown as missing current evidence instead of a fabricated boolean report.
+- apply_dependency_readiness(service, readiness): Combines confirmed required framework prerequisites with local readiness without substituting last-known historical reports.
 
 ## src/lab_sync_acquisition/opencv_camera.py
 

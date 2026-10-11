@@ -8926,6 +8926,16 @@ Receiving services do not automatically issue redundant readiness requests in
 response to announcements. Current readiness may be checked when operationally
 necessary. Required NATS connectivity remains governed by Decision 295.
 
+**Accepted clarification - announcement freshness:** Historical readiness
+announcements must never establish current operational readiness. Use existing
+NATS/JetStream delivery controls so dependency-readiness subscribers receive only
+newly published announcements. Preserve Ingestor's existing durable evidence
+consumption, including historical evidence required for preservation and recovery.
+A fresh announcement does not require an immediate redundant readiness check;
+a service that missed an announcement may use the existing `check_readiness`
+command when operationally necessary. No new message schemas, expiry timestamps,
+polling, discovery mechanisms, or additional infrastructure are introduced.
+
 ---
 
 ## Decision 328: Configured dependencies directly update service-owned readiness
@@ -8943,6 +8953,18 @@ communication availability, and unresolved obligations distinct.
 
 This makes Decision 321's dependency-readiness behavior explicit without changing
 service ownership or settling deployment configuration and discovery details in Q022.
+
+**Accepted clarification - dependency disappearance:** When an existing
+communication operation or readiness check cannot confirm a dependency's current
+availability, previously confirmed operational availability must no longer be
+treated as current. Reuse Decision 284's `unknown` interpretation; do not report
+`ready=False` without actual evidence of technical unreadiness. Preserve last-known
+readiness as historical information, distinct from currently confirmed readiness.
+Disappearance may remain undetected until a communication operation or an
+operationally necessary check occurs; no proactive detection guarantee is required.
+No automatic Session/Experiment failure, recovery, restart, or replay follows.
+This introduces no heartbeats, polling, expiry policies, lifecycle states,
+discovery registries, or additional persistence mechanisms.
 
 ---
 
@@ -9009,8 +9031,8 @@ launching/restarting, GUI development, new Session states, and automatic retry/r
 remain outside this work.
 
 **Implementation status for Decisions 327-331:** Accepted startup/return low-level
-architecture is synchronized; implementation, automated testing, independent
-manual validation, and audit remain pending. W035-W037 and Decisions 325-326 retain
+architecture is synchronized and implemented with automated broker-double coverage;
+independent manual validation and audit remain pending. W035-W037 and Decisions 325-326 retain
 their completed narrow-slice status. Phase 16 and M015 remain open.
 
 ---
@@ -9346,7 +9368,7 @@ requirements remain authoritative.
 328. Services receive configured-dependency announcements directly and update their own readiness; Controller neither relays announcements nor maintains a registry, and existing readiness interpretations and distinct reservation/communication/obligation concepts remain unchanged.
 329. Returned services with normal readiness and no conflicting obligations are usable under existing contracts; obligations restrict affected operations/resources without special re-admission or automatic recovery.
 330. Explicit administrator resume/drop decisions are recorded through existing framework evidence; recording does not confirm execution, whose mechanics remain deferred to Q024.
-331. Startup/return, meaningful readiness changes, unresolved work, administrator decisions, and available actual results use existing framework evidence/preservation boundaries; unavailable archival confirmation requires an operator warning, not blocked startup when other accepted prerequisites are met or a second persistence system. Startup/return implementation and validation remain pending; the Services tab is a future proposal and Phase 16/M015 remain open.
+331. Startup/return, meaningful readiness changes, unresolved work, administrator decisions, and available actual results use existing framework evidence/preservation boundaries; unavailable archival confirmation requires an operator warning, not blocked startup when other accepted prerequisites are met or a second persistence system. Startup/return is implemented with automated coverage; independent manual validation and audit remain pending. The Services tab is a future proposal and Phase 16/M015 remain open.
 
 ---
 

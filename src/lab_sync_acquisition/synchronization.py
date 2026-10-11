@@ -11,7 +11,7 @@ from lab_sync_acquisition.communication import (
     MAPPING_UPDATE_EVIDENCE_TYPE,
     RuntimeEvidenceMessage,
 )
-from lab_sync_acquisition.service_readiness import ServiceReadiness
+from lab_sync_acquisition.service_readiness import ServiceReadiness, apply_dependency_readiness
 from lab_sync_acquisition.service_maintenance import service_operation
 
 if TYPE_CHECKING:
@@ -396,13 +396,13 @@ class SynchronizationManager:
     def check_ready(self) -> ServiceReadiness:
         """Return readiness for the synchronization service."""
 
-        return ServiceReadiness(
+        return apply_dependency_readiness(self, ServiceReadiness(
             component_id="synchronization",
             component_type="synchronization_manager",
             required=True,
             ready=not getattr(getattr(self, "_maintenance", None), "terminated", False),
             reason="ready",
-        )
+        ))
 
     @service_operation(new_work=True)
     def start(self) -> float:

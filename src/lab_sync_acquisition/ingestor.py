@@ -18,7 +18,7 @@ from uuid import uuid4
 from lab_sync_acquisition.acquisition_record import AcquisitionRecordEnvelope
 from lab_sync_acquisition.communication import ARTIFACT_MANIFEST_EVIDENCE_TYPE, RuntimeEvidenceMessage
 from lab_sync_acquisition.local_storage import ArtifactManifest
-from lab_sync_acquisition.service_readiness import ServiceReadiness
+from lab_sync_acquisition.service_readiness import ServiceReadiness, apply_dependency_readiness
 from lab_sync_acquisition.service_maintenance import service_operation
 from lab_sync_acquisition.storage import (
     InMemoryStorageManager,
@@ -599,13 +599,13 @@ class InMemoryIngestor:
         journal_failed = self._journal_failed or (
             self._framework_ingestor is not None and self._framework_ingestor._journal_failed)
         terminated = getattr(getattr(self, "_maintenance", None), "terminated", False)
-        return ServiceReadiness(
+        return apply_dependency_readiness(self, ServiceReadiness(
             component_id=self._component_id,
             component_type="ingestor",
             required=True,
             ready=not journal_failed and not terminated,
             reason="service_terminated" if terminated else "recovery_journal_failed" if journal_failed else "ready",
-        )
+        ))
 
     @service_operation()
     def receive_envelope(

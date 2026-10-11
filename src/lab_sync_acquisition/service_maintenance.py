@@ -1,19 +1,23 @@
-"""Individual-service administrative attempts over existing runtime messages."""
+"""Service-owned readiness, framework evidence, and administrative closeout."""
 
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Iterable, Mapping
 from contextlib import contextmanager, nullcontext
 from contextvars import ContextVar
 from copy import deepcopy
 from functools import wraps
 from inspect import iscoroutinefunction
+import logging
 from threading import current_thread
 from time import time
 from uuid import uuid4
 
 from lab_sync_acquisition.communication import RuntimeCommandMessage, RuntimeCommandResultMessage, RuntimeEvidenceMessage, RuntimeParticipant
+from lab_sync_acquisition.service_readiness import ServiceReadiness
+
+logger = logging.getLogger(__name__)
 
 _service_calls = ContextVar("service_calls", default=())
 
@@ -23,6 +27,11 @@ def service_operation(*, new_work: bool = False):
     def decorate(method):
         @contextmanager
         def enter(owner):
+            if isinstance(owner, ServiceMaintenanceInterface):
+                owner = owner.service
+            elif (isinstance(getattr(owner, "_maintenance", None), ServiceMaintenanceInterface)
+                    and not hasattr(owner, "_service_operation_lock")):
+                owner = owner._maintenance.service
             interface = getattr(owner, "_maintenance", None)
             try:
                 execution = asyncio.current_task()
@@ -60,7 +69,7 @@ def service_operation(*, new_work: bool = False):
 
 
 class ServiceMaintenanceInterface:
-    """Target-owned cleanup and retirement, not a framework shutdown coordinator.
+    """Service-owned readiness/evidence, cleanup, and retirement, not a shutdown coordinator.
 
     close_resources(force) confirms ordinary cleanup and must retain required
     evidence intake, journaling, archival, and result capabilities. Optional
@@ -74,7 +83,8 @@ class ServiceMaintenanceInterface:
                  close_resources: Callable[[bool], Awaitable[bool]],
                  operational_dependents: Mapping[RuntimeParticipant, Callable[[], bool]] | None = None,
                  evidence_publisher: Callable[[RuntimeEvidenceMessage], Awaitable[None]] | None = None,
-                 retire_resources: Callable[[bool], Awaitable[bool]] | None = None):
+                 retire_resources: Callable[[bool], Awaitable[bool]] | None = None,
+                 dependency_participants: Iterable[RuntimeParticipant] = ()):
         if getattr(service, "_maintenance", None) is not None:
             raise ValueError("Service already has an administrative interface")
         if participant.component_type not in {"controller", "acquisition_node", "ingestor", "storage_manager", "synchronization_manager"}:
@@ -112,6 +122,15 @@ class ServiceMaintenanceInterface:
         self._terminated = False
         self._closeout_started = False
         self._prepared = False
+        dependencies = tuple(dependency_participants)
+        if any(not isinstance(item, RuntimeParticipant) or item == participant for item in dependencies):
+            raise ValueError("Dependencies must be other explicit RuntimeParticipants")
+        if len(set(dependencies)) != len(dependencies):
+            raise ValueError("Duplicate dependency participant")
+        self._dependency_readiness = dict.fromkeys(dependencies)
+        self._last_known_dependency_readiness = dict.fromkeys(dependencies)
+        self._readiness_signature = None
+        self._last_readiness_status = None
         service._maintenance = self
 
     @property
@@ -135,8 +154,118 @@ class ServiceMaintenanceInterface:
 
     @property
     def evidence(self):
-        """Producer-owned attempt evidence retained even when preservation fails."""
+        """Producer-owned framework evidence retained even when preservation fails."""
         return tuple(RuntimeEvidenceMessage.from_dict(deepcopy(m.to_dict())) for m in self._evidence)
+
+    @property
+    def dependency_readiness(self) -> dict[RuntimeParticipant, ServiceReadiness | None]:
+        """Current confirmed reports; None means unknown, not technical unreadiness."""
+        with self._admission_lock:
+            return dict(self._dependency_readiness)
+
+    @property
+    def last_known_dependency_readiness(self) -> dict[RuntimeParticipant, ServiceReadiness | None]:
+        """Historical reports, never substituted for missing current readiness."""
+        with self._admission_lock:
+            return dict(self._last_known_dependency_readiness)
+
+    def receive_dependency_readiness(self, participant: RuntimeParticipant,
+                                     readiness: ServiceReadiness | None) -> bool:
+        """Update only a configured dependency, or invalidate current availability."""
+        with self._admission_lock:
+            if participant not in self._dependency_readiness:
+                raise ValueError("Dependency is not configured for this service")
+            if self.terminated or self._closeout_started:
+                return False
+            if readiness is not None:
+                if (not isinstance(readiness, ServiceReadiness)
+                        or readiness.component_id != participant.component_id
+                        or readiness.component_type != participant.component_type
+                        or type(readiness.ready) is not bool or type(readiness.required) is not bool
+                        or not isinstance(readiness.reason, str)):
+                    raise ValueError("Invalid dependency readiness report")
+                self._last_known_dependency_readiness[participant] = readiness
+            changed = self._dependency_readiness[participant] != readiness
+            self._dependency_readiness[participant] = readiness
+            return changed
+
+    def dependency_reports(self) -> tuple[ServiceReadiness, ...]:
+        """Return current reports, refusing to fabricate a report for an unknown dependency."""
+        with self._admission_lock:
+            unknown = [p for p, report in self._dependency_readiness.items() if report is None]
+            if unknown:
+                raise RuntimeError("Dependency readiness is unknown: " + ", ".join(
+                    f"{p.component_type}/{p.component_id}" for p in unknown))
+            return tuple(self._dependency_readiness.values())
+
+    def _readiness_payload(self):
+        payload = {"participant": self.participant.to_dict(), "service_readiness": None}
+        try:
+            if self.participant.component_type == "acquisition_node":
+                node = self.service.check_node_readiness()
+                payload["acquisition_node_readiness"] = node.to_dict()
+                report = ServiceReadiness(self.participant.component_id, self.participant.component_type,
+                    True, node.ready, "ready" if node.ready else "node_prerequisites_unready")
+            else:
+                local = self.service.check_ready()
+                report = ServiceReadiness(self.participant.component_id, self.participant.component_type,
+                    local.required, local.ready, local.reason)
+            payload["service_readiness"] = report.to_dict()
+        except Exception as error:
+            payload["readiness_error"] = str(error)
+        try:
+            payload["remaining_obligations"] = self.service.maintenance_blockers(self.ingestor, self.storage_manager)
+        except Exception as error:
+            payload["obligations_unconfirmed"] = str(error)
+        payload["dependency_readiness"] = [
+            {"participant": p.to_dict(), "service_readiness": r.to_dict() if r is not None else None}
+            for p, r in self.dependency_readiness.items()
+        ]
+        return payload
+
+    @service_operation(new_work=True)
+    async def announce_readiness(self, *, startup: bool = False) -> dict:
+        """Record startup/return or a changed snapshot without retrying unchanged evidence."""
+        payload = self._readiness_payload()
+        with self._admission_lock:
+            if not startup and payload == self._readiness_signature:
+                return deepcopy(self._last_readiness_status)
+            self._readiness_signature = deepcopy(payload)
+            message = RuntimeEvidenceMessage(uuid4().hex, None, "service_readiness",
+                self.participant.component_id, {**payload, "recorded_at": time()}, True)
+            status = self._evidence_status(message)
+            self._last_readiness_status = status
+        return await self._record_framework_evidence(message, status)
+
+    @service_operation()
+    async def record_administrator_decision(self, administrator_id: str, decision: str,
+                                            details: dict) -> dict:
+        """Preserve an explicit resume/drop choice, without executing or clearing work."""
+        if (decision not in {"resume", "drop"} or not isinstance(administrator_id, str)
+                or not administrator_id or not isinstance(details, dict)):
+            raise ValueError("An explicit administrator identity and resume/drop decision are required")
+        if self._closeout_started:
+            raise RuntimeError("Resource closeout has already begun")
+        message = RuntimeEvidenceMessage(uuid4().hex, None, "administrator_decision",
+            self.participant.component_id, {"target": self.participant.to_dict(),
+                "administrator_id": administrator_id, "decision": decision,
+                "details": deepcopy(details), "actions": [], "outcome": None, "recorded_at": time()}, True)
+        return await self._record_framework_evidence(message)
+
+    @staticmethod
+    def _evidence_status(message):
+        return {"evidence": message.to_dict(), "publication_confirmed": False,
+                "acceptance_confirmed": False, "archival_confirmed": False, "preservation_warning": None}
+
+    async def _record_framework_evidence(self, message, status=None):
+        status = self._evidence_status(message) if status is None else status
+        try:
+            await self._preserve_message(message, status)
+        except Exception as error:
+            status["preservation_warning"] = f"Framework Evidence Archive preservation unconfirmed: {error}"
+            logger.warning("%s/%s: %s", self.participant.component_type,
+                           self.participant.component_id, status["preservation_warning"])
+        return deepcopy(status)
 
     async def execute_command(self, command: RuntimeCommandMessage) -> RuntimeCommandResultMessage:
         """Survey or execute correlated maintenance, including coordinated preparation."""
@@ -429,18 +558,34 @@ class ServiceMaintenanceInterface:
             payload["checkpoint"] = checkpoint
         message = RuntimeEvidenceMessage(uuid4().hex, None, "service_maintenance_evidence",
                                          self.participant.component_id, payload, True)
-        self._evidence.append(message)
+        await self._preserve_message(message)
+
+    async def _preserve_message(self, message, status=None):
+        with self._admission_lock:
+            self._evidence.append(message)
         if self.evidence_publisher is None:
+            if self.ingestor is None:
+                raise RuntimeError("Framework Ingestor is unavailable")
             audit = self.ingestor.receive_runtime_evidence(message)
             if not audit.accepted:
                 raise RuntimeError("Maintenance evidence was rejected by Ingestor")
         else:
             await self.evidence_publisher(message)
+            if status is not None:
+                status["publication_confirmed"] = True
+        if self.ingestor is None:
+            raise RuntimeError("Framework Ingestor acceptance is unconfirmed")
         if not await self.ingestor.await_durable_runtime_evidence(message, self.preservation_window_s):
-            raise RuntimeError("Maintenance evidence lacks durable Ingestor acceptance")
+            raise RuntimeError("Framework evidence lacks durable Ingestor acceptance")
+        if status is not None:
+            status["acceptance_confirmed"] = True
+        if self.storage_manager is None:
+            raise RuntimeError("Framework StorageManager is unavailable")
         self.storage_manager.write_framework_evidence_archive(self.ingestor.compile_framework_runtime_evidence())
         with self.ingestor.framework_preservation_guard(self.storage_manager):
             pass
+        if status is not None:
+            status["archival_confirmed"] = True
 
     def _result(self, command, outcome, reason, attempt=None, *, prepared=False):
         return RuntimeCommandResultMessage(uuid4().hex, command.command_id, None, self.participant.component_id,

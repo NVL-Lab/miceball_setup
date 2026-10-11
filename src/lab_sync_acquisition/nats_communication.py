@@ -12,7 +12,7 @@ from typing import Any
 import nats
 from nats.aio.client import Client as NATS
 from nats.aio.subscription import Subscription
-from nats.js.api import StorageType, StreamConfig
+from nats.js.api import AckPolicy, ConsumerConfig, DeliverPolicy, StorageType, StreamConfig
 from nats.js.client import JetStreamContext
 from nats.js.errors import NotFoundError
 
@@ -38,6 +38,7 @@ from lab_sync_acquisition.session import ScientificOutputSelection
 from lab_sync_acquisition.device import DeviceDeclaration
 from lab_sync_acquisition.synchronization import SynchronizationManager
 from lab_sync_acquisition.service_readiness import ServiceReadiness
+from lab_sync_acquisition.service_maintenance import service_operation
 
 
 RuntimeResultCallback = Callable[[RuntimeCommandResultMessage], Awaitable[None]]
@@ -86,6 +87,7 @@ class NatsCommunicationBoundary:
         self.servers = servers
         self._client: NATS | None = None
         self._jetstream: JetStreamContext | None = None
+        self._dependency_result_observer = None
 
     @property
     def connected(self) -> bool:
@@ -239,6 +241,21 @@ class NatsCommunicationBoundary:
         )
         await client.publish(subject, self._encode(message.to_dict()))
 
+    async def subscribe_readiness_announcements(
+        self, participant: RuntimeParticipant, callback: RuntimeEvidenceCallback,
+    ) -> Subscription:
+        """Consume only newly published dependency announcements, never historical readiness."""
+        subject = build_runtime_subject(None, "evidence", participant.component_type,
+                                        participant.component_id, "service_readiness")
+
+        async def receive(message):
+            evidence = RuntimeEvidenceMessage.from_dict(json.loads(message.data.decode("utf-8")))
+            await callback(evidence)
+
+        return await self._require_jetstream().subscribe(
+            subject, cb=receive, manual_ack=True, deliver_policy=DeliverPolicy.NEW,
+            config=ConsumerConfig(ack_policy=AckPolicy.NONE))
+
     async def subscribe_telemetry(
         self,
         subject: str,
@@ -346,6 +363,8 @@ class NatsControllerCommunication:
         if not isinstance(command_id, str) or not command_id or command_id in self._command_result_events:
             raise ValueError("A nonempty, non-overlapping command identity is required")
         event = self._command_result_events.setdefault(command_id, asyncio.Event())
+        observer = getattr(self._boundary, "_dependency_result_observer", None)
+        result = None
         try:
             command = RuntimeCommandMessage(command_id, session_id, command_type,
                 self._boundary.component_id, participant.component_id, payload)
@@ -358,14 +377,20 @@ class NatsControllerCommunication:
             await self.publish_command(command, participant.component_type)
             if not any(r.command_id == command_id for r in self._command_results):
                 await asyncio.wait_for(event.wait(), result_window_s)
-            return next((r for r in self._command_results if r.command_id == command_id
+            result = next((r for r in self._command_results if r.command_id == command_id
                 and r.session_id == session_id and r.source_id == participant.component_id
                 and r.target_id == self._boundary.component_id and r.status in {"succeeded", "failed"}
                 and type(r.success) is bool and r.success == (r.status == "succeeded")), None)
+            return result
         except TimeoutError:
             return None
         finally:
             self._command_result_events.pop(command_id, None)
+            if observer is not None:
+                try:
+                    await observer(participant, command_type, result)
+                except Exception as error:
+                    logger.warning("Dependency readiness observation could not be recorded: %s", error)
 
     async def publish_command(
         self,
@@ -878,7 +903,7 @@ async def _execute_maintenance_command(boundary, service, command):
 
 
 class NatsServiceMaintenanceCommunication:
-    """Participant-scoped maintenance endpoint for Controller or StorageManager."""
+    """Service-owned startup/readiness integration and participant-scoped maintenance."""
 
     def __init__(self, boundary: NatsCommunicationBoundary, maintenance):
         if (maintenance.participant.component_id != boundary.component_id
@@ -886,8 +911,145 @@ class NatsServiceMaintenanceCommunication:
             raise ValueError("Maintenance participant does not match communication boundary")
         self._boundary = boundary
         self._maintenance = maintenance
+        self._readiness_subscriptions = ()
+        self._request_subscription = None
+        self._requests = NatsControllerCommunication(boundary)
+        self._startup_status = None
+        self._subscription_lock = asyncio.Lock()
+        self._result_observer = None
         if maintenance.evidence_publisher is None:
             maintenance.evidence_publisher = boundary.publish_evidence
+
+    async def start(self) -> dict[str, Any]:
+        """Subscribe configured dependencies and announce startup/return without redundant queries."""
+        async with self._subscription_lock:
+            return await self._start()
+
+    async def _start(self):
+        if not self._boundary.check_ready().ready:
+            raise ConnectionError("Required NATS startup connection is not ready")
+        if self._maintenance.terminated or self._maintenance._closeout_started:
+            raise RuntimeError("Service must satisfy existing operational reuse protections")
+        if self._request_subscription is not None or self._readiness_subscriptions:
+            if self._startup_status is None:
+                raise RuntimeError("Subscription cleanup remains unconfirmed")
+            from copy import deepcopy
+            return deepcopy(self._startup_status)
+        subscriptions = []
+        observer = None
+        try:
+            for participant in self._maintenance.dependency_readiness:
+                async def receive(evidence, participant=participant):
+                    if getattr(self._boundary, "_dependency_result_observer", None) is not observer:
+                        return
+                    if (evidence.session_id is not None or evidence.evidence_type != "service_readiness"
+                            or evidence.source_id != participant.component_id
+                            or evidence.payload.get("participant") != participant.to_dict()):
+                        report = None
+                    else:
+                        report = self._readiness_report(participant, evidence.payload.get("service_readiness"))
+                    if self._maintenance.receive_dependency_readiness(participant, report):
+                        await self.publish_readiness()
+                subscriptions.append(await self._boundary.subscribe_readiness_announcements(participant, receive))
+                self._readiness_subscriptions = tuple(subscriptions)
+            self._request_subscription = await self._requests.subscribe_command_results(None)
+            subscription = self._request_subscription
+
+            async def observer(participant, command_type, result):
+                if (self._request_subscription is subscription
+                        and getattr(self._boundary, "_dependency_result_observer", None) is observer):
+                    await self._observe_dependency_result(participant, command_type, result)
+
+            self._result_observer = observer
+            self._boundary._dependency_result_observer = observer
+            self._startup_status = await self._maintenance.announce_readiness(startup=True)
+            await self.publish_readiness()
+            return self._startup_status
+        except BaseException:
+            try:
+                await self._close()
+            except Exception as error:
+                logger.warning("Startup subscription cleanup remains unconfirmed: %s", error)
+            raise
+
+    async def close(self) -> None:
+        """Release these communication subscriptions without terminating or restarting a service."""
+        async with self._subscription_lock:
+            await self._close()
+
+    async def _close(self):
+        self._startup_status = None
+        try:
+            for subscription in self._readiness_subscriptions:
+                await subscription.unsubscribe()
+                self._readiness_subscriptions = tuple(s for s in self._readiness_subscriptions if s is not subscription)
+            if self._request_subscription is not None:
+                await self._request_subscription.unsubscribe()
+                self._request_subscription = None
+        finally:
+            if getattr(self._boundary, "_dependency_result_observer", None) is self._result_observer:
+                self._boundary._dependency_result_observer = None
+                for participant in self._maintenance.dependency_readiness:
+                    self._maintenance.receive_dependency_readiness(participant, None)
+
+    async def publish_readiness(self) -> dict[str, Any] | None:
+        """Publish meaningful changes using the service's existing producer-evidence path."""
+        if (self._startup_status is None or self._maintenance.terminated
+                or self._maintenance._closeout_started or self._maintenance._attempt is not None
+                or getattr(self._maintenance.service, "_framework_shutdown_active", False)):
+            return None
+        return await self._maintenance.announce_readiness()
+
+    @staticmethod
+    def _readiness_report(participant, data):
+        if not isinstance(data, dict):
+            return None
+        try:
+            report = ServiceReadiness(**data)
+        except TypeError:
+            return None
+        if (report.component_id != participant.component_id or report.component_type != participant.component_type
+                or type(report.ready) is not bool or type(report.required) is not bool or not isinstance(report.reason, str)):
+            return None
+        return report
+
+    @service_operation(new_work=True)
+    async def request_dependency_command(
+        self, participant: RuntimeParticipant, command_type: str,
+        session_id: str | None, payload: dict[str, Any], result_window_s: float,
+    ) -> RuntimeCommandResultMessage | None:
+        """Reuse correlated requests; unconfirmed communication invalidates only current availability."""
+        if participant not in self._maintenance.dependency_readiness:
+            raise ValueError("Dependency is not configured for this service")
+        if self._request_subscription is None or self._startup_status is None:
+            raise RuntimeError("Startup communication subscriptions are not active")
+        subscription = self._request_subscription
+        result = await self._requests.request_command(participant, command_type, session_id, payload, result_window_s)
+        if self._request_subscription is not subscription:
+            raise RuntimeError("Dependency request belongs to an earlier communication binding")
+        return result
+
+    async def _observe_dependency_result(self, participant, command_type, result):
+        if participant not in self._maintenance.dependency_readiness:
+            return
+        if result is None or command_type == "check_readiness":
+            report = None
+            if result is not None and result.success:
+                data = result.payload.get("service_readiness")
+                if participant.component_type == "acquisition_node":
+                    node = result.payload.get("acquisition_node_readiness")
+                    if isinstance(node, dict) and node.get("node_id") == participant.component_id and type(node.get("ready")) is bool:
+                        data = ServiceReadiness(participant.component_id, participant.component_type,
+                            True, node["ready"], "ready" if node["ready"] else "node_prerequisites_unready").to_dict()
+                report = self._readiness_report(participant, data)
+            if self._maintenance.receive_dependency_readiness(participant, report):
+                await self.publish_readiness()
+
+    async def check_dependency_readiness(self, participant: RuntimeParticipant,
+                                         result_window_s: float) -> ServiceReadiness | None:
+        """Explicit operational check; never triggered redundantly by a fresh announcement."""
+        await self.request_dependency_command(participant, "check_readiness", None, {}, result_window_s)
+        return self._maintenance.dependency_readiness[participant]
 
     async def subscribe_commands(self) -> tuple[Subscription, Subscription]:
         """Use existing JetStream command subscriptions and command-result publication."""
@@ -896,7 +1058,18 @@ class NatsServiceMaintenanceCommunication:
             if command.target_id != self._boundary.component_id:
                 await message.ack()
                 return
-            result = await self._maintenance.execute_command(command)
+            if command.command_type == "check_readiness":
+                try:
+                    if not self._boundary.check_ready().ready:
+                        raise ConnectionError("Required NATS connection is not ready")
+                    payload = self._maintenance._readiness_payload()
+                    if payload["service_readiness"] is None:
+                        raise RuntimeError(payload.get("readiness_error", "Current readiness is unknown"))
+                    result = _participant_result(self._boundary, command, True, None, payload)
+                except Exception as error:
+                    result = _participant_result(self._boundary, command, False, str(error), {})
+            else:
+                result = await self._maintenance.execute_command(command)
             await self._boundary.publish_command_result(result, command.command_type)
             await message.ack()
         return await _subscribe_participant_commands(self._boundary, receive)

@@ -18,7 +18,7 @@ from typing import Any, Iterable, Iterator, Mapping
 from uuid import uuid4
 
 from lab_sync_acquisition.acquisition_record import AcquisitionRecordEnvelope
-from lab_sync_acquisition.service_readiness import ServiceReadiness
+from lab_sync_acquisition.service_readiness import ServiceReadiness, apply_dependency_readiness
 from lab_sync_acquisition.local_storage import ArtifactManifest
 from lab_sync_acquisition.communication import RuntimeEvidenceMessage
 from lab_sync_acquisition.service_maintenance import service_operation
@@ -406,13 +406,13 @@ class PersistentStorageManager:
     def check_ready(self) -> ServiceReadiness:
         """Return readiness for the persistent storage service."""
 
-        return ServiceReadiness(
+        return apply_dependency_readiness(self, ServiceReadiness(
             component_id="storage",
             component_type="storage_manager",
             required=True,
             ready=not getattr(getattr(self, "_maintenance", None), "terminated", False),
             reason="ready",
-        )
+        ))
 
     @service_operation()
     def store_envelopes(
