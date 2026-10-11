@@ -8911,6 +8911,110 @@ open, and Q019/Q024 remain unresolved.
 
 ---
 
+## Decision 327: Starting and returning services announce existing identity and readiness
+
+**Status:** Accepted
+
+Each operational service announces its identity and current readiness through
+existing NATS mechanisms when starting or returning after shutdown or interruption.
+Use the same announcement format for initial startup and return, reusing
+`RuntimeParticipant` identity and `ServiceReadiness` contracts. Include known
+unresolved obligations where applicable; do not introduce another identity or
+generalized service-description model.
+
+Receiving services do not automatically issue redundant readiness requests in
+response to announcements. Current readiness may be checked when operationally
+necessary. Required NATS connectivity remains governed by Decision 295.
+
+---
+
+## Decision 328: Configured dependencies directly update service-owned readiness
+
+**Status:** Accepted
+
+Already-running services receive announcements directly from their configured
+dependencies and update their own dependency readiness. Controller does not relay
+announcements or maintain a discovery registry.
+
+Reuse `ServiceReadiness`, `AcquisitionNodeReadiness`, and existing interpretations
+of missing current evidence as `unknown` under Decision 284. Do not introduce new
+service status enums or lifecycle states. Keep technical readiness, reservation,
+communication availability, and unresolved obligations distinct.
+
+This makes Decision 321's dependency-readiness behavior explicit without changing
+service ownership or settling deployment configuration and discovery details in Q022.
+
+---
+
+## Decision 329: Returned services use existing readiness and ownership protections
+
+**Status:** Accepted
+
+A returned service with normal readiness and no conflicting unresolved obligations
+is usable under existing contracts. Outstanding obligations restrict only the
+operations or resources they affect, subject to existing readiness, cleanup, and
+ownership protections.
+
+No special re-admission procedure or automatic recovery is introduced. Service
+return does not establish that interrupted work has resumed or unresolved cleanup
+has succeeded. Decisions 300, 302, 313, 320, and 321 remain authoritative.
+
+---
+
+## Decision 330: Administrator resume/drop decisions are evidence, not recovery execution
+
+**Status:** Accepted
+
+Record explicit administrator resume/drop decisions concerning unresolved previous
+work through existing framework evidence mechanisms. Recording a decision does
+not establish that recovery, deletion, cleanup, or other execution has occurred.
+
+Resume/drop execution mechanics remain deferred to Q024. This decision does not
+define those mechanics, resolve application recovery, or authorize automatic
+resumption or deletion. It preserves the distinction between an administrator's
+decision and evidence of an actual result.
+
+---
+
+## Decision 331: Startup and return evidence reuse existing preservation boundaries
+
+**Status:** Accepted
+
+Produce framework evidence for startup/return, meaningful readiness changes,
+unresolved-work reports, administrator decisions, and actual results when available.
+Avoid redundant unchanged-readiness evidence.
+
+Reuse `RuntimeEvidenceMessage`, producer-owned persistence intent, Ingestor,
+StorageManager, and the existing framework Evidence Archive with `session_id=None`
+under Decisions 219-225, 318, and 323. NATS publication alone does not establish
+durable archival. Keep NATS publication, Ingestor acceptance, and StorageManager
+archival confirmation distinct.
+
+A service may start without Ingestor or StorageManager when its other accepted
+prerequisites are satisfied. The operator must receive a warning when durable
+Evidence Archive preservation cannot be confirmed. Preserve existing producer
+evidence obligations; do not introduce a second persistence system, automatic
+replay, or automatic recovery. Required NATS connectivity remains governed by
+Decision 295.
+
+Existing status, readiness, command results, and evidence may support a future
+Services tab. No GUI-owned authority, new status model, or GUI implementation is
+authorized. The permanent Services-tab concept in `docs/gui_design_notes.md` remains
+a separate future proposal, not accepted implementation architecture.
+
+Q019 retains Session-wide evidence-consumption/finalization coordination; Q024
+retains recovery journals and resume/drop execution; Q022 retains deployment
+configuration and discovery details. Process supervision, automatic service
+launching/restarting, GUI development, new Session states, and automatic retry/replay
+remain outside this work.
+
+**Implementation status for Decisions 327-331:** Accepted startup/return low-level
+architecture is synchronized; implementation, automated testing, independent
+manual validation, and audit remain pending. W035-W037 and Decisions 325-326 retain
+their completed narrow-slice status. Phase 16 and M015 remain open.
+
+---
+
 # Accepted Architectural Principles
 
 The following principles summarize the accepted decisions so far.
@@ -9238,6 +9342,11 @@ requirements remain authoritative.
 324. Individual-service maintenance preserves confirmed cleanup and readiness-for-retirement evidence before retiring required evidence capabilities; only actual retirement confirmation permits a completed result, without impossible post-retirement self-persistence.
 325. General framework shutdown uses explicit Session-independent participant scope, an informational local readiness survey, and progressive dependency-safe stops; each blocked service needs separate kill authorization, stopped services remain stopped, and existing evidence preservation contracts apply. Coordinated shutdown is implemented, manually software-validated, and independently re-audited PASS (W037).
 326. Coordinated shutdown prepares actual StorageManager and Controller cleanup and durably preserves its evidence before Ingestor retirement; later retirement confirmations use existing command/results, not invented archive records. Preparation is not retirement, the operational retirement order is unchanged, and W036 remains unchanged outside coordinated shutdown. This contract is implemented, manually software-validated, and independently re-audited PASS (W037); Phase 16 and M015 remain open.
+327. Starting and returning operational services announce existing RuntimeParticipant identity and ServiceReadiness through existing NATS mechanisms, including known unresolved obligations; receiving services do not automatically issue redundant readiness requests.
+328. Services receive configured-dependency announcements directly and update their own readiness; Controller neither relays announcements nor maintains a registry, and existing readiness interpretations and distinct reservation/communication/obligation concepts remain unchanged.
+329. Returned services with normal readiness and no conflicting obligations are usable under existing contracts; obligations restrict affected operations/resources without special re-admission or automatic recovery.
+330. Explicit administrator resume/drop decisions are recorded through existing framework evidence; recording does not confirm execution, whose mechanics remain deferred to Q024.
+331. Startup/return, meaningful readiness changes, unresolved work, administrator decisions, and available actual results use existing framework evidence/preservation boundaries; unavailable archival confirmation requires an operator warning, not blocked startup when other accepted prerequisites are met or a second persistence system. Startup/return implementation and validation remain pending; the Services tab is a future proposal and Phase 16/M015 remain open.
 
 ---
 

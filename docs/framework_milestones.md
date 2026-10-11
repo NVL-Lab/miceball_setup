@@ -648,7 +648,7 @@ cleanup/reuse, not implementation of those service binding-release contracts.
 # Future Milestones
 
 Phase 16 Operational Service Lifetime and Framework Stop/Kill architecture is
-accepted in Decisions 304-326. At the earlier checkpoint implementation was
+accepted in Decisions 304-331. At the earlier checkpoint implementation was
 limited to the Session-binding release slice. Decision 323 adds the accepted
 framework Evidence Archive partition; individual-service stop/kill/cancel is now
 complete, manually software-validated, and independently audited PASS (W036),
@@ -749,6 +749,28 @@ W035/W036 historical results are preserved. No real hardware, live cross-process
 or external NATS deployment validation is claimed. Phase 16 remains incomplete
 because independent startup/returning-service integration remains unfinished;
 M015 retains its separate launch/reuse validation criteria, and Q019/Q024 remain open.
+
+## Accepted independent startup and returning-service integration
+
+**Status:** Low-level architecture accepted and synchronized (Decisions 327-331);
+implementation, automated testing, independent manual validation, and audit pending.
+
+Starting and returning services announce existing identity/readiness through NATS;
+configured dependencies receive announcements directly and update their own
+readiness without Controller relaying or maintaining a registry. Existing
+readiness, reservation, cleanup, and ownership protections govern safe reuse.
+Explicit administrator resume/drop decisions are framework evidence, not execution.
+Startup/return and meaningful readiness/obligation evidence use existing
+Ingestor/StorageManager preservation contracts; unavailable archival confirmation
+requires an operator warning without inventing another persistence system or
+blocking startup when other accepted prerequisites are satisfied.
+
+No validated workflow is added for this slice. W035-W037 and Decisions 325-326
+remain complete for their respective narrow scopes. Phase 16 and M015 remain open;
+Q019, Q022, and Q024 remain unresolved. Resume/drop execution, deployment/discovery
+details, process supervision, automatic launch/restart/retry/replay, and GUI
+implementation are not authorized. The Services tab remains a separate future
+design proposal.
 
 ## Completed Session-binding release slice validation
 

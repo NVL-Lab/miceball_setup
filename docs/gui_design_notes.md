@@ -6,43 +6,70 @@ implementation requirements. GUI implementation belongs outside this repository.
 
 ---
 
-## Framework Shutdown Window
+## Services Tab
 
-**Status:** Proposed GUI design — pending relevant Phase 16 high-level architecture decisions and synchronization.
+**Status:** Future GUI design ideas, not accepted architecture or implementation requirements.
 
-When an administrator requests operational framework shutdown through the GUI,
-the proposed presentation is a dedicated shutdown window that would:
+The proposed presentation is a permanently accessible **Services tab**, available
+for service inspection, startup guidance, and operational shutdown requests.
 
-- Display all operational services included in the requested shutdown.
-- Show each service's current shutdown status as Controller progresses through
-  the shutdown sequence.
-- Display the results of the initial local readiness survey.
-- Clearly distinguish services that are waiting, stopping, stopped, blocked, or
-  failed, and explain why a service is blocked.
-- Provide a separate **Kill** button for each blocked service when forced
-  termination requires explicit administrator authorization.
-- Require a new, explicit authorization for each blocked service; authorization
-  for one service would not authorize termination of another.
-- Allow the administrator to decline forced termination while preserving the
-  actual shutdown outcomes.
-- Make clear that services already stopped will not automatically restart.
+### Readiness and startup guidance
 
-The proposed window would clearly communicate forced-termination consequences,
-including possible loss of unpreserved scientific data or runtime evidence.
+The future tab could:
+
+- Display configured services, their current or last-known readiness, and the
+  timestamp of the most recent confirmed status. Distinguish historical reports
+  from current confirmation and unknown/unconfirmed availability using existing
+  readiness terminology, not new service states.
+- Identify missing dependencies and explain which operations cannot proceed and
+  which remain available.
+- Explain which services need to be started and suggest a startup order where
+  known; do not invent an order where the accepted contracts do not specify one.
+- Let users request readiness checks, distinguishing technical readiness from
+  local stop-readiness survey results and actual closeout blockers.
+- Clearly state that services start independently: the GUI does not launch
+  services or control operating-system processes.
+
+### Shutdown, authorization, and outstanding obligations
+
+The future tab could also:
+
+- Provide access to existing orderly shutdown and administrator-authorized kill
+  operations, with clear separation between readiness checks, ordinary cleanup,
+  preparation, and confirmed operational retirement.
+- Display the services included in the requested shutdown, initial local survey
+  results, and each service's actual progress and confirmed outcomes as Controller
+  coordinates closeout. Use existing `blocked`, `failed`, and `completed` attempt
+  outcomes, explain blockers, and never present missing confirmation as success.
+- Provide a separate **Kill** button for each blocked service, requiring a new,
+  explicit administrator authorization for that service. Authorization for one
+  service would not authorize termination of another.
+- Allow administrators to decline forced termination while preserving actual
+  outcomes; explain that already stopped services will not automatically restart.
+- Warn about dependencies, affected scope, unresolved obligations, and forced
+  termination consequences, including possible loss of unpreserved scientific
+  data or runtime evidence. Successful forced retirement does not confirm that
+  unresolved cleanup or preservation obligations succeeded.
+- Display unresolved obligations from previous operation attempts. Potential
+  resume/drop controls may be considered later, but their behavior remains
+  undefined until relevant recovery architecture is accepted. These notes define
+  no resumption, deletion, abandonment, or automatic recovery semantics.
 
 ### Architectural boundary
 
 Existing accepted contracts separate GUI interaction from Controller coordination
-and service-owned cleanup (Decisions 001-002, 305, and 314). They require explicit
-authorization for forced continuation of a blocked attempt, truthful confirmed
-outcomes, and protection of unrelated scopes (Decisions 308-311 and 315-316).
+and service-owned cleanup (Decisions 001-002, 305, and 314). Decisions 284, 295,
+and 320-321 define readiness interpretation, independent startup, and dependency
+behavior without automatic interrupted-work recovery. Decisions 308-311 and
+315-316 preserve explicit authorization, truthful outcomes, and unrelated scopes;
+Decisions 325-326 establish progressive shutdown, service-specific authorization,
+and two-phase closeout.
 
-The proposed progressive shutdown presentation, initial local readiness survey,
-and separate per-service authorization behavior remain pending discussion and
-synchronization. These notes do not approve a shutdown sequence or authorization
-contract. Waiting, stopping, stopped, blocked, and failed are proposed display
-labels, not additions to accepted lifecycle states or attempt outcomes. Existing
-open architectural questions remain unresolved by this document.
+These are existing framework contracts, not new GUI requirements. The Services
+tab, its controls, and all presentation ideas above remain future design ideas,
+not accepted architecture or approved implementation requirements. This document
+adds no service states, lifecycle behavior, startup mechanism, or recovery policy
+and does not resolve Q019, Q024, or other open architectural questions.
 
 ## GUI Closure Versus Framework Shutdown
 

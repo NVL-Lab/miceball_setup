@@ -603,7 +603,7 @@ Slice 28 workflows remain historical evidence, not closure of its sequential-reu
 requirements. W035 separately validates the Phase 16 service binding-release path.
 
 Phase 16 Operational Service Lifetime and Framework Stop/Kill architecture is
-accepted in Decisions 304-326. The narrow Controller/Ingestor/SynchronizationManager
+accepted in Decisions 304-331. The narrow Controller/Ingestor/SynchronizationManager
 Session-binding release slice under Decisions 313 and 322 is complete, manually
 software-validated, and independently audited PASS (W035). Remaining Phase 16
 responsibilities are unfinished; Phase 16 completion is not claimed.
@@ -659,7 +659,11 @@ partition now supports journal-backed framework intake and exact archive/audit/
 summary confirmation without a Session Record. Independent startup and returning-service recognition do not
 promise automatic recovery of interrupted work. Q025 is resolved architecturally,
 with coordinated shutdown validated in W037 and independent startup/returning-service
-integration still pending; Q019,
+integration architecture accepted and synchronized in Decisions 327-331, but
+implementation and validation still pending. These contracts reuse identity,
+readiness, configured-dependency announcements, and framework evidence without a
+registry, recovery subsystem, or new persistence mechanism. Recording administrator
+resume/drop decisions does not implement their execution. Q019,
 Q021, Q024, and deployment configuration remain open.
 Q017 remains resolved.
 M015 remains open with its separate launch/reuse validation criteria; historical

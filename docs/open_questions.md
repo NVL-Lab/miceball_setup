@@ -650,7 +650,10 @@ Q025 is resolved architecturally. Session-binding release (W035) and individual-
 maintenance (W036) are complete and software-validated. Progressive two-phase
 coordinated shutdown is also complete, manually software-validated, and
 independently re-audited PASS (W037); independent startup/returning-service
-integration remains pending.
+integration now has accepted, synchronized low-level contracts in Decisions
+327-331, with implementation and validation pending. Configured dependencies
+receive startup/return announcements directly; this does not settle deployment
+provisioning, configuration formats, or discovery details or authorize a registry.
 
 Decision 302 additionally settles retained adapter reuse without process or adapter
 recreation: AcquisitionNode retains deployment configuration, but subsequent
@@ -736,6 +739,12 @@ artifact retention is distinct from temporary Ingestor recovery-state lifecycle;
 Q019 still owns evidence-consumption/finalization coordination. Q022 retains
 deployment-local configuration responsibilities.
 
+Decision 330 accepts recording explicit administrator resume/drop decisions
+through existing framework evidence, not execution of recovery, deletion, or
+cleanup. Decision 329 permits safe service reuse under existing protections,
+not automatic resumption. These accepted contracts do not resolve the recovery
+journal lifecycle or resume/drop execution mechanics below.
+
 ### Questions
 
 * When is a recovery journal safe to delete, and which existing owner performs deletion?
@@ -743,6 +752,7 @@ deployment-local configuration responsibilities.
 * What cleanup is permitted after successful Session processing finalization without losing required recovery state?
 * How does a restarted application discover and select unfinished Sessions, rather than starting Ingestor with an already-known Session?
 * How are multiple unfinished Sessions and complete Controller/application lifecycle restoration handled?
+* What execution mechanics apply to explicit administrator resume/drop decisions without treating decision recording as recovery, deletion, or cleanup?
 * How does future recovery orchestration relate to Q019's separate evidence-consumption/finalization guarantee?
 * How does Controller crash recovery find and release stale AcquisitionNode reservations without changing node-owned reservation authority?
 * What future leases, timeouts, or heartbeats, if any, are accepted beyond Slice 28's atomic Session-keyed reservation without automatic expiry?
@@ -840,7 +850,8 @@ and final independent audit PASS for individual-service maintenance, including
 Decision 324 closeout ordering. W037 separately records successful manual validation
 and independent re-audit PASS for coordinated shutdown and its complete Evidence
 Archive preservation guard. Independent startup/returning-service integration
-remains unfinished; Phase 16 and M015 remain open.
+has accepted, synchronized low-level contracts in Decisions 327-331; implementation
+and validation remain pending. Phase 16 and M015 remain open.
 Transport publication alone is not permanent persistence, and the framework
 partition never requires a Session Record or fabricated Session binding.
 
@@ -865,7 +876,7 @@ The roadmap distinguishes accepted architecture from implemented milestones:
 Phase 13 — Global StorageManager (Evidence)
 Phase 14 — Global StorageManager (Finalized Scientific Data)
 Phase 15 — Controller-owned Session Launch & Runtime Assembly (launch path and Decision 302 sequential reuse implemented; independent validation/audit and M015 closure pending)
-Phase 16 — Operational Service Lifetime and Framework Stop/Kill (Decisions 304-326 accepted; Q025 resolved architecturally; narrow Session-binding release under Decisions 313/322 complete, manually software-validated and independently audited PASS in W035; individual-service maintenance complete, manually software-validated and independently audited PASS in W036; progressive two-phase coordinated shutdown complete, manually software-validated and independently re-audited PASS in W037; independent startup/returning-service integration unfinished; Phase 16 and M015 remain open)
+Phase 16 — Operational Service Lifetime and Framework Stop/Kill (Decisions 304-331 accepted; Q025 resolved architecturally; narrow Session-binding release under Decisions 313/322 complete, manually software-validated and independently audited PASS in W035; individual-service maintenance complete, manually software-validated and independently audited PASS in W036; progressive two-phase coordinated shutdown complete, manually software-validated and independently re-audited PASS in W037; startup/return low-level architecture synchronized in Decisions 327-331, implementation and validation pending; Phase 16 and M015 remain open)
 Phase 17 — Device Acceptance / Validation
 Phase 18 — End-to-End Demo Architecture
 

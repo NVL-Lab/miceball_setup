@@ -55,6 +55,14 @@ two-phase coordinated shutdown is separately validated in W037; independent
 startup/returning-service integration remains unfinished and Phase 16/M015 remain open;
 W035's Session-binding release validation is unchanged.
 
+Decisions 327-331 now accept and synchronize startup/return announcements using
+existing RuntimeParticipant/ServiceReadiness contracts, direct configured-dependency
+updates, protected reuse, and framework evidence for unresolved work and explicit
+administrator decisions. Implementation and validation remain pending; this entry
+does not add or name new public APIs. Existing NATS, readiness, and framework
+evidence interfaces are candidates for reuse. Resume/drop execution remains Q024,
+deployment/discovery details remain Q022, and Session-wide consumption remains Q019.
+
 Decision 322 additionally makes every ControllerActionDecision persistent,
 including no-mutation outcomes. Accepted ownership remains Controller-produced
 RuntimeEvidenceMessage with is_persistent=True -> Ingestor compilation ->

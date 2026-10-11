@@ -8,6 +8,22 @@ closure. It governs how development is conducted, not the scientific framework's
 architecture. It is neither an implementation roadmap nor a new architecture
 decision. [AGENTS.md](../AGENTS.md) retains mandatory repository engineering rules.
 
+All handoffs between HLC, LLC, ICC, Codex, and successor chats, including successor
+chats within the same role, must reference this authoritative workflow document
+rather than restate, duplicate, redefine, or reinterpret its roles,
+responsibilities, authority, or workflow rules. Every handoff must:
+
+1. Direct the receiving chat or agent to read
+   `docs/architecture_chat_workflow.md` and the relevant current architecture
+   decisions.
+2. Describe only the task being transferred, its current status, relevant accepted
+   decisions, unresolved questions, and expected next action.
+3. Avoid repeating general role descriptions, responsibilities, authority
+   boundaries, or workflow instructions.
+4. Never override or reinterpret this document. If a handoff conflicts with it,
+   the receiving chat or agent must follow this document and report the
+   inconsistency.
+
 ## Architectural Authority
 
 **Only the user can accept architectural decisions.** Acceptance may be expressed
