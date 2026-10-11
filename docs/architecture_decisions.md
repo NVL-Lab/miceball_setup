@@ -8291,6 +8291,10 @@ Decisions 301 and 304; it does not claim implementation or M015 validation.
 
 **Status:** Accepted
 
+**Partial supersession:** Decision 325 supersedes only the all-or-nothing global
+precheck below. The historical wording is retained; all other requirements remain
+authoritative.
+
 An administrator may request orderly general framework shutdown through
 Controller. Controller evaluates closeout readiness of participating services
 and relevant dependencies before stopping any service. If any required condition
@@ -8388,6 +8392,10 @@ do not introduce a dependency manager or generalized dependency graph.
 
 **Status:** Accepted
 
+**Partial supersession:** Decision 325 supersedes only the initial all-participant
+readiness gate below. Dependency-safe evidence preservation and Controller's
+last-confirmed readiness-for-retirement principle remain authoritative.
+
 General shutdown begins with complete pre-stop readiness evaluation. Once all
 required participants confirm readiness, Controller executes dependency-safe
 shutdown in the accepted evidence-preservation order:
@@ -8447,6 +8455,10 @@ implemented by this documentation decision.
 ## Decision 319: Required evidence preservation precedes orderly service closeout
 
 **Status:** Accepted
+
+**Partial supersession:** Decision 325 supersedes only the general-shutdown global
+precheck wording below. Required service-owned evidence preservation and separate
+authorized-kill semantics remain authoritative.
 
 Each service completes required evidence submission before confirming orderly
 closeout. Ingestor confirms accepted evidence has been durably preserved before
@@ -8685,6 +8697,118 @@ ordering. Phase 16 and M015 remain open; historical validation records are prese
 
 ---
 
+## Decision 325: General framework shutdown is progressive, not atomic
+
+**Status:** Accepted
+
+This supersedes only Decision 314's all-or-nothing global precheck and the
+corresponding initial-gate wording in Decisions 317 and 319. All other accepted
+requirements remain authoritative; their historical wording and numbering are
+preserved.
+
+Controller performs an initial independent local stop-readiness survey, followed
+by sequential dependency-safe shutdown. The survey is informational: not every
+participating service must be immediately stoppable before the sequence begins.
+Each service evaluates its actual blockers when Controller issues its stop
+command. Services already stopped remain stopped if a later service blocks or
+fails; there is no automatic restart or rollback.
+
+### Explicit framework shutdown scope
+
+Controller receives an explicit collection of `RuntimeParticipant` identities
+identifying the operational services included in the requested shutdown:
+participating AcquisitionNodes, SynchronizationManager, Ingestor, StorageManager,
+and Controller. This scope is independent of current or previous Sessions and
+must not be derived from `SessionConfig.expected_runtime_participants`.
+
+Reuse existing participant identity and scope-validation contracts; do not
+introduce a service-discovery registry. Existing protections for shared resources
+and unrelated scopes remain authoritative.
+
+### Initial local stop-readiness survey
+
+A minimal, read-only `check_stop_readiness` operation uses existing participant
+command/result infrastructure. It:
+
+- Reuses service-owned `maintenance_blockers()` information and applicable local
+  closeout checks.
+- Reports local blockers and unconfirmed readiness.
+- Does not create or activate a stop attempt, initiate cleanup or shutdown, or
+  prevent future work merely because the survey occurred.
+- Does not treat dependencies expected to disappear later in the shutdown
+  sequence as an automatic global starting blocker.
+
+Controller collects responses through existing bounded command-response
+mechanisms. Missing responses are unconfirmed, never successful. This survey is
+informational, not an all-or-nothing gate.
+
+### Progressive shutdown order
+
+Controller issues actual stop commands sequentially in dependency-safe order:
+
+1. AcquisitionNodes and other evidence-producing operational services.
+2. SynchronizationManager.
+3. Ingestor.
+4. StorageManager.
+5. Controller last.
+
+SynchronizationManager must retire before Ingestor. Each service evaluates its
+current blockers when its stop command is issued. Controller confirms each
+required service's operational retirement before proceeding as though its
+dependency has disappeared. Reuse the individual-service `stop`, `kill`, and
+`cancel` contracts validated in W036.
+
+### Blocked services and administrator authorization
+
+If a service reports `blocked`, Controller pauses the sequence and reports that
+service's actual blockers. The administrator may explicitly authorize kill for
+that specific service or decline forced termination. Authorization for one
+blocked service does not authorize termination of another.
+
+If forced termination is confirmed, Controller continues with orderly stop
+attempts for remaining services. Each subsequent blocked service requires a new,
+service-specific authorization. Unconfirmed forced termination is not successful
+retirement. If the administrator declines forced termination after shutdown has
+begun, the overall attempt ends `failed`; previously stopped services remain
+stopped.
+
+Preserve the accepted meanings of `completed`, `blocked`, and `failed`, and
+distinguish participant-level outcomes from the overall framework-attempt outcome.
+No new lifecycle states are introduced.
+
+### Attempt tracking and evidence
+
+Preserve one overall framework shutdown attempt identity and correlate participant
+commands and results with it. Reuse `stop_attempt_id`, `RuntimeParticipant`,
+existing command/result correlation, `RuntimeEvidenceMessage`, Ingestor,
+StorageManager, and the existing framework Evidence Archive. Framework-level
+evidence uses `session_id=None`, serialized as JSON `null`.
+
+Preserve actual initial survey results, participant outcomes, original blockers,
+authorization decisions, forced actions, failures, and confirmed overall results.
+Apply existing durable preservation requirements, including Decisions 319, 323,
+and 324. Controller prepares and durably preserves its final required coordination
+evidence while Ingestor and StorageManager remain available, then retires last
+under Decision 317's last-confirmed readiness-for-retirement principle.
+
+Do not claim post-exit confirmation or require retired evidence services to
+persist events through unavailable infrastructure.
+
+### Boundaries and implementation status
+
+This decision does not authorize GUI implementation, independent startup or
+returning-service integration, OS process supervisors or remote process termination,
+automatic retry/rollback/restart, new dependency-management or evidence subsystems,
+new Session lifecycle states, Q019/Q024 implementation, or reimplementation of
+W035/W036. The GUI shutdown design notes remain proposed future interface ideas,
+not approved implementation contracts.
+
+**Implementation status:** Progressive Controller-coordinated general shutdown
+is accepted but not implemented or validated. Phase 16 and M015 remain open;
+Q019 and Q024 remain unresolved. Existing validated workflows are unchanged.
+
+---
+
 # Accepted Architectural Principles
 
 The following principles summarize the accepted decisions so far.
@@ -8695,6 +8819,11 @@ subsequently resolve the service-binding and Q025 deferrals recorded in entries
 Decision 322 subsequently clarifies persistent Controller decision evidence and
 the Controller-specific archival obligation before binding release; it does not
 resolve Q019 or claim implementation.
+
+Decision 325 supersedes the global all-or-nothing precheck summarized in entry
+314 and corresponding initial-gate wording in Decisions 317 and 319. Read those
+historical entries with the progressive shutdown clarification; all other
+requirements remain authoritative.
 
 1. The GUI is a client.
 2. The Controller and GUI are conceptually separate.
@@ -9004,6 +9133,8 @@ resolve Q019 or claim implementation.
 321. Services start independently, load required durable configuration/records, use existing communication/dependency mechanisms, report actual readiness, and recognize returning services without automatic Session/transfer recovery. Q025 is resolved architecturally; Phase 16 remains unimplemented/unvalidated and M015 open.
 322. Every ControllerActionDecision is producer-marked persistent through the existing RuntimeEvidenceMessage/Ingestor/StorageManager/Evidence Archive pathway; Controller binding release requires confirmed archival of its Session's decisions plus required cleanup and Session Record obligations, not merely NATS publication. Temporary decisions may then be retired without deleting durable evidence; the Controller-specific path is implemented, Decision 313 remains partial, Phase 16 unvalidated, and Q019 open.
 323. Session-independent framework evidence uses the existing framework/evidence partition with JSON-null Session identity and exact persistent-message, intake-audit, and summary confirmation, without a Session Record, fabricated Session binding, new receipt file, or commit protocol.
+324. Individual-service maintenance preserves confirmed cleanup and readiness-for-retirement evidence before retiring required evidence capabilities; only actual retirement confirmation permits a completed result, without impossible post-retirement self-persistence.
+325. General framework shutdown uses explicit Session-independent participant scope, an informational local readiness survey, and progressive dependency-safe stops; each blocked service needs separate kill authorization, stopped services remain stopped, and existing evidence preservation contracts apply. Coordinated shutdown is accepted, not implemented or validated.
 
 ---
 

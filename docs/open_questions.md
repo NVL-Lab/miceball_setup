@@ -765,7 +765,7 @@ automatic expiry, retry, leases, or a new recovery service in Slice 28.
 
 ## Q025: What low-level contracts implement scoped framework stop/kill and durable attempt evidence?
 
-**Status:** RESOLVED architecturally by Decisions 313-321 and 323 - individual-service implementation pending validation; coordinated shutdown unfinished
+**Status:** RESOLVED architecturally by Decisions 313-321 and 323-325 - individual-service maintenance validated (W036); progressive coordinated shutdown unimplemented
 
 ### Accepted boundaries
 
@@ -796,7 +796,10 @@ protocol questions.
 1. Scope: general shutdown is Controller-coordinated; individual administrative
    maintenance targets its service independently. Existing participant identity,
    resource ownership, and protection of unrelated shared scopes remain
-   authoritative (Decisions 314 and 316).
+   authoritative (Decisions 314 and 316). Decision 325 requires explicit
+   Session-independent RuntimeParticipant scope, not SessionConfig participants.
+   The initial local survey is informational, not an all-or-nothing gate;
+   actual blockers are evaluated sequentially when each stop command is issued.
 2. Closeout: services own explicit directional dependencies, readiness/blockers,
    cleanup, and forced actions. Active Session obligations block orderly stop;
    confirmed binding release is independent of service termination (Decisions
@@ -805,6 +808,10 @@ protocol questions.
    unconfirmed force, and declined kill produce failed. Confirmed orderly closeout
    or authorized forced termination produces completed, without asserting that
    unresolved cleanup succeeded (Decision 315).
+   Decision 325 distinguishes each participant's outcome from the overall attempt:
+   a blocked service pauses the sequence and requires separate kill authorization;
+   declining force after shutdown begins ends the overall attempt as failed.
+   Already stopped services remain stopped without automatic restart or rollback.
 4. Evidence: framework-level evidence may lack Session identity using minimally
    extended existing RuntimeEvidenceMessage, Ingestor, and Evidence Archive
    contracts; Session evidence retains real Session identity. No fabricated
@@ -844,7 +851,7 @@ The roadmap distinguishes accepted architecture from implemented milestones:
 Phase 13 — Global StorageManager (Evidence)
 Phase 14 — Global StorageManager (Finalized Scientific Data)
 Phase 15 — Controller-owned Session Launch & Runtime Assembly (launch path and Decision 302 sequential reuse implemented; independent validation/audit and M015 closure pending)
-Phase 16 — Operational Service Lifetime and Framework Stop/Kill (Decisions 304-324 accepted; Q025 resolved architecturally; narrow Session-binding release under Decisions 313/322 complete, manually software-validated and independently audited PASS in W035; individual-service maintenance complete, manually software-validated and independently audited PASS in W036; coordinated shutdown and startup integration unfinished)
+Phase 16 — Operational Service Lifetime and Framework Stop/Kill (Decisions 304-325 accepted; Q025 resolved architecturally; narrow Session-binding release under Decisions 313/322 complete, manually software-validated and independently audited PASS in W035; individual-service maintenance complete, manually software-validated and independently audited PASS in W036; progressive coordinated shutdown unimplemented and startup integration unfinished)
 Phase 17 — Device Acceptance / Validation
 Phase 18 — End-to-End Demo Architecture
 

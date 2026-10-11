@@ -603,7 +603,7 @@ Slice 28 workflows remain historical evidence, not closure of its sequential-reu
 requirements. W035 separately validates the Phase 16 service binding-release path.
 
 Phase 16 Operational Service Lifetime and Framework Stop/Kill architecture is
-accepted in Decisions 304-324. The narrow Controller/Ingestor/SynchronizationManager
+accepted in Decisions 304-325. The narrow Controller/Ingestor/SynchronizationManager
 Session-binding release slice under Decisions 313 and 322 is complete, manually
 software-validated, and independently audited PASS (W035). Remaining Phase 16
 responsibilities are unfinished; Phase 16 completion is not claimed.
@@ -631,8 +631,12 @@ This does not claim hardware or live external NATS deployment validation.
 Decisions 313-321 settle independent Session-binding release,
 general shutdown versus individual administrative maintenance, all-participant
 pre-stop evaluation, directional service-owned blockers, and exact forced-action
-outcomes. General shutdown preserves evidence in producer -> Ingestor ->
-StorageManager -> Controller order; individual service maintenance may use a local
+outcomes. Decision 325 supersedes the all-or-nothing global precheck: an
+informational local survey precedes progressive dependency-safe stops, using
+explicit Session-independent participant scope and separate authorization for
+each blocked service. Already stopped services remain stopped; coordinated
+shutdown is not implemented or validated. General shutdown preserves evidence in
+producer -> Ingestor -> StorageManager -> Controller order; individual service maintenance may use a local
 administrative interface without Controller orchestration or remote OS control.
 Framework evidence may lack Session identity through minimally extended existing
 Ingestor/Evidence Archive infrastructure. Decision 323's `framework/evidence/`

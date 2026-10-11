@@ -22,10 +22,15 @@ maintenance may be independent through a local interface. Participants retain
 closeout ownership and independently release confirmed Session bindings under
 Decision 313. These responsibilities are distinct from implemented Session
 stop/finalization and must not initiate collection, verification, transfer, or
-export. General shutdown evaluates all required preconditions before stopping
-any service and preserves evidence in producer -> Ingestor -> StorageManager ->
-Controller order. Decisions 318-319 accept Session-independent framework evidence
-through existing infrastructure, not a separate evidence system. Independent
+export. Decision 325 accepts an explicit Session-independent `RuntimeParticipant`
+scope, an informational local `check_stop_readiness` survey, and sequential
+dependency-safe stops with blocker evaluation at each actual stop command.
+SynchronizationManager retires before Ingestor, then StorageManager and Controller;
+each blocked service requires separate kill authorization, without restarting
+already stopped services. Controller preserves required coordination evidence
+while Ingestor and StorageManager remain available. This coordinated shutdown
+contract is not implemented or validated. Decisions 318-319 accept Session-independent
+framework evidence through existing infrastructure, not a separate evidence system. Independent
 startup/readiness and returning-service recognition do not resume interrupted
 work. Q025 is resolved architecturally; Q019 and Q024 remain open.
 Individual-service maintenance now has a narrow implementation through the
