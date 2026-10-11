@@ -16,7 +16,7 @@ cleanup, and bounded-memory contracts; DeviceManager and DeviceAdapters are not
 new independently operating services. This is not a claim that all current
 collaborators already implement successive-Session reuse.
 
-Controller will coordinate general framework shutdown through existing
+Controller coordinates general framework shutdown through existing
 distributed command/result boundaries; individual administrative service
 maintenance may be independent through a local interface. Participants retain
 closeout ownership and independently release confirmed Session bindings under
@@ -29,14 +29,22 @@ SynchronizationManager retires before Ingestor, then StorageManager and Controll
 each blocked service requires separate kill authorization, without restarting
 already stopped services. Controller preserves required coordination evidence
 while Ingestor and StorageManager remain available. This coordinated shutdown
-contract is not implemented or validated. Decisions 318-319 accept Session-independent
+contract now has an implementation awaiting independent manual validation and audit. Decision 326 accepts a coordinated
+`prepare_stop` operation for StorageManager followed by Controller while Ingestor
+is operational: actual cleanup results and the final preservation checkpoint are
+archived before Ingestor retirement. Preparation is not operational retirement.
+Prepared StorageManager and Controller then retire in the accepted order without
+invoking retired evidence capabilities; later confirmations are retained through
+existing command/results, not described as newly archived evidence. The public
+`Controller.shutdown_framework()` coordinates these stages; W036 remains unchanged outside
+coordinated shutdown. Decisions 318-319 accept Session-independent
 framework evidence through existing infrastructure, not a separate evidence system. Independent
 startup/readiness and returning-service recognition do not resume interrupted
 work. Q025 is resolved architecturally; Q019 and Q024 remain open.
 Individual-service maintenance now has a narrow implementation through the
 target-owned ServiceMaintenanceInterface and existing participant commands.
 It is manually software-validated and independently audited PASS (W036). General
-coordinated shutdown and independent startup integration remain unfinished;
+coordinated shutdown awaits independent validation/audit and independent startup integration remains unfinished;
 W035's Session-binding release validation is unchanged.
 
 Decision 322 additionally makes every ControllerActionDecision persistent,
@@ -226,7 +234,7 @@ guarantee remain deferred. M014/W034 retain completed Slice 27 scope and status.
 - RuntimeParticipant: Stores one plain component type and identifier, currently referenced by Session configuration, without transport addresses or a second identity system.
 - UnresolvedCommandOutcome: Stores inspectable plain-data evidence for one expected target whose command result was absent from the issuer-defined result window.
 - GroupCommandOutcome: Stores the issuer-owned aggregate outcome, individual results, and unresolved target evidence for one group command intent.
-- RuntimeCommandMessage: Stores one immutable plain-data command intent with explicit source, target, Session, command identity, type, and payload.
+- RuntimeCommandMessage: Stores one immutable plain-data command intent with explicit source, target, Session, command identity, type, and payload, allowing Session-independent check_stop_readiness and prepare_stop alongside existing administrative commands.
 - RuntimeCommandResultMessage: Stores one immutable plain-data command result and validates its shared status vocabulary.
 - RuntimeEvidenceMessage: Stores one immutable plain-data evidence message with real Session identity or framework session_id=None plus producer-supplied persistence intent without interpreting meaning.
 - RuntimeTelemetryMessage: Stores one immutable plain-data transient telemetry message without making it authoritative evidence.
@@ -316,6 +324,7 @@ is complete; W030 records manual validation, focused tests, and audit reassessme
 - Controller: Sequentially coordinates one Session with optional keyword-only `component_id="controller"` for producer identity, preserves existing ownership, and orchestrates preparation, lifecycle, runtime cleanup, and final persistence.
 - Controller.__init__(acquisition_node=None, ingestor=None, storage_manager=None, session_record_path=None, synchronization_manager=None, *, component_id="controller"): Supports Controller creation before Session and without remote participant references while retaining existing local collaborators.
 - Controller.launch_session(selections, *, communication, participants, config_parameters, result_window_s, scientific_outputs=()): Asynchronously allocates a fresh intended Session ID, resolves node-scoped device selections, reserves resources, constructs final SessionConfig, confirms participant preparation, and returns operational success or cleanup-aware rollback diagnostics.
+- Controller.shutdown_framework(participants, *, communication, stop_attempt_id, administrator_id, result_window_s, authorize_kill=None): Surveys an explicit Session-independent scope and coordinates progressive W036 retirement with StorageManager/Controller preparation, exact pre-Ingestor archival, separately bounded per-service authorization, and retained later confirmations in ControllerCommandResult.details.
 - Controller.start_launched_session(): Starts reserved nodes through correlated NATS commands and then starts the Session, returning ControllerCommandResult and attempting cleanup if startup fails.
 - Controller.stop_launched_session(reason=None): Stops and locally finalizes all reserved nodes through NATS, releases only confirmed-clean reservations, and stops the Session without waiting for global collection.
 - Controller.get_status(): Returns Session/command status, the bounded last released terminal outcome, and the local AcquisitionNode snapshot or None, without fabricating remote runtime status.
@@ -412,7 +421,7 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 - NatsCommunicationBoundary: Owns a real nats-py connection, reports NATS availability through ServiceReadiness, creates accepted JetStream streams, and handles JSON serialization, durable publication acknowledgement, and Core NATS telemetry mechanics without domain semantics.
 - NatsControllerCommunication: Publishes unicast or issuer-fanned group commands, consumes and aggregates addressed per-target command results over an issuer-defined window, records missing results as unresolved, and independently presents HealthInterpretationEvidence without relaying evidence.
 - NatsControllerCommunication.check_ready(): Returns required NATS communication readiness for launch gating.
-- NatsControllerCommunication.request_command(participant, command_type, session_id, payload, result_window_s): Publishes once and awaits the correlated final result, returning None for missing/invalid confirmation without retry or assuming remote state is absent.
+- NatsControllerCommunication.request_command(participant, command_type, session_id, payload, result_window_s, *, command_id=None): Publishes once with a generated or caller-correlated non-overlapping command identity and awaits the final result over a finite bounded window, returning None for missing/invalid confirmation without retry or assuming remote state is absent.
 - NatsControllerCommunication.subscribe_command_results(session_id, callback=None): Accepts None for participant-scoped results and a real Session ID for Session-scoped results.
 - NatsCommunicationBoundary.ensure_streams(): Retains Session stream filters and adds participant command/result filters and messages.evidence.> for framework evidence to the existing three JetStream streams, leaving telemetry Core NATS only.
 - NatsAcquisitionNodeCommunication.subscribe_commands(): Returns two subscriptions for participant-scoped and Session-scoped addressed commands, keeping the same handler usable across binding changes.
@@ -426,7 +435,7 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 - _execute_service_command: Delegates readiness, Session preparation, or abort to the service owner and retains existing command-ID deduplication.
 - _subscribe_participant_commands: Establishes the two addressed command subscriptions reused by mandatory service handlers.
 - NatsIngestorCommunication.subscribe_evidence(session_id, callback=None): Requires the matching Session journal or a configured framework journal for None and ACKs after successful durable acceptance, invoking callbacks only for newly accepted evidence.
-- NatsControllerCommunication.maintenance_requests: Returns detached administrative command intent, attempt identity, and authorization retained by the existing command issuer independently of received command results.
+- NatsControllerCommunication.maintenance_requests: Returns detached administrative command intent (including survey and preparation), attempt identity, and authorization retained by the existing command issuer independently of received command results.
 - NatsServiceMaintenanceCommunication(boundary, maintenance): Provides an existing participant-command/result endpoint for Controller or StorageManager maintenance without Controller-coordinated framework shutdown.
 - NatsServiceMaintenanceCommunication.subscribe_commands(): Routes correlated maintenance commands through the existing JetStream subscriptions and publishes service-owned results.
 - _execute_maintenance_command: Connects existing service handlers to their configured administrative interface and brokered evidence publisher without a local publication fallback.
@@ -434,7 +443,8 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 ## src/lab_sync_acquisition/service_maintenance.py
 
 - ServiceMaintenanceInterface(service, participant, *, ingestor, storage_manager, preservation_window_s, close_resources, operational_dependents=None, evidence_publisher=None, retire_resources=None): Attaches one service-owned administrative interface with an explicit bounded preservation window, ordinary-cleanup callback, optional final-retirement callback, and explicitly configured operational Ingestor dependencies.
-- ServiceMaintenanceInterface.execute_command(command): Serializes and deduplicates stop/kill/cancel attempts, preserves original blockers and authorization, and requires current archival of all producer-owned persistent maintenance evidence and current closeout obligations before orderly retirement.
+- ServiceMaintenanceInterface.execute_command(command): Serializes/deduplicates read-only check_stop_readiness and stop/kill/cancel/prepare_stop commands; coordinated preparation archives actual cleanup without retirement, and a same-attempt final stop rechecks current archival through retirement commitment without invoking retired Ingestor operations.
+- ServiceMaintenanceInterface.prepared: Reports confirmed ordinary cleanup awaiting final retirement, not a lifecycle state or completed stop; only StorageManager and Controller support preparation with an explicit framework attempt identity.
 - ServiceMaintenanceInterface.command_results: Returns detached correlated last-confirmed results with separate completed/blocked/failed outcomes and termination confirmation.
 - ServiceMaintenanceInterface.evidence: Returns retained producer-owned persistent attempt evidence, including preservation failures.
 - ServiceMaintenanceInterface.terminated: Reports confirmed operational-service retirement rather than OS process death.

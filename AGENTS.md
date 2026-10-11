@@ -10,11 +10,13 @@ Do not treat unresolved architectural questions as implementation requirements.
 
 # Mandatory Architectural Authority And Workflow
 
-1. Only the user can accept architecture. New decisions and clarifications require
-   the user's explicit **"accept"** for that decision; do not infer acceptance from
-   recommendations, instructions, implementation, passing tests, silence, or
-   informal agreement. Existing formally recorded accepted decisions remain
-   authoritative.
+1. Only the user can accept architectural decisions. Acceptance may be expressed
+   through clear affirmative responses such as "accept," "yes," "OK," "fine,"
+   "good," or "agreed." Acceptance must refer to an identifiable proposed decision.
+   Silence, ambiguous responses, or continued discussion do not constitute
+   acceptance. Do not infer acceptance from assistant recommendations, ICC
+   instructions, implementation, or passing tests. Existing formally recorded
+   accepted decisions remain authoritative.
 2. The Implementation Coordinator Chat (ICC) coordinates Codex work but cannot
    approve or change architecture. Recording an explicitly accepted decision when
    instructed by ICC does not itself constitute acceptance.

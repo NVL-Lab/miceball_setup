@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable, Mapping
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from contextvars import ContextVar
 from copy import deepcopy
 from functools import wraps
@@ -35,6 +35,8 @@ def service_operation(*, new_work: bool = False):
                 if (interface is not None and new_work and call not in _service_calls.get()
                         and (interface._attempt is not None or interface._closeout_started)):
                     raise RuntimeError("Service maintenance rejects new unrelated work")
+                if new_work and getattr(owner, "_framework_shutdown_active", False) and call not in _service_calls.get():
+                    raise RuntimeError("Framework shutdown rejects new unrelated Controller work")
                 owner._active_service_operations += 1
             token = _service_calls.set((*_service_calls.get(), call))
             try:
@@ -109,6 +111,7 @@ class ServiceMaintenanceInterface:
         self._evidence = []
         self._terminated = False
         self._closeout_started = False
+        self._prepared = False
         service._maintenance = self
 
     @property
@@ -121,6 +124,11 @@ class ServiceMaintenanceInterface:
         return self._terminated
 
     @property
+    def prepared(self) -> bool:
+        """Confirmed ordinary cleanup, with operational retirement still outstanding."""
+        return self._prepared and not self.terminated
+
+    @property
     def command_results(self):
         """Last confirmed local results, including correlation and actual closeout outcome."""
         return tuple(RuntimeCommandResultMessage.from_dict(deepcopy(r.to_dict())) for r in self._results.values())
@@ -131,7 +139,7 @@ class ServiceMaintenanceInterface:
         return tuple(RuntimeEvidenceMessage.from_dict(deepcopy(m.to_dict())) for m in self._evidence)
 
     async def execute_command(self, command: RuntimeCommandMessage) -> RuntimeCommandResultMessage:
-        """Execute correlated stop/kill/cancel once, retaining original blockers and authorization."""
+        """Survey or execute correlated maintenance, including coordinated preparation."""
         async with self._lock:
             previous = self._commands.get(command.command_id)
             if previous is not None:
@@ -145,7 +153,16 @@ class ServiceMaintenanceInterface:
                     raise ValueError("Maintenance requires the matching participant and session_id=None")
                 if any(not isinstance(value, str) or not value for value in (command.command_id, command.source_id)):
                     raise ValueError("Command and requester identities are required")
-                if command.command_type not in {"stop", "kill", "cancel"}:
+                if command.command_type == "check_stop_readiness":
+                    blockers = self._closeout_blockers()
+                    if self._attempt is not None:
+                        blockers.append("Existing maintenance attempt")
+                    result = RuntimeCommandResultMessage(uuid4().hex, command.command_id, None,
+                        self.participant.component_id, command.source_id, "succeeded", True, None,
+                        {"participant": self.participant.to_dict(), "confirmed": not self.terminated,
+                         "ready": not blockers and not self.terminated, "blockers": blockers})
+                    return self._remember(command, result)
+                if command.command_type not in {"stop", "kill", "cancel", "prepare_stop"}:
                     raise ValueError("Unsupported maintenance command")
                 attempt_id = command.payload.get("stop_attempt_id")
                 administrator = command.payload.get("administrator_id")
@@ -153,12 +170,22 @@ class ServiceMaintenanceInterface:
                     raise ValueError("Attempt and administrator identities are required")
                 if self.terminated:
                     raise RuntimeError("Service has terminated")
-                if command.command_type == "stop":
+                if self._prepared:
+                    return self._remember(command, await self._retire_prepared(command))
+                if command.command_type == "prepare_stop":
+                    if self.participant.component_type not in {"storage_manager", "controller"}:
+                        raise ValueError("Coordinated preparation is limited to StorageManager and Controller")
+                    framework_id = command.payload.get("framework_stop_attempt_id")
+                    if not isinstance(framework_id, str) or not framework_id:
+                        raise ValueError("Preparation requires an overall framework attempt identity")
+                if command.command_type in {"stop", "prepare_stop"}:
                     if self._attempt is not None or attempt_id in self._attempts:
                         raise RuntimeError("An overlapping or reused maintenance attempt is not allowed")
                     attempt = {"stop_attempt_id": attempt_id, "target": self.participant.to_dict(),
                                "requester_id": command.source_id, "started_at": time(), "commands": [],
                                "blockers": [], "actions": [], "failures": [], "outcome": "blocked"}
+                    if command.payload.get("framework_stop_attempt_id") is not None:
+                        attempt["framework_stop_attempt_id"] = command.payload["framework_stop_attempt_id"]
                     with self._admission_lock:
                         self._attempt = attempt
                         if self._active_operations:
@@ -183,7 +210,7 @@ class ServiceMaintenanceInterface:
                     await self._preserve(attempt)
                     self._attempt = None
                     result = self._result(command, "failed", "Administrator cancelled", attempt)
-                elif command.command_type == "stop" and attempt["blockers"]:
+                elif command.command_type in {"stop", "prepare_stop"} and attempt["blockers"]:
                     await self._preserve(attempt)
                     result = self._result(command, "blocked", "Closeout blockers", attempt)
                 else:
@@ -225,6 +252,13 @@ class ServiceMaintenanceInterface:
                         await self._preserve(attempt, "ready_for_retirement")
                         with self._orderly_preservation_guard():
                             pass
+                        if command.command_type == "prepare_stop":
+                            attempt["actions"].append("preparation_confirmed")
+                            await self._preserve(attempt, "prepared_ready_for_retirement")
+                            with self._orderly_preservation_guard():
+                                self._prepared = True
+                            result = self._result(command, None, None, attempt, prepared=True)
+                            return self._remember(command, result)
                         # Do not hold synchronous intake/storage locks across retirement.
                         if self.retire_resources is not None:
                             if await self.retire_resources(False) is not True:
@@ -256,7 +290,7 @@ class ServiceMaintenanceInterface:
                         except Exception as observation_error:
                             attempt["failures"].append(f"Closeout obligations unconfirmed: {observation_error}")
                     # Preservation failure before cleanup is still a pre-stop blocker.
-                    outcome = "blocked" if not cleanup_started and command.command_type == "stop" else "failed"
+                    outcome = "blocked" if not cleanup_started and command.command_type in {"stop", "prepare_stop"} else "failed"
                     attempt["outcome"] = outcome
                     if outcome == "blocked":
                         attempt["blockers"].append(f"Required closeout precondition: {error}")
@@ -270,6 +304,74 @@ class ServiceMaintenanceInterface:
                 else:
                     result = self._result(command, "failed", str(error))
             return self._remember(command, result)
+
+    @contextmanager
+    def _prepared_preservation_guard(self, *, force=False):
+        # Preparation already confirmed journal acceptance. Recheck current durable
+        # contents through retirement commit without requiring retired Ingestor intake.
+        preservation = nullcontext(None) if force else self.storage_manager.framework_preservation_guard()
+        with preservation as confirmation, self._admission_lock:
+            if force:
+                yield
+                return
+            if confirmation is None:
+                raise RuntimeError("Prepared closeout archive preservation is unconfirmed")
+            archived = {m["evidence_id"]: m for m in confirmation["runtime_evidence"]}
+            if any(m.is_persistent and archived.get(m.evidence_id) != m.to_dict() for m in self._evidence):
+                raise RuntimeError("Prepared closeout evidence is no longer preserved")
+            yield
+
+    async def _retire_prepared(self, command):
+        attempt = self._attempt
+        if (attempt is None or command.payload.get("stop_attempt_id") != attempt["stop_attempt_id"]
+                or command.payload.get("framework_stop_attempt_id") != attempt["framework_stop_attempt_id"]
+                or command.source_id != attempt["requester_id"]):
+            return self._result(command, "failed", "No matching prepared framework attempt")
+        if command.command_type not in {"stop", "kill", "cancel"}:
+            return self._result(command, "failed", "Preparation already confirmed")
+        if attempt["outcome"] not in {None, "blocked"}:
+            return self._result(command, "failed", "Prepared attempt already failed; obligations remain outstanding", attempt)
+        if command.command_type == "kill" and (attempt["outcome"] != "blocked" or command.payload.get("authorized") is not True):
+            return self._result(command, "failed", "Kill requires a matching blocked attempt and explicit authorization")
+        attempt["commands"].append({"command_id": command.command_id, "command_type": command.command_type,
+            "administrator_id": command.payload["administrator_id"],
+            "authorized": command.payload.get("authorized") is True, "requested_at": time()})
+        try:
+            if command.command_type == "cancel":
+                raise RuntimeError("Administrator cancelled forced continuation")
+            force = command.command_type == "kill"
+            with self._prepared_preservation_guard(force=force):
+                blockers = self._closeout_blockers()
+                if blockers and not force:
+                    attempt["blockers"].extend(blockers)
+                    attempt["outcome"] = "blocked"
+                    return self._result(command, "blocked", "Closeout blockers", attempt)
+            if self.retire_resources is not None and await self.retire_resources(force) is not True:
+                raise RuntimeError("Operational retirement is unconfirmed; manual intervention required")
+            with self._prepared_preservation_guard(force=force):
+                if self._active_operations:
+                    raise RuntimeError("Service operations remain active")
+                if not force and self._closeout_blockers():
+                    raise RuntimeError("Closeout obligations changed before retirement")
+                self._terminated = True
+                self._attempt = None
+                attempt["actions"].append("operational_retirement_confirmed")
+                attempt["outcome"] = "completed"
+            return self._result(command, "completed", None, attempt)
+        except asyncio.CancelledError:
+            attempt["outcome"] = "failed"
+            attempt["failures"].append("Prepared retirement cancelled; confirmation unavailable")
+            self._remember(command, self._result(command, "failed", attempt["failures"][-1], attempt))
+            raise
+        except Exception as error:
+            attempt["outcome"] = "failed"
+            attempt["failures"].append(str(error))
+            try:
+                attempt["remaining_obligations"] = self._closeout_blockers()
+            except Exception as observation_error:
+                attempt["failures"].append(f"Closeout obligations unconfirmed: {observation_error}")
+            # Later confirmations are retained results, not post-Ingestor archive writes.
+            return self._result(command, "failed", str(error), attempt)
 
     def _dependency_blockers(self):
         return [f"Operational dependency: {participant.component_type}/{participant.component_id}"
@@ -316,12 +418,13 @@ class ServiceMaintenanceInterface:
         with self.ingestor.framework_preservation_guard(self.storage_manager):
             pass
 
-    def _result(self, command, outcome, reason, attempt=None):
+    def _result(self, command, outcome, reason, attempt=None, *, prepared=False):
         return RuntimeCommandResultMessage(uuid4().hex, command.command_id, None, self.participant.component_id,
-                                           command.source_id, "succeeded" if outcome == "completed" else "failed",
-                                           outcome == "completed", reason,
+                                           command.source_id, "succeeded" if outcome == "completed" or prepared else "failed",
+                                           outcome == "completed" or prepared, reason,
                                            {"outcome": outcome, "termination_confirmed": self.terminated,
                                             "manual_intervention_required": command.command_type == "kill" and outcome == "failed" and attempt is not None and self._closeout_started,
+                                            "prepared": prepared,
                                             "attempt": deepcopy(attempt) if attempt is not None else None})
 
     def _remember(self, command, result):

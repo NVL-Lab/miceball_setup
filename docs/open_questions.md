@@ -765,7 +765,7 @@ automatic expiry, retry, leases, or a new recovery service in Slice 28.
 
 ## Q025: What low-level contracts implement scoped framework stop/kill and durable attempt evidence?
 
-**Status:** RESOLVED architecturally by Decisions 313-321 and 323-325 - individual-service maintenance validated (W036); progressive coordinated shutdown unimplemented
+**Status:** RESOLVED architecturally by Decisions 313-321 and 323-326 - individual-service maintenance validated (W036); progressive coordinated shutdown unimplemented
 
 ### Accepted boundaries
 
@@ -820,6 +820,12 @@ protocol questions.
    preservation, StorageManager completes its writes, and Controller stops last.
    Authorized kill preserves whatever the initiator can confirm (Decisions 317
    and 319).
+   Decision 326 resolves the coordinated cleanup-evidence handoff: StorageManager
+   and Controller perform actual `prepare_stop` cleanup and archive its results
+   while Ingestor remains operational. The final archival checkpoint distinguishes
+   completed actions from outstanding retirement obligations. Later retirement
+   confirmations remain existing command/results, not newly archived evidence.
+   This contract is unimplemented and does not resolve Q019 or Q024.
 
 All five narrowed architecture questions are resolved. Decision 323's framework
 partition and individual-service administrative stop/kill/cancel now have narrow
@@ -851,7 +857,7 @@ The roadmap distinguishes accepted architecture from implemented milestones:
 Phase 13 — Global StorageManager (Evidence)
 Phase 14 — Global StorageManager (Finalized Scientific Data)
 Phase 15 — Controller-owned Session Launch & Runtime Assembly (launch path and Decision 302 sequential reuse implemented; independent validation/audit and M015 closure pending)
-Phase 16 — Operational Service Lifetime and Framework Stop/Kill (Decisions 304-325 accepted; Q025 resolved architecturally; narrow Session-binding release under Decisions 313/322 complete, manually software-validated and independently audited PASS in W035; individual-service maintenance complete, manually software-validated and independently audited PASS in W036; progressive coordinated shutdown unimplemented and startup integration unfinished)
+Phase 16 — Operational Service Lifetime and Framework Stop/Kill (Decisions 304-326 accepted; Q025 resolved architecturally; narrow Session-binding release under Decisions 313/322 complete, manually software-validated and independently audited PASS in W035; individual-service maintenance complete, manually software-validated and independently audited PASS in W036; progressive two-phase coordinated shutdown unimplemented and startup integration unfinished)
 Phase 17 — Device Acceptance / Validation
 Phase 18 — End-to-End Demo Architecture
 

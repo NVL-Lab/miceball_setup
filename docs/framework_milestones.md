@@ -648,7 +648,7 @@ cleanup/reuse, not implementation of those service binding-release contracts.
 # Future Milestones
 
 Phase 16 Operational Service Lifetime and Framework Stop/Kill architecture is
-accepted in Decisions 304-325. At the earlier checkpoint implementation was
+accepted in Decisions 304-326. At the earlier checkpoint implementation was
 limited to the Session-binding release slice. Decision 323 adds the accepted
 framework Evidence Archive partition; individual-service stop/kill/cancel is now
 complete, manually software-validated, and independently audited PASS (W036),
@@ -656,6 +656,9 @@ including Decision 324 closeout ordering. General coordinated shutdown remains
 unimplemented. Decision 325 replaces the global all-or-nothing precheck with an
 informational local survey and progressive dependency-safe shutdown, with separate
 authorization for each blocked service and no automatic rollback or restart.
+Decision 326 adds accepted, unimplemented two-phase closeout: StorageManager and
+Controller prepare actual cleanup and preserve its evidence before Ingestor
+retirement, without changing retirement order or W036 individual maintenance.
 The narrow Controller/Ingestor/SynchronizationManager
 binding-release slice is complete and independently software-validated (W035);
 Phase 16 as a whole is not complete. Principal service lifetime is independent

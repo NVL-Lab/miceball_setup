@@ -10,13 +10,13 @@ decision. [AGENTS.md](../AGENTS.md) retains mandatory repository engineering rul
 
 ## Architectural Authority
 
-**Only the user can accept architecture.** A new architectural decision or
-clarification becomes accepted only when the user explicitly says **"accept"**
-for that decision.
+**Only the user can accept architectural decisions.** Acceptance may be expressed
+through clear affirmative responses such as "accept," "yes," "OK," "fine," "good,"
+or "agreed." Acceptance must refer to an identifiable proposed decision. Silence,
+ambiguous responses, or continued discussion do not constitute acceptance.
 
 Do not infer acceptance from assistant recommendations, ICC instructions, Codex
-implementation, passing tests, silence, continued discussion, or informal
-agreement without explicit acceptance. Unclear acceptance leaves the proposal
+implementation, or passing tests. Unclear acceptance leaves the proposal
 unresolved and requires returning it through this workflow for user acceptance.
 
 Existing formally recorded accepted decisions retain their authority; this rule

@@ -8809,6 +8809,91 @@ Q019 and Q024 remain unresolved. Existing validated workflows are unchanged.
 
 ---
 
+## Decision 326: Two-phase coordinated closeout preserves cleanup evidence before infrastructure retirement
+
+**Status:** Accepted
+
+This supplements Decisions 319, 324, and 325 by specifying how actual cleanup
+evidence remains durable during progressive infrastructure shutdown. It does not
+reverse Decision 325 or weaken W036's independently validated individual-service
+maintenance contract.
+
+### Preparatory cleanup
+
+During Controller-coordinated general framework shutdown, StorageManager and
+Controller may perform ordinary resource cleanup before Ingestor retires. A
+minimal `prepare_stop` operation uses existing distributed command/result and
+W036 maintenance infrastructure. It:
+
+- Performs actual ordinary cleanup and confirms and durably preserves its results.
+- Does not retire the service and retains capabilities needed to complete
+  coordinated shutdown.
+- Is correlated with the participant's maintenance attempt and the overall
+  framework `stop_attempt_id`, using a distinct command identity.
+
+Preparation is not a new lifecycle state or completed operational retirement.
+Existing W036 individual-service `stop`, `kill`, and `cancel` behavior remains
+unchanged outside coordinated shutdown.
+
+### Required shutdown sequence
+
+1. Stop AcquisitionNodes and SynchronizationManager using existing W036
+   maintenance, preserving actual results.
+2. While Ingestor and StorageManager remain operational, execute StorageManager
+   `prepare_stop`, followed by Controller `prepare_stop`.
+3. Durably archive actual preparatory cleanup results and coordination evidence.
+4. Confirm the final evidence-preservation checkpoint before Ingestor retirement.
+5. Retire Ingestor using its existing maintenance closeout, preserving its actual
+   cleanup evidence while StorageManager remains available.
+6. Retire the previously prepared StorageManager without invoking retired
+   Ingestor evidence operations.
+7. Retire Controller last, after its remaining coordination obligations and
+   last-confirmed readiness checkpoint.
+
+The operational retirement order remains:
+
+```text
+AcquisitionNodes -> SynchronizationManager -> Ingestor -> StorageManager -> Controller
+```
+
+Preparation does not change this order.
+
+### Evidence guarantees
+
+Before Ingestor retirement, durably preserve all archive-eligible evidence
+generated so far, including actual cleanup, preparation, authorizations, failures,
+and coordination evidence. The final archival checkpoint distinguishes completed
+actions from outstanding obligations and future retirement actions. Anticipated
+retirement must not be recorded as completed.
+
+After Ingestor retirement, StorageManager's final retirement confirmation is
+retained by Controller through existing command/result contracts. Controller's
+final available retirement confirmation is retained by the initiating interface.
+These later results are not newly archived Evidence Archive records; the overall
+shutdown result is derived only from actual confirmed outcomes.
+
+Framework evidence continues to use `session_id=None`. No new evidence subsystem,
+receipt file, archive, or post-retirement persistence mechanism is introduced.
+
+### Failure handling
+
+- Failure to durably preserve required cleanup evidence prevents orderly
+  progression across the final archival boundary.
+- Preserve actual failed cleanup results and outstanding obligations.
+- Successful `prepare_stop` is never sufficient to claim completed operational
+  retirement; missing or failed final retirement confirmation is not success.
+- Forced termination still requires separate administrator authorization for
+  each affected service.
+- Previously stopped services remain stopped after later failures; no automatic
+  rollback, restart, or retry is introduced.
+
+**Implementation status:** This two-phase coordinated-closeout contract is
+accepted but not implemented or validated. Historical decisions and validated
+workflows remain unchanged. Phase 16 and M015 remain open; Q019 and Q024 remain
+unresolved.
+
+---
+
 # Accepted Architectural Principles
 
 The following principles summarize the accepted decisions so far.
@@ -9135,6 +9220,7 @@ requirements remain authoritative.
 323. Session-independent framework evidence uses the existing framework/evidence partition with JSON-null Session identity and exact persistent-message, intake-audit, and summary confirmation, without a Session Record, fabricated Session binding, new receipt file, or commit protocol.
 324. Individual-service maintenance preserves confirmed cleanup and readiness-for-retirement evidence before retiring required evidence capabilities; only actual retirement confirmation permits a completed result, without impossible post-retirement self-persistence.
 325. General framework shutdown uses explicit Session-independent participant scope, an informational local readiness survey, and progressive dependency-safe stops; each blocked service needs separate kill authorization, stopped services remain stopped, and existing evidence preservation contracts apply. Coordinated shutdown is accepted, not implemented or validated.
+326. Coordinated shutdown prepares actual StorageManager and Controller cleanup and durably preserves its evidence before Ingestor retirement; later retirement confirmations use existing command/results, not invented archive records. Preparation is not retirement, the operational retirement order is unchanged, and W036 remains unchanged outside coordinated shutdown. This contract is accepted, not implemented or validated.
 
 ---
 

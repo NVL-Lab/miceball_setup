@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+from collections.abc import Awaitable, Callable
 from copy import deepcopy
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -15,7 +17,9 @@ from lab_sync_acquisition.acquisition_node import AcquisitionNode
 from lab_sync_acquisition.communication import (
     GroupCommandOutcome,
     RuntimeEvidenceMessage,
+    RuntimeCommandResultMessage,
     RuntimeParticipant,
+    build_runtime_subject,
 )
 from lab_sync_acquisition.device_adapter import DeviceReadiness
 from lab_sync_acquisition.device import DeviceDeclaration
@@ -155,6 +159,231 @@ class Controller:
         self._runtime_cleanup_confirmed = False
         self._finalization_confirmation = None
         self._last_released_session: dict[str, Any] | None = None
+        self._framework_shutdown_active = False
+        self._framework_shutdown_attempt_id: str | None = None
+        self._framework_shutdown_attempts: dict[str, dict[str, Any]] = {}
+
+    async def shutdown_framework(
+        self, participants: Iterable[RuntimeParticipant], *,
+        communication: NatsControllerCommunication, stop_attempt_id: str,
+        administrator_id: str, result_window_s: float,
+        authorize_kill: Callable[[RuntimeParticipant, RuntimeCommandResultMessage], Awaitable[bool]] | None = None,
+    ) -> ControllerCommandResult:
+        """Progressively retire an explicit deployment scope, preserving pre-retirement evidence.
+
+        authorize_kill receives each participant's actual blocked result separately.
+        Only exactly True authorizes its kill; None means decline. All distributed
+        requests and authorization callbacks use the explicit bounded window.
+        """
+        from math import isfinite
+        from time import time
+
+        attempt = None
+        subscription = None
+        admitted = False
+        archival_boundary_crossed = False
+        cleanup_sequence_started = False
+        maintenance = getattr(self, "_maintenance", None)
+        try:
+            if any(not isinstance(v, str) or not v for v in (stop_attempt_id, administrator_id)):
+                raise ValueError("Framework attempt and administrator identities are required")
+            if not isinstance(result_window_s, (int, float)) or not isfinite(result_window_s) or result_window_s <= 0:
+                raise ValueError("Framework result window must be finite and positive")
+            participants = tuple(participants)
+            supported = {"acquisition_node", "synchronization_manager", "ingestor", "storage_manager", "controller"}
+            if any(not isinstance(p, RuntimeParticipant) or p.component_type not in supported
+                   or not isinstance(p.component_id, str) or not p.component_id for p in participants):
+                raise ValueError("Invalid framework shutdown participant")
+            for participant in participants:
+                build_runtime_subject(None, "command", participant.component_type,
+                                      participant.component_id, "check_stop_readiness")
+            if len(set(participants)) != len(participants):
+                raise ValueError("Framework participant identities must be unique")
+            infrastructure = {}
+            for kind in ("synchronization_manager", "ingestor", "storage_manager", "controller"):
+                matches = [p for p in participants if p.component_type == kind]
+                if len(matches) != 1:
+                    raise ValueError(f"Framework shutdown requires one explicit {kind}")
+                infrastructure[kind] = matches[0]
+            if (maintenance is None or maintenance.participant != infrastructure["controller"]
+                    or infrastructure["controller"].component_id != self._component_id
+                    or maintenance.ingestor is not self._ingestor or maintenance.storage_manager is not self._storage_manager):
+                raise ValueError("Controller maintenance and evidence dependencies must match the explicit scope")
+            for kind, service in (("ingestor", self._ingestor), ("storage_manager", self._storage_manager)):
+                interface = getattr(service, "_maintenance", None)
+                if interface is None or interface.participant != infrastructure[kind]:
+                    raise ValueError(f"Configured {kind} evidence dependency must match shutdown scope")
+            if authorize_kill is not None and not callable(authorize_kill):
+                raise ValueError("Kill authorization must be an explicit callable")
+            with self._service_operation_lock:
+                if self._framework_shutdown_active or maintenance.terminated or maintenance._attempt is not None:
+                    raise RuntimeError("Controller shutdown is overlapping or operational admission is closed")
+                if stop_attempt_id in self._framework_shutdown_attempts:
+                    raise ValueError("Framework stop attempt identity cannot be reused")
+                self._framework_shutdown_active = True
+                self._framework_shutdown_attempt_id = stop_attempt_id
+                admitted = True
+            participant_attempt_ids = {p: uuid4().hex for p in participants}
+            attempt = {"stop_attempt_id": stop_attempt_id, "administrator_id": administrator_id,
+                       "requester_id": self._component_id, "session_id": None, "started_at": time(),
+                       "scope": [p.to_dict() for p in participants], "survey": [], "commands": [],
+                       "results": [], "authorizations": [], "actions": [], "failures": [],
+                       "retired": [], "not_retired": [p.to_dict() for p in participants], "outcome": None,
+                       "participant_attempts": [{"participant": p.to_dict(), "stop_attempt_id": identity}
+                                                for p, identity in participant_attempt_ids.items()]}
+            self._framework_shutdown_attempts[stop_attempt_id] = attempt
+            if communication.check_ready().ready is not True:
+                raise ConnectionError("Controller NATS communication is not ready")
+            subscription = await asyncio.wait_for(communication.subscribe_command_results(None), result_window_s)
+
+            async def request(participant, operation, *, authorized=False):
+                command_id = uuid4().hex
+                payload = {"stop_attempt_id": participant_attempt_ids[participant],
+                           "framework_stop_attempt_id": stop_attempt_id,
+                           "administrator_id": administrator_id, "authorized": authorized}
+                attempt["commands"].append({"command_id": command_id, "command_type": operation,
+                                            "participant": participant.to_dict(), "payload": deepcopy(payload),
+                                            "requested_at": time()})
+                try:
+                    result = await asyncio.wait_for(communication.request_command(
+                        participant, operation, None, payload, result_window_s, command_id=command_id), result_window_s)
+                except TimeoutError:
+                    result = None
+                except BaseException as error:
+                    attempt["results"].append({"command_id": command_id, "result": None,
+                                               "reason": f"{type(error).__name__}: {error}"})
+                    raise
+                if result is not None:
+                    if (result.command_id != command_id or result.session_id is not None
+                            or result.source_id != participant.component_id or result.target_id != self._component_id
+                            or result.status not in {"succeeded", "failed"}
+                            or type(result.success) is not bool or result.success != (result.status == "succeeded")):
+                        result = None
+                attempt["results"].append({"command_id": command_id,
+                                           "result": result.to_dict() if result is not None else None,
+                                           "reason": None if result is not None else "Final command result missing or invalid"})
+                return result
+
+            async def preserve(checkpoint):
+                attempt["remaining_obligations"] = deepcopy(attempt["not_retired"])
+                await maintenance._preserve(attempt, checkpoint)
+
+            def correlated(result, participant):
+                if result is None or not isinstance(result.payload, dict):
+                    return False
+                record = result.payload.get("attempt")
+                return (isinstance(record, dict) and record.get("target") == participant.to_dict()
+                        and record.get("stop_attempt_id") == participant_attempt_ids[participant]
+                        and record.get("framework_stop_attempt_id") == stop_attempt_id)
+
+            async def turn(participant, operation):
+                result = await request(participant, operation)
+                if (operation == "stop" and correlated(result, participant)
+                        and result.payload.get("outcome") == "blocked" and not result.success):
+                    decision = False
+                    if authorize_kill is not None:
+                        # A fresh decision is requested for this exact blocked participant attempt.
+                        decision = await asyncio.wait_for(authorize_kill(participant,
+                            RuntimeCommandResultMessage.from_dict(deepcopy(result.to_dict()))), result_window_s)
+                    attempt["authorizations"].append({"participant": participant.to_dict(),
+                        "stop_attempt_id": participant_attempt_ids[participant],
+                        "blocked_command_id": result.command_id, "administrator_id": administrator_id,
+                        "authorized": decision is True, "recorded_at": time(),
+                        "blockers": deepcopy(result.payload["attempt"].get("blockers", []))})
+                    if not archival_boundary_crossed:
+                        await preserve("authorization_recorded")
+                    result = await request(participant, "kill" if decision is True else "cancel", authorized=decision is True)
+                    if decision is not True:
+                        raise RuntimeError(f"Administrator declined forced termination: {participant.component_id}")
+                if not correlated(result, participant):
+                    raise RuntimeError(f"Maintenance result unconfirmed: {participant.component_id}")
+                if operation == "prepare_stop":
+                    if (not result.success or result.payload.get("prepared") is not True
+                            or result.payload.get("termination_confirmed") is not False
+                            or result.payload.get("outcome") is not None):
+                        raise RuntimeError(f"Preparation unconfirmed: {participant.component_id}")
+                    attempt["actions"].append({"participant": participant.to_dict(), "action": "preparation_confirmed"})
+                else:
+                    if (not result.success or result.payload.get("outcome") != "completed"
+                            or result.payload.get("termination_confirmed") is not True):
+                        raise RuntimeError(f"Operational retirement unconfirmed: {participant.component_id}")
+                    attempt["retired"].append(participant.to_dict())
+                    attempt["not_retired"].remove(participant.to_dict())
+                    attempt["actions"].append({"participant": participant.to_dict(), "action": "retirement_confirmed"})
+                if not archival_boundary_crossed:
+                    await preserve("participant_result_confirmed")
+
+            for participant in participants:
+                try:
+                    result = await request(participant, "check_stop_readiness")
+                except Exception as error:
+                    result = None
+                    attempt["survey"].append({"participant": participant.to_dict(), "confirmed": False,
+                                             "ready": None, "reason": str(error)})
+                    continue
+                report = result.payload if result is not None and isinstance(result.payload, dict) else {}
+                confirmed = (result is not None and result.success and report.get("confirmed") is True
+                             and report.get("participant") == participant.to_dict()
+                             and type(report.get("ready")) is bool and isinstance(report.get("blockers"), list))
+                attempt["survey"].append({"participant": participant.to_dict(), "confirmed": confirmed,
+                    "ready": report.get("ready") if confirmed else None,
+                    "blockers": deepcopy(report.get("blockers", [])) if confirmed else [],
+                    "reason": None if confirmed else "Readiness response missing, invalid, or unconfirmed"})
+            await preserve("initial_survey")
+            cleanup_sequence_started = True
+            for participant in participants:
+                if participant.component_type == "acquisition_node":
+                    await turn(participant, "stop")
+            await turn(infrastructure["synchronization_manager"], "stop")
+            await turn(infrastructure["storage_manager"], "prepare_stop")
+            await turn(infrastructure["controller"], "prepare_stop")
+            await preserve("final_archival_checkpoint")
+            with self._ingestor.framework_preservation_guard(self._storage_manager):
+                pass
+            # Ingestor's own W036 stop preserves its cleanup and last readiness.
+            # After dispatch, even a missing result cannot prove its intake is live.
+            archival_boundary_crossed = True
+            await turn(infrastructure["ingestor"], "stop")
+            await turn(infrastructure["storage_manager"], "stop")
+            await turn(infrastructure["controller"], "stop")
+            attempt["outcome"] = "completed"
+            attempt["finished_at"] = time()
+            return self._record_successful_command("shutdown_framework", deepcopy(attempt))
+        except asyncio.CancelledError:
+            if attempt is not None:
+                attempt["outcome"] = "failed"
+                attempt["failures"].append("Framework coordination cancelled; outstanding confirmations retained")
+                attempt["finished_at"] = time()
+                if not archival_boundary_crossed:
+                    try:
+                        await maintenance._preserve(attempt, "coordination_cancelled")
+                    except Exception as error:
+                        attempt["failures"].append(f"Preservation unconfirmed: {error}")
+                self._record_failed_command("shutdown_framework", RuntimeError(attempt["failures"][0]), deepcopy(attempt))
+            raise
+        except Exception as error:
+            if attempt is not None:
+                attempt["outcome"] = "failed" if cleanup_sequence_started else "blocked"
+                attempt["failures"].append(str(error))
+                attempt["finished_at"] = time()
+                if not archival_boundary_crossed:
+                    try:
+                        await maintenance._preserve(attempt, "coordination_failed")
+                    except Exception as preservation_error:
+                        attempt["failures"].append(f"Preservation unconfirmed: {preservation_error}")
+            return self._record_failed_command("shutdown_framework", error, deepcopy(attempt))
+        finally:
+            try:
+                if subscription is not None:
+                    try:
+                        await asyncio.wait_for(subscription.unsubscribe(), result_window_s)
+                    except Exception:
+                        pass
+            finally:
+                if admitted:
+                    with self._service_operation_lock:
+                        self._framework_shutdown_active = False
+                        self._framework_shutdown_attempt_id = None
 
     @service_operation(new_work=True)
     async def launch_session(
@@ -1055,6 +1284,11 @@ class Controller:
                     blockers.append(f"Controller decision preservation: {error}")
         if self._artifact_collection_in_progress or self._active_experiment_id is not None:
             blockers.append("Unfinished Controller-coordinated work")
+        if self._framework_shutdown_active:
+            interface = getattr(self, "_maintenance", None)
+            active = interface._attempt if interface is not None else None
+            if active is None or active.get("framework_stop_attempt_id") != self._framework_shutdown_attempt_id:
+                blockers.append("Unfinished framework shutdown coordination")
         return blockers
 
     async def _close_maintenance_resources(self, force: bool) -> None:

@@ -336,18 +336,24 @@ class NatsControllerCommunication:
 
     async def request_command(self, participant: RuntimeParticipant, command_type: str,
                               session_id: str | None, payload: dict[str, Any],
-                              result_window_s: float) -> RuntimeCommandResultMessage | None:
+                              result_window_s: float, *, command_id: str | None = None) -> RuntimeCommandResultMessage | None:
         """Issue once and await the correlated final result; missing remains unconfirmed."""
         from uuid import uuid4
-        if result_window_s < 0:
-            raise ValueError("result_window_s must be nonnegative")
-        command_id = uuid4().hex
+        from math import isfinite
+        if not isinstance(result_window_s, (int, float)) or not isfinite(result_window_s) or result_window_s < 0:
+            raise ValueError("result_window_s must be finite and nonnegative")
+        command_id = uuid4().hex if command_id is None else command_id
+        if not isinstance(command_id, str) or not command_id or command_id in self._command_result_events:
+            raise ValueError("A nonempty, non-overlapping command identity is required")
         event = self._command_result_events.setdefault(command_id, asyncio.Event())
         try:
             command = RuntimeCommandMessage(command_id, session_id, command_type,
                 self._boundary.component_id, participant.component_id, payload)
-            if command_type in {"stop", "kill", "cancel"}:
+            if command_type in {"stop", "kill", "cancel", "prepare_stop", "check_stop_readiness"}:
                 from copy import deepcopy
+                if any(previous["command_id"] == command_id and previous != command.to_dict()
+                       for previous in self._maintenance_requests):
+                    raise ValueError("Conflicting administrative command identity")
                 self._maintenance_requests.append(deepcopy(command.to_dict()))
             await self.publish_command(command, participant.component_type)
             if not any(r.command_id == command_id for r in self._command_results):
@@ -556,7 +562,7 @@ class NatsAcquisitionNodeCommunication:
                     await message.ack()
                     return
                 result = (await _execute_maintenance_command(self._boundary, self._acquisition_node, command)
-                          if command.command_type in {"stop", "kill", "cancel"} else self.execute_command(command))
+                          if command.command_type in {"stop", "kill", "cancel", "prepare_stop", "check_stop_readiness"} else self.execute_command(command))
                 await self._boundary.publish_command_result(
                     result,
                     command.command_type,
@@ -739,7 +745,7 @@ class NatsIngestorCommunication:
                 await message.ack()
                 return
             result = (await _execute_maintenance_command(self._boundary, self._ingestor, command)
-                      if command.command_type in {"stop", "kill", "cancel"} else
+                      if command.command_type in {"stop", "kill", "cancel", "prepare_stop", "check_stop_readiness"} else
                       _execute_service_command(self._boundary, self._ingestor, command, self._results_by_command_id))
             if result.success and command.command_type == "initialize_session" and command.session_id not in self._evidence_subscriptions:
                 try:
@@ -852,7 +858,7 @@ class NatsSynchronizationManagerCommunication:
                 await message.ack()
                 return
             result = (await _execute_maintenance_command(self._boundary, self._synchronization_manager, command)
-                      if command.command_type in {"stop", "kill", "cancel"} else
+                      if command.command_type in {"stop", "kill", "cancel", "prepare_stop", "check_stop_readiness"} else
                       _execute_service_command(self._boundary, self._synchronization_manager, command, self._results_by_command_id))
             await self._boundary.publish_command_result(result, command.command_type)
             await message.ack()
