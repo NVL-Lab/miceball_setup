@@ -1937,6 +1937,101 @@ beyond the existing handoff semantics was validated.
 
 ---
 
+# W035 - Phase 16 Session-binding Release and Sequential Service Reuse
+
+**Status:** Complete - narrow software implementation, manual IPython validation,
+and independent audit PASS under Decisions 313 and 322.
+
+## Purpose
+
+Validate service-owned Session-binding release for Controller, Ingestor, and
+SynchronizationManager after their own cleanup and evidence obligations are
+confirmed, including isolation of a newer Session from delayed asynchronous release.
+
+## Workflow
+
+```text
+Session A ends acquisition and fulfills cleanup obligations
+    -> Ingestor compiles persistent messages and all runtime intake audit
+    -> StorageManager writes Evidence Archive and final Session Record
+    -> Controller confirms its decisions against current archival coverage
+    -> Controller refreshes terminal Session Record and unsubscribes
+    -> Controller revalidates captured Session object identity and preservation
+    -> Controller retires only that binding under the storage guard
+    -> Ingestor releases after exact archive/terminal-record coverage
+    -> retained services can prepare and acquire for Session B
+```
+
+Each service releases independently; this is not a new global release order or
+drain protocol. SynchronizationManager releases only after Session Time stops,
+active mappings retire, and each mapping update has exact journal-backed Ingestor
+acceptance. It does not require subsequent StorageManager archival and must confirm
+that acceptance while Ingestor still retains the accepted evidence.
+
+Ingestor holds intake then storage locks through release commitment. Its archive
+coverage includes persistent runtime messages and every required runtime intake
+audit, including nonpersistent, rejected, and duplicate intake. Nonpersistent
+messages remain nonpersistent; acquisition envelopes retain their existing path.
+Current archival confirmation remains stable through commitment, and failed or
+partial rewrites cannot authorize release using an earlier confirmation.
+
+Controller captures the Session object and its subscriptions, checks binding
+identity after each unsubscribe await and before retirement, and holds no storage
+guard across an await. Only one overlapping release can retire the binding. A stale
+release returns failure for its original Session without recording against or
+changing a newer binding, decisions, subscriptions, command history, or last-release
+status. Cancellation propagates without retirement; unsubscribe errors preserve
+the binding and evidence obligations. Already completed unsubscriptions are not
+automatically rolled back. Durable records and recovery journals are not deleted.
+
+## Independent manual IPython validation
+
+Reported manual validation passed for refusal without preservation confirmation,
+late-intake invalidation, release after complete archival, recovery-journal
+preservation, and subsequent Ingestor reuse. Synchronization validation passed for
+running-time/active-mapping/unconfirmed-handoff refusal, durable mapping-evidence
+acceptance without downstream archival, and reuse.
+
+The final asynchronous correction passed manual validation with release A paused
+during unsubscription, another release completing A, and Session B starting before
+the stale operation resumed. B's state, evidence, and subscriptions were preserved;
+acquisition continued and normal B cleanup succeeded.
+
+## Automated validation and independent audit
+
+- Independent focused regression: **152 passed, 0 failed, 0 skipped**.
+- Full discovery: **493 run, 486 passed, 0 failed, 7 optional rendering skips**.
+- Independent final audit: **PASS**, no blocking defects or architectural
+  ambiguities; the previous asynchronous Session-isolation defect is resolved.
+- Deterministic regressions exercise overlapping release at both unsubscribe
+  positions, newer-Session preservation, cancellation, unsubscribe exceptions,
+  current archival enforcement, failure retention, and successive reuse through
+  real framework components with controlled broker doubles.
+- Independent memory-only negative controls disabled the identity checks and
+  reproduced the concurrency defect. Expected negative-control failures are
+  separate from the passing regression-suite results; no repository files changed.
+
+These are previously executed and reported validation/audit results, not tests or
+manual validation performed during this documentation synchronization. Earlier
+implementation results remain historical records in framework_milestones.md.
+
+## Limitations and completion
+
+Only this narrow Session-binding release implementation slice is complete. Phase
+16 remains incomplete: scoped framework stop/kill, administrative maintenance,
+Session-independent framework evidence, and independent startup/returning-service
+integration are not validated by W035. M015 remains OPEN with its separate remaining
+completion criteria; this workflow is not broad Slice 28 closure.
+
+Q019's Session-wide evidence-consumption/final-archive guarantee and Q024's
+application restart, journal lifecycle, and recovery orchestration remain OPEN.
+No new lifecycle states, automatic recovery, evidence subsystem, or global
+acknowledgment/drain protocol was introduced. This is software/broker-double
+validation, not real hardware, live cross-process, or external NATS deployment
+validation.
+
+---
+
 # Future Workflows
 
 The following workflows are expected to be added as the framework evolves.

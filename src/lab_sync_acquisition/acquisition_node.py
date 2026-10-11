@@ -37,6 +37,7 @@ from lab_sync_acquisition.experiment_runtime import (
 )
 from lab_sync_acquisition.ingestor import InMemoryIngestor
 from lab_sync_acquisition.service_readiness import ServiceReadiness
+from lab_sync_acquisition.service_maintenance import service_operation
 from lab_sync_acquisition.synchronization import (
     SynchronizationManager,
     SynchronizationMapping,
@@ -73,6 +74,8 @@ class AcquisitionNode:
         device_declarations: Iterable[DeviceDeclaration] | None = None,
     ) -> None:
         self._session_id = session_id
+        self._service_operation_lock = RLock()
+        self._active_service_operations = 0
         # Explicitly pre-bound nodes retain the historical caller-prepared workflow.
         self._session_prepared = session_id is not None
         if device_manager is None or synchronization_manager is None or ingestor is None:
@@ -164,6 +167,7 @@ class AcquisitionNode:
         with self._reservation_lock:
             return self._reserved_for_session_id
 
+    @service_operation(new_work=True)
     def reserve(self, session_id: str) -> bool:
         """Atomically reserve this node, idempotently for the same Session."""
         self._validate_session_id(session_id)
@@ -175,6 +179,7 @@ class AcquisitionNode:
             self._reserved_for_session_id = session_id
             return True
 
+    @service_operation()
     def release_reservation(self, session_id: str) -> bool:
         """Release only the owner's reservation after confirmed local cleanup."""
         self._validate_session_id(session_id)
@@ -200,6 +205,7 @@ class AcquisitionNode:
         if not isinstance(session_id, str) or not session_id.strip():
             raise ValueError("A real nonempty session_id is required")
 
+    @service_operation(new_work=True)
     def prepare_local_storage(
         self,
         session_id: str,
@@ -214,6 +220,7 @@ class AcquisitionNode:
         self.attach_local_storage_manager(manager, declarations)
         return manager
 
+    @service_operation(new_work=True)
     def initialize_session(
         self,
         session_id: str,
@@ -283,6 +290,7 @@ class AcquisitionNode:
             self._session_prepared = True
             return ServiceReadiness(self._node_id, "acquisition_node", True, True, "session_prepared")
 
+    @service_operation()
     def abort_session_initialization(self, session_id: str) -> bool:
         """Idempotently clean partial initialization while protecting reservation."""
         self._validate_session_id(session_id)
@@ -359,6 +367,7 @@ class AcquisitionNode:
         self._artifact_manifest_evidence.append(message)
         self._ingestor.receive_runtime_evidence(message)
 
+    @service_operation(new_work=True)
     def attach_local_storage_manager(
         self,
         manager: LocalStorageManager,
@@ -372,6 +381,7 @@ class AcquisitionNode:
         self._local_storage_manager = manager
         self._device_declarations = tuple(device_declarations)
 
+    @service_operation(new_work=True)
     def prepare_experiment_scientific_outputs(
         self,
         experiment_id: str,
@@ -443,6 +453,7 @@ class AcquisitionNode:
         return ServiceReadiness(self._node_id or "acquisition_node", "scientific_output_preparation",
                                 True, True, "ready")
 
+    @service_operation()
     def finalize_experiment_scientific_outputs(self, experiment_id: str) -> tuple[ArtifactManifest, ...]:
         """Attempt every prepared stream, preserving artifacts and reporting all failures."""
         self._ended_experiment_ids.add(experiment_id)
@@ -501,6 +512,7 @@ class AcquisitionNode:
 
         return tuple(self._health_interpretation_evidence)
 
+    @service_operation(new_work=True)
     def activate_experiment_runtime_health_mapping(
         self,
         experiment_id: str,
@@ -520,6 +532,7 @@ class AcquisitionNode:
         }
         self._acquisition_health_observations_recorded.clear()
 
+    @service_operation(new_work=True)
     def activate_experiment_runtime_context(
         self,
         context: ActiveExperimentRuntimeContext,
@@ -530,11 +543,13 @@ class AcquisitionNode:
             raise ValueError("Experiment runtime identity has ended and cannot be reused")
         self._active_experiment_runtime_context = context
 
+    @service_operation()
     def clear_experiment_runtime_context(self) -> None:
         """Clear active Experiment timing context without stopping runtime."""
 
         self._active_experiment_runtime_context = None
 
+    @service_operation()
     def receive_active_synchronization_mapping(
         self,
         mapping: SynchronizationMapping | None,
@@ -543,6 +558,7 @@ class AcquisitionNode:
 
         self._active_synchronization_mapping = mapping
 
+    @service_operation()
     def clear_experiment_runtime_health_mapping(self) -> None:
         """Clear active Experiment runtime mapping without stopping runtime."""
 
@@ -584,6 +600,8 @@ class AcquisitionNode:
             self._failure_evidence_readiness(),
             *additional_service_readiness,
         )
+        if getattr(getattr(self, "_maintenance", None), "terminated", False):
+            service_readiness += (ServiceReadiness(self._node_id, "acquisition_node", True, False, "service_terminated"),)
         readiness = AcquisitionNodeReadiness(
             node_id=self._node_id,
             reserved_for_session_id=self.reserved_for_session_id,
@@ -604,6 +622,7 @@ class AcquisitionNode:
             for d in self._declared_devices if d.enabled)
         return DeviceReadinessSummary(results, all(r.ready for r in results))
 
+    @service_operation(new_work=True)
     def start_runtime(self) -> dict[str, Any]:
         """Start the Session acquisition runtime and its existing evidence path."""
 
@@ -644,6 +663,7 @@ class AcquisitionNode:
 
         return self.start_runtime()
 
+    @service_operation()
     def run_one_iteration(self) -> AcquisitionIterationSummary:
         """Collect one bounded batch of records and send envelopes to ingestion."""
 
@@ -804,6 +824,7 @@ class AcquisitionNode:
                 self._local_storage_manager.append_rows(storage_id, (scientific_row,))
         return DeviceRecordCollection(runtime.source_device_id, runtime.record_kind, tuple(runtime_rows))
 
+    @service_operation()
     def stop_runtime(self) -> dict[str, Any]:
         """Stop the Session acquisition runtime and perform existing cleanup."""
 
@@ -851,6 +872,41 @@ class AcquisitionNode:
             **result,
             "aborted": True,
         }
+
+    def maintenance_blockers(self, ingestor, storage_manager) -> list[str]:
+        """Report node-owned runtime, local persistence, evidence, and device obligations."""
+        blockers = []
+        if self._session_id is not None:
+            blockers.append("Active Session participation")
+        if self.reserved_for_session_id is not None:
+            blockers.append("Outstanding Session reservation")
+        if self._running or self._pending_stream_batches:
+            blockers.append("Unfinished acquisition")
+        if not self._initialization_cleanup_confirmed:
+            blockers.append("Unconfirmed device cleanup")
+        if any(a.state != DeviceAdapterState.DECLARED for a in self._device_manager.adapters):
+            blockers.append("Unreleased devices")
+        if self._local_storage_manager is not None and any(
+                m.lifecycle_state != "finalized" for m in self._local_storage_manager.manifests):
+            blockers.append("Unfinished scientific streams")
+        if any(not ingestor.has_durable_runtime_evidence(m) for m in self._artifact_manifest_evidence):
+            blockers.append("Unpreserved artifact evidence")
+        return blockers
+
+    async def _close_maintenance_resources(self, force: bool) -> None:
+        if self._session_id is not None:
+            if not self.abort_session_initialization(self._session_id):
+                raise RuntimeError("AcquisitionNode cleanup is unconfirmed")
+        else:
+            for adapter in self._device_manager.adapters:
+                if adapter.state == DeviceAdapterState.RUNNING:
+                    adapter.stop()
+                if adapter.state != DeviceAdapterState.DECLARED:
+                    adapter.shutdown()
+            if self._local_storage_manager is not None:
+                self._local_storage_manager.cleanup()
+        if any(a.state != DeviceAdapterState.DECLARED for a in self._device_manager.adapters):
+            raise RuntimeError("Device release remains unconfirmed")
 
     def status(self) -> dict[str, Any]:
         """Return simple acquisition-side runtime status."""

@@ -21,6 +21,7 @@ from lab_sync_acquisition.acquisition_record import AcquisitionRecordEnvelope
 from lab_sync_acquisition.service_readiness import ServiceReadiness
 from lab_sync_acquisition.local_storage import ArtifactManifest
 from lab_sync_acquisition.communication import RuntimeEvidenceMessage
+from lab_sync_acquisition.service_maintenance import service_operation
 
 
 @dataclass(frozen=True)
@@ -178,22 +179,30 @@ class PersistentStorageManager:
         if not isinstance(component_id, str) or not component_id:
             raise ValueError("StorageManager component_id must be a nonempty string")
         self._records_path = Path(records_path)
+        self._service_operation_lock = RLock()
+        self._active_service_operations = 0
         self._preservation_lock = RLock()
         self._archive_confirmation: dict[str, Any] | None = None
+        self._framework_archive_confirmation: dict[str, Any] | None = None
+        self._unfinished_archive_scopes: set[str | None] = set()
+        self._unfinished_record_paths: set[Path] = set()
         self._final_record_confirmation: tuple[str, Path] | None = None
         self._evidence_publisher = evidence_publisher
+        self._collection_evidence: list[RuntimeEvidenceMessage] = []
         self._component_id = component_id
         self._global_artifact_root = (
             Path(global_artifact_root) if global_artifact_root is not None else None
         )
         self._retrieval_endpoints = dict(retrieval_endpoints or {})
 
+    @service_operation(new_work=True)
     def collect_artifacts(self, handoff: dict[str, Any]) -> ArtifactCollectionResult:
         """Independently pull and lightly verify completed global artifact copies."""
         if self._evidence_publisher is not None:
             raise RuntimeError("Configured evidence publication requires await collect_artifacts_with_evidence()")
         return self._collect_artifacts(handoff)
 
+    @service_operation(new_work=True)
     async def collect_artifacts_with_evidence(self, handoff: dict[str, Any]) -> ArtifactCollectionResult:
         """Collect a completed pass and await existing durable evidence publication."""
         if self._evidence_publisher is None:
@@ -213,6 +222,7 @@ class PersistentStorageManager:
                      "artifact_results": evidence_results},
             is_persistent=True,
         )
+        self._collection_evidence.append(message)
         await self._evidence_publisher(message)
         return result
 
@@ -399,10 +409,11 @@ class PersistentStorageManager:
             component_id="storage",
             component_type="storage_manager",
             required=True,
-            ready=True,
+            ready=not getattr(getattr(self, "_maintenance", None), "terminated", False),
             reason="ready",
         )
 
+    @service_operation()
     def store_envelopes(
         self,
         envelopes: Iterable[AcquisitionRecordEnvelope],
@@ -454,6 +465,7 @@ class PersistentStorageManager:
             if envelope.source_device_id == source_device_id
         )
 
+    @service_operation()
     def write_session_record(
         self,
         session_record_path: str | Path,
@@ -476,6 +488,8 @@ class PersistentStorageManager:
         """Write a minimal v1 Session Record JSON evidence package."""
 
         path = Path(session_record_path)
+        with self._preservation_lock:
+            self._unfinished_record_paths.add(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         session_record = _session_record_from_evidence(
             accepted_session_config=accepted_session_config,
@@ -495,7 +509,10 @@ class PersistentStorageManager:
         )
         with path.open("w", encoding="utf-8") as session_record_file:
             json.dump(session_record, session_record_file, indent=2)
+        with self._preservation_lock:
+            self._unfinished_record_paths.discard(path)
 
+    @service_operation(new_work=True)
     def write_initial_session_record(
         self,
         session_id: str,
@@ -507,6 +524,7 @@ class PersistentStorageManager:
         self.write_session_record(path, **session_record_evidence)
         return path
 
+    @service_operation()
     def write_final_session_record(
         self,
         session_id: str,
@@ -521,6 +539,7 @@ class PersistentStorageManager:
             self._final_record_confirmation = (session_id, path)
             return path
 
+    @service_operation()
     def write_evidence_archive(
         self,
         session_id: str,
@@ -531,6 +550,7 @@ class PersistentStorageManager:
         with self._preservation_lock:
             # A failed rewrite must never leave an earlier receipt authorizing release.
             self._archive_confirmation = None
+            self._unfinished_archive_scopes.add(session_id)
             runtime_evidence = deepcopy([
                 _to_plain_data(item) for item in compiled_runtime_evidence.get("runtime_evidence", ())
             ])
@@ -559,6 +579,7 @@ class PersistentStorageManager:
                 "runtime_evidence": runtime_evidence,
                 "ingest_audit": ingest_audit,
             }
+            self._unfinished_archive_scopes.discard(session_id)
             return {
                 "runtime_evidence": runtime_evidence_path,
                 "ingest_audit": ingest_audit_path,
@@ -577,6 +598,71 @@ class PersistentStorageManager:
             confirmation["session_record"] = self.read_session_record(self._final_record_confirmation[1])
             return confirmation
 
+    @service_operation()
+    def write_framework_evidence_archive(self, compiled_runtime_evidence: dict[str, Iterable[Any]]) -> dict[str, Path]:
+        """Persist deployment-scoped evidence/audit/summary without a Session Record."""
+        with self._preservation_lock:
+            self._framework_archive_confirmation = None
+            self._unfinished_archive_scopes.add(None)
+            evidence = deepcopy([_to_plain_data(item) for item in compiled_runtime_evidence.get("runtime_evidence", ())])
+            audit = deepcopy([_to_plain_data(item) for item in compiled_runtime_evidence.get("ingest_audit", ())])
+            if any(item.get("session_id") is not None for item in evidence):
+                raise ValueError("Framework archive cannot contain Session-scoped evidence")
+            directory = self._records_path.parent / "framework" / "evidence"
+            directory.mkdir(parents=True, exist_ok=True)
+            summary = {
+                "session_id": None, "runtime_evidence_count": len(evidence), "ingest_audit_count": len(audit),
+                "runtime_evidence_ids": [item["evidence_id"] for item in evidence],
+                "ingest_audit_evidence_ids": [item["evidence_id"] for item in audit],
+            }
+            contents = {"runtime_evidence": evidence, "ingest_audit": audit, "compilation_summary": summary}
+            paths = {}
+            for name, data in contents.items():
+                path = directory / (name + (".json" if name == "compilation_summary" else ".jsonl"))
+                with path.open("w", encoding="utf-8") as output:
+                    if name == "compilation_summary":
+                        json.dump(data, output, indent=2, allow_nan=False)
+                    else:
+                        for item in data:
+                            output.write(json.dumps(item, allow_nan=False) + "\n")
+                    output.flush()
+                    os.fsync(output.fileno())
+                paths[name] = path
+            if os.name == "posix":
+                for parent in (directory, directory.parent, self._records_path.parent):
+                    descriptor = os.open(parent, os.O_RDONLY)
+                    try:
+                        os.fsync(descriptor)
+                    finally:
+                        os.close(descriptor)
+            self._framework_archive_confirmation = contents
+            self._unfinished_archive_scopes.discard(None)
+            return paths
+
+    def get_framework_preservation_confirmation(self) -> dict[str, Any] | None:
+        """Confirm exact current durable products, not a historical publication result."""
+        with self._preservation_lock:
+            expected = self._framework_archive_confirmation
+            if expected is None:
+                return None
+            directory = self._records_path.parent / "framework" / "evidence"
+            try:
+                actual = {}
+                for name in ("runtime_evidence", "ingest_audit"):
+                    with (directory / (name + ".jsonl")).open(encoding="utf-8") as source:
+                        actual[name] = [json.loads(line) for line in source]
+                with (directory / "compilation_summary.json").open(encoding="utf-8") as source:
+                    actual["compilation_summary"] = json.load(source)
+            except (OSError, ValueError):
+                return None
+            return deepcopy(actual) if actual == expected else None
+
+    @contextmanager
+    def framework_preservation_guard(self):
+        """Keep framework archival coverage stable through a synchronous closeout commit."""
+        with self._preservation_lock:
+            yield self.get_framework_preservation_confirmation()
+
     @contextmanager
     def session_preservation_guard(self, session_id: str) -> Iterator[dict[str, Any] | None]:
         """Keep current preservation confirmation stable through a synchronous release commit."""
@@ -592,6 +678,21 @@ class PersistentStorageManager:
         path = Path(session_record_path)
         with path.open("r", encoding="utf-8") as session_record_file:
             return json.load(session_record_file)
+
+    def maintenance_blockers(self, ingestor, storage_manager) -> list[str]:
+        """Active operations are tracked by admission; future collection is not a blocker."""
+        with self._preservation_lock:
+            blockers = ["Unfinished persistence"] if self._unfinished_archive_scopes or self._unfinished_record_paths else []
+            for message in self._collection_evidence:
+                confirmation = self.get_session_preservation_confirmation(message.session_id)
+                if confirmation is None or message.to_dict() not in confirmation["runtime_evidence"]:
+                    blockers.append("Unpreserved collection evidence")
+                    break
+            return blockers
+
+    async def _close_maintenance_resources(self, force: bool) -> None:
+        # Files and SFTP resources are closed by the operations that opened them.
+        pass
 
     def _session_directory(self, session_id: str) -> Path:
         return self._records_path.parent / f"session_{session_id}"

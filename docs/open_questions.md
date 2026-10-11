@@ -382,12 +382,15 @@ implementation has automated regression coverage, with independent validation
 and audit pending under M015. It does not resolve
 concurrent sharing or multi-Session scheduling. Decision 313 subsequently settles
 normal binding release after each service's confirmed cleanup/evidence obligations;
-that integration is partially implemented in Phase 16 Slice 1, including the
-Controller-specific decision archival/release contract in Decision 322.
-Evidence-bearing Ingestor/SynchronizationManager release now has narrow paths for
+the narrow Phase 16 Session-binding release slice, including the Controller-specific
+decision archival/release contract in Decision 322, is now complete, manually
+software-validated, and independently audited PASS (W035).
+Evidence-bearing Ingestor/SynchronizationManager release has narrow paths for
 exact persistent-message/runtime-audit archival coverage and durable synchronization
 handoff respectively. This does not resolve Session-wide consumption or application
-recovery; independent validation is not claimed.
+recovery. W035 also validates asynchronous overlapping release and preservation
+of a subsequent Session binding; it does not fulfill M015's separate remaining
+validation criteria or claim real hardware/external NATS deployment validation.
 
 Decisions 295-301 resolve the distributed initialization handoff: pre-Session
 participant commands use existing NATS conventions without fabricated Session
@@ -492,8 +495,9 @@ obligations: every ControllerActionDecision is persistent, and Controller must
 confirm durable archival of all its decisions for that Session before releasing
 the binding. Publication alone is insufficient. The narrow Phase 16 Slice 1
 follow-up implements packaging, attached-Ingestor submission, and confirmation of
-exact Controller decision messages in successful archive input; this is not an
-open persistence-selection question or a claim of independent validation.
+exact Controller decision messages against current confirmed archival held stable
+through release commitment. This narrow implementation is manually software-validated
+and independently audited PASS (W035), not an open persistence-selection question.
 This does not establish that all participants' published evidence has been consumed,
 change global finalization semantics, or resolve the Session-wide questions below.
 
@@ -642,7 +646,8 @@ process per service. Deployment automation, supervision, and configuration
 mechanisms remain unresolved here. Decisions 313-321 settle maintenance,
 independent startup/readiness, and service-owned Session-binding release without
 choosing deployment formats, a discovery/registration system, or supervision.
-Q025 is resolved architecturally; Phase 16 implementation remains pending.
+Q025 is resolved architecturally; Phase 16 implementation beyond the completed
+Session-binding release slice (W035) remains pending.
 
 Decision 302 additionally settles retained adapter reuse without process or adapter
 recreation: AcquisitionNode retains deployment configuration, but subsequent
@@ -759,7 +764,7 @@ automatic expiry, retry, leases, or a new recovery service in Slice 28.
 
 ## Q025: What low-level contracts implement scoped framework stop/kill and durable attempt evidence?
 
-**Status:** RESOLVED architecturally by Decisions 313-321 - implementation pending
+**Status:** RESOLVED architecturally by Decisions 313-321 and 323 - individual-service implementation pending validation; coordinated shutdown unfinished
 
 ### Accepted boundaries
 
@@ -770,6 +775,13 @@ Kill is operator-authorized continuation of a blocked attempt; declining it ends
 that attempt as failed. These are not open ownership or lifecycle questions.
 Session end does not automatically terminate operational services, and stop/kill
 must not initiate collection, verification, transfer, or export.
+
+Decision 323 specifies the existing Evidence Archive's stable deployment-scoped
+`framework/evidence/` partition for framework evidence with `session_id=None`.
+Exact persistent-evidence, intake-audit, and compilation-summary preservation
+does not require a Session Record or fabricated Session binding. This resolves
+the concrete archive-location dependency; it does not resolve Q019 or Q024 or
+by itself establish implementation or validation.
 
 ### Resolved low-level contracts
 
@@ -801,11 +813,13 @@ protocol questions.
    Authorized kill preserves whatever the initiator can confirm (Decisions 317
    and 319).
 
-All five narrowed architecture questions are resolved. Concrete implementation
-representations and integration are not completed by these decisions. Current
-runtime-evidence, archive, and journal implementations remain Session-specific;
-this status does not claim a new schema, public API, archive layout, or validated
-maintenance behavior. Transport publication alone is not permanent persistence.
+All five narrowed architecture questions are resolved. Decision 323's framework
+partition and individual-service administrative stop/kill/cancel now have narrow
+implementation paths using existing runtime messages, journals, compilation,
+and exact preservation checks. Independent manual validation and audit remain
+pending; general coordinated shutdown and startup integration remain unfinished.
+Transport publication alone is not permanent persistence, and the framework
+partition never requires a Session Record or fabricated Session binding.
 
 ### Boundaries
 
@@ -815,8 +829,9 @@ by Decision 303; no completed Session is retroactively failed by later global
 processing. Service supervision/configuration remain in Q022 and broader
 configuration questions; restart recovery remains Q024. Accepted administrative
 maintenance adds no permission infrastructure, remote OS process management,
-framework-wide state machine, new Session state, automatic retry, forced-closeout
-implementation, or validated workflow. Independent startup/returning-service
+framework-wide state machine, new Session state, automatic retry, remote process
+termination, or validated maintenance workflow. W035 is limited to Session-binding
+release and does not validate administrative stop/kill. Independent startup/returning-service
 recognition does not resume interrupted Sessions, transfers, or messages.
 
 ---
@@ -826,7 +841,7 @@ The roadmap distinguishes accepted architecture from implemented milestones:
 Phase 13 — Global StorageManager (Evidence)
 Phase 14 — Global StorageManager (Finalized Scientific Data)
 Phase 15 — Controller-owned Session Launch & Runtime Assembly (launch path and Decision 302 sequential reuse implemented; independent validation/audit and M015 closure pending)
-Phase 16 — Operational Service Lifetime and Framework Stop/Kill (Decisions 304-322 accepted; Q025 resolved architecturally; Decision 313 partially implemented with Controller decision archival/release implemented under Decision 322; Phase 16 unvalidated)
+Phase 16 — Operational Service Lifetime and Framework Stop/Kill (Decisions 304-323 accepted; Q025 resolved architecturally; narrow Session-binding release under Decisions 313/322 complete, manually software-validated and independently audited PASS in W035; individual-service maintenance and framework evidence implemented pending manual validation/audit; coordinated shutdown and startup integration unfinished)
 Phase 17 — Device Acceptance / Validation
 Phase 18 — End-to-End Demo Architecture
 

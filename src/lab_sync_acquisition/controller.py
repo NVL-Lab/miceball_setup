@@ -5,6 +5,7 @@ from __future__ import annotations
 from copy import deepcopy
 from dataclasses import dataclass, replace
 from pathlib import Path
+from threading import RLock
 from typing import Any, Iterable, TYPE_CHECKING
 from collections.abc import Mapping
 from uuid import uuid4
@@ -108,6 +109,9 @@ class ControllerActionDecision:
         )
 
 
+from lab_sync_acquisition.service_maintenance import service_operation
+
+
 class Controller:
     """Owns one Session's local or brokered orchestration, not participant startup."""
 
@@ -124,6 +128,8 @@ class Controller:
         if not isinstance(component_id, str) or not component_id:
             raise ValueError("Controller component_id must be a nonempty string")
         self._acquisition_node = acquisition_node
+        self._service_operation_lock = RLock()
+        self._active_service_operations = 0
         self._ingestor = ingestor
         self._storage_manager = storage_manager
         self._session_record_path = (
@@ -150,6 +156,7 @@ class Controller:
         self._finalization_confirmation = None
         self._last_released_session: dict[str, Any] | None = None
 
+    @service_operation(new_work=True)
     async def launch_session(
         self,
         selections: Mapping[str, Iterable[DeviceDeclaration]],
@@ -362,6 +369,7 @@ class Controller:
             self._last_result = result
             return result
 
+    @service_operation(new_work=True)
     async def start_launched_session(self) -> ControllerCommandResult:
         """Start reserved distributed acquisition through existing runtime commands."""
         session = self._require_session()
@@ -391,6 +399,7 @@ class Controller:
             self._runtime_cleanup_confirmed = bool(rollback) and all(item["confirmed"] for item in rollback)
             return self._record_failed_command("start_session", error, {"rollback": rollback})
 
+    @service_operation()
     async def stop_launched_session(self, reason: str | None = None) -> ControllerCommandResult:
         """Stop/finalize every reserved node before releasing it, independently of global collection."""
         session = self._require_session()
@@ -432,6 +441,7 @@ class Controller:
 
         return self._require_session().configuration.expected_runtime_participants
 
+    @service_operation()
     def process_health_interpretation(
         self,
         evidence: HealthInterpretationEvidence,
@@ -502,6 +512,7 @@ class Controller:
         if any(archived.get(identity) != contents for identity, contents in decisions.items()):
             raise RuntimeError("Current Evidence Archive does not preserve required Controller decisions")
 
+    @service_operation()
     def execute_controller_action_decision(
         self,
         decision: ControllerActionDecision,
@@ -572,6 +583,7 @@ class Controller:
 
         return self._run_command("execute_controller_action_decision", command)
 
+    @service_operation(new_work=True)
     def create_session(self, config: SessionConfig) -> ControllerCommandResult:
         """Create one Session from accepted configuration."""
 
@@ -588,6 +600,7 @@ class Controller:
 
         return self._run_command("create_session", command)
 
+    @service_operation(new_work=True)
     def initialize_session(
         self,
         device_readiness_summary: Iterable[DeviceReadiness] | None = None,
@@ -606,6 +619,7 @@ class Controller:
 
         return self._run_command("initialize_session", command)
 
+    @service_operation(new_work=True)
     def start_session(self) -> ControllerCommandResult:
         """Start runtime first, then move Session lifecycle to running."""
 
@@ -633,6 +647,7 @@ class Controller:
             },
         )
 
+    @service_operation()
     def run_one_iteration(self) -> ControllerCommandResult:
         """Run one bounded AcquisitionNode runtime iteration."""
 
@@ -646,6 +661,7 @@ class Controller:
             return self._record_failed_command("run_one_iteration", error)
         return self._record_successful_command("run_one_iteration", summary)
 
+    @service_operation(new_work=True)
     def start_experiment(
         self,
         experiment_id: str,
@@ -773,6 +789,7 @@ class Controller:
             return self._record_failed_command("start_experiment", error, rejection_details)
         return self._record_successful_command("start_experiment", details)
 
+    @service_operation()
     def stop_experiment(
         self,
         experiment_id: str,
@@ -799,6 +816,7 @@ class Controller:
 
         return self._run_command("stop_experiment", command)
 
+    @service_operation()
     def stop_session(self, reason: str | None = None) -> ControllerCommandResult:
         """Stop runtime cleanup first, then move Session to stopping."""
 
@@ -821,6 +839,7 @@ class Controller:
             },
         )
 
+    @service_operation()
     def finalize_session(self) -> ControllerCommandResult:
         """Persist Phase 13 products, completing only a stopping Session."""
 
@@ -885,6 +904,7 @@ class Controller:
             },
         )
 
+    @service_operation()
     async def release_session(self) -> ControllerCommandResult:
         """Release a terminal binding after confirmed cleanup and final persistence."""
         session = self._session
@@ -956,6 +976,7 @@ class Controller:
             return self._record_failed_command("release_session", error)
         return self._record_successful_command("release_session", outcome)
 
+    @service_operation(new_work=True)
     def collect_session_artifacts(self) -> ControllerCommandResult:
         """Initiate post-session collection without changing lifecycle policy."""
         try:
@@ -972,6 +993,7 @@ class Controller:
                 "collect_session_artifacts", RuntimeError("Artifact collection had failures"), details)
         return self._record_successful_command("collect_session_artifacts", details)
 
+    @service_operation(new_work=True)
     async def collect_session_artifacts_with_evidence(self) -> ControllerCommandResult:
         """Await collection evidence publication after acquisition end, before finalization."""
         if self._artifact_collection_in_progress:
@@ -1015,6 +1037,32 @@ class Controller:
             "last_released_session": self._last_released_session,
         }
 
+    def maintenance_blockers(self, ingestor, storage_manager) -> list[str]:
+        """Report Controller-owned obligations without stopping other services."""
+        blockers = []
+        if self._session is not None:
+            if self._session.current_state not in {SessionState.COMPLETED, SessionState.FAILED, SessionState.ABORTED}:
+                blockers.append("Active Session")
+            if not self._runtime_cleanup_confirmed:
+                blockers.append("Unconfirmed Session cleanup")
+            if self._finalization_confirmation is None:
+                blockers.append("Unconfirmed final Session persistence")
+            if self._controller_action_decision_evidence:
+                try:
+                    with storage_manager.session_preservation_guard(self._session.session_id) as confirmation:
+                        self._require_controller_decision_archival(self._session.session_id, confirmation)
+                except Exception as error:
+                    blockers.append(f"Controller decision preservation: {error}")
+        if self._artifact_collection_in_progress or self._active_experiment_id is not None:
+            blockers.append("Unfinished Controller-coordinated work")
+        return blockers
+
+    async def _close_maintenance_resources(self, force: bool) -> None:
+        for subscription in self._launch_subscriptions:
+            await subscription.unsubscribe()
+        self._launch_subscriptions = ()
+
+    @service_operation()
     def _require_session(self) -> Session:
         if self._session is None:
             raise RuntimeError("Controller has no Session")

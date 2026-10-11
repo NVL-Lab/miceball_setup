@@ -599,9 +599,11 @@ Tests cover generic DeviceAdapter/DeviceManager reuse and OpenCV capture release
 Session A -> Session B on retained node/adapter/communication-handler instances,
 confirmed initialization-abort reuse, repeated cleanup failures, independent
 configuration, and preservation of Session A artifacts and evidence. Sequential
-normal-completion coverage uses fresh central Ingestor/SynchronizationManager
-contexts; normal binding release remains unimplemented under Decision 313. Independent
-manual validation and audit of this correction remain pending. No Controller
+normal-completion coverage originally used fresh central Ingestor/SynchronizationManager
+contexts before Decision 313 binding release was implemented. W035 now records
+the separately completed Phase 16 Session-binding release slice; it does not
+close the broader Slice 28 milestone. The separate Decision 302/Slice 28
+validation and audit criteria remain pending under M015. No Controller
 reset workaround, new lifecycle state/reset API, concurrent sharing, or recovery
 subsystem was introduced; automated coverage alone does not close M015.
 
@@ -611,7 +613,9 @@ Automated tests exercise actual message serialization, command/result handlers,
 Controller launch, mandatory participant preparation, node-owned cleanup and
 reservation release with controlled in-process broker doubles. Live NATS,
 multi-process, hardware, independent manual IPython validation, independent audit,
-and a Slice 28 validated workflow are not claimed. M015 is not complete.
+and a Slice 28 validated workflow are not claimed by this milestone. W035 records
+separate software validation and audit of Phase 16 binding release, not fulfillment
+of M015's remaining launch/deployment validation criteria. M015 is not complete.
 The first deployment target (one PC, one Jetson, one camera) is not
 a cardinality limit; existing communication boundaries must support separate
 processes/machines and multiple nodes/Controllers.
@@ -632,8 +636,10 @@ M014/W034 and other completed milestones/workflows are unchanged. No validated
 Slice 28 workflow is added.
 
 Normal end-of-Session binding release for Controller, Ingestor, and
-SynchronizationManager is now architecturally defined by Decision 313 but not
-implemented by Slice 28. Duplicate participant identity policy, deployment/startup
+SynchronizationManager was not implemented by Slice 28; the subsequent narrow
+Phase 16 implementation under Decisions 313 and 322 is now complete, manually
+software-validated, and independently audited (W035). Duplicate participant
+identity policy, deployment/startup
 automation, and supervision remain deferred. Decision 302 settles generic device
 cleanup/reuse, not implementation of those service binding-release contracts.
 
@@ -642,9 +648,15 @@ cleanup/reuse, not implementation of those service binding-release contracts.
 # Future Milestones
 
 Phase 16 Operational Service Lifetime and Framework Stop/Kill architecture is
-accepted in Decisions 304-322, with limited Slice 1 binding release partially
-implemented and automated-tested, not independently validated. Principal
-service lifetime is independent of Session and GUI lifetime; scoped operational
+accepted in Decisions 304-323. At the earlier checkpoint implementation was
+limited to the Session-binding release slice. Decision 323 now
+adds the accepted framework Evidence Archive partition; individual-service
+stop/kill/cancel has a new software implementation, with manual validation and
+independent audit pending. General coordinated shutdown remains unimplemented.
+The narrow Controller/Ingestor/SynchronizationManager
+binding-release slice is complete and independently software-validated (W035);
+Phase 16 as a whole is not complete. Principal service lifetime is independent
+of Session and GUI lifetime; scoped operational
 stop/kill remains distinct from existing Session stop/finalization and must not
 initiate global processing. Decisions 313-321 settle binding release, general
 shutdown versus individual service maintenance, pre-stop evaluation, explicit
@@ -653,15 +665,20 @@ Session-independent framework evidence uses minimally extended existing
 infrastructure; independent startup/returning-service recognition does not resume
 interrupted work. Q025 is resolved architecturally, while Q019's Session-wide
 evidence-consumption coordination, Q021, and Q024 remain open.
-This note creates no demonstrated milestone, changes no existing milestone
-status, and adds no validated workflow. Controller release after confirmed cleanup
+This does not close M015 or establish a completed Phase 16 milestone. W035 records
+only the completed Session-binding release slice. Controller release after confirmed cleanup
 and final persistence, plus empty Ingestor/synchronization binding release, are
 implemented. The narrow follow-up also implements evidence-bearing Ingestor release
 after exact persistent-message/all-runtime-audit archive coverage and existing
 terminal Session Record evidence, and SynchronizationManager release after stopped
 time, retired mappings, and durable Ingestor acceptance. Concurrent intake/release,
-failed-write retention, and successive reuse have automated coverage only; this
-does not establish independent validation, Q019 completeness, or milestone closure. Service
+failed-write retention, and successive reuse have automated coverage, supplemented
+by manual IPython validation and independent audit PASS for this narrow slice.
+Controller captures Session object identity and checks it after every unsubscribe
+await and before retirement, so delayed/overlapping release cannot retire a newer
+binding or alter its decisions, subscriptions, command history, or last-release
+status. Current archival coverage remains guarded through release commitment.
+This does not establish Q019 completeness or M015 closure. Service
 supervision and deployment configuration remain future
 work. M015 remains open pending independent validation/audit.
 
@@ -673,9 +690,31 @@ follow-up implements persistent decision packaging, attached-Ingestor submission
 exact inclusion checks against compiled archive input, and confirmation after
 successful archive/final-record writes. Missing decisions or changes during/after
 the snapshot cannot authorize release. Confirmed release retires temporary decision
-records without deleting durable evidence. Automated coverage does not complete
-Decision 313, independently validate Phase 16, close M015, or resolve Q019. No
-validated workflow is added.
+records without deleting durable evidence. W035 validates these owner-specific
+release paths under Decisions 313 and 322; it does not validate the newly implemented
+individual-service maintenance/framework evidence or complete coordinated shutdown/startup responsibilities,
+close M015, or resolve Q019/Q024.
+
+## Completed Session-binding release slice validation
+
+**Status:** Complete - narrow software implementation, manual IPython validation,
+and independent audit PASS under Decisions 313 and 322 (W035).
+
+- Manual IPython validation passed, including stale Session A release after
+  Session B starts, preservation of B's state/evidence/subscriptions, continued
+  acquisition, and normal B cleanup.
+- Independent audit: PASS, no blocking defects or architectural ambiguities.
+- Independent focused regression: 152 passed, zero failures or skips.
+- Full suite: 493 run, 486 passed, 7 optional rendering skips, zero failures.
+- Independent memory-only negative controls reproduced the concurrency defect
+  when binding-identity checks were disabled.
+
+These are previously reported validation/audit results, not new tests performed
+during documentation synchronization. This is controlled software/broker-double
+validation, not real hardware, external NATS deployment, or live cross-process
+validation. Phase 16 remains incomplete, M015 remains open, and Q019/Q024 remain open.
+
+### Earlier implementation results (historical)
 
 Follow-up implementation test results: 27 focused Controller decision/release
 tests and 137 relevant regressions passed; full discovery ran 465 tests with

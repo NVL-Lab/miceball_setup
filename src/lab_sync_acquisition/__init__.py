@@ -72,6 +72,7 @@ from lab_sync_acquisition.nats_communication import (
     NatsControllerCommunication,
     NatsIngestorCommunication,
     NatsSynchronizationManagerCommunication,
+    NatsServiceMaintenanceCommunication,
 )
 from lab_sync_acquisition.session import (
     ExpectedParticipant,
@@ -86,6 +87,7 @@ from lab_sync_acquisition.session import (
     ScientificOutputSelection,
 )
 from lab_sync_acquisition.service_readiness import ServiceReadiness
+from lab_sync_acquisition.service_maintenance import ServiceMaintenanceInterface
 from lab_sync_acquisition.opencv_camera import (
     OpenCVCameraConfig,
     SeeedIMX219OpenCVCameraAdapter,
@@ -178,6 +180,8 @@ __all__ = [
     "SessionLifecycleError",
     "SessionState",
     "ServiceReadiness",
+    "ServiceMaintenanceInterface",
+    "NatsServiceMaintenanceCommunication",
     "SynchronizationManager",
     "SynchronizationMapping",
     "build_runtime_subject",

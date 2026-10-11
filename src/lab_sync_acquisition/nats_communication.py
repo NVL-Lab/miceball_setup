@@ -138,8 +138,9 @@ class NatsCommunicationBoundary:
         ):
             try:
                 info = await jetstream.stream_info(stream_name)
-                if stream_name != "LAB_EVIDENCE":
-                    extra = "messages.command.>" if stream_name == "LAB_COMMANDS" else "messages.command_result.>"
+                if stream_name in {"LAB_COMMANDS", "LAB_COMMAND_RESULTS", "LAB_EVIDENCE"}:
+                    extra = {"LAB_COMMANDS": "messages.command.>", "LAB_COMMAND_RESULTS": "messages.command_result.>",
+                             "LAB_EVIDENCE": "messages.evidence.>"}[stream_name]
                     if extra not in info.config.subjects:
                         info.config.subjects = [*info.config.subjects, extra]
                         await jetstream.update_stream(config=info.config)
@@ -147,8 +148,9 @@ class NatsCommunicationBoundary:
                 await jetstream.add_stream(
                     config=StreamConfig(
                         name=stream_name,
-                        subjects=[subject] if stream_name == "LAB_EVIDENCE" else [subject,
-                            "messages.command.>" if stream_name == "LAB_COMMANDS" else "messages.command_result.>"],
+                        subjects=[subject, {"LAB_COMMANDS": "messages.command.>",
+                            "LAB_COMMAND_RESULTS": "messages.command_result.>",
+                            "LAB_EVIDENCE": "messages.evidence.>"}[stream_name]],
                         storage=StorageType.FILE,
                     )
                 )
@@ -315,6 +317,13 @@ class NatsControllerCommunication:
         self._boundary = boundary
         self._command_results: tuple[RuntimeCommandResultMessage, ...] = ()
         self._command_result_events: dict[str, asyncio.Event] = {}
+        self._maintenance_requests: list[dict[str, Any]] = []
+
+    @property
+    def maintenance_requests(self) -> tuple[dict[str, Any], ...]:
+        """Administrative attempt identities and authorization retained at the issuer."""
+        from copy import deepcopy
+        return tuple(deepcopy(self._maintenance_requests))
 
     @property
     def command_results(self) -> tuple[RuntimeCommandResultMessage, ...]:
@@ -335,8 +344,12 @@ class NatsControllerCommunication:
         command_id = uuid4().hex
         event = self._command_result_events.setdefault(command_id, asyncio.Event())
         try:
-            await self.publish_command(RuntimeCommandMessage(command_id, session_id, command_type,
-                self._boundary.component_id, participant.component_id, payload), participant.component_type)
+            command = RuntimeCommandMessage(command_id, session_id, command_type,
+                self._boundary.component_id, participant.component_id, payload)
+            if command_type in {"stop", "kill", "cancel"}:
+                from copy import deepcopy
+                self._maintenance_requests.append(deepcopy(command.to_dict()))
+            await self.publish_command(command, participant.component_type)
             if not any(r.command_id == command_id for r in self._command_results):
                 await asyncio.wait_for(event.wait(), result_window_s)
             return next((r for r in self._command_results if r.command_id == command_id
@@ -542,7 +555,8 @@ class NatsAcquisitionNodeCommunication:
                 if command.target_id != self._boundary.component_id:
                     await message.ack()
                     return
-                result = self.execute_command(command)
+                result = (await _execute_maintenance_command(self._boundary, self._acquisition_node, command)
+                          if command.command_type in {"stop", "kill", "cancel"} else self.execute_command(command))
                 await self._boundary.publish_command_result(
                     result,
                     command.command_type,
@@ -724,7 +738,9 @@ class NatsIngestorCommunication:
             if command.target_id != self._boundary.component_id:
                 await message.ack()
                 return
-            result = _execute_service_command(self._boundary, self._ingestor, command, self._results_by_command_id)
+            result = (await _execute_maintenance_command(self._boundary, self._ingestor, command)
+                      if command.command_type in {"stop", "kill", "cancel"} else
+                      _execute_service_command(self._boundary, self._ingestor, command, self._results_by_command_id))
             if result.success and command.command_type == "initialize_session" and command.session_id not in self._evidence_subscriptions:
                 try:
                     self._evidence_subscriptions[command.session_id] = await self.subscribe_evidence(command.session_id)
@@ -746,14 +762,16 @@ class NatsIngestorCommunication:
 
     async def subscribe_evidence(
         self,
-        session_id: str,
+        session_id: str | None,
         callback: RuntimeEvidenceCallback | None = None,
     ) -> Subscription:
         """Consume and audit durable runtime evidence for one Session."""
 
-        if self._ingestor.recovery_journal_path is None or self._ingestor.session_id != session_id:
+        if session_id is None:
+            self._ingestor.compile_framework_runtime_evidence()
+        elif self._ingestor.recovery_journal_path is None or self._ingestor.session_id != session_id:
             raise ValueError("Broker evidence intake requires the matching Session recovery journal")
-        subject = f"messages.{session_id}.evidence.>"
+        subject = "messages.evidence.>" if session_id is None else f"messages.{session_id}.evidence.>"
 
         async def receive(message: Any) -> None:
             evidence = RuntimeEvidenceMessage.from_dict(
@@ -833,7 +851,46 @@ class NatsSynchronizationManagerCommunication:
             if command.target_id != self._boundary.component_id:
                 await message.ack()
                 return
-            result = _execute_service_command(self._boundary, self._synchronization_manager, command, self._results_by_command_id)
+            result = (await _execute_maintenance_command(self._boundary, self._synchronization_manager, command)
+                      if command.command_type in {"stop", "kill", "cancel"} else
+                      _execute_service_command(self._boundary, self._synchronization_manager, command, self._results_by_command_id))
+            await self._boundary.publish_command_result(result, command.command_type)
+            await message.ack()
+        return await _subscribe_participant_commands(self._boundary, receive)
+
+
+async def _execute_maintenance_command(boundary, service, command):
+    interface = getattr(service, "_maintenance", None)
+    if interface is None:
+        from uuid import uuid4
+        return RuntimeCommandResultMessage(uuid4().hex, command.command_id, command.session_id,
+                    command.target_id, command.source_id, "failed", False,
+                    "Individual-service maintenance is not configured", {"outcome": "failed", "termination_confirmed": False})
+    if interface.evidence_publisher is None:
+        interface.evidence_publisher = boundary.publish_evidence
+    return await interface.execute_command(command)
+
+
+class NatsServiceMaintenanceCommunication:
+    """Participant-scoped maintenance endpoint for Controller or StorageManager."""
+
+    def __init__(self, boundary: NatsCommunicationBoundary, maintenance):
+        if (maintenance.participant.component_id != boundary.component_id
+                or maintenance.participant.component_type != boundary.component_type):
+            raise ValueError("Maintenance participant does not match communication boundary")
+        self._boundary = boundary
+        self._maintenance = maintenance
+        if maintenance.evidence_publisher is None:
+            maintenance.evidence_publisher = boundary.publish_evidence
+
+    async def subscribe_commands(self) -> tuple[Subscription, Subscription]:
+        """Use existing JetStream command subscriptions and command-result publication."""
+        async def receive(message):
+            command = RuntimeCommandMessage.from_dict(json.loads(message.data.decode("utf-8")))
+            if command.target_id != self._boundary.component_id:
+                await message.ack()
+                return
+            result = await self._maintenance.execute_command(command)
             await self._boundary.publish_command_result(result, command.command_type)
             await message.ack()
         return await _subscribe_participant_commands(self._boundary, receive)

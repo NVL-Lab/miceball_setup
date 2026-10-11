@@ -583,7 +583,8 @@ commands use participant identity without fabricated Session IDs; Session
 operations require real identities. Service supervision, startup automation,
 and duplicate identity policy remain deferred. Decision 313 now defines normal
 service Session-binding release after confirmed cleanup/evidence obligations;
-that integration is partially implemented in Phase 16 Slice 1. Controller now has
+the narrow Phase 16 Session-binding release slice is now complete, manually
+software-validated, and independently audited PASS (W035). Controller has
 explicit `await release_session()` after confirmed cleanup/final persistence.
 Ingestor and SynchronizationManager also support narrow evidence-bearing release
 after confirmed archival or durable mapping-evidence handoff, respectively.
@@ -598,11 +599,14 @@ resolved SessionConfig. This transition/readiness behavior is implemented with
 simulated and broker-double regression coverage; independent manual validation
 and audit remain pending. No new reset operation, lifecycle state, or Controller
 hardware initialization responsibility is introduced. Previously validated
-workflows remain historical evidence, not validation of sequential Session reuse.
+Slice 28 workflows remain historical evidence, not closure of its sequential-reuse
+requirements. W035 separately validates the Phase 16 service binding-release path.
 
 Phase 16 Operational Service Lifetime and Framework Stop/Kill architecture is
-accepted in Decisions 304-322; Slice 1 binding release is partially implemented
-with automated tests, but independent validation and Phase 16 completion are not claimed.
+accepted in Decisions 304-323. The narrow Controller/Ingestor/SynchronizationManager
+Session-binding release slice under Decisions 313 and 322 is complete, manually
+software-validated, and independently audited PASS (W035). Remaining Phase 16
+responsibilities are unfinished; Phase 16 completion is not claimed.
 Controller, AcquisitionNode, Ingestor, StorageManager, and SynchronizationManager
 have lifetimes independent of Sessions and GUI. They may be idle between runs;
 Session-specific objects still follow their existing creation, finalization,
@@ -618,18 +622,21 @@ separate from Session lifecycle. Kill is authorized forced continuation only of
 the same blocked attempt; declining kill ends it as failed without forced action.
 Neither operation initiates artifact collection, verification, transfer, or export,
 and normal Session end does not automatically stop operational services. No new
-framework-wide lifecycle, service supervisor, GUI control, stop/kill API, or schema
-is implemented. Decisions 313-321 settle independent Session-binding release,
+framework-wide lifecycle, service supervisor, or GUI control is implemented.
+Individual-service stop/kill/cancel now has a target-owned administrative interface
+and existing NATS command/result entry points, with independent manual validation
+and audit pending. Decisions 313-321 settle independent Session-binding release,
 general shutdown versus individual administrative maintenance, all-participant
 pre-stop evaluation, directional service-owned blockers, and exact forced-action
 outcomes. General shutdown preserves evidence in producer -> Ingestor ->
 StorageManager -> Controller order; individual service maintenance may use a local
 administrative interface without Controller orchestration or remote OS control.
 Framework evidence may lack Session identity through minimally extended existing
-Ingestor/Evidence Archive infrastructure; current implementation remains
-Session-specific. Independent startup and returning-service recognition do not
+Ingestor/Evidence Archive infrastructure. Decision 323's `framework/evidence/`
+partition now supports journal-backed framework intake and exact archive/audit/
+summary confirmation without a Session Record. Independent startup and returning-service recognition do not
 promise automatic recovery of interrupted work. Q025 is resolved architecturally,
-with implementation beyond the limited Decision 313 paths still pending; Q019,
+with coordinated shutdown and startup integration still pending; Q019,
 Q021, Q024, and deployment configuration remain open.
 Q017 remains resolved.
 Existing milestone statuses and validation records are unchanged.
@@ -644,8 +651,8 @@ successfully written archive input before release. The public
 `controller_action_decision_evidence` property also supplies the same retained
 messages for caller-managed publication through the existing boundary. Late or
 missing decisions invalidate release confirmation; successful release retires
-temporary decisions, never durable evidence. Decision 313 stays partially
-implemented. Evidence-bearing Ingestor release now checks exact archived persistent
+temporary decisions, never durable evidence. The audited release slice under
+Decisions 313 and 322 is complete. Evidence-bearing Ingestor release checks exact archived persistent
 messages and all runtime-evidence intake audit against the current intake snapshot,
 plus existing terminal Session Record and acquisition-envelope preservation.
 Concurrent intake and release commit are serialized; nonpersistent messages remain
@@ -654,11 +661,19 @@ commitment so concurrent archive or final-record writes cannot invalidate its
 confirmation. Controller checks its decisions against the current archive, not
 only historical finalization, and holds the same guard through its final
 synchronous commit after asynchronous unsubscription. No guard is held across
-an await; future archive writes are not frozen. SynchronizationManager can release retired mapping state after
+an await; future archive writes are not frozen. Controller checks captured Session
+object identity after every unsubscription await and before retirement; stale
+operations cannot alter a newer binding, decisions, subscriptions, command history,
+or last-release status. SynchronizationManager can release retired mapping state after
 Session Time stops and exact journal-backed Ingestor acceptance is confirmed,
 without waiting for archival. Both retire temporary state without deleting durable
-files. These are narrow implementation paths with automated tests, not independent
-validation or audit. Phase 16 remains unvalidated, M015 open, and Q019 unresolved. Session Record
+files. W035 records manual IPython validation, independent audit PASS with no blocking
+defects or architectural ambiguities, 152 passing focused tests, and full discovery
+of 493 tests (486 passed, 7 optional rendering skips, zero failures). Independent
+negative controls reproduced the concurrency defect with identity checks disabled.
+These are previously executed software validations, not real hardware or external
+NATS deployment validation. Phase 16 remains incomplete, M015 open, and Q019/Q024
+unresolved. Session Record
 construction now keeps raw runtime evidence and its intake audit in the separate
 Evidence Archive, preserving Session context and acquisition-envelope audit in
 the Session Record. Local Session start and finalization require an explicit

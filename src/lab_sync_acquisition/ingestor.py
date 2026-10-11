@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
 from copy import deepcopy
 import json
 import os
@@ -18,6 +19,7 @@ from lab_sync_acquisition.acquisition_record import AcquisitionRecordEnvelope
 from lab_sync_acquisition.communication import ARTIFACT_MANIFEST_EVIDENCE_TYPE, RuntimeEvidenceMessage
 from lab_sync_acquisition.local_storage import ArtifactManifest
 from lab_sync_acquisition.service_readiness import ServiceReadiness
+from lab_sync_acquisition.service_maintenance import service_operation
 from lab_sync_acquisition.storage import (
     InMemoryStorageManager,
     PersistentStorageManager,
@@ -79,14 +81,24 @@ class InMemoryIngestor:
         recovery_journal_path: str | Path | None = None,
         component_id: str = "ingestor",
         recovery_journal_root: str | Path | None = None,
+        framework_recovery_journal_path: str | Path | None = None,
+        evidence_scope: str = "session",
     ) -> None:
-        if (session_id is None) != (recovery_journal_path is None):
+        if evidence_scope not in {"session", "framework"}:
+            raise ValueError("Unknown runtime evidence scope")
+        if evidence_scope == "framework" and session_id is not None:
+            raise ValueError("Framework intake must not create a Session binding")
+        if evidence_scope == "session" and (session_id is None) != (recovery_journal_path is None):
             raise ValueError("Session identity and recovery journal path must be supplied together")
         if not isinstance(component_id, str) or not component_id:
             raise ValueError("Ingestor component_id must be a nonempty string")
         if session_id is not None and (not isinstance(session_id, str) or not session_id):
             raise ValueError("Recovery requires a nonempty known Session identity")
         self._storage_manager = storage_manager
+        self._service_operation_lock = RLock()
+        self._active_service_operations = 0
+        self._evidence_scope = evidence_scope
+        self._framework_ingestor = None
         self._intake_lock = RLock()
         self._recovery_journal_root = Path(recovery_journal_root) if recovery_journal_root is not None else None
         self._session_prepared = session_id is not None
@@ -98,11 +110,82 @@ class InMemoryIngestor:
         )
         self._journal_failed = False
         self._accepted_evidence_content: dict[str, str] = {}
+        self._durable_evidence_waiters = {}
         self._accepted_envelopes: tuple[AcquisitionRecordEnvelope, ...] = ()
         self._ingest_audit: tuple[IngestAuditRecord, ...] = ()
         self._accepted_runtime_evidence: tuple[RuntimeEvidenceMessage, ...] = ()
         self._runtime_evidence_audit: tuple[RuntimeEvidenceAuditRecord, ...] = ()
+        if evidence_scope == "framework" and self._recovery_journal_path is not None:
+            self._recovery_journal_path.parent.mkdir(parents=True, exist_ok=True)
         self._initialize_recovery_journal()
+        if framework_recovery_journal_path is not None:
+            self.prepare_framework_evidence(framework_recovery_journal_path)
+
+    @service_operation(new_work=True)
+    def prepare_framework_evidence(self, recovery_journal_path: str | Path) -> None:
+        """Configure deployment-scoped journal-backed intake without a Session binding."""
+        with self._intake_lock:
+            if self._evidence_scope != "session" or self._framework_ingestor is not None:
+                raise RuntimeError("Framework evidence intake is already configured")
+            self._framework_ingestor = InMemoryIngestor(
+                self._storage_manager, component_id=self._component_id,
+                recovery_journal_path=recovery_journal_path, evidence_scope="framework",
+            )
+
+    def compile_framework_runtime_evidence(self) -> dict[str, tuple]:
+        """Compile persistent framework messages and all their intake audit records."""
+        if self._framework_ingestor is None:
+            raise RuntimeError("Framework recovery journal is not configured")
+        return self._framework_ingestor.compile_persistent_runtime_evidence()
+
+    async def await_durable_runtime_evidence(self, evidence: RuntimeEvidenceMessage, timeout_s: float) -> bool:
+        """Boundedly observe exact journal-backed acceptance without polling or transport acknowledgments."""
+        from math import isfinite
+        if not isinstance(timeout_s, (int, float)) or not isfinite(timeout_s) or timeout_s < 0:
+            raise ValueError("Acceptance window must be finite and nonnegative")
+        if evidence.session_id is None and self._evidence_scope == "session":
+            if self._framework_ingestor is None:
+                raise RuntimeError("Framework recovery journal is not configured")
+            return await self._framework_ingestor.await_durable_runtime_evidence(evidence, timeout_s)
+        content = self._evidence_content(evidence)
+        future = asyncio.get_running_loop().create_future()
+        with self._intake_lock:
+            if self.has_durable_runtime_evidence(evidence):
+                return True
+            if self._journal_failed or self._recovery_journal_path is None:
+                return False
+            entries = self._durable_evidence_waiters.setdefault(evidence.evidence_id, [])
+            entry = (content, future)
+            entries.append(entry)
+        try:
+            await asyncio.wait_for(future, timeout_s)
+            return self.has_durable_runtime_evidence(evidence)
+        except TimeoutError:
+            return False
+        finally:
+            with self._intake_lock:
+                entries.remove(entry)
+                if not entries:
+                    self._durable_evidence_waiters.pop(evidence.evidence_id, None)
+
+    @staticmethod
+    def _confirm_acceptance_future(future):
+        if not future.done():
+            future.set_result(True)
+
+    @contextmanager
+    def framework_preservation_guard(self, storage_manager: PersistentStorageManager):
+        """Hold intake and storage steady while checking complete framework archival."""
+        intake = self._framework_ingestor
+        if intake is None:
+            raise RuntimeError("Framework recovery journal is not configured")
+        with intake._intake_lock, storage_manager.framework_preservation_guard() as confirmation:
+            compiled = intake.compile_persistent_runtime_evidence()
+            if (intake._journal_failed or confirmation is None
+                    or any(confirmation[name] != [item.to_dict() for item in compiled[name]]
+                           for name in ("runtime_evidence", "ingest_audit"))):
+                raise RuntimeError("Current framework intake is not durably archived")
+            yield confirmation
 
     def _initialize_recovery_journal(self) -> None:
         if self._recovery_journal_path is not None:
@@ -133,9 +216,12 @@ class InMemoryIngestor:
 
         return self._session_id
 
+    @service_operation(new_work=True)
     def prepare_session(self, session_id: str) -> ServiceReadiness:
         """Prepare known-Session intake using deployment-local journal configuration."""
         with self._intake_lock:
+            if self._evidence_scope != "session":
+                raise RuntimeError("Framework intake has no Session binding")
             if not isinstance(session_id, str) or not session_id:
                 raise ValueError("Session preparation requires a real Session identity")
             if self._session_id == session_id:
@@ -160,6 +246,7 @@ class InMemoryIngestor:
                 raise
             return self.check_ready()
 
+    @service_operation()
     def abort_session_initialization(self, session_id: str) -> bool:
         """Stop prepared intake without deleting accepted evidence or journal history."""
         with self._intake_lock:
@@ -173,6 +260,7 @@ class InMemoryIngestor:
                 self._recovery_journal_path = None
             return True
 
+    @service_operation()
     def release_session(
         self, session_id: str, *, storage_manager: PersistentStorageManager | None = None,
     ) -> bool:
@@ -223,6 +311,9 @@ class InMemoryIngestor:
     def has_durable_runtime_evidence(self, evidence: RuntimeEvidenceMessage) -> bool:
         """Confirm exact journal-backed acceptance, not publication or final archival."""
         with self._intake_lock:
+            if evidence.session_id is None and self._evidence_scope == "session":
+                return (self._framework_ingestor is not None
+                        and self._framework_ingestor.has_durable_runtime_evidence(evidence))
             if (self._journal_failed or self._recovery_journal_path is None
                     or evidence.session_id != self._session_id):
                 return False
@@ -244,12 +335,16 @@ class InMemoryIngestor:
 
     def _evidence_content(self, evidence: RuntimeEvidenceMessage) -> str:
         identities = (
-            evidence.evidence_id, evidence.session_id, evidence.evidence_type, evidence.source_id
+            evidence.evidence_id, evidence.evidence_type, evidence.source_id
         )
         if not all(isinstance(value, str) and value for value in identities):
             raise ValueError("Runtime evidence requires nonempty string identities")
         if self._session_id is not None and evidence.session_id != self._session_id:
             raise ValueError("Runtime evidence Session does not match recovery journal")
+        if self._evidence_scope == "framework" and evidence.session_id is not None:
+            raise ValueError("Framework evidence must have session_id=None")
+        if self._evidence_scope == "session" and not isinstance(evidence.session_id, str):
+            raise ValueError("Session evidence requires session_id")
         return json.dumps(evidence.to_dict(), sort_keys=True, separators=(",", ":"), allow_nan=False)
 
     def _append_runtime_evidence(self, content: str) -> None:
@@ -272,6 +367,7 @@ class InMemoryIngestor:
 
     def _restore_runtime_evidence(self) -> None:
         restored: dict[str, tuple[str, RuntimeEvidenceMessage]] = {}
+        framework_audit = []
         with self._recovery_journal_path.open("r+b") as journal:
             while True:
                 offset = journal.tell()
@@ -300,8 +396,25 @@ class InMemoryIngestor:
                     journal.flush()
                     os.fsync(journal.fileno())
                     break
+                if self._evidence_scope == "framework":
+                    audit = RuntimeEvidenceAuditRecord(**data["ingest_audit"])
+                    if audit.ingest_order != len(framework_audit) + 1:
+                        raise ValueError("Framework journal intake order is inconsistent")
+                    framework_audit.append(audit)
+                    data = data["runtime_evidence"]
+                    if data is None:
+                        if audit.accepted:
+                            raise ValueError("Accepted framework audit lacks evidence")
+                        if not terminated:
+                            journal.write(b"\n")
+                            journal.flush()
+                            os.fsync(journal.fileno())
+                        continue
                 evidence = RuntimeEvidenceMessage.from_dict(data)
                 content = self._evidence_content(evidence)
+                if self._evidence_scope == "framework" and (
+                        not audit.accepted or audit.evidence_id != evidence.evidence_id):
+                    raise ValueError("Framework journal evidence and intake audit disagree")
                 previous = restored.get(evidence.evidence_id)
                 if previous is not None and previous[0] != content:
                     raise ValueError("Recovery journal contains conflicting evidence_id content")
@@ -313,7 +426,7 @@ class InMemoryIngestor:
             # Do not expose any staged state unless the entire journal is valid.
         self._accepted_runtime_evidence = tuple(item[1] for item in restored.values())
         self._accepted_evidence_content = {key: value[0] for key, value in restored.items()}
-        self._runtime_evidence_audit = tuple(
+        self._runtime_evidence_audit = tuple(framework_audit) if self._evidence_scope == "framework" else tuple(
             RuntimeEvidenceAuditRecord(index, time(), evidence.evidence_id, True, "recovered")
             for index, evidence in enumerate(self._accepted_runtime_evidence, 1)
         )
@@ -401,6 +514,7 @@ class InMemoryIngestor:
             ],
         }
 
+    @service_operation()
     def receive_runtime_evidence(
         self,
         evidence: RuntimeEvidenceMessage,
@@ -408,11 +522,16 @@ class InMemoryIngestor:
         """Journal new evidence before acceptance when configured; deduplicate intake."""
 
         with self._intake_lock:
-            if self._requires_prepared_session and not self._session_prepared:
+            if evidence.session_id is None and self._evidence_scope == "session":
+                if self._framework_ingestor is None:
+                    raise RuntimeError("Framework recovery journal is not configured")
+                return self._framework_ingestor.receive_runtime_evidence(evidence)
+            if self._evidence_scope == "session" and self._requires_prepared_session and not self._session_prepared:
                 raise RuntimeError("Session evidence intake is not prepared or has been aborted/released")
 
             accepted = bool(
-                evidence.evidence_id and evidence.session_id and evidence.evidence_type and evidence.source_id
+                evidence.evidence_id and (evidence.session_id or self._evidence_scope == "framework")
+                and evidence.evidence_type and evidence.source_id
             )
             duplicate = False
             if accepted:
@@ -421,7 +540,7 @@ class InMemoryIngestor:
                 if previous is not None and previous != content:
                     raise ValueError("Conflicting runtime evidence content for evidence_id")
                 duplicate = previous is not None
-                if not duplicate:
+                if not duplicate and self._evidence_scope == "session":
                     self._append_runtime_evidence(content)
                     evidence = RuntimeEvidenceMessage.from_dict(json.loads(content))
             audit = RuntimeEvidenceAuditRecord(
@@ -431,23 +550,64 @@ class InMemoryIngestor:
                 accepted=accepted,
                 reason=("already_accepted" if duplicate else "accepted") if accepted else "missing_required_identity",
             )
+            if self._evidence_scope == "framework":
+                self._append_runtime_evidence(json.dumps({
+                    "runtime_evidence": evidence.to_dict() if accepted else None,
+                    "ingest_audit": audit.to_dict(),
+                }, sort_keys=True, separators=(",", ":"), allow_nan=False))
+                if accepted:
+                    evidence = RuntimeEvidenceMessage.from_dict(json.loads(content))
             self._runtime_evidence_audit += (audit,)
             if accepted and not duplicate:
                 self._accepted_runtime_evidence += (evidence,)
                 self._accepted_evidence_content[evidence.evidence_id] = content
+            if accepted and self._recovery_journal_path is not None and not self._journal_failed:
+                for expected, future in self._durable_evidence_waiters.get(evidence.evidence_id, ()):
+                    if expected == content:
+                        future.get_loop().call_soon_threadsafe(self._confirm_acceptance_future, future)
             return audit
+
+    def maintenance_blockers(self, ingestor, storage_manager) -> list[str]:
+        """Report unpreserved Session intake; operational dependencies are explicitly configured."""
+        with self._intake_lock:
+            if self._journal_failed:
+                return ["Recovery journal integrity is unresolved"]
+            if self._framework_ingestor is not None and self._framework_ingestor._journal_failed:
+                return ["Framework recovery journal integrity is unresolved"]
+            if not (self._accepted_runtime_evidence or self._runtime_evidence_audit
+                    or self._accepted_envelopes or self._ingest_audit):
+                return []
+            with storage_manager.session_preservation_guard(self._session_id) as confirmation:
+                if confirmation is None:
+                    return ["Session evidence archival is unconfirmed"]
+                compiled = self.compile_persistent_runtime_evidence()
+                record = confirmation["session_record"]
+                if (any(confirmation[name] != [item.to_dict() for item in compiled[name]]
+                        for name in ("runtime_evidence", "ingest_audit"))
+                        or record.get("accepted_acquisition_envelopes") != [item.to_dict() for item in self._accepted_envelopes]
+                        or record.get("ingest_audit_records") != [item.to_dict() for item in self._ingest_audit]):
+                    return ["Session intake is not completely preserved"]
+            return []
+
+    async def _close_maintenance_resources(self, force: bool) -> None:
+        # Journal handles are opened and closed inside individual intake operations.
+        pass
 
     def check_ready(self) -> ServiceReadiness:
         """Report readiness, rejecting new intake after uncertain journal writes."""
 
+        journal_failed = self._journal_failed or (
+            self._framework_ingestor is not None and self._framework_ingestor._journal_failed)
+        terminated = getattr(getattr(self, "_maintenance", None), "terminated", False)
         return ServiceReadiness(
             component_id=self._component_id,
             component_type="ingestor",
             required=True,
-            ready=not self._journal_failed,
-            reason="recovery_journal_failed" if self._journal_failed else "ready",
+            ready=not journal_failed and not terminated,
+            reason="service_terminated" if terminated else "recovery_journal_failed" if journal_failed else "ready",
         )
 
+    @service_operation()
     def receive_envelope(
         self,
         envelope: AcquisitionRecordEnvelope,

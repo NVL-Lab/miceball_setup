@@ -12,6 +12,7 @@ from lab_sync_acquisition.communication import (
     RuntimeEvidenceMessage,
 )
 from lab_sync_acquisition.service_readiness import ServiceReadiness
+from lab_sync_acquisition.service_maintenance import service_operation
 
 if TYPE_CHECKING:
     from lab_sync_acquisition.ingestor import InMemoryIngestor
@@ -177,6 +178,8 @@ class SynchronizationManager:
     """Owns the Phase 1 session clock and reports Session Time in seconds."""
 
     def __init__(self) -> None:
+        self._service_operation_lock = RLock()
+        self._active_service_operations = 0
         self._mapping_lock = RLock()
         self._prepared_session_id: str | None = None
         self._started_at_monotonic_s: float | None = None
@@ -186,6 +189,7 @@ class SynchronizationManager:
         ] = {}
         self._mapping_update_evidence: tuple[MappingUpdateEvidence, ...] = ()
 
+    @service_operation(new_work=True)
     def prepare_session(self, session_id: str) -> ServiceReadiness:
         """Prepare one Session's synchronization state without changing timing evidence."""
         with self._mapping_lock:
@@ -196,6 +200,7 @@ class SynchronizationManager:
             self._prepared_session_id = session_id
             return self.check_ready()
 
+    @service_operation()
     def abort_session_initialization(self, session_id: str) -> bool:
         """Clear only preparation binding, preserving all established timing evidence."""
         with self._mapping_lock:
@@ -206,6 +211,7 @@ class SynchronizationManager:
             self._prepared_session_id = None
             return True
 
+    @service_operation()
     def release_session(self, session_id: str, *, ingestor: InMemoryIngestor | None = None) -> bool:
         """Release stopped preparation after mappings retire and evidence is durably handed off."""
         with self._mapping_lock:
@@ -254,6 +260,7 @@ class SynchronizationManager:
 
         return self._active_mappings.get((session_id, acquisition_node_id))
 
+    @service_operation(new_work=True)
     def create_and_activate_mapping(
         self,
         session_id: str,
@@ -279,6 +286,7 @@ class SynchronizationManager:
             )
             return mapping
 
+    @service_operation()
     def replace_active_mapping(
         self,
         session_id: str,
@@ -305,6 +313,7 @@ class SynchronizationManager:
             )
             return mapping
 
+    @service_operation()
     def retire_active_mapping(
         self,
         session_id: str,
@@ -365,6 +374,7 @@ class SynchronizationManager:
         return evidence
 
     @property
+    @service_operation()
     def current_session_time_s(self) -> float:
         """Current Session Time in seconds since acquisition session start."""
 
@@ -390,10 +400,11 @@ class SynchronizationManager:
             component_id="synchronization",
             component_type="synchronization_manager",
             required=True,
-            ready=True,
+            ready=not getattr(getattr(self, "_maintenance", None), "terminated", False),
             reason="ready",
         )
 
+    @service_operation(new_work=True)
     def start(self) -> float:
         """Start the session clock and return the initial Session Time."""
 
@@ -402,9 +413,30 @@ class SynchronizationManager:
             self._stopped_session_time_s = None
             return 0.0
 
+    @service_operation()
     def stop(self) -> float:
         """Stop the session clock and freeze the final Session Time."""
 
         with self._mapping_lock:
             self._stopped_session_time_s = self.current_session_time_s
             return self._stopped_session_time_s
+
+    def maintenance_blockers(self, ingestor, storage_manager) -> list[str]:
+        """Report only timing, mapping, and synchronization evidence obligations."""
+        blockers = []
+        if self.is_running:
+            blockers.append("Session Time is running")
+        if self._active_mappings:
+            blockers.append("Active synchronization mappings")
+        available = ingestor.accepted_runtime_evidence
+        for update in self._mapping_update_evidence:
+            if not any(message.is_persistent and message.evidence_type == MAPPING_UPDATE_EVIDENCE_TYPE
+                       and message.payload == update.to_dict() and ingestor.has_durable_runtime_evidence(message)
+                       for message in available):
+                blockers.append("Unpreserved mapping evidence")
+                break
+        return blockers
+
+    async def _close_maintenance_resources(self, force: bool) -> None:
+        if self.is_running:
+            self.stop()

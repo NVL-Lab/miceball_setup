@@ -180,8 +180,8 @@ def build_runtime_subject(
     if message_class not in MESSAGE_CLASSES:
         raise ValueError(f"Unsupported runtime message class: {message_class}")
     if session_id is None:
-        if message_class not in {"command", "command_result"}:
-            raise ValueError("Only participant commands/results may omit Session identity")
+        if message_class not in {"command", "command_result", "evidence"}:
+            raise ValueError("Only participant commands/results and framework evidence may omit Session identity")
         for name, value in (("component_type", component_type), ("component_id", component_id), ("message_type", message_type)):
             _validate_subject_token(name, value)
         return f"messages.{message_class}.{component_type}.{component_id}.{message_type}"
@@ -237,7 +237,7 @@ class RuntimeCommandMessage:
     payload: dict[str, Any]
 
     def __post_init__(self) -> None:
-        if self.session_id is None and self.command_type not in {"check_readiness", "get_inventory"}:
+        if self.session_id is None and self.command_type not in {"check_readiness", "get_inventory", "stop", "kill", "cancel"}:
             raise ValueError("Session-specific command requires session_id")
         if self.session_id is not None:
             _validate_subject_token("session_id", self.session_id)
@@ -403,7 +403,7 @@ class RuntimeEvidenceMessage:
     """Plain-data wrapper for one durable framework evidence record."""
 
     evidence_id: str
-    session_id: str
+    session_id: str | None
     evidence_type: str
     source_id: str
     payload: dict[str, Any]

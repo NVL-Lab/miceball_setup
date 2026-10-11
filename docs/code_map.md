@@ -1,6 +1,13 @@
 # Code Map
 
-## Phase 16 accepted responsibility clarification (Slice 1 partially implemented)
+## Phase 16 accepted responsibilities (Session-binding release slice complete)
+
+Decision 323 accepts the existing Evidence Archive's deployment-scoped
+`framework/evidence/` partition for Session-independent runtime evidence with
+`session_id=None`. It requires exact evidence/audit/summary preservation without
+a Session Record. Individual-service stop/kill/cancel remains separate from
+Session-binding release and coordinated framework shutdown; this documentation
+does not claim maintenance validation.
 
 Decisions 304-321 establish Session-independent and GUI-independent lifetime for
 Controller, AcquisitionNode, Ingestor, StorageManager, and SynchronizationManager.
@@ -21,8 +28,10 @@ Controller order. Decisions 318-319 accept Session-independent framework evidenc
 through existing infrastructure, not a separate evidence system. Independent
 startup/readiness and returning-service recognition do not resume interrupted
 work. Q025 is resolved architecturally; Q019 and Q024 remain open.
-No future stop/kill API, runtime model, persisted schema, or validated behavior is
-listed as implemented here.
+Individual-service maintenance now has a narrow implementation through the
+target-owned ServiceMaintenanceInterface and existing participant commands.
+It is not independently validated or audited. General coordinated shutdown and
+independent startup integration remain unfinished; W035 is unchanged.
 
 Decision 322 additionally makes every ControllerActionDecision persistent,
 including no-mutation outcomes. Accepted ownership remains Controller-produced
@@ -38,7 +47,10 @@ cannot confirm archival. Local Session start and finalization require an explici
 Ingestor reference and report its absence without using a node-owned fallback.
 Controller Session Records retain acquisition-envelope audit and Session context,
 but do not include raw runtime evidence or runtime-evidence intake audit; those
-are written through the Evidence Archive. Q019 remains open and Phase 16 is unvalidated.
+are written through the Evidence Archive. The narrow Controller/Ingestor/
+SynchronizationManager release slice is complete, manually software-validated,
+and independently audited PASS (W035); Phase 16 remains incomplete and Q019/Q024
+remain open.
 
 ## Slice 28 implementation (independent validation and audit pending)
 
@@ -78,8 +90,8 @@ distributed launch rejects Controller-selected node roots.
 
 Existing local Experiment orchestration and persistence/finalization APIs remain
 available; Slice 28 does not add remote Experiment lifecycle activation or a new
-remote evidence-compilation/persistence protocol. Normal binding release is now
-partially implemented under Decision 313. Controller explicitly releases a terminal
+remote evidence-compilation/persistence protocol. The narrow Session-binding
+release slice under Decisions 313 and 322 is now complete (W035). Controller explicitly releases a terminal
 reference after confirmed runtime cleanup and successful final persistence, retaining
 a bounded last-release outcome and leaving durable files untouched. Ingestor and
 SynchronizationManager can release empty bindings (synchronization also requires
@@ -105,11 +117,17 @@ successfully written archive input, with changes after compilation invalidating
 that confirmation. Confirmed release retires temporary decisions and leaves
 durable evidence intact. No Q019 drain protocol is implemented. Automated
 broker-double tests exercise successive Sessions with empty central evidence-owner
-bindings; this is not independent/manual validation or full Decision 313 completion.
+bindings.
 Follow-up tests additionally exercise Controller-specific evidence-bearing release,
 subset/stale compilation, publication without archival confirmation, failure
 retention, evidence-bearing service reuse, and concurrent intake/release. These
-are automated implementation checks, not independent validation or audit.
+are automated implementation checks. W035 separately records manual IPython
+validation and independent audit PASS, including overlapping/stale release,
+preservation of the newer Session, continued acquisition, and cleanup. Independent
+focused tests passed 152; full discovery ran 493 with 486 passed, 7 optional skips,
+and zero failures. Negative controls reproduced the original concurrency defect
+with identity checks disabled. These are prior validation results, not tests run
+during documentation synchronization or real hardware/external NATS validation.
 The existing local Controller release refreshes the terminal Session Record before
 Ingestor release; synchronization handoff is confirmed while Ingestor retains its
 accepted evidence. These checks do not establish Session-wide producer completeness.
@@ -174,6 +192,8 @@ guarantee remain deferred. M014/W034 retain completed Slice 27 scope and status.
 - NatsAcquisitionNodeCommunication: Public import for targeted AcquisitionNode command consumption, local duplicate detection, explicit command execution, command-result publication, and runtime evidence publication.
 - NatsIngestorCommunication: Public import for durable runtime evidence consumption into the existing Ingestor ownership boundary.
 - NatsSynchronizationManagerCommunication: Public import for participant-scoped readiness and Session preparation/abort command handling without transport-owned timing semantics.
+- NatsServiceMaintenanceCommunication: Public import for participant-scoped Controller/StorageManager administrative commands using existing NATS command/result paths.
+- ServiceMaintenanceInterface: Public import for target-owned correlated stop/kill/cancel and evidence-confirmed operational retirement.
 - InMemoryStorageManager: Public import for the minimal in-memory acquisition envelope storage boundary.
 - PersistentStorageManager: Public import for the v1 persistent StorageManager implementation that stores accepted envelopes as JSONL and writes caller-supplied Session Record and Evidence Archive products.
 - SshRetrievalEndpoint, ArtifactRetrievalResult, ArtifactCollectionResult: Public imports for deployment-local SSH configuration and StorageManager artifact collection results.
@@ -188,7 +208,7 @@ guarantee remain deferred. M014/W034 retain completed Slice 27 scope and status.
 - ServiceReadiness: Public import for readiness records produced by framework services and consumed by Session initialization.
 - SynchronizationManager: Public import for the minimal Phase 1 Session Time owner.
 - SynchronizationMapping: Public import for one immutable SynchronizationManager-owned local-to-Session timing relationship.
-- build_runtime_subject: Public helper that constructs one concrete Session-scoped runtime routing subject.
+- build_runtime_subject: Public helper that constructs concrete Session-scoped or accepted participant/framework-scoped runtime routing subjects.
 - build_group_command_messages: Public helper that fans one command intent out to configured members of one component group.
 - aggregate_group_command_results: Public issuer-side helper that combines per-target results and records absent expected targets as unresolved.
 - parse_runtime_subject: Public helper that parses one concrete runtime routing subject into plain routing fields.
@@ -202,9 +222,9 @@ guarantee remain deferred. M014/W034 retain completed Slice 27 scope and status.
 - GroupCommandOutcome: Stores the issuer-owned aggregate outcome, individual results, and unresolved target evidence for one group command intent.
 - RuntimeCommandMessage: Stores one immutable plain-data command intent with explicit source, target, Session, command identity, type, and payload.
 - RuntimeCommandResultMessage: Stores one immutable plain-data command result and validates its shared status vocabulary.
-- RuntimeEvidenceMessage: Stores one immutable plain-data durable evidence message plus producer-supplied persistence intent without interpreting its domain meaning.
+- RuntimeEvidenceMessage: Stores one immutable plain-data evidence message with real Session identity or framework session_id=None plus producer-supplied persistence intent without interpreting meaning.
 - RuntimeTelemetryMessage: Stores one immutable plain-data transient telemetry message without making it authoritative evidence.
-- build_runtime_subject: Builds the accepted message-rooted, Session-scoped routing subject and validates its message class and concrete tokens.
+- build_runtime_subject: Builds and validates Session-scoped routing or participant-scoped commands/results and framework evidence with session_id=None, without adding Session-independent telemetry.
 - parse_runtime_subject: Parses an accepted concrete routing subject into plain routing fields.
 - build_group_command_messages: Creates one targeted RuntimeCommandMessage per configured participant in an explicitly selected component group.
 - aggregate_group_command_results: Computes the issuer-owned group outcome without broker or target-side aggregation and keeps missing results unresolved rather than failed.
@@ -341,7 +361,12 @@ is complete; W030 records manual validation, focused tests, and audit reassessme
 
 - IngestAuditRecord: Records ingest order, receive time, accepted status, and reason for one received acquisition envelope and exposes audit evidence as plain data.
 - InMemoryIngestor: Receives envelopes and runtime evidence, optionally journals/reconstructs the normal evidence view for a known Session, deduplicates evidence_id content, and compiles persistent evidence without interpreting meaning.
-- InMemoryIngestor.__init__(storage_manager=None, *, session_id=None, recovery_journal_path=None, component_id="ingestor", recovery_journal_root=None): Preserves explicit known-Session recovery while optionally configuring a deployment root for later Session-specific preparation.
+- InMemoryIngestor.__init__(storage_manager=None, *, session_id=None, recovery_journal_path=None, component_id="ingestor", recovery_journal_root=None, framework_recovery_journal_path=None, evidence_scope="session"): Preserves known-Session intake and optionally creates a deployment-scoped framework partition using the same Ingestor implementation without a Session binding.
+- InMemoryIngestor.prepare_framework_evidence(recovery_journal_path): Configures framework journal-backed intake once, retaining accepted messages and original duplicate/rejected intake audit across recovery independently of Session release.
+- InMemoryIngestor.compile_framework_runtime_evidence(): Returns only producer-marked persistent framework messages and all framework intake audit records through the existing compilation mechanism.
+- InMemoryIngestor.await_durable_runtime_evidence(evidence, timeout_s): Boundedly observes exact local journal-backed acceptance using futures, without polling, retrying, or equating JetStream publication with acceptance.
+- InMemoryIngestor.framework_preservation_guard(storage_manager): Holds framework intake and StorageManager preservation steady while checking exact current persistent-message/all-audit coverage, without a Session Record.
+- InMemoryIngestor.maintenance_blockers(ingestor, storage_manager): Reports unresolved journal integrity or incompletely preserved Session intake without deciding lifecycle or inferring dependencies.
 - InMemoryIngestor.prepare_session(session_id): Creates or reconstructs the intended Session recovery journal from its deployment root before confirming evidence intake preparation.
 - InMemoryIngestor.abort_session_initialization(session_id): Disables prepared intake while preserving durable journal entries and accepted evidence, clearing empty preparation bindings without deleting files.
 - InMemoryIngestor.release_session(session_id, *, storage_manager=None): Releases a matching healthy binding, requiring exact persistent runtime evidence/all runtime-audit archive coverage and existing terminal Session Record/acquisition-envelope preservation for evidence-bearing bindings; intake and storage guards remain held through temporary-state retirement without deleting journals.
@@ -367,8 +392,10 @@ its parent directory must already exist. Legacy local in-memory use remains
 available without these arguments; broker evidence subscriptions require a
 matching journal, either constructor-configured or prepared through
 prepare_session(session_id) with recovery_journal_root.
-Journal entries preserve messages, not original ingest audit timestamps: startup
+Session journal entries preserve messages, not original ingest audit timestamps: startup
 generates intake audit records marked recovered at reconstruction time. The
+framework partition journals original intake audit alongside accepted messages,
+including duplicate and rejected intake, using the same Ingestor recovery path. The
 existing Slice 22 compiler is unchanged. No journal cleanup or Session discovery
 is implemented (Q024); acceptance deduplication is not Controller action
 deduplication, and Session-wide consumption/finalization remains open (Q019).
@@ -381,7 +408,7 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 - NatsControllerCommunication.check_ready(): Returns required NATS communication readiness for launch gating.
 - NatsControllerCommunication.request_command(participant, command_type, session_id, payload, result_window_s): Publishes once and awaits the correlated final result, returning None for missing/invalid confirmation without retry or assuming remote state is absent.
 - NatsControllerCommunication.subscribe_command_results(session_id, callback=None): Accepts None for participant-scoped results and a real Session ID for Session-scoped results.
-- NatsCommunicationBoundary.ensure_streams(): Retains Session stream filters and adds messages.command.> and messages.command_result.> to their existing JetStream streams for pre-Session commands, leaving evidence and Core NATS telemetry unchanged.
+- NatsCommunicationBoundary.ensure_streams(): Retains Session stream filters and adds participant command/result filters and messages.evidence.> for framework evidence to the existing three JetStream streams, leaving telemetry Core NATS only.
 - NatsAcquisitionNodeCommunication.subscribe_commands(): Returns two subscriptions for participant-scoped and Session-scoped addressed commands, keeping the same handler usable across binding changes.
 - NatsAcquisitionNodeCommunication: Consumes targeted readiness, scientific-output preparation, or runtime commands, deduplicates by command_id, and publishes explicit outcomes without owning Experiment lifecycle.
 - NatsAcquisitionNodeCommunication.execute_command: Executes `prepare_experiment_scientific_outputs` through the existing node API with explicit Experiment/product identities and returns readiness diagnostics in the existing correlated final command result.
@@ -392,7 +419,33 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 - _participant_result: Builds an existing correlated final command-result message for one service-owned operation.
 - _execute_service_command: Delegates readiness, Session preparation, or abort to the service owner and retains existing command-ID deduplication.
 - _subscribe_participant_commands: Establishes the two addressed command subscriptions reused by mandatory service handlers.
-- NatsIngestorCommunication.subscribe_evidence(session_id, callback=None): Requires a matching Session recovery journal and ACKs after successful durable acceptance, invoking the callback only for newly accepted evidence, not identical redelivery.
+- NatsIngestorCommunication.subscribe_evidence(session_id, callback=None): Requires the matching Session journal or a configured framework journal for None and ACKs after successful durable acceptance, invoking callbacks only for newly accepted evidence.
+- NatsControllerCommunication.maintenance_requests: Returns detached administrative command intent, attempt identity, and authorization retained by the existing command issuer independently of received command results.
+- NatsServiceMaintenanceCommunication(boundary, maintenance): Provides an existing participant-command/result endpoint for Controller or StorageManager maintenance without Controller-coordinated framework shutdown.
+- NatsServiceMaintenanceCommunication.subscribe_commands(): Routes correlated maintenance commands through the existing JetStream subscriptions and publishes service-owned results.
+- _execute_maintenance_command: Connects existing service handlers to their configured administrative interface and brokered evidence publisher without a local publication fallback.
+
+## src/lab_sync_acquisition/service_maintenance.py
+
+- ServiceMaintenanceInterface(service, participant, *, ingestor, storage_manager, preservation_window_s, close_resources, operational_dependents=None, evidence_publisher=None): Attaches one service-owned administrative interface with an explicit bounded preservation window, confirmed resource-closeout callback, and optional explicitly configured operational Ingestor dependencies.
+- ServiceMaintenanceInterface.execute_command(command): Serializes and deduplicates stop/kill/cancel attempts, preserves original blockers and authorization, and confirms orderly evidence preservation before retiring only the target service's operational admission.
+- ServiceMaintenanceInterface.command_results: Returns detached correlated last-confirmed results with separate completed/blocked/failed outcomes and termination confirmation.
+- ServiceMaintenanceInterface.evidence: Returns retained producer-owned persistent attempt evidence, including preservation failures.
+- ServiceMaintenanceInterface.terminated: Reports confirmed operational-service retirement rather than OS process death.
+- service_operation(new_work=False): Tracks active operations and rejects new unrelated work during pending maintenance while allowing already-admitted workflows and evidence/cleanup obligations to continue until retirement.
+
+Maintenance must be configured with an explicit service-owned resource closeout
+callback and preservation window. Local callers may use attached intake;
+configured NATS handlers publish evidence through JetStream and boundedly await
+actual acceptance through the configured Ingestor confirmation interface.
+Publication acknowledgment alone cannot complete stop. Resource callbacks must
+not cut off required evidence/archival capabilities prematurely: lost capabilities
+produce blocked or failed outcomes, never fabricated preservation. Operational
+admission retires only after confirmed cleanup and exact guarded archival;
+administrative result retention does not assert OS process death. Kill may leave
+scientific/evidence obligations unresolved and reports required manual
+intervention when force cannot be confirmed. No cross-host preservation
+acknowledgment protocol or automatic service recovery is added.
 
 ## src/lab_sync_acquisition/service_readiness.py
 
@@ -427,6 +480,14 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 - PersistentStorageManager.write_final_session_record: Writes caller-supplied final Session Record evidence to `session_<session_id>/session_record_final.json`, confirming its path only after successful writing.
 - PersistentStorageManager.get_session_preservation_confirmation(session_id): Returns a detached snapshot of exact archived message/audit dictionaries and the existing successfully written final Session Record for the latest matching Session, or None when required writes lack confirmation; the snapshot alone does not guard a later release commit.
 - PersistentStorageManager.session_preservation_guard(session_id): Synchronous context manager yielding current confirmation while holding the archive/final-record write lock through the caller's release commit; callers must not await or acquire a new Ingestor intake lock while holding it.
+- PersistentStorageManager.write_framework_evidence_archive(compiled_runtime_evidence): Writes and flushes/fsyncs the existing evidence/audit/summary products under the records_path parent framework/evidence partition, invalidating previous confirmation before a rewrite.
+- PersistentStorageManager.get_framework_preservation_confirmation(): Compares all three current durable framework products with the exact successful compilation, without requiring a Session Record or accepting stale/partial writes.
+- PersistentStorageManager.framework_preservation_guard(): Holds the existing storage lock through a synchronous framework evidence preservation check and retirement commit.
+- PersistentStorageManager.maintenance_blockers(ingestor, storage_manager): Reports failed persistence or unpreserved owned collection evidence, while active operations are separately tracked and future collections are not blockers.
+- Controller.maintenance_blockers(ingestor, storage_manager): Reports active Session, unfinished work, cleanup, final-record, and current decision-archive obligations without requiring other idle services to stop.
+- AcquisitionNode.maintenance_blockers(ingestor, storage_manager): Reports owned Session participation, reservations, unfinished acquisition/streams, unpreserved manifests, and unreleased devices.
+- SynchronizationManager.maintenance_blockers(ingestor, storage_manager): Reports running Session Time, active mappings, and mapping evidence without confirmed durable Ingestor acceptance.
+- Principal-service _close_maintenance_resources(force): Reuses each target's existing resource cleanup without clearing evidence, deleting journals, or cascading closeout to other services.
 
 ## src/lab_sync_acquisition/synchronization.py
 

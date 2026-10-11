@@ -8589,6 +8589,48 @@ Existing accepted requirements and historical validation records are preserved.
 
 ---
 
+## Decision 323: Session-independent framework evidence uses the existing Evidence Archive infrastructure
+
+**Status:** Accepted
+
+The existing Evidence Archive supports two evidence scopes. Session evidence
+retains its current layout and behavior:
+
+```text
+<storage_root>/session_<session_id>/evidence/
+    runtime_evidence.jsonl
+    ingest_audit.jsonl
+    compilation_summary.json
+```
+
+Session-independent framework evidence uses the accepted persistent partition:
+
+```text
+<storage_root>/framework/evidence/
+    runtime_evidence.jsonl
+    ingest_audit.jsonl
+    compilation_summary.json
+```
+
+The framework partition uses a stable deployment-configured StorageManager
+location and does not depend on an active Session. Framework
+RuntimeEvidenceMessage records use session_id=None, serialized as JSON null.
+Extend existing validation and participant-independent evidence routing as
+necessary. Reuse Ingestor acceptance, deduplication, recovery journaling,
+producer-owned is_persistent, intake audit, and compilation. Reuse StorageManager
+archive products, storage locking, and preservation-confirmation principles.
+Do not require a Session Record or create a Session binding. Session-scoped
+evidence behavior remains unchanged.
+
+StorageManager supports durable confirmation of the exact framework compilation,
+including persistent evidence, required intake audit, and compilation summary.
+An older snapshot cannot authorize preservation of subsequently accepted evidence
+or audit records. Failed or incomplete writes cannot establish confirmation for
+the newer snapshot. No new evidence subsystem, revision mechanism, receipt file,
+or commit protocol is introduced.
+
+---
+
 # Accepted Architectural Principles
 
 The following principles summarize the accepted decisions so far.
@@ -8907,6 +8949,7 @@ resolve Q019 or claim implementation.
 320. Unexpected stop or forced termination does not automatically stop/restart other services; missing dependencies affect required operations without promising interrupted-work recovery.
 321. Services start independently, load required durable configuration/records, use existing communication/dependency mechanisms, report actual readiness, and recognize returning services without automatic Session/transfer recovery. Q025 is resolved architecturally; Phase 16 remains unimplemented/unvalidated and M015 open.
 322. Every ControllerActionDecision is producer-marked persistent through the existing RuntimeEvidenceMessage/Ingestor/StorageManager/Evidence Archive pathway; Controller binding release requires confirmed archival of its Session's decisions plus required cleanup and Session Record obligations, not merely NATS publication. Temporary decisions may then be retired without deleting durable evidence; the Controller-specific path is implemented, Decision 313 remains partial, Phase 16 unvalidated, and Q019 open.
+323. Session-independent framework evidence uses the existing framework/evidence partition with JSON-null Session identity and exact persistent-message, intake-audit, and summary confirmation, without a Session Record, fabricated Session binding, new receipt file, or commit protocol.
 
 ---
 

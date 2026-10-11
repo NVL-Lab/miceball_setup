@@ -1129,7 +1129,7 @@ class SessionLaunchTests(unittest.IsolatedAsyncioTestCase):
         streams = {call.kwargs["config"].name: call.kwargs["config"].subjects for call in self.broker.add_stream.await_args_list}
         self.assertEqual(streams["LAB_COMMANDS"], ["messages.*.command.>", "messages.command.>"])
         self.assertEqual(streams["LAB_COMMAND_RESULTS"], ["messages.*.command_result.>", "messages.command_result.>"])
-        self.assertEqual(streams["LAB_EVIDENCE"], ["messages.*.evidence.>"])
+        self.assertEqual(streams["LAB_EVIDENCE"], ["messages.*.evidence.>", "messages.evidence.>"])
 
     async def test_node_abort_is_idempotent_and_preserves_finalized_artifacts(self):
         node, declaration, _ = await self.node()
