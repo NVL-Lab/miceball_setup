@@ -718,6 +718,14 @@ python scripts/demo_nats_runtime.py --server nats://127.0.0.1:4222
 
 The project follows an architecture-first development process. Architectural decisions are discussed and documented before the corresponding implementation is added to the framework.
 
+## Development Workflow
+
+Contributors and coding agents must follow [AGENTS.md](AGENTS.md) for mandatory
+repository engineering instructions. See
+[Architecture Chat Development Workflow](docs/architecture_chat_workflow.md) for
+the complete role boundaries, explicit user architectural acceptance rules, and
+implementation, independent validation, audit, and closure sequence.
+
 
 ---
 
@@ -743,7 +751,9 @@ docs/architecture\_decisions.md
 
 
 
-This document contains architectural decisions that have been accepted by the architecture board.
+This document records accepted architectural decisions. Only the user can
+explicitly accept new architecture; existing formally recorded accepted decisions
+remain authoritative.
 
 
 
@@ -763,7 +773,9 @@ docs/open\_questions.md
 
 
 
-This document tracks unresolved architectural questions that must be addressed before implementation begins.
+This document tracks unresolved architectural questions. Questions required by a
+particular implementation slice must be resolved and accepted before that slice
+begins; deferred future work is not an implementation requirement.
 
 
 

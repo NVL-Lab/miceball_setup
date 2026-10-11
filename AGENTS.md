@@ -2,8 +2,36 @@
 
 Instructions for AI coding agents working in this repository.
 
-This repository is in the architecture design phase.
+This project advances through successive accepted architecture, implementation,
+independent validation, and audit slices.
 Do not treat unresolved architectural questions as implementation requirements.
+
+---
+
+# Mandatory Architectural Authority And Workflow
+
+1. Only the user can accept architecture. New decisions and clarifications require
+   the user's explicit **"accept"** for that decision; do not infer acceptance from
+   recommendations, instructions, implementation, passing tests, silence, or
+   informal agreement. Existing formally recorded accepted decisions remain
+   authoritative.
+2. The Implementation Coordinator Chat (ICC) coordinates Codex work but cannot
+   approve or change architecture. Recording an explicitly accepted decision when
+   instructed by ICC does not itself constitute acceptance.
+3. Codex makes ordinary implementation choices within accepted contracts, but must
+   stop and report architectural conflicts or missing requirements to ICC rather
+   than invent ownership, interfaces, lifecycle guarantees, or evidence obligations.
+   ICC returns these questions to the Low-Level Chat (LLC) or High-Level Chat (HLC)
+   for clarification and explicit user acceptance.
+4. Accepted architecture must be synchronized in documentation before
+   implementation begins.
+5. Codex automated tests do not replace independent manual IPython validation or
+   independent audit. Those are separate stages; required validation and audit
+   must pass before a slice is marked validated or complete.
+6. Follow [docs/architecture_chat_workflow.md](docs/architecture_chat_workflow.md)
+   for the complete role boundaries, implementation sequence, and closure rules.
+   Documentation-only tasks preserve accepted architecture and authorized scope
+   without automatically requiring implementation validation.
 
 ---
 
@@ -319,13 +347,15 @@ design_decisions.md
 codex_governance.md
 ```
 
-until the architecture phase accepts those documents.
+until the user explicitly accepts the relevant architecture and authorizes
+creation of those documents.
 
 ---
 
 # Stop Conditions
 
-Stop and ask for architectural clarification if a requested change requires deciding:
+Stop and report to ICC for architectural clarification if a requested change
+requires deciding unresolved architecture concerning:
 
 * what a session is
 * what a stream is
