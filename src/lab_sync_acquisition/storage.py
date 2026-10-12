@@ -705,6 +705,33 @@ class PersistentStorageManager:
                     break
             return blockers
 
+    def maintenance_diagnostics(self, ingestor, storage_manager) -> dict[str, Any]:
+        """Report unfinished persistence and original collection evidence by existing identities."""
+        with self._preservation_lock:
+            messages = tuple(self._collection_evidence)
+            scopes = sorted(self._unfinished_archive_scopes, key=lambda value: value or "")
+            paths = sorted(str(path) for path in self._unfinished_record_paths)
+        interface = getattr(self, "_maintenance", None)
+        blockers = self.maintenance_blockers(ingestor, storage_manager)
+        evidence = []
+        for message in messages:
+            confirmation = self.get_session_preservation_confirmation(message.session_id)
+            preserved = confirmation is not None and message.to_dict() in confirmation["runtime_evidence"]
+            evidence.append({"session_id": message.session_id, "evidence_id": message.evidence_id,
+                "archival_outcome": "completed" if preserved else "unresolved",
+                "administrative_outcome": interface._administrative_outcome({"evidence_id": message.evidence_id}) if interface else None,
+                "recovery_assessment": (None if preserved else "potentially_recoverable"
+                    if ingestor.has_durable_runtime_evidence(message) else "administrator_intervention"),
+                "artifact_results": deepcopy(message.payload["artifact_results"])})
+        return {
+            "unfinished_archive_scopes": scopes,
+            "unfinished_record_paths": paths,
+            "collection_evidence": evidence,
+            "restricted_persistence_scopes": ("recorded paths/archive scopes; consistency unconfirmed where unfinished"
+                                               if blockers else None),
+            "blocking_conditions": blockers,
+        }
+
     async def _close_maintenance_resources(self, force: bool) -> None:
         # Files and SFTP resources are closed by the operations that opened them.
         pass

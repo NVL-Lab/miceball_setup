@@ -9031,9 +9031,156 @@ launching/restarting, GUI development, new Session states, and automatic retry/r
 remain outside this work.
 
 **Implementation status for Decisions 327-331:** Accepted startup/return low-level
-architecture is synchronized and implemented with automated broker-double coverage;
-independent manual validation and audit remain pending. W035-W037 and Decisions 325-326 retain
-their completed narrow-slice status. Phase 16 and M015 remain open.
+architecture is synchronized and implemented. This narrow integration slice has
+completed automated testing, independent manual IPython validation, and independent
+re-audit PASS after correction of the two initial P2 findings, as documented in W038.
+W035-W037 and Decisions 325-326 retain their completed narrow-slice status.
+Phase 16, M015, Q019, Q022, and Q024 remain open.
+
+---
+
+## Decision 332: Services report unresolved previous work through existing interfaces
+
+**Status:** Accepted
+
+Each service reports unresolved previous work using its existing records and
+accepted responsibilities. Reuse `ServiceReadiness`, service-owned diagnostics,
+`check_readiness`, `ServiceMaintenanceInterface`, and framework evidence.
+
+No universal unresolved-work model, recovery registry, new recovery-report command,
+or reporting subsystem is introduced. Existing interfaces remain the reporting
+boundary; this decision does not invent a shared diagnostic schema.
+
+---
+
+## Decision 333: Unresolved-work classification separates outcome, recovery possibility, and operational impact
+
+**Status:** Accepted
+
+Within existing service-owned diagnostics and evidence, distinguish independently:
+
+- Obligation outcome: proven completed, unresolved, or explicitly abandoned.
+- Recovery possibility: potentially recoverable using supported service-owned
+  mechanisms, or requiring administrator intervention.
+- Operational impact: restrictions on affected scopes versus broader service
+  restrictions.
+
+Recoverable does not mean recovered. Abandoned does not mean completed. These
+dimensions do not introduce global recovery states or enums, change Session
+lifecycle, or redefine existing maintenance-attempt outcomes.
+
+---
+
+## Decision 334: Unresolved-work protection uses existing affected-scope identities
+
+**Status:** Accepted
+
+Reuse existing identities and service-owned references, including
+`RuntimeParticipant`, Session, Experiment, device, artifact, evidence, command,
+transfer, synchronization mapping, and stop attempt as appropriate. No universal
+recovery ID or scope model is introduced.
+
+A service may restrict only the affected scope when it can establish that the
+restriction is sufficient. If it cannot prove an unsafe condition is limited to
+a specific scope, it must not assume other potentially affected resources are safe.
+
+Existing reservation, cleanup, binding-release, and service-readiness protections
+remain authoritative, including Decisions 300-302, 313, and 329. Reporting or
+classifying an obligation does not bypass those protections.
+
+---
+
+## Decision 335: Administrative drop abandons an obligation without proving recovery or safety
+
+**Status:** Accepted
+
+Reuse `ServiceMaintenanceInterface.record_administrator_decision(...)` and the
+existing framework evidence pathway. Record the administrator, affected service
+and obligation, explicit decision, and available justification using existing
+service-owned information.
+
+An explicit administrative drop closes the obligation administratively as
+abandoned/not recovered. It does not prove the original work succeeded, cleanup
+completed, resources became safe, or recovery occurred.
+
+Preserve the distinction between administrative decision, actual action, confirmed
+outcome, and archival confirmation. This supplements Decision 330's evidence-only
+decision contract with the narrow administrative-abandonment boundary; it does not
+authorize recovery execution, data deletion, or release of unsafe resources.
+
+---
+
+## Decision 336: Safe administrative abandonment permits bounded-memory cleanup without durable deletion
+
+**Status:** Accepted
+
+After administrative abandonment has been recorded and applicable
+evidence-preservation, resource-safety, and closeout obligations are satisfied,
+release temporary in-memory information no longer necessary for correctness.
+
+Retain the minimum information still required to protect unsafe resources or
+unresolved safety obligations. Administrative abandonment alone does not establish
+the conditions for cleanup or authorize discarding outstanding safety obligations
+under Decision 313.
+
+Do not automatically delete durable evidence, scientific records, or recovery
+journals. Their retention/deletion policies remain separately governed or deferred,
+including the journal lifecycle left open by Decision 280 and Q024.
+
+---
+
+## Decision 337: Unresolved-work assessment retains service-specific ownership and confirmation
+
+**Status:** Accepted
+
+Existing service-specific responsibilities remain unchanged:
+
+- StorageManager: durable writes, archives, transfers, confirmations, and storage
+  consistency.
+- Ingestor: evidence intake, validation, audit, retention, accepted recovery
+  journals, and compilation.
+- AcquisitionNode: acquisition participation, devices, resource cleanup, local
+  artifacts, manifests, and completion evidence.
+- Controller: commands, coordination, participant outcomes, Session/Experiment
+  orchestration, and administrative attempts.
+- SynchronizationManager: timing evidence, mappings, stopped-time obligations,
+  and synchronization closeout.
+
+Services establish completion only from trustworthy existing records and confirmed
+state, not intent, transport acknowledgment, missing responses, or incomplete
+evidence. No additional owner, recovery subsystem, or reporting mechanism is created.
+
+---
+
+## Decision 338: Unresolved-work and abandonment evidence reuse existing preservation boundaries
+
+**Status:** Accepted
+
+Reuse `RuntimeEvidenceMessage`, Ingestor, StorageManager, and the existing framework
+Evidence Archive. Preserve evidence of unresolved-work reports, recovery
+assessments, classifications, administrator decisions, and actual confirmed outcomes.
+
+Keep producer persistence intent, publication, Ingestor acceptance, and
+StorageManager archival confirmation distinct under Decisions 219-225, 323, and
+331. Avoid redundant unchanged evidence. No additional persistence mechanism is
+introduced.
+
+Detailed service-specific recovery procedures, execution of resume/drop beyond
+the accepted administrative reporting and safe-closeout boundary, journal
+retention/deletion, and broader application recovery remain open Q024 work.
+This slice does not authorize universal or automatic recovery, replay, retry,
+resumption, deletion, GUI implementation, process supervision, or new Session states.
+Q019 retains Session-wide evidence consumption/finalization; Q022 retains deployment
+configuration and discovery.
+
+**Implementation status for Decisions 332-338:** Accepted low-level Q024 contracts
+have partial implementation with automated coverage: owner-specific diagnostics
+through existing readiness, explicit abandonment evidence, and guarded release of
+redundant interface-owned producer evidence copies. Resource-specific cleanup and
+wider cache retirement remain unimplemented where safety/closeout/idempotency
+contracts are not established. Independent manual validation and audit are pending.
+W038 and prior validated workflows retain their completed narrow-slice status.
+Phase 16, M015, Q019, Q022, and Q024 remain open.
 
 ---
 
@@ -9369,6 +9516,14 @@ requirements remain authoritative.
 329. Returned services with normal readiness and no conflicting obligations are usable under existing contracts; obligations restrict affected operations/resources without special re-admission or automatic recovery.
 330. Explicit administrator resume/drop decisions are recorded through existing framework evidence; recording does not confirm execution, whose mechanics remain deferred to Q024.
 331. Startup/return, meaningful readiness changes, unresolved work, administrator decisions, and available actual results use existing framework evidence/preservation boundaries; unavailable archival confirmation requires an operator warning, not blocked startup when other accepted prerequisites are met or a second persistence system. Startup/return is implemented with automated coverage; independent manual validation and audit remain pending. The Services tab is a future proposal and Phase 16/M015 remain open.
+
+332. Services report unresolved previous work through existing readiness, diagnostics, commands, administrative interfaces, and framework evidence, without a universal recovery model, registry, or new reporting command.
+333. Obligation outcome, recovery possibility, and operational impact are independent service-owned classification dimensions, not global states; recoverable is not recovered and abandoned is not completed.
+334. Existing identities define affected scopes; narrow restrictions require demonstrated sufficiency, and unproven scope containment cannot establish safety for other potentially affected resources.
+335. Explicit administrative drop records the administrator, service/obligation, decision, and available justification and closes work as abandoned/not recovered, without proving completion, cleanup, safety, or recovery.
+336. Recorded abandonment permits release of unnecessary temporary memory only after applicable preservation, safety, and closeout obligations are satisfied; minimum safety information and durable records/journals remain protected.
+337. Existing service-specific owners assess their own obligations and confirm completion from trustworthy records and state, never intent, transport acknowledgment, missing responses, or incomplete evidence.
+338. Unresolved-work reports, recovery assessments, classifications, administrator decisions, and confirmed outcomes reuse existing producer persistence intent and Ingestor/StorageManager framework archival boundaries; partial reporting/abandonment/producer-memory implementation has automated coverage, with independent validation/audit pending and detailed recovery/journal lifecycle still Q024 work.
 
 ---
 

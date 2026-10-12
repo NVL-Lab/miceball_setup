@@ -1298,6 +1298,27 @@ class Controller:
                 blockers.append("Unfinished framework shutdown coordination")
         return blockers
 
+    def maintenance_diagnostics(self, ingestor, storage_manager) -> dict[str, Any]:
+        """Report owned bindings and actual framework-attempt results without executing recovery."""
+        interface = getattr(self, "_maintenance", None)
+        blockers = self.maintenance_blockers(ingestor, storage_manager)
+        return {
+            "session_binding": {"session_id": self._session.session_id if self._session else None,
+                "state": self._session.current_state.value if self._session else None,
+                "cleanup_confirmed": self._runtime_cleanup_confirmed,
+                "administrative_outcome": (interface._administrative_outcome({"session_id": self._session.session_id})
+                                            if interface and self._session else None)},
+            "last_binding_release": dict(self._last_released_session) if self._last_released_session else None,
+            "framework_attempts": {identity: {"actual_outcome": attempt["outcome"],
+                "obligation_outcome": "completed" if attempt["outcome"] == "completed" else
+                    (interface._administrative_outcome({"framework_stop_attempt_id": identity}) if interface else None) or "unresolved",
+                "participant_scope": deepcopy(attempt["scope"]),
+                "recovery_assessment": None if attempt["outcome"] == "completed" else "administrator_intervention"}
+                for identity, attempt in self._framework_shutdown_attempts.items()},
+            "restricted_coordination": "current Session and unfinished framework attempts" if blockers else None,
+            "blocking_conditions": blockers,
+        }
+
     async def _close_maintenance_resources(self, force: bool) -> None:
         for subscription in self._launch_subscriptions:
             await subscription.unsubscribe()

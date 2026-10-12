@@ -67,6 +67,33 @@ NATS, readiness, and framework evidence interfaces are extended below, without
 a registry or another service-management component. Resume/drop execution remains Q024,
 deployment/discovery details remain Q022, and Session-wide consumption remains Q019.
 
+### Q024 narrow implementation (independent validation and audit pending)
+
+Decisions 332-338 now have service-owned `maintenance_diagnostics(ingestor,
+storage_manager)` readbacks on Controller, AcquisitionNode, InMemoryIngestor,
+PersistentStorageManager, and SynchronizationManager. Existing `check_readiness`
+results and changed readiness evidence carry these owner-specific diagnostics,
+not a universal recovery schema. Actual completion, administrative abandonment,
+recoverability assessments, and affected/broader restrictions remain distinct.
+
+Explicit drop adds an abandoned obligation outcome to the existing administrator
+decision evidence without executing recovery or claiming cleanup. After current
+complete framework archival, exact journal-backed acceptance, and existing
+resource/closeout/admission checks, a drop referencing an `evidence_id` or
+`stop_attempt_id` may retire redundant interface-owned producer evidence copies.
+Intake, archival, and admission locks protect that synchronous memory commitment;
+no lock spans publication or an await. Administrative decisions, command/result
+and attempt history, resource guards, scientific records, and journals remain.
+The actual release checkpoint is retained before submission; failure to archive
+that checkpoint leaves a visible preservation obligation, not an invented undo.
+
+Reporting is informational and does not authorize unrelated work; existing owner
+guards remain authoritative. Resource-specific abandonment/cleanup, wider cache
+retirement with undefined idempotency lifetimes, and application recovery remain
+unimplemented pending the relevant safety/closeout contracts. W035-W038 are
+unchanged; this partial slice is not independently validated or audited. Q019,
+Q022, Q024, Phase 16, and M015 remain open.
+
 Decision 322 additionally makes every ControllerActionDecision persistent,
 including no-mutation outcomes. Accepted ownership remains Controller-produced
 RuntimeEvidenceMessage with is_persistent=True -> Ingestor compilation ->
@@ -483,11 +510,14 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 - ServiceMaintenanceInterface.receive_dependency_readiness(participant, readiness): Updates or invalidates only a configured dependency's current report and advances private ordering counters so earlier checks cannot overwrite subsequent observations, without changing Session lifecycle, reservations, or cleanup obligations.
 - ServiceMaintenanceInterface.dependency_reports(): Returns current dependency records or raises RuntimeError for missing current evidence, retaining the existing boolean readiness schema.
 - ServiceMaintenanceInterface.announce_readiness(*, startup=False): Creates producer-persistent service_readiness RuntimeEvidenceMessage records for startup/return or changed snapshots, including existing node/reservation and obligation evidence, and suppresses unchanged snapshots without replaying failed publications.
-- ServiceMaintenanceInterface.record_administrator_decision(administrator_id, decision, details): Records explicit resume/drop choices as persistent administrator_decision framework evidence without executing recovery/deletion, clearing obligations, or claiming an operational outcome.
+- ServiceMaintenanceInterface.record_administrator_decision(administrator_id, decision, details): Records persistent resume/drop choices with a separate unresolved/abandoned obligation outcome, returning guarded temporary-producer-copy release and its preservation observations without executing recovery, deleting durable data, or clearing safety obligations.
 - ServiceMaintenanceInterface.terminated: Reports confirmed operational-service retirement rather than OS process death.
 - ServiceMaintenanceInterface._retirement_guard(force=False): Commits retirement under intake/storage/admission locks as applicable and retains final Ingestor compilation without imposing orderly preservation prerequisites on authorized kill.
 - ServiceMaintenanceInterface._preserve_message(message, status=None): Reuses one publication/handoff, durable intake confirmation, and framework archival path for maintenance, startup/readiness, and administrator-decision evidence while retaining the producer's original record.
 - ServiceMaintenanceInterface._readiness_payload(): Packages existing participant, service/node readiness, configured-dependency reports, and owner diagnostics as plain runtime-evidence data without guessing technical unreadiness for unavailable reports.
+- ServiceMaintenanceInterface._diagnostic_payload(): Adds owner-specific diagnostics and actual maintenance-attempt confirmations to existing readiness responses without defining a shared recovery schema.
+- ServiceMaintenanceInterface._administrative_outcome(reference): Projects explicit abandonment from retained administrator choices matching existing service-owned references, without a registry or mutation of original outcomes.
+- ServiceMaintenanceInterface._release_abandoned_evidence(decision): Retires only unnecessary producer copies under existing complete-preservation/resource/admission guards and retains abandonment markers plus actual release evidence.
 - ServiceMaintenanceInterface._record_framework_evidence(message, status=None): Exposes separate preservation observations and an operator warning on failure, without turning independent startup into an orderly-stop preservation gate.
 - service_operation(new_work=False): Tracks service operations, including existing administrative interfaces and their outgoing NATS dependency requests, rejecting new unrelated work during pending maintenance while permitting nested admitted calls only within the same task or thread, not through inherited child-task context.
 
@@ -586,9 +616,14 @@ recovery is introduced. Phase 16 and M015 remain open.
 - PersistentStorageManager.framework_preservation_guard(*, require_closeout=False): Holds the existing storage lock through a synchronous preservation check and retirement commit, optionally requiring exact final Ingestor evidence/all-audit coverage retained before its retirement; archive rewrites do not replace that requirement.
 - PersistentStorageManager._retain_framework_closeout_compilation(compilation): Retains detached final Ingestor coverage within the existing confirmation mechanism without writing new archive products or interpreting evidence.
 - PersistentStorageManager.maintenance_blockers(ingestor, storage_manager): Reports failed persistence or unpreserved owned collection evidence, while active operations are separately tracked and future collections are not blockers.
+- PersistentStorageManager.maintenance_diagnostics(ingestor, storage_manager): Reports unfinished archive/path scopes and original collection-result preservation using existing identities without repairing persistence or releasing artifacts.
 - Controller.maintenance_blockers(ingestor, storage_manager): Reports active Session, unfinished work, cleanup, final-record, and current decision-archive obligations without requiring other idle services to stop.
+- Controller.maintenance_diagnostics(ingestor, storage_manager): Reports owned bindings, confirmed previous release, and framework-attempt outcomes separately from administrative abandonment without coordinating recovery.
 - AcquisitionNode.maintenance_blockers(ingestor, storage_manager): Reports owned Session participation, reservations, unfinished acquisition/streams, unpreserved manifests, and unreleased devices.
+- AcquisitionNode.maintenance_diagnostics(ingestor, storage_manager): Reports participation/reservation, actual device shutdown, stream finalization, and durable manifest handoffs without weakening node-owned safety guards.
 - SynchronizationManager.maintenance_blockers(ingestor, storage_manager): Reports running Session Time, active mappings, and mapping evidence without confirmed durable Ingestor acceptance.
+- SynchronizationManager.maintenance_diagnostics(ingestor, storage_manager): Reports clock/mapping obligations and journal-backed handoff confirmation, retaining broader timing restrictions when Session scope cannot be established.
+- InMemoryIngestor.maintenance_diagnostics(ingestor, storage_manager): Reports retained Session intake, journal failures, and supported known-journal recoverability without claiming recovery or deleting evidence/journals.
 - Principal-service _close_maintenance_resources(force): Reuses each target's existing resource cleanup without clearing evidence, deleting journals, or cascading closeout to other services.
 
 ## src/lab_sync_acquisition/synchronization.py

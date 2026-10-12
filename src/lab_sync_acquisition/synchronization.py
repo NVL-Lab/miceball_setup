@@ -437,6 +437,42 @@ class SynchronizationManager:
                 break
         return blockers
 
+    def maintenance_diagnostics(self, ingestor, storage_manager) -> dict:
+        """Report clock/mapping obligations without retiring or repairing them."""
+        with self._mapping_lock:
+            session_id = self._prepared_session_id
+            running = self.is_running
+            stopped = self._stopped_session_time_s is not None
+            mappings = [mapping.to_dict() for mapping in self._active_mappings.values()]
+            updates = self._mapping_update_evidence
+            scopes = {key[0] for key in self._active_mappings}
+        interface = getattr(self, "_maintenance", None)
+        available = ingestor.accepted_runtime_evidence
+        blockers = self.maintenance_blockers(ingestor, storage_manager)
+        if blockers:
+            scopes.update(update.session_id for update in updates)
+            if session_id:
+                scopes.add(session_id)
+        return {
+            "prepared_session_id": session_id,
+            "administrative_outcome": (interface._administrative_outcome({"session_id": session_id})
+                                        if interface and session_id else None),
+            "clock_stop_outcome": "unresolved" if running else "completed" if stopped else None,
+            "active_mappings": mappings,
+            "mapping_handoffs": [{"session_id": update.session_id,
+                "acquisition_node_id": update.acquisition_node_id,
+                "update_type": update.update_type,
+                "handoff_outcome": "completed" if any(message.is_persistent
+                    and message.evidence_type == MAPPING_UPDATE_EVIDENCE_TYPE
+                    and message.payload == update.to_dict() and ingestor.has_durable_runtime_evidence(message)
+                    for message in available) else "unresolved"}
+                for update in updates],
+            "restricted_timing_scopes": sorted(scopes) if blockers else [],
+            "broader_timing_restriction": bool(blockers and (not scopes or running and session_id is None)),
+            "recovery_assessment": "administrator_intervention" if blockers else None,
+            "blocking_conditions": blockers,
+        }
+
     async def _close_maintenance_resources(self, force: bool) -> None:
         if self.is_running:
             self.stop()

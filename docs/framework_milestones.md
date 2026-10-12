@@ -648,7 +648,7 @@ cleanup/reuse, not implementation of those service binding-release contracts.
 # Future Milestones
 
 Phase 16 Operational Service Lifetime and Framework Stop/Kill architecture is
-accepted in Decisions 304-331. At the earlier checkpoint implementation was
+accepted in Decisions 304-338. At the earlier checkpoint implementation was
 limited to the Session-binding release slice. Decision 323 adds the accepted
 framework Evidence Archive partition; individual-service stop/kill/cancel is now
 complete, manually software-validated, and independently audited PASS (W036),
@@ -780,6 +780,46 @@ Q019, Q022, and Q024 remain unresolved. Resume/drop execution, deployment/discov
 details, process supervision, automatic launch/restart/retry/replay, and GUI
 implementation are not authorized. The Services tab remains a separate future
 design proposal.
+
+## Accepted Q024 service-specific unresolved-work and abandonment contracts
+
+**Status:** Architecture accepted and synchronized in Decisions 332-338;
+partial implementation has automated regression coverage; independent manual
+validation and audit pending. This is not a completed or validated implementation slice.
+
+Reuse existing readiness/diagnostic/command interfaces and service-owned records
+to report unresolved previous work and distinguish obligation outcome, recovery
+possibility, and operational impact. Existing identities and ownership define the
+affected scope; limited restrictions require sufficient demonstrated protection,
+without assuming other potentially affected resources safe when containment is unknown.
+
+Explicit administrative drop records the administrator, service/obligation,
+decision, and available justification and closes work as abandoned/not recovered.
+It does not confirm original success, cleanup, resource safety, or recovery.
+Unnecessary temporary memory may be released only after recorded abandonment and
+applicable evidence-preservation, safety, and closeout obligations are satisfied;
+minimum required safety information and durable records/journals remain protected.
+Reuse existing producer-owned framework evidence and separate publication,
+Ingestor acceptance, and StorageManager archival confirmation.
+
+Implemented readbacks use existing owner records and readiness commands for all
+five services. Explicit drop records abandonment separately from actual outcomes;
+guarded memory release is limited to redundant interface-owned producer evidence
+copies, preserving current complete archival and exact journal-backed acceptance
+through commitment. Existing resource guards, administrative markers, idempotent
+command/results, and durable journals remain. Resource-specific abandonment/cleanup
+and broader cache retirement are not implemented without the applicable accepted
+safety, closeout, and idempotency-lifetime contracts. Automated tests do not replace
+the pending independent manual validation and audit.
+
+W038 and earlier validated workflows retain their completed narrow scopes. No new
+workflow or validation is claimed for these contracts. Phase 16 and M015 remain
+open. Detailed service-specific recovery procedures, resume/drop execution beyond
+this administrative reporting and safe-closeout boundary, journal retention/deletion,
+and broader application recovery remain Q024 work. Q019 retains Session-wide evidence
+consumption/finalization and Q022 retains deployment configuration/discovery.
+No universal/automatic recovery, replay, retry, resumption, deletion, GUI,
+supervision, new Session states, or additional recovery subsystem is authorized.
 
 ## Completed Session-binding release slice validation
 

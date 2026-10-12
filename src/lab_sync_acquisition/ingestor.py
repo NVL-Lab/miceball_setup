@@ -589,6 +589,37 @@ class InMemoryIngestor:
                     return ["Session intake is not completely preserved"]
             return []
 
+    def maintenance_diagnostics(self, ingestor, storage_manager) -> dict:
+        """Report retained intake/journal obligations without reconstructing or clearing them."""
+        with self._intake_lock:
+            interface = getattr(self, "_maintenance", None)
+            blockers = self.maintenance_blockers(ingestor, storage_manager)
+            return {
+                "session_intake": {"session_id": self._session_id, "evidence_scope": self._evidence_scope,
+                    "accepted_evidence_count": len(self._accepted_runtime_evidence),
+                    "runtime_audit_count": len(self._runtime_evidence_audit),
+                    "administrative_outcome": (interface._administrative_outcome({"session_id": self._session_id})
+                                                if interface and self._session_id else None)},
+                "journal_integrity_unconfirmed": self._journal_failed,
+                "framework_journal_integrity_unconfirmed": bool(self._framework_ingestor
+                                                               and self._framework_ingestor._journal_failed),
+                "framework_journal_recovery": {
+                    "journal_path": (str(self._framework_ingestor._recovery_journal_path)
+                                     if self._framework_ingestor else None),
+                    "assessment": "potentially_recoverable" if self._framework_ingestor
+                        and self._framework_ingestor._journal_failed else None,
+                    "recovered": False if self._framework_ingestor and self._framework_ingestor._journal_failed else None},
+                "known_session_recovery": {"session_id": self._session_id,
+                    "journal_path": str(self._recovery_journal_path) if self._recovery_journal_path else None,
+                    "assessment": ("potentially_recoverable" if self._recovery_journal_path is not None
+                                   else "administrator_intervention") if self._journal_failed else None,
+                    "recovered": False if self._journal_failed else None},
+                "restricted_intake": (("service readiness and Session intake" if self._journal_failed
+                    or self._framework_ingestor and self._framework_ingestor._journal_failed else "Session binding release")
+                    if blockers else None),
+                "blocking_conditions": blockers,
+            }
+
     async def _close_maintenance_resources(self, force: bool) -> None:
         # Journal handles are opened and closed inside individual intake operations.
         pass

@@ -895,6 +895,33 @@ class AcquisitionNode:
             blockers.append("Unpreserved artifact evidence")
         return blockers
 
+    def maintenance_diagnostics(self, ingestor, storage_manager) -> dict[str, Any]:
+        """Report node-owned participation, device safety, streams, and manifest evidence."""
+        interface = getattr(self, "_maintenance", None)
+        blockers = self.maintenance_blockers(ingestor, storage_manager)
+        return {
+            "participation": {"session_id": self._session_id,
+                "reserved_for_session_id": self.reserved_for_session_id,
+                "administrative_outcome": (interface._administrative_outcome({"session_id": self._session_id or self.reserved_for_session_id})
+                                            if interface and (self._session_id or self.reserved_for_session_id) else None),
+                "cleanup_confirmed": self._initialization_cleanup_confirmed,
+                "is_running": self._running},
+            "device_cleanup": [{"device_id": adapter.device_id, "state": adapter.state.value,
+                "cleanup_outcome": ("completed" if adapter.get_status().shutdown else
+                                    "unresolved" if adapter.state != DeviceAdapterState.DECLARED else None),
+                "recovery_assessment": None if adapter.state == DeviceAdapterState.DECLARED else "administrator_intervention"}
+                for adapter in self._device_manager.adapters],
+            "scientific_streams": [{"storage_id": m.storage_id, "artifact_manifest_id": m.artifact_manifest_id,
+                "experiment_id": m.experiment_id,
+                "local_finalization_outcome": "completed" if m.lifecycle_state == "finalized" else "unresolved"}
+                for m in self._local_storage_manager.manifests] if self._local_storage_manager else [],
+            "manifest_handoffs": [{"evidence_id": m.evidence_id, "session_id": m.session_id,
+                "handoff_outcome": "completed" if ingestor.has_durable_runtime_evidence(m) else "unresolved"}
+                for m in self._artifact_manifest_evidence],
+            "restricted_resources": "node participation and device reuse" if blockers else None,
+            "blocking_conditions": blockers,
+        }
+
     async def _close_maintenance_resources(self, force: bool) -> None:
         if self._session_id is not None:
             if not self.abort_session_initialization(self._session_id):

@@ -669,6 +669,9 @@ class NatsAcquisitionNodeCommunication:
                 payload = {
                     "acquisition_node_readiness": readiness.to_dict(),
                 }
+                maintenance = getattr(self._acquisition_node, "_maintenance", None)
+                if maintenance is not None:
+                    payload.update(maintenance._diagnostic_payload())
             elif command.command_type == "prepare_experiment_scientific_outputs":
                 experiment_id = command.payload["experiment_id"]
                 preparation = self._acquisition_node.prepare_experiment_scientific_outputs(
@@ -858,6 +861,9 @@ def _execute_service_command(boundary: NatsCommunicationBoundary, service: Any,
             report = service.check_ready().to_dict()
             report.update(component_id=boundary.component_id, component_type=boundary.component_type)
             payload = {"service_readiness": report}
+            maintenance = getattr(service, "_maintenance", None)
+            if maintenance is not None:
+                payload.update(maintenance._diagnostic_payload())
         elif command.command_type == "initialize_session":
             preparation = service.prepare_session(command.session_id)
             if not preparation.ready:

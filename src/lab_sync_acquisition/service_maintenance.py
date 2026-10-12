@@ -200,6 +200,16 @@ class ServiceMaintenanceInterface:
                     f"{p.component_type}/{p.component_id}" for p in unknown))
             return tuple(self._dependency_readiness.values())
 
+    def _administrative_outcome(self, reference: dict) -> str | None:
+        with self._admission_lock:
+            for message in reversed(self._evidence):
+                if (message.evidence_type == "administrator_decision"
+                        and message.payload.get("decision") == "drop"
+                        and reference and all(message.payload.get("details", {}).get(key) == value
+                                              for key, value in reference.items())):
+                    return "abandoned"
+        return None
+
     def _readiness_payload(self):
         payload = {"participant": self.participant.to_dict(), "service_readiness": None}
         try:
@@ -219,10 +229,28 @@ class ServiceMaintenanceInterface:
             payload["remaining_obligations"] = self.service.maintenance_blockers(self.ingestor, self.storage_manager)
         except Exception as error:
             payload["obligations_unconfirmed"] = str(error)
+        payload.update(self._diagnostic_payload())
         payload["dependency_readiness"] = [
             {"participant": p.to_dict(), "service_readiness": r.to_dict() if r is not None else None}
             for p, r in self.dependency_readiness.items()
         ]
+        return payload
+
+    def _diagnostic_payload(self):
+        payload = {}
+        try:
+            payload["service_diagnostics"] = self.service.maintenance_diagnostics(self.ingestor, self.storage_manager)
+        except Exception as error:
+            payload["diagnostics_unconfirmed"] = str(error)
+        payload["maintenance_attempts"] = {
+            identity: {"actual_outcome": attempt["outcome"],
+                       "obligation_outcome": ("completed" if "operational_retirement_confirmed" in attempt["actions"]
+                           else self._administrative_outcome({"stop_attempt_id": identity}) or "unresolved"),
+                       "recovery_assessment": (None if "operational_retirement_confirmed" in attempt["actions"]
+                                               else "administrator_intervention"),
+                       "blockers": list(attempt["blockers"]), "failures": list(attempt["failures"])}
+            for identity, attempt in self._attempts.items()
+        }
         return payload
 
     @service_operation(new_work=True)
@@ -251,8 +279,58 @@ class ServiceMaintenanceInterface:
         message = RuntimeEvidenceMessage(uuid4().hex, None, "administrator_decision",
             self.participant.component_id, {"target": self.participant.to_dict(),
                 "administrator_id": administrator_id, "decision": decision,
-                "details": deepcopy(details), "actions": [], "outcome": None, "recorded_at": time()}, True)
-        return await self._record_framework_evidence(message)
+                "details": deepcopy(details), "actions": [], "outcome": None,
+                "obligation_outcome": "abandoned" if decision == "drop" else "unresolved",
+                "recorded_at": time()}, True)
+        status = await self._record_framework_evidence(message)
+        if decision == "drop":
+            release, outcome_evidence = self._release_abandoned_evidence(message)
+            status["temporary_memory_release"] = release
+            if outcome_evidence is not None:
+                release["preservation"] = await self._record_framework_evidence(outcome_evidence)
+        return status
+
+    def _release_abandoned_evidence(self, decision):
+        release = {"released_evidence_count": 0, "confirmed": False, "remaining_obligations": []}
+        details = decision.payload["details"]
+        if not (isinstance(details.get("evidence_id"), str) or isinstance(details.get("stop_attempt_id"), str)):
+            release["remaining_obligations"] = [
+                "No accepted temporary-evidence release contract for the referenced service resources"]
+            return release, None
+        try:
+            # Existing intake -> storage -> admission order; no await during retirement of copies.
+            with self.ingestor._intake_lock, self.ingestor.framework_preservation_guard(self.storage_manager) as archive, self._admission_lock:
+                if (self._attempt is not None or self._closeout_started or self._active_operations > 1):
+                    raise RuntimeError("Administrative closeout or concurrent operations remain outstanding")
+                blockers = self.service.maintenance_blockers(self.ingestor, self.storage_manager)
+                blockers.extend(self._dependency_blockers())
+                if blockers:
+                    raise RuntimeError("Resource safety/closeout is unconfirmed: " + "; ".join(blockers))
+                candidates = [m for m in self._evidence if m.evidence_type != "administrator_decision" and (
+                    m.evidence_id == details.get("evidence_id") or (
+                        details.get("stop_attempt_id") is not None
+                        and (m.payload.get("stop_attempt_id") == details["stop_attempt_id"]
+                             or m.payload.get("details", {}).get("stop_attempt_id") == details["stop_attempt_id"])))]
+                if not candidates:
+                    raise RuntimeError("No matching retained producer evidence")
+                archived = {m["evidence_id"]: m for m in archive["runtime_evidence"]}
+                for message in [decision, *candidates]:
+                    if (not self.ingestor.has_durable_runtime_evidence(message)
+                            or message.is_persistent and archived.get(message.evidence_id) != message.to_dict()):
+                        raise RuntimeError("Required producer evidence is not currently preserved")
+                ids = {m.evidence_id for m in candidates}
+                outcome = RuntimeEvidenceMessage(uuid4().hex, None, "administrator_decision",
+                    self.participant.component_id, {**deepcopy(decision.payload),
+                        "checkpoint": "temporary_evidence_release_confirmed",
+                        "actions": ["temporary_producer_evidence_released"],
+                        "released_evidence_ids": sorted(ids), "recorded_at": time()}, True)
+                self._evidence = [m for m in self._evidence if m.evidence_id not in ids]
+                self._evidence.append(outcome)
+                release.update(released_evidence_count=len(ids), confirmed=True)
+                return release, outcome
+        except Exception as error:
+            release["remaining_obligations"] = [str(error)]
+            return release, None
 
     @staticmethod
     def _evidence_status(message):
@@ -564,7 +642,8 @@ class ServiceMaintenanceInterface:
 
     async def _preserve_message(self, message, status=None):
         with self._admission_lock:
-            self._evidence.append(message)
+            if not any(retained is message for retained in self._evidence):
+                self._evidence.append(message)
         if self.evidence_publisher is None:
             if self.ingestor is None:
                 raise RuntimeError("Framework Ingestor is unavailable")

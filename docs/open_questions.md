@@ -730,7 +730,9 @@ separate from a completed Session's lifecycle; Q019 remains open.
 
 ## Q024: What is the application restart and recovery-journal lifecycle?
 
-**Status:** OPEN / FUTURE - outside Slice 27
+**Status:** OPEN - narrow low-level contracts accepted in Decisions 332-338;
+partial reporting/abandonment/producer-memory implementation has automated coverage;
+independent validation/audit pending; broader recovery and journal lifecycle remain deferred
 
 ### Why this matters
 
@@ -743,17 +745,37 @@ deployment-local configuration responsibilities.
 Decision 330 accepts recording explicit administrator resume/drop decisions
 through existing framework evidence, not execution of recovery, deletion, or
 cleanup. Decision 329 permits safe service reuse under existing protections,
-not automatic resumption. These accepted contracts do not resolve the recovery
-journal lifecycle or resume/drop execution mechanics below.
+not automatic resumption. Decisions 332-338 now accept service-specific reporting,
+classification, administrative abandonment, and conditional bounded-memory cleanup.
+They do not resolve the broader recovery-journal lifecycle or execution mechanics
+below. W038 remains complete for its existing startup/return scope; the new Q024
+contracts have a partial implementation, not independent validation, audit, or
+closure. Existing readiness paths report owner-specific obligations and explicit
+abandonment. Guarded release is limited to redundant interface-owned producer
+evidence copies after complete current archival and safety/closeout confirmation.
+Administrative markers, command/result correctness, unsafe resources, service
+bindings, and journals remain protected. Resource-specific administrative cleanup
+and wider cache retirement need their applicable safety/idempotency contracts;
+they are not inferred from a drop decision.
+
+### Accepted narrow contracts
+
+* Decision 332: Report unresolved previous work through existing readiness, service-owned diagnostics, `check_readiness`, administrative interfaces, and framework evidence; no universal model, registry, or new report command.
+* Decision 333: Distinguish obligation outcome, recovery possibility, and operational impact independently; recoverable does not mean recovered and abandoned does not mean completed.
+* Decision 334: Reuse existing affected-scope identities and restrict narrowly only when sufficient protection can be established; uncertain containment cannot prove other resources safe.
+* Decision 335: Explicit administrator drop closes an obligation as abandoned/not recovered, not completed or safe; preserve administrator, service/obligation, decision, and available justification through the existing evidence pathway.
+* Decision 336: Release unnecessary temporary memory only after recorded abandonment and applicable preservation, resource-safety, and closeout conditions; retain required safety information and do not automatically delete durable records or journals.
+* Decision 337: Existing service-specific owners establish completion from trustworthy records and confirmed state, not intent, transport acknowledgment, missing responses, or incomplete evidence.
+* Decision 338: Preserve reports, assessments, classifications, choices, and confirmed outcomes through existing producer persistence intent, Ingestor acceptance, and StorageManager framework archival; avoid redundant unchanged evidence.
 
 ### Questions
 
 * When is a recovery journal safe to delete, and which existing owner performs deletion?
 * How are journals retained across program restart and handled when Sessions are abandoned?
-* What cleanup is permitted after successful Session processing finalization without losing required recovery state?
+* What durable recovery-journal cleanup is permitted after successful Session processing finalization without losing required recovery state, separately from Decision 336's conditional temporary-memory cleanup?
 * How does a restarted application discover and select unfinished Sessions, rather than starting Ingestor with an already-known Session?
 * How are multiple unfinished Sessions and complete Controller/application lifecycle restoration handled?
-* What execution mechanics apply to explicit administrator resume/drop decisions without treating decision recording as recovery, deletion, or cleanup?
+* What detailed service-specific recovery procedures and resume/drop execution mechanics remain necessary beyond Decisions 332-338's administrative reporting, abandonment, and safe-closeout boundary?
 * How does future recovery orchestration relate to Q019's separate evidence-consumption/finalization guarantee?
 * How does Controller crash recovery find and release stale AcquisitionNode reservations without changing node-owned reservation authority?
 * What future leases, timeouts, or heartbeats, if any, are accepted beyond Slice 28's atomic Session-keyed reservation without automatic expiry?
@@ -764,7 +786,11 @@ journal lifecycle or resume/drop execution mechanics below.
 * Application-wide restart/discovery/resumption and lifecycle restoration
 
 These questions do not block accepted known-Session journal recovery and must
-not become Slice 27 implementation requirements. Decisions 287-294 also defer
+not become Slice 27 or narrow Decisions 332-338 implementation requirements.
+The accepted narrow contracts do not authorize universal or automatic recovery,
+replay, retry, resumption, deletion, GUI implementation, process supervision,
+new Session states, or an additional recovery subsystem. Q022 retains deployment
+configuration and discovery. Decisions 287-294 also defer
 Controller crash recovery and stale-reservation handling; ordinary failed-launch
 rollback is accepted, not application restart recovery. Q019 remains separately
 OPEN and Slice 28 does not invent a Session-wide evidence-drain protocol.
