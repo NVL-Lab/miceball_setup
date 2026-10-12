@@ -55,6 +55,11 @@ through the existing framework preservation path. Existing separately authorized
 Q024-B preservation/cleanup and Session-keyed release remain owner-guarded; no new
 coordinated recovery command or canonical Session restoration is implemented.
 
+Startup/readiness announcements retain and journal new evidence before checking
+existing archive safety under the preservation locks; damaged or unconfirmed
+products remain untouched and generate preservation warnings, not automatic repair.
+Optional malformed diagnostic collections do not prevent observing other participants.
+
 Decisions 304-321 establish Session-independent and GUI-independent lifetime for
 Controller, AcquisitionNode, Ingestor, StorageManager, and SynchronizationManager.
 Session-specific collaborators remain subject to existing creation, binding,
@@ -480,7 +485,7 @@ is complete; W030 records manual validation, focused tests, and audit reassessme
 - Controller.get_status(): Returns Session/command status, the bounded last released terminal outcome, and the local AcquisitionNode snapshot or None, without fabricating remote runtime status.
 - Controller.reconcile_outcomes(*, session_id=None, participants=None, communication=None, result_window_s=None): Reads existing scoped outcomes or bounded current observations of explicit remote participants, retaining unassociated uncertainty and changed informational evidence without operational replay or lifecycle mutation.
 - Controller._validate_participant_reconciliation(participants, result_window_s): Checks explicit unique remote principal-service identities and the issuer-defined bounded observation window without discovering participants.
-- Controller._observe_known_participants(participants, communication, result_window_s): Reads correlated readiness/owner diagnostics independently, reporting confirmed conditions and Session identities without assuming missing participants stopped or performing recovery.
+- Controller._observe_known_participants(participants, communication, result_window_s): Reads correlated readiness/owner diagnostics independently, ignoring malformed optional collections without inventing Session identities or performing recovery.
 - Controller.reconciliation_evidence: Returns detached retained persistent informational findings for existing publication and preservation paths.
 - Controller._reconcile_framework_attempt: Correlates confirmed final participant results against the original framework attempt and archived evidence without treating missing results or intent as completion.
 - Controller.check_ready(): Returns Session-independent service readiness, combining confirmed configured dependencies and refusing to fabricate a ready/unready report when dependency availability is unknown.
@@ -619,7 +624,7 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 - ServiceMaintenanceInterface.last_known_dependency_readiness: Returns historical confirmed reports, never substituted for missing current operational readiness.
 - ServiceMaintenanceInterface.receive_dependency_readiness(participant, readiness): Updates or invalidates only a configured dependency's current report and advances private ordering counters so earlier checks cannot overwrite subsequent observations, without changing Session lifecycle, reservations, or cleanup obligations.
 - ServiceMaintenanceInterface.dependency_reports(): Returns current dependency records or raises RuntimeError for missing current evidence, retaining the existing boolean readiness schema.
-- ServiceMaintenanceInterface.announce_readiness(*, startup=False): Creates producer-persistent service_readiness RuntimeEvidenceMessage records for startup/return or changed snapshots, including existing node/reservation and obligation evidence, and suppresses unchanged snapshots without replaying failed publications.
+- ServiceMaintenanceInterface.announce_readiness(*, startup=False): Creates persistent startup/return or changed-readiness evidence with journal acceptance and guarded archival that never repairs unconfirmed existing products, while suppressing unchanged snapshots.
 - ServiceMaintenanceInterface.record_administrator_decision(administrator_id, decision, details): Records persistent resume/drop choices with a separate unresolved/abandoned obligation outcome, returning guarded temporary-producer-copy release and its preservation observations without executing recovery, deleting durable data, or clearing safety obligations.
 - ServiceMaintenanceInterface.terminated: Reports confirmed operational-service retirement rather than OS process death.
 - ServiceMaintenanceInterface._retirement_guard(force=False): Commits retirement under intake/storage/admission locks as applicable and retains final Ingestor compilation without imposing orderly preservation prerequisites on authorized kill.

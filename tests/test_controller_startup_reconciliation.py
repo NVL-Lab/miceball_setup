@@ -294,6 +294,223 @@ class ControllerStartupReconciliationTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(entry["details"]["operational_retirement_confirmed"])
         self.assertFalse(entry["details"]["service_readiness"]["ready"])
 
+    async def test_initial_startup_creates_confirmed_framework_archive(self):
+        directory = self.root / "global/framework/evidence"
+        self.assertFalse(directory.exists())
+        status = await self.startup(()).start()
+        confirmation = self.storage.get_framework_preservation_confirmation()
+        self.assertIsNotNone(confirmation)
+        for report in (status, status["reconciliation"]):
+            self.assertTrue(report["acceptance_confirmed"])
+            self.assertTrue(report["archival_confirmed"])
+            self.assertIsNone(report["preservation_warning"])
+            self.assertIn(report["evidence"], confirmation["runtime_evidence"])
+
+    async def test_return_startup_preserves_healthy_existing_archive(self):
+        communication = self.startup(())
+        await communication.start()
+        original = self.storage.get_framework_preservation_confirmation()
+        await communication.close()
+        status = await communication.start()
+        confirmation = self.storage.get_framework_preservation_confirmation()
+        for name in ("runtime_evidence", "ingest_audit"):
+            for entry in original[name]:
+                self.assertIn(entry, confirmation[name])
+        self.assertTrue(status["archival_confirmed"])
+        self.assertTrue(status["reconciliation"]["archival_confirmed"])
+        self.assertIsNone(status["preservation_warning"])
+
+    async def test_unconfirmed_archive_products_are_not_repaired_by_startup(self):
+        initial = self.startup(())
+        await initial.start()
+        await initial.close()
+        directory = self.root / "global/framework/evidence"
+        paths = tuple(directory / name for name in (
+            "runtime_evidence.jsonl", "ingest_audit.jsonl", "compilation_summary.json"))
+        healthy = {path: path.read_bytes() for path in paths}
+        cases = [(path, damage) for path in paths for damage in ("corrupt", "missing", "inconsistent")]
+        for path, damage in cases:
+            with self.subTest(product=path.name, damage=damage):
+                for product, contents in healthy.items():
+                    product.write_bytes(contents)
+                if damage == "missing":
+                    path.unlink()
+                elif damage == "corrupt":
+                    path.write_bytes(b"invalid completed archive product")
+                else:
+                    path.write_bytes(b"{}" if path.suffix == ".json" else b"")
+                before = {product: product.read_bytes() if product.exists() else None for product in paths}
+                self.assertIsNone(self.storage.get_framework_preservation_confirmation())
+                communication = self.startup(())
+                with self.assertLogs("lab_sync_acquisition.service_maintenance", level="WARNING"):
+                    status = await communication.start()
+                self.assertTrue(status["publication_confirmed"])
+                for report in (status, status["reconciliation"]):
+                    self.assertTrue(report["acceptance_confirmed"])
+                    self.assertFalse(report["archival_confirmed"])
+                    self.assertTrue(report["preservation_warning"])
+                self.assertFalse(status["reconciliation"]["findings"]["preservation_confirmed"])
+                self.assertEqual(before, {
+                    product: product.read_bytes() if product.exists() else None for product in paths})
+                self.assertIsNone(self.storage.get_framework_preservation_confirmation())
+                await communication.close()
+
+    async def test_startup_evidence_remains_available_for_authorized_archive_recovery(self):
+        communication = self.startup(())
+        await communication.start()
+        await communication.close()
+        compiled = self.ingestor.compile_framework_runtime_evidence()
+        with patch("lab_sync_acquisition.storage.Path.open", side_effect=OSError("archive interrupted")):
+            with self.assertRaises(OSError):
+                self.storage.write_framework_evidence_archive(compiled)
+        path = self.root / "global/framework/evidence/runtime_evidence.jsonl"
+        damaged = b"corrupt runtime evidence"
+        path.write_bytes(damaged)
+        with self.assertLogs("lab_sync_acquisition.service_maintenance", level="WARNING"):
+            status = await communication.start()
+        evidence = (status["evidence"], status["reconciliation"]["evidence"])
+        retained = [message.to_dict() for message in self.interface.evidence]
+        compiled = [message.to_dict() for message in self.ingestor.compile_framework_runtime_evidence()["runtime_evidence"]]
+        journal = [json.loads(line) for line in (self.root / "framework.jsonl").read_text().splitlines()]
+        for message in evidence:
+            self.assertIn(message, retained)
+            self.assertIn(message, compiled)
+            self.assertTrue(any(message == entry.get("runtime_evidence") for entry in journal))
+        self.assertEqual(path.read_bytes(), damaged)
+        recovery = ServiceMaintenanceInterface(self.storage, RuntimeParticipant("storage_manager", "storage"),
+            ingestor=self.ingestor, storage_manager=self.storage, preservation_window_s=0,
+            close_resources=AsyncMock(return_value=True))
+        obligation = {"session_id": None}
+        with self.assertLogs("lab_sync_acquisition.service_maintenance", level="WARNING"):
+            decision = await recovery.record_administrator_decision("administrator", "resume", {
+                "operation": "recover_archive_write", "obligation": obligation,
+                "command_id": "repair-startup-archive"})
+            result = await recovery.execute_command(RuntimeCommandMessage("repair-startup-archive", None,
+                "recover_archive_write", "operator", "storage", {
+                    "authorization_evidence_id": decision["evidence"]["evidence_id"], "obligation": obligation}))
+        self.assertTrue(result.success, result.reason)
+        self.assertTrue(result.payload["confirmation"]["actual_write_confirmed"])
+        self.assertTrue(result.payload["preservation"]["archival_confirmed"])
+        confirmation = self.storage.get_framework_preservation_confirmation()
+        for message in evidence:
+            self.assertIn(message, confirmation["runtime_evidence"])
+
+    async def test_fresh_controller_does_not_repair_corrupted_archive_or_stop_recording(self):
+        node, _, adapter, session_id = await self.recording_node()
+        original = self.startup(())
+        await original.start()
+        await original.close()
+        path = self.root / "global/framework/evidence/ingest_audit.jsonl"
+        damaged = b"corrupt intake audit"
+        path.write_bytes(damaged)
+        controller = Controller(component_id="fresh", ingestor=self.ingestor, storage_manager=self.storage)
+        interface = ServiceMaintenanceInterface(controller, RuntimeParticipant("controller", "fresh"),
+            ingestor=self.ingestor, storage_manager=self.storage, preservation_window_s=0,
+            close_resources=AsyncMock(return_value=True))
+        communication = NatsServiceMaintenanceCommunication(
+            launch_fixtures._Boundary("controller", "fresh", self.broker), interface,
+            startup_participants=(RuntimeParticipant("acquisition_node", "node-a"),), startup_result_window_s=0.05)
+        self.addAsyncCleanup(communication.close)
+        before, device_before = node.status(), adapter.get_status()
+        command_count = len(self.broker.commands)
+        with self.assertLogs("lab_sync_acquisition.service_maintenance", level="WARNING"):
+            status = await communication.start()
+        self.assertEqual(path.read_bytes(), damaged)
+        for report in (status, status["reconciliation"]):
+            self.assertTrue(report["acceptance_confirmed"])
+            self.assertFalse(report["archival_confirmed"])
+            self.assertTrue(report["preservation_warning"])
+        self.assertFalse(status["reconciliation"]["findings"]["preservation_confirmed"])
+        observed, = status["reconciliation"]["findings"]["participant_states"]
+        self.assertEqual(observed["observed_state"], "active")
+        self.assertEqual(observed["reported_session_ids"], [session_id])
+        self.assertEqual(node.status(), before)
+        self.assertEqual(adapter.get_status(), device_before)
+        self.assertIsNone(controller.get_status()["session_id"])
+        self.assertEqual([c["command_type"] for c in self.broker.commands[command_count:]], ["check_readiness"])
+        self.assertEqual(node.reserved_for_session_id, session_id)
+        node.run_one_iteration()
+        self.assertTrue(node.status()["is_running"])
+
+    async def test_archive_safety_is_rechecked_after_startup_publication(self):
+        communication = self.startup(())
+        await communication.start()
+        await communication.close()
+        path = self.root / "global/framework/evidence/ingest_audit.jsonl"
+        entered, proceed = asyncio.Event(), asyncio.Event()
+        publish = self.interface.evidence_publisher
+        async def delayed(message):
+            if message.evidence_type == "service_readiness":
+                entered.set()
+                await proceed.wait()
+            await publish(message)
+        with patch.object(self.interface, "evidence_publisher", new=delayed):
+            task = asyncio.create_task(communication.start())
+            try:
+                await asyncio.wait_for(entered.wait(), 5)
+                damaged = b"audit corrupted during publication"
+                path.write_bytes(damaged)
+                with self.assertLogs("lab_sync_acquisition.service_maintenance", level="WARNING"):
+                    proceed.set()
+                    status = await task
+            finally:
+                proceed.set()
+                await task
+        self.assertEqual(path.read_bytes(), damaged)
+        for report in (status, status["reconciliation"]):
+            self.assertTrue(report["acceptance_confirmed"])
+            self.assertFalse(report["archival_confirmed"])
+            self.assertTrue(report["preservation_warning"])
+
+    async def test_existing_archive_without_current_confirmation_is_not_overwritten(self):
+        original = self.startup(())
+        await original.start()
+        await original.close()
+        directory = self.root / "global/framework/evidence"
+        before = {path: path.read_bytes() for path in directory.iterdir()}
+        storage = PersistentStorageManager(self.root / "global/records.jsonl")
+        self.assertIsNone(storage.get_framework_preservation_confirmation())
+        controller = Controller(component_id="fresh", ingestor=self.ingestor, storage_manager=storage)
+        interface = ServiceMaintenanceInterface(controller, RuntimeParticipant("controller", "fresh"),
+            ingestor=self.ingestor, storage_manager=storage, preservation_window_s=0,
+            close_resources=AsyncMock(return_value=True))
+        communication = NatsServiceMaintenanceCommunication(
+            launch_fixtures._Boundary("controller", "fresh", self.broker), interface)
+        self.addAsyncCleanup(communication.close)
+        with self.assertLogs("lab_sync_acquisition.service_maintenance", level="WARNING"):
+            status = await communication.start()
+        for report in (status, status["reconciliation"]):
+            self.assertTrue(report["acceptance_confirmed"])
+            self.assertFalse(report["archival_confirmed"])
+            self.assertTrue(report["preservation_warning"])
+        self.assertEqual(before, {path: path.read_bytes() for path in directory.iterdir()})
+        self.assertIsNone(storage.get_framework_preservation_confirmation())
+
+    async def test_malformed_optional_collections_do_not_abort_other_observations(self):
+        node, _, _, session_id = await self.recording_node()
+        participants = (RuntimeParticipant("synchronization_manager", "sync"),
+                        RuntimeParticipant("acquisition_node", "node-a"))
+        before = node.status()
+        for malformed in (None, 1, True, "invented-session", {"session_id": "invented-session"}, [None, 1, "bad"]):
+            with self.subTest(collection_evidence=malformed):
+                def alter(operation, result):
+                    if result["source_id"] == "sync":
+                        result["payload"]["service_diagnostics"] = {"collection_evidence": malformed}
+                    return result
+                self.broker.change_result = alter
+                communication = self.startup(participants)
+                status = await communication.start()
+                entries = status["reconciliation"]["findings"]["participant_states"]
+                self.assertEqual(entries[0]["observed_state"], "unknown")
+                self.assertEqual(entries[0]["reported_session_ids"], [])
+                self.assertEqual(entries[1]["observed_state"], "active")
+                self.assertEqual(entries[1]["reported_session_ids"], [session_id])
+                self.assertEqual(status["reconciliation"]["findings"]["reported_session_ids"], [session_id])
+                self.assertEqual(node.status(), before)
+                json.dumps(status, allow_nan=False)
+                await communication.close()
+        self.broker.change_result = None
+
 
 if __name__ == "__main__":
     unittest.main()

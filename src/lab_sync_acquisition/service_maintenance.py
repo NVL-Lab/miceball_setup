@@ -266,7 +266,7 @@ class ServiceMaintenanceInterface:
                 self.participant.component_id, {**payload, "recorded_at": time()}, True)
             status = self._evidence_status(message)
             self._last_readiness_status = status
-        return await self._record_framework_evidence(message, status)
+        return await self._record_framework_evidence(message, status, require_existing_archive=True)
 
     @service_operation()
     async def record_administrator_decision(self, administrator_id: str, decision: str,

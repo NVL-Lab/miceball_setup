@@ -1503,9 +1503,11 @@ class Controller:
                     scopes = diagnostics.get(key, ())
                     if isinstance(scopes, (list, tuple)):
                         identities.extend(scopes)
-                for evidence in diagnostics.get("collection_evidence", ()):
-                    if isinstance(evidence, dict) and evidence.get("archival_outcome") == "unresolved":
-                        identities.append(evidence.get("session_id"))
+                collection = diagnostics.get("collection_evidence", ())
+                if isinstance(collection, (list, tuple)):
+                    for evidence in collection:
+                        if isinstance(evidence, dict) and evidence.get("archival_outcome") == "unresolved":
+                            identities.append(evidence.get("session_id"))
             entry["reported_session_ids"] = sorted({identity for identity in identities
                                                     if isinstance(identity, str) and identity})
             if entry["observed_state"] != "unknown":
