@@ -731,8 +731,11 @@ separate from a completed Session's lifecycle; Q019 remains open.
 ## Q024: What is the application restart and recovery-journal lifecycle?
 
 **Status:** OPEN - narrow low-level contracts accepted in Decisions 332-338;
-partial reporting/abandonment/producer-memory implementation has automated coverage;
-independent validation/audit pending; broader recovery and journal lifecycle remain deferred
+narrow reporting/abandonment/producer-memory implementation slice complete with
+automated coverage, independent manual IPython validation PASS (10 scenarios), and
+independent read-only source audit PASS with no blocking findings, as reported for
+documentation closure. Decision 336 remains partially implemented; broader recovery,
+journal lifecycle, resume/drop execution, and resource-specific cleanup remain OPEN.
 
 ### Why this matters
 
@@ -749,14 +752,18 @@ not automatic resumption. Decisions 332-338 now accept service-specific reportin
 classification, administrative abandonment, and conditional bounded-memory cleanup.
 They do not resolve the broader recovery-journal lifecycle or execution mechanics
 below. W038 remains complete for its existing startup/return scope; the new Q024
-contracts have a partial implementation, not independent validation, audit, or
-closure. Existing readiness paths report owner-specific obligations and explicit
-abandonment. Guarded release is limited to redundant interface-owned producer
-evidence copies after complete current archival and safety/closeout confirmation.
+contracts have a completed, independently validated and audited narrow implementation
+slice, not closure of Q024 as a whole. Existing readiness paths report owner-specific
+obligations and explicit abandonment. Guarded release is limited to redundant
+interface-owned producer evidence copies after complete current archival and
+safety/closeout confirmation;
+Decision 336 therefore remains partially implemented.
 Administrative markers, command/result correctness, unsafe resources, service
 bindings, and journals remain protected. Resource-specific administrative cleanup
 and wider cache retirement need their applicable safety/idempotency contracts;
 they are not inferred from a drop decision.
+Q019, Q022, Phase 16, and M015 remain OPEN. No new validation was executed during
+this documentation closure.
 
 ### Accepted narrow contracts
 

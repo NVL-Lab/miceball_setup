@@ -67,7 +67,13 @@ NATS, readiness, and framework evidence interfaces are extended below, without
 a registry or another service-management component. Resume/drop execution remains Q024,
 deployment/discovery details remain Q022, and Session-wide consumption remains Q019.
 
-### Q024 narrow implementation (independent validation and audit pending)
+### Q024 narrow implementation (complete, independently validated and audited)
+
+The narrow Decisions 332-338 implementation slice has automated coverage,
+independent manual IPython validation PASS (10 scenarios), and independent read-only
+source audit PASS with no blocking findings, as reported for documentation closure.
+Decision 336 remains partially implemented: only guarded release of redundant
+producer-owned evidence copies. No new validation was executed during closure.
 
 Decisions 332-338 now have service-owned `maintenance_diagnostics(ingestor,
 storage_manager)` readbacks on Controller, AcquisitionNode, InMemoryIngestor,
@@ -91,8 +97,10 @@ Reporting is informational and does not authorize unrelated work; existing owner
 guards remain authoritative. Resource-specific abandonment/cleanup, wider cache
 retirement with undefined idempotency lifetimes, and application recovery remain
 unimplemented pending the relevant safety/closeout contracts. W035-W038 are
-unchanged; this partial slice is not independently validated or audited. Q019,
-Q022, Q024, Phase 16, and M015 remain open.
+unchanged; this narrow implementation slice is complete, independently validated,
+and independently audited. Broader Q024 application recovery, journal lifecycle,
+resume/drop execution, and resource-specific cleanup remain OPEN. Q019, Q022,
+Q024, Phase 16, and M015 remain open.
 
 Decision 322 additionally makes every ControllerActionDecision persistent,
 including no-mutation outcomes. Accepted ownership remains Controller-produced

@@ -784,8 +784,12 @@ design proposal.
 ## Accepted Q024 service-specific unresolved-work and abandonment contracts
 
 **Status:** Architecture accepted and synchronized in Decisions 332-338;
-partial implementation has automated regression coverage; independent manual
-validation and audit pending. This is not a completed or validated implementation slice.
+narrow implementation slice complete with automated regression coverage,
+independent manual IPython validation PASS (10 scenarios), and independent
+read-only source audit PASS with no blocking findings. These results were reported
+for documentation closure, not executed during this documentation task.
+Decision 336 remains partially implemented: only guarded release of redundant
+producer-owned evidence copies. This does not complete Q024, Phase 16, or M015.
 
 Reuse existing readiness/diagnostic/command interfaces and service-owned records
 to report unresolved previous work and distinguish obligation outcome, recovery
@@ -810,10 +814,10 @@ through commitment. Existing resource guards, administrative markers, idempotent
 command/results, and durable journals remain. Resource-specific abandonment/cleanup
 and broader cache retirement are not implemented without the applicable accepted
 safety, closeout, and idempotency-lifetime contracts. Automated tests do not replace
-the pending independent manual validation and audit.
+independent manual validation or audit; both have now passed for this narrow scope.
 
 W038 and earlier validated workflows retain their completed narrow scopes. No new
-workflow or validation is claimed for these contracts. Phase 16 and M015 remain
+workflow is added during this documentation closure. Phase 16 and M015 remain
 open. Detailed service-specific recovery procedures, resume/drop execution beyond
 this administrative reporting and safe-closeout boundary, journal retention/deletion,
 and broader application recovery remain Q024 work. Q019 retains Session-wide evidence

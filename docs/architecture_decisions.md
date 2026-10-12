@@ -9174,11 +9174,15 @@ Q019 retains Session-wide evidence consumption/finalization; Q022 retains deploy
 configuration and discovery.
 
 **Implementation status for Decisions 332-338:** Accepted low-level Q024 contracts
-have partial implementation with automated coverage: owner-specific diagnostics
-through existing readiness, explicit abandonment evidence, and guarded release of
-redundant interface-owned producer evidence copies. Resource-specific cleanup and
-wider cache retirement remain unimplemented where safety/closeout/idempotency
-contracts are not established. Independent manual validation and audit are pending.
+have a completed narrow implementation slice with automated coverage: owner-specific
+diagnostics through existing readiness, explicit abandonment evidence, and guarded
+release of redundant producer-owned evidence copies. Independent manual IPython
+validation PASSED (10 scenarios), and the independent read-only source audit PASSED
+with no blocking findings, as reported for this documentation closure; no new
+validation was executed during closure. Decision 336 remains partially implemented,
+limited to that guarded release of redundant copies. Broader application recovery,
+journal lifecycle, resume/drop execution, resource-specific cleanup, and wider cache
+retirement remain OPEN and unimplemented where their contracts are not established.
 W038 and prior validated workflows retain their completed narrow-slice status.
 Phase 16, M015, Q019, Q022, and Q024 remain open.
 
@@ -9523,7 +9527,7 @@ requirements remain authoritative.
 335. Explicit administrative drop records the administrator, service/obligation, decision, and available justification and closes work as abandoned/not recovered, without proving completion, cleanup, safety, or recovery.
 336. Recorded abandonment permits release of unnecessary temporary memory only after applicable preservation, safety, and closeout obligations are satisfied; minimum safety information and durable records/journals remain protected.
 337. Existing service-specific owners assess their own obligations and confirm completion from trustworthy records and state, never intent, transport acknowledgment, missing responses, or incomplete evidence.
-338. Unresolved-work reports, recovery assessments, classifications, administrator decisions, and confirmed outcomes reuse existing producer persistence intent and Ingestor/StorageManager framework archival boundaries; partial reporting/abandonment/producer-memory implementation has automated coverage, with independent validation/audit pending and detailed recovery/journal lifecycle still Q024 work.
+338. Unresolved-work reports, recovery assessments, classifications, administrator decisions, and confirmed outcomes reuse existing producer persistence intent and Ingestor/StorageManager framework archival boundaries; the narrow reporting/abandonment/producer-memory slice has automated coverage, independent manual IPython validation PASS (10 scenarios), and independent source audit PASS with no blocking findings. Decision 336 remains partially implemented; broader recovery/journal lifecycle and execution remain OPEN Q024 work.
 
 ---
 
