@@ -354,17 +354,20 @@ class AcquisitionNode:
         """Produced artifact lifecycle evidence for independent transport publication."""
         return tuple(self._artifact_manifest_evidence)
 
-    def _record_artifact_manifest(self, manifest: ArtifactManifest) -> None:
+    def _record_artifact_manifest(self, manifest: ArtifactManifest, *, resubmit_unconfirmed: bool = False) -> None:
         evidence_id = f"artifact-manifest-{manifest.artifact_manifest_id}-{manifest.lifecycle_state}"
-        if any(message.evidence_id == evidence_id for message in self._artifact_manifest_evidence):
+        message = next((retained for retained in self._artifact_manifest_evidence
+                        if retained.evidence_id == evidence_id), None)
+        if message is not None and (not resubmit_unconfirmed or self._ingestor.has_durable_runtime_evidence(message)):
             return
-        message = RuntimeEvidenceMessage(
-            evidence_id=evidence_id, session_id=manifest.session_id,
-            evidence_type=ARTIFACT_MANIFEST_EVIDENCE_TYPE,
-            source_id=manifest.acquisition_node_id, payload=manifest.to_dict(),
-            is_persistent=True,
-        )
-        self._artifact_manifest_evidence.append(message)
+        if message is None:
+            message = RuntimeEvidenceMessage(
+                evidence_id=evidence_id, session_id=manifest.session_id,
+                evidence_type=ARTIFACT_MANIFEST_EVIDENCE_TYPE,
+                source_id=manifest.acquisition_node_id, payload=manifest.to_dict(),
+                is_persistent=True,
+            )
+            self._artifact_manifest_evidence.append(message)
         self._ingestor.receive_runtime_evidence(message)
 
     @service_operation(new_work=True)
@@ -914,16 +917,21 @@ class AcquisitionNode:
                 and e.evidence_type in {"write_failure", "finalization_failure"}
                 for e in self._local_storage_manager.evidence):
             raise ValueError("No known failed preservation obligation for this stream")
-        attempt["actions"].append("local_artifact_finalization_attempted")
-        finalized = self._local_storage_manager.finalize_stream(manifest.storage_id)
+        finalized = manifest
+        if manifest.lifecycle_state != "finalized":
+            attempt["actions"].append("local_artifact_finalization_attempted")
+            finalized = self._local_storage_manager.finalize_stream(manifest.storage_id)
+            attempt["actions"].append("local_artifact_finalization_confirmed")
         attempt["confirmation"] = {"artifact_manifest": finalized.to_dict(),
             "local_finalization_confirmed": True, "manifest_acceptance_confirmed": False,
             "node_cleanup_confirmed": self._initialization_cleanup_confirmed}
-        attempt["actions"].append("local_artifact_finalization_confirmed")
-        self._record_artifact_manifest(finalized)
+        attempt["actions"].append("artifact_manifest_preservation_attempted")
+        self._record_artifact_manifest(finalized, resubmit_unconfirmed=True)
         message = next(m for m in self._artifact_manifest_evidence
                        if m.payload == finalized.to_dict())
         attempt["confirmation"]["manifest_acceptance_confirmed"] = self._ingestor.has_durable_runtime_evidence(message)
+        if not attempt["confirmation"]["manifest_acceptance_confirmed"]:
+            raise RuntimeError("Finalized artifact manifest lacks durable Ingestor acceptance")
         self._confirm_recovered_cleanup()
         attempt["confirmation"]["node_cleanup_confirmed"] = self._initialization_cleanup_confirmed
         return attempt["confirmation"]

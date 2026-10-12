@@ -268,6 +268,119 @@ class AuthorizedRecoveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(node.local_storage_manager.manifests[0].lifecycle_state, "finalized")
         self.assertEqual(node.reserved_for_session_id, "session-a")
 
+        retained = node.artifact_manifest_evidence[-1].to_dict()
+        artifact = Path(retained["payload"]["local_storage_path"])
+        before = artifact.read_bytes()
+        second = await self.authorize("preserve_scientific_artifact", obligation,
+            identity="still-unavailable", interface=interface)
+        with patch.object(self.ingestor, "receive_runtime_evidence", side_effect=fail_manifest), \
+                patch.object(node.local_storage_manager, "finalize_stream", wraps=node.local_storage_manager.finalize_stream) as finalize:
+            failed = await interface.execute_command(second)
+        self.assertFalse(failed.success)
+        self.assertEqual(failed.payload["actual_outcome"], "failed")
+        self.assertTrue(failed.payload["confirmation"]["local_finalization_confirmed"])
+        self.assertFalse(failed.payload["confirmation"]["manifest_acceptance_confirmed"])
+        finalize.assert_not_called()
+        self.assertEqual(node.artifact_manifest_evidence[-1].to_dict(), retained)
+        self.assertEqual(artifact.read_bytes(), before)
+        self.assertEqual(node.reserved_for_session_id, "session-a")
+
+    async def test_new_authorized_artifact_recovery_resubmits_identical_manifest_without_refinalizing(self):
+        node, adapter, interface = self.prepared_node()
+        obligation = self.interrupted_local_artifact(node)
+        first = await self.authorize("preserve_scientific_artifact", obligation, identity="first", interface=interface)
+        original = self.ingestor.receive_runtime_evidence
+        def fail_manifest(message):
+            if message.evidence_type == "artifact_manifest" and message.payload["lifecycle_state"] == "finalized":
+                raise ConnectionError("manifest intake unavailable")
+            return original(message)
+        with patch.object(self.ingestor, "receive_runtime_evidence", side_effect=fail_manifest):
+            failed = await interface.execute_command(first)
+        self.assertFalse(failed.success)
+        retained = node.artifact_manifest_evidence[-1]
+        self.assertFalse(self.ingestor.has_durable_runtime_evidence(retained))
+        evidence = retained.to_dict()
+        local = node.local_storage_manager
+        paths = {Path(path): Path(path).read_bytes() for path in local.manifests[0].local_managed_paths}
+        local_evidence = local.evidence
+        device_state = adapter.state
+        second = await self.authorize("preserve_scientific_artifact", obligation, identity="second", interface=interface)
+        self.assertNotEqual(first.payload["authorization_evidence_id"], second.payload["authorization_evidence_id"])
+        with patch.object(self.ingestor, "receive_runtime_evidence", wraps=original) as intake, \
+                patch.object(local, "finalize_stream", wraps=local.finalize_stream) as finalize:
+            recovered = await interface.execute_command(second)
+        self.assertTrue(recovered.success, recovered.reason)
+        self.assertTrue(recovered.payload["confirmation"]["local_finalization_confirmed"])
+        self.assertTrue(recovered.payload["confirmation"]["manifest_acceptance_confirmed"])
+        finalize.assert_not_called()
+        submitted = [call.args[0] for call in intake.call_args_list if call.args[0].evidence_type == "artifact_manifest"]
+        self.assertEqual([message.to_dict() for message in submitted], [evidence])
+        self.assertTrue(self.ingestor.has_durable_runtime_evidence(retained))
+        self.assertEqual(node.artifact_manifest_evidence[-1].to_dict(), evidence)
+        self.assertEqual(local.evidence, local_evidence)
+        self.assertEqual({path: path.read_bytes() for path in paths}, paths)
+        self.assertEqual(adapter.state, device_state)
+        self.assertEqual(self.ingestor.session_id, "session-a")
+        self.assertEqual(node.reserved_for_session_id, "session-a")
+        handoff = self.ingestor.compile_artifact_collection_handoff("session-a")
+        self.assertEqual(handoff["artifacts"], [{"artifact_manifest": evidence["payload"], "missing_finalization_evidence": False}])
+        self.assertEqual(sum(m.evidence_id == retained.evidence_id for m in self.ingestor.accepted_runtime_evidence), 1)
+        self.assertFalse(node.prepare_experiment_scientific_outputs("experiment",
+            (ScientificOutputSelection("device", "node", "events"),)).ready)
+
+    async def test_artifact_recovery_rejects_in_memory_acceptance_without_manifest_durability(self):
+        self.ingestor = InMemoryIngestor(self.storage,
+            framework_recovery_journal_path=self.root / "framework-only.jsonl")
+        node, _, interface = self.prepared_node()
+        obligation = self.interrupted_local_artifact(node)
+        first = await self.authorize("preserve_scientific_artifact", obligation, identity="no-journal-first", interface=interface)
+        failed = await interface.execute_command(first)
+        self.assertFalse(failed.success)
+        self.assertTrue(failed.payload["confirmation"]["local_finalization_confirmed"])
+        self.assertFalse(failed.payload["confirmation"]["manifest_acceptance_confirmed"])
+        retained = node.artifact_manifest_evidence[-1]
+        self.assertIn(retained, self.ingestor.accepted_runtime_evidence)
+        second = await self.authorize("preserve_scientific_artifact", obligation, identity="no-journal-second", interface=interface)
+        with patch.object(node.local_storage_manager, "finalize_stream", wraps=node.local_storage_manager.finalize_stream) as finalize:
+            still_failed = await interface.execute_command(second)
+        finalize.assert_not_called()
+        self.assertFalse(still_failed.success)
+        self.assertEqual(still_failed.payload["actual_outcome"], "failed")
+        self.assertFalse(still_failed.payload["confirmation"]["manifest_acceptance_confirmed"])
+        self.assertFalse(self.ingestor.has_durable_runtime_evidence(retained))
+        self.assertEqual(sum(m.evidence_id == retained.evidence_id for m in self.ingestor.accepted_runtime_evidence), 1)
+
+    async def test_durable_manifest_needs_no_resubmission_during_normal_finalization_or_authorized_recovery(self):
+        node, adapter, interface = self.prepared_node()
+        self.assertTrue(node.prepare_experiment_scientific_outputs("experiment",
+            (ScientificOutputSelection("device", "node", "events"),)).ready)
+        local = node.local_storage_manager
+        self.addCleanup(local.cleanup)
+        finalized, = node.finalize_experiment_scientific_outputs("experiment")
+        retained = node.artifact_manifest_evidence[-1]
+        self.assertTrue(self.ingestor.has_durable_runtime_evidence(retained))
+        evidence = [message.to_dict() for message in node.artifact_manifest_evidence]
+        self.assertEqual([m["payload"]["lifecycle_state"] for m in evidence], ["open", "finalized"])
+        paths = {Path(path): Path(path).read_bytes() for path in finalized.local_managed_paths}
+        device_state = adapter.state
+        with patch.object(self.ingestor, "receive_runtime_evidence", wraps=self.ingestor.receive_runtime_evidence) as intake:
+            self.assertEqual(node.finalize_experiment_scientific_outputs("experiment"), (finalized,))
+        intake.assert_not_called()
+        command = await self.authorize("preserve_scientific_artifact", {
+            "session_id": "session-a", "experiment_id": "experiment", "storage_id": finalized.storage_id,
+            "artifact_manifest_id": finalized.artifact_manifest_id}, interface=interface)
+        with patch.object(self.ingestor, "receive_runtime_evidence", wraps=self.ingestor.receive_runtime_evidence) as intake, \
+                patch.object(local, "finalize_stream", wraps=local.finalize_stream) as finalize:
+            result = await interface.execute_command(command)
+        self.assertTrue(result.success, result.reason)
+        self.assertTrue(result.payload["confirmation"]["manifest_acceptance_confirmed"])
+        finalize.assert_not_called()
+        self.assertFalse(any(call.args[0].evidence_type == "artifact_manifest" for call in intake.call_args_list))
+        self.assertEqual([message.to_dict() for message in node.artifact_manifest_evidence], evidence)
+        self.assertEqual({path: path.read_bytes() for path in paths}, paths)
+        self.assertEqual(node.reserved_for_session_id, "session-a")
+        self.assertEqual(adapter.state, device_state)
+
     async def test_binding_change_during_attempt_publication_refuses_stale_cleanup(self):
         node, adapter, interface = self.prepared_node()
         obligation = {"session_id": "session-a", "device_ids": ["device"]}
