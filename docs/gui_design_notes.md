@@ -51,9 +51,41 @@ The future tab could also:
   data or runtime evidence. Successful forced retirement does not confirm that
   unresolved cleanup or preservation obligations succeeded.
 - Display unresolved obligations from previous operation attempts. Potential
-  resume/drop controls may be considered later, but their behavior remains
-  undefined until relevant recovery architecture is accepted. These notes define
-  no resumption, deletion, abandonment, or automatic recovery semantics.
+  recovery/abandonment controls remain future presentation ideas within the
+  accepted service-owned boundaries described below, not GUI-owned execution policy.
+
+### Operator-facing recovery guidance
+
+**Status:** Future GUI design ideas, not accepted GUI architecture or implementation requirements.
+
+Within the proposed Services tab, the future GUI could:
+
+- Group unresolved obligations by responsible service and show which recovery
+  actions are supported, unsupported, or not yet established. Distinguish work
+  already proven complete from work for which a potentially safe procedure exists.
+- Display known facts, uncertain conditions, affected resources/scopes, operational
+  consequences, and current prerequisites from service-owned assessments; do not
+  invent a technical assessment when information is unavailable.
+- Let an administrator explicitly authorize a supported attempt for a particular
+  obligation, leave it unresolved, or abandon it. Explain that authorization
+  permits an attempt, not guaranteed success or unrelated work, and that leaving
+  unresolved differs from abandonment. Abandonment does not prove cleanup,
+  resource safety, or recovery.
+- Show the administrator choice, actual attempted actions, confirmed outcomes,
+  remaining obligations, and evidence-preservation warnings separately. Publication
+  or command acknowledgment is not recovery success or confirmed archival.
+- Explain that partial artifact preservation and device/resource cleanup are
+  independent actions: success in one does not establish success or safe reuse in
+  the other. Keep existing service-specific kill authorization and forced-action
+  warnings separate from recovery authorization.
+
+Q024-B Decisions 339-346 accept framework service-specific recovery boundaries,
+not these GUI controls. The GUI remains a client: services own technical assessment,
+immediate prerequisite/safety checks, and authorized execution through existing
+interfaces. These ideas define no detailed control behavior, command schema,
+automatic recovery, data deletion, process supervision, or new recovery authority.
+Unsupported procedures and broader application recovery remain undefined/deferred;
+the GUI must not present them as available operations.
 
 ### Architectural boundary
 
@@ -63,7 +95,9 @@ and 320-321 define readiness interpretation, independent startup, and dependency
 behavior without automatic interrupted-work recovery. Decisions 308-311 and
 315-316 preserve explicit authorization, truthful outcomes, and unrelated scopes;
 Decisions 325-326 establish progressive shutdown, service-specific authorization,
-and two-phase closeout.
+and two-phase closeout. Decisions 332-338 establish narrow service-owned reporting
+and administrative abandonment; Decisions 339-346 accept Q024-B's service-specific
+operator-authorized execution boundaries, with implementation pending.
 
 These are existing framework contracts, not new GUI requirements. The Services
 tab, its controls, and all presentation ideas above remain future design ideas,

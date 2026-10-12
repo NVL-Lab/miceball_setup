@@ -648,7 +648,7 @@ cleanup/reuse, not implementation of those service binding-release contracts.
 # Future Milestones
 
 Phase 16 Operational Service Lifetime and Framework Stop/Kill architecture is
-accepted in Decisions 304-338. At the earlier checkpoint implementation was
+accepted in Decisions 304-346. At the earlier checkpoint implementation was
 limited to the Session-binding release slice. Decision 323 adds the accepted
 framework Evidence Archive partition; individual-service stop/kill/cancel is now
 complete, manually software-validated, and independently audited PASS (W036),
@@ -811,10 +811,11 @@ five services. Explicit drop records abandonment separately from actual outcomes
 guarded memory release is limited to redundant interface-owned producer evidence
 copies, preserving current complete archival and exact journal-backed acceptance
 through commitment. Existing resource guards, administrative markers, idempotent
-command/results, and durable journals remain. Resource-specific abandonment/cleanup
-and broader cache retirement are not implemented without the applicable accepted
-safety, closeout, and idempotency-lifetime contracts. Automated tests do not replace
-independent manual validation or audit; both have now passed for this narrow scope.
+command/results, and durable journals remain. Resource-specific recovery execution
+is separately accepted, implementation pending under Q024-B below; wider cache
+retirement still lacks the applicable safety/closeout/idempotency-lifetime contracts.
+Automated tests do not replace independent manual validation or audit; both have
+now passed for this narrow scope.
 
 W038 and earlier validated workflows retain their completed narrow scopes. No new
 workflow is added during this documentation closure. Phase 16 and M015 remain
@@ -824,6 +825,53 @@ and broader application recovery remain Q024 work. Q019 retains Session-wide evi
 consumption/finalization and Q022 retains deployment configuration/discovery.
 No universal/automatic recovery, replay, retry, resumption, deletion, GUI,
 supervision, new Session states, or additional recovery subsystem is authorized.
+
+## Q024-B: Service-specific operator-authorized recovery execution
+
+**Status:** Architecture accepted and synchronized in Decisions 339-346;
+implementation pending. No new implementation, validation, or audit is claimed.
+
+New service-specific recovery attempts require explicit human administrator
+authorization for the original obligation, recorded through the existing
+administrative evidence interface and referenced by execution commands. Owners
+validate authorization, identities, scope, prerequisites, and safety immediately
+before attempting work. Authorization does not establish success, abandonment,
+or authority for unrelated work. Existing command/results and runtime evidence
+preserve successful, failed, and refused attempts and separate actual outcomes
+from durable confirmation; no universal recovery operation or registry is added.
+
+Accepted service boundaries:
+
+- StorageManager: Fresh complete artifact transfer with proven temporary-copy
+  identity/destination safety and unchanged source; persistent-record rewrites
+  require complete trustworthy inputs and actual durable confirmation. No byte-
+  level resumption, unexpected final overwrite, invented evidence, or transfer
+  of Ingestor compilation ownership.
+- Ingestor: No new recovery mechanism. Accepted automatic valid-journal
+  reconstruction for an already-known Session remains under Decisions 276-280
+  without new administrator authorization; report failures and do not accept
+  corrupted completed entries.
+- AcquisitionNode: Independently authorized partial scientific-artifact
+  preservation and device/resource cleanup, preserving actual records, authoritative
+  local artifacts/manifests, terminal Experiment identities, and confirmed reuse safety.
+- Controller: Read-only reconciliation of trustworthy records and confirmed
+  participant outcomes without authorization merely to read. Missing/uncertain
+  outcomes remain unresolved; new operational commands are separately authorized,
+  not replayed automatically or used to restore application/lifecycle state.
+- SynchronizationManager: Preserve historical timing/mappings and report active-
+  Session continuity gaps, affected scope, and uncertainty; establish valid current
+  synchronization through existing authority. No fabricated observations, timestamp
+  mutation, mapping extension across downtime, or automatic Session failure/discard.
+
+The completed, independently validated/audited Decisions 332-338 narrow slice and
+all prior validation records remain intact. Decision 336 remains partially
+implemented, limited to guarded release of redundant producer-owned evidence copies.
+Q024, Q019, Q022, Phase 16, and M015 remain OPEN. Journal retention/deletion,
+abandoned journals, application-wide Session discovery, Controller/application
+restoration, stale reservations, and remaining memory/cache retirement are deferred.
+No new automatic recovery/replay/retry/resumption, process supervision, Session
+states, durable deletion, evidence infrastructure, Q019 finalization guarantees,
+or Q022 deployment configuration is introduced.
 
 ## Completed Session-binding release slice validation
 

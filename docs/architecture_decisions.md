@@ -9188,6 +9188,180 @@ Phase 16, M015, Q019, Q022, and Q024 remain open.
 
 ---
 
+## Decision 339: Service-specific recovery attempts require explicit obligation-scoped administrator authorization
+
+**Status:** Accepted
+
+Q024-B recovery remains service-specific. There is no universal `recover()`,
+`resume()`, or `retry()` operation, recovery manager, or registry.
+
+New recovery operations require explicit human administrator authorization for a
+specific obligation. Reuse `ServiceMaintenanceInterface.record_administrator_decision(...)`
+to record the decision and existing command/result infrastructure for authorized
+execution. Recording authorization remains distinct from executing recovery under
+Decision 330.
+
+Immediately before execution, the owning service validates authorization,
+obligation identity, affected scope, current prerequisites, and safety.
+Authorization permits an attempt, not guaranteed success or unrelated work.
+Service return never automatically initiates a new recovery operation.
+
+---
+
+## Decision 340: Recovery assessment and operator choices remain service-owned and distinct
+
+**Status:** Accepted
+
+Each service assesses its unresolved obligations using trustworthy existing
+records and diagnostics. Distinguish obligations with no established recovery
+action, obligations with a concrete potentially safe recovery procedure, and
+obligations already proven complete.
+
+The operator may authorize recovery, leave work unresolved, or explicitly abandon
+it. These choices are distinct: leaving work unresolved is not abandonment.
+Assessment and authorization do not prove that recovery occurred.
+
+---
+
+## Decision 341: Recovery execution correlates existing identities and preserves actual outcomes
+
+**Status:** Accepted
+
+Reuse `RuntimeParticipant`, the original service-owned obligation identity,
+administrator-decision `evidence_id`, execution `command_id`, and existing
+command/result and runtime-evidence identities. Execution requests reference
+both the original obligation and the specific authorization.
+
+Distinguish unresolved-work report, administrator decision, attempted action,
+actual outcome, and durable archival confirmation. Reuse `RuntimeEvidenceMessage`,
+Ingestor, StorageManager, and the existing Evidence Archive. Preserve successful,
+failed, and refused attempts, including relevant precondition failures and
+remaining obligations.
+
+Command acknowledgment does not prove successful recovery. Failed recovery does
+not imply abandonment. No new evidence infrastructure is introduced.
+
+---
+
+## Decision 342: StorageManager owns authorized fresh-transfer and persistent-write recovery attempts
+
+**Status:** Accepted
+
+Two operator-authorized StorageManager recovery cases are accepted:
+
+1. **Interrupted artifact transfer:** Perform a fresh complete transfer using
+   trustworthy original source, authoritative manifest, retrieval configuration,
+   and existing transfer mechanisms. Do not alter the original local artifact.
+   Replace an incomplete temporary copy only when its identity and relationship
+   to the interrupted operation are proven. Never overwrite an unexpected final
+   destination. Preserve existing retrieval verification requirements. Refuse
+   when source, identity, configuration, or destination safety is uncertain.
+   No byte-level transfer resumption is introduced.
+2. **Interrupted persistent-record write:** Repeat an Evidence Archive or Session
+   Record write only when complete trustworthy inputs remain available. Reuse
+   existing persistence and consistency mechanisms. Ingestor retains compilation
+   ownership; StorageManager must not invent missing evidence. Confirm the actual
+   durable result. Refuse missing, inconsistent, or untrustworthy inputs.
+
+These explicit authorized attempts extend the earlier slice scope without adding
+automatic retry/replay or changing Decisions 245-270's source ownership,
+non-overwriting final publication, and verification boundaries. This does not
+resolve Q019's Session-wide evidence-completeness or finalization questions.
+
+---
+
+## Decision 343: Ingestor retains accepted automatic known-Session journal reconstruction
+
+**Status:** Accepted
+
+Q024-B introduces no new Ingestor recovery mechanism. Preserve Decisions 276-280:
+automatic reconstruction of accepted runtime evidence from a valid durable
+recovery journal for an already-known Session, with evidence-ID deduplication
+and normal intake/compilation afterward.
+
+Report reconstruction failures without inventing missing evidence or silently
+accepting corrupted completed entries. This existing automatic reconstruction
+does not require new administrator authorization. Application-wide unfinished-
+Session discovery remains deferred; the exclusion of new automatic recovery
+does not remove this already accepted reconstruction.
+
+---
+
+## Decision 344: AcquisitionNode artifact preservation and resource cleanup are independent authorized actions
+
+**Status:** Accepted
+
+Two independent operator-authorized AcquisitionNode recovery actions are accepted:
+
+1. **Scientific-artifact preservation:** Preserve genuinely available partial
+   scientific records, complete supported local artifact finalization, and update
+   authoritative manifests and evidence using existing LocalStorageManager
+   mechanisms. Do not fabricate records, reopen terminal Experiments, or resume
+   acquisition under old Experiment identities.
+2. **Device/resource cleanup:** Attempt unfinished cleanup with actual shutdown
+   and cleanup confirmation. Preserve adapter lifecycle, reservation, Session-
+   binding, and resource-safety protections. Unconfirmed resources cannot be
+   considered reusable.
+
+Success in one action does not establish success in the other. LocalStorageManager
+retains authoritative artifact/manifest ownership, and existing lifecycle and
+cleanup protections, including Decisions 238, 300-302, and 313, remain in force.
+
+---
+
+## Decision 345: Controller reconciliation records proven outcomes without automatic operational replay
+
+**Status:** Accepted
+
+Controller may reconcile trustworthy existing durable evidence and confirmed
+participant outcomes without authorization merely to read those records.
+Record only proven outcomes, keep missing or uncertain results unresolved, and
+preserve partial results.
+
+Do not infer success from transport acknowledgment, intent, missing response,
+or partial confirmation. Do not automatically replay commands, restart terminal
+Experiments, advance Session lifecycle, or restore the application.
+
+Any new operational command required for recovery is separately authorized and
+subject to existing safety and scope contracts. Reconciliation does not confer
+device, persistence, or timing ownership on Controller.
+
+---
+
+## Decision 346: Synchronization recovery preserves historical timing and requires trustworthy current information
+
+**Status:** Accepted
+
+Outside an active Session, normal operation may resume after valid synchronization
+is established through existing mechanisms. During an active Session, preserve
+historical timing evidence and mappings, identify gaps in timing continuity, and
+report affected scope and uncertainty.
+
+Do not extend old mappings across downtime, fabricate synchronization observations,
+or overwrite recorded timestamps. New active synchronization must rely on
+trustworthy current information and existing SynchronizationManager authority.
+
+A synchronization service crash alone must not automatically discard or fail the
+Session. Preserve available scientific data and historical timing information.
+Read-only reconciliation does not require administrator authorization; any new
+operational recovery attempt remains subject to Decision 339.
+
+**Implementation status for Q024-B (Decisions 339-346):** Architecture accepted;
+implementation pending. No implementation, new validation, or audit is claimed
+by this synchronization. The completed, independently validated and audited
+Decisions 332-338 narrow slice remains unchanged; Decision 336 remains partially
+implemented, limited to guarded release of redundant producer-owned evidence
+copies. Q024-B accepts the service-specific execution boundaries above, not a
+universal recovery system, automatic replay/retry/resumption, process supervision,
+new Session states, application-wide restoration, automatic durable deletion,
+new evidence infrastructure, Q019 finalization guarantees, or Q022 deployment
+configuration. Recovery-journal retention/deletion, abandoned journals,
+application-wide Session discovery, Controller/application restoration, stale
+reservations, and remaining memory/cache retirement remain deferred. Q024, Q019,
+Q022, Phase 16, and M015 remain OPEN.
+
+---
+
 # Accepted Architectural Principles
 
 The following principles summarize the accepted decisions so far.
@@ -9528,6 +9702,14 @@ requirements remain authoritative.
 336. Recorded abandonment permits release of unnecessary temporary memory only after applicable preservation, safety, and closeout obligations are satisfied; minimum safety information and durable records/journals remain protected.
 337. Existing service-specific owners assess their own obligations and confirm completion from trustworthy records and state, never intent, transport acknowledgment, missing responses, or incomplete evidence.
 338. Unresolved-work reports, recovery assessments, classifications, administrator decisions, and confirmed outcomes reuse existing producer persistence intent and Ingestor/StorageManager framework archival boundaries; the narrow reporting/abandonment/producer-memory slice has automated coverage, independent manual IPython validation PASS (10 scenarios), and independent source audit PASS with no blocking findings. Decision 336 remains partially implemented; broader recovery/journal lifecycle and execution remain OPEN Q024 work.
+339. New service-specific recovery attempts require explicit human administrator authorization for one obligation and current owner-validated safety/prerequisites; service return does not initiate recovery and no universal recovery operation or registry is introduced.
+340. Owners distinguish absent recovery procedures, potentially safe procedures, and proven completion; authorizing recovery, leaving unresolved, and abandoning are separate choices.
+341. Recovery requests correlate the original obligation, authorization evidence, execution command, and existing participant/result identities; reports, decisions, attempts, actual outcomes, and archival confirmation remain distinct, with successful/failed/refused attempts preserved through existing evidence.
+342. StorageManager may attempt authorized fresh complete artifact transfers and persistent-record rewrites with trustworthy inputs and current safety, preserving original artifacts, non-overwriting final destinations, verification, and Ingestor compilation ownership without resolving Q019.
+343. Q024-B adds no Ingestor recovery mechanism or authorization requirement for accepted automatic valid-journal reconstruction of an already-known Session; corruption is not accepted and application-wide discovery stays deferred.
+344. AcquisitionNode scientific-artifact preservation and device/resource cleanup are independent authorized actions; actual records, authoritative local manifests, terminal Experiment identities, and confirmed resource-safety protections remain authoritative.
+345. Controller may read and reconcile trustworthy durable evidence and confirmed participant outcomes without authorization, but records only proven results and neither automatically replays commands nor advances lifecycle or restores the application.
+346. Synchronization recovery preserves historical timing/mappings, reports active-Session continuity gaps and uncertainty, and uses trustworthy current synchronization without fabricated observations, timestamp mutation, or automatic Session failure. Q024-B architecture is accepted, implementation pending; broader Q024, Q019, Q022, Phase 16, and M015 remain OPEN.
 
 ---
 
