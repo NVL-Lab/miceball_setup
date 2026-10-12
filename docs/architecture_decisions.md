@@ -9436,9 +9436,199 @@ Q024, Q019, Q022, Phase 16, and M015 remain OPEN.
 
 ---
 
+## Decision 349: Ingestor owns conditional retirement of temporary recovery journals
+
+**Status:** Accepted
+
+Ingestor owns the lifecycle of its temporary recovery journals. Automatically
+retire/delete a journal only when all applicable conditions are confirmed:
+
+- Its work is no longer active or awaiting recovery.
+- Required persistent evidence and intake audit are durably preserved.
+- Applicable Session finalization requirements are confirmed.
+- The journal is no longer required for crash reconstruction or deduplication.
+
+Retain the journal if any condition is uncertain. Administrative abandonment
+alone is insufficient; no automatic age-based expiration or daily/monthly
+temporary-journal rotation is accepted.
+
+Decisions 276-280's journal-before-ACK, known-Session reconstruction, and
+deduplication contracts remain authoritative. Journaling nonpersistent evidence
+does not make it permanent Evidence Archive content. This resolves the journal
+lifecycle ownership and conditional-deletion deferral in Decision 280 and supplies
+the separately governed journal-retirement policy deferred by Decision 336.
+Automatic deletion is permitted only for temporary journals under these confirmed
+conditions, not permanent records or merely because memory was released or an
+obligation abandoned.
+
+Q019 still owns unresolved Session-wide final evidence-consumption/closure
+conditions. This decision does not invent confirmation of those conditions.
+
+---
+
+## Decision 350: Terminal deletion of unrecoverable temporary evidence requires explicit authorization
+
+**Status:** Accepted
+
+A human operator may explicitly authorize discarding identified permanently
+unrecoverable temporary evidence after being informed of potential permanent loss.
+A failed recovery attempt never automatically authorizes deletion.
+
+Preserve the original obligation/data identity, administrator authorization,
+known loss, actual execution outcome, and durable evidence wherever possible.
+Abandonment/loss is not successful preservation; authorization is not confirmed
+deletion or resource safety. Reuse existing Q024-B authorization, command/result
+correlation, and evidence-integrity protections.
+
+This is a distinct authorized terminal action, not indiscriminate `drop`, automatic
+journal expiry, or deletion of permanent framework archives. If required auditing
+or persistence cannot be established because the evidence subsystem is unavailable,
+record the architectural conflict for clarification rather than invent an exception.
+
+---
+
+## Decision 351: Every Controller startup reconciles observable known participants
+
+**Status:** Accepted
+
+Every Controller startup reconciles observable states of known runtime participants
+through existing communication, readiness, and status interfaces. It need not
+determine whether a previous Controller instance crashed. Each principal service
+owns inspection/reporting of its durable evidence and unfinished obligations.
+
+Distinguish confirmed active, stopped, failed, and unknown participant states.
+These are observed participant conditions, not new lifecycle states.
+Loss of Controller's in-memory Session does not prove acquisition stopped. If an
+AcquisitionNode continues recording safely, Controller must not automatically stop
+it. The operator may authorize coordinated stopping/preservation; handle nodes
+independently, report only confirmed results, and retain unreachable participants
+as unknown.
+
+Multiple unfinished Sessions may be reported when supported by existing trustworthy
+evidence, without a recovery registry or Session replicas. This extends Decision
+345's informational reconciliation scope but does not restore Session objects,
+restart Experiments, replay operations, or restore application orchestration state.
+
+---
+
+## Decision 352: Controller failure does not invalidate node-owned reservations
+
+**Status:** Accepted
+
+AcquisitionNode retains authoritative Session-keyed reservation ownership. A
+Controller crash does not invalidate reservations. Reconciliation reports
+reservation and actual acquisition state and protects running acquisition.
+
+For a stopped node, evaluate local scientific-artifact finalization and device
+cleanup independently. Use existing authorized recovery and Session-keyed release
+mechanisms only after applicable safety and finalization are confirmed. Unconfirmed
+cleanup cannot authorize release; one node's success never proves another's success.
+
+Local scientific finalization remains separate from global artifact collection.
+No reservation leases, automatic expiration, arbitrary timeouts, or centralized
+registry are introduced. Existing node authority and cleanup protections remain
+in force; this resolves the reconciliation boundary previously deferred under Q024,
+not an automatic reservation-release policy.
+
+---
+
+## Decision 353: Principal services retire unnecessary temporary working information
+
+**Status:** Accepted
+
+Controller, AcquisitionNode, Ingestor, StorageManager, and SynchronizationManager
+must retire unnecessary temporary working information after applicable preservation
+and safety conditions. This includes completed, abandoned, and permanently
+unresolved work.
+
+Retain the minimum evidence and state needed for unresolved-obligation reporting,
+resource protection, deduplication, and preventing unsafe command reexecution.
+Permanent records remain independent of temporary memory. Administrator `drop`
+alone does not authorize indiscriminate memory retirement or unsafe resource release.
+
+This extends Decision 336 beyond guarded release of redundant producer evidence
+copies without removing its safeguards. Existing Ingestor accepted-evidence/
+deduplication state and service-maintenance command/result/attempt caches require
+attention during implementation. No universal memory manager or constant-RAM
+guarantee under unlimited unresolved work is introduced; genuine operational limits
+must be documented.
+
+---
+
+## Decision 354: Permanent framework Evidence Archives use calendar-month partitions
+
+**Status:** Accepted
+
+This decision explicitly supersedes the shared framework Evidence Archive layout
+in Decision 323, which is preserved historically. Its evidence ownership, durable
+write, exact confirmation, audit linkage, and integrity requirements remain.
+
+Use one permanent framework evidence partition per calendar month:
+
+```text
+<storage_root>/framework/evidence/YYYY-MM/
+    runtime_evidence.jsonl
+    ingest_audit.jsonl
+    compilation_summary.json
+```
+
+Newly archived framework evidence belongs in the appropriate new monthly partition;
+historical event timestamps remain unchanged. Closed monthly archives are not
+rewritten when later evidence arrives. New writes must not rebuild years of
+historical framework evidence.
+
+Session Evidence Archive organization and scientific artifact storage are unchanged.
+Monthly partitioning applies to permanent framework evidence, not temporary Ingestor
+journals. No daily/weekly rotation options, calendar-timezone rules, or additional
+configuration requirements are established here.
+
+---
+
+## Decision 355: Finalized historical archives and safe-to-delete archives are distinct
+
+**Status:** Accepted
+
+A finalized archive accepts no further writes and is immutable. An archive is safe
+to delete only when no future framework operation or crash recovery depends on it.
+Deleting an archive confirmed safe to delete must not interfere with any later
+framework operation or recovery.
+
+Permanent historical archives must not remain the authoritative operational recovery
+store. Unfinished operations and cross-month obligations must retain required
+recovery/safety information independently of deletable historical monthly archives.
+A finalized archive may still be unsafe to delete; report outstanding dependencies
+accurately.
+
+Permanent framework archives are never automatically deleted at month end or merely
+because they become safe to delete. Manual deletion remains the user's choice.
+Scientific and institutional retention requirements are separate from technical
+deletion safety.
+
+Existing framework preservation confirmation and maintenance evidence lookup must
+honor this guarantee. The current shared-archive implementation's exact-compilation
+checks and archive-dependent maintenance lookups do not yet establish cross-month
+dependency independence. The missing operational contracts remain identified under
+Q024 for clarification; this decision introduces no cross-month recovery subsystem.
+
+**Implementation status for Decisions 349-355:** Accepted architecture synchronized
+only; none of these new contracts is claimed implemented or validated. Q024-B
+Decisions 339-348 remain complete and independently validated/audited in W039.
+Decision 336 remains partially implemented. Q024, Q019, Q022, Phase 16, and M015
+remain OPEN. Q019 closure conditions and safe-to-delete operational dependencies
+must not be resolved by implementation assumptions.
+
+---
+
 # Accepted Architectural Principles
 
 The following principles summarize the accepted decisions so far.
+
+Decisions 349-355 subsequently resolve additional Q024 ownership and behavioral
+boundaries, but are not implemented. Decision 354 supersedes only Decision 323's
+shared framework archive layout; Decision 349 extends Decision 280's journal
+lifecycle boundary, and Decision 353 extends Decision 336's temporary-memory scope.
+Historical decision text and validation records remain authoritative for their
+original scopes; W039 completion and Q019's unresolved closure conditions remain.
 
 Earlier entries retain their historical decision context. Decisions 313-321
 subsequently resolve the service-binding and Q025 deferrals recorded in entries
@@ -9786,6 +9976,13 @@ requirements remain authoritative.
 346. Synchronization recovery preserves historical timing/mappings, reports active-Session continuity gaps and uncertainty, and uses trustworthy current synchronization without fabricated observations, timestamp mutation, or automatic Session failure. Supported Q024-B cases are complete with automated coverage, independent manual validation, and final independent re-audit PASS after correction (W039); broader Q024, Q019, Q022, Phase 16, and M015 remain OPEN.
 347. Authorized interrupted Evidence Archive repair requires journal-backed durable Ingestor acceptance of authorization and attempt before execution, not successful archival in the unavailable target; actual write success and subsequent outcome archival remain separate, without new evidence infrastructure or Q019 guarantees.
 348. Loss of the active Session Time reference requires preserved historical timing/scientific recordings and explicit continuity/uncertainty reporting, never zero-based restart, fabricated relationships, unjustified old-map activation, or automatic Session failure; no active-Session clock-restoration mechanism is authorized, and healthy mapping updates remain unchanged.
+349. Ingestor owns temporary journal retirement only after inactive/recovery, persistent-evidence/audit, applicable finalization, and reconstruction/deduplication obligations are confirmed; uncertainty retains journals and Q019 closure conditions remain open.
+350. Explicit informed operator authorization may permit terminal deletion of identified unrecoverable temporary evidence; loss, authorization, execution, and safety remain distinct, with no invented auditing exception when evidence infrastructure is unavailable.
+351. Every Controller startup reconciles observable known participants and owner-reported unfinished work, preserving unknown states and safe active acquisition without Session/application restoration or operational replay.
+352. Controller failure does not invalidate node-owned Session reservations; authorized recovery and release require independently confirmed local finalization and device safety, not leases or automatic expiry.
+353. All principal services retire unnecessary temporary work after preservation/safety conditions while retaining reporting, resource protection, deduplication, and command-reexecution safeguards; Decision 336 remains partially implemented.
+354. Permanent framework Evidence Archives use YYYY-MM partitions with the existing three products, superseding Decision 323's shared layout without changing Session archives, scientific artifacts, timestamps, or temporary journals.
+355. Finalized means immutable, not necessarily safe to delete; confirmed safe deletion must never affect later operation/recovery, and historical archives are never automatically deleted. Decisions 349-355 are accepted, not implemented; Q024, Q019, Q022, Phase 16, and M015 remain OPEN.
 
 ---
 

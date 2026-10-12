@@ -2,12 +2,28 @@
 
 ## Phase 16 accepted responsibilities (binding release, maintenance, shutdown, and startup/return slices complete)
 
-Decision 323 accepts the existing Evidence Archive's deployment-scoped
+The implemented historical Decision 323 uses the Evidence Archive's deployment-scoped
 `framework/evidence/` partition for Session-independent runtime evidence with
 `session_id=None`. It requires exact evidence/audit/summary preservation without
 a Session Record. Individual-service stop/kill/cancel remains separate from
 Session-binding release and coordinated framework shutdown; W036 records its
 completed software validation and independent audit.
+
+Decision 354 now supersedes that shared framework layout architecturally with
+`framework/evidence/YYYY-MM/` partitions; implementation still uses the shared
+path. Decisions 349-355 are accepted, not implemented or validated. Q024-B remains
+complete in W039 and Decision 336 remains partially implemented.
+
+The existing `InMemoryIngestor.compile_framework_runtime_evidence()` and
+`framework_preservation_guard()` operate on cumulative retained evidence/audit.
+`PersistentStorageManager.write_framework_evidence_archive()` rewrites the shared
+products; `get_framework_preservation_confirmation()` reads and compares their
+entire current contents. Maintenance preservation guards and Controller
+reconciliation depend on those confirmations. Monthly archival and safe historical
+deletion therefore require clarified cross-month coverage/lookup dependencies;
+current code does not establish independence from deletable history. Q024 records
+these gaps without specifying a new recovery subsystem or API. Q019 final closure,
+Q022, Phase 16, and M015 remain open.
 
 Decisions 304-321 establish Session-independent and GUI-independent lifetime for
 Controller, AcquisitionNode, Ingestor, StorageManager, and SynchronizationManager.

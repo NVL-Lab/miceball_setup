@@ -648,7 +648,7 @@ cleanup/reuse, not implementation of those service binding-release contracts.
 # Future Milestones
 
 Phase 16 Operational Service Lifetime and Framework Stop/Kill architecture is
-accepted in Decisions 304-348. At the earlier checkpoint implementation was
+accepted in Decisions 304-355. At the earlier checkpoint implementation was
 limited to the Session-binding release slice. Decision 323 adds the accepted
 framework Evidence Archive partition; individual-service stop/kill/cancel is now
 complete, manually software-validated, and independently audited PASS (W036),
@@ -904,6 +904,36 @@ repair, followed by distinct actual-write and recovery-outcome archival
 confirmation. Decision 348 permits historical timing reconciliation and explicit
 uncertainty reporting after active Session Time is lost, not an invented clock
 restoration or zero-based restart. Healthy mapping updates remain unchanged.
+
+## Remaining Q024 architecture: accepted, not implemented
+
+Decisions 349-355 accept Ingestor-owned conditional temporary-journal retirement,
+informed operator-authorized terminal loss of identified unrecoverable temporary
+evidence, Controller startup reconciliation of known observable participants,
+protected node-owned reservations, and principal-service temporary-memory retirement.
+They preserve journal-before-ACK, known-Session reconstruction, device safety,
+deduplication, and existing service ownership; no automatic application restoration,
+Session-object restoration, operational replay, or reservation expiry is accepted.
+
+Decision 354 explicitly supersedes only Decision 323's shared permanent framework
+archive layout with `framework/evidence/YYYY-MM/` partitions and the same three
+products. Closed monthly partitions are immutable and not rewritten for later
+evidence. Session archives and scientific artifact storage are unchanged; temporary
+Ingestor journals are not monthly-rotated. Decision 355 requires safe-to-delete
+archives to be independent of every later operation/recovery, distinct from being
+finalized. Permanent archives are never automatically deleted.
+
+These additional contracts have no implementation or validation claim. Existing
+shared-archive confirmation and maintenance lookup dependencies require cross-month
+operational clarification before safe deletion can be confirmed. Q019 still owns
+unresolved Session-wide final evidence consumption/closure; unavailable auditing
+for terminal deletion is an architectural conflict, not an accepted exception.
+Remaining memory/idempotency limits and application-wide discovery/restoration
+remain open. No new implementation milestone or recovery subsystem is introduced.
+
+Q024-B Decisions 339-348 remain complete, independently validated/audited in W039;
+all earlier workflow records are preserved. Decision 336 remains partially
+implemented. Q024, Q019, Q022, Phase 16, and M015 remain OPEN.
 
 ## Completed Session-binding release slice validation
 

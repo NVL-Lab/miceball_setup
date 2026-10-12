@@ -603,7 +603,7 @@ Slice 28 workflows remain historical evidence, not closure of its sequential-reu
 requirements. W035 separately validates the Phase 16 service binding-release path.
 
 Phase 16 Operational Service Lifetime and Framework Stop/Kill architecture is
-accepted in Decisions 304-348. The narrow Controller/Ingestor/SynchronizationManager
+accepted in Decisions 304-355. The narrow Controller/Ingestor/SynchronizationManager
 Session-binding release slice under Decisions 313 and 322 is complete, manually
 software-validated, and independently audited PASS (W035). Remaining Phase 16
 responsibilities are unfinished; Phase 16 completion is not claimed.
@@ -702,6 +702,26 @@ producer-owned evidence copies. Broader Q024 remains OPEN, including journal
 retention/deletion, abandoned journals, application-wide discovery/restoration,
 stale reservations, and remaining memory/cache retirement. Q019, Q022, Phase 16,
 and M015 remain OPEN; W035-W038 retain their historical validation records.
+
+Additional Q024 architecture is accepted in Decisions 349-355, not implemented or
+validated. It assigns conditional temporary-journal retirement to Ingestor,
+permits explicitly informed terminal deletion of identified unrecoverable temporary
+evidence, requires Controller startup reconciliation of observable known participants,
+protects node-owned reservations after Controller failure, and extends service-owned
+temporary-memory retirement without sacrificing safety or deduplication.
+It does not automatically restore Session objects or stop safe active acquisition.
+
+Decision 354 supersedes Decision 323's shared permanent framework archive layout
+with `<storage_root>/framework/evidence/YYYY-MM/`, using the existing evidence,
+intake-audit, and compilation-summary files. Current implementation still uses the
+shared layout. Monthly partitioning does not rotate temporary journals, alter
+Session archives/scientific artifacts, or change historical timestamps.
+Decision 355 distinguishes immutable finalized archives from archives confirmed
+safe to delete: deletion must not affect later operation or recovery. Permanent
+archives are never automatically deleted. Cross-month confirmation/maintenance
+dependencies, unavailable-evidence auditing, memory limits, and Q019-dependent
+closure remain open contracts; no replacement recovery infrastructure is chosen.
+Q024-B/W039 completion is unchanged. Q024, Q019, Q022, Phase 16, and M015 remain OPEN.
 
 Decision 322 accepts persistence for every ControllerActionDecision, including
 no-mutation outcomes, with Controller-supplied is_persistent=True through the

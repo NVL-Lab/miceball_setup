@@ -668,7 +668,14 @@ journal entries are authoritative for reconstruction even if a prior durability
 operation reported failure; that error does not prove that complete bytes were lost.
 This is temporary crash-recovery state, not a snapshot, database, ingest audit,
 Session Record, permanent Evidence Archive, or replacement for JetStream.
-Journal cleanup/retention and application restart/discovery remain Q024.
+Decision 349 now accepts Ingestor-owned conditional journal retirement after
+confirmed inactivity/recovery, evidence/audit preservation, applicable finalization,
+and reconstruction/deduplication obligations. Uncertainty retains the journal;
+abandonment alone is insufficient and no age-based or daily/monthly rotation is
+accepted. Decision 350 separately permits explicitly authorized terminal loss of
+identified unrecoverable temporary evidence, not successful preservation or an
+auditing exception. These new contracts are not implemented; Q019-dependent
+closure and remaining Q024 operational contracts stay open.
 
 ---
 
@@ -1284,8 +1291,10 @@ The detailed manifest format, schema evolution, reconstruction outputs, and expo
 
 The persistent archive of runtime observations. Session evidence supports its
 Session Record and retains Session identity. Decision 318 also accepts
-Session-independent framework evidence through the same infrastructure; the
-current implementation and v1 layout remain Session-specific.
+Session-independent framework evidence through the same infrastructure. Decision
+323's shared framework partition is implemented and validated in earlier workflows;
+Decision 354 supersedes that accepted layout with permanent calendar-month
+partitions, not yet implemented. Session archive organization remains unchanged.
 
 The Evidence Archive is written by StorageManager from persistent information compiled by Ingestor. It is not a replacement for the Session Record and does not decide evidence meaning, lifecycle, retention, artifact transfer, reconstruction, NWB export, or global scientific data collection.
 
@@ -1301,6 +1310,38 @@ remains a Session-wide open question (Q019), not an implemented drain protocol.
 Decisions 317-319 separately define service-maintenance preservation order and
 require confirmed durable evidence preservation before orderly service closeout.
 They neither resolve Q019 nor implement a new archive layout or subsystem.
+
+---
+
+# Permanent Monthly Framework Evidence Archive
+
+Accepted Decision 354 partition for Session-independent persistent runtime evidence
+at `<storage_root>/framework/evidence/YYYY-MM/`, containing `runtime_evidence.jsonl`,
+`ingest_audit.jsonl`, and `compilation_summary.json`. StorageManager retains persistence
+ownership and Ingestor compilation ownership. Closed partitions are not rewritten
+for later evidence; historical timestamps remain unchanged. This is permanent
+evidence, not monthly rotation of temporary Ingestor journals. The layout is accepted,
+not implemented; no calendar-timezone or additional configuration rule is defined.
+
+---
+
+# Finalized Evidence Archive
+
+An archive that accepts no further writes and is immutable (Decision 355).
+Finalization alone does not prove safe deletion: unfinished or cross-month work
+may still depend on it. This is an archive property, not a new service or Session state.
+
+---
+
+# Safe-to-Delete Evidence Archive
+
+An archive confirmed to have no dependency from any future framework operation or
+crash recovery (Decision 355). Deleting it must not interfere with later operation
+or recovery. Required unfinished-work recovery/safety information must remain
+independent of deletable historical archives. The confirmation contract is not yet
+implemented or fully specified. Permanent archives are never automatically deleted;
+manual deletion remains the user's choice, separately from scientific/institutional
+retention requirements.
 
 ---
 
