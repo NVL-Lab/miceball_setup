@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from copy import deepcopy
 from threading import RLock
 from time import monotonic
 from typing import Any, TYPE_CHECKING
+from uuid import uuid4
 
 from lab_sync_acquisition.communication import (
     MAPPING_UPDATE_EVIDENCE_TYPE,
@@ -188,6 +190,7 @@ class SynchronizationManager:
             tuple[str, str], SynchronizationMapping
         ] = {}
         self._mapping_update_evidence: tuple[MappingUpdateEvidence, ...] = ()
+        self._timing_reconciliation_evidence: list[RuntimeEvidenceMessage] = []
 
     @service_operation(new_work=True)
     def prepare_session(self, session_id: str) -> ServiceReadiness:
@@ -325,6 +328,8 @@ class SynchronizationManager:
 
         with self._mapping_lock:
             key = (session_id, acquisition_node_id)
+            if session_id in self._lost_time_scopes():
+                raise RuntimeError("Historical mappings must remain intact while Session Time continuity is unconfirmed")
             previous = self._active_mappings.pop(key, None)
             if previous is None:
                 raise RuntimeError("No active synchronization mapping exists")
@@ -340,6 +345,8 @@ class SynchronizationManager:
         session_time_anchor_s: float,
         scale: float,
     ) -> SynchronizationMapping:
+        if session_id in self._lost_time_scopes():
+            raise RuntimeError("Active Session Time continuity is unconfirmed; no clock restoration is authorized")
         return SynchronizationMapping(
             session_id=session_id,
             acquisition_node_id=acquisition_node_id,
@@ -378,6 +385,9 @@ class SynchronizationManager:
     def current_session_time_s(self) -> float:
         """Current Session Time in seconds since acquisition session start."""
 
+        lost = self._lost_time_scopes()
+        if lost and (self._prepared_session_id is None or self._prepared_session_id in lost):
+            raise RuntimeError("No trustworthy current Session Time is available for the interrupted scope")
         if self._stopped_session_time_s is not None:
             return self._stopped_session_time_s
         if self._started_at_monotonic_s is None:
@@ -409,6 +419,9 @@ class SynchronizationManager:
         """Start the session clock and return the initial Session Time."""
 
         with self._mapping_lock:
+            lost = self._lost_time_scopes()
+            if lost and (self._prepared_session_id is None or self._prepared_session_id in lost):
+                raise RuntimeError("Cannot restart Session Time at zero for an interrupted ongoing Session")
             self._started_at_monotonic_s = monotonic()
             self._stopped_session_time_s = None
             return 0.0
@@ -421,6 +434,76 @@ class SynchronizationManager:
             self._stopped_session_time_s = self.current_session_time_s
             return self._stopped_session_time_s
 
+    @property
+    def timing_reconciliation_evidence(self) -> tuple[RuntimeEvidenceMessage, ...]:
+        return tuple(RuntimeEvidenceMessage.from_dict(deepcopy(m.to_dict()))
+                     for m in self._timing_reconciliation_evidence)
+
+    def _lost_time_scopes(self) -> set[str]:
+        return {m.payload["findings"]["session_id"] for m in self._timing_reconciliation_evidence
+                if m.payload["findings"]["active_session"] and m.payload["findings"]["continuity_gap"]
+                and m.payload["findings"]["evidence_context_confirmed"]}
+
+    @service_operation()
+    async def reconcile_timing(self, session_id: str, *, active_session: bool, ingestor: InMemoryIngestor) -> dict:
+        """Report journal-backed history and uncertainty without restoring time or mappings."""
+        if not isinstance(session_id, str) or not session_id or type(active_session) is not bool:
+            raise ValueError("A real Session identity and explicit active-Session context are required")
+        interface = getattr(self, "_maintenance", None)
+        source = interface.participant.component_id if interface else "synchronization"
+        findings = {"session_id": session_id, "active_session": active_session,
+                    "evidence_context_confirmed": ingestor.session_id == session_id,
+                    "historical_mapping_updates": [], "warnings": []}
+        if ingestor.session_id != session_id:
+            findings["warnings"].append("Known-Session evidence intake does not match the requested Session")
+        else:
+            for message in ingestor.accepted_runtime_evidence:
+                if message.session_id != session_id or message.evidence_type != MAPPING_UPDATE_EVIDENCE_TYPE:
+                    continue
+                if not ingestor.has_durable_runtime_evidence(message):
+                    findings["warnings"].append(f"Mapping evidence acceptance unconfirmed: {message.evidence_id}")
+                    continue
+                try:
+                    update = MappingUpdateEvidence.from_dict(message.payload)
+                    if update.session_id != session_id:
+                        raise ValueError("Mapping evidence Session identity conflicts")
+                    findings["historical_mapping_updates"].append({"evidence_id": message.evidence_id,
+                                                                  "mapping_update": update.to_dict()})
+                except (KeyError, ValueError, TypeError) as error:
+                    findings["warnings"].append(f"Mapping evidence cannot be reconciled: {error}")
+        with self._mapping_lock:
+            current = self._prepared_session_id == session_id and self.is_running
+            findings["time_reference_confirmed"] = current
+            findings["continuity_gap"] = active_session and not current
+            findings["current_active_mappings"] = [m.to_dict() for key, m in self._active_mappings.items()
+                                                  if key[0] == session_id]
+            findings["active_synchronization_available"] = current if active_session else None
+            findings["recovery_performed"] = False
+            findings["uncertainty"] = ("Session Time continuity cannot be confirmed; scientific timing may be degraded. "
+                                       "No active-Session clock-restoration mechanism is authorized."
+                                       if findings["continuity_gap"] else None)
+            previous = next((m for m in reversed(self._timing_reconciliation_evidence)
+                             if m.payload["findings"]["session_id"] == session_id), None)
+            unchanged = previous is not None and previous.payload["findings"] == findings
+            message = previous if unchanged else RuntimeEvidenceMessage(
+                uuid4().hex, None, "synchronization_reconciliation", source,
+                {"findings": deepcopy(findings)}, True)
+            if not unchanged:
+                self._timing_reconciliation_evidence.append(message)
+        storage = interface.storage_manager if interface else None
+        confirmation = storage.get_framework_preservation_confirmation() if storage else None
+        if unchanged:
+            preserved = bool(confirmation and previous.to_dict() in confirmation["runtime_evidence"])
+            return {"findings": findings, "evidence": previous.to_dict(), "unchanged": True,
+                    "archival_confirmed": preserved, "preservation_warning": None if preserved
+                    else "Current timing-reconciliation archival is unconfirmed"}
+        if interface is None:
+            return {"findings": findings, "evidence": message.to_dict(), "unchanged": False,
+                    "archival_confirmed": False, "preservation_warning": "Framework evidence interface is not configured"}
+        status = await interface._record_framework_evidence(message,
+            archive=storage._framework_evidence_write_safe(), require_existing_archive=True)
+        return {"findings": findings, **status, "unchanged": False}
+
     def maintenance_blockers(self, ingestor, storage_manager) -> list[str]:
         """Report only timing, mapping, and synchronization evidence obligations."""
         blockers = []
@@ -428,6 +511,17 @@ class SynchronizationManager:
             blockers.append("Session Time is running")
         if self._active_mappings:
             blockers.append("Active synchronization mappings")
+        latest = {}
+        for message in self._timing_reconciliation_evidence:
+            latest[message.payload["findings"]["session_id"]] = message.payload["findings"]
+        if any(report["active_session"] and report["continuity_gap"] for report in latest.values()):
+            blockers.append("Active Session timing continuity is unresolved")
+        if self._timing_reconciliation_evidence:
+            confirmation = storage_manager.get_framework_preservation_confirmation()
+            if (confirmation is None or any(not ingestor.has_durable_runtime_evidence(message)
+                    or message.to_dict() not in confirmation["runtime_evidence"]
+                    for message in self._timing_reconciliation_evidence)):
+                blockers.append("Unpreserved synchronization reconciliation evidence")
         available = ingestor.accepted_runtime_evidence
         for update in self._mapping_update_evidence:
             if not any(message.is_persistent and message.evidence_type == MAPPING_UPDATE_EVIDENCE_TYPE

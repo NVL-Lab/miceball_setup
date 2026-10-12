@@ -9347,8 +9347,14 @@ Read-only reconciliation does not require administrator authorization; any new
 operational recovery attempt remains subject to Decision 339.
 
 **Implementation status for Q024-B (Decisions 339-346):** Architecture accepted;
-implementation pending. No implementation, new validation, or audit is claimed
-by this synchronization. The completed, independently validated and audited
+supported service-specific cases are implemented with automated regression coverage.
+Controller informational reconciliation, obligation-scoped authorized archive/record
+rewrites and fresh transfers, independent node artifact finalization/device cleanup,
+and historical timing/uncertainty reporting reuse existing owners and evidence paths.
+Missing trustworthy inputs and unsupported partial-artifact repairs are refused;
+active-Session clock restoration and application restoration are not implemented.
+Independent manual validation and audit remain pending; Q024-B is not closed.
+The completed, independently validated and audited
 Decisions 332-338 narrow slice remains unchanged; Decision 336 remains partially
 implemented, limited to guarded release of redundant producer-owned evidence
 copies. Q024-B accepts the service-specific execution boundaries above, not a
@@ -9359,6 +9365,63 @@ configuration. Recovery-journal retention/deletion, abandoned journals,
 application-wide Session discovery, Controller/application restoration, stale
 reservations, and remaining memory/cache retirement remain deferred. Q024, Q019,
 Q022, Phase 16, and M015 remain OPEN.
+
+---
+
+## Decision 347: Evidence Archive repair requires durable Ingestor acceptance without circular archival prerequisites
+
+**Status:** Accepted
+
+For operator-authorized recovery of an interrupted Evidence Archive write, the
+administrator explicitly authorizes the identified obligation through the existing
+administrator-decision mechanism. Both authorization and recovery attempt must be
+durably accepted by Ingestor through its existing recovery journal before
+StorageManager executes the repair. NATS publication alone is not durable acceptance.
+
+Confirmed durable Ingestor acceptance is sufficient to permit the repair attempt
+when all other StorageManager recovery prerequisites are satisfied. Do not require
+successful preservation in the unavailable Evidence Archive before repairing it.
+If durable acceptance cannot be established, refuse execution and leave the
+obligation unresolved.
+
+StorageManager may repeat the interrupted write using complete trustworthy inputs,
+must verify actual durable-write success, and subsequently preserves recovery
+evidence including the actual outcome through the existing Evidence Archive path.
+Actual write confirmation and subsequent recovery-evidence archival confirmation
+remain distinct. No separate journal, evidence system, archive, or Q019 finalization
+guarantee is introduced.
+
+---
+
+## Decision 348: Lost active Session Time is reported without invented clock restoration
+
+**Status:** Accepted
+
+If SynchronizationManager crashes during an active Session and loses the trustworthy
+reference needed to continue Session Time, preserve trustworthy historical
+synchronization evidence and mappings and scientific recordings with their original
+timestamps. Explicitly report continuity gaps, uncertainty, and affected scope.
+Inform the operator of the interruption and possible scientific timing degradation.
+
+Never reactivate an old mapping across downtime without trustworthy justification,
+restart Session Time at zero for the same ongoing Session, or fabricate a missing
+time relationship. When trustworthy information is insufficient, report that active
+synchronization recovery cannot safely be completed. Do not automatically fail,
+abort, or discard the Session merely because SynchronizationManager crashed.
+
+Outside an active Session, normal synchronization may resume through existing
+mechanisms once valid synchronization is established. Ordinary healthy mapping
+updates retain existing behavior and require no new administrator authorization.
+No new active-Session clock-restoration mechanism is authorized in Q024-B.
+
+**Implementation status for Decisions 347-348:** Accepted clarifications synchronized;
+supported archive repair now requires journal-backed authorization and attempt
+acceptance before writing, with actual-write and outcome-archival confirmation
+reported separately. Historical timing reconciliation reports lost continuity and
+blocks zero-based restart for a diagnosed ongoing scope without restoring its clock.
+Automated regression coverage passed; independent manual validation and audit remain
+pending. Earlier validation records are unchanged. Q024, Q019, Q022,
+Phase 16, and M015 remain OPEN.
 
 ---
 
@@ -9709,7 +9772,9 @@ requirements remain authoritative.
 343. Q024-B adds no Ingestor recovery mechanism or authorization requirement for accepted automatic valid-journal reconstruction of an already-known Session; corruption is not accepted and application-wide discovery stays deferred.
 344. AcquisitionNode scientific-artifact preservation and device/resource cleanup are independent authorized actions; actual records, authoritative local manifests, terminal Experiment identities, and confirmed resource-safety protections remain authoritative.
 345. Controller may read and reconcile trustworthy durable evidence and confirmed participant outcomes without authorization, but records only proven results and neither automatically replays commands nor advances lifecycle or restores the application.
-346. Synchronization recovery preserves historical timing/mappings, reports active-Session continuity gaps and uncertainty, and uses trustworthy current synchronization without fabricated observations, timestamp mutation, or automatic Session failure. Q024-B architecture is accepted, implementation pending; broader Q024, Q019, Q022, Phase 16, and M015 remain OPEN.
+346. Synchronization recovery preserves historical timing/mappings, reports active-Session continuity gaps and uncertainty, and uses trustworthy current synchronization without fabricated observations, timestamp mutation, or automatic Session failure. Supported Q024-B cases have automated implementation coverage; independent validation/audit remain pending; broader Q024, Q019, Q022, Phase 16, and M015 remain OPEN.
+347. Authorized interrupted Evidence Archive repair requires journal-backed durable Ingestor acceptance of authorization and attempt before execution, not successful archival in the unavailable target; actual write success and subsequent outcome archival remain separate, without new evidence infrastructure or Q019 guarantees.
+348. Loss of the active Session Time reference requires preserved historical timing/scientific recordings and explicit continuity/uncertainty reporting, never zero-based restart, fabricated relationships, unjustified old-map activation, or automatic Session failure; no active-Session clock-restoration mechanism is authorized, and healthy mapping updates remain unchanged.
 
 ---
 

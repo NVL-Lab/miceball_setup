@@ -737,7 +737,8 @@ independent read-only source audit PASS with no blocking findings, as reported f
 documentation closure. Decision 336 remains partially implemented; broader recovery,
 journal lifecycle, remaining resume/drop execution, and resource-specific cleanup
 remain OPEN. Q024-B service-specific operator-authorized execution architecture
-is accepted in Decisions 339-346; implementation is pending.
+is accepted in Decisions 339-348; supported cases have automated implementation
+coverage, with independent manual validation and audit pending.
 
 ### Why this matters
 
@@ -762,8 +763,8 @@ safety/closeout confirmation;
 Decision 336 therefore remains partially implemented.
 Administrative markers, command/result correctness, unsafe resources, service
 bindings, and journals remain protected. Resource-specific administrative cleanup
-now has the accepted narrow Q024-B execution boundaries below, not implementation
-or authority inferred from a drop decision. Wider cache retirement still requires
+now has the accepted narrow Q024-B execution boundaries and supported implementation
+below, not authority inferred from a drop decision. Wider cache retirement still requires
 its applicable safety/idempotency contracts.
 Q019, Q022, Phase 16, and M015 remain OPEN. No new validation was executed during
 this documentation closure.
@@ -780,9 +781,21 @@ this documentation closure.
 
 ### Q024-B: Service-specific operator-authorized recovery execution
 
-**Status:** Architecture accepted in Decisions 339-346; implementation pending.
+**Status:** Architecture accepted in Decisions 339-348; supported cases implemented
+with automated coverage; independent manual validation and audit pending.
+Accepted addendum Decisions 347-348 resolve pre-repair preservation admission and
+the lost active Session Time boundary; their supported cases have automated coverage.
 This extends previously deferred execution boundaries without changing the
 completed Decisions 332-338 validation/audit record or Decision 336's partial scope.
+
+Implemented cases are obligation-scoped archive/retained Session Record rewrites,
+fresh artifact transfer using the original handoff, independent supported local
+artifact finalization/device cleanup, Controller informational reconciliation, and
+journal-backed historical timing/continuity reporting. Authorization and attempts
+require durable intake before action; actual success and outcome archival remain
+separate. Informational evidence does not implicitly repair an unconfirmed archive.
+Lost inputs, uncertain partial artifacts, unowned temporary-copy cleanup, active-
+Session clock restoration, and application restoration remain unsupported.
 
 * Decisions 339-340: New recovery attempts require explicit human administrator
   authorization for a specific obligation and immediate owner validation of
@@ -823,6 +836,22 @@ states, automatic durable deletion, new evidence infrastructure, Q019 finalizati
 guarantees, or Q022 deployment configuration are introduced. Q024, Q019, Q022,
 Phase 16, and M015 remain OPEN. Detailed execution contracts not specified by the
 accepted boundaries must not be invented during documentation synchronization.
+
+### Accepted Q024-B implementation-preparation clarifications
+
+- Decision 347: An interrupted Evidence Archive repair requires durable Ingestor
+  journal acceptance of the specific administrator authorization and attempt before
+  execution. Prior preservation in the unavailable archive is not required. All
+  other trustworthy-input/safety prerequisites remain; actual write confirmation
+  and later outcome archival are separate. No Q019 guarantee is added.
+- Decision 348: Loss of the trustworthy active Session Time reference permits
+  historical reconciliation and reporting of gaps, uncertainty, and affected scope,
+  not zero-based restart or an invented restoration mechanism. Preserve timestamps
+  and recordings; do not automatically fail/abort/discard the Session. Healthy
+  mapping updates remain unchanged and need no new administrator authorization.
+
+These two preparation questions are resolved architecturally, not by new recovery
+infrastructure. Broader Q024, Q019, Q022, Phase 16, and M015 remain OPEN.
 
 ### Questions
 
@@ -961,7 +990,7 @@ The roadmap distinguishes accepted architecture from implemented milestones:
 Phase 13 — Global StorageManager (Evidence)
 Phase 14 — Global StorageManager (Finalized Scientific Data)
 Phase 15 — Controller-owned Session Launch & Runtime Assembly (launch path and Decision 302 sequential reuse implemented; independent validation/audit and M015 closure pending)
-Phase 16 — Operational Service Lifetime and Framework Stop/Kill (Decisions 304-346 accepted; Q025 resolved architecturally; narrow Session-binding release under Decisions 313/322 complete, manually software-validated and independently audited PASS in W035; individual-service maintenance complete, manually software-validated and independently audited PASS in W036; progressive two-phase coordinated shutdown complete, manually software-validated and independently re-audited PASS in W037; startup/return under Decisions 327-331 complete, independently manually software-validated and independently re-audited PASS after correction in W038; Q024-B under Decisions 339-346 architecture accepted, implementation pending; Phase 16 and M015 remain open)
+Phase 16 — Operational Service Lifetime and Framework Stop/Kill (Decisions 304-348 accepted; Q025 resolved architecturally; narrow Session-binding release under Decisions 313/322 complete, manually software-validated and independently audited PASS in W035; individual-service maintenance complete, manually software-validated and independently audited PASS in W036; progressive two-phase coordinated shutdown complete, manually software-validated and independently re-audited PASS in W037; startup/return under Decisions 327-331 complete, independently manually software-validated and independently re-audited PASS after correction in W038; Q024-B under Decisions 339-348 supported cases implemented with automated coverage, independent manual validation/audit pending; Phase 16 and M015 remain open)
 Phase 17 — Device Acceptance / Validation
 Phase 18 — End-to-End Demo Architecture
 

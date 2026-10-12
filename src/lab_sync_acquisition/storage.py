@@ -187,10 +187,12 @@ class PersistentStorageManager:
         self._framework_closeout_compilation: dict[str, Any] | None = None
         self._unfinished_archive_scopes: set[str | None] = set()
         self._unfinished_record_paths: set[Path] = set()
-        self._final_record_confirmation: tuple[str, Path] | None = None
+        self._final_record_confirmation: tuple[str, Path, str] | None = None
         self._evidence_publisher = evidence_publisher
         self._collection_evidence: list[RuntimeEvidenceMessage] = []
         self._component_id = component_id
+        self._unfinished_record_contents: dict[Path, str] = {}
+        self._last_written_record: tuple[Path, str] | None = None
         self._global_artifact_root = (
             Path(global_artifact_root) if global_artifact_root is not None else None
         )
@@ -214,9 +216,14 @@ class PersistentStorageManager:
         started_at = time()
         evidence_results: list[dict[str, Any]] = []
         result = self._collect_artifacts(handoff, evidence_results)
+        message = self._record_collection_evidence(handoff["session_id"], started_at, evidence_results)
+        await self._evidence_publisher(message)
+        return result
+
+    def _record_collection_evidence(self, session_id: str, started_at: float, evidence_results: list[dict]) -> RuntimeEvidenceMessage:
         message = RuntimeEvidenceMessage(
             evidence_id=uuid4().hex,
-            session_id=handoff["session_id"],
+            session_id=session_id,
             evidence_type="global_artifact_collection_evidence",
             source_id=self._component_id,
             payload={"started_at": started_at, "finished_at": time(),
@@ -224,8 +231,7 @@ class PersistentStorageManager:
             is_persistent=True,
         )
         self._collection_evidence.append(message)
-        await self._evidence_publisher(message)
-        return result
+        return message
 
     def _collect_artifacts(
         self, handoff: dict[str, Any], evidence_results: list[dict[str, Any]] | None = None,
@@ -491,6 +497,7 @@ class PersistentStorageManager:
         path = Path(session_record_path)
         with self._preservation_lock:
             self._unfinished_record_paths.add(path)
+            self._unfinished_record_contents.pop(path, None)
         path.parent.mkdir(parents=True, exist_ok=True)
         session_record = _session_record_from_evidence(
             accepted_session_config=accepted_session_config,
@@ -508,10 +515,27 @@ class PersistentStorageManager:
             runtime_evidence=runtime_evidence,
             runtime_evidence_audit=runtime_evidence_audit,
         )
-        with path.open("w", encoding="utf-8") as session_record_file:
-            json.dump(session_record, session_record_file, indent=2)
         with self._preservation_lock:
+            serialized = json.dumps(session_record, indent=2)
+            self._unfinished_record_contents[path] = serialized
+            self._write_record_contents(path, serialized)
+            self._last_written_record = (path, serialized)
             self._unfinished_record_paths.discard(path)
+            self._unfinished_record_contents.pop(path, None)
+
+    @staticmethod
+    def _write_record_contents(path: Path, serialized: str) -> None:
+        with path.open("w", encoding="utf-8") as output:
+            output.write(serialized)
+            output.flush()
+            os.fsync(output.fileno())
+        if os.name == "posix":
+            for directory in (path.parent, path.parent.parent):
+                descriptor = os.open(directory, os.O_RDONLY)
+                try:
+                    os.fsync(descriptor)
+                finally:
+                    os.close(descriptor)
 
     @service_operation(new_work=True)
     def write_initial_session_record(
@@ -537,7 +561,7 @@ class PersistentStorageManager:
             self._final_record_confirmation = None
             path = self._session_directory(session_id) / "session_record_final.json"
             self.write_session_record(path, **session_record_evidence)
-            self._final_record_confirmation = (session_id, path)
+            self._final_record_confirmation = (session_id, path, self._last_written_record[1])
             return path
 
     @service_operation()
@@ -575,6 +599,15 @@ class PersistentStorageManager:
             }
             with compilation_summary_path.open("w", encoding="utf-8") as summary_file:
                 json.dump(summary, summary_file, indent=2)
+                summary_file.flush()
+                os.fsync(summary_file.fileno())
+            if os.name == "posix":
+                for directory in (archive_directory, archive_directory.parent, self._records_path.parent):
+                    descriptor = os.open(directory, os.O_RDONLY)
+                    try:
+                        os.fsync(descriptor)
+                    finally:
+                        os.close(descriptor)
             self._archive_confirmation = {
                 "session_id": session_id,
                 "runtime_evidence": runtime_evidence,
@@ -588,7 +621,7 @@ class PersistentStorageManager:
             }
 
     def get_session_preservation_confirmation(self, session_id: str) -> dict[str, Any] | None:
-        """Confirm exact archive input and read the successfully written final Session Record."""
+        """Verify current archive products and read the successfully written final Session Record."""
         with self._preservation_lock:
             if (self._archive_confirmation is None
                     or self._archive_confirmation["session_id"] != session_id
@@ -596,7 +629,23 @@ class PersistentStorageManager:
                     or self._final_record_confirmation[0] != session_id):
                 return None
             confirmation = deepcopy(self._archive_confirmation)
-            confirmation["session_record"] = self.read_session_record(self._final_record_confirmation[1])
+            expected = {name: confirmation[name] for name in ("runtime_evidence", "ingest_audit")}
+            expected["compilation_summary"] = {
+                "session_id": session_id,
+                "runtime_evidence_count": len(expected["runtime_evidence"]),
+                "ingest_audit_count": len(expected["ingest_audit"]),
+                "runtime_evidence_ids": [m.get("evidence_id") for m in expected["runtime_evidence"]],
+                "ingest_audit_evidence_ids": [m.get("evidence_id") for m in expected["ingest_audit"]],
+            }
+            try:
+                if self._read_archive_products(self._session_directory(session_id) / "evidence") != expected:
+                    return None
+                record = self.read_session_record(self._final_record_confirmation[1])
+                if json.dumps(record, sort_keys=True) != json.dumps(json.loads(self._final_record_confirmation[2]), sort_keys=True):
+                    return None
+                confirmation["session_record"] = record
+            except (OSError, ValueError):
+                return None
             return confirmation
 
     @service_operation()
@@ -648,15 +697,20 @@ class PersistentStorageManager:
                 return None
             directory = self._records_path.parent / "framework" / "evidence"
             try:
-                actual = {}
-                for name in ("runtime_evidence", "ingest_audit"):
-                    with (directory / (name + ".jsonl")).open(encoding="utf-8") as source:
-                        actual[name] = [json.loads(line) for line in source]
-                with (directory / "compilation_summary.json").open(encoding="utf-8") as source:
-                    actual["compilation_summary"] = json.load(source)
+                actual = self._read_archive_products(directory)
             except (OSError, ValueError):
                 return None
             return deepcopy(actual) if actual == expected else None
+
+    @staticmethod
+    def _read_archive_products(directory: Path) -> dict[str, Any]:
+        products = {}
+        for name in ("runtime_evidence", "ingest_audit"):
+            with (directory / (name + ".jsonl")).open(encoding="utf-8") as source:
+                products[name] = [json.loads(line) for line in source]
+        with (directory / "compilation_summary.json").open(encoding="utf-8") as source:
+            products["compilation_summary"] = json.load(source)
+        return products
 
     @contextmanager
     def framework_preservation_guard(self, *, require_closeout: bool = False):
@@ -669,6 +723,17 @@ class PersistentStorageManager:
                            for name, required in self._framework_closeout_compilation.items())):
                 confirmation = None
             yield confirmation
+
+    def _framework_evidence_write_safe(self) -> bool:
+        """Permit initial creation or append to confirmed products, never implicit repair."""
+        with self._preservation_lock:
+            if None in self._unfinished_archive_scopes:
+                return False
+            if self._framework_archive_confirmation is not None:
+                return self.get_framework_preservation_confirmation() is not None
+            directory = self._records_path.parent / "framework" / "evidence"
+            return not any((directory / name).exists() for name in (
+                "runtime_evidence.jsonl", "ingest_audit.jsonl", "compilation_summary.json"))
 
     def _retain_framework_closeout_compilation(self, compilation):
         """Retain Ingestor's final required coverage, independently of archive rewrites."""
@@ -704,6 +769,96 @@ class PersistentStorageManager:
                     blockers.append("Unpreserved collection evidence")
                     break
             return blockers
+
+    def _recover_archive_write(self, command, authorization, attempt) -> dict:
+        interface = self._maintenance
+        interface._require_recovery_authorization(command)
+        scope = command.payload["obligation"].get("session_id")
+        if scope not in self._unfinished_archive_scopes:
+            raise ValueError("No identified interrupted archive write remains")
+        intake = interface.ingestor
+        if scope is None:
+            compiled = intake.compile_framework_runtime_evidence()
+        else:
+            if intake.session_id != scope or intake._journal_failed:
+                raise ValueError("Complete trustworthy compilation for this Session is unavailable")
+            compiled = intake.compile_persistent_runtime_evidence()
+        attempt["actions"].append("archive_write_attempted")
+        paths = (self.write_framework_evidence_archive(compiled) if scope is None
+                 else self.write_evidence_archive(scope, compiled))
+        actual = self._read_archive_products(paths["runtime_evidence"].parent)
+        expected = {name: [_to_plain_data(item) for item in compiled[name]]
+                    for name in ("runtime_evidence", "ingest_audit")}
+        expected["compilation_summary"] = {"session_id": scope,
+            "runtime_evidence_count": len(expected["runtime_evidence"]),
+            "ingest_audit_count": len(expected["ingest_audit"]),
+            "runtime_evidence_ids": [m.get("evidence_id") for m in expected["runtime_evidence"]],
+            "ingest_audit_evidence_ids": [m.get("evidence_id") for m in expected["ingest_audit"]]}
+        if any(actual[name] != expected[name] for name in expected):
+            self._unfinished_archive_scopes.add(scope)
+            raise RuntimeError("Recovered archive contents differ from the trusted compilation")
+        attempt["actions"].append("archive_write_confirmed")
+        return {"actual_write_confirmed": True, "session_id": scope,
+                "paths": {name: str(path) for name, path in paths.items()}}
+
+    def _recover_session_record_write(self, command, authorization, attempt) -> dict:
+        self._maintenance._require_recovery_authorization(command)
+        obligation = command.payload["obligation"]
+        scope, kind = obligation.get("session_id"), obligation.get("record_kind")
+        if not isinstance(scope, str) or not scope or kind not in {"initial", "final"}:
+            raise ValueError("Identified initial/final Session Record scope is required")
+        path = self._session_directory(scope) / f"session_record_{kind}.json"
+        serialized = self._unfinished_record_contents.get(path)
+        if path not in self._unfinished_record_paths or serialized is None:
+            raise ValueError("Complete trustworthy inputs for this interrupted write are unavailable")
+        expected = json.loads(serialized)
+        if expected.get("accepted_session_config", {}).get("session_id") != scope:
+            raise ValueError("Retained Session Record inputs have a conflicting Session identity")
+        attempt["actions"].append("session_record_write_attempted")
+        self._write_record_contents(path, serialized)
+        if json.dumps(self.read_session_record(path), sort_keys=True) != json.dumps(expected, sort_keys=True):
+            raise RuntimeError("Recovered Session Record differs from its retained inputs")
+        self._unfinished_record_paths.discard(path)
+        self._unfinished_record_contents.pop(path, None)
+        if kind == "final":
+            self._final_record_confirmation = (scope, path, serialized)
+        attempt["actions"].append("session_record_write_confirmed")
+        return {"actual_write_confirmed": True, "session_id": scope, "path": str(path)}
+
+    def _recover_artifact_transfer(self, command, authorization, attempt) -> dict:
+        self._maintenance._require_recovery_authorization(command)
+        obligation = command.payload["obligation"]
+        original = next((m for m in self._collection_evidence
+                         if m.evidence_id == obligation.get("evidence_id")), None)
+        if original is None or original.session_id != obligation.get("session_id"):
+            raise ValueError("Original owned transfer obligation is unavailable or has a different Session")
+        identity = obligation.get("artifact_manifest_id")
+        failed = [r for r in original.payload["artifact_results"]
+                  if r["artifact_manifest_id"] == identity and r["collection_status"] == "failure"]
+        if len(failed) != 1:
+            raise ValueError("No unique original failed artifact transfer is identified")
+        intake = self._maintenance.ingestor
+        if intake.session_id != original.session_id or intake._journal_failed:
+            raise ValueError("Trustworthy original artifact handoff is unavailable")
+        candidates = [e for e in intake.compile_artifact_collection_handoff(original.session_id)["artifacts"]
+                      if e["artifact_manifest"]["artifact_manifest_id"] == identity]
+        if len(candidates) != 1:
+            raise ValueError("Authoritative artifact manifest is unavailable or ambiguous")
+        manifest = candidates[0]["artifact_manifest"]
+        if any(manifest[key] != failed[0][key] for key in ("experiment_id", "acquisition_node_id")):
+            raise ValueError("Original transfer and authoritative manifest identities conflict")
+        # Existing retrieval checks endpoint/source/destination and never overwrites a final copy.
+        attempt["actions"].append("fresh_transfer_attempted")
+        evidence_results = []
+        started_at = time()
+        result = self._collect_artifacts({"session_id": original.session_id, "artifacts": candidates}, evidence_results)
+        message = self._record_collection_evidence(original.session_id, started_at, evidence_results)
+        attempt["collection_evidence_id"] = message.evidence_id
+        attempt["confirmation"] = result.to_dict()
+        if not result.succeeded:
+            raise RuntimeError("Fresh transfer or existing light verification did not succeed")
+        attempt["actions"].append("fresh_transfer_verified")
+        return result.to_dict()
 
     def maintenance_diagnostics(self, ingestor, storage_manager) -> dict[str, Any]:
         """Report unfinished persistence and original collection evidence by existing identities."""
@@ -804,6 +959,8 @@ def _write_jsonl(path: Path, items: Iterable[Any]) -> None:
         for item in items:
             jsonl_file.write(json.dumps(_to_plain_data(item)))
             jsonl_file.write("\n")
+        jsonl_file.flush()
+        os.fsync(jsonl_file.fileno())
 
 
 def _plain_field(value: Any, field_name: str) -> Any:

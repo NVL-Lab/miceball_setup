@@ -19,6 +19,7 @@ from nats.js.errors import NotFoundError
 from lab_sync_acquisition.acquisition_node import AcquisitionNode
 from lab_sync_acquisition.acquisition_health import HealthInterpretationEvidence
 from lab_sync_acquisition.communication import (
+    SERVICE_RECOVERY_COMMAND_TYPES,
     GroupCommandOutcome,
     LAB_COMMAND_RESULTS,
     LAB_COMMANDS,
@@ -369,7 +370,7 @@ class NatsControllerCommunication:
         try:
             command = RuntimeCommandMessage(command_id, session_id, command_type,
                 self._boundary.component_id, participant.component_id, payload)
-            if command_type in {"stop", "kill", "cancel", "prepare_stop", "check_stop_readiness"}:
+            if command_type in ({"stop", "kill", "cancel", "prepare_stop", "check_stop_readiness"} | SERVICE_RECOVERY_COMMAND_TYPES):
                 from copy import deepcopy
                 if any(previous["command_id"] == command_id and previous != command.to_dict()
                        for previous in self._maintenance_requests):
@@ -605,7 +606,7 @@ class NatsAcquisitionNodeCommunication:
                     await message.ack()
                     return
                 result = (await _execute_maintenance_command(self._boundary, self._acquisition_node, command)
-                          if command.command_type in {"stop", "kill", "cancel", "prepare_stop", "check_stop_readiness"} else self.execute_command(command))
+                          if command.command_type in ({"stop", "kill", "cancel", "prepare_stop", "check_stop_readiness"} | SERVICE_RECOVERY_COMMAND_TYPES) else self.execute_command(command))
                 await self._boundary.publish_command_result(
                     result,
                     command.command_type,
@@ -791,7 +792,7 @@ class NatsIngestorCommunication:
                 await message.ack()
                 return
             result = (await _execute_maintenance_command(self._boundary, self._ingestor, command)
-                      if command.command_type in {"stop", "kill", "cancel", "prepare_stop", "check_stop_readiness"} else
+                      if command.command_type in ({"stop", "kill", "cancel", "prepare_stop", "check_stop_readiness"} | SERVICE_RECOVERY_COMMAND_TYPES) else
                       _execute_service_command(self._boundary, self._ingestor, command, self._results_by_command_id))
             if result.success and command.command_type == "initialize_session" and command.session_id not in self._evidence_subscriptions:
                 try:
@@ -907,7 +908,7 @@ class NatsSynchronizationManagerCommunication:
                 await message.ack()
                 return
             result = (await _execute_maintenance_command(self._boundary, self._synchronization_manager, command)
-                      if command.command_type in {"stop", "kill", "cancel", "prepare_stop", "check_stop_readiness"} else
+                      if command.command_type in ({"stop", "kill", "cancel", "prepare_stop", "check_stop_readiness"} | SERVICE_RECOVERY_COMMAND_TYPES) else
                       _execute_service_command(self._boundary, self._synchronization_manager, command, self._results_by_command_id))
             await self._boundary.publish_command_result(result, command.command_type)
             await message.ack()

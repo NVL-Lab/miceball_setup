@@ -162,6 +162,7 @@ class Controller:
         self._framework_shutdown_active = False
         self._framework_shutdown_attempt_id: str | None = None
         self._framework_shutdown_attempts: dict[str, dict[str, Any]] = {}
+        self._reconciliation_evidence: list[RuntimeEvidenceMessage] = []
 
     def check_ready(self) -> ServiceReadiness:
         """Report service readiness independently of Session lifecycle and reservations."""
@@ -1296,7 +1297,154 @@ class Controller:
             active = interface._attempt if interface is not None else None
             if active is None or active.get("framework_stop_attempt_id") != self._framework_shutdown_attempt_id:
                 blockers.append("Unfinished framework shutdown coordination")
+        if self._reconciliation_evidence:
+            confirmation = storage_manager.get_framework_preservation_confirmation()
+            if (confirmation is None or any(not ingestor.has_durable_runtime_evidence(message)
+                    or message.to_dict() not in confirmation["runtime_evidence"]
+                    for message in self._reconciliation_evidence)):
+                blockers.append("Unpreserved Controller reconciliation evidence")
         return blockers
+
+    @property
+    def reconciliation_evidence(self) -> tuple[RuntimeEvidenceMessage, ...]:
+        """Retained informational findings for existing publication/preservation paths."""
+        return tuple(RuntimeEvidenceMessage.from_dict(deepcopy(m.to_dict()))
+                     for m in self._reconciliation_evidence)
+
+    @service_operation()
+    async def reconcile_outcomes(self, *, session_id: str | None = None) -> dict[str, Any]:
+        """Read retained scoped outcomes and current preservation without performing recovery."""
+        if session_id is not None and (not isinstance(session_id, str) or not session_id):
+            raise ValueError("Reconciliation requires a real Session identity or framework scope")
+        findings = {"session_id": session_id, "controller_id": self._component_id,
+                    "framework_attempts": [], "session_command_outcomes": [],
+                    "session_participant_outcomes": [],
+                    "received_command_results": [],
+                    "unresolved": [], "preservation_confirmed": False}
+        confirmation = None
+        try:
+            if self._storage_manager is not None:
+                confirmation = (self._storage_manager.get_framework_preservation_confirmation()
+                    if session_id is None else self._storage_manager.get_session_preservation_confirmation(session_id))
+        except (OSError, ValueError) as error:
+            findings["unresolved"].append({"session_id": session_id, "reason": str(error)})
+        findings["preservation_confirmed"] = confirmation is not None
+        if confirmation is None:
+            findings["unresolved"].append({"session_id": session_id,
+                "reason": "Current durable Evidence Archive preservation cannot be confirmed"})
+        if session_id is None:
+            archived = confirmation["runtime_evidence"] if confirmation else []
+            with self._service_operation_lock:
+                attempts = deepcopy(tuple(self._framework_shutdown_attempts.values()))
+            for attempt in attempts:
+                report = self._reconcile_framework_attempt(attempt, archived)
+                findings["framework_attempts"].append(report)
+                findings["unresolved"].extend(report["unresolved"])
+        else:
+            session = self._session
+            if session is None or session.session_id != session_id:
+                findings["unresolved"].append({"session_id": session_id,
+                    "reason": "No retained Controller binding for this Session; no application restoration attempted"})
+            else:
+                findings["session_state"] = session.current_state.value
+                if self._launch_communication is not None:
+                    for result in self._launch_communication.command_results:
+                        if result.session_id == session_id:
+                            # Preserve replies as replies, not proof of whole-Session completion.
+                            findings["received_command_results"].append(result.to_dict())
+                for result in tuple(self._command_results):
+                    if result.details.get("session_id") != session_id:
+                        continue
+                    # These are command outcomes, not proof that every participant completed.
+                    findings["session_command_outcomes"].append(result.to_dict())
+                if confirmation and confirmation["session_record"].get("accepted_session_config", {}).get("session_id") != session_id:
+                    findings["preservation_confirmed"] = False
+                    findings["unresolved"].append({"session_id": session_id, "reason": "Session Record identity conflicts"})
+                for participant in session.configuration.expected_runtime_participants:
+                    reports = [entry for result in findings["session_command_outcomes"]
+                               for entry in result["details"].get("initialization", ())
+                               if entry.get("participant") == participant.to_dict()]
+                    outcomes = {entry.get("outcome") for entry in reports}
+                    outcome = ("conflicting" if len(outcomes) > 1 else "completed" if outcomes == {"succeeded"}
+                               else "failed" if outcomes == {"failed"} else "unresolved")
+                    findings["session_participant_outcomes"].append({"participant": participant.to_dict(),
+                        "operation": "initialize_session", "outcome": outcome, "reports": deepcopy(reports)})
+                    if outcome != "completed":
+                        findings["unresolved"].append({"session_id": session_id,
+                            "participant": participant.to_dict(), "reason": "No retained confirmed participant outcome"})
+        previous = next((message for message in reversed(self._reconciliation_evidence)
+                         if message.payload.get("findings", {}).get("session_id") == session_id), None)
+        interface = getattr(self, "_maintenance", None)
+        if previous is not None and previous.payload["findings"] == findings:
+            current = self._storage_manager.get_framework_preservation_confirmation() if self._storage_manager else None
+            preserved = bool(current and previous.to_dict() in current["runtime_evidence"])
+            return {"findings": deepcopy(findings), "evidence": previous.to_dict(), "unchanged": True,
+                    "acceptance_confirmed": bool(self._ingestor and self._ingestor.has_durable_runtime_evidence(previous)),
+                    "archival_confirmed": preserved, "preservation_warning": None if preserved
+                    else "Current reconciliation evidence archival is unconfirmed"}
+        message = RuntimeEvidenceMessage(uuid4().hex, None, "controller_reconciliation",
+            self._component_id, {"findings": deepcopy(findings)}, True)
+        self._reconciliation_evidence.append(message)
+        if interface is None:
+            return {"findings": findings, "evidence": message.to_dict(), "unchanged": False,
+                    "publication_confirmed": False, "acceptance_confirmed": False,
+                    "archival_confirmed": False, "preservation_warning": "Controller framework evidence interface is not configured"}
+        # Publishing new findings must not silently repair an unconfirmed archive.
+        framework_safe = bool(self._storage_manager and self._storage_manager._framework_evidence_write_safe())
+        status = await interface._record_framework_evidence(message, archive=framework_safe, require_existing_archive=True)
+        return {"findings": findings, **status, "unchanged": False}
+
+    def _reconcile_framework_attempt(self, attempt: dict, archived: list[dict]) -> dict:
+        report = {"stop_attempt_id": attempt["stop_attempt_id"],
+                  "recorded_outcome": attempt["outcome"], "participant_outcomes": [], "unresolved": []}
+        archived_results = [entry["result"] for message in archived
+            if message.get("source_id") == self._component_id
+            and message.get("evidence_type") == "service_maintenance_evidence"
+            and message["payload"].get("stop_attempt_id") == attempt["stop_attempt_id"]
+            for entry in message["payload"].get("results", ()) if entry.get("result") is not None]
+        for participant in attempt["scope"]:
+            commands = [c for c in attempt["commands"] if c["participant"] == participant
+                        and c["command_type"] in {"stop", "kill", "cancel"}]
+            entry = {"participant": deepcopy(participant), "outcome": "unresolved",
+                     "command_id": None, "archival_confirmed": False}
+            reason = "No confirmed retirement command result"
+            if commands:
+                command = commands[-1]
+                entry["command_id"] = command["command_id"]
+                candidates = [r["result"] for r in attempt["results"]
+                    if r["command_id"] == command["command_id"] and r.get("result") is not None]
+                if candidates:
+                    result = candidates[-1]
+                    payload = result.get("payload", {})
+                    owned = payload.get("attempt", {}) or {}
+                    correlated = (result.get("command_id") == command["command_id"]
+                        and result.get("session_id") is None
+                        and result.get("source_id") == participant["component_id"]
+                        and result.get("target_id") == self._component_id
+                        and owned.get("target") == participant
+                        and owned.get("stop_attempt_id") == command["payload"]["stop_attempt_id"]
+                        and owned.get("framework_stop_attempt_id") == attempt["stop_attempt_id"])
+                    conflicts = [r for r in (*candidates, *archived_results)
+                                 if r.get("command_id") == command["command_id"] and r != result]
+                    if conflicts or not correlated:
+                        entry["outcome"] = "conflicting"
+                        reason = "Participant evidence conflicts or cannot be correlated"
+                    elif (result.get("status") == "succeeded" and result.get("success") is True
+                          and payload.get("outcome") == "completed"
+                          and payload.get("termination_confirmed") is True):
+                        entry["outcome"] = "completed"
+                    elif result.get("status") == "failed" and result.get("success") is False:
+                        entry["outcome"] = "failed"
+                        reason = result.get("reason") or "Participant reported failure"
+                    entry["archival_confirmed"] = result in archived_results
+                    entry["result"] = deepcopy(result)
+            if entry["outcome"] != "completed":
+                report["unresolved"].append({"stop_attempt_id": attempt["stop_attempt_id"],
+                    "participant": deepcopy(participant), "command_id": entry["command_id"], "reason": reason})
+            report["participant_outcomes"].append(entry)
+        completed = sum(p["outcome"] == "completed" for p in report["participant_outcomes"])
+        report["partial_completion"] = 0 < completed < len(report["participant_outcomes"])
+        return report
 
     def maintenance_diagnostics(self, ingestor, storage_manager) -> dict[str, Any]:
         """Report owned bindings and actual framework-attempt results without executing recovery."""
@@ -1309,6 +1457,8 @@ class Controller:
                 "administrative_outcome": (interface._administrative_outcome({"session_id": self._session.session_id})
                                             if interface and self._session else None)},
             "last_binding_release": dict(self._last_released_session) if self._last_released_session else None,
+            "last_reconciliation": (deepcopy(self._reconciliation_evidence[-1].payload["findings"])
+                                    if self._reconciliation_evidence else None),
             "framework_attempts": {identity: {"actual_outcome": attempt["outcome"],
                 "obligation_outcome": "completed" if attempt["outcome"] == "completed" else
                     (interface._administrative_outcome({"framework_stop_attempt_id": identity}) if interface else None) or "unresolved",

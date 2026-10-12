@@ -94,13 +94,49 @@ The actual release checkpoint is retained before submission; failure to archive
 that checkpoint leaves a visible preservation obligation, not an invented undo.
 
 Reporting is informational and does not authorize unrelated work; existing owner
-guards remain authoritative. Resource-specific abandonment/cleanup, wider cache
-retirement with undefined idempotency lifetimes, and application recovery remain
-unimplemented pending the relevant safety/closeout contracts. W035-W038 are
+guards remain authoritative. Resource-specific abandonment/cleanup beyond the
+supported Q024-B cases below, wider cache retirement with undefined idempotency
+lifetimes, and application recovery remain deferred. W035-W038 are
 unchanged; this narrow implementation slice is complete, independently validated,
 and independently audited. Broader Q024 application recovery, journal lifecycle,
-resume/drop execution, and resource-specific cleanup remain OPEN. Q019, Q022,
+and execution/cleanup beyond supported Q024-B cases remain OPEN. Q019, Q022,
 Q024, Phase 16, and M015 remain open.
+
+### Q024-B supported implementation (independent validation and audit pending)
+
+Decisions 339-348 have automated coverage for service-owned recovery and
+informational reconciliation, not application restoration or closure of Q024-B.
+Existing `record_administrator_decision(administrator_id, "resume", details)`
+records authorization with `details.operation`, `details.obligation`, and the
+exact execution `details.command_id`. A concrete existing-envelope command
+references `authorization_evidence_id` and the same `obligation`; the owner
+rechecks journal acceptance, scope, dependencies, concurrency, and safety before
+action. Duplicate command identities return their original result, not a retry;
+cancellation before action retains failure, while cancellation after confirmed
+action retains its actual outcome with an incomplete-preservation warning.
+
+Supported actions are archive rewrites from current trusted Ingestor compilation,
+Session Record rewrites from retained complete original inputs, fresh artifact
+transfers through existing retrieval/verification, independent supported local
+artifact finalization, and unfinished device cleanup. Authorization and attempt
+must be journal-accepted before action. Actual success and subsequent outcome
+archival remain distinct, with visible warnings and retained evidence on failure.
+Fresh transfer also creates/submits the existing persistent global collection
+evidence. Unproven temporary copies are not reclaimed, unexpected final copies
+are not overwritten, uncertain scientific writes are not repaired, and resources
+are not automatically released.
+
+Controller `reconcile_outcomes` reads retained participant/command evidence and
+current durable preservation without commands or lifecycle changes. Missing and
+conflicting outcomes stay unresolved; unchanged findings add no redundant evidence.
+SynchronizationManager `reconcile_timing` reads journal-backed historical mappings
+and reports continuity/uncertainty using explicit active-Session context, without
+activating old mappings or restoring a clock. Diagnosed ongoing lost-time scopes
+cannot silently restart at zero. Informational evidence is retained but does not
+implicitly repair an unconfirmed archive, including corruption during publication.
+Ingestor known-Session reconstruction, W035-W038, and historical validation records
+remain unchanged. Decision 336 remains partial; Q024-B independent validation/audit,
+broader Q024, Q019, Q022, Phase 16, and M015 remain OPEN.
 
 Decision 322 additionally makes every ControllerActionDecision persistent,
 including no-mutation outcomes. Accepted ownership remains Controller-produced
@@ -290,6 +326,7 @@ guarantee remain deferred. M014/W034 retain completed Slice 27 scope and status.
 - UnresolvedCommandOutcome: Stores inspectable plain-data evidence for one expected target whose command result was absent from the issuer-defined result window.
 - GroupCommandOutcome: Stores the issuer-owned aggregate outcome, individual results, and unresolved target evidence for one group command intent.
 - RuntimeCommandMessage: Stores one immutable plain-data command intent with explicit source, target, Session, command identity, type, and payload, allowing Session-independent check_stop_readiness and prepare_stop alongside existing administrative commands.
+- SERVICE_RECOVERY_COMMAND_TYPES: Lists the five concrete owner-specific administrative command vocabulary values accepted by the existing message envelope and NATS routes, without a new message schema or universal recovery command.
 - RuntimeCommandResultMessage: Stores one immutable plain-data command result and validates its shared status vocabulary.
 - RuntimeEvidenceMessage: Stores one immutable plain-data evidence message with real Session identity or framework session_id=None plus producer-supplied persistence intent without interpreting meaning.
 - RuntimeTelemetryMessage: Stores one immutable plain-data transient telemetry message without making it authoritative evidence.
@@ -348,6 +385,9 @@ guarantee remain deferred. M014/W034 retain completed Slice 27 scope and status.
 - AcquisitionNode._persist_scientific_collection: Resolves product and active context, validates product-scoped one-to-one frame/metadata associations for a whole collection before appending, and shares framework timing without transporting frames.
 - AcquisitionNode._send_runtime_collection: Applies existing runtime timestamping, health observation, batching, and envelope handoff to one completed lightweight collection.
 - AcquisitionNode._preserve_partial_scientific_collections: Attempts local persistence and metadata handoff for completed partial collections, retaining both acquisition and preservation errors when preservation fails.
+- AcquisitionNode._preserve_scientific_artifact: Finalizes one identified supported unfinished local artifact through LocalStorageManager, preserving actual local success separately from manifest acceptance without reopening acquisition.
+- AcquisitionNode._cleanup_device_resources: Attempts shutdown only for identified devices in the original retained Session participation, recording partial confirmations without releasing reservations or finalizing scientific artifacts implicitly.
+- AcquisitionNode._confirm_recovered_cleanup: Confirms existing local cleanup only when all relevant adapters are safely declared and all local artifacts are finalized, without releasing the Session binding.
 
 Scientific camera timestamps are assigned per record after collection by
 AcquisitionNode, not precise hardware exposure timestamps. Available
@@ -383,6 +423,9 @@ is complete; W030 records manual validation, focused tests, and audit reassessme
 - Controller.start_launched_session(): Starts reserved nodes through correlated NATS commands and then starts the Session, returning ControllerCommandResult and attempting cleanup if startup fails.
 - Controller.stop_launched_session(reason=None): Stops and locally finalizes all reserved nodes through NATS, releases only confirmed-clean reservations, and stops the Session without waiting for global collection.
 - Controller.get_status(): Returns Session/command status, the bounded last released terminal outcome, and the local AcquisitionNode snapshot or None, without fabricating remote runtime status.
+- Controller.reconcile_outcomes(*, session_id=None): Asynchronously reads framework or explicitly Session-scoped existing outcomes and current preservation, reports completion/partial failure/missing/conflicting evidence, and preserves changed informational findings without authorization, replay, or lifecycle mutation.
+- Controller.reconciliation_evidence: Returns detached retained persistent informational findings for existing publication and preservation paths.
+- Controller._reconcile_framework_attempt: Correlates confirmed final participant results against the original framework attempt and archived evidence without treating missing results or intent as completion.
 - Controller.check_ready(): Returns Session-independent service readiness, combining confirmed configured dependencies and refusing to fabricate a ready/unready report when dependency availability is unknown.
 - Controller.release_session(): Asynchronously releases only its captured terminal Session binding after confirmed cleanup and current archival under StorageManager's preservation guard, revalidating object identity after every unsubscription await and before retirement; stale operations return a failed ControllerCommandResult for the original Session without changing the current binding or command history, while cancellation propagates and retains outstanding obligations.
 - Controller._session_ingest_state(): Snapshots existing intake views to detect acceptance/audit changes after final persistence or during subscription release.
@@ -509,7 +552,9 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 ## src/lab_sync_acquisition/service_maintenance.py
 
 - ServiceMaintenanceInterface(service, participant, *, ingestor, storage_manager, preservation_window_s, close_resources, operational_dependents=None, evidence_publisher=None, retire_resources=None, dependency_participants=()): Attaches one service-owned administrative interface with existing maintenance callbacks and an explicit caller-provided tuple of dependency identities, without discovery or a deployment-file model.
-- ServiceMaintenanceInterface.execute_command(command): Serializes/deduplicates read-only check_stop_readiness and stop/kill/cancel/prepare_stop commands; Ingestor retirement retains its final complete intake compilation in StorageManager, and prepared final stops recheck that evidence/all-audit coverage before and after retirement callbacks through commitment without invoking retired Ingestor operations or repeating cleanup.
+- ServiceMaintenanceInterface.execute_command(command): Serializes/deduplicates existing maintenance and concrete owner-specific recovery commands; prepared retirement still requires complete retained Ingestor evidence/all-audit coverage through commitment without invoking retired intake or repeating cleanup.
+- ServiceMaintenanceInterface._require_recovery_authorization: Requires exact obligation/operation/command/participant correlation and durable journal acceptance of an existing resume decision, rejecting a later matching drop.
+- ServiceMaintenanceInterface._execute_authorized_recovery: Journals a specific attempt before owner execution under intake/persistence/admission guards and records actual succeeded/failed/refused outcomes separately from archival confirmation.
 - ServiceMaintenanceInterface.prepared: Reports confirmed ordinary cleanup awaiting final retirement, not a lifecycle state or completed stop; only StorageManager and Controller support preparation with an explicit framework attempt identity.
 - ServiceMaintenanceInterface.command_results: Returns detached correlated last-confirmed results with separate completed/blocked/failed outcomes and termination confirmation.
 - ServiceMaintenanceInterface.evidence: Returns retained producer-owned persistent framework evidence, including startup/readiness, administrator choices, maintenance attempts, and preservation failures.
@@ -521,12 +566,12 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 - ServiceMaintenanceInterface.record_administrator_decision(administrator_id, decision, details): Records persistent resume/drop choices with a separate unresolved/abandoned obligation outcome, returning guarded temporary-producer-copy release and its preservation observations without executing recovery, deleting durable data, or clearing safety obligations.
 - ServiceMaintenanceInterface.terminated: Reports confirmed operational-service retirement rather than OS process death.
 - ServiceMaintenanceInterface._retirement_guard(force=False): Commits retirement under intake/storage/admission locks as applicable and retains final Ingestor compilation without imposing orderly preservation prerequisites on authorized kill.
-- ServiceMaintenanceInterface._preserve_message(message, status=None): Reuses one publication/handoff, durable intake confirmation, and framework archival path for maintenance, startup/readiness, and administrator-decision evidence while retaining the producer's original record.
+- ServiceMaintenanceInterface._preserve_message(message, status=None, *, archive=True, require_existing_archive=False): Reuses publication, journal acceptance, and archival while permitting journal-only repair admission and rechecking protected archive validity after asynchronous publication.
 - ServiceMaintenanceInterface._readiness_payload(): Packages existing participant, service/node readiness, configured-dependency reports, and owner diagnostics as plain runtime-evidence data without guessing technical unreadiness for unavailable reports.
 - ServiceMaintenanceInterface._diagnostic_payload(): Adds owner-specific diagnostics and actual maintenance-attempt confirmations to existing readiness responses without defining a shared recovery schema.
 - ServiceMaintenanceInterface._administrative_outcome(reference): Projects explicit abandonment from retained administrator choices matching existing service-owned references, without a registry or mutation of original outcomes.
 - ServiceMaintenanceInterface._release_abandoned_evidence(decision): Retires only unnecessary producer copies under existing complete-preservation/resource/admission guards and retains abandonment markers plus actual release evidence.
-- ServiceMaintenanceInterface._record_framework_evidence(message, status=None): Exposes separate preservation observations and an operator warning on failure, without turning independent startup into an orderly-stop preservation gate.
+- ServiceMaintenanceInterface._record_framework_evidence(message, status=None, *, archive=True, require_existing_archive=False): Retains producer evidence and exposes separate publication/acceptance/archival observations and warnings, including informational findings and authorized recovery outcomes.
 - service_operation(new_work=False): Tracks service operations, including existing administrative interfaces and their outgoing NATS dependency requests, rejecting new unrelated work during pending maintenance while permitting nested admitted calls only within the same task or thread, not through inherited child-task context.
 
 Startup and administrator-decision APIs return detached evidence plus separate
@@ -539,7 +584,8 @@ persistent record. No unpublished-message queue, retry, replay, or second archiv
 is created. Known obligations come from existing owner diagnostics, not discovery
 of abandoned applications. Delivery loss is detected only by existing operations
 or explicit checks; there is no proactive detection guarantee. Startup/readiness
-implementation has automated coverage, not independent validation or audit yet.
+is independently validated and audited in W038; the Q024-B extensions have automated
+coverage and still await independent manual validation and audit.
 
 Maintenance must be configured with an explicit service-owned resource closeout
 callback and preservation window. Local callers may use attached intake;
@@ -609,6 +655,7 @@ recovery is introduced. Phase 16 and M015 remain open.
 - ArtifactCollectionResult(artifact_results): Immutable aggregate whose `succeeded` requires every requested artifact to have retrieval success and verified status, with `to_dict()` retaining ordered per-artifact details without lifecycle interpretation; empty collections remain successful.
 - PersistentStorageManager.collect_artifacts(handoff): Independently retrieves one file per manifest through SSH/SFTP, including missing-finalization candidates, then lightly verifies completed global copies without changing authoritative sources or Session products.
 - PersistentStorageManager.collect_artifacts_with_evidence(handoff): Awaits publication of one persistent global_artifact_collection_evidence message after a completed pass, preserving separate per-artifact retrieval/verification outcomes and operational wall-clock bounds.
+- PersistentStorageManager._record_collection_evidence: Creates and retains the same compiled global collection message for ordinary collection and an explicitly authorized fresh transfer.
 - Configured evidence publication requires the awaited collection method; collect_artifacts rejects that configuration rather than silently bypassing publication, while legacy unconfigured synchronous collection remains supported.
 - PersistentStorageManager._verify_artifact: Selects the current framework-managed HDF5 contract from existing manifest format metadata and checks read-only structure, identity, and counts without reading scientific datasets or altering copies.
 - _VerificationReader: Private read-only HDF5 file-access wrapper tracking actual I/O failure without retaining callback tracebacks, so format rejection is classified independently of diagnostic wording.
@@ -617,7 +664,13 @@ recovery is introduced. Phase 16 and M015 remain open.
 - PersistentStorageManager.write_initial_session_record: Writes caller-supplied initial Session Record evidence to `session_<session_id>/session_record_initial.json`.
 - PersistentStorageManager.write_evidence_archive: Writes compiled persistent runtime evidence, runtime-evidence audit, and compilation summary to the unchanged Phase 13 files, retaining exact successful write input and invalidating prior confirmation on a failed rewrite.
 - PersistentStorageManager.write_final_session_record: Writes caller-supplied final Session Record evidence to `session_<session_id>/session_record_final.json`, confirming its path only after successful writing.
-- PersistentStorageManager.get_session_preservation_confirmation(session_id): Returns a detached snapshot of exact archived message/audit dictionaries and the existing successfully written final Session Record for the latest matching Session, or None when required writes lack confirmation; the snapshot alone does not guard a later release commit.
+- PersistentStorageManager.get_session_preservation_confirmation(session_id): Compares all current archive products and the final Session Record with their exact successful write inputs, returning a detached confirmation or None for missing/corrupt/partial products; the snapshot alone does not guard commitment.
+- PersistentStorageManager._write_record_contents: Writes retained serialized Session Record inputs with flush/fsync and supported directory durability, without creating lifecycle evidence.
+- PersistentStorageManager._read_archive_products: Reads the existing evidence/audit/summary products for exact current-write confirmation, without interpreting evidence meaning.
+- PersistentStorageManager._framework_evidence_write_safe: Allows new protected informational/recovery evidence archival only for a pristine target or currently confirmed archive, not implicit repair of existing unconfirmed products.
+- PersistentStorageManager._recover_archive_write: Repeats one identified interrupted archive write from trusted Ingestor compilation and verifies all three durable products after journal-backed authorization/attempt admission.
+- PersistentStorageManager._recover_session_record_write: Repeats an interrupted initial/final record write only from complete retained original inputs, confirming actual contents without advancing Session lifecycle.
+- PersistentStorageManager._recover_artifact_transfer: Makes one authorized fresh complete transfer from the original failed collection and authoritative handoff through existing destination/source/verification mechanisms, retaining normal global collection evidence.
 - PersistentStorageManager.session_preservation_guard(session_id): Synchronous context manager yielding current confirmation while holding the archive/final-record write lock through the caller's release commit; callers must not await or acquire a new Ingestor intake lock while holding it.
 - PersistentStorageManager.write_framework_evidence_archive(compiled_runtime_evidence): Writes and flushes/fsyncs the existing evidence/audit/summary products under the records_path parent framework/evidence partition, invalidating previous confirmation before a rewrite.
 - PersistentStorageManager.get_framework_preservation_confirmation(): Compares all three current durable framework products with the exact successful compilation, without requiring a Session Record or accepting stale/partial writes.
@@ -626,7 +679,7 @@ recovery is introduced. Phase 16 and M015 remain open.
 - PersistentStorageManager.maintenance_blockers(ingestor, storage_manager): Reports failed persistence or unpreserved owned collection evidence, while active operations are separately tracked and future collections are not blockers.
 - PersistentStorageManager.maintenance_diagnostics(ingestor, storage_manager): Reports unfinished archive/path scopes and original collection-result preservation using existing identities without repairing persistence or releasing artifacts.
 - Controller.maintenance_blockers(ingestor, storage_manager): Reports active Session, unfinished work, cleanup, final-record, and current decision-archive obligations without requiring other idle services to stop.
-- Controller.maintenance_diagnostics(ingestor, storage_manager): Reports owned bindings, confirmed previous release, and framework-attempt outcomes separately from administrative abandonment without coordinating recovery.
+- Controller.maintenance_diagnostics(ingestor, storage_manager): Reports owned bindings, confirmed previous release, framework-attempt outcomes, and the last informational reconciliation separately from administrative abandonment without coordinating recovery.
 - AcquisitionNode.maintenance_blockers(ingestor, storage_manager): Reports owned Session participation, reservations, unfinished acquisition/streams, unpreserved manifests, and unreleased devices.
 - AcquisitionNode.maintenance_diagnostics(ingestor, storage_manager): Reports participation/reservation, actual device shutdown, stream finalization, and durable manifest handoffs without weakening node-owned safety guards.
 - SynchronizationManager.maintenance_blockers(ingestor, storage_manager): Reports running Session Time, active mappings, and mapping evidence without confirmed durable Ingestor acceptance.
@@ -648,6 +701,9 @@ recovery is introduced. Phase 16 and M015 remain open.
 - SynchronizationManager.replace_active_mapping: Atomically replaces one active mapping and records replacement evidence.
 - SynchronizationManager.retire_active_mapping: Retires one active mapping and records retirement evidence.
 - SynchronizationManager.get_active_mapping: Returns the currently active mapping for one Session and AcquisitionNode.
+- SynchronizationManager.reconcile_timing(session_id, *, active_session, ingestor): Asynchronously reads journal-backed historical mapping updates and reports current-reference confirmation, continuity gaps, scope, and uncertainty without restoring a clock or activating old mappings.
+- SynchronizationManager.timing_reconciliation_evidence: Returns detached retained persistent timing findings for existing evidence preservation.
+- SynchronizationManager._lost_time_scopes: Derives diagnosed ongoing lost-time restrictions from retained findings, preventing zero-based restart/current-time fabrication without a recovery registry.
 
 ## src/lab_sync_acquisition/session.py
 

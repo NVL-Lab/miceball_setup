@@ -225,6 +225,12 @@ def parse_runtime_subject(subject: str) -> dict[str, str | None]:
     }
 
 
+SERVICE_RECOVERY_COMMAND_TYPES = frozenset({
+    "recover_archive_write", "recover_session_record_write", "recover_artifact_transfer",
+    "preserve_scientific_artifact", "cleanup_device_resources",
+})
+
+
 @dataclass(frozen=True)
 class RuntimeCommandMessage:
     """Plain-data command intent routed to one component or component group."""
@@ -237,7 +243,7 @@ class RuntimeCommandMessage:
     payload: dict[str, Any]
 
     def __post_init__(self) -> None:
-        if self.session_id is None and self.command_type not in {"check_readiness", "get_inventory", "stop", "kill", "cancel", "check_stop_readiness", "prepare_stop"}:
+        if self.session_id is None and self.command_type not in ({"check_readiness", "get_inventory", "stop", "kill", "cancel", "check_stop_readiness", "prepare_stop"} | SERVICE_RECOVERY_COMMAND_TYPES):
             raise ValueError("Session-specific command requires session_id")
         if self.session_id is not None:
             _validate_subject_token("session_id", self.session_id)

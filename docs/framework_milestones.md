@@ -648,7 +648,7 @@ cleanup/reuse, not implementation of those service binding-release contracts.
 # Future Milestones
 
 Phase 16 Operational Service Lifetime and Framework Stop/Kill architecture is
-accepted in Decisions 304-346. At the earlier checkpoint implementation was
+accepted in Decisions 304-348. At the earlier checkpoint implementation was
 limited to the Session-binding release slice. Decision 323 adds the accepted
 framework Evidence Archive partition; individual-service stop/kill/cancel is now
 complete, manually software-validated, and independently audited PASS (W036),
@@ -812,7 +812,7 @@ guarded memory release is limited to redundant interface-owned producer evidence
 copies, preserving current complete archival and exact journal-backed acceptance
 through commitment. Existing resource guards, administrative markers, idempotent
 command/results, and durable journals remain. Resource-specific recovery execution
-is separately accepted, implementation pending under Q024-B below; wider cache
+is separately accepted, with supported automated implementation under Q024-B below; wider cache
 retirement still lacks the applicable safety/closeout/idempotency-lifetime contracts.
 Automated tests do not replace independent manual validation or audit; both have
 now passed for this narrow scope.
@@ -829,7 +829,17 @@ supervision, new Session states, or additional recovery subsystem is authorized.
 ## Q024-B: Service-specific operator-authorized recovery execution
 
 **Status:** Architecture accepted and synchronized in Decisions 339-346;
-implementation pending. No new implementation, validation, or audit is claimed.
+accepted clarifications 347-348 synchronized; supported service-specific cases
+implemented with automated regression coverage. Independent manual validation and
+audit remain pending; Q024-B, Phase 16, and M015 are not closed.
+
+Supported implementation covers exact obligation/authorization/command correlation,
+durably admitted archive/retained Session Record rewrites, fresh artifact transfer,
+independent supported node artifact finalization/device cleanup, Controller
+informational reconciliation, and historical synchronization/continuity reporting.
+Actual actions and outcome archival are reported separately. Missing trustworthy
+inputs, uncertain artifact writes, unowned temporary-copy cleanup, and active-
+Session clock restoration are not claimed as supported recovery.
 
 New service-specific recovery attempts require explicit human administrator
 authorization for the original obligation, recorded through the existing
@@ -872,6 +882,13 @@ restoration, stale reservations, and remaining memory/cache retirement are defer
 No new automatic recovery/replay/retry/resumption, process supervision, Session
 states, durable deletion, evidence infrastructure, Q019 finalization guarantees,
 or Q022 deployment configuration is introduced.
+
+Decision 347 removes the circular pre-repair archive requirement: authorization
+and attempt must be durably journal-accepted by Ingestor before the authorized
+repair, followed by distinct actual-write and recovery-outcome archival
+confirmation. Decision 348 permits historical timing reconciliation and explicit
+uncertainty reporting after active Session Time is lost, not an invented clock
+restoration or zero-based restart. Healthy mapping updates remain unchanged.
 
 ## Completed Session-binding release slice validation
 

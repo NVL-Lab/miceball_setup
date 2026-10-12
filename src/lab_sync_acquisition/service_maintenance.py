@@ -14,7 +14,7 @@ from threading import current_thread
 from time import time
 from uuid import uuid4
 
-from lab_sync_acquisition.communication import RuntimeCommandMessage, RuntimeCommandResultMessage, RuntimeEvidenceMessage, RuntimeParticipant
+from lab_sync_acquisition.communication import RuntimeCommandMessage, RuntimeCommandResultMessage, RuntimeEvidenceMessage, RuntimeParticipant, SERVICE_RECOVERY_COMMAND_TYPES
 from lab_sync_acquisition.service_readiness import ServiceReadiness
 
 logger = logging.getLogger(__name__)
@@ -282,7 +282,10 @@ class ServiceMaintenanceInterface:
                 "details": deepcopy(details), "actions": [], "outcome": None,
                 "obligation_outcome": "abandoned" if decision == "drop" else "unresolved",
                 "recorded_at": time()}, True)
-        status = await self._record_framework_evidence(message)
+        recovery_choice = details.get("operation") in SERVICE_RECOVERY_COMMAND_TYPES
+        archive = not recovery_choice or self.storage_manager._framework_evidence_write_safe()
+        status = await self._record_framework_evidence(message, archive=archive,
+            require_existing_archive=recovery_choice)
         if decision == "drop":
             release, outcome_evidence = self._release_abandoned_evidence(message)
             status["temporary_memory_release"] = release
@@ -337,10 +340,10 @@ class ServiceMaintenanceInterface:
         return {"evidence": message.to_dict(), "publication_confirmed": False,
                 "acceptance_confirmed": False, "archival_confirmed": False, "preservation_warning": None}
 
-    async def _record_framework_evidence(self, message, status=None):
+    async def _record_framework_evidence(self, message, status=None, *, archive=True, require_existing_archive=False):
         status = self._evidence_status(message) if status is None else status
         try:
-            await self._preserve_message(message, status)
+            await self._preserve_message(message, status, archive=archive, require_existing_archive=require_existing_archive)
         except Exception as error:
             status["preservation_warning"] = f"Framework Evidence Archive preservation unconfirmed: {error}"
             logger.warning("%s/%s: %s", self.participant.component_type,
@@ -362,6 +365,8 @@ class ServiceMaintenanceInterface:
                     raise ValueError("Maintenance requires the matching participant and session_id=None")
                 if any(not isinstance(value, str) or not value for value in (command.command_id, command.source_id)):
                     raise ValueError("Command and requester identities are required")
+                if command.command_type in SERVICE_RECOVERY_COMMAND_TYPES:
+                    return self._remember(command, await self._execute_authorized_recovery(command))
                 if command.command_type == "check_stop_readiness":
                     blockers = self._closeout_blockers()
                     if self._attempt is not None:
@@ -512,6 +517,134 @@ class ServiceMaintenanceInterface:
                     result = self._result(command, "failed", str(error))
             return self._remember(command, result)
 
+    def _require_recovery_authorization(self, command):
+        identity = command.payload.get("authorization_evidence_id")
+        authorization = next((m for m in self._evidence if m.evidence_id == identity
+                              and m.evidence_type == "administrator_decision"), None)
+        obligation = command.payload.get("obligation")
+        if (authorization is None or authorization.payload.get("decision") != "resume"
+                or authorization.payload.get("target") != self.participant.to_dict()
+                or not isinstance(obligation, dict) or not obligation
+                or authorization.payload["details"].get("operation") != command.command_type
+                or authorization.payload["details"].get("obligation") != obligation
+                or authorization.payload["details"].get("command_id") != command.command_id):
+            raise ValueError("Specific administrator authorization does not match command/obligation/scope")
+        if not self.ingestor.has_durable_runtime_evidence(authorization):
+            raise RuntimeError("Administrator authorization lacks durable Ingestor acceptance")
+        following = self._evidence[self._evidence.index(authorization) + 1:]
+        if any(m.evidence_type == "administrator_decision" and m.payload.get("decision") == "drop"
+               and m.payload.get("details", {}).get("obligation") == obligation for m in following):
+            raise ValueError("A later administrator drop superseded this authorization")
+        return authorization
+
+    @service_operation()
+    async def _execute_authorized_recovery(self, command):
+        attempt = {"operation": command.command_type, "command_id": command.command_id,
+            "authorization_evidence_id": command.payload.get("authorization_evidence_id"),
+            "obligation": deepcopy(command.payload.get("obligation")),
+            "target": self.participant.to_dict(), "actual_outcome": None, "actions": [],
+            "confirmation": None, "remaining_obligations": [], "recorded_at": time()}
+        outcome, reason, acted = "refused", None, False
+        try:
+            authorization = self._require_recovery_authorization(command)
+            attempt["administrator_id"] = authorization.payload["administrator_id"]
+            message = RuntimeEvidenceMessage(uuid4().hex, None, "service_recovery_evidence",
+                self.participant.component_id, {**deepcopy(attempt), "checkpoint": "attempt_recorded"}, True)
+            unavailable_target = (self.participant.component_type == "storage_manager"
+                and command.command_type == "recover_archive_write"
+                and command.payload["obligation"].get("session_id") is None)
+            await self._record_framework_evidence(message,
+                archive=not unavailable_target and self.storage_manager._framework_evidence_write_safe(),
+                require_existing_archive=True)
+            intake = self.ingestor._framework_ingestor
+            if intake is None:
+                raise RuntimeError("Framework recovery journal is not configured")
+            # Existing intake -> persistence -> admission ordering, without awaiting inside.
+            with self.ingestor._intake_lock, intake._intake_lock, self.storage_manager._preservation_lock, self._admission_lock:
+                self._require_recovery_authorization(command)
+                if not self.ingestor.has_durable_runtime_evidence(message):
+                    raise RuntimeError("Recovery attempt lacks durable Ingestor acceptance")
+                if self.terminated or self._closeout_started or self._attempt is not None or self._active_operations != 1:
+                    raise RuntimeError("Service admission or concurrent work prevents recovery")
+                if self._dependency_blockers():
+                    raise RuntimeError("Required dependency availability is unconfirmed")
+                if self.participant.component_type == "storage_manager":
+                    if command.command_type == "recover_archive_write":
+                        action = self.service._recover_archive_write
+                    elif command.command_type == "recover_session_record_write":
+                        action = self.service._recover_session_record_write
+                    elif command.command_type == "recover_artifact_transfer":
+                        action = self.service._recover_artifact_transfer
+                    else:
+                        raise ValueError("Recovery action does not belong to StorageManager")
+                elif self.participant.component_type == "acquisition_node":
+                    if command.command_type == "preserve_scientific_artifact":
+                        action = self.service._preserve_scientific_artifact
+                    elif command.command_type == "cleanup_device_resources":
+                        action = self.service._cleanup_device_resources
+                    else:
+                        raise ValueError("Recovery action does not belong to AcquisitionNode")
+                else:
+                    raise ValueError("No new operational recovery action is supported for this service")
+                # The owner performs final scope/prerequisite checks before its first action.
+                attempt["confirmation"] = action(command, authorization, attempt)
+                acted = bool(attempt["actions"])
+                outcome = "succeeded"
+        except asyncio.CancelledError:
+            attempt["actual_outcome"] = "failed"
+            attempt["remaining_obligations"] = ["Recovery cancelled; no unconfirmed action is reported completed"]
+            cancelled = RuntimeEvidenceMessage(uuid4().hex, None, "service_recovery_evidence",
+                self.participant.component_id, deepcopy(attempt), True)
+            preservation = self._evidence_status(cancelled)
+            try:
+                await self._record_framework_evidence(cancelled, preservation, archive=False)
+            finally:
+                self._remember(command, RuntimeCommandResultMessage(uuid4().hex, command.command_id, None,
+                    self.participant.component_id, command.source_id, "failed", False,
+                    "Recovery cancelled", {**deepcopy(attempt), "preservation": deepcopy(preservation)}))
+            raise
+        except Exception as error:
+            acted = bool(attempt["actions"])
+            outcome = "failed" if acted else "refused"
+            reason = f"{type(error).__name__}: {error}"
+            attempt["remaining_obligations"] = [reason]
+        attempt["actual_outcome"] = outcome
+        attempt["recorded_at"] = time()
+        message = RuntimeEvidenceMessage(uuid4().hex, None, "service_recovery_evidence",
+            self.participant.component_id, deepcopy(attempt), True)
+        preservation = self._evidence_status(message)
+        with self._admission_lock:
+            self._evidence.append(message)
+        # Cancellation during submission cannot turn this command into another attempt.
+        self._remember(command, RuntimeCommandResultMessage(uuid4().hex, command.command_id, None,
+            self.participant.component_id, command.source_id,
+            "succeeded" if outcome == "succeeded" else "failed", outcome == "succeeded", reason,
+            {**deepcopy(attempt), "preservation": {**deepcopy(preservation),
+                "preservation_warning": "Recovery outcome submission has not completed"}}))
+        if command.command_type == "recover_artifact_transfer" and attempt.get("collection_evidence_id"):
+            collection_message = next(m for m in self.service._collection_evidence
+                           if m.evidence_id == attempt["collection_evidence_id"])
+            submission = {"publication_confirmed": False, "acceptance_confirmed": False, "preservation_warning": None}
+            try:
+                publisher = self.service._evidence_publisher or self.evidence_publisher
+                if publisher is not None:
+                    await publisher(collection_message)
+                    submission["publication_confirmed"] = True
+                else:
+                    self.ingestor.receive_runtime_evidence(collection_message)
+                submission["acceptance_confirmed"] = await self.ingestor.await_durable_runtime_evidence(collection_message, self.preservation_window_s)
+                if not submission["acceptance_confirmed"]:
+                    raise RuntimeError("Collection evidence durable acceptance is unconfirmed")
+            except Exception as error:
+                submission["preservation_warning"] = str(error)
+            attempt["collection_evidence_submission"] = submission
+        preservation = await self._record_framework_evidence(message, preservation,
+            archive=self.storage_manager._framework_evidence_write_safe(), require_existing_archive=True)
+        return RuntimeCommandResultMessage(uuid4().hex, command.command_id, None,
+            self.participant.component_id, command.source_id,
+            "succeeded" if outcome == "succeeded" else "failed", outcome == "succeeded", reason,
+            {**attempt, "preservation": preservation})
+
     @contextmanager
     def _prepared_preservation_guard(self, *, force=False):
         # Preparation already confirmed journal acceptance. Recheck current durable
@@ -640,7 +773,7 @@ class ServiceMaintenanceInterface:
                                          self.participant.component_id, payload, True)
         await self._preserve_message(message)
 
-    async def _preserve_message(self, message, status=None):
+    async def _preserve_message(self, message, status=None, *, archive=True, require_existing_archive=False):
         with self._admission_lock:
             if not any(retained is message for retained in self._evidence):
                 self._evidence.append(message)
@@ -660,11 +793,19 @@ class ServiceMaintenanceInterface:
             raise RuntimeError("Framework evidence lacks durable Ingestor acceptance")
         if status is not None:
             status["acceptance_confirmed"] = True
+        if not archive:
+            raise RuntimeError("Archival not attempted while current preservation is unconfirmed")
         if self.storage_manager is None:
             raise RuntimeError("Framework StorageManager is unavailable")
-        self.storage_manager.write_framework_evidence_archive(self.ingestor.compile_framework_runtime_evidence())
-        with self.ingestor.framework_preservation_guard(self.storage_manager):
-            pass
+        intake = self.ingestor._framework_ingestor
+        if intake is None:
+            raise RuntimeError("Framework recovery journal is not configured")
+        with self.ingestor._intake_lock, intake._intake_lock, self.storage_manager._preservation_lock:
+            if require_existing_archive and not self.storage_manager._framework_evidence_write_safe():
+                raise RuntimeError("Current archival is unconfirmed; this evidence cannot repair it")
+            self.storage_manager.write_framework_evidence_archive(self.ingestor.compile_framework_runtime_evidence())
+            with self.ingestor.framework_preservation_guard(self.storage_manager):
+                pass
         if status is not None:
             status["archival_confirmed"] = True
 

@@ -895,6 +895,84 @@ class AcquisitionNode:
             blockers.append("Unpreserved artifact evidence")
         return blockers
 
+    def _preserve_scientific_artifact(self, command, authorization, attempt) -> dict[str, Any]:
+        self._maintenance._require_recovery_authorization(command)
+        obligation = command.payload["obligation"]
+        if obligation.get("session_id") != self._session_id or self._local_storage_manager is None:
+            raise ValueError("The original local artifact Session binding is unavailable")
+        matches = [m for m in self._local_storage_manager.manifests
+                   if m.storage_id == obligation.get("storage_id")
+                   and m.artifact_manifest_id == obligation.get("artifact_manifest_id")
+                   and m.experiment_id == obligation.get("experiment_id")]
+        if len(matches) != 1:
+            raise ValueError("No unique authoritative local artifact matches this obligation")
+        manifest = matches[0]
+        context = self._active_experiment_runtime_context
+        if context is not None and context.experiment_id == manifest.experiment_id:
+            raise RuntimeError("Scientific artifact still belongs to active acquisition")
+        if manifest.lifecycle_state != "finalized" and not any(e.storage_id == manifest.storage_id
+                and e.evidence_type in {"write_failure", "finalization_failure"}
+                for e in self._local_storage_manager.evidence):
+            raise ValueError("No known failed preservation obligation for this stream")
+        attempt["actions"].append("local_artifact_finalization_attempted")
+        finalized = self._local_storage_manager.finalize_stream(manifest.storage_id)
+        attempt["confirmation"] = {"artifact_manifest": finalized.to_dict(),
+            "local_finalization_confirmed": True, "manifest_acceptance_confirmed": False,
+            "node_cleanup_confirmed": self._initialization_cleanup_confirmed}
+        attempt["actions"].append("local_artifact_finalization_confirmed")
+        self._record_artifact_manifest(finalized)
+        message = next(m for m in self._artifact_manifest_evidence
+                       if m.payload == finalized.to_dict())
+        attempt["confirmation"]["manifest_acceptance_confirmed"] = self._ingestor.has_durable_runtime_evidence(message)
+        self._confirm_recovered_cleanup()
+        attempt["confirmation"]["node_cleanup_confirmed"] = self._initialization_cleanup_confirmed
+        return attempt["confirmation"]
+
+    def _cleanup_device_resources(self, command, authorization, attempt) -> dict[str, Any]:
+        self._maintenance._require_recovery_authorization(command)
+        obligation = command.payload["obligation"]
+        if (obligation.get("session_id") not in {self._session_id, self._reserved_for_session_id}
+                or not obligation.get("session_id")):
+            raise ValueError("Device cleanup requires the original owned Session scope")
+        if self._running or self._active_experiment_runtime_context is not None:
+            raise RuntimeError("Active acquisition must end before scoped recovery cleanup")
+        owned = tuple(self._initialization_touched_adapters or self._runtime_device_manager.adapters)
+        identities = obligation.get("device_ids")
+        if (not isinstance(identities, list) or not identities or len(set(identities)) != len(identities)
+                or not set(identities).issubset(a.device_id for a in owned)):
+            raise ValueError("Known unique owned device identities are required")
+        results, failures = [], []
+        for adapter in owned:
+            if adapter.device_id not in identities:
+                continue
+            attempt["actions"].append({"device_id": adapter.device_id, "action": "cleanup_attempted"})
+            try:
+                if adapter.state == DeviceAdapterState.RUNNING:
+                    adapter.stop()
+                if adapter.state != DeviceAdapterState.DECLARED:
+                    adapter.shutdown()
+                if adapter.state != DeviceAdapterState.DECLARED:
+                    raise RuntimeError("Device shutdown is unconfirmed")
+                results.append({"device_id": adapter.device_id, "resource_cleanup_confirmed": True,
+                                "shutdown_performed": adapter.get_status().shutdown})
+            except Exception as error:
+                failures.append(f"{adapter.device_id}: {type(error).__name__}: {error}")
+                results.append({"device_id": adapter.device_id, "resource_cleanup_confirmed": False})
+        self._confirm_recovered_cleanup()
+        attempt["confirmation"] = {"devices": results, "node_cleanup_confirmed": self._initialization_cleanup_confirmed}
+        if failures:
+            raise RuntimeError("; ".join(failures))
+        attempt["actions"].append("selected_device_cleanup_confirmed")
+        return attempt["confirmation"]
+
+    def _confirm_recovered_cleanup(self) -> None:
+        owned = tuple(self._initialization_touched_adapters or self._runtime_device_manager.adapters)
+        devices_closed = all(a.state == DeviceAdapterState.DECLARED for a in owned)
+        artifacts_closed = (self._local_storage_manager is None
+            or all(m.lifecycle_state == "finalized" for m in self._local_storage_manager.manifests))
+        self._initialization_cleanup_confirmed = not self._running and devices_closed and artifacts_closed
+        # Neither operation releases the reservation or makes acquisition eligible.
+
     def maintenance_diagnostics(self, ingestor, storage_manager) -> dict[str, Any]:
         """Report node-owned participation, device safety, streams, and manifest evidence."""
         interface = getattr(self, "_maintenance", None)
