@@ -1353,10 +1353,19 @@ class Controller:
                             # Preserve replies as replies, not proof of whole-Session completion.
                             findings["received_command_results"].append(result.to_dict())
                 for result in tuple(self._command_results):
-                    if result.details.get("session_id") != session_id:
+                    details = result.details
+                    associated_session_id = details.get("session_id") if isinstance(details, Mapping) else None
+                    if not isinstance(associated_session_id, str) or not associated_session_id:
+                        findings["unresolved"].append({"session_id": None, "command": result.command,
+                            "succeeded": result.succeeded, "error": result.error,
+                            "reason": "Command outcome has no confirmed Session association"})
+                        continue
+                    if associated_session_id != session_id:
                         continue
                     # These are command outcomes, not proof that every participant completed.
-                    findings["session_command_outcomes"].append(result.to_dict())
+                    snapshot = result.to_dict()
+                    snapshot["details"] = deepcopy(dict(details))
+                    findings["session_command_outcomes"].append(snapshot)
                 if confirmation and confirmation["session_record"].get("accepted_session_config", {}).get("session_id") != session_id:
                     findings["preservation_confirmed"] = False
                     findings["unresolved"].append({"session_id": session_id, "reason": "Session Record identity conflicts"})

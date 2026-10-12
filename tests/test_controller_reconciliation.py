@@ -6,7 +6,11 @@ from pathlib import Path
 import unittest
 from unittest.mock import AsyncMock
 
-from lab_sync_acquisition import Controller, RuntimeEvidenceMessage, RuntimeParticipant, ServiceMaintenanceInterface, SessionConfig
+from lab_sync_acquisition import (
+    AcquisitionNode, Controller, DeviceManager, InMemoryIngestor, RuntimeEvidenceMessage,
+    RuntimeParticipant, ServiceMaintenanceInterface, SessionConfig, SynchronizationManager,
+)
+from tests.test_controller import ControllerFakeAdapter
 from tests import test_framework_shutdown as shutdown_fixtures
 from tests import test_storage as storage_fixtures
 from tests import test_session_launch as launch_fixtures
@@ -170,13 +174,94 @@ class ControllerReconciliationTests(unittest.IsolatedAsyncioTestCase):
         launched = await workflow.launch({"node-a": (declaration,)})
         self.assertTrue(launched.succeeded, launched.error)
         session_id = launched.details["session_id"]
+        rejected = workflow.controller.initialize_session()
+        self.assertFalse(rejected.succeeded)
+        self.assertIsNone(rejected.details)
         before = workflow.controller.get_status()
         commands = list(workflow.broker.commands)
         result = await workflow.controller.reconcile_outcomes(session_id=session_id)
         self.assertEqual(len(result["findings"]["session_participant_outcomes"]), 3)
         self.assertTrue(all(p["outcome"] == "completed" for p in result["findings"]["session_participant_outcomes"]))
         self.assertTrue(result["findings"]["received_command_results"])
+        unassociated = next(entry for entry in result["findings"]["unresolved"]
+                            if entry.get("command") == "initialize_session")
+        self.assertIsNone(unassociated["session_id"])
+        self.assertFalse(unassociated["succeeded"])
+        json.dumps(result["evidence"], allow_nan=False)
         self.assertEqual(workflow.broker.commands, commands)
         self.assertEqual(workflow.controller.get_status(), before)
         self.assertTrue(node.abort_session_initialization(session_id))
         self.assertTrue(node.release_reservation(session_id))
+
+    async def test_rejected_start_with_no_details_reconciles_without_session_attribution(self):
+        controller = Controller(storage_manager=self.storage, component_id="rejected-controller")
+        ServiceMaintenanceInterface(controller, RuntimeParticipant("controller", "rejected-controller"),
+            ingestor=self.ingestor, storage_manager=self.storage, preservation_window_s=0,
+            close_resources=AsyncMock(return_value=True))
+        config = SessionConfig(session_id="rejected-session", selected_devices=(),
+            storage_location=str(self.root), protocol_plan={}, error_evidence_location=str(self.root / "errors"))
+        created = controller.create_session(config)
+        self.assertTrue(created.succeeded)
+        rejected = controller.start_session()
+        self.assertFalse(rejected.succeeded)
+        self.assertIsNone(rejected.details)
+        before = controller.get_status()
+        commands = list(self.workflow.broker.commands)
+        result = await controller.reconcile_outcomes(session_id=config.session_id)
+        self.assertEqual(result["findings"]["session_command_outcomes"], [created.to_dict()])
+        unassociated = next(entry for entry in result["findings"]["unresolved"]
+                            if entry.get("command") == "start_session")
+        self.assertIsNone(unassociated["session_id"])
+        self.assertFalse(unassociated["succeeded"])
+        self.assertEqual(unassociated["error"], rejected.error)
+        self.assertEqual(result["findings"]["session_participant_outcomes"], [])
+        self.assertTrue(result["acceptance_confirmed"])
+        self.assertTrue(result["archival_confirmed"])
+        json.dumps(result["evidence"], allow_nan=False)
+        self.assertEqual(controller.get_status(), before)
+        self.assertEqual(self.workflow.broker.commands, commands)
+        self.assertIsNone(rejected.details)
+
+    async def test_successful_iteration_reconciles_scoped_dictionary_and_unassociated_summary(self):
+        adapter = ControllerFakeAdapter()
+        devices = DeviceManager((adapter,))
+        ingestor = InMemoryIngestor(self.storage,
+            framework_recovery_journal_path=self.root / "local-framework.jsonl")
+        sync = SynchronizationManager()
+        config = SessionConfig(session_id="local-session", selected_devices=(),
+            storage_location=str(self.root), protocol_plan={}, error_evidence_location=str(self.root / "errors"))
+        node = AcquisitionNode(session_id=config.session_id, device_manager=devices,
+            synchronization_manager=sync, ingestor=ingestor, error_evidence_location=config.error_evidence_location)
+        controller = Controller(node, ingestor, self.storage, synchronization_manager=sync,
+                                component_id="local-controller")
+        ServiceMaintenanceInterface(controller, RuntimeParticipant("controller", "local-controller"),
+            ingestor=ingestor, storage_manager=self.storage, preservation_window_s=0,
+            close_resources=AsyncMock(return_value=True))
+        devices.initialize_all(config={"mode": "reconciliation"})
+        readiness = node.check_ready()
+        created = controller.create_session(config)
+        self.assertTrue(created.succeeded)
+        self.assertTrue(controller.initialize_session(readiness["device_readiness"], readiness["service_readiness"]).succeeded)
+        self.assertTrue(controller.start_session().succeeded)
+        self.addCleanup(controller.stop_session)
+        iteration = controller.run_one_iteration()
+        self.assertTrue(iteration.succeeded)
+        self.assertFalse(isinstance(iteration.details, dict))
+        before = controller.get_status()
+        commands = list(self.workflow.broker.commands)
+        result = await controller.reconcile_outcomes(session_id=config.session_id)
+        self.assertEqual(result["findings"]["session_command_outcomes"], [created.to_dict()])
+        unassociated = next(entry for entry in result["findings"]["unresolved"]
+                            if entry.get("command") == "run_one_iteration")
+        self.assertIsNone(unassociated["session_id"])
+        self.assertTrue(unassociated["succeeded"])
+        self.assertEqual(result["findings"]["session_participant_outcomes"], [])
+        self.assertTrue(result["acceptance_confirmed"])
+        self.assertTrue(result["archival_confirmed"])
+        json.dumps(result["evidence"], allow_nan=False)
+        self.assertEqual(controller.get_status(), before)
+        self.assertEqual(self.workflow.broker.commands, commands)
+        unrelated = await controller.reconcile_outcomes(session_id="other-session")
+        self.assertEqual(unrelated["findings"]["session_command_outcomes"], [])
+        self.assertFalse(any(entry.get("command") == "run_one_iteration" for entry in unrelated["findings"]["unresolved"]))
+        self.assertEqual(controller.get_status(), before)
