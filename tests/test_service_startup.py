@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock, patch
 from nats.js.api import AckPolicy, DeliverPolicy
 
 from lab_sync_acquisition import (
-    AcquisitionNode, Controller, DeviceManager, InMemoryIngestor,
+    AcquisitionNode, Controller, DeviceManager, DurablePublicationError, InMemoryIngestor,
     NatsControllerCommunication, NatsIngestorCommunication, NatsServiceMaintenanceCommunication,
     NatsSynchronizationManagerCommunication, PersistentStorageManager,
     RuntimeCommandMessage, RuntimeEvidenceMessage, RuntimeParticipant,
@@ -427,6 +427,171 @@ class ServiceStartupTests(unittest.IsolatedAsyncioTestCase):
         report = await communication.check_dependency_readiness(participant, 0)
         self.assertTrue(report.ready)
         self.assertEqual(self.broker.commands[-1]["command_type"], "check_readiness")
+
+    async def test_delayed_readiness_result_cannot_overwrite_newer_same_binding_announcement(self):
+        controller, observer, communication = self.observer_pair()
+        await communication.start()
+        dependency = RuntimeParticipant("storage_manager", "disk")
+        original = SynchronizationManager()
+        source = self.interface(original, self.source, (dependency,))
+        source.receive_dependency_readiness(dependency,
+            ServiceReadiness("disk", "storage_manager", True, True, "ready"))
+        await self.communication(source).start()
+        boundary = _Boundary("synchronization_manager", "sync", self.broker)
+        subscriptions = await NatsSynchronizationManagerCommunication(boundary, original).subscribe_commands()
+        for subscription in subscriptions:
+            self.addAsyncCleanup(subscription.unsubscribe)
+        started, finish = asyncio.Event(), asyncio.Event()
+        publish_result = boundary.publish_command_result
+
+        async def delayed_result(message, message_type):
+            self.assertTrue(message.payload["service_readiness"]["ready"])
+            started.set()
+            await finish.wait()
+            await publish_result(message, message_type)
+
+        with patch.object(boundary, "publish_command_result", new=delayed_result):
+            task = asyncio.create_task(communication.check_dependency_readiness(self.source, 1))
+            try:
+                await asyncio.wait_for(started.wait(), 5)
+                source.receive_dependency_readiness(dependency,
+                    ServiceReadiness("disk", "storage_manager", True, False, "disk_failure"))
+                await source.announce_readiness()
+                newer = observer.dependency_readiness[self.source]
+                self.assertFalse(newer.ready)
+                evidence_count = len(observer.evidence)
+            finally:
+                finish.set()
+                result = await task
+        self.assertEqual(result, newer)
+        self.assertEqual(observer.dependency_readiness[self.source], newer)
+        self.assertEqual(observer.last_known_dependency_readiness[self.source], newer)
+        self.assertFalse(controller.check_ready().ready)
+        self.assertEqual(len(observer.evidence), evidence_count)
+
+    async def test_unresolved_group_results_invalidate_only_missing_dependencies(self):
+        missing = RuntimeParticipant("synchronization_manager", "missing")
+        outside_group = RuntimeParticipant("synchronization_manager", "outside")
+        unconfigured = RuntimeParticipant("synchronization_manager", "unconfigured")
+        observer = self.interface(Controller(), self.observer, (self.source, missing, outside_group))
+        communication = self.communication(observer)
+        await communication.start()
+        responding_service = SynchronizationManager()
+        for participant, service in ((self.source, responding_service),
+                                     (missing, SynchronizationManager()),
+                                     (outside_group, SynchronizationManager())):
+            await self.communication(self.interface(service, participant)).start()
+        subscriptions = await NatsSynchronizationManagerCommunication(
+            _Boundary("synchronization_manager", "sync", self.broker), responding_service).subscribe_commands()
+        for subscription in subscriptions:
+            self.addAsyncCleanup(subscription.unsubscribe)
+        issuer = NatsControllerCommunication(communication._boundary)
+        self.addAsyncCleanup((await issuer.subscribe_command_results("group-session")).unsubscribe)
+        participants = (self.source, missing, unconfigured)
+        before = observer.last_known_dependency_readiness
+        await issuer.publish_group_command("group-loss", "group-session", "check_readiness",
+            "synchronization_manager", participants, {})
+        outcome = await issuer.await_group_command_outcome("group-loss", "group-session", "check_readiness",
+            "synchronization_manager", participants, 0)
+        self.assertEqual(outcome.outcome, "unresolved")
+        self.assertEqual([item.expected_target_id for item in outcome.unresolved_outcomes],
+                         ["missing", "unconfigured"])
+        self.assertIsNone(observer.dependency_readiness[missing])
+        self.assertTrue(observer.dependency_readiness[self.source].ready)
+        self.assertTrue(observer.dependency_readiness[outside_group].ready)
+        self.assertEqual(observer.last_known_dependency_readiness, before)
+        self.assertNotIn(unconfigured, observer.dependency_readiness)
+        with self.assertRaisesRegex(RuntimeError, "unknown"):
+            observer.service.check_ready()
+
+    async def test_overlapping_readiness_checks_preserve_later_check_in_either_delivery_order(self):
+        for newer_first in (False, True):
+            with self.subTest(newer_first=newer_first):
+                suffix = str(newer_first).lower()
+                participant = RuntimeParticipant("synchronization_manager", "sync-" + suffix)
+                target = RuntimeParticipant("controller", "observer-" + suffix)
+                observer = self.interface(Controller(), target, (participant,))
+                communication = self.communication(observer)
+                await communication.start()
+                dependency = RuntimeParticipant("storage_manager", "disk")
+                service = SynchronizationManager()
+                source = self.interface(service, participant, (dependency,))
+                source.receive_dependency_readiness(dependency,
+                    ServiceReadiness("disk", "storage_manager", True, True, "ready"))
+                await self.communication(source).start()
+                boundary = _Boundary(participant.component_type, participant.component_id, self.broker)
+                subscriptions = await NatsSynchronizationManagerCommunication(boundary, service).subscribe_commands()
+                for subscription in subscriptions:
+                    self.addAsyncCleanup(subscription.unsubscribe)
+                started = (asyncio.Event(), asyncio.Event())
+                finish = (asyncio.Event(), asyncio.Event())
+                publish_result = boundary.publish_command_result
+                calls = []
+
+                async def delayed_result(message, message_type):
+                    index = len(calls)
+                    calls.append(message)
+                    started[index].set()
+                    await finish[index].wait()
+                    await publish_result(message, message_type)
+
+                with patch.object(boundary, "publish_command_result", new=delayed_result):
+                    first = asyncio.create_task(communication.check_dependency_readiness(participant, 1))
+                    second = None
+                    try:
+                        await asyncio.wait_for(started[0].wait(), 5)
+                        source.receive_dependency_readiness(dependency,
+                            ServiceReadiness("disk", "storage_manager", True, False, "disk_failure"))
+                        second = asyncio.create_task(communication.check_dependency_readiness(participant, 1))
+                        await asyncio.wait_for(started[1].wait(), 5)
+                        self.assertTrue(calls[0].payload["service_readiness"]["ready"])
+                        self.assertFalse(calls[1].payload["service_readiness"]["ready"])
+                        order = (1, 0) if newer_first else (0, 1)
+                        tasks = (first, second)
+                        for index in order:
+                            finish[index].set()
+                            await tasks[index]
+                    finally:
+                        for event in finish:
+                            event.set()
+                        await asyncio.gather(*(task for task in (first, second) if task is not None))
+                self.assertFalse(observer.dependency_readiness[participant].ready)
+                self.assertFalse(observer.last_known_dependency_readiness[participant].ready)
+                self.assertFalse(observer.service.check_ready().ready)
+
+    async def test_group_publication_failure_invalidates_only_attempted_failed_dependency(self):
+        failing = RuntimeParticipant("synchronization_manager", "failing")
+        unattempted = RuntimeParticipant("synchronization_manager", "unattempted")
+        participants = (self.source, failing, unattempted)
+        observer = self.interface(Controller(), self.observer, participants)
+        communication = self.communication(observer)
+        await communication.start()
+        for participant in participants:
+            await self.communication(self.interface(SynchronizationManager(), participant)).start()
+        before = observer.last_known_dependency_readiness
+        attempted = []
+        publish = self.broker.publish
+
+        async def fail_second_publication(subject, data, stream):
+            if stream == "LAB_COMMANDS":
+                target = json.loads(data)["target_id"]
+                attempted.append(target)
+                if target == "failing":
+                    raise OSError("JetStream publication unavailable")
+            return await publish(subject, data, stream)
+
+        issuer = NatsControllerCommunication(communication._boundary)
+        with patch.object(self.broker, "publish", new=fail_second_publication):
+            with self.assertRaisesRegex(DurablePublicationError, "publication unavailable"):
+                await issuer.publish_group_command("group-publication", "group-session", "check_readiness",
+                    "synchronization_manager", participants, {})
+        self.assertEqual(attempted, ["sync", "failing"])
+        self.assertIsNone(observer.dependency_readiness[failing])
+        self.assertTrue(observer.dependency_readiness[self.source].ready)
+        self.assertTrue(observer.dependency_readiness[unattempted].ready)
+        self.assertEqual(observer.last_known_dependency_readiness, before)
+        with self.assertRaisesRegex(RuntimeError, "unknown"):
+            observer.service.check_ready()
 
     async def test_started_services_preserve_evidence_through_existing_coordinated_shutdown(self):
         framework = shutdown_fixtures.FrameworkShutdownTests()

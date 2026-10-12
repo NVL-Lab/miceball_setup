@@ -364,6 +364,7 @@ class NatsControllerCommunication:
             raise ValueError("A nonempty, non-overlapping command identity is required")
         event = self._command_result_events.setdefault(command_id, asyncio.Event())
         observer = getattr(self._boundary, "_dependency_result_observer", None)
+        observation = observer(participant, command_type) if observer is not None else None
         result = None
         try:
             command = RuntimeCommandMessage(command_id, session_id, command_type,
@@ -386,11 +387,15 @@ class NatsControllerCommunication:
             return None
         finally:
             self._command_result_events.pop(command_id, None)
-            if observer is not None:
-                try:
-                    await observer(participant, command_type, result)
-                except Exception as error:
-                    logger.warning("Dependency readiness observation could not be recorded: %s", error)
+            await self._notify_dependency_result(observation, command_type, result)
+
+    @staticmethod
+    async def _notify_dependency_result(observation, command_type, result):
+        if observation is not None:
+            try:
+                await observation(command_type, result)
+            except Exception as error:
+                logger.warning("Dependency readiness observation could not be recorded: %s", error)
 
     async def publish_command(
         self,
@@ -421,8 +426,15 @@ class NatsControllerCommunication:
             expected_participants=expected_participants,
             payload=payload,
         )
+        observer = getattr(self._boundary, "_dependency_result_observer", None)
         for message in messages:
-            await self._boundary.publish_command(message, component_type)
+            participant = RuntimeParticipant(component_type, message.target_id)
+            observation = observer(participant, command_type) if observer is not None else None
+            try:
+                await self._boundary.publish_command(message, component_type)
+            except BaseException:
+                await self._notify_dependency_result(observation, command_type, None)
+                raise
         return messages
 
     async def await_group_command_outcome(
@@ -438,6 +450,7 @@ class NatsControllerCommunication:
 
         if result_window_s < 0:
             raise ValueError("result_window_s must be non-negative")
+        observer = getattr(self._boundary, "_dependency_result_observer", None)
         expected_ids = {
             participant.component_id
             for participant in expected_participants
@@ -461,7 +474,7 @@ class NatsControllerCommunication:
                 await asyncio.wait_for(event.wait(), timeout=remaining)
             except TimeoutError:
                 break
-        return aggregate_group_command_results(
+        outcome = aggregate_group_command_results(
             command_id=command_id,
             session_id=session_id,
             command_type=command_type,
@@ -473,6 +486,11 @@ class NatsControllerCommunication:
                 f"the issuer-defined {result_window_s} second window"
             ),
         )
+        for unresolved in outcome.unresolved_outcomes:
+            participant = RuntimeParticipant(unresolved.expected_target_type, unresolved.expected_target_id)
+            observation = observer(participant, command_type) if observer is not None else None
+            await self._notify_dependency_result(observation, command_type, None)
+        return outcome
 
     async def subscribe_command_results(
         self,
@@ -955,10 +973,22 @@ class NatsServiceMaintenanceCommunication:
             self._request_subscription = await self._requests.subscribe_command_results(None)
             subscription = self._request_subscription
 
-            async def observer(participant, command_type, result):
-                if (self._request_subscription is subscription
-                        and getattr(self._boundary, "_dependency_result_observer", None) is observer):
-                    await self._observe_dependency_result(participant, command_type, result)
+            def observer(participant, command_type):
+                with self._maintenance._admission_lock:
+                    if (self._request_subscription is not subscription
+                            or getattr(self._boundary, "_dependency_result_observer", None) is not observer):
+                        return None
+                    # Later checks also supersede earlier pending checks, regardless of delivery order.
+                    if (command_type == "check_readiness"
+                            and participant in self._maintenance._dependency_readiness_versions):
+                        self._maintenance._dependency_readiness_versions[participant] += 1
+                    version = self._maintenance._dependency_readiness_versions.get(participant)
+
+                async def observe(command_type, result):
+                    if (self._request_subscription is subscription
+                            and getattr(self._boundary, "_dependency_result_observer", None) is observer):
+                        await self._observe_dependency_result(participant, command_type, result, version)
+                return observe
 
             self._result_observer = observer
             self._boundary._dependency_result_observer = observer
@@ -1029,7 +1059,7 @@ class NatsServiceMaintenanceCommunication:
             raise RuntimeError("Dependency request belongs to an earlier communication binding")
         return result
 
-    async def _observe_dependency_result(self, participant, command_type, result):
+    async def _observe_dependency_result(self, participant, command_type, result, observation_version):
         if participant not in self._maintenance.dependency_readiness:
             return
         if result is None or command_type == "check_readiness":
@@ -1042,7 +1072,13 @@ class NatsServiceMaintenanceCommunication:
                         data = ServiceReadiness(participant.component_id, participant.component_type,
                             True, node["ready"], "ready" if node["ready"] else "node_prerequisites_unready").to_dict()
                 report = self._readiness_report(participant, data)
-            if self._maintenance.receive_dependency_readiness(participant, report):
+            with self._maintenance._admission_lock:
+                # A confirmed response must not replace observations made since its request began.
+                if (report is not None and observation_version !=
+                        self._maintenance._dependency_readiness_versions[participant]):
+                    return
+                changed = self._maintenance.receive_dependency_readiness(participant, report)
+            if changed:
                 await self.publish_readiness()
 
     async def check_dependency_readiness(self, participant: RuntimeParticipant,

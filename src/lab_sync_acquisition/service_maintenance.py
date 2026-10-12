@@ -129,6 +129,7 @@ class ServiceMaintenanceInterface:
             raise ValueError("Duplicate dependency participant")
         self._dependency_readiness = dict.fromkeys(dependencies)
         self._last_known_dependency_readiness = dict.fromkeys(dependencies)
+        self._dependency_readiness_versions = dict.fromkeys(dependencies, 0)
         self._readiness_signature = None
         self._last_readiness_status = None
         service._maintenance = self
@@ -187,6 +188,7 @@ class ServiceMaintenanceInterface:
                 self._last_known_dependency_readiness[participant] = readiness
             changed = self._dependency_readiness[participant] != readiness
             self._dependency_readiness[participant] = readiness
+            self._dependency_readiness_versions[participant] += 1
             return changed
 
     def dependency_reports(self) -> tuple[ServiceReadiness, ...]:
