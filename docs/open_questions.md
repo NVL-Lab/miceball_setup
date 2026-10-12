@@ -738,7 +738,8 @@ documentation closure. Decision 336 remains partially implemented; broader recov
 journal lifecycle, remaining resume/drop execution, and resource-specific cleanup
 remain OPEN. Q024-B service-specific operator-authorized execution architecture
 is accepted in Decisions 339-348; supported cases have automated implementation
-coverage, with independent manual validation and audit pending.
+coverage and are complete with independent manual validation and final independent
+re-audit PASS after correction, documented in W039. Q024 remains OPEN.
 
 ### Why this matters
 
@@ -782,11 +783,19 @@ this documentation closure.
 ### Q024-B: Service-specific operator-authorized recovery execution
 
 **Status:** Architecture accepted in Decisions 339-348; supported cases implemented
-with automated coverage; independent manual validation and audit pending.
+and complete with automated coverage, independent manual IPython validation, and
+final independent read-only re-audit PASS after correction (W039).
 Accepted addendum Decisions 347-348 resolve pre-repair preservation admission and
 the lost active Session Time boundary; their supported cases have automated coverage.
 This extends previously deferred execution boundaries without changing the
 completed Decisions 332-338 validation/audit record or Decision 336's partial scope.
+
+W039 preserves the initial 22-check manual validation PASS, initial source audit
+FAIL on one P2 Controller reconciliation defect, its correction, 16-check focused
+manual revalidation PASS, and final focused re-audit PASS with 20 independently
+passing automated tests. Final implementation testing ran 656 tests: 649 passed,
+7 optional skips, zero failures. This closes only the supported Q024-B slice,
+not broader Q024; no validation was executed during documentation closure.
 
 Implemented cases are obligation-scoped archive/retained Session Record rewrites,
 fresh artifact transfer using the original handoff, independent supported local
@@ -990,7 +999,7 @@ The roadmap distinguishes accepted architecture from implemented milestones:
 Phase 13 — Global StorageManager (Evidence)
 Phase 14 — Global StorageManager (Finalized Scientific Data)
 Phase 15 — Controller-owned Session Launch & Runtime Assembly (launch path and Decision 302 sequential reuse implemented; independent validation/audit and M015 closure pending)
-Phase 16 — Operational Service Lifetime and Framework Stop/Kill (Decisions 304-348 accepted; Q025 resolved architecturally; narrow Session-binding release under Decisions 313/322 complete, manually software-validated and independently audited PASS in W035; individual-service maintenance complete, manually software-validated and independently audited PASS in W036; progressive two-phase coordinated shutdown complete, manually software-validated and independently re-audited PASS in W037; startup/return under Decisions 327-331 complete, independently manually software-validated and independently re-audited PASS after correction in W038; Q024-B under Decisions 339-348 supported cases implemented with automated coverage, independent manual validation/audit pending; Phase 16 and M015 remain open)
+Phase 16 — Operational Service Lifetime and Framework Stop/Kill (Decisions 304-348 accepted; Q025 resolved architecturally; narrow Session-binding release under Decisions 313/322 complete, manually software-validated and independently audited PASS in W035; individual-service maintenance complete, manually software-validated and independently audited PASS in W036; progressive two-phase coordinated shutdown complete, manually software-validated and independently re-audited PASS in W037; startup/return under Decisions 327-331 complete, independently manually software-validated and independently re-audited PASS after correction in W038; supported Q024-B cases under Decisions 339-348 complete with automated coverage, independent manual validation, and final independent re-audit PASS after correction in W039; Phase 16 and M015 remain open)
 Phase 17 — Device Acceptance / Validation
 Phase 18 — End-to-End Demo Architecture
 

@@ -97,7 +97,9 @@ behavior without automatic interrupted-work recovery. Decisions 308-311 and
 Decisions 325-326 establish progressive shutdown, service-specific authorization,
 and two-phase closeout. Decisions 332-338 establish narrow service-owned reporting
 and administrative abandonment; Decisions 339-346 accept Q024-B's service-specific
-operator-authorized execution boundaries, with implementation pending.
+operator-authorized execution boundaries; their supported framework implementation
+is independently validated and audited after correction in W039. GUI controls
+remain future proposals.
 
 These are existing framework contracts, not new GUI requirements. The Services
 tab, its controls, and all presentation ideas above remain future design ideas,

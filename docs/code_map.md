@@ -64,7 +64,8 @@ independently manually software-validated, and independently re-audited PASS (W0
 after correction of the two initial P2 readiness findings.
 Existing service-owned administrative,
 NATS, readiness, and framework evidence interfaces are extended below, without
-a registry or another service-management component. Resume/drop execution remains Q024,
+a registry or another service-management component. Execution beyond supported
+Q024-B cases remains Q024,
 deployment/discovery details remain Q022, and Session-wide consumption remains Q019.
 
 ### Q024 narrow implementation (complete, independently validated and audited)
@@ -102,10 +103,12 @@ and independently audited. Broader Q024 application recovery, journal lifecycle,
 and execution/cleanup beyond supported Q024-B cases remain OPEN. Q019, Q022,
 Q024, Phase 16, and M015 remain open.
 
-### Q024-B supported implementation (independent validation and audit pending)
+### Q024-B supported implementation (complete, independently validated and audited)
 
-Decisions 339-348 have automated coverage for service-owned recovery and
-informational reconciliation, not application restoration or closure of Q024-B.
+Decisions 339-348 have completed supported service-owned recovery and informational
+reconciliation with automated coverage, independent manual validation, and final
+independent read-only re-audit PASS after correction (W039), not application restoration
+or closure of broader Q024.
 Existing `record_administrator_decision(administrator_id, "resume", details)`
 records authorization with `details.operation`, `details.obligation`, and the
 exact execution `details.command_id`. A concrete existing-envelope command
@@ -129,14 +132,20 @@ are not automatically released.
 Controller `reconcile_outcomes` reads retained participant/command evidence and
 current durable preservation without commands or lifecycle changes. Missing and
 conflicting outcomes stay unresolved; unchanged findings add no redundant evidence.
+Optional/non-mapping command details remain unassociated uncertainty; only explicit
+matching Session identities establish Session-scoped command outcomes. Supported
+artifact recovery resubmits retained identical finalized-manifest evidence only
+on a separately authorized attempt when durable acceptance remains unconfirmed,
+without refinalizing scientific records or claiming success without that acceptance.
 SynchronizationManager `reconcile_timing` reads journal-backed historical mappings
 and reports continuity/uncertainty using explicit active-Session context, without
 activating old mappings or restoring a clock. Diagnosed ongoing lost-time scopes
 cannot silently restart at zero. Informational evidence is retained but does not
 implicitly repair an unconfirmed archive, including corruption during publication.
 Ingestor known-Session reconstruction, W035-W038, and historical validation records
-remain unchanged. Decision 336 remains partial; Q024-B independent validation/audit,
-broader Q024, Q019, Q022, Phase 16, and M015 remain OPEN.
+remain unchanged. W039 preserves the initial failed audit, correction, focused
+revalidation, and final PASS. Decision 336 remains partial; broader Q024, Q019,
+Q022, Phase 16, and M015 remain OPEN.
 
 Decision 322 additionally makes every ControllerActionDecision persistent,
 including no-mutation outcomes. Accepted ownership remains Controller-produced
@@ -584,8 +593,9 @@ persistent record. No unpublished-message queue, retry, replay, or second archiv
 is created. Known obligations come from existing owner diagnostics, not discovery
 of abandoned applications. Delivery loss is detected only by existing operations
 or explicit checks; there is no proactive detection guarantee. Startup/readiness
-is independently validated and audited in W038; the Q024-B extensions have automated
-coverage and still await independent manual validation and audit.
+is independently validated and audited in W038; the supported Q024-B extensions
+are complete with automated coverage, independent manual validation, and final
+independent re-audit PASS after correction in W039.
 
 Maintenance must be configured with an explicit service-owned resource closeout
 callback and preservation window. Local callers may use attached intake;

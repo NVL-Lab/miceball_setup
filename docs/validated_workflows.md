@@ -2333,6 +2333,132 @@ for this slice and is not resolved by this workflow.
 
 ---
 
+# W039 - Q024-B Service-Specific Authorized Recovery and Reconciliation
+
+**Status:** Complete - supported software implementation under Decisions 339-348,
+independent manual IPython validation, and final focused independent read-only
+re-audit PASS after correction of the initial audit finding.
+
+## Purpose
+
+Validate narrow service-owned recovery attempts and informational reconciliation
+using existing obligations, administrator decisions, command/results, runtime
+evidence, Ingestor journals, and StorageManager preservation. This extends the
+Decisions 332-338 reporting/abandonment slice without closing broader Q024.
+
+## Workflow and seven implementation units
+
+```text
+Owner reports an existing unresolved obligation and current prerequisites
+    -> administrator explicitly authorizes the specific operational attempt
+    -> command references the original obligation and authorization evidence
+    -> owner confirms durable intake, identity, scope, prerequisites, and safety
+    -> owner executes only the supported action, or refuses it
+    -> actual outcome and remaining obligations are retained through existing evidence
+    -> subsequent archival confirmation is reported separately from action success
+```
+
+Read-only Controller and timing reconciliation need no administrator authorization
+merely to inspect trustworthy records; they do not execute operational recovery.
+
+1. **Authorization and execution correlation:** Existing administrator decisions
+   identify the exact service-owned obligation, operation, and execution command.
+   Owners revalidate immediately before action. Duplicate commands retain their
+   original result; a subsequent recovery attempt requires new explicit authorization.
+   Failed/refused attempts and incomplete preservation remain observable obligations.
+2. **StorageManager persistent-write recovery:** Authorized Evidence Archive
+   rewrites use current trustworthy Ingestor compilation; Session Record rewrites
+   use retained complete original inputs. Authorization and attempt require
+   journal-backed Ingestor acceptance before repair, not preservation in the
+   unavailable archive. Actual durable write and later outcome archival are distinct.
+3. **StorageManager fresh artifact transfer:** Reuse the original handoff and
+   retrieval/verification path for a fresh complete attempt, without modifying the
+   authoritative source or overwriting an unexpected final destination. Temporary
+   copies are reclaimed only with proven identity; no byte-level resumption occurs.
+4. **AcquisitionNode scientific-artifact preservation:** Supported local finalization
+   preserves genuinely available records and authoritative manifests. If finalized
+   manifest acceptance fails, a new authorized attempt resubmits the retained
+   identical evidence using its original identity and Ingestor deduplication,
+   without refinalizing records or changing artifact bytes. Local-finalization
+   success is separate; complete recovery requires required manifest durability.
+5. **AcquisitionNode device/resource cleanup:** Independently authorized cleanup
+   requires actual confirmation and retains existing device lifecycle, reservation,
+   Session-binding, terminal Experiment, and resource-reuse protections. Artifact
+   preservation success does not establish device cleanup, or vice versa.
+6. **Controller informational reconciliation:** Read existing confirmed participant
+   outcomes and current durable preservation without replay or lifecycle changes.
+   Preserve partial results, missing/conflicting outcomes, and uncertainty. Optional
+   and non-mapping command details cannot crash reconciliation or invent a Session
+   association; only explicit matching Session identities establish scoped command
+   outcomes. Command success is not proof of participant completion. Evidence is
+   serializable, and unchanged findings do not generate redundant evidence.
+7. **SynchronizationManager historical reconciliation:** Preserve journal-backed
+   timing/mappings and report continuity gaps, uncertainty, and affected scope.
+   Loss of trustworthy active Session Time does not authorize zero-based restart,
+   old-mapping reactivation across downtime, timestamp mutation, fabricated
+   observations, or automatic Session failure. Healthy synchronization behavior
+   remains unchanged.
+
+These units preserve service ownership and existing evidence mechanisms. NATS
+publication, durable Ingestor acceptance, actual action success, and StorageManager
+archival confirmation remain distinct. Missing trustworthy inputs or unsupported
+repairs are refused; failed preservation retains evidence and warnings. Ingestor's
+existing automatic reconstruction from a valid journal for an already-known Session
+under Decisions 276-280 is unchanged, not a new Q024-B recovery unit.
+
+## Independent manual IPython validation
+
+- Initial independent validation: **PASS, 22 behavioral checks** across the
+  supported Q024-B scope.
+- After the Controller correction, focused independent revalidation: **PASS,
+  16 behavioral checks**, covering both original failures, correct Session
+  association, unassociated uncertainty, durable evidence, deduplication, and
+  absence of lifecycle changes or command replay.
+
+## Automated validation and independent audit
+
+- Retained scientific-manifest recovery corrections were completed before the
+  initial full source audit, including identical-evidence resubmission after
+  failed acceptance without repeating scientific finalization.
+- **Initial independent source audit: FAIL.** One blocking P2 finding: Controller
+  reconciliation assumed dictionary details. A rejected Session start with
+  `details=None` and successful acquisition with `AcquisitionIterationSummary`
+  both raised `AttributeError` through ordinary public workflows.
+- The correction handles optional, mapping, and non-mapping details safely,
+  preserves unassociated uncertainty, and avoids invented Session association
+  or participant completion. Public-workflow regressions cover both failures
+  and mixed scoped/non-mapping results, serialization, and unchanged runtime state.
+- Final implementation full suite: **656 run, 649 passed, 0 failed, 7 optional
+  rendering skips**.
+- **Final focused independent read-only re-audit: PASS.** The original P2 finding
+  was resolved; no blocking defects or architectural ambiguity remained within
+  the focused scope. The earlier audit found no other blocking Q024-B issues.
+- The final re-audit independently ran **20 relevant automated tests, all passed**,
+  covering reconciliation and Controller workflows.
+
+These are previously executed implementation tests and reported independent
+manual validation/audit results, not tests or IPython validation run during this
+documentation-only closure. The initial failed audit remains part of the record;
+the initial implementation is not described as an uncorrected audit success.
+
+## Limitations and completion
+
+Only the supported Q024-B implementation slice is complete. Decision 336 remains
+partially implemented: guarded release of redundant producer-owned evidence copies.
+Broader Q024 remains OPEN, including journal retention/deletion, abandoned journals,
+application-wide discovery/restoration, stale reservations, remaining memory/cache
+retirement, and recovery/cleanup outside supported contracts. Q019, Q022, Phase 16,
+and M015 remain OPEN; W035-W038 and earlier validation records remain intact.
+
+Validation uses controlled software/NATS broker doubles and real framework
+intake/persistence, not live external NATS, cross-process, Jetson, or hardware
+validation. No universal recovery system, new automatic replay/retry, application
+restoration, new Session states, active-Session clock restoration, GUI recovery,
+supervision, or new evidence infrastructure is claimed. Missing trustworthy
+information remains unresolved rather than invented.
+
+---
+
 # Future Workflows
 
 The following workflows are expected to be added as the framework evolves.

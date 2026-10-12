@@ -9347,13 +9347,23 @@ Read-only reconciliation does not require administrator authorization; any new
 operational recovery attempt remains subject to Decision 339.
 
 **Implementation status for Q024-B (Decisions 339-346):** Architecture accepted;
-supported service-specific cases are implemented with automated regression coverage.
+supported service-specific cases are complete, independently manually validated,
+and independently audited after correction, as recorded in W039.
 Controller informational reconciliation, obligation-scoped authorized archive/record
 rewrites and fresh transfers, independent node artifact finalization/device cleanup,
 and historical timing/uncertainty reporting reuse existing owners and evidence paths.
 Missing trustworthy inputs and unsupported partial-artifact repairs are refused;
 active-Session clock restoration and application restoration are not implemented.
-Independent manual validation and audit remain pending; Q024-B is not closed.
+Final implementation testing ran 656 tests: 649 passed, 7 optional skips, zero
+failures. Initial independent manual IPython validation passed 22 checks. The
+initial independent source audit failed on one P2 Controller reconciliation defect;
+the correction safely handles optional/non-mapping command details and preserves
+unassociated uncertainty without inventing Session identity or participant completion.
+Focused independent revalidation passed 16 checks; the final independent read-only
+re-audit returned PASS with no blocking defects or architectural ambiguity and
+independently passed 20 relevant automated tests. Retained scientific-manifest
+recovery corrections preceded the initial source audit. These are prior validation
+results, not validation executed during documentation closure.
 The completed, independently validated and audited
 Decisions 332-338 narrow slice remains unchanged; Decision 336 remains partially
 implemented, limited to guarded release of redundant producer-owned evidence
@@ -9419,9 +9429,10 @@ supported archive repair now requires journal-backed authorization and attempt
 acceptance before writing, with actual-write and outcome-archival confirmation
 reported separately. Historical timing reconciliation reports lost continuity and
 blocks zero-based restart for a diagnosed ongoing scope without restoring its clock.
-Automated regression coverage passed; independent manual validation and audit remain
-pending. Earlier validation records are unchanged. Q024, Q019, Q022,
-Phase 16, and M015 remain OPEN.
+The supported cases completed automated testing, independent manual validation,
+and final independent re-audit PASS as recorded in W039. Earlier validation and
+audit records, including the initial failure and correction, are preserved.
+Q024, Q019, Q022, Phase 16, and M015 remain OPEN.
 
 ---
 
@@ -9772,7 +9783,7 @@ requirements remain authoritative.
 343. Q024-B adds no Ingestor recovery mechanism or authorization requirement for accepted automatic valid-journal reconstruction of an already-known Session; corruption is not accepted and application-wide discovery stays deferred.
 344. AcquisitionNode scientific-artifact preservation and device/resource cleanup are independent authorized actions; actual records, authoritative local manifests, terminal Experiment identities, and confirmed resource-safety protections remain authoritative.
 345. Controller may read and reconcile trustworthy durable evidence and confirmed participant outcomes without authorization, but records only proven results and neither automatically replays commands nor advances lifecycle or restores the application.
-346. Synchronization recovery preserves historical timing/mappings, reports active-Session continuity gaps and uncertainty, and uses trustworthy current synchronization without fabricated observations, timestamp mutation, or automatic Session failure. Supported Q024-B cases have automated implementation coverage; independent validation/audit remain pending; broader Q024, Q019, Q022, Phase 16, and M015 remain OPEN.
+346. Synchronization recovery preserves historical timing/mappings, reports active-Session continuity gaps and uncertainty, and uses trustworthy current synchronization without fabricated observations, timestamp mutation, or automatic Session failure. Supported Q024-B cases are complete with automated coverage, independent manual validation, and final independent re-audit PASS after correction (W039); broader Q024, Q019, Q022, Phase 16, and M015 remain OPEN.
 347. Authorized interrupted Evidence Archive repair requires journal-backed durable Ingestor acceptance of authorization and attempt before execution, not successful archival in the unavailable target; actual write success and subsequent outcome archival remain separate, without new evidence infrastructure or Q019 guarantees.
 348. Loss of the active Session Time reference requires preserved historical timing/scientific recordings and explicit continuity/uncertainty reporting, never zero-based restart, fabricated relationships, unjustified old-map activation, or automatic Session failure; no active-Session clock-restoration mechanism is authorized, and healthy mapping updates remain unchanged.
 

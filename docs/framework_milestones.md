@@ -674,9 +674,10 @@ interrupted work. Q025 is resolved architecturally, while Q019's Session-wide
 evidence-consumption coordination, Q021, and Q024 remain open.
 This does not close M015 or establish a completed Phase 16 milestone. W035 records
 only the completed Session-binding release slice; W036 records individual-service
-maintenance, W037 records coordinated shutdown, and W038 records startup/return
-integration. Controller release after confirmed cleanup
-and final persistence, plus empty Ingestor/synchronization binding release, are
+maintenance, W037 records coordinated shutdown, W038 records startup/return
+integration, and W039 records the completed supported Q024-B recovery/reconciliation
+slice after independent validation and corrected re-audit PASS. Controller release
+after confirmed cleanup and final persistence, plus empty Ingestor/synchronization binding release, are
 implemented. The narrow follow-up also implements evidence-bearing Ingestor release
 after exact persistent-message/all-runtime-audit archive coverage and existing
 terminal Session Record evidence, and SynchronizationManager release after stopped
@@ -776,9 +777,10 @@ NATS deployment validation is claimed.
 
 W035-W037 and Decisions 325-326 remain complete for their respective narrow scopes.
 Phase 16 and M015 remain open;
-Q019, Q022, and Q024 remain unresolved. Resume/drop execution, deployment/discovery
-details, process supervision, automatic launch/restart/retry/replay, and GUI
-implementation are not authorized. The Services tab remains a separate future
+Q019, Q022, and Q024 remain unresolved. The startup/return slice does not authorize
+resume/drop execution; supported Q024-B actions are separately validated in W039.
+Deployment/discovery details, process supervision, automatic launch/restart/retry/replay,
+and GUI implementation remain outside this scope. The Services tab remains a separate future
 design proposal.
 
 ## Accepted Q024 service-specific unresolved-work and abandonment contracts
@@ -812,8 +814,9 @@ guarded memory release is limited to redundant interface-owned producer evidence
 copies, preserving current complete archival and exact journal-backed acceptance
 through commitment. Existing resource guards, administrative markers, idempotent
 command/results, and durable journals remain. Resource-specific recovery execution
-is separately accepted, with supported automated implementation under Q024-B below; wider cache
-retirement still lacks the applicable safety/closeout/idempotency-lifetime contracts.
+is separately accepted and independently validated/audited for supported Q024-B
+cases in W039; wider cache retirement still lacks the applicable
+safety/closeout/idempotency-lifetime contracts.
 Automated tests do not replace independent manual validation or audit; both have
 now passed for this narrow scope.
 
@@ -830,8 +833,20 @@ supervision, new Session states, or additional recovery subsystem is authorized.
 
 **Status:** Architecture accepted and synchronized in Decisions 339-346;
 accepted clarifications 347-348 synchronized; supported service-specific cases
-implemented with automated regression coverage. Independent manual validation and
-audit remain pending; Q024-B, Phase 16, and M015 are not closed.
+complete with automated regression coverage, independent manual IPython validation,
+and final independent read-only re-audit PASS after correction (W039). Phase 16
+and M015 remain OPEN; this closes only the supported Q024-B implementation slice.
+
+Final implementation testing: 656 run, 649 passed, 7 optional skips, zero failures.
+Initial independent manual validation: PASS (22 checks). Initial independent source
+audit: FAIL on one P2 Controller reconciliation defect. After correction, focused
+independent manual revalidation passed 16 checks and the final independent re-audit
+returned PASS with no blocking defects or architectural ambiguity; it independently
+ran 20 relevant automated tests, all passed. Retained scientific-manifest recovery
+corrections were completed before the initial source audit. W039 records the seven
+implementation units and preserves this failed-then-corrected audit history.
+These are prior results, not tests run during documentation closure; no live
+external NATS, cross-process, Jetson, or hardware validation is claimed.
 
 Supported implementation covers exact obligation/authorization/command correlation,
 durably admitted archive/retained Session Record rewrites, fresh artifact transfer,

@@ -603,7 +603,7 @@ Slice 28 workflows remain historical evidence, not closure of its sequential-reu
 requirements. W035 separately validates the Phase 16 service binding-release path.
 
 Phase 16 Operational Service Lifetime and Framework Stop/Kill architecture is
-accepted in Decisions 304-331. The narrow Controller/Ingestor/SynchronizationManager
+accepted in Decisions 304-348. The narrow Controller/Ingestor/SynchronizationManager
 Session-binding release slice under Decisions 313 and 322 is complete, manually
 software-validated, and independently audited PASS (W035). Remaining Phase 16
 responsibilities are unfinished; Phase 16 completion is not claimed.
@@ -665,11 +665,43 @@ and independently re-audited PASS after correction of two P2 readiness findings
 NATS deployment or hardware validation. Phase 16 remains open. These contracts reuse identity,
 readiness, configured-dependency announcements, and framework evidence without a
 registry, recovery subsystem, or new persistence mechanism. Recording administrator
-resume/drop decisions does not implement their execution. Q019,
+resume/drop decisions alone does not execute recovery; supported explicitly
+authorized Q024-B actions are separately validated in W039. Q019,
 Q021, Q024, and deployment configuration remain open.
 Q017 remains resolved.
 M015 remains open with its separate launch/reuse validation criteria; historical
 validation records are preserved.
+
+The supported Q024-B service-specific recovery and reconciliation slice under
+Decisions 339-348 is complete, independently manually validated, and independently
+re-audited PASS after correction (W039). Existing service owners support exact
+obligation-scoped administrator authorization, trusted Evidence Archive/retained
+Session Record rewrites, fresh non-overwriting artifact transfers, independent
+local scientific-artifact preservation and device cleanup, informational Controller
+outcome reconciliation, and historical synchronization/continuity reporting.
+Durable Ingestor acceptance precedes operational recovery; actual actions,
+remaining obligations, and subsequent archival confirmation remain separate.
+Retained finalized-manifest evidence can be resubmitted on a newly authorized
+attempt without repeating scientific finalization; required durable acceptance
+must be confirmed before reporting complete artifact recovery.
+
+Initial independent manual validation passed 22 checks. The initial independent
+source audit failed on one P2 Controller reconciliation defect involving optional
+and non-mapping command details. Its correction preserves unassociated uncertainty
+without inventing Session identity or participant completion. Focused independent
+revalidation passed 16 checks; the final independent re-audit returned PASS and
+independently passed 20 relevant automated tests. Final implementation testing:
+656 run, 649 passed, 7 optional skips, zero failures. These are prior software
+results, not live external NATS, cross-process, Jetson, or hardware validation.
+
+Ingestor's existing automatic known-Session valid-journal reconstruction is unchanged.
+No universal recovery system, new automatic replay, application restoration,
+new Session states, active-Session clock restoration, or new evidence infrastructure
+is introduced. Decision 336 remains partial: only guarded release of redundant
+producer-owned evidence copies. Broader Q024 remains OPEN, including journal
+retention/deletion, abandoned journals, application-wide discovery/restoration,
+stale reservations, and remaining memory/cache retirement. Q019, Q022, Phase 16,
+and M015 remain OPEN; W035-W038 retain their historical validation records.
 
 Decision 322 accepts persistence for every ControllerActionDecision, including
 no-mutation outcomes, with Controller-supplied is_persistent=True through the
