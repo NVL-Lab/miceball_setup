@@ -650,9 +650,9 @@ Q025 is resolved architecturally. Session-binding release (W035) and individual-
 maintenance (W036) are complete and software-validated. Progressive two-phase
 coordinated shutdown is also complete, manually software-validated, and
 independently re-audited PASS (W037); independent startup/returning-service
-integration now has accepted, synchronized low-level contracts in Decisions
-327-331, implemented with automated coverage; independent manual validation and
-audit remain pending. Configured dependencies
+integration under Decisions 327-331 is complete, independently manually
+software-validated, and independently re-audited PASS after correction of the two
+P2 readiness findings (W038). Configured dependencies
 receive startup/return announcements directly; this does not settle deployment
 provisioning, configuration formats, or discovery details or authorize a registry.
 
@@ -850,9 +850,9 @@ and exact preservation checks. W036 records successful manual software validatio
 and final independent audit PASS for individual-service maintenance, including
 Decision 324 closeout ordering. W037 separately records successful manual validation
 and independent re-audit PASS for coordinated shutdown and its complete Evidence
-Archive preservation guard. Independent startup/returning-service integration
-has accepted, synchronized low-level contracts in Decisions 327-331 and automated
-implementation coverage; independent manual validation and audit remain pending.
+Archive preservation guard. W038 records completed startup/returning-service
+integration under Decisions 327-331, independent manual software validation, and
+final independent re-audit PASS after correction of the two initial P2 findings.
 Phase 16 and M015 remain open.
 Transport publication alone is not permanent persistence, and the framework
 partition never requires a Session Record or fabricated Session binding.
@@ -878,7 +878,7 @@ The roadmap distinguishes accepted architecture from implemented milestones:
 Phase 13 — Global StorageManager (Evidence)
 Phase 14 — Global StorageManager (Finalized Scientific Data)
 Phase 15 — Controller-owned Session Launch & Runtime Assembly (launch path and Decision 302 sequential reuse implemented; independent validation/audit and M015 closure pending)
-Phase 16 — Operational Service Lifetime and Framework Stop/Kill (Decisions 304-331 accepted; Q025 resolved architecturally; narrow Session-binding release under Decisions 313/322 complete, manually software-validated and independently audited PASS in W035; individual-service maintenance complete, manually software-validated and independently audited PASS in W036; progressive two-phase coordinated shutdown complete, manually software-validated and independently re-audited PASS in W037; startup/return under Decisions 327-331 implemented with automated coverage, independent manual validation and audit pending; Phase 16 and M015 remain open)
+Phase 16 — Operational Service Lifetime and Framework Stop/Kill (Decisions 304-331 accepted; Q025 resolved architecturally; narrow Session-binding release under Decisions 313/322 complete, manually software-validated and independently audited PASS in W035; individual-service maintenance complete, manually software-validated and independently audited PASS in W036; progressive two-phase coordinated shutdown complete, manually software-validated and independently re-audited PASS in W037; startup/return under Decisions 327-331 complete, independently manually software-validated and independently re-audited PASS after correction in W038; Phase 16 and M015 remain open)
 Phase 17 — Device Acceptance / Validation
 Phase 18 — End-to-End Demo Architecture
 

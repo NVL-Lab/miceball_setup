@@ -2104,9 +2104,9 @@ Historical results and W035 are preserved.
 
 Only the individual-service maintenance implementation slice is complete.
 At the W036 validation checkpoint, coordinated shutdown and independent
-startup/returning-service integration were unfinished. W037 now separately records
-validated coordinated shutdown; independent startup/returning-service integration
-remains unfinished. Phase 16 remains incomplete and M015 remains OPEN with
+startup/returning-service integration were unfinished. W037 and W038 now separately
+record validated coordinated shutdown and startup/return integration. Phase 16
+remains incomplete and M015 remains OPEN with
 its separate launch/reuse validation and audit criteria. Q019 and Q024 remain OPEN.
 
 This is software validation, including controlled broker doubles, not real hardware,
@@ -2203,8 +2203,9 @@ independent validation and re-audit. W035/W036 historical validation is preserve
 ## Limitations and completion
 
 Only the progressive coordinated-shutdown implementation under Decisions 325-326
-is closed here. Phase 16 remains incomplete: independent startup/returning-service
-integration remains unfinished. M015 remains OPEN with its separate launch/reuse
+is closed here. At the W037 checkpoint, startup/return integration was unfinished;
+W038 separately records its completion. Phase 16 remains incomplete and M015
+remains OPEN with its separate launch/reuse
 validation and audit criteria; Q019 and Q024 remain OPEN.
 
 This is controlled software/broker-double validation, not real hardware, live
@@ -2212,6 +2213,123 @@ cross-process, or external NATS deployment validation. No new lifecycle state,
 evidence subsystem, supervisor, automatic recovery, or remote OS termination is
 introduced. Nonblocking test improvements identified by the audit are not new
 architectural requirements.
+
+---
+
+# W038 - Phase 16 Service Startup/Return Integration
+
+**Status:** Complete - narrow software implementation, independent manual IPython
+validation, and final independent read-only re-audit PASS under Decisions 327-331.
+
+## Purpose
+
+Validate independent operational-service startup/return announcements, direct
+configured-dependency readiness updates, protected service reuse, and truthful
+framework evidence preservation through existing communication and service owners.
+This is distinct from Session-binding release (W035), individual-service maintenance
+(W036), and coordinated framework shutdown (W037).
+
+## Workflow
+
+```text
+Independently started or returning service confirms required NATS connectivity
+    -> subscribes directly to newly published configured-dependency announcements
+    -> announces existing RuntimeParticipant identity and ServiceReadiness
+    -> reports known unresolved obligations without claiming recovery
+    -> receiving services update current readiness separately from last-known reports
+    -> explicit readiness checks run only when operationally necessary
+    -> unconfirmed communication invalidates affected current availability as unknown
+    -> persistent framework evidence reaches Ingestor and StorageManager
+    -> separate acceptance/archival confirmation, or warning with retained obligations
+```
+
+Historical announcements cannot establish current operational readiness. Fresh-only
+dependency subscriptions do not change Ingestor's historical durable-evidence
+consumption or recovery. A fresh announcement does not trigger a redundant check;
+there is no proactive dependency-disappearance detection guarantee.
+
+Current readiness, last-known readiness, technical readiness, communication
+availability, reservations, and unresolved obligations remain distinct. Unknown
+availability is missing current confirmation, not a fabricated `ready=False`
+report. It prevents false Controller readiness while preserving historical reports.
+Returning services remain subject to existing reservation, cleanup, retirement,
+and ownership protections; return does not confirm interrupted work has resumed.
+
+Private ordering counters prevent an earlier readiness result from overwriting
+newer announcements or checks within the same communication binding. Result
+application is atomic under the existing admission lock; old communication-binding
+callbacks cannot affect a replacement binding. No synchronous lock spans an await. Unresolved
+group results invalidate only missing configured dependencies. Publication failures
+invalidate only the affected attempted dependency, not successful, unattempted, or
+unrelated dependencies; the original publication failure still propagates.
+
+Startup/readiness, unresolved-work reports, and explicit administrator resume/drop
+choices use producer-marked persistent `RuntimeEvidenceMessage` records with
+`session_id=None`. Recording a choice does not execute recovery, delete data, or
+clear obligations. NATS publication, journal-backed Ingestor acceptance, and current
+StorageManager archival confirmation are separate observations. Missing archival
+confirmation produces an operator warning and retains producer-owned evidence,
+without blocking startup when other accepted prerequisites are satisfied.
+Session Record and Evidence Archive ownership and W035-W037 protections are unchanged.
+
+## Independent manual IPython validation
+
+The initial implementation passed eight independent manual validation cells covering:
+
+- Public interfaces, dependency-readiness transitions, and current versus last-known reports.
+- Fresh-only NATS announcements versus historical evidence consumption.
+- Preservation warnings and evidence-only administrator resume/drop choices.
+- Actual Ingestor acceptance, StorageManager archival, and archive-corruption detection.
+- Late startup, service return, communication loss, and explicit readiness checks.
+- AcquisitionNode reservations, unresolved obligations, and protected reuse.
+
+After the first audit's corrections, three additional independent manual cells passed:
+
+- Delayed readiness results could not overwrite newer announcements or corrupt last-known readiness.
+- Unresolved group responses invalidated only missing configured dependencies.
+- Group publication failures invalidated only the affected attempted dependency,
+  leaving successful and unattempted peers unchanged.
+
+Unknown current availability prevented false Controller readiness. No automatic
+termination, recovery, or administrative action occurred.
+
+## Automated validation and independent audit
+
+- **Initial independent audit: FAIL.** It identified two P2 defects: delayed
+  readiness results could overwrite newer announcements, and unresolved group
+  outcomes/publication failures could leave affected availability falsely confirmed.
+- Both defects were corrected before the additional manual validation and final audit.
+- **Final independent read-only re-audit: PASS.** Both original findings were
+  resolved; no new blocking implementation defects or architectural conflicts were found.
+- Focused suite: **230 passed, zero failures or skips**, covering startup, NATS
+  communication, framework evidence, Session launch/binding release, maintenance,
+  and coordinated shutdown.
+- Full discovery: **603 run, 596 passed, 0 failed, 7 optional rendering skips**.
+- Deterministic regressions cover the original same-binding race, overlapping checks
+  in both delivery orders, selective unresolved-result invalidation, and selective
+  publication-failure invalidation.
+- Additional independent automated probes passed for a delayed result after newer
+  unknown availability, cancelled group publication, and old-binding group completion
+  while a new-binding readiness check remained pending.
+
+These are previously executed and reported implementation, manual validation, and
+independent audit results, not tests or IPython validation run during this
+documentation-only closure. The initial failed audit is not replaced by an
+uncorrected-success claim. W035-W037 completion status and validation records remain intact.
+
+## Limitations and completion
+
+Only the startup/return integration slice under Decisions 327-331 is complete.
+Phase 16 remains OPEN. M015 retains its separate remaining launch/reuse validation
+and audit criteria; Q019, Q022, and Q024 remain OPEN.
+
+Validation used real framework components, including Ingestor journaling and
+StorageManager archival, with controlled software/NATS broker doubles. It does
+not establish live external NATS deployment, cross-process, or hardware validation.
+No automatic recovery/replay, resume/drop execution, supervision, heartbeat
+monitoring, polling, service discovery, new lifecycle state, GUI authority, or new
+persistence mechanism was implemented. Deferred behavior is not a closure requirement
+for this slice and is not resolved by this workflow.
 
 ---
 

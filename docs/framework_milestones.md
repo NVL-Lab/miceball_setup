@@ -674,7 +674,8 @@ interrupted work. Q025 is resolved architecturally, while Q019's Session-wide
 evidence-consumption coordination, Q021, and Q024 remain open.
 This does not close M015 or establish a completed Phase 16 milestone. W035 records
 only the completed Session-binding release slice; W036 records individual-service
-maintenance and W037 records coordinated shutdown. Controller release after confirmed cleanup
+maintenance, W037 records coordinated shutdown, and W038 records startup/return
+integration. Controller release after confirmed cleanup
 and final persistence, plus empty Ingestor/synchronization binding release, are
 implemented. The narrow follow-up also implements evidence-bearing Ingestor release
 after exact persistent-message/all-runtime-audit archive coverage and existing
@@ -716,8 +717,8 @@ independent re-audit of the latter. W036 records the manual scenarios and report
 full-suite result: 541 run, 534 passed, 7 optional rendering skips, zero failures.
 
 This completes only individual-service maintenance, not Phase 16 or M015.
-Coordinated shutdown is separately validated in W037; independent
-startup/returning-service integration remains unfinished. M015 retains its separate launch/reuse validation and audit
+Coordinated shutdown is separately validated in W037; startup/returning-service
+integration is separately validated in W038. M015 retains its separate launch/reuse validation and audit
 criteria; Q019 and Q024 remain open. No hardware or external live NATS validation
 is claimed, and no tests were rerun during documentation synchronization.
 
@@ -746,15 +747,14 @@ through retirement commitment; missing coverage prevents confirmed retirement.
 These are preceding validation/audit results, not new tests performed during
 documentation closure. W037 records the workflow and preservation correction;
 W035/W036 historical results are preserved. No real hardware, live cross-process,
-or external NATS deployment validation is claimed. Phase 16 remains incomplete
-because independent startup/returning-service integration remains unfinished;
+or external NATS deployment validation is claimed. Startup/returning-service
+integration is separately validated in W038; Phase 16 remains incomplete.
 M015 retains its separate launch/reuse validation criteria, and Q019/Q024 remain open.
 
-## Accepted independent startup and returning-service integration
+## Completed independent startup and returning-service integration slice validation
 
-**Status:** Low-level architecture accepted and synchronized (Decisions 327-331);
-implementation has automated broker-double coverage; independent manual validation
-and audit pending. This is not a completed or validated slice.
+**Status:** Complete - narrow software implementation, independent manual IPython
+validation, and final independent re-audit PASS under Decisions 327-331 (W038).
 
 Starting and returning services announce existing identity/readiness through NATS;
 configured dependencies receive announcements directly and update their own
@@ -766,8 +766,16 @@ Ingestor/StorageManager preservation contracts; unavailable archival confirmatio
 requires an operator warning without inventing another persistence system or
 blocking startup when other accepted prerequisites are satisfied.
 
-No validated workflow is added for this slice. W035-W037 and Decisions 325-326
-remain complete for their respective narrow scopes. Phase 16 and M015 remain open;
+The first independent audit failed on two P2 readiness defects. Both were corrected
+and passed three additional manual validation cells and final independent re-audit
+PASS; the initial eight manual cells and correction history are recorded in W038.
+Focused regression: 230 passed, zero failures. Full discovery: 603 run, 596 passed,
+7 optional rendering skips, zero failures. These are previously executed results,
+not validation performed during documentation closure; no hardware or live external
+NATS deployment validation is claimed.
+
+W035-W037 and Decisions 325-326 remain complete for their respective narrow scopes.
+Phase 16 and M015 remain open;
 Q019, Q022, and Q024 remain unresolved. Resume/drop execution, deployment/discovery
 details, process supervision, automatic launch/restart/retry/replay, and GUI
 implementation are not authorized. The Services tab remains a separate future

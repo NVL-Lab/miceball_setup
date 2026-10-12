@@ -659,9 +659,10 @@ partition now supports journal-backed framework intake and exact archive/audit/
 summary confirmation without a Session Record. Independent startup and returning-service recognition do not
 promise automatic recovery of interrupted work. Q025 is resolved architecturally,
 with coordinated shutdown validated in W037 and independent startup/returning-service
-integration under Decisions 327-331 now implemented with automated broker-double
-coverage; independent manual
-validation and audit remain pending. These contracts reuse identity,
+integration under Decisions 327-331 complete, independently manually software-validated,
+and independently re-audited PASS after correction of two P2 readiness findings
+(W038). This is controlled software/broker-double validation, not live external
+NATS deployment or hardware validation. Phase 16 remains open. These contracts reuse identity,
 readiness, configured-dependency announcements, and framework evidence without a
 registry, recovery subsystem, or new persistence mechanism. Recording administrator
 resume/drop decisions does not implement their execution. Q019,

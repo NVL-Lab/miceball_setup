@@ -1,6 +1,6 @@
 # Code Map
 
-## Phase 16 accepted responsibilities (binding release, maintenance, and coordinated shutdown slices complete)
+## Phase 16 accepted responsibilities (binding release, maintenance, shutdown, and startup/return slices complete)
 
 Decision 323 accepts the existing Evidence Archive's deployment-scoped
 `framework/evidence/` partition for Session-independent runtime evidence with
@@ -52,14 +52,16 @@ Individual-service maintenance now has a narrow implementation through the
 target-owned ServiceMaintenanceInterface and existing participant commands.
 It is manually software-validated and independently audited PASS (W036). Progressive
 two-phase coordinated shutdown is separately validated in W037; independent
-startup/returning-service integration remains unfinished and Phase 16/M015 remain open;
+startup/returning-service integration is complete and separately validated in W038.
+Phase 16/M015 remain open;
 W035's Session-binding release validation is unchanged.
 
 Decisions 327-331 now accept and synchronize startup/return announcements using
 existing RuntimeParticipant/ServiceReadiness contracts, direct configured-dependency
 updates, protected reuse, and framework evidence for unresolved work and explicit
-administrator decisions. Startup/return integration is implemented with automated
-broker-double coverage; independent manual validation and audit remain pending.
+administrator decisions. This narrow startup/return implementation slice is complete,
+independently manually software-validated, and independently re-audited PASS (W038)
+after correction of the two initial P2 readiness findings.
 Existing service-owned administrative,
 NATS, readiness, and framework evidence interfaces are extended below, without
 a registry or another service-management component. Resume/drop execution remains Q024,
