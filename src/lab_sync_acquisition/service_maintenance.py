@@ -211,7 +211,8 @@ class ServiceMaintenanceInterface:
         return None
 
     def _readiness_payload(self):
-        payload = {"participant": self.participant.to_dict(), "service_readiness": None}
+        payload = {"participant": self.participant.to_dict(), "service_readiness": None,
+                   "operational_retirement_confirmed": self.terminated}
         try:
             if self.participant.component_type == "acquisition_node":
                 node = self.service.check_node_readiness()

@@ -703,13 +703,26 @@ retention/deletion, abandoned journals, application-wide discovery/restoration,
 stale reservations, and remaining memory/cache retirement. Q019, Q022, Phase 16,
 and M015 remain OPEN; W035-W038 retain their historical validation records.
 
-Additional Q024 architecture is accepted in Decisions 349-355, not implemented or
-validated. It assigns conditional temporary-journal retirement to Ingestor,
+Additional Q024 architecture is accepted in Decisions 349-355. Supported startup
+reconciliation under Decisions 351-352 has automated implementation coverage;
+independent manual validation and audit remain pending. Decisions 349-350 and
+353-355 remain unimplemented. The architecture assigns conditional temporary-journal
+retirement to Ingestor,
 permits explicitly informed terminal deletion of identified unrecoverable temporary
 evidence, requires Controller startup reconciliation of observable known participants,
 protects node-owned reservations after Controller failure, and extends service-owned
 temporary-memory retirement without sacrificing safety or deduplication.
 It does not automatically restore Session objects or stop safe active acquisition.
+
+`NatsServiceMaintenanceCommunication.start()` now automatically obtains Controller
+participant observations. Supply explicit `startup_participants` using existing
+`RuntimeParticipant` identities, or reuse configured dependencies, with an explicit
+positive `startup_result_window_s` for nonempty scopes. The returned
+`reconciliation` separates each node's active/stopped/failed/unknown condition,
+Session-keyed reservation, local finalization, manifest acceptance, and cleanup.
+No omitted participant is discovered, no Session is restored, and no acquisition
+or release command is executed. A bare Controller constructor is not a deployment
+startup; subsequent authorized preservation/cleanup remains separate.
 
 Decision 354 supersedes Decision 323's shared permanent framework archive layout
 with `<storage_root>/framework/evidence/YYYY-MM/`, using the existing evidence,

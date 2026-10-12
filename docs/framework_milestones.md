@@ -905,7 +905,7 @@ confirmation. Decision 348 permits historical timing reconciliation and explicit
 uncertainty reporting after active Session Time is lost, not an invented clock
 restoration or zero-based restart. Healthy mapping updates remain unchanged.
 
-## Remaining Q024 architecture: accepted, not implemented
+## Remaining Q024 architecture and startup implementation progress
 
 Decisions 349-355 accept Ingestor-owned conditional temporary-journal retirement,
 informed operator-authorized terminal loss of identified unrecoverable temporary
@@ -923,8 +923,13 @@ Ingestor journals are not monthly-rotated. Decision 355 requires safe-to-delete
 archives to be independent of every later operation/recovery, distinct from being
 finalized. Permanent archives are never automatically deleted.
 
-These additional contracts have no implementation or validation claim. Existing
-shared-archive confirmation and maintenance lookup dependencies require cross-month
+Supported Decisions 351-352 startup reconciliation now has automated implementation
+coverage through the existing NATS service startup path, explicit known identities,
+bounded readiness requests, and owner diagnostics. It preserves safe acquisition,
+node reservations, independent preservation/cleanup obligations, and unchanged
+informational evidence. Independent manual validation and audit remain pending;
+this slice is not marked complete. Decisions 349-350 and 353-355 remain unimplemented.
+Existing shared-archive confirmation and maintenance lookup dependencies require cross-month
 operational clarification before safe deletion can be confirmed. Q019 still owns
 unresolved Session-wide final evidence consumption/closure; unavailable auditing
 for terminal deletion is an architectural conflict, not an accepted exception.

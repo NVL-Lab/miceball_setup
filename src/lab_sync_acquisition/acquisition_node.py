@@ -991,7 +991,7 @@ class AcquisitionNode:
                 "administrative_outcome": (interface._administrative_outcome({"session_id": self._session_id or self.reserved_for_session_id})
                                             if interface and (self._session_id or self.reserved_for_session_id) else None),
                 "cleanup_confirmed": self._initialization_cleanup_confirmed,
-                "is_running": self._running},
+                "is_running": self._running, "failed": self._failed},
             "device_cleanup": [{"device_id": adapter.device_id, "state": adapter.state.value,
                 "cleanup_outcome": ("completed" if adapter.get_status().shutdown else
                                     "unresolved" if adapter.state != DeviceAdapterState.DECLARED else None),

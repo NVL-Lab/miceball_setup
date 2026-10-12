@@ -737,7 +737,9 @@ independent read-only source audit PASS with no blocking findings, as reported f
 documentation closure. Decision 336 remains partially implemented. Decisions
 349-355 now accept additional journal retirement, informed terminal deletion,
 startup reconciliation, reservation protection, service-owned memory retirement,
-monthly framework archives, and deletion-safety boundaries; they are not implemented.
+monthly framework archives, and deletion-safety boundaries. Supported Decisions
+351-352 startup reconciliation has automated implementation coverage with independent
+manual validation/audit pending; the other new contracts remain unimplemented.
 Remaining implementation and unresolved operational contracts keep Q024 OPEN.
 Q024-B service-specific operator-authorized execution architecture
 is accepted in Decisions 339-348; supported cases have automated implementation
@@ -867,10 +869,11 @@ accepted boundaries must not be invented during documentation synchronization.
 These two preparation questions are resolved architecturally, not by new recovery
 infrastructure. Broader Q024, Q019, Q022, Phase 16, and M015 remain OPEN.
 
-### Newly resolved architectural questions (not implemented)
+### Newly resolved architecture and implementation status
 
 The following ownership and behavioral questions are resolved architecturally in
-Decisions 349-355, not implemented or newly validated:
+Decisions 349-355. Supported Decisions 351-352 now have automated implementation
+coverage, not independent validation/audit; the other new contracts remain unimplemented:
 
 - Ingestor owns conditional temporary-journal retirement; uncertain obligations,
   reconstruction/deduplication needs, or Q019 finalization confirmation retain it.
@@ -948,7 +951,8 @@ OPEN and Slice 28 does not invent a Session-wide evidence-drain protocol.
 Decision 300 accepts initialization cleanup confirmation before node release.
 An unconfirmed cleanup protects the reservation. Decision 352 accepts independent
 local-finalization/device-safety assessment and authorized Session-keyed release;
-its new reconciliation integration is not implemented, and no automatic expiry,
+its supported startup reconciliation integration has automated coverage with
+independent validation/audit pending, and no automatic expiry,
 retry, leases, or new recovery service is introduced.
 
 ---
@@ -1060,7 +1064,7 @@ The roadmap distinguishes accepted architecture from implemented milestones:
 Phase 13 — Global StorageManager (Evidence)
 Phase 14 — Global StorageManager (Finalized Scientific Data)
 Phase 15 — Controller-owned Session Launch & Runtime Assembly (launch path and Decision 302 sequential reuse implemented; independent validation/audit and M015 closure pending)
-Phase 16 — Operational Service Lifetime and Framework Stop/Kill (Decisions 304-355 accepted; Q025 resolved architecturally; narrow Session-binding release under Decisions 313/322 complete, manually software-validated and independently audited PASS in W035; individual-service maintenance complete, manually software-validated and independently audited PASS in W036; progressive two-phase coordinated shutdown complete, manually software-validated and independently re-audited PASS in W037; startup/return under Decisions 327-331 complete, independently manually software-validated and independently re-audited PASS after correction in W038; supported Q024-B cases under Decisions 339-348 complete with automated coverage, independent manual validation, and final independent re-audit PASS after correction in W039; additional Q024 Decisions 349-355 accepted, not implemented or validated; Q024, Phase 16, and M015 remain open)
+Phase 16 — Operational Service Lifetime and Framework Stop/Kill (Decisions 304-355 accepted; Q025 resolved architecturally; narrow Session-binding release under Decisions 313/322 complete, manually software-validated and independently audited PASS in W035; individual-service maintenance complete, manually software-validated and independently audited PASS in W036; progressive two-phase coordinated shutdown complete, manually software-validated and independently re-audited PASS in W037; startup/return under Decisions 327-331 complete, independently manually software-validated and independently re-audited PASS after correction in W038; supported Q024-B cases under Decisions 339-348 complete with automated coverage, independent manual validation, and final independent re-audit PASS after correction in W039; supported Decisions 351-352 startup reconciliation has automated implementation coverage, independent validation/audit pending; Decisions 349-350 and 353-355 remain unimplemented; Q024, Phase 16, and M015 remain open)
 Phase 17 — Device Acceptance / Validation
 Phase 18 — End-to-End Demo Architecture
 

@@ -1312,20 +1312,43 @@ class Controller:
                      for m in self._reconciliation_evidence)
 
     @service_operation()
-    async def reconcile_outcomes(self, *, session_id: str | None = None) -> dict[str, Any]:
+    async def reconcile_outcomes(self, *, session_id: str | None = None,
+                                 participants: Iterable[RuntimeParticipant] | None = None,
+                                 communication: NatsControllerCommunication | None = None,
+                                 result_window_s: float | None = None) -> dict[str, Any]:
         """Read retained scoped outcomes and current preservation without performing recovery."""
         if session_id is not None and (not isinstance(session_id, str) or not session_id):
             raise ValueError("Reconciliation requires a real Session identity or framework scope")
-        findings = {"session_id": session_id, "controller_id": self._component_id,
+        if participants is not None:
+            participants = tuple(participants)
+            self._validate_participant_reconciliation(participants, result_window_s)
+            if session_id is not None or communication is None:
+                raise ValueError("Participant observation requires framework scope and current communication")
+        elif communication is not None or result_window_s is not None:
+            raise ValueError("Participant observation requires an explicit known scope")
+        interface = getattr(self, "_maintenance", None)
+        storage_manager, evidence_ingestor, source_id = self._storage_manager, self._ingestor, self._component_id
+        if participants is not None and interface is not None:
+            # Operational startup already has explicit evidence dependencies and participant identity.
+            storage_manager, evidence_ingestor = interface.storage_manager, interface.ingestor
+            source_id = interface.participant.component_id
+        findings = {"session_id": session_id, "controller_id": source_id,
                     "framework_attempts": [], "session_command_outcomes": [],
                     "session_participant_outcomes": [],
                     "received_command_results": [],
                     "unresolved": [], "preservation_confirmed": False}
+        if participants is not None:
+            findings["participant_states"] = await self._observe_known_participants(
+                participants, communication, result_window_s)
+            findings["reported_session_ids"] = sorted({identity
+                for entry in findings["participant_states"] for identity in entry["reported_session_ids"]})
+            findings["unresolved"].extend({"participant": entry["participant"], "reason": entry["reason"]}
+                for entry in findings["participant_states"] if entry["observed_state"] == "unknown")
         confirmation = None
         try:
-            if self._storage_manager is not None:
-                confirmation = (self._storage_manager.get_framework_preservation_confirmation()
-                    if session_id is None else self._storage_manager.get_session_preservation_confirmation(session_id))
+            if storage_manager is not None:
+                confirmation = (storage_manager.get_framework_preservation_confirmation()
+                    if session_id is None else storage_manager.get_session_preservation_confirmation(session_id))
         except (OSError, ValueError) as error:
             findings["unresolved"].append({"session_id": session_id, "reason": str(error)})
         findings["preservation_confirmed"] = confirmation is not None
@@ -1383,25 +1406,111 @@ class Controller:
                             "participant": participant.to_dict(), "reason": "No retained confirmed participant outcome"})
         previous = next((message for message in reversed(self._reconciliation_evidence)
                          if message.payload.get("findings", {}).get("session_id") == session_id), None)
-        interface = getattr(self, "_maintenance", None)
         if previous is not None and previous.payload["findings"] == findings:
-            current = self._storage_manager.get_framework_preservation_confirmation() if self._storage_manager else None
+            current = storage_manager.get_framework_preservation_confirmation() if storage_manager else None
             preserved = bool(current and previous.to_dict() in current["runtime_evidence"])
             return {"findings": deepcopy(findings), "evidence": previous.to_dict(), "unchanged": True,
-                    "acceptance_confirmed": bool(self._ingestor and self._ingestor.has_durable_runtime_evidence(previous)),
+                    "acceptance_confirmed": bool(evidence_ingestor and evidence_ingestor.has_durable_runtime_evidence(previous)),
                     "archival_confirmed": preserved, "preservation_warning": None if preserved
                     else "Current reconciliation evidence archival is unconfirmed"}
         message = RuntimeEvidenceMessage(uuid4().hex, None, "controller_reconciliation",
-            self._component_id, {"findings": deepcopy(findings)}, True)
+            source_id, {"findings": deepcopy(findings)}, True)
         self._reconciliation_evidence.append(message)
         if interface is None:
             return {"findings": findings, "evidence": message.to_dict(), "unchanged": False,
                     "publication_confirmed": False, "acceptance_confirmed": False,
                     "archival_confirmed": False, "preservation_warning": "Controller framework evidence interface is not configured"}
         # Publishing new findings must not silently repair an unconfirmed archive.
-        framework_safe = bool(self._storage_manager and self._storage_manager._framework_evidence_write_safe())
+        framework_safe = bool(storage_manager and storage_manager._framework_evidence_write_safe())
         status = await interface._record_framework_evidence(message, archive=framework_safe, require_existing_archive=True)
         return {"findings": findings, **status, "unchanged": False}
+
+    def _validate_participant_reconciliation(self, participants, result_window_s) -> None:
+        from math import isfinite
+        supported = {"controller", "acquisition_node", "ingestor", "storage_manager", "synchronization_manager"}
+        own_identity = getattr(getattr(self, "_maintenance", None), "participant",
+                               RuntimeParticipant("controller", self._component_id))
+        for participant in participants:
+            if (not isinstance(participant, RuntimeParticipant) or participant.component_type not in supported
+                    or participant == own_identity):
+                raise ValueError("Reconciliation requires explicit remote principal-service identities")
+            build_runtime_subject(None, "command", participant.component_type,
+                                  participant.component_id, "check_readiness")
+        if len(set(participants)) != len(participants):
+            raise ValueError("Reconciliation participant identities must be unique")
+        if (participants or result_window_s is not None) and (
+                not isinstance(result_window_s, (int, float)) or isinstance(result_window_s, bool)
+                or not isfinite(result_window_s) or result_window_s < 0
+                or participants and result_window_s == 0):
+            raise ValueError("Known participants require an explicit finite positive result window")
+
+    async def _observe_known_participants(self, participants, communication, result_window_s) -> list[dict]:
+        observations = []
+        for participant in participants:
+            entry = {"participant": participant.to_dict(), "observed_state": "unknown",
+                     "reported_session_ids": [], "details": None,
+                     "reason": "Current participant state is unconfirmed"}
+            observations.append(entry)
+            try:
+                result = await asyncio.wait_for(communication.request_command(
+                    participant, "check_readiness", None, {}, result_window_s), result_window_s)
+            except Exception as error:
+                entry["reason"] = str(error) or "Current participant state is unconfirmed"
+                continue
+            if result is None or not result.success:
+                if result is not None and result.reason:
+                    entry["reason"] = result.reason
+                continue
+            payload = result.payload
+            if not isinstance(payload, dict):
+                continue
+            node = participant.component_type == "acquisition_node"
+            if node:
+                readiness = payload.get("acquisition_node_readiness")
+                if not isinstance(readiness, dict) or readiness.get("node_id") != participant.component_id:
+                    continue
+            else:
+                owner = payload.get("participant")
+                readiness = payload.get("service_readiness")
+                if owner is not None:
+                    if owner != participant.to_dict():
+                        continue
+                elif (not isinstance(readiness, dict)
+                        or readiness.get("component_id") != participant.component_id
+                        or readiness.get("component_type") != participant.component_type):
+                    continue
+            entry["details"] = deepcopy(payload)
+            diagnostics = payload.get("service_diagnostics")
+            diagnostics = diagnostics if isinstance(diagnostics, dict) else {}
+            identities = []
+            if node:
+                owned = diagnostics.get("participation", {})
+                if isinstance(owned, dict):
+                    identities.extend((owned.get("session_id"), owned.get("reserved_for_session_id")))
+                    running, failed = owned.get("is_running"), owned.get("failed")
+                    if type(running) is bool and type(failed) is bool:
+                        entry["observed_state"] = "failed" if failed else "active" if running else "stopped"
+            else:
+                retired = payload.get("operational_retirement_confirmed")
+                if type(retired) is bool:
+                    entry["observed_state"] = "stopped" if retired else "active"
+                for key in ("session_binding", "session_intake"):
+                    owned = diagnostics.get(key, {})
+                    if isinstance(owned, dict):
+                        identities.append(owned.get("session_id"))
+                identities.append(diagnostics.get("prepared_session_id"))
+                for key in ("restricted_timing_scopes", "unfinished_archive_scopes"):
+                    scopes = diagnostics.get(key, ())
+                    if isinstance(scopes, (list, tuple)):
+                        identities.extend(scopes)
+                for evidence in diagnostics.get("collection_evidence", ()):
+                    if isinstance(evidence, dict) and evidence.get("archival_outcome") == "unresolved":
+                        identities.append(evidence.get("session_id"))
+            entry["reported_session_ids"] = sorted({identity for identity in identities
+                                                    if isinstance(identity, str) and identity})
+            if entry["observed_state"] != "unknown":
+                entry["reason"] = None
+        return observations
 
     def _reconcile_framework_attempt(self, attempt: dict, archived: list[dict]) -> dict:
         report = {"stop_attempt_id": attempt["stop_attempt_id"],

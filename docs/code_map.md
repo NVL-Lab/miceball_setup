@@ -11,7 +11,9 @@ completed software validation and independent audit.
 
 Decision 354 now supersedes that shared framework layout architecturally with
 `framework/evidence/YYYY-MM/` partitions; implementation still uses the shared
-path. Decisions 349-355 are accepted, not implemented or validated. Q024-B remains
+path. Decisions 349-350 and 353-355 are accepted, not implemented or validated.
+Decisions 351-352 have supported startup reconciliation with automated coverage;
+independent validation/audit remain pending. Q024-B remains
 complete in W039 and Decision 336 remains partially implemented.
 
 The existing `InMemoryIngestor.compile_framework_runtime_evidence()` and
@@ -24,6 +26,34 @@ deletion therefore require clarified cross-month coverage/lookup dependencies;
 current code does not establish independence from deletable history. Q024 records
 these gaps without specifying a new recovery subsystem or API. Q019 final closure,
 Q022, Phase 16, and M015 remain open.
+
+### Decisions 351-352 startup integration (independent validation/audit pending)
+
+The existing `NatsServiceMaintenanceCommunication.start()` now invokes Controller
+reconciliation automatically after startup subscriptions and announcements. Known
+remote identities come from explicit `startup_participants`, or the existing
+configured dependency participants when no broader scope is supplied; this is not
+discovery or a registry. A nonempty scope requires explicit positive
+`startup_result_window_s`, bounding publication and result waiting for each existing
+`check_readiness` request. A bare Controller constructor performs no remote startup
+or discovery, and an empty configured scope cannot identify omitted participants.
+
+Startup evidence uses the already configured maintenance RuntimeParticipant identity
+and Ingestor/StorageManager dependencies; ordinary Session orchestration still
+requires its own explicit collaborators. Current correlated replies carry
+existing service-owned diagnostics. Node reports
+keep actual acquisition/failure, Session binding/reservation, local finalization,
+manifest acceptance, and device cleanup separate. Controller reports active,
+stopped, failed, or unknown observations and owner-reported Session identities,
+not Session replicas or inferred participant completion. Node conditions derive
+from actual running/failure flags; other service conditions use explicit operational
+retirement confirmation, not technical readiness alone. Legacy readiness-only
+replies lacking these conditions remain unknown. Each participant is
+independent; missing/failed communication stays unknown without stopping acquisition
+or releasing reservations. Repeated unchanged findings reuse reconciliation evidence
+through the existing framework preservation path. Existing separately authorized
+Q024-B preservation/cleanup and Session-keyed release remain owner-guarded; no new
+coordinated recovery command or canonical Session restoration is implemented.
 
 Decisions 304-321 establish Session-independent and GUI-independent lifetime for
 Controller, AcquisitionNode, Ingestor, StorageManager, and SynchronizationManager.
@@ -448,7 +478,9 @@ is complete; W030 records manual validation, focused tests, and audit reassessme
 - Controller.start_launched_session(): Starts reserved nodes through correlated NATS commands and then starts the Session, returning ControllerCommandResult and attempting cleanup if startup fails.
 - Controller.stop_launched_session(reason=None): Stops and locally finalizes all reserved nodes through NATS, releases only confirmed-clean reservations, and stops the Session without waiting for global collection.
 - Controller.get_status(): Returns Session/command status, the bounded last released terminal outcome, and the local AcquisitionNode snapshot or None, without fabricating remote runtime status.
-- Controller.reconcile_outcomes(*, session_id=None): Asynchronously reads framework or explicitly Session-scoped outcomes and current preservation, safely reports unassociated optional/non-mapping command details as plain uncertainty without guessing Session identity, and preserves changed informational findings without authorization, replay, or lifecycle mutation.
+- Controller.reconcile_outcomes(*, session_id=None, participants=None, communication=None, result_window_s=None): Reads existing scoped outcomes or bounded current observations of explicit remote participants, retaining unassociated uncertainty and changed informational evidence without operational replay or lifecycle mutation.
+- Controller._validate_participant_reconciliation(participants, result_window_s): Checks explicit unique remote principal-service identities and the issuer-defined bounded observation window without discovering participants.
+- Controller._observe_known_participants(participants, communication, result_window_s): Reads correlated readiness/owner diagnostics independently, reporting confirmed conditions and Session identities without assuming missing participants stopped or performing recovery.
 - Controller.reconciliation_evidence: Returns detached retained persistent informational findings for existing publication and preservation paths.
 - Controller._reconcile_framework_attempt: Correlates confirmed final participant results against the original framework attempt and archived evidence without treating missing results or intent as completion.
 - Controller.check_ready(): Returns Session-independent service readiness, combining confirmed configured dependencies and refusing to fabricate a ready/unready report when dependency availability is unknown.
@@ -551,18 +583,18 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 - NatsCommunicationBoundary.subscribe_readiness_announcements(participant, callback): Subscribes the existing framework evidence subject with DeliverPolicy.NEW and AckPolicy.NONE so operational readiness never comes from retained history or redelivery; Ingestor's durable historical consumer is unchanged.
 - NatsAcquisitionNodeCommunication.subscribe_commands(): Returns two subscriptions for participant-scoped and Session-scoped addressed commands, keeping the same handler usable across binding changes.
 - NatsAcquisitionNodeCommunication: Consumes targeted readiness, scientific-output preparation, or runtime commands, deduplicates by command_id, and publishes explicit outcomes without owning Experiment lifecycle.
-- NatsAcquisitionNodeCommunication.execute_command: Executes `prepare_experiment_scientific_outputs` through the existing node API with explicit Experiment/product identities and returns readiness diagnostics in the existing correlated final command result.
+- NatsAcquisitionNodeCommunication.execute_command: Executes existing node commands and includes available owner diagnostics in readiness results while preserving readiness-only compatibility and scientific-output preparation behavior.
 - NatsIngestorCommunication: Consumes durable RuntimeEvidenceMessage records and passes them to InMemoryIngestor for separate evidence intake and audit.
 - NatsIngestorCommunication.subscribe_commands(): Returns participant- and Session-scoped subscriptions for readiness, journal preparation and evidence-subscription establishment, or initialization abort with intake-subscription cleanup before confirmation.
 - NatsSynchronizationManagerCommunication(boundary, synchronization_manager): Routes readiness and Session prepare/abort commands to the timing owner over existing command/result streams.
 - NatsSynchronizationManagerCommunication.subscribe_commands(): Returns participant- and Session-scoped command subscriptions without implementing transport synchronization or remapping.
 - _participant_result: Builds an existing correlated final command-result message for one service-owned operation.
-- _execute_service_command: Delegates readiness, Session preparation, or abort to the service owner and retains existing command-ID deduplication.
+- _execute_service_command: Delegates readiness/preparation/abort to the owner, includes configured maintenance identity and actual retirement confirmation in readiness replies, and retains command-ID deduplication.
 - _subscribe_participant_commands: Establishes the two addressed command subscriptions reused by mandatory service handlers.
 - NatsIngestorCommunication.subscribe_evidence(session_id, callback=None): Requires the matching Session journal or a configured framework journal for None and ACKs after successful durable acceptance, invoking callbacks only for newly accepted evidence.
 - NatsControllerCommunication.maintenance_requests: Returns detached administrative command intent (including survey and preparation), attempt identity, and authorization retained by the existing command issuer independently of received command results.
-- NatsServiceMaintenanceCommunication(boundary, maintenance): Extends the existing service-owned interface with startup/readiness communication for any of the five operational service types; Controller/StorageManager maintenance and framework coordination retain their existing ownership.
-- NatsServiceMaintenanceCommunication.start(): Requires connected NATS, subscribes configured dependencies directly, and announces startup/return through existing framework evidence without redundant readiness queries or launching a process.
+- NatsServiceMaintenanceCommunication(boundary, maintenance, *, startup_participants=None, startup_result_window_s=None): Integrates existing startup/readiness communication, with Controller-only explicit remote observation scope (defaulting to configured dependencies) and an explicit positive result window for nonempty scopes.
+- NatsServiceMaintenanceCommunication.start(): Requires connected NATS, subscribes dependencies, announces startup/return, and automatically obtains Controller participant reconciliation through bounded readiness requests; fresh announcements still do not trigger redundant checks and no process is launched.
 - NatsServiceMaintenanceCommunication.close(): Removes its subscriptions and invalidates current dependency reports while preserving last-known reports, service state, and producer evidence obligations.
 - NatsServiceMaintenanceCommunication.publish_readiness(): Publishes only meaningful readiness/obligation changes and creates no new archival work after resource closeout begins.
 - NatsServiceMaintenanceCommunication.request_dependency_command(participant, command_type, session_id, payload, result_window_s): Reuses the existing bounded correlated command issuer, invalidating current availability on unconfirmed communication without interpreting a confirmed command failure as technical unreadiness or allowing an older communication binding to alter a newer one.
@@ -592,7 +624,7 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 - ServiceMaintenanceInterface.terminated: Reports confirmed operational-service retirement rather than OS process death.
 - ServiceMaintenanceInterface._retirement_guard(force=False): Commits retirement under intake/storage/admission locks as applicable and retains final Ingestor compilation without imposing orderly preservation prerequisites on authorized kill.
 - ServiceMaintenanceInterface._preserve_message(message, status=None, *, archive=True, require_existing_archive=False): Reuses publication, journal acceptance, and archival while permitting journal-only repair admission and rechecking protected archive validity after asynchronous publication.
-- ServiceMaintenanceInterface._readiness_payload(): Packages existing participant, service/node readiness, configured-dependency reports, and owner diagnostics as plain runtime-evidence data without guessing technical unreadiness for unavailable reports.
+- ServiceMaintenanceInterface._readiness_payload(): Packages participant, readiness, actual operational retirement confirmation, dependency reports, and owner diagnostics without guessing technical unreadiness or acquisition state.
 - ServiceMaintenanceInterface._diagnostic_payload(): Adds owner-specific diagnostics and actual maintenance-attempt confirmations to existing readiness responses without defining a shared recovery schema.
 - ServiceMaintenanceInterface._administrative_outcome(reference): Projects explicit abandonment from retained administrator choices matching existing service-owned references, without a registry or mutation of original outcomes.
 - ServiceMaintenanceInterface._release_abandoned_evidence(decision): Retires only unnecessary producer copies under existing complete-preservation/resource/admission guards and retains abandonment markers plus actual release evidence.
@@ -707,7 +739,7 @@ recovery is introduced. Phase 16 and M015 remain open.
 - Controller.maintenance_blockers(ingestor, storage_manager): Reports active Session, unfinished work, cleanup, final-record, and current decision-archive obligations without requiring other idle services to stop.
 - Controller.maintenance_diagnostics(ingestor, storage_manager): Reports owned bindings, confirmed previous release, framework-attempt outcomes, and the last informational reconciliation separately from administrative abandonment without coordinating recovery.
 - AcquisitionNode.maintenance_blockers(ingestor, storage_manager): Reports owned Session participation, reservations, unfinished acquisition/streams, unpreserved manifests, and unreleased devices.
-- AcquisitionNode.maintenance_diagnostics(ingestor, storage_manager): Reports participation/reservation, actual device shutdown, stream finalization, and durable manifest handoffs without weakening node-owned safety guards.
+- AcquisitionNode.maintenance_diagnostics(ingestor, storage_manager): Reports participation/reservation, actual running/failure flags, device shutdown, stream finalization, and durable manifest handoffs without weakening node-owned safety guards.
 - SynchronizationManager.maintenance_blockers(ingestor, storage_manager): Reports running Session Time, active mappings, and mapping evidence without confirmed durable Ingestor acceptance.
 - SynchronizationManager.maintenance_diagnostics(ingestor, storage_manager): Reports clock/mapping obligations and journal-backed handoff confirmation, retaining broader timing restrictions when Session scope cannot be established.
 - InMemoryIngestor.maintenance_diagnostics(ingestor, storage_manager): Reports retained Session intake, journal failures, and supported known-journal recoverability without claiming recovery or deleting evidence/journals.

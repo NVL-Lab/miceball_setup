@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass
 from typing import Any
 
@@ -673,6 +673,12 @@ class NatsAcquisitionNodeCommunication:
                 maintenance = getattr(self._acquisition_node, "_maintenance", None)
                 if maintenance is not None:
                     payload.update(maintenance._diagnostic_payload())
+                elif callable(getattr(self._acquisition_node, "maintenance_diagnostics", None)):
+                    try:
+                        payload["service_diagnostics"] = self._acquisition_node.maintenance_diagnostics(
+                            self._acquisition_node._ingestor, None)
+                    except Exception as error:
+                        payload["diagnostics_unconfirmed"] = str(error)
             elif command.command_type == "prepare_experiment_scientific_outputs":
                 experiment_id = command.payload["experiment_id"]
                 preparation = self._acquisition_node.prepare_experiment_scientific_outputs(
@@ -865,6 +871,8 @@ def _execute_service_command(boundary: NatsCommunicationBoundary, service: Any,
             maintenance = getattr(service, "_maintenance", None)
             if maintenance is not None:
                 payload.update(maintenance._diagnostic_payload())
+                payload["participant"] = maintenance.participant.to_dict()
+                payload["operational_retirement_confirmed"] = maintenance.terminated
         elif command.command_type == "initialize_session":
             preparation = service.prepare_session(command.session_id)
             if not preparation.ready:
@@ -930,7 +938,9 @@ async def _execute_maintenance_command(boundary, service, command):
 class NatsServiceMaintenanceCommunication:
     """Service-owned startup/readiness integration and participant-scoped maintenance."""
 
-    def __init__(self, boundary: NatsCommunicationBoundary, maintenance):
+    def __init__(self, boundary: NatsCommunicationBoundary, maintenance, *,
+                 startup_participants: Iterable[RuntimeParticipant] | None = None,
+                 startup_result_window_s: float | None = None):
         if (maintenance.participant.component_id != boundary.component_id
                 or maintenance.participant.component_type != boundary.component_type):
             raise ValueError("Maintenance participant does not match communication boundary")
@@ -942,15 +952,24 @@ class NatsServiceMaintenanceCommunication:
         self._startup_status = None
         self._subscription_lock = asyncio.Lock()
         self._result_observer = None
+        if maintenance.participant.component_type != "controller" and (
+                startup_participants is not None or startup_result_window_s is not None):
+            raise ValueError("Startup participant reconciliation belongs to Controller")
+        self._startup_participants = (tuple(maintenance.dependency_readiness)
+            if startup_participants is None else tuple(startup_participants))
+        self._startup_result_window_s = startup_result_window_s
         if maintenance.evidence_publisher is None:
             maintenance.evidence_publisher = boundary.publish_evidence
 
     async def start(self) -> dict[str, Any]:
-        """Subscribe configured dependencies and announce startup/return without redundant queries."""
+        """Subscribe/announce startup and reconcile Controller's known remote participants."""
         async with self._subscription_lock:
             return await self._start()
 
     async def _start(self):
+        if self._maintenance.participant.component_type == "controller":
+            self._maintenance.service._validate_participant_reconciliation(
+                self._startup_participants, self._startup_result_window_s)
         if not self._boundary.check_ready().ready:
             raise ConnectionError("Required NATS startup connection is not ready")
         if self._maintenance.terminated or self._maintenance._closeout_started:
@@ -1001,6 +1020,10 @@ class NatsServiceMaintenanceCommunication:
             self._boundary._dependency_result_observer = observer
             self._startup_status = await self._maintenance.announce_readiness(startup=True)
             await self.publish_readiness()
+            if self._maintenance.participant.component_type == "controller":
+                self._startup_status["reconciliation"] = await self._maintenance.service.reconcile_outcomes(
+                    participants=self._startup_participants, communication=self._requests,
+                    result_window_s=self._startup_result_window_s)
             return self._startup_status
         except BaseException:
             try:

@@ -72,12 +72,13 @@ class ServiceStartupTests(unittest.IsolatedAsyncioTestCase):
 
     def communication(self, interface):
         communication = NatsServiceMaintenanceCommunication(
-            _Boundary(interface.participant.component_type, interface.participant.component_id, self.broker), interface)
+            _Boundary(interface.participant.component_type, interface.participant.component_id, self.broker), interface,
+            startup_result_window_s=0.01 if interface.participant.component_type == "controller" else None)
         self.addAsyncCleanup(communication.close)
         return communication
 
     def observer_pair(self):
-        controller = Controller(component_id="observer")
+        controller = Controller(component_id="observer", ingestor=self.ingestor, storage_manager=self.storage)
         interface = self.interface(controller, self.observer, (self.source,))
         return controller, interface, self.communication(interface)
 
@@ -106,12 +107,17 @@ class ServiceStartupTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(message.payload["service_readiness"]["component_id"], participant.component_id)
             self.assertTrue(message.payload["service_readiness"]["ready"])
         archive = self.storage.get_framework_preservation_confirmation()
-        self.assertEqual(len(archive["runtime_evidence"]), 5)
-        self.assertEqual(len(archive["ingest_audit"]), 5)
+        announcements = [message for message in archive["runtime_evidence"]
+                         if message["evidence_type"] == "service_readiness"]
+        self.assertEqual(len(announcements), 5)
+        self.assertEqual(len(archive["runtime_evidence"]), 6)
+        self.assertEqual(len(archive["ingest_audit"]), 6)
 
     async def test_direct_announcements_update_readiness_without_redundant_queries_or_relay(self):
         controller, observer, communication = self.observer_pair()
         await communication.start()
+        startup_queries = list(self.broker.commands)
+        self.assertEqual([c["command_type"] for c in startup_queries], ["check_readiness"])
         self.assertIsNone(observer.dependency_readiness[self.source])
         with self.assertRaisesRegex(RuntimeError, "unknown"):
             controller.check_ready()
@@ -119,10 +125,10 @@ class ServiceStartupTests(unittest.IsolatedAsyncioTestCase):
         await self.communication(source).start()
         self.assertTrue(observer.dependency_readiness[self.source].ready)
         self.assertTrue(controller.check_ready().ready)
-        self.assertEqual(self.broker.commands, [])
+        self.assertEqual(self.broker.commands, startup_queries)
         source_messages = [m for m in self.evidence() if m["source_id"] == "sync"]
         self.assertEqual(len(source_messages), 1)
-        self.assertEqual(len([m for m in self.evidence() if m["source_id"] == "observer"]), 2)
+        self.assertEqual(len([m for m in self.evidence() if m["source_id"] == "observer"]), 3)
 
     async def test_historical_announcements_cannot_establish_current_readiness(self):
         source = self.interface(SynchronizationManager(), self.source)
@@ -176,7 +182,7 @@ class ServiceStartupTests(unittest.IsolatedAsyncioTestCase):
         await self.communication(replacement).start()
         self.assertTrue(controller.check_ready().ready)
         self.assertTrue(observer.dependency_readiness[self.source].ready)
-        self.assertEqual(len(self.broker.commands), 1)
+        self.assertEqual(len(self.broker.commands), 2)
 
     async def test_failed_communication_invalidates_availability_without_fabricating_unreadiness(self):
         controller, observer, communication = self.observer_pair()
@@ -217,7 +223,7 @@ class ServiceStartupTests(unittest.IsolatedAsyncioTestCase):
         report = await communication.check_dependency_readiness(self.source, 0)
         self.assertTrue(report.ready)
         self.assertTrue(controller.check_ready().ready)
-        self.assertEqual(len(self.broker.commands), 1)
+        self.assertEqual(len(self.broker.commands), 2)
 
     async def test_unchanged_readiness_does_not_create_redundant_evidence(self):
         interface = self.interface(SynchronizationManager(), self.source)
@@ -601,7 +607,8 @@ class ServiceStartupTests(unittest.IsolatedAsyncioTestCase):
         for participant in framework.scope:
             communication = NatsServiceMaintenanceCommunication(
                 _Boundary(participant.component_type, participant.component_id, framework.broker),
-                framework.interfaces[participant.component_type])
+                framework.interfaces[participant.component_type],
+                startup_result_window_s=0.01 if participant.component_type == "controller" else None)
             self.addAsyncCleanup(communication.close)
             status = await communication.start()
             self.assertTrue(status["archival_confirmed"])
