@@ -506,13 +506,17 @@ validation, not live NATS or real Jetson/SSH-SFTP deployment validation. The leg
 unconfigured synchronous collection path remains supported.
 
 Accepted Q019 Decisions 356-365 now qualify that historical routing/finalization
-model. Decision 361's Ingestor-side receiving foundation is implemented with
-developer automated coverage, including local JetStream; independent validation
-and audit remain pending. Complete closeout and Decisions 362-365 are not implemented.
+model. Decision 361's Ingestor-side receiving foundation and JetStream routing
+prerequisite are complete with automated testing, independent manual IPython
+validation, and final independent re-audit PASS after both corrections (W041).
+Validation used local NATS/software, not an external cluster, multi-host, Jetson,
+or hardware deployment. Complete closeout and Decisions 362-365 are not implemented.
 Session evidence uses a durable explicit-ACK receiving position and journal-before-
 server-confirmed-ACK acceptance. Receipt readback verifies an existing completion
 marker against journal acceptance, retained stream-origin history, and contiguous
-broker progress; it does not certify producer confirmations or Session completion.
+broker progress, reconciling Session-matching publications with the current retained
+journal using canonical, type-sensitive contents. It does not certify producer
+confirmations, successful Normal Stop, Session completion, or archive preservation.
 Missing/truncated history or unknown original receiving state remains unconfirmed.
 The accepted future closeout flow remains: required acquisition-stage producers
 confirm durable publication before Controller publishes one Session-scoped
@@ -544,8 +548,11 @@ state. Normal Stop requires complete producer, durable acceptance, and Stage A
 confirmations. Kill identifies partial preservation when completeness is unavailable;
 that confirms only preserved content, not acquisition success or safe resource
 release. Unknown outcomes remain unconfirmed. The low-level contracts are accepted,
-but Q019 remains OPEN for implementation, exact JetStream feasibility verification,
-independent validation, and audit. No exact new filenames, fields, or APIs are
+but Q019 remains OPEN for producer-confirmation and Controller closeout integration,
+staged archival, durable handoff, and their independent verification. The receiving
+proof has linear history-read cost and requires intact global stream history from
+sequence 1; losing unrelated older history can block confirmation.
+No exact new filenames, fields, or APIs are
 defined here. W033/M013, W035, W039, and W040
 remain complete for their historical scopes; Q024, Q022, Phase 16, and M015 remain
 OPEN. NWB conversion and Cheaha upload remain later scientific processing stages.

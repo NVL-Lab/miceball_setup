@@ -2565,6 +2565,126 @@ Session replica, new lifecycle state, or automatic reservation expiry was introd
 
 ---
 
+# W041 - Q019 Decision 361 Ingestor Receiving Foundation and JetStream Routing
+
+**Status:** Complete - narrow receiving-foundation implementation and routing
+prerequisite, developer automated testing, independent manual IPython validation,
+and final targeted independent read-only re-audit PASS after two P2 corrections.
+
+## Purpose
+
+Validate restart-safe, journal-backed Session evidence receipt through an existing
+completion marker, without confusing receipt with producer confirmations, Normal
+Stop, Session completion, or Evidence Archive preservation. Broader Q019 remains OPEN.
+
+## Workflow
+
+```text
+Provision/update the existing three durable JetStream streams in place
+    -> route Session-scoped and Session-independent messages with disjoint filters
+    -> subscribe Ingestor with a durable Session-specific receiving position
+    -> journal accepted evidence before server-confirmed ACK
+    -> receive a Session-scoped acquisition_evidence_completion marker
+    -> verify current receiving identity, retained history, and contiguous ACK progress
+    -> reconcile the Session publication prefix through the marker with the journal
+    -> confirm receipt only while exact retained journal coverage remains verified
+```
+
+The five-/six-token stream filters preserve commands, command results, and evidence
+in `LAB_COMMANDS`, `LAB_COMMAND_RESULTS`, and `LAB_EVIDENCE`; telemetry remains Core NATS.
+Fresh provisioning and in-place legacy-filter updates preserve unrelated settings,
+stored messages, and consumer state. Configuration conflicts are surfaced rather
+than silently discarded; streams are not deleted/recreated. Updates across the
+three streams are not transactional; errors may leave partial configuration progress.
+
+Session-specific durable receipt survives supported client/Ingestor restarts.
+Ingestor preserves journal-before-`ack_sync()`, evidence-ID deduplication, redelivery,
+known-Session reconstruction, recovery evidence, and Session isolation. Filtered
+consumer sequences are not confused with global stream sequences; an ACK floor
+alone cannot prove completeness.
+
+`verify_acquisition_evidence_receipt(marker)` checks journal-backed marker acceptance,
+original receiving identity, intact history, and coherent contiguous ACK progress.
+It reconciles every Session-matching publication through the marker with the actual
+retained journal by identity and canonical content, including duplicate-ID and both
+marker comparisons. JSON type differences remain conflicts; object-key order does
+not. Ingestor's intake lock covers the final synchronous confirmation, with no await
+inside that guard and asynchronous readback rechecks before commitment.
+
+Missing ACKs, history gaps, lost/truncated/conflicting journal coverage, unverifiable
+receiving origin, and relevant asynchronous state changes prevent confirmation.
+Historical broker ACKs cannot substitute for lost journal contents; confirmation
+does not repair missing history or introduce another receiving/evidence subsystem.
+
+## Implementation checkpoint
+
+Final independently audited commit: `8fbfbca1bf218d119da2e517158cd57a7d3b3c46`.
+
+## Independent manual IPython validation
+
+ICC coordinated these checks against the user's local NATS installation at different
+implementation/correction stages. They were not all rerun against the final commit.
+
+- Initial receiving-foundation validation: **6/6 PASS** - complete receipt, restart
+  recovery, missing stream history rejected, missing ACK progress rejected, missing
+  durable receiving state rejected, and unknown receiving origin rejected.
+- First P2 correction validation: **2/2 PASS** - intact journal after restart permits
+  confirmation; lost journal with surviving broker ACK history prevents confirmation.
+- Second P2 correction validation: **3/3 PASS** - conflicting `True` versus `1` and
+  `False` versus `0` are rejected; an identical duplicate is accepted.
+
+## Automated validation and independent audit
+
+- Developer final full suite: **710 run, 703 passed, 0 failed, 7 optional skips**.
+- **Initial independent audit: FAIL.** P2: a lost journal, surviving durable consumer,
+  and fresh marker could falsely confirm complete receipt. P3: stale architecture
+  status summaries. Both were corrected through exact published-prefix/journal
+  reconciliation and status synchronization.
+- **First targeted independent re-audit: FAIL.** The original P2 and P3 were resolved,
+  but a second P2 remained: Python/dataclass equality could treat distinct canonical
+  contents such as `true` and `1` as equal, letting conflicting same-ID publications
+  conceal lost evidence. The correction reused Ingestor's canonical serializer.
+- **Final targeted independent read-only re-audit: PASS.** Both P2 findings and P3
+  were resolved; no remaining P0-P3 findings or implementation correction was
+  required before this narrow closure.
+- The final audit independently ran **107 focused tests, all passed**, including
+  **seven real-server tests**; controlled broker-double tests are distinct from
+  these isolated live-server checks.
+- **Six additional independent isolated live-NATS probes: PASS.** `True` versus `1`,
+  `False` versus `0`, `1` versus `1.0`, nested JSON type differences, and `+0.0` versus `-0.0`
+  conflicts were rejected; an identical duplicate with an intact journal was accepted.
+
+These are previously executed developer automated tests, independent manual
+validation, and independent audit results, not tests performed during documentation
+closure. The final focused audit is distinct from the reported developer full suite;
+both earlier failed audits remain part of the validation history.
+
+## Limitations and completion
+
+W041 closes only Decision 361's receiving foundation and JetStream routing
+prerequisite. Receipt verification has linear broker-history read cost and currently
+requires intact global stream history from sequence 1. Losing unrelated older
+history can prevent confirmation; this conservative failure-closed limitation is
+not a full Session-closeout guarantee.
+
+The following remain unimplemented: acquisition-stage producer publication-
+confirmation orchestration; Controller publication of the marker after those
+confirmations; Controller Normal Stop/Kill integration; Decision 362 Stage A/Stage B
+preservation and permanent archive closure; Decision 363 temporary durable collection
+outcomes; Decision 364 durable handoff and later stopped-Session collection; and
+Decision 365 complete Normal Stop/partial forced closeout.
+
+Q019, Q024, Q022, Phase 16, and M015 remain OPEN. Decisions 349-350 and 353-355
+remain unimplemented; Decision 336 remains partial. W033/M013, W035, W039, W040,
+and all earlier completed records retain their historical scopes.
+
+Validation used controlled software/broker doubles and isolated/local real NATS.
+No external NATS cluster, multi-host, Jetson, or hardware deployment validation is
+claimed. No framework Consumer service, extra evidence transport, producer count
+registry, per-producer terminal marker, polling, or new lifecycle state was introduced.
+
+---
+
 # Future Workflows
 
 The following workflows are expected to be added as the framework evolves.

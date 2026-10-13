@@ -487,8 +487,9 @@ before later operator-requested collection; Stage B directly persists StorageMan
 collection evidence and permanently closes the same archive. M013/W033 remain
 complete for their original validated scope. The new Q019 contracts are accepted,
 not fully implemented or independently validated. Decision 361's receiving
-foundation has developer automated coverage; complete closeout and Decisions
-362-365 remain unimplemented, with independent verification still pending.
+foundation and routing prerequisite are separately complete with automated testing,
+independent manual validation, and final independent re-audit PASS in W041;
+complete closeout and Decisions 362-365 remain unimplemented.
 Original implementation results and audit records above are unchanged.
 
 ---
@@ -959,7 +960,7 @@ Q024-B Decisions 339-348 remain complete, independently validated/audited in W03
 all earlier workflow records are preserved. Decision 336 remains partially
 implemented. Q024, Q019, Q022, Phase 16, and M015 remain OPEN.
 
-## Accepted Q019 acquisition closeout and later collection (receiving foundation implemented)
+## Accepted Q019 acquisition closeout and later collection (receiving foundation validated)
 
 Decisions 356-365 accept producer-confirmed acquisition evidence completion plus
 independent Ingestor consumption proof, Stage A acquisition evidence/audit/summary
@@ -982,15 +983,22 @@ the existing Session directory and existing persistent information for selection
 (364); and complete Normal Stop confirmations versus truthful partial Kill
 preservation without weakening resource safety (365).
 
-Decision 361's receiving foundation is implemented with developer automated coverage
-using isolated local JetStream and controlled doubles; its independent manual
-validation/audit remain pending. Complete Normal Stop/Kill orchestration and
-Decisions 362-365 remain unimplemented. No milestone completion is claimed.
-Q019 remains OPEN for remaining implementation, exact technical
-feasibility verification, independent validation, and audit. In particular, supported
-JetStream behavior must establish the accepted proof; inability must be reported,
-not resolved by a weaker guarantee. Exact filenames, fields, APIs, and broker
-configuration are not specified here. No new workflow or validation is claimed.
+Decision 361's receiving foundation and routing prerequisite are complete in W041:
+developer full suite 710 run, 703 passed, 7 optional skips, zero failures;
+independent manual IPython validation 6/6, 2/2, and 3/3 PASS at successive correction
+stages; final independent re-audit PASS with 107 focused tests (including seven
+real-server tests) and six additional live-NATS probes passed. Both failed audits
+and their corrections are preserved in W041. These are previously executed results,
+not tests run during documentation closure. Local NATS/software validation does not
+claim external-cluster, multi-host, Jetson, or hardware deployment validation.
+
+Complete producer-confirmation and Controller Normal Stop/Kill orchestration and
+Decisions 362-365 remain unimplemented. No overall milestone completion is claimed.
+Q019 remains OPEN for remaining implementation and independent verification. The
+receipt proof has linear history-read cost and conservatively requires intact
+global stream history from sequence 1; unrelated older history loss can prevent
+confirmation. W041 does not establish producer confirmations, Session completion,
+or archive preservation. No weaker closeout guarantee is substituted.
 W033/M013, W035, W039, and W040 remain historically complete; Decision
 336 remains partial, Decisions 349-350 and 353-355 remain unimplemented, and Q024,
 Q022, Phase 16, and M015 remain OPEN.

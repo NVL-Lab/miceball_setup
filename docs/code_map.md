@@ -1,6 +1,6 @@
 # Code Map
 
-## Accepted Q019 closeout architecture (receiving foundation implemented; closeout pending)
+## Accepted Q019 closeout architecture (receiving foundation validated; closeout pending)
 
 Decisions 356-365 qualify historical Session closeout and collection-evidence
 contracts. The accepted future flow is producer publication confirmations, one
@@ -36,6 +36,8 @@ journal-backed marker acceptance, original stream/consumer identity, retained
 history, and contiguous ACK progress, with asynchronous readback rechecks. It reads
 Session-matching broker publications through the marker and reconciles their exact
 identities/content against the current retained journal, not message-count equality.
+Content and duplicate-ID comparisons reuse Ingestor's canonical serializer and
+preserve JSON type distinctions, including both marker checks.
 Ingestor holds its intake lock through the final synchronous confirmation, rejecting
 missing, incomplete, conflicting, or unverifiable journal coverage without repair.
 The minimal marker uses the existing RuntimeEvidenceMessage with evidence_type
@@ -45,11 +47,14 @@ Without a trusted narrower Session interval, confirmation requires intact stream
 history from sequence 1. Missing/truncated history (even unrelated history), unknown
 original receiving position, consumer replacement/configuration drift, or broker
 failure remains unconfirmed; a missing durable position is not silently repaired.
-Only the receipt foundation and disjoint routing filters have developer automated
-coverage, including local JetStream; independent validation/audit remain pending.
-The low-level contracts are accepted; implementing them and independently verifying
-exact JetStream proof feasibility, crash-safe preservation, handoff lookup/selection,
-and closeout integration remain Q019 work. W033/M013, W035, W039, and W040 retain
+The receipt foundation and disjoint routing prerequisite are complete with automated
+testing, independent manual IPython validation, and final independent re-audit PASS
+after both corrections (W041), using isolated local JetStream and controlled doubles.
+Verification has linear broker-history read cost; no external-cluster or hardware
+validation is claimed. The remaining low-level contracts are accepted; producer
+confirmations, Controller marker/closeout integration, crash-safe staged archival,
+and durable handoff lookup/selection remain unimplemented Q019 work.
+W033/M013, W035, W039, and W040 retain
 their validated scopes. Q019, Q024, Q022, Phase 16, and M015 remain OPEN. No
 additional architectural API or storage schema is defined here.
 
