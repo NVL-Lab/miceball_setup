@@ -25,6 +25,7 @@ from lab_sync_acquisition import (
     SynchronizationManager, ActiveExperimentRuntimeContext, build_runtime_subject, parse_runtime_subject,
 )
 from tests.fakes import ReadyFakeAdapter
+from tests.evidence_receipt_fixtures import EvidenceReceiptBroker
 from tests.test_scientific_camera_collection import FakeCV2 as CameraBoundary
 from tests.test_seeed_imx219_camera_adapter import (
     FakeCV2 as ReopeningCameraBoundary, FakeVideoCapture,
@@ -41,10 +42,11 @@ class _Subscription:
         self.active = False
 
 
-class _Broker:
+class _Broker(EvidenceReceiptBroker):
     """Only transport is substituted; all domain and command handlers are real."""
 
     def __init__(self):
+        super().__init__()
         self.subscriptions = []
         self.commands = []
         self.results = []
@@ -53,6 +55,7 @@ class _Broker:
         self.on_command = None
 
     async def subscribe(self, subject, cb, **kwargs):
+        self.register(subject, kwargs)
         subscription = _Subscription(subject, cb)
         self.subscriptions.append(subscription)
         return subscription
@@ -83,7 +86,7 @@ class _Broker:
                 data = json.dumps(payload).encode()
         for subscription in tuple(self.subscriptions):
             if subscription.active and self.matches(subscription.subject, subject):
-                await subscription.callback(SimpleNamespace(data=data, ack=AsyncMock()))
+                await subscription.callback(SimpleNamespace(data=data, ack=AsyncMock(), ack_sync=AsyncMock()))
         return SimpleNamespace(stream=stream)
 
 
@@ -1127,9 +1130,9 @@ class SessionLaunchTests(unittest.IsolatedAsyncioTestCase):
         boundary = _Boundary("controller", "controller", self.broker)
         await boundary.ensure_streams()
         streams = {call.kwargs["config"].name: call.kwargs["config"].subjects for call in self.broker.add_stream.await_args_list}
-        self.assertEqual(streams["LAB_COMMANDS"], ["messages.*.command.>", "messages.command.>"])
-        self.assertEqual(streams["LAB_COMMAND_RESULTS"], ["messages.*.command_result.>", "messages.command_result.>"])
-        self.assertEqual(streams["LAB_EVIDENCE"], ["messages.*.evidence.>", "messages.evidence.>"])
+        self.assertEqual(streams["LAB_COMMANDS"], ["messages.*.command.*.*.*", "messages.command.*.*.*"])
+        self.assertEqual(streams["LAB_COMMAND_RESULTS"], ["messages.*.command_result.*.*.*", "messages.command_result.*.*.*"])
+        self.assertEqual(streams["LAB_EVIDENCE"], ["messages.*.evidence.*.*.*", "messages.evidence.*.*.*"])
 
     async def test_node_abort_is_idempotent_and_preserves_finalized_artifacts(self):
         node, declaration, _ = await self.node()

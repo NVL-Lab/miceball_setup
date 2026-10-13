@@ -9807,6 +9807,19 @@ and feasibility must be independently verified during implementation. If the
 supported infrastructure cannot establish the required proof, report the
 limitation rather than weakening the guarantee.
 
+**Implementation status (receiving foundation only):** Ingestor-side Session
+subscription now retains a durable explicit-ACK receiving position and confirms
+ACKs only after existing journal acceptance. Readback verifies exact journal-backed
+completion-marker receipt, original receiving identity, intact stream-origin history,
+and coherent contiguous ACK progress, with rechecks after asynchronous operations.
+The existing three-stream provisioning uses disjoint five-/six-token filters and
+in-place legacy-filter correction without stream recreation. Developer automated
+tests include an isolated local JetStream server and controlled broker doubles;
+independent manual validation and audit are pending. Producer-confirmation and
+Controller Normal Stop/Kill orchestration remain unimplemented, as do Decisions
+362-365. Missing history or an unknown receiving origin cannot establish completeness;
+no narrower publication-interval boundary is invented. Q019 remains OPEN.
+
 ---
 
 ## Decision 362: The existing compilation summary distinguishes archive stages and confirmed permanent closure
@@ -9920,8 +9933,10 @@ as either confirmed success or confirmed failure. This specifies Decisions 356-3
 normal and forced partial evidence-closeout requirements without changing ownership.
 
 **Implementation status for Decisions 361-365:** Low-level Q019 contracts accepted
-and synchronized, not implemented, independently validated, or audited. These
-decisions resolve the contract questions identified in Decisions 356-360; their
+and synchronized. Decision 361's receiving foundation is implemented with developer
+automated coverage, not independently validated or audited; complete closeout and
+Decisions 362-365 remain unimplemented. These decisions resolve the contract
+questions identified in Decisions 356-360; their
 historical text is preserved. Q019 remains OPEN pending implementation, exact
 technical feasibility verification, independent validation, and audit. No broker
 configuration, additional schema, or new public API is specified. W033/M013, W035,

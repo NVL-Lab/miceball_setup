@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from lab_sync_acquisition import InMemoryIngestor, NatsIngestorCommunication, RuntimeEvidenceMessage
 from tests import test_local_storage_hdf5 as hdf5_tests
+from tests.evidence_receipt_fixtures import EvidenceReceiptBroker
 
 
 class IngestorRecoveryTests(unittest.IsolatedAsyncioTestCase):
@@ -30,19 +31,24 @@ class IngestorRecoveryTests(unittest.IsolatedAsyncioTestCase):
 
     async def receiver(self, ingestor, callback=None):
         callbacks = []
+        broker = EvidenceReceiptBroker()
 
         async def subscribe(subject, cb, **options):
-            self.assertEqual(subject, "messages.session.evidence.>")
+            self.assertEqual(subject, "messages.session.evidence.*.*.*")
             self.assertTrue(options["manual_ack"])
             callbacks.append(cb)
+            broker.register(subject, options)
             return subject
 
-        boundary = SimpleNamespace(_require_jetstream=lambda: SimpleNamespace(subscribe=subscribe))
+        boundary = SimpleNamespace(_require_jetstream=lambda: SimpleNamespace(
+            subscribe=subscribe, stream_info=broker.stream_info, consumer_info=broker.consumer_info))
         await NatsIngestorCommunication(boundary, ingestor).subscribe_evidence("session", callback)
         return callbacks[0]
 
     def delivery(self, message, ack=None):
-        return SimpleNamespace(data=json.dumps(message.to_dict()).encode(), ack=ack or AsyncMock())
+        acknowledgment = ack or AsyncMock()
+        return SimpleNamespace(data=json.dumps(message.to_dict()).encode(),
+                               ack=acknowledgment, ack_sync=acknowledgment)
 
     def entries(self):
         return [json.loads(line) for line in self.path.read_text().splitlines()]

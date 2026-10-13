@@ -13,6 +13,7 @@ from lab_sync_acquisition import (
     RuntimeEvidenceMessage,
 )
 from tests import test_scientific_output_preparation as preparation_tests
+from tests.evidence_receipt_fixtures import EvidenceReceiptBroker
 
 
 class ArtifactCollectionHandoffTests(unittest.TestCase):
@@ -93,8 +94,10 @@ class ArtifactCollectionHandoffTests(unittest.TestCase):
         async def run(fixture, node):
             subscriptions = {}
             published = []
+            receipt = EvidenceReceiptBroker()
 
             async def subscribe(subject, cb, **kwargs):
+                receipt.register(subject, kwargs)
                 subscriptions[subject] = cb
                 return subject
 
@@ -103,10 +106,11 @@ class ArtifactCollectionHandoffTests(unittest.TestCase):
                 for filter_subject, callback in tuple(subscriptions.items()):
                     if (".evidence." in subject and ".evidence." in filter_subject
                             or ".command." in subject and ".command." in filter_subject):
-                        await callback(SimpleNamespace(data=data, ack=AsyncMock()))
+                        await callback(SimpleNamespace(data=data, ack=AsyncMock(), ack_sync=AsyncMock()))
                 return SimpleNamespace(stream=stream)
 
-            jetstream = SimpleNamespace(subscribe=subscribe, publish=publish)
+            jetstream = SimpleNamespace(subscribe=subscribe, publish=publish,
+                                        stream_info=receipt.stream_info, consumer_info=receipt.consumer_info)
             client = SimpleNamespace(jetstream=lambda: jetstream, is_connected=True)
             boundary = NatsCommunicationBoundary("acquisition_node", "node-001")
             sender = NatsCommunicationBoundary("controller", "controller")

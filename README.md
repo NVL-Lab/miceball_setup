@@ -506,7 +506,15 @@ validation, not live NATS or real Jetson/SSH-SFTP deployment validation. The leg
 unconfigured synchronous collection path remains supported.
 
 Accepted Q019 Decisions 356-365 now qualify that historical routing/finalization
-model; they are not implemented or validated. Required acquisition-stage producers
+model. Decision 361's Ingestor-side receiving foundation is implemented with
+developer automated coverage, including local JetStream; independent validation
+and audit remain pending. Complete closeout and Decisions 362-365 are not implemented.
+Session evidence uses a durable explicit-ACK receiving position and journal-before-
+server-confirmed-ACK acceptance. Receipt readback verifies an existing completion
+marker against journal acceptance, retained stream-origin history, and contiguous
+broker progress; it does not certify producer confirmations or Session completion.
+Missing/truncated history or unknown original receiving state remains unconfirmed.
+The accepted future closeout flow remains: required acquisition-stage producers
 confirm durable publication before Controller publishes one Session-scoped
 completion marker. Ingestor must independently verify earlier required durable
 acceptance using restart-safe Session-specific receiving progress and verified

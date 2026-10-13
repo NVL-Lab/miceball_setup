@@ -13,6 +13,7 @@ from lab_sync_acquisition import (
     InMemoryIngestor, InMemoryStorageManager,
 )
 from tests import test_scientific_output_preparation as preparation_tests
+from tests.evidence_receipt_fixtures import EvidenceReceiptBroker
 
 
 class ExperimentStartRejectionTests(unittest.TestCase):
@@ -153,8 +154,10 @@ class ExperimentStartRejectionTests(unittest.TestCase):
     def test_rejection_message_uses_existing_jetstream_evidence_intake(self):
         async def transfer(message):
             callbacks = []
+            receipt = EvidenceReceiptBroker()
 
             async def subscribe(subject, cb, **options):
+                receipt.register(subject, options)
                 callbacks.append(cb)
                 return subject
 
@@ -162,10 +165,11 @@ class ExperimentStartRejectionTests(unittest.TestCase):
                 self.assertEqual(stream, "LAB_EVIDENCE")
                 self.assertEqual(subject, "messages.session-001.evidence.controller.controller.experiment_start_rejected")
                 for callback in callbacks:
-                    await callback(SimpleNamespace(data=data, ack=AsyncMock()))
+                    await callback(SimpleNamespace(data=data, ack=AsyncMock(), ack_sync=AsyncMock()))
                 return SimpleNamespace(stream=stream)
 
-            jetstream = SimpleNamespace(subscribe=subscribe, publish=publish)
+            jetstream = SimpleNamespace(subscribe=subscribe, publish=publish,
+                                        stream_info=receipt.stream_info, consumer_info=receipt.consumer_info)
             client = SimpleNamespace(jetstream=lambda: jetstream, is_connected=True)
             publisher = NatsCommunicationBoundary("controller", "controller")
             consumer_boundary = NatsCommunicationBoundary("ingestor", "ingestor")

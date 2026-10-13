@@ -3,16 +3,17 @@
 from __future__ import annotations
 
 import asyncio
+from hashlib import sha256
 import json
 import logging
 from collections.abc import Awaitable, Callable, Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 import nats
 from nats.aio.client import Client as NATS
 from nats.aio.subscription import Subscription
-from nats.js.api import AckPolicy, ConsumerConfig, DeliverPolicy, StorageType, StreamConfig
+from nats.js.api import AckPolicy, ConsumerConfig, DeliverPolicy, RetentionPolicy, StorageType, StreamConfig
 from nats.js.client import JetStreamContext
 from nats.js.errors import NotFoundError
 
@@ -131,32 +132,47 @@ class NatsCommunicationBoundary:
         await self._require_client().flush()
 
     async def ensure_streams(self) -> None:
-        """Create the three accepted durable streams when absent."""
+        """Provision disjoint runtime filters without replacing existing streams."""
 
         jetstream = self._require_jetstream()
-        for stream_name, subject in (
-            ("LAB_COMMANDS", LAB_COMMANDS),
-            ("LAB_COMMAND_RESULTS", LAB_COMMAND_RESULTS),
-            ("LAB_EVIDENCE", LAB_EVIDENCE),
-        ):
+        streams = (
+            ("LAB_COMMANDS", "command", LAB_COMMANDS),
+            ("LAB_COMMAND_RESULTS", "command_result", LAB_COMMAND_RESULTS),
+            ("LAB_EVIDENCE", "evidence", LAB_EVIDENCE),
+        )
+        existing = {}
+        # Narrow all known legacy filters before adding participant coverage:
+        # a five-token filter can otherwise overlap another stream's legacy >.
+        for stream_name, message_class, legacy_subject in streams:
             try:
                 info = await jetstream.stream_info(stream_name)
-                if stream_name in {"LAB_COMMANDS", "LAB_COMMAND_RESULTS", "LAB_EVIDENCE"}:
-                    extra = {"LAB_COMMANDS": "messages.command.>", "LAB_COMMAND_RESULTS": "messages.command_result.>",
-                             "LAB_EVIDENCE": "messages.evidence.>"}[stream_name]
-                    if extra not in info.config.subjects:
-                        info.config.subjects = [*info.config.subjects, extra]
-                        await jetstream.update_stream(config=info.config)
             except NotFoundError:
+                continue
+            replacements = {legacy_subject: f"messages.*.{message_class}.*.*.*",
+                            f"messages.{message_class}.>": f"messages.{message_class}.*.*.*"}
+            narrowed = list(dict.fromkeys(replacements.get(subject, subject)
+                                         for subject in (info.config.subjects or [])))
+            config = replace(info.config, subjects=narrowed)
+            if narrowed != info.config.subjects:
+                await jetstream.update_stream(config=config)
+            existing[stream_name] = config
+
+        for stream_name, message_class, _ in streams:
+            subjects = [f"messages.*.{message_class}.*.*.*",
+                        f"messages.{message_class}.*.*.*"]
+            if stream_name not in existing:
                 await jetstream.add_stream(
                     config=StreamConfig(
-                        name=stream_name,
-                        subjects=[subject, {"LAB_COMMANDS": "messages.command.>",
-                            "LAB_COMMAND_RESULTS": "messages.command_result.>",
-                            "LAB_EVIDENCE": "messages.evidence.>"}[stream_name]],
+                        name=stream_name, subjects=subjects,
                         storage=StorageType.FILE,
                     )
                 )
+            else:
+                config = existing[stream_name]
+                updated = list(config.subjects)
+                updated.extend(subject for subject in subjects if subject not in updated)
+                if updated != config.subjects:
+                    await jetstream.update_stream(config=replace(config, subjects=updated))
 
     async def publish_command(
         self,
@@ -500,7 +516,7 @@ class NatsControllerCommunication:
     ) -> Subscription:
         """Consume durable results addressed to this command issuer."""
 
-        subject = "messages.command_result.>" if session_id is None else f"messages.{session_id}.command_result.>"
+        subject = "messages.command_result.*.*.*" if session_id is None else f"messages.{session_id}.command_result.*.*.*"
 
         async def receive(message: Any) -> None:
             result = RuntimeCommandResultMessage.from_dict(
@@ -536,7 +552,7 @@ class NatsControllerCommunication:
     ) -> Subscription:
         """Consume decision-relevant evidence without relaying or republishing it."""
 
-        subject = f"messages.{session_id}.evidence.>"
+        subject = f"messages.{session_id}.evidence.*.*.*"
 
         async def receive(message: Any) -> None:
             evidence_message = RuntimeEvidenceMessage.from_dict(
@@ -589,8 +605,8 @@ class NatsAcquisitionNodeCommunication:
     async def subscribe_commands(self) -> tuple[Subscription, Subscription]:
         """Consume commands routed to this AcquisitionNode instance."""
 
-        subjects = (f"messages.*.command.acquisition_node.{self._boundary.component_id}.>",
-                    f"messages.command.acquisition_node.{self._boundary.component_id}.>")
+        subjects = (f"messages.*.command.acquisition_node.{self._boundary.component_id}.*",
+                    f"messages.command.acquisition_node.{self._boundary.component_id}.*")
 
         async def receive(message: Any) -> None:
             try:
@@ -824,28 +840,177 @@ class NatsIngestorCommunication:
         session_id: str | None,
         callback: RuntimeEvidenceCallback | None = None,
     ) -> Subscription:
-        """Consume and audit durable runtime evidence for one Session."""
+        """Consume Session evidence with restart-safe explicit ACK progress."""
 
         if session_id is None:
             self._ingestor.compile_framework_runtime_evidence()
         elif self._ingestor.recovery_journal_path is None or self._ingestor.session_id != session_id:
             raise ValueError("Broker evidence intake requires the matching Session recovery journal")
-        subject = "messages.evidence.>" if session_id is None else f"messages.{session_id}.evidence.>"
+        subject = "messages.evidence.*.*.*" if session_id is None else f"messages.{session_id}.evidence.*.*.*"
+        jetstream = self._boundary._require_jetstream()
+        options = {}
+        journal = self._ingestor.recovery_journal_path
+        if session_id is not None:
+            stream = await jetstream.stream_info("LAB_EVIDENCE")
+            durable = self._session_consumer_name(session_id)
+            try:
+                consumer = await jetstream.consumer_info("LAB_EVIDENCE", durable)
+            except NotFoundError:
+                # Only a fresh journal and intact stream establish a new receiving
+                # origin. Missing old broker state cannot be silently reconstructed.
+                origin_known = (not self._ingestor.accepted_runtime_evidence
+                                and self._receiving_history_intact(stream))
+                config = ConsumerConfig(
+                    durable_name=durable, deliver_policy=DeliverPolicy.ALL,
+                    ack_policy=AckPolicy.EXPLICIT, max_ack_pending=1,
+                    filter_subject=subject, mem_storage=False,
+                    metadata={"session_id": session_id,
+                              "stream_created": stream.created.isoformat(),
+                              "receiving_origin_verified": str(origin_known).lower()},
+                )
+            else:
+                self._validate_session_consumer(consumer, stream, session_id)
+                config = consumer.config
+            if (self._ingestor.session_id != session_id
+                    or self._ingestor.recovery_journal_path != journal):
+                raise RuntimeError("Session binding changed during evidence subscription")
+            options = {"durable": durable, "stream": "LAB_EVIDENCE", "config": config}
 
         async def receive(message: Any) -> None:
+            if session_id is not None and (
+                    self._ingestor.session_id != session_id
+                    or self._ingestor.recovery_journal_path != journal):
+                raise RuntimeError("Session binding changed before evidence intake")
             evidence = RuntimeEvidenceMessage.from_dict(
                 json.loads(message.data.decode("utf-8"))
             )
             audit = self._ingestor.receive_runtime_evidence(evidence)
+            if session_id is not None and not audit.accepted:
+                raise ValueError("Session evidence was not durably accepted")
             if callback is not None and audit.accepted and audit.reason != "already_accepted":
                 await callback(evidence)
-            await message.ack()
+            if session_id is None:
+                await message.ack()
+            else:
+                await message.ack_sync()
 
-        return await self._boundary._require_jetstream().subscribe(
+        subscription = await jetstream.subscribe(
             subject,
             cb=receive,
             manual_ack=True,
+            **options,
         )
+        if session_id is not None and (
+                self._ingestor.session_id != session_id
+                or self._ingestor.recovery_journal_path != journal):
+            await subscription.unsubscribe()
+            raise RuntimeError("Session binding changed during evidence subscription")
+        return subscription
+
+    @staticmethod
+    def _session_consumer_name(session_id: str) -> str:
+        return "ingestor-session-" + sha256(session_id.encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _receiving_history_intact(stream: Any) -> bool:
+        state = stream.state
+        # With no trusted narrower Session start boundary, require retained history
+        # from stream origin. Stream cardinality detects holes here; it is not
+        # a producer evidence-count registry or a substitute for ACK progress.
+        return (stream.config.storage == StorageType.FILE
+                and stream.config.retention == RetentionPolicy.LIMITS
+                and stream.config.first_seq in (None, 0, 1)
+                and (state.first_seq == 1 or state.first_seq == state.last_seq == 0)
+                and state.last_seq >= 0
+                and state.num_deleted in (None, 0) and not state.lost
+                and state.messages == state.last_seq)
+
+    @classmethod
+    def _validate_session_consumer(cls, consumer: Any, stream: Any, session_id: str) -> None:
+        config = consumer.config
+        metadata = config.metadata or {}
+        if (consumer.stream_name != "LAB_EVIDENCE"
+                or consumer.name != cls._session_consumer_name(session_id)
+                or config.durable_name != consumer.name
+                or config.deliver_policy != DeliverPolicy.ALL
+                or config.ack_policy != AckPolicy.EXPLICIT
+                or config.max_ack_pending != 1 or config.mem_storage
+                or config.filter_subject != f"messages.{session_id}.evidence.*.*.*"
+                or config.filter_subjects
+                or config.deliver_group or config.max_deliver not in (None, -1)
+                or metadata.get("session_id") != session_id
+                or metadata.get("stream_created") != stream.created.isoformat()
+                or metadata.get("receiving_origin_verified") not in {"true", "false"}):
+            raise ValueError("Session receiving state is invalid or has changed")
+
+    @staticmethod
+    def _acknowledgment_progress_valid(consumer: Any, last_sequence: int) -> bool:
+        floor, delivered = consumer.ack_floor, consumer.delivered
+        return (floor is not None and delivered is not None
+                and all(type(value) is int for value in (
+                    floor.consumer_seq, floor.stream_seq,
+                    delivered.consumer_seq, delivered.stream_seq))
+                and (floor.consumer_seq == 0) == (floor.stream_seq == 0)
+                and 0 <= floor.consumer_seq <= delivered.consumer_seq
+                and 0 <= floor.stream_seq <= delivered.stream_seq <= last_sequence)
+
+    async def verify_acquisition_evidence_receipt(
+        self, marker: RuntimeEvidenceMessage,
+    ) -> dict[str, Any]:
+        """Check journal-backed receipt through a marker, not Normal Stop completion."""
+        result = {"session_id": marker.session_id, "evidence_id": marker.evidence_id,
+                  "durable_receipt_confirmed": False, "reason": "unverifiable_progress"}
+        session_id = marker.session_id
+        if (session_id is None or self._ingestor.session_id != session_id
+                or marker.evidence_type != "acquisition_evidence_completion"
+                or not self._ingestor.has_durable_runtime_evidence(marker)):
+            result["reason"] = "marker_not_durably_accepted"
+            return result
+        journal = self._ingestor.recovery_journal_path
+        try:
+            jetstream = self._boundary._require_jetstream()
+            stream = await jetstream.stream_info("LAB_EVIDENCE")
+            consumer = await jetstream.consumer_info(
+                "LAB_EVIDENCE", self._session_consumer_name(session_id))
+            self._validate_session_consumer(consumer, stream, session_id)
+            if (consumer.config.metadata["receiving_origin_verified"] != "true"
+                    or not self._receiving_history_intact(stream)):
+                result["reason"] = "missing_history_or_receiving_origin"
+                return result
+            subject = build_runtime_subject(session_id, "evidence", "controller",
+                                            marker.source_id, marker.evidence_type)
+            published = await jetstream.get_last_msg("LAB_EVIDENCE", subject)
+            if (published.subject != subject or published.seq <= 0
+                    or RuntimeEvidenceMessage.from_dict(json.loads(published.data)) != marker):
+                result["reason"] = "marker_publication_unconfirmed"
+                return result
+            if not self._acknowledgment_progress_valid(consumer, stream.state.last_seq):
+                return result
+            floor = consumer.ack_floor
+            if floor.stream_seq < published.seq:
+                result["reason"] = "incomplete_acknowledgment_progress"
+                return result
+            # Recheck history after asynchronous readback; publication and journal
+            # acceptance are separate from the broker's contiguous ACK floor.
+            current = await jetstream.stream_info("LAB_EVIDENCE")
+            current_consumer = await jetstream.consumer_info(
+                "LAB_EVIDENCE", self._session_consumer_name(session_id))
+            self._validate_session_consumer(current_consumer, current, session_id)
+            if (current.created != stream.created or not self._receiving_history_intact(current)
+                    or current_consumer.created != consumer.created
+                    or not self._acknowledgment_progress_valid(current_consumer, current.state.last_seq)
+                    or current_consumer.ack_floor.stream_seq < published.seq
+                    or self._ingestor.session_id != session_id
+                    or self._ingestor.recovery_journal_path != journal
+                    or not self._ingestor.has_durable_runtime_evidence(marker)):
+                return result
+            result.update(durable_receipt_confirmed=True, reason="contiguous_durable_receipt",
+                          marker_stream_sequence=published.seq,
+                          acknowledged_stream_sequence=floor.stream_seq,
+                          acknowledged_consumer_sequence=floor.consumer_seq)
+        except Exception as error:
+            result["reason"] = f"unverifiable_progress: {error}"
+        return result
 
 
 def _participant_result(boundary: NatsCommunicationBoundary, command: RuntimeCommandMessage,
@@ -895,8 +1060,8 @@ def _execute_service_command(boundary: NatsCommunicationBoundary, service: Any,
 
 async def _subscribe_participant_commands(boundary: NatsCommunicationBoundary, receive: Callable) -> tuple[Subscription, Subscription]:
     subscriptions = []
-    for subject in (f"messages.*.command.{boundary.component_type}.{boundary.component_id}.>",
-                    f"messages.command.{boundary.component_type}.{boundary.component_id}.>"):
+    for subject in (f"messages.*.command.{boundary.component_type}.{boundary.component_id}.*",
+                    f"messages.command.{boundary.component_type}.{boundary.component_id}.*"):
         subscriptions.append(await boundary._require_jetstream().subscribe(subject, cb=receive, manual_ack=True))
     return tuple(subscriptions)
 

@@ -477,8 +477,10 @@ This question does not block current Phase 11 implementation slices that only re
 Q019: How is Session-wide evidence consumption coordinated before processing finalization?
 **Status:** OPEN - high-level contracts accepted in Decisions 356-360 and low-level
 contracts resolved/accepted in Decisions 361-365. Implementation, exact technical
-feasibility verification, independent validation, and audit remain pending. Not
-implemented or complete.
+feasibility verification, independent validation, and audit remain pending.
+Decision 361's receiving foundation has developer automated coverage, including
+local JetStream; independent manual validation and audit remain pending. Complete
+closeout and Decisions 362-365 remain unimplemented; Q019 is not complete.
 
 Accepted architecture
 
@@ -584,7 +586,9 @@ without that undelivered evidence. This demonstrates the open consumption gap,
 not a Slice 25 implementation failure. The corrected active-operation guard
 prevents overtaking publication, but does not resolve post-publication consumption.
 W033/M013, W035, W039, and W040 remain historically complete for their validated
-scopes. None implements or validates the new Decisions 356-365 contracts.
+scopes. None validates the new Decisions 356-365 contracts. Decision 361's new
+receiving foundation is a separate, developer-tested implementation, not a completed
+validated workflow or full acquisition-closeout guarantee.
 
 Remaining implementation and technical-verification work
 

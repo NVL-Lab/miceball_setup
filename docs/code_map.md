@@ -1,6 +1,6 @@
 # Code Map
 
-## Accepted Q019 closeout architecture (not implemented)
+## Accepted Q019 closeout architecture (receiving foundation implemented; closeout pending)
 
 Decisions 356-365 qualify historical Session closeout and collection-evidence
 contracts. The accepted future flow is producer publication confirmations, one
@@ -24,15 +24,30 @@ Decision 365 requires complete Normal Stop confirmations; authorized Kill Sessio
 preserves explicitly partial information and existing safety without automatic
 collection or permanent archive closure. Unknown outcomes remain unconfirmed.
 
-These are accepted architecture, not current public APIs. The function entries
-below describe the historical implemented paths, including Ingestor-routed
+The Decision 361 Ingestor-side receiving foundation is now implemented; the
+remaining closeout contracts are accepted architecture, not current public APIs.
+The function entries below also describe historical paths, including Ingestor-routed
 collection evidence and stopping-Session collection before finalization. Do not
 interpret those implementations as Stage A/Stage B or Kill Session support.
+Session intake binds a durable explicit-ACK JetStream consumer to the existing
+journal, preserving journal-before-server-confirmed-ACK and known-Session
+deduplication/recovery. `verify_acquisition_evidence_receipt(marker)` checks exact
+journal-backed marker acceptance, original stream/consumer identity, retained
+history, and contiguous ACK progress, with asynchronous readback rechecks.
+The minimal marker uses the existing RuntimeEvidenceMessage with evidence_type
+`acquisition_evidence_completion`; this readback does not certify producer
+confirmations, Normal Stop completeness, or archival preservation.
+Without a trusted narrower Session interval, confirmation requires intact stream
+history from sequence 1. Missing/truncated history (even unrelated history), unknown
+original receiving position, consumer replacement/configuration drift, or broker
+failure remains unconfirmed; a missing durable position is not silently repaired.
+Only the receipt foundation and disjoint routing filters have developer automated
+coverage, including local JetStream; independent validation/audit remain pending.
 The low-level contracts are accepted; implementing them and independently verifying
 exact JetStream proof feasibility, crash-safe preservation, handoff lookup/selection,
 and closeout integration remain Q019 work. W033/M013, W035, W039, and W040 retain
-their validated scopes. Q019, Q024, Q022, Phase 16, and M015 remain OPEN. No new
-API or schema is defined.
+their validated scopes. Q019, Q024, Q022, Phase 16, and M015 remain OPEN. No
+additional architectural API or storage schema is defined here.
 
 ## Phase 16 accepted responsibilities (binding release, maintenance, shutdown, and startup/return slices complete)
 
@@ -622,7 +637,7 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 - NatsControllerCommunication.check_ready(): Returns required NATS communication readiness for launch gating.
 - NatsControllerCommunication.request_command(participant, command_type, session_id, payload, result_window_s, *, command_id=None): Publishes once and awaits the bounded correlated result; when startup integration is attached to the same boundary, it also informs the service owner of missing results or explicit readiness observations without inferring technical unreadiness or using stale subscription bindings.
 - NatsControllerCommunication.subscribe_command_results(session_id, callback=None): Accepts None for participant-scoped results and a real Session ID for Session-scoped results.
-- NatsCommunicationBoundary.ensure_streams(): Retains Session stream filters and adds participant command/result filters and messages.evidence.> for framework evidence to the existing three JetStream streams, leaving telemetry Core NATS only.
+- NatsCommunicationBoundary.ensure_streams(): Provisions fixed five-/six-token filters on the three existing streams, narrows recognized legacy filters before adding missing coverage, and preserves stored messages, consumers, custom subjects, and unrelated settings without deleting/recreating streams; incompatible custom filters surface a broker error.
 - NatsCommunicationBoundary.subscribe_readiness_announcements(participant, callback): Subscribes the existing framework evidence subject with DeliverPolicy.NEW and AckPolicy.NONE so operational readiness never comes from retained history or redelivery; Ingestor's durable historical consumer is unchanged.
 - NatsAcquisitionNodeCommunication.subscribe_commands(): Returns two subscriptions for participant-scoped and Session-scoped addressed commands, keeping the same handler usable across binding changes.
 - NatsAcquisitionNodeCommunication: Consumes targeted readiness, scientific-output preparation, or runtime commands, deduplicates by command_id, and publishes explicit outcomes without owning Experiment lifecycle.
@@ -634,7 +649,12 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 - _participant_result: Builds an existing correlated final command-result message for one service-owned operation.
 - _execute_service_command: Delegates readiness/preparation/abort to the owner, includes configured maintenance identity and actual retirement confirmation in readiness replies, and retains command-ID deduplication.
 - _subscribe_participant_commands: Establishes the two addressed command subscriptions reused by mandatory service handlers.
-- NatsIngestorCommunication.subscribe_evidence(session_id, callback=None): Requires the matching Session journal or a configured framework journal for None and ACKs after successful durable acceptance, invoking callbacks only for newly accepted evidence.
+- NatsIngestorCommunication.subscribe_evidence(session_id, callback=None): Uses a stable Session-specific durable explicit-ACK consumer and server-confirmed ACK after matching-journal acceptance, validates existing receiving configuration and binding identity across subscription setup, and preserves the existing framework intake path for None.
+- NatsIngestorCommunication.verify_acquisition_evidence_receipt(marker): Returns plain-data receipt confirmation/reason and broker sequence information only when the exact completion marker is journal-backed, receiving origin/history are verified, and contiguous ACK progress covers it; this is not Session completion or archival confirmation.
+- NatsIngestorCommunication._session_consumer_name(session_id): Derives a stable broker-safe durable consumer name from the Session identity without changing evidence identities.
+- NatsIngestorCommunication._receiving_history_intact(stream): Checks retained stream-origin coverage and missing/lost history using broker metadata, not producer evidence-count expectations.
+- NatsIngestorCommunication._validate_session_consumer(consumer, stream, session_id): Rejects mismatched durable identity, stream epoch, Session filter, delivery/ACK configuration, or receiving-origin metadata.
+- NatsIngestorCommunication._acknowledgment_progress_valid(consumer, last_sequence): Checks coherent stream/consumer ACK and delivery counters before treating broker progress as usable evidence.
 - NatsControllerCommunication.maintenance_requests: Returns detached administrative command intent (including survey and preparation), attempt identity, and authorization retained by the existing command issuer independently of received command results.
 - NatsServiceMaintenanceCommunication(boundary, maintenance, *, startup_participants=None, startup_result_window_s=None): Integrates existing startup/readiness communication, with Controller-only explicit remote observation scope (defaulting to configured dependencies) and an explicit positive result window for nonempty scopes.
 - NatsServiceMaintenanceCommunication.start(): Requires connected NATS, subscribes dependencies, announces startup/return, and automatically obtains Controller participant reconciliation through bounded readiness requests; fresh announcements still do not trigger redundant checks and no process is launched.
@@ -959,7 +979,8 @@ an active collection/publication operation without waiting or mutating lifecycle
 Unavailable copied-size metadata is null and does not change retrieval/verification
 outcomes or prevent later artifact attempts. Durable publication alone
 does not guarantee Ingestor consumption before finalization; that Session-wide
-guarantee remains OPEN in Q019, with no ACK wait or drain protocol implemented.
+closeout guarantee remains OPEN in Q019. Decision 361's new transport ACK
+confirmation/receipt readback does not implement Controller closeout orchestration.
 M013 is complete. W033 records manual software validation, the initial audit FAIL,
 P1/P2 corrections, and final independent re-audit PASS. M011 remains open and
 M012 remains complete; Q019 is not resolved by software closure.
@@ -968,4 +989,13 @@ Decision 303 resolves the former Q017 without changing these APIs or result
 vocabularies: later global collection, verification, transfer, or export failure
 cannot retroactively change a completed Session's lifecycle. Required
 pre-completion failure handling remains unchanged. Q019's Session-wide consumption/
-staged archive coordination is accepted in Decisions 356-365 but unimplemented.
+staged archive coordination is accepted in Decisions 356-365; only the receiving
+foundation is implemented, not staged closeout.
+
+## tests/evidence_receipt_fixtures.py
+
+- EvidenceReceiptBroker: Test-only JetStream state double for deterministic receipt, redelivery, missing-history, and invalid-progress workflows, reused by existing transport fixtures.
+
+## tests/nats_server_fixture.py
+
+- temporary_jetstream_server(): Starts an optional isolated local NATS test process on a temporary port/storage directory and always cleans it up; it is not framework service startup or deployment supervision.

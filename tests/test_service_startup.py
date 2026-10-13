@@ -627,7 +627,7 @@ class ServiceStartupTests(unittest.IsolatedAsyncioTestCase):
         source = self.interface(SynchronizationManager(), self.source)
         await self.communication(source).start()
         subscription = next(s for s in self.broker.subscriptions
-                            if s.subject == "messages.command_result.>")
+                            if s.subject == "messages.command_result.*.*.*")
         with patch.object(subscription, "unsubscribe", new=AsyncMock(side_effect=OSError("disconnect failure"))):
             with self.assertRaises(OSError):
                 await communication.close()

@@ -20,16 +20,19 @@ from lab_sync_acquisition import (
 from tests import test_artifact_retrieval as retrieval_tests
 from tests import test_local_storage_hdf5 as hdf5_tests
 from tests import test_scientific_output_preparation as preparation_tests
+from tests.evidence_receipt_fixtures import EvidenceReceiptBroker
 
 
-class EvidenceBrokerDouble:
+class EvidenceBrokerDouble(EvidenceReceiptBroker):
     def __init__(self):
+        super().__init__()
         self.messages = []
         self.callback = None
         self.failure = None
         self.deliver_immediately = True
 
     async def subscribe(self, subject, cb, **kwargs):
+        self.register(subject, kwargs)
         self.callback = cb
         return subject
 
@@ -38,7 +41,7 @@ class EvidenceBrokerDouble:
         if self.failure is not None:
             raise self.failure
         if self.callback is not None and self.deliver_immediately:
-            await self.callback(SimpleNamespace(data=data, ack=AsyncMock()))
+            await self.callback(SimpleNamespace(data=data, ack=AsyncMock(), ack_sync=AsyncMock()))
         return SimpleNamespace(stream=stream)
 
 

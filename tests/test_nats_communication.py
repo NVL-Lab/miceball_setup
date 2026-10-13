@@ -25,6 +25,9 @@ from lab_sync_acquisition import (
 )
 
 
+from tests.evidence_receipt_fixtures import EvidenceReceiptBroker
+
+
 class NatsCommunicationUnitTests(unittest.TestCase):
     def test_controller_fans_group_intent_out_through_jetstream(self):
         jetstream = _PublishingJetStream(stream="LAB_COMMANDS")
@@ -460,8 +463,8 @@ class NatsCommunicationUnitTests(unittest.TestCase):
 
         self.assertEqual(
             subject,
-            ("messages.*.command.acquisition_node.node-001.>",
-             "messages.command.acquisition_node.node-001.>"),
+            ("messages.*.command.acquisition_node.node-001.*",
+             "messages.command.acquisition_node.node-001.*"),
         )
 
     def test_unsupported_command_returns_failed_result(self):
@@ -585,12 +588,14 @@ class _ConsumerBoundary(_BoundaryIdentity):
         return self._consumer_jetstream
 
 
-class _EvidenceConsumerJetStream:
+class _EvidenceConsumerJetStream(EvidenceReceiptBroker):
     def __init__(self):
+        super().__init__()
         self.callbacks = []
         self.publish_count = 0
 
     async def subscribe(self, _subject, cb, **_options):
+        self.register(_subject, _options)
         self.callbacks.append(cb)
         return len(self.callbacks)
 
@@ -607,6 +612,9 @@ class _DeliveredMessage:
 
     async def ack(self):
         self.acknowledged = True
+
+    async def ack_sync(self):
+        await self.ack()
 
 
 class _CoreNatsBoundary(NatsCommunicationBoundary):

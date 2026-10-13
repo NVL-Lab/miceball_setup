@@ -486,8 +486,9 @@ order above: Stage A acquisition preservation permits successful Session complet
 before later operator-requested collection; Stage B directly persists StorageManager
 collection evidence and permanently closes the same archive. M013/W033 remain
 complete for their original validated scope. The new Q019 contracts are accepted,
-not implemented or validated. Decisions 361-365 specify their low-level contracts;
-implementation and exact technical feasibility verification remain pending.
+not fully implemented or independently validated. Decision 361's receiving
+foundation has developer automated coverage; complete closeout and Decisions
+362-365 remain unimplemented, with independent verification still pending.
 Original implementation results and audit records above are unchanged.
 
 ---
@@ -958,7 +959,7 @@ Q024-B Decisions 339-348 remain complete, independently validated/audited in W03
 all earlier workflow records are preserved. Decision 336 remains partially
 implemented. Q024, Q019, Q022, Phase 16, and M015 remain OPEN.
 
-## Accepted Q019 acquisition closeout and later collection (not implemented)
+## Accepted Q019 acquisition closeout and later collection (receiving foundation implemented)
 
 Decisions 356-365 accept producer-confirmed acquisition evidence completion plus
 independent Ingestor consumption proof, Stage A acquisition evidence/audit/summary
@@ -981,8 +982,11 @@ the existing Session directory and existing persistent information for selection
 (364); and complete Normal Stop confirmations versus truthful partial Kill
 preservation without weakening resource safety (365).
 
-This is architecture synchronization, not implementation progress or a new
-completed milestone. Q019 remains OPEN for implementation, exact technical
+Decision 361's receiving foundation is implemented with developer automated coverage
+using isolated local JetStream and controlled doubles; its independent manual
+validation/audit remain pending. Complete Normal Stop/Kill orchestration and
+Decisions 362-365 remain unimplemented. No milestone completion is claimed.
+Q019 remains OPEN for remaining implementation, exact technical
 feasibility verification, independent validation, and audit. In particular, supported
 JetStream behavior must establish the accepted proof; inability must be reported,
 not resolved by a weaker guarantee. Exact filenames, fields, APIs, and broker
