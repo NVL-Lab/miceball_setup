@@ -704,8 +704,8 @@ stale reservations, and remaining memory/cache retirement. Q019, Q022, Phase 16,
 and M015 remain OPEN; W035-W038 retain their historical validation records.
 
 Additional Q024 architecture is accepted in Decisions 349-355. Supported startup
-reconciliation under Decisions 351-352 has automated implementation coverage;
-independent manual validation and audit remain pending. Decisions 349-350 and
+reconciliation under Decisions 351-352 is complete, independently manually validated
+and independently re-audited PASS after correction (W040). Decisions 349-350 and
 353-355 remain unimplemented. The architecture assigns conditional temporary-journal
 retirement to Ingestor,
 permits explicitly informed terminal deletion of identified unrecoverable temporary
@@ -723,6 +723,18 @@ Session-keyed reservation, local finalization, manifest acceptance, and cleanup.
 No omitted participant is discovered, no Session is restored, and no acquisition
 or release command is executed. A bare Controller constructor is not a deployment
 startup; subsequent authorized preservation/cleanup remains separate.
+
+W040 preserves the initial failed source audit (P2 unsafe archive repair and P3
+malformed optional diagnostics), both corrections, and the final independent PASS.
+Initial manual validation passed 28/28 checks; correction revalidation passed 25/25.
+Codex's corrected full suite ran 676 tests: 669 passed, 7 optional rendering skips,
+zero failures. The final independent re-audit passed 132 focused tests and two
+probes; two negative controls reproduced the original defects. Startup/readiness
+leaves unconfirmed archives untouched with retained/journal-accepted evidence where
+possible and preservation
+warnings; malformed optional collections cannot prevent other observations.
+This is software/broker-double validation, not hardware, live external NATS,
+cross-process, or Jetson validation. Broader Phase 16 and M015 remain OPEN.
 
 Decision 354 supersedes Decision 323's shared permanent framework archive layout
 with `<storage_root>/framework/evidence/YYYY-MM/`, using the existing evidence,

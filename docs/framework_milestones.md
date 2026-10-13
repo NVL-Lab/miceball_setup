@@ -923,12 +923,17 @@ Ingestor journals are not monthly-rotated. Decision 355 requires safe-to-delete
 archives to be independent of every later operation/recovery, distinct from being
 finalized. Permanent archives are never automatically deleted.
 
-Supported Decisions 351-352 startup reconciliation now has automated implementation
-coverage through the existing NATS service startup path, explicit known identities,
+Supported Decisions 351-352 startup reconciliation is complete, independently
+manually validated and independently re-audited PASS after correction (W040),
+through the existing NATS service startup path, explicit known identities,
 bounded readiness requests, and owner diagnostics. It preserves safe acquisition,
 node reservations, independent preservation/cleanup obligations, and unchanged
-informational evidence. Independent manual validation and audit remain pending;
-this slice is not marked complete. Decisions 349-350 and 353-355 remain unimplemented.
+informational evidence. W040 records ICC review, initial manual validation (28/28),
+the failed source audit's P2/P3 findings, correction revalidation (25/25), and final
+re-audit PASS with 132 focused tests, two independent probes, and two negative
+controls. Codex post-correction testing: 676 run, 669 passed, 7 optional rendering
+skips, zero failures. No validation was performed during documentation closure.
+Decisions 349-350 and 353-355 remain unimplemented.
 Existing shared-archive confirmation and maintenance lookup dependencies require cross-month
 operational clarification before safe deletion can be confirmed. Q019 still owns
 unresolved Session-wide final evidence consumption/closure; unavailable auditing

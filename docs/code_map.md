@@ -12,9 +12,9 @@ completed software validation and independent audit.
 Decision 354 now supersedes that shared framework layout architecturally with
 `framework/evidence/YYYY-MM/` partitions; implementation still uses the shared
 path. Decisions 349-350 and 353-355 are accepted, not implemented or validated.
-Decisions 351-352 have supported startup reconciliation with automated coverage;
-independent validation/audit remain pending. Q024-B remains
-complete in W039 and Decision 336 remains partially implemented.
+Supported Decisions 351-352 startup reconciliation is complete, independently
+manually validated and independently re-audited PASS after correction in W040.
+Q024-B remains complete in W039 and Decision 336 remains partially implemented.
 
 The existing `InMemoryIngestor.compile_framework_runtime_evidence()` and
 `framework_preservation_guard()` operate on cumulative retained evidence/audit.
@@ -27,7 +27,11 @@ current code does not establish independence from deletable history. Q024 record
 these gaps without specifying a new recovery subsystem or API. Q019 final closure,
 Q022, Phase 16, and M015 remain open.
 
-### Decisions 351-352 startup integration (independent validation/audit pending)
+### Decisions 351-352 startup integration (complete, independently validated and audited)
+
+W040 records ICC review, independent manual validation and correction revalidation,
+the initial failed audit, and final independent re-audit PASS after both corrections.
+This completes only the supported startup reconciliation/reservation-protection slice.
 
 The existing `NatsServiceMaintenanceCommunication.start()` now invokes Controller
 reconciliation automatically after startup subscriptions and announcements. Known

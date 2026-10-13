@@ -2459,6 +2459,112 @@ information remains unresolved rather than invented.
 
 ---
 
+# W040 - Q024 Controller Startup Reconciliation and Node-Owned Reservation Protection
+
+**Status:** Complete - supported software implementation under Decisions 351-352,
+ICC review, independent manual IPython validation, correction revalidation, and
+final focused independent read-only re-audit PASS after correction.
+
+## Purpose
+
+Validate automatic informational Controller startup reconciliation of explicitly
+known participants while preserving safe ongoing acquisition, node-owned Session
+reservations, and existing evidence-preservation and authorized recovery boundaries.
+This extends the supported read-only reconciliation scope without restoring Session
+objects or closing broader Q024.
+
+## Workflow
+
+```text
+Controller starts through NatsServiceMaintenanceCommunication.start()
+    -> subscribes and announces readiness using existing communication/evidence
+    -> obtains bounded check_readiness replies from explicitly known participants
+    -> reads current owner-reported conditions and existing Session identities
+    -> reports active, stopped, failed, or unknown observations independently
+    -> retains informational findings through the existing framework evidence path
+    -> confirms journal acceptance and safe archival separately, or reports warnings
+```
+
+Participants come from explicit `startup_participants` or existing configured
+dependencies, with an explicit positive result window for nonempty scopes. There
+is no automatic discovery. Missing replies or unusable diagnostics remain unknown,
+not proof of participant failure, stopped acquisition, or successful cleanup.
+Multiple nodes and their owner-reported Session identities are assessed independently.
+
+Safe acquisition continues after Controller replacement. AcquisitionNode remains
+authoritative for Session-keyed reservations. Local scientific finalization,
+durable manifest acceptance, device cleanup, reservation release, and later global
+collection remain distinct. Reconciliation does not restore a Session, replay
+operations, restart an Experiment, advance lifecycle, automatically stop acquisition,
+or release an unsafe reservation.
+
+Startup/readiness evidence cannot silently repair an unconfirmed Evidence Archive.
+Initial creation and healthy updates remain supported; existing corrupt, missing,
+inconsistent, or otherwise unconfirmed products remain untouched. Safety is checked
+after asynchronous publication and durable acceptance under existing intake/storage
+locks. New evidence remains producer-retained and durably journal-accepted where
+possible, with truthful preservation warnings and unconfirmed archival reported
+separately. Malformed optional diagnostic collections cannot abort subsequent
+participant observations or fabricate Session identities or confirmed outcomes.
+Authorized Q024-B recovery remains a separate operator-authorized operation with
+its existing prerequisites; W039 and Decisions 339-348 retain their completed scope.
+
+## Implementation checkpoints
+
+- Initial implementation: `99e80f502f376519b5e8fd4e461d0281d39e85eb`.
+- Corrections: `e62fa4ebbdcbd4b5b07dd39c806df86df5648b4c`.
+
+## Independent manual IPython validation
+
+- Initial independent validation: **PASS, 28/28 checks**.
+- Focused correction revalidation: **PASS, 25/25 checks**.
+
+## Automated validation and independent audit
+
+- Codex full automated suite after correction: **676 run, 669 passed, 0 failed,
+  7 optional rendering skips**.
+- **Initial independent source audit: FAIL.** Blocking P2: startup readiness
+  announcement silently repaired an unconfirmed Evidence Archive. Nonblocking P3:
+  malformed optional diagnostic collections could abort reconciliation.
+- Both findings were corrected: readiness announcements use the existing guarded
+  preservation path, and optional collection containers are checked before iteration.
+- **Final focused independent read-only re-audit: PASS.** Both original findings
+  were RESOLVED; no new blocking findings or architectural ambiguities remained.
+- The final re-audit independently executed **132 focused tests, all passed**,
+  covering startup, reconciliation, authorized recovery, NATS, and framework shutdown.
+- Two additional independent probes passed: ordinary readiness publication left a
+  corrupt archive untouched; an interrupted StorageManager write during paused
+  startup invalidated archival confirmation without deadlock or implicit repair.
+- Two in-memory negative controls reproduced the original defects when their
+  respective guards were disabled, demonstrating meaningful regression coverage.
+
+These are previously executed Codex automated tests, independent manual validation,
+and independent audit results, not validation performed during documentation
+closure. The initial failed audit is preserved; the initial implementation is not
+described as having passed without corrections. The final re-audit did not repeat
+full discovery; its focused tests and probes are distinct from the Codex full suite.
+
+## Limitations and completion
+
+Only the supported Decisions 351-352 slice is complete. Decision 336 remains
+partially implemented. Decisions 349-350 and 353-355 remain accepted but
+unimplemented, including Decision 354's monthly Evidence Archive partitioning;
+validation uses the existing shared framework archive layout.
+
+Broader Q024 remains OPEN: application-wide discovery/restoration, unresolved
+journal lifecycle, remaining temporary-state retirement, and recovery beyond
+supported contracts remain deferred. Known-node reservation protection is complete,
+not an automatic stale-reservation cleanup or application restoration mechanism.
+Q019, Q022, Phase 16, and M015 remain OPEN. W035-W039 and prior validation records
+remain unchanged.
+
+Validation used controlled software/NATS broker doubles and real framework
+intake/persistence. No hardware, live external NATS, cross-process, or Jetson
+deployment validation is claimed. No universal recovery system, recovery registry,
+Session replica, new lifecycle state, or automatic reservation expiry was introduced.
+
+---
+
 # Future Workflows
 
 The following workflows are expected to be added as the framework evolves.

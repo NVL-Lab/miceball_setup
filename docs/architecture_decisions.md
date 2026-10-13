@@ -9615,8 +9615,10 @@ with supported Decisions 351-352 startup reconciliation implemented for explicit
 known participants through existing NATS startup/readiness and owner diagnostics.
 Automated coverage exercises active, stopped, failed, and unknown observations,
 independent node obligations/reservations, cancellation, and unchanged-evidence
-deduplication. Independent manual validation and audit remain pending; this slice
-is not marked complete. Decisions 349-350 and 353-355 remain unimplemented. Q024-B
+deduplication. This supported slice is complete with ICC review, independent manual
+validation, correction revalidation, and final independent re-audit PASS in W040;
+the initial failed audit and both corrections are preserved there.
+Decisions 349-350 and 353-355 remain unimplemented. Q024-B
 Decisions 339-348 remain complete and independently validated/audited in W039.
 Decision 336 remains partially implemented. Q024, Q019, Q022, Phase 16, and M015
 remain OPEN. Q019 closure conditions and safe-to-delete operational dependencies
@@ -9629,10 +9631,10 @@ must not be resolved by implementation assumptions.
 The following principles summarize the accepted decisions so far.
 
 Decisions 349-355 subsequently resolve additional Q024 ownership and behavioral
-boundaries. Supported Decisions 351-352 startup reconciliation has automated
-implementation coverage with independent validation/audit pending; the other new
-contracts remain unimplemented. Decision 354 supersedes only Decision 323's
-shared framework archive layout; Decision 349 extends Decision 280's journal
+boundaries. Supported Decisions 351-352 startup reconciliation is complete with
+independent manual validation and final independent re-audit PASS after correction
+in W040; the other new contracts remain unimplemented. Decision 354 supersedes only
+Decision 323's shared framework archive layout; Decision 349 extends Decision 280's journal
 lifecycle boundary, and Decision 353 extends Decision 336's temporary-memory scope.
 Historical decision text and validation records remain authoritative for their
 original scopes; W039 completion and Q019's unresolved closure conditions remain.
@@ -9989,7 +9991,7 @@ requirements remain authoritative.
 352. Controller failure does not invalidate node-owned Session reservations; authorized recovery and release require independently confirmed local finalization and device safety, not leases or automatic expiry.
 353. All principal services retire unnecessary temporary work after preservation/safety conditions while retaining reporting, resource protection, deduplication, and command-reexecution safeguards; Decision 336 remains partially implemented.
 354. Permanent framework Evidence Archives use YYYY-MM partitions with the existing three products, superseding Decision 323's shared layout without changing Session archives, scientific artifacts, timestamps, or temporary journals.
-355. Finalized means immutable, not necessarily safe to delete; confirmed safe deletion must never affect later operation/recovery, and historical archives are never automatically deleted. Decisions 349-350 and 353-355 remain unimplemented; supported Decisions 351-352 startup reconciliation has automated coverage with independent validation/audit pending; Q024, Q019, Q022, Phase 16, and M015 remain OPEN.
+355. Finalized means immutable, not necessarily safe to delete; confirmed safe deletion must never affect later operation/recovery, and historical archives are never automatically deleted. Decisions 349-350 and 353-355 remain unimplemented; supported Decisions 351-352 startup reconciliation is complete, independently manually validated and independently re-audited PASS after correction in W040; Q024, Q019, Q022, Phase 16, and M015 remain OPEN.
 
 ---
 
