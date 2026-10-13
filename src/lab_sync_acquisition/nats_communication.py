@@ -971,6 +971,8 @@ class NatsIngestorCommunication:
             return result
         journal = self._ingestor.recovery_journal_path
         try:
+            canonical_content = self._ingestor._evidence_content
+            marker_content = canonical_content(marker)
             jetstream = self._boundary._require_jetstream()
             stream = await jetstream.stream_info("LAB_EVIDENCE")
             consumer = await jetstream.consumer_info(
@@ -984,7 +986,7 @@ class NatsIngestorCommunication:
                                             marker.source_id, marker.evidence_type)
             published = await jetstream.get_last_msg("LAB_EVIDENCE", subject)
             if (published.subject != subject or published.seq <= 0
-                    or RuntimeEvidenceMessage.from_dict(json.loads(published.data)) != marker):
+                    or canonical_content(RuntimeEvidenceMessage.from_dict(json.loads(published.data))) != marker_content):
                 result["reason"] = "marker_publication_unconfirmed"
                 return result
             if not self._acknowledgment_progress_valid(consumer, stream.state.last_seq):
@@ -1006,11 +1008,12 @@ class NatsIngestorCommunication:
                 item = RuntimeEvidenceMessage.from_dict(json.loads(record.data))
                 if item.session_id != session_id:
                     raise ValueError("Published evidence does not match the Session")
+                content = canonical_content(item)
                 previous = required.get(item.evidence_id)
-                if previous is not None and previous != item:
+                if previous is not None and canonical_content(previous) != content:
                     raise ValueError("Conflicting evidence identity in publication history")
                 required[item.evidence_id] = item
-                if record.seq == published.seq and item != marker:
+                if record.seq == published.seq and content != marker_content:
                     raise ValueError("Completion marker changed during history readback")
                 sequence = record.seq + 1
             # Recheck history after asynchronous readback; publication and journal
