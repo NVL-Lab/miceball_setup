@@ -137,10 +137,11 @@ The future GUI could:
   metadata is not artifact bytes; NWB conversion and Cheaha upload remain separate
   later processing stages, not newly specified GUI execution mechanisms.
 
-Decisions 356-360 accept the framework boundaries, not these presentation ideas.
-The framework contracts are unimplemented and their remaining Q019 low-level
-questions are open. These notes add no GUI commands, lifecycle states, recovery
-authority, or implementation requirements. Closing the GUI remains distinct from
+Decisions 356-365 accept the framework boundaries, not these presentation ideas.
+The high-level and low-level contracts are accepted but unimplemented; Q019 remains
+open for technical verification, independent validation, and audit. These notes add
+no GUI commands, lifecycle states, recovery authority, or implementation
+requirements. Closing the GUI remains distinct from
 both Session closeout and operational framework shutdown.
 
 ## GUI Closure Versus Framework Shutdown

@@ -505,27 +505,40 @@ deployment validation, and M012 remains complete. W033 records Slice 25's softwa
 validation, not live NATS or real Jetson/SSH-SFTP deployment validation. The legacy
 unconfigured synchronous collection path remains supported.
 
-Accepted Q019 Decisions 356-360 now qualify that historical routing/finalization
+Accepted Q019 Decisions 356-365 now qualify that historical routing/finalization
 model; they are not implemented or validated. Required acquisition-stage producers
 confirm durable publication before Controller publishes one Session-scoped
 completion marker. Ingestor must independently verify earlier required durable
-acceptance; receiving the marker alone is insufficient. Confirmed Stage A writes
+acceptance using restart-safe Session-specific receiving progress and verified
+contiguous JetStream acknowledgment coverage of the full relevant publication
+interval; marker receipt or isolated ACKs are insufficient. Confirmed Stage A writes
 acquisition evidence, intake audit, summary, and final Session Record, satisfying
 acquisition-side completion and applicable binding-release obligations before
 scientific collection. StorageManager durably preserves the existing handoff for
 later operator-selected stopped-Session collection without restoring original
-bindings. In Stage B it directly appends its own persistent collection evidence
+bindings, using a separate small Session-associated JSON handoff in the existing
+Session directory and existing persistent Session information for selection.
+In Stage B it directly appends its own persistent collection evidence
 to the same archive, distinguishes origins in the summary without fabricated
 Ingestor audit, confirms durability, and permanently closes the archive without
 rewriting acquisition evidence, audit, final Session Record, or acquisition outcome.
+The existing summary records Stage A completion versus permanent Stage B closure;
+status alone is not durability proof. Before direct archival, StorageManager
+temporarily durably preserves the actual collection outcome and unique evidence ID.
+Duplicate protection and verified archival permit safe temporary retirement and
+authorized evidence-write recovery without repeating scientific-file transfer.
 
 Separately authorized Kill Session preserves accessible evidence/files, partial
 Session Record, unresolved conditions, and safety where possible. It neither
 automatically collects artifacts nor permanently closes the partial archive;
 killed Sessions remain eligible for later collection, without a new lifecycle
-state. Q019 remains OPEN for exact contiguous-consumption proof, interrupted-write
-integrity/recovery, durable handoff representation/restart lookup/Session selection,
-and normal versus forced partial confirmations. W033/M013, W035, W039, and W040
+state. Normal Stop requires complete producer, durable acceptance, and Stage A
+confirmations. Kill identifies partial preservation when completeness is unavailable;
+that confirms only preserved content, not acquisition success or safe resource
+release. Unknown outcomes remain unconfirmed. The low-level contracts are accepted,
+but Q019 remains OPEN for implementation, exact JetStream feasibility verification,
+independent validation, and audit. No exact new filenames, fields, or APIs are
+defined here. W033/M013, W035, W039, and W040
 remain complete for their historical scopes; Q024, Q022, Phase 16, and M015 remain
 OPEN. NWB conversion and Cheaha upload remain later scientific processing stages.
 
@@ -627,7 +640,7 @@ Slice 28 workflows remain historical evidence, not closure of its sequential-reu
 requirements. W035 separately validates the Phase 16 service binding-release path.
 
 Phase 16 Operational Service Lifetime and Framework Stop/Kill architecture is
-accepted in Decisions 304-360. The narrow Controller/Ingestor/SynchronizationManager
+accepted in Decisions 304-365. The narrow Controller/Ingestor/SynchronizationManager
 Session-binding release slice under Decisions 313 and 322 is complete, manually
 software-validated, and independently audited PASS (W035). Remaining Phase 16
 responsibilities are unfinished; Phase 16 completion is not claimed.

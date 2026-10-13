@@ -475,18 +475,21 @@ This question does not block current Phase 11 implementation slices that only re
 
 
 Q019: How is Session-wide evidence consumption coordinated before processing finalization?
-**Status:** OPEN - high-level acquisition-completeness, two-stage archival, durable
-handoff, and forced-closeout contracts accepted in Decisions 356-360; low-level
-technical verification and implementation remain pending. Not implemented,
-independently validated, or complete.
+**Status:** OPEN - high-level contracts accepted in Decisions 356-360 and low-level
+contracts resolved/accepted in Decisions 361-365. Implementation, exact technical
+feasibility verification, independent validation, and audit remain pending. Not
+implemented or complete.
 
 Accepted architecture
 
 - Required acquisition-stage producers finish evidence production and confirm
   durable publication. Controller then publishes one Session-scoped acquisition-
   evidence-completion marker using existing JetStream evidence. Ingestor must
-  independently prove earlier required durable acceptance using ordered delivery
-  and verified acknowledgment progress; receipt of the marker is insufficient.
+  independently prove earlier required durable acceptance using verified contiguous
+  JetStream acknowledgment progress across the full relevant publication interval.
+  Session-specific receiving position must survive restarts; gaps, missing history,
+  unknown position, or missing confirmations prevent completeness confirmation.
+  Receipt of the marker or isolated ACKs are insufficient (Decision 361).
 - Stage A preserves Ingestor-compiled persistent acquisition evidence, intake
   audit, compilation summary, and the final Session Record. Confirmed preservation
   satisfies acquisition-side completion and applicable binding-release obligations;
@@ -496,15 +499,33 @@ Accepted architecture
   file, distinguishes direct persistence from Ingestor acceptance in the summary,
   confirms durability, and permanently closes the archive. No fabricated Ingestor
   audit, acquisition-evidence rewrite, final Session Record change, or retroactive
-  acquisition outcome change is permitted.
+  acquisition outcome change is permitted. The existing compilation summary records
+  Stage A completion versus permanent Stage B closure; status alone proves neither
+  consistent nor durable preservation (Decision 362).
+- StorageManager temporarily durably retains actual collection outcomes and their
+  unique evidence IDs before direct archival. Verified archival permits safe
+  temporary retirement; duplicate IDs cannot duplicate archive records. Authorized
+  evidence-write recovery may use a durable outcome without repeating file transfer.
+  Interrupted writes or outcomes lacking temporary durability remain unconfirmed
+  (Decision 363); no specific temporary filename/schema is accepted.
 - Ingestor compiles the existing ArtifactManifest handoff at acquisition closeout;
   StorageManager durably preserves it for later operator-selected collection of
   one or multiple stopped Sessions without restoring original Session bindings.
+  Decision 364 specifies a small Session-associated JSON file in the existing
+  Session directory, separate from artifacts and the Evidence Archive. Verify its
+  durability, validate saved information, use deployment-local endpoints and
+  existing persistent Session information for selection, and report missing or
+  inconsistent information rather than inventing it. No exact filename/API is set.
 - Separately authorized Kill Session preserves accessible evidence, available
   files, a partial Session Record, unresolved conditions, and resource safety where
   possible. It does not automatically collect artifacts or permanently close the
   partial archive. Killed Sessions remain eligible for later collection; confirmed
-  Stage B closure makes the archive immutable. No killed lifecycle state is added.
+  Stage B closure makes the archive immutable. Decision 365 requires complete
+  producer/acceptance/Stage A confirmation for Normal Stop, but permits explicitly
+  identified partial preservation for Kill when completeness cannot be established.
+  Partial preservation does not prove acquisition success, retrieval, cleanup, or
+  safe hardware release. Existing device/resource safety remains required; unknown
+  is neither confirmed success nor confirmed failure. No killed state is added.
 
 Decisions 356-360 qualify historical Decisions 223-225, 228-229, 240, 243, and
 274-275. They reuse existing owners, evidence infrastructure, and Decisions
@@ -513,7 +534,12 @@ registries, arbitrary sleeps, polling, a new transport, or a new manifest regist
 
 Why this matters
 
-Phase 12 established LocalStorageManager ownership of local scientific persistence. Decisions 219-231 establish that Ingestor compiles persistent runtime evidence and StorageManager writes the Evidence Archive and final Session Record. The framework still needs to define how the future global StorageManager assembles finalized local discovery information and scientific artifacts without taking ownership of the original local scientific records.
+Phase 12 established LocalStorageManager ownership of local scientific persistence.
+Decisions 219-231 establish Ingestor compilation and StorageManager writing of the
+Evidence Archive and final Session Record. Q019's accepted contracts now specify
+acquisition completeness, two-stage archival, and durable later collection handoff
+without transferring ownership of local scientific records. Their implementation
+and technical guarantees still require verification.
 
 Historical implementation and validation
 
@@ -558,34 +584,39 @@ without that undelivered evidence. This demonstrates the open consumption gap,
 not a Slice 25 implementation failure. The corrected active-operation guard
 prevents overtaking publication, but does not resolve post-publication consumption.
 W033/M013, W035, W039, and W040 remain historically complete for their validated
-scopes. None implements or validates the new Decisions 356-360 contracts.
+scopes. None implements or validates the new Decisions 356-365 contracts.
 
-Remaining low-level questions for LLC
+Remaining implementation and technical-verification work
 
-- **Contiguous consumption/acknowledgment proof:** What ordered JetStream evidence
-  and verified consumer progress demonstrate durable Ingestor acceptance of all
-  earlier required acquisition evidence? Verify the precise contiguous proof;
-  marker receipt, durable publication, and a journaled subset are not interchangeable.
-- **Two-stage integrity and interrupted direct writes:** What contracts preserve
-  original acquisition evidence/audit, protect duplicate identities, distinguish
-  summary origins, confirm crash-safe Stage B writes/closure, and recover an
-  interruption without false success, transfer replay, or rewriting closed history?
-- **Durable handoff and selection:** What existing-owner representation, post-restart
-  lookup, and eligible-Session selection support later collection without original
-  bindings or another authoritative manifest registry? Do not invent a schema/API.
-- **Normal versus forced partial closeout:** What producer/consumption/preservation
-  confirmations apply to Normal Stop versus Kill Session when required information
-  or participants are unavailable? Preserve uncertainty, accessible records, and
-  resource-safety protections without choosing a new lifecycle state.
+- **Contiguous acknowledgment proof:** Independently verify that supported JetStream
+  behavior establishes the full-interval proof and restart-safe receiving position
+  required by Decision 361. Missing history or gaps cannot be waived. If the proof
+  cannot be established, report the limitation rather than weakening the contract.
+- **Stage information and interrupted writes:** Implement and verify Decisions
+  362-363's current consistent durable preservation, distinct summary origins,
+  temporary outcome durability, duplicate protection, and authorized evidence-write
+  recovery. Exact fields/temporary filenames are not specified by this synchronization.
+- **Durable handoff and selection:** Implement and verify Decision 364's separate
+  Session-associated JSON handoff, restart lookup, validation, and selection using
+  existing persistent Session information. No filename, new API, or registry schema
+  is invented here.
+- **Closeout integration:** Implement and independently validate Decision 365's
+  complete Normal Stop confirmations and explicit partial Kill preservation while
+  retaining safety, uncertainty, and binding-release obligations.
+
+These are accepted low-level contracts awaiting implementation and verification,
+not four unresolved architectural choices. Any inability to satisfy them returns
+for architectural review; this task chooses no speculative broker configuration.
 
 Blocks
 Implementation of accepted Q019 consumption proof and Stage A/Stage B persistence
 Durable closeout handoff and later eligible-Session lookup/selection
 Normal and forced partial acquisition-evidence closeout integration
 
-Q019 remains OPEN. Decisions 356-360 settle the high-level contracts above, not
-their low-level proofs or implementation. The original Slice 25 exclusions remain
-historical; they do not prohibit the newly accepted verified acknowledgment proof.
+Q019 remains OPEN. Decisions 356-365 settle the high-level and low-level contracts
+above, not their implementation or verified technical feasibility. The original
+Slice 25 exclusions remain historical; they do not prohibit the newly accepted
+verified acknowledgment proof.
 Do not implement that proof through assumptions, polling, sleeps, count registries,
 or another transport. Q024, Q022, Phase 16, and M015 retain their open statuses;
 no new validated workflow or implementation completion is claimed.
@@ -943,9 +974,12 @@ validated and independently re-audited PASS after correction (W040); Decisions
 
 ### Remaining operational contracts and implementation dependencies
 
-- **Q019 dependency:** Which confirmation establishes applicable Session-wide final
-  evidence consumption/closure before journal retirement? Existing local acceptance
-  and current archive confirmation do not establish the unresolved Q019 guarantee.
+- **Q019 dependency:** Decisions 361-365 specify acquisition completeness and
+  staged archival confirmation; implementation and verified technical feasibility
+  remain pending. Applicable confirmations must be integrated with Decision 349's
+  journal-retirement prerequisites. Existing local acceptance and current archive
+  confirmation do not implement the accepted Session-wide guarantee; no journal
+  retirement policy is resolved by this documentation synchronization.
 - **Cross-month preservation and lookup:** Current Ingestor framework compilation
   and `framework_preservation_guard()` compare cumulative evidence/audit against one
   archive; StorageManager writes/reads that shared archive, and maintenance/Controller
@@ -1112,7 +1146,7 @@ The roadmap distinguishes accepted architecture from implemented milestones:
 Phase 13 — Global StorageManager (Evidence)
 Phase 14 — Global StorageManager (Finalized Scientific Data)
 Phase 15 — Controller-owned Session Launch & Runtime Assembly (launch path and Decision 302 sequential reuse implemented; independent validation/audit and M015 closure pending)
-Phase 16 — Operational Service Lifetime and Framework Stop/Kill (Decisions 304-360 accepted; Q025 resolved architecturally; narrow Session-binding release under Decisions 313/322 complete, manually software-validated and independently audited PASS in W035; individual-service maintenance complete, manually software-validated and independently audited PASS in W036; progressive two-phase coordinated shutdown complete, manually software-validated and independently re-audited PASS in W037; startup/return under Decisions 327-331 complete, independently manually software-validated and independently re-audited PASS after correction in W038; supported Q024-B cases under Decisions 339-348 complete with automated coverage, independent manual validation, and final independent re-audit PASS after correction in W039; supported Decisions 351-352 startup reconciliation/reservation protection complete, independently manually validated and independently re-audited PASS after correction in W040; Decisions 349-350 and 353-355 remain unimplemented; Decisions 356-360 accept Q019 high-level contracts with low-level verification and implementation pending; Q019, Q024, Q022, Phase 16, and M015 remain open)
+Phase 16 — Operational Service Lifetime and Framework Stop/Kill (Decisions 304-365 accepted; Q025 resolved architecturally; narrow Session-binding release under Decisions 313/322 complete, manually software-validated and independently audited PASS in W035; individual-service maintenance complete, manually software-validated and independently audited PASS in W036; progressive two-phase coordinated shutdown complete, manually software-validated and independently re-audited PASS in W037; startup/return under Decisions 327-331 complete, independently manually software-validated and independently re-audited PASS after correction in W038; supported Q024-B cases under Decisions 339-348 complete with automated coverage, independent manual validation, and final independent re-audit PASS after correction in W039; supported Decisions 351-352 startup reconciliation/reservation protection complete, independently manually validated and independently re-audited PASS after correction in W040; Decisions 349-350 and 353-355 remain unimplemented; Decisions 356-365 accept Q019 high-level and low-level contracts with implementation, technical feasibility verification, independent validation, and audit pending; Q019, Q024, Q022, Phase 16, and M015 remain open)
 Phase 17 — Device Acceptance / Validation
 Phase 18 — End-to-End Demo Architecture
 

@@ -9778,6 +9778,159 @@ Phase 16, and M015 remain OPEN. No new validated workflow is claimed.
 
 ---
 
+## Decision 361: Ingestor retains durable evidence-receiving progress and independently proves acquisition completeness
+
+**Status:** Accepted
+
+Reuse the existing JetStream evidence infrastructure. Ingestor reliably retains
+its Session-specific evidence-receiving position across service restarts. Each
+required acquisition-stage producer confirms completed evidence publication;
+Controller publishes one Session-scoped acquisition-evidence-completion marker
+after obtaining those confirmations.
+
+Ingestor independently establishes durable receipt and acceptance of all required
+evidence preceding that marker using verified, contiguous JetStream acknowledgment
+progress covering the full relevant publication interval. Marker receipt,
+successful producer publication, or acknowledgment of isolated messages does not
+prove completeness. Gaps, missing history, unknown receiving position, or missing
+producer confirmations prevent successful Normal Stop completeness confirmation.
+Preserve Decisions 276-280's journal-before-ACK, reconstruction, and deduplication
+guarantees.
+
+JetStream may internally call its receiving mechanism a consumer; this is not a
+new architectural service or framework component named Consumer. No per-producer
+completion markers, count registries, arbitrary waits, polling, or additional
+evidence transports are introduced.
+
+This specifies Decision 356's receiving-progress contract. Exact JetStream behavior
+and feasibility must be independently verified during implementation. If the
+supported infrastructure cannot establish the required proof, report the
+limitation rather than weakening the guarantee.
+
+---
+
+## Decision 362: The existing compilation summary distinguishes archive stages and confirmed permanent closure
+
+**Status:** Accepted
+
+Retain the single Session Evidence Archive and its existing three evidence
+products. Stage A durably preserves Ingestor-compiled persistent acquisition
+evidence, intake audit, compilation summary, and the separate final Session Record.
+Confirmed Stage A preservation satisfies acquisition-side final-persistence
+obligations for successful Session completion and applicable Session-binding
+release. The archive remains open for later Stage B collection evidence.
+
+In Stage B, StorageManager directly appends its own collection evidence to
+`runtime_evidence.jsonl` and updates the existing `compilation_summary.json`,
+distinguishing Ingestor-accepted evidence from directly persisted StorageManager
+evidence. The summary records whether Stage A has completed or the archive has
+been permanently closed following Stage B. No separate closure file, additional
+Evidence Archive, or new Session lifecycle state is introduced; no specific new
+field names or values are chosen here.
+
+A status field alone does not prove durability or consistency. Permanent closure
+requires verified consistency and durable preservation of the archive products;
+after confirmed permanent closure, the archive is immutable. Preserve original
+acquisition evidence, Ingestor intake audit, final Session Record, and acquisition
+outcome. This specifies Decision 357's stage and closure-information contract.
+
+---
+
+## Decision 363: StorageManager durably retains collection outcomes before direct archival
+
+**Status:** Accepted
+
+Each collection attempt has a unique persistent evidence ID. After determining
+actual collection outcomes, StorageManager temporarily and durably preserves the
+outcome and corresponding evidence ID before appending the associated persistent
+evidence to the Session Evidence Archive. It verifies durable archival before
+treating the evidence as preserved; the temporary outcome record may be retired
+only when safe.
+
+Duplicate evidence IDs must not produce duplicate archival records. Distinguish
+existing complete evidence from incomplete, conflicting, or interrupted writes.
+An interrupted or uncertain archive write cannot establish successful archival
+or permanent closure. A durably preserved collection outcome can support recovery
+of evidence persistence without repeating scientific-file transfer. If collection
+ended before temporary outcome durability was established, the outcome remains
+unconfirmed; do not invent success.
+
+Recovery respects existing Q024 authorization, evidence, preservation, and safety
+contracts. No automatic scientific-file retries, unrestricted archive repair,
+historical-result rewriting, or self-referential archival evidence are authorized.
+The temporary record is not another permanent Evidence Archive or artifact
+registry. Its filename and schema are not specified here. This specifies Decision
+358's direct-write integrity and interrupted-persistence recovery contract.
+
+---
+
+## Decision 364: StorageManager preserves the Session collection handoff as a separate durable JSON file
+
+**Status:** Accepted
+
+At acquisition closeout, Ingestor compiles the existing ArtifactManifest handoff.
+StorageManager durably preserves it as a small Session-associated JSON file in the
+existing Session storage directory, separate from scientific artifacts and the
+Evidence Archive. Preservation must be verified before the handoff obligation is
+satisfied. Original Controller and Ingestor Session bindings may be released after
+all their applicable obligations are confirmed.
+
+Later operator-selected collection uses the saved handoff, including after service
+restart. StorageManager validates its information and resolves AcquisitionNode
+endpoints using deployment-local settings; collection does not restore old Session
+bindings. Preserve existing compilation semantics: prefer finalized manifests,
+retain initial manifests when finalization evidence is missing, and report missing
+finalization. A killed Session may have a partial or unconfirmed handoff.
+
+Use existing persistent Session information for eligible-Session selection. Missing,
+inconsistent, or unavailable information remains explicitly unresolved, not guessed.
+No authoritative ArtifactManifest registry, Session registry, application-restoration
+system, or automatic collection is accepted. No exact handoff filename, new API,
+or additional registry schema is defined. This specifies Decision 359's durable
+representation and binding-independent collection contract.
+
+---
+
+## Decision 365: Normal Stop requires complete acquisition preservation while Kill Session preserves confirmed partial information
+
+**Status:** Accepted
+
+**Normal Stop:** Requires all applicable acquisition-stage producer publication
+confirmations, Ingestor verification of complete durable acceptance of required
+acquisition evidence, and StorageManager confirmation of complete Stage A
+preservation. Partial or uncertain evidence cannot justify successful normal
+acquisition completion.
+
+**Kill Session:** Requires explicit operator authorization and attempts to preserve
+all accessible acquisition evidence and scientific files. It does not require
+impossible completeness confirmation from unreachable participants. Explicitly
+record known missing, incomplete, unconfirmed, or unresolved evidence and cleanup
+obligations. StorageManager identifies Stage A preservation as partial where
+completeness cannot be established. Partial preservation confirms only what was
+actually preserved, not successful acquisition, artifact retrieval, complete
+cleanup, or safe hardware release. Resource release still requires existing
+device and hardware safety confirmations.
+
+**Both:** Preserve accessible acquisition evidence promptly; do not automatically
+start global artifact collection. Support later operator-requested collection,
+including killed Sessions and incomplete scientific files, while preserving Stage B
+direct collection evidence and permanent archive closure requirements. No `killed`
+Session lifecycle state is introduced. Unknown outcomes must not be misrepresented
+as either confirmed success or confirmed failure. This specifies Decisions 356-360's
+normal and forced partial evidence-closeout requirements without changing ownership.
+
+**Implementation status for Decisions 361-365:** Low-level Q019 contracts accepted
+and synchronized, not implemented, independently validated, or audited. These
+decisions resolve the contract questions identified in Decisions 356-360; their
+historical text is preserved. Q019 remains OPEN pending implementation, exact
+technical feasibility verification, independent validation, and audit. No broker
+configuration, additional schema, or new public API is specified. W033/M013, W035,
+W039, and W040 retain their completed historical scopes. Decision 336 remains
+partial; Decisions 349-350 and 353-355 remain unimplemented. Q024, Q022, Phase 16,
+and M015 remain OPEN. No new validated workflow is claimed.
+
+---
+
 # Accepted Architectural Principles
 
 The following principles summarize the accepted decisions so far.
@@ -9788,8 +9941,12 @@ acquisition preservation for completion/binding release; later operator-requeste
 collection uses a durable StorageManager-held handoff and direct Stage B collection
 evidence before permanent archive closure. Kill Session preserves partial closeout
 without automatically collecting artifacts or permanently closing that archive.
-These are accepted, unimplemented Q019 contracts; their low-level proofs and
-representations remain open, and historical completed scopes remain unchanged.
+Decisions 361-365 subsequently specify contiguous durable receiving progress,
+summary-based stage/closure information, temporary durable collection outcomes,
+a separate Session-associated JSON handoff, and normal/forced closeout confirmations.
+These Q019 contracts are accepted but unimplemented; technical feasibility,
+independent validation, and audit remain pending. Historical completed scopes
+remain unchanged.
 
 Decisions 349-355 subsequently resolve additional Q024 ownership and behavioral
 boundaries. Supported Decisions 351-352 startup reconciliation is complete with
@@ -10158,6 +10315,11 @@ requirements remain authoritative.
 358. StorageManager directly persists its own persistent collection RuntimeEvidenceMessages in the Session archive, with separate provenance, no Ingestor routing or fabricated audit, and identity/durability/integrity/crash-safety protections; interrupted persistence is not success or automatic transfer replay.
 359. Ingestor compiles the existing handoff at acquisition closeout and StorageManager durably preserves it; later Controller-selected stopped-Session collection needs no original Session binding, new manifest registry, discovery, or automatic collection.
 360. Kill Session is separately authorized forced closeout preserving accessible evidence, files, partial Session Record, unresolved conditions, and safety; later collection remains eligible and the partial archive stays open until confirmed Stage B closure, without a killed lifecycle state. Decisions 356-360 are accepted but unimplemented; Q019, Q024, Q022, Phase 16, and M015 remain OPEN.
+361. Ingestor retains Session-specific receiving progress across restarts and proves complete earlier durable acceptance through verified contiguous JetStream acknowledgment progress; marker receipt or isolated ACKs are insufficient, and exact feasibility must be independently verified without weakening the guarantee.
+362. The existing compilation summary records Stage A completion and Stage B permanent closure with distinct evidence origins; status alone is not preservation proof, and verified consistent durable closure makes the single archive immutable.
+363. StorageManager temporarily durably preserves each actual collection outcome and unique evidence ID before direct archival; confirmed archival and duplicate protection permit safe temporary retirement and authorized evidence-write recovery without repeating transfer.
+364. Ingestor's existing handoff is verified durably preserved by StorageManager as a separate Session-associated JSON file in the existing Session directory; later selected collection validates it without old bindings, invented registries, or guessed missing information.
+365. Normal Stop requires producer confirmations, complete durable Ingestor acceptance, and complete Stage A preservation; authorized Kill Session preserves confirmed accessible partial information without claiming completeness or safe resource release. Decisions 361-365 are accepted but unimplemented; Q019, Q024, Q022, Phase 16, and M015 remain OPEN.
 
 ---
 

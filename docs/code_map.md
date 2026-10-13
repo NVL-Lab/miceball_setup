@@ -2,7 +2,7 @@
 
 ## Accepted Q019 closeout architecture (not implemented)
 
-Decisions 356-360 qualify historical Session closeout and collection-evidence
+Decisions 356-365 qualify historical Session closeout and collection-evidence
 contracts. The accepted future flow is producer publication confirmations, one
 Controller Session-scoped completion marker, independently verified Ingestor
 consumption, and Stage A acquisition evidence/audit/summary plus final Session
@@ -11,17 +11,28 @@ release without waiting for scientific collection. StorageManager durably preser
 Ingestor's existing handoff for later operator-selected stopped-Session collection
 without restoring original bindings; its own collection evidence is directly
 appended in Stage B with distinct summary provenance, then the archive is closed.
-Kill Session preserves accessible partial information and safety without automatic
-collection or permanent archive closure.
+Decision 361 requires restart-safe Session-specific receiving progress and verified
+contiguous JetStream acknowledgment coverage of the full relevant publication
+interval. Decision 362 records stages/closure in the existing summary, requiring
+verified consistent durability rather than trusting a status field. Decision 363
+requires temporary durable outcome/evidence-ID preservation before direct archival,
+duplicate protection, and safe evidence-write recovery without transfer replay.
+Decision 364 specifies a separate small JSON handoff in the existing Session
+directory, validation after restart, and existing persistent Session information
+for selection. No exact filename, new API, or registry schema is specified.
+Decision 365 requires complete Normal Stop confirmations; authorized Kill Session
+preserves explicitly partial information and existing safety without automatic
+collection or permanent archive closure. Unknown outcomes remain unconfirmed.
 
 These are accepted architecture, not current public APIs. The function entries
 below describe the historical implemented paths, including Ingestor-routed
 collection evidence and stopping-Session collection before finalization. Do not
 interpret those implementations as Stage A/Stage B or Kill Session support.
-Exact consumption/acknowledgment proof, interrupted-write integrity/recovery,
-durable handoff lookup/selection, and forced partial confirmations remain Q019
-low-level work. W033/M013, W035, W039, and W040 retain their validated scopes;
-Q019, Q024, Q022, Phase 16, and M015 remain OPEN. No new API or schema is defined.
+The low-level contracts are accepted; implementing them and independently verifying
+exact JetStream proof feasibility, crash-safe preservation, handoff lookup/selection,
+and closeout integration remain Q019 work. W033/M013, W035, W039, and W040 retain
+their validated scopes. Q019, Q024, Q022, Phase 16, and M015 remain OPEN. No new
+API or schema is defined.
 
 ## Phase 16 accepted responsibilities (binding release, maintenance, shutdown, and startup/return slices complete)
 
@@ -956,5 +967,5 @@ M012 remains complete; Q019 is not resolved by software closure.
 Decision 303 resolves the former Q017 without changing these APIs or result
 vocabularies: later global collection, verification, transfer, or export failure
 cannot retroactively change a completed Session's lifecycle. Required
-pre-completion failure handling remains unchanged, as does Q019's unresolved
-Session-wide consumption/final archive coordination.
+pre-completion failure handling remains unchanged. Q019's Session-wide consumption/
+staged archive coordination is accepted in Decisions 356-365 but unimplemented.

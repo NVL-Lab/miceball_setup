@@ -256,10 +256,11 @@ through required post-session operations, distinct from scientific acquisition e
 Controller orchestrates collection but does not translate StorageManager's
 operational results into StorageManager evidence. Slice 25 implements an explicit
 awaited collection-before-finalization path; the Session-wide evidence-drain
-proof remains unimplemented under Q019. Decisions 356-360 now accept Stage A
+proof remains unimplemented under Q019. Decisions 356-365 now accept Stage A
 acquisition preservation before successful completion, a durable later handoff,
 and Stage B direct StorageManager collection-evidence persistence/archive closure;
-their low-level contracts remain open and they are not implemented.
+their high-level and low-level contracts are accepted but unimplemented, pending
+technical verification, independent validation, and audit.
 
 The GUI and Controller are conceptually separate, even if they run on the same machine.
 
@@ -913,9 +914,15 @@ PASS (M014, W034), without changing the handoff.
 Decision 359 additionally accepts Ingestor compilation at acquisition closeout and
 durable StorageManager preservation of the handoff under its Session identity.
 Later operator-selected collection needs no original Controller/Ingestor Session
-binding. This is accepted but unimplemented; durable representation, restart lookup,
-and eligible-Session selection remain Q019 questions. No authoritative manifest
-registry or artifact-byte transport is added by handoff preservation.
+binding. Decision 364 specifies a small Session-associated JSON file in the existing
+Session storage directory, separate from scientific artifacts and the Evidence
+Archive. Preservation must be verified; saved information is validated and endpoints
+resolved from deployment-local settings. Existing persistent Session information
+supports selection, while missing/inconsistent information remains unresolved.
+Initial-manifest fallback and missing-finalization reporting remain unchanged; a
+killed Session may have a partial/unconfirmed handoff. These contracts are accepted
+but unimplemented; no exact filename, new API, authoritative registry, or artifact-
+byte transport is added by handoff preservation.
 
 ---
 
@@ -948,7 +955,11 @@ re-audit PASS. Decision 358 supersedes that Ingestor-routing requirement for acc
 Stage B collection evidence: StorageManager directly preserves its own persistent
 RuntimeEvidenceMessage in the same Session archive, without fabricated Ingestor
 audit, and the summary distinguishes its origin. This new contract is unimplemented;
-two-stage integrity and interrupted direct-write recovery remain Q019 questions.
+Decision 363 requires temporary durable preservation of actual outcomes and their
+unique evidence IDs before direct archival, duplicate protection, and verified
+archival before safe temporary retirement. Authorized evidence-write recovery
+does not repeat scientific-file transfer; uncertain writes remain unconfirmed.
+These low-level contracts are accepted but unimplemented.
 
 ---
 
@@ -1113,8 +1124,14 @@ durability. Where recovery journaling is configured, durable Ingestor acceptance
 also requires its local journal boundary; StorageManager later writes compiled
 persistent acquisition evidence to the existing archive. Decision 356
 accepts a Session-scoped completion marker after producer confirmations plus
-independent Ingestor consumption verification; the precise contiguous JetStream
-acknowledgment proof remains open and unimplemented under Q019. Stage B collection
+independent Ingestor consumption verification. Decision 361 requires restart-safe
+Session-specific receiving position and verified contiguous acknowledgment progress
+covering the full relevant publication interval. Gaps, missing history, unknown
+position, or missing producer confirmations prevent completeness confirmation.
+Exact supported JetStream behavior/feasibility requires independent verification
+during implementation; inability cannot weaken the guarantee. JetStream's internal
+consumer terminology introduces no architectural Consumer service/component.
+This contract remains unimplemented under Q019. Stage B collection
 evidence is directly persisted by StorageManager rather than compiled by Ingestor
 under Decision 358.
 
@@ -1342,14 +1359,17 @@ Decisions 317-319 separately define service-maintenance preservation order and
 require confirmed durable evidence preservation before orderly service closeout.
 They neither resolve Q019 nor implement a new archive layout or subsystem.
 
-Decisions 356-360 now accept two-stage Session archival: Stage A confirms
+Decisions 356-365 now accept two-stage Session archival: Stage A confirms
 acquisition-side preservation while leaving the archive available for Stage B.
 Stage B appends direct collection evidence and updates summary provenance, leaving
 acquisition evidence, its existing audit, and final Session Record untouched,
 then confirms permanent closure. A killed Session's partial archive also stays
-open for later collection. These contracts are unimplemented; their exact
-consumption, integrity/recovery, handoff, and partial-confirmation questions remain
-under Q019. The Session archive remains distinct from monthly framework archives.
+open for later collection. Decision 362 requires stage/permanent-closure information
+in the existing compilation summary; a status field alone is not proof of durable
+consistent preservation. No closure file or second archive is added. These contracts
+are unimplemented; Q019 remains open for technical verification, independent
+validation, and audit. The Session archive remains distinct from monthly framework
+archives and the separate durable JSON collection handoff.
 
 ---
 
@@ -1359,9 +1379,11 @@ The single Session-scoped marker Controller publishes through existing JetStream
 evidence after required acquisition-stage producers finish producing evidence and
 confirm durable publication (Decision 356). It is not a per-producer marker, count
 registry, or proof of Ingestor acceptance by itself. Ingestor independently verifies
-earlier required durable acceptance using ordered evidence and verified consumer
-acknowledgment progress. Exact proof and message representation are not implemented
-or specified here; Q019 remains open.
+earlier required durable acceptance using verified contiguous JetStream acknowledgment
+progress across the full relevant publication interval, with receiving position
+retained across restarts (Decision 361). Marker receipt or isolated ACKs alone are
+insufficient. Exact technical feasibility remains to be independently verified;
+the contract is unimplemented and no new message schema is specified here.
 
 ---
 
@@ -1372,7 +1394,11 @@ persistent acquisition evidence and intake audit, and StorageManager durably
 writes those products, compilation summary, and final Session Record. Confirmed
 Stage A preservation satisfies acquisition-side completion and applicable
 binding-release obligations while leaving the Session Evidence Archive available
-for Stage B. Applicable cleanup and durable handoff obligations remain required.
+for Stage B. Decision 362 records Stage A completion in the existing summary,
+without treating status alone as preservation proof. Decision 365 requires complete
+producer/acceptance/preservation confirmations for successful Normal Stop; Kill
+may preserve explicitly partial information, confirming only actual preserved
+content. Applicable cleanup and durable handoff obligations remain required.
 This is not implemented or validated.
 
 ---
@@ -1384,8 +1410,24 @@ StorageManager directly appends its own persistent collection RuntimeEvidenceMes
 to the same runtime evidence file, updates summary provenance without fabricated
 Ingestor audit, confirms durable preservation, and permanently closes the archive.
 Acquisition evidence, its audit, final Session Record, and acquisition outcome are
-unchanged. The closed archive is immutable. This is not implemented or validated;
-interrupted direct-write integrity/recovery contracts remain open.
+unchanged. Decision 362 records permanent closure in the existing summary only
+after verified consistent durable preservation. The closed archive is immutable.
+Decision 363 requires temporary durable outcome/evidence-ID preservation before
+direct archival and distinguishes complete evidence from interrupted/conflicting
+writes. These contracts are accepted but not implemented or validated.
+
+---
+
+# Temporary Durable Collection Outcome
+
+StorageManager-owned temporary preservation of an actual collection outcome and
+its unique persistent evidence ID before direct Session archival (Decision 363).
+It permits authorized evidence-persistence recovery without repeating scientific-
+file transfer. Duplicate IDs must not duplicate archival records; uncertain writes
+do not prove preservation or closure. Retire the temporary record only when safe
+after verified archival. If outcome durability was never established, the outcome
+remains unconfirmed. This is not a permanent Evidence Archive or artifact registry;
+no filename/schema is specified, and the contract is unimplemented.
 
 ---
 
@@ -1397,8 +1439,13 @@ available files, partial Session Record, unresolved conditions, and resource saf
 where possible. No `killed` lifecycle state or implicit successful cleanup is added.
 Collection is not automatic; killed Sessions remain eligible for later requested
 collection, including incomplete/missing/corrupted artifacts. Their partial archive
-stays open until confirmed Stage B closure. This contract is not implemented;
-normal versus forced partial confirmations remain Q019 low-level work.
+stays open until confirmed Stage B closure. Decision 365 does not demand impossible
+completeness from unreachable participants: explicitly record missing, incomplete,
+unconfirmed, or unresolved evidence/cleanup and identify Stage A as partial where
+completeness is unavailable. Partial preservation proves only actual preserved
+content, not successful acquisition, retrieval, complete cleanup, or safe hardware
+release. Existing safety confirmations remain required; unknown is neither confirmed
+success nor failure. These contracts are accepted but unimplemented.
 
 ---
 
