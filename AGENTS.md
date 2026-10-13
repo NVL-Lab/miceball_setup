@@ -322,6 +322,26 @@ Important examples:
 * device adapters declare capabilities
 * reconstruction can run from stored records only
 
+## Impact-Based Testing
+
+This policy applies immediately to current implementation work and all subsequent
+work. Select the smallest meaningful set of tests.
+
+* Run only new tests and existing tests directly affected by code changes or their
+  demonstrated dependencies.
+* Do not run the full test suite by default, including at final implementation
+  handoff.
+* Do not run broad regression suites simply because they concern the same
+  component or framework.
+* Do not rerun historical or loosely related tests without a concrete reason to
+  expect an impact.
+* Expand testing only when specific changes, failures, or dependencies justify it.
+* A full-suite run requires an exceptional, explicitly justified reason.
+* In implementation reports, identify the tests executed, why they were selected,
+  and their results.
+* Independent manual validation and independent audits remain separate
+  requirements; automated testing does not replace them.
+
 ---
 
 # Documentation Expectations
