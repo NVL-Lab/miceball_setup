@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from contextlib import ExitStack, contextmanager
 from copy import deepcopy
@@ -318,6 +319,46 @@ class InMemoryIngestor:
                     or evidence.session_id != self._session_id):
                 return False
             return self._accepted_evidence_content.get(evidence.evidence_id) == self._evidence_content(evidence)
+
+    @contextmanager
+    def durable_runtime_evidence_history_guard(
+        self, session_id: str, journal_path: str | Path,
+        evidence: Iterable[RuntimeEvidenceMessage],
+    ) -> Iterator[bool]:
+        """Check retained Session journal coverage while preventing intake/binding changes."""
+        with self._intake_lock:
+            confirmed = False
+            try:
+                if (self._evidence_scope == "session" and self._session_id == session_id
+                        and self._recovery_journal_path == Path(journal_path)
+                        and not self._journal_failed and self._session_prepared):
+                    required = {}
+                    for item in evidence:
+                        content = self._evidence_content(item)
+                        if item.evidence_id in required and required[item.evidence_id] != content:
+                            raise ValueError("Required evidence has conflicting content")
+                        required[item.evidence_id] = content
+                    remaining = dict(self._accepted_evidence_content)
+                    if all(self._accepted_evidence_content.get(identity) == content
+                           for identity, content in required.items()):
+                        with self._recovery_journal_path.open("rb") as journal:
+                            before = os.fstat(journal.fileno())
+                            for line in journal:
+                                item = RuntimeEvidenceMessage.from_dict(json.loads(line))
+                                content = self._evidence_content(item)
+                                if self._accepted_evidence_content.get(item.evidence_id) != content:
+                                    raise ValueError("Journal history differs from accepted evidence")
+                                remaining.pop(item.evidence_id, None)
+                            after = os.fstat(journal.fileno())
+                            current = self._recovery_journal_path.stat()
+                            attributes = ("st_dev", "st_ino", "st_size", "st_mtime_ns")
+                            confirmed = not remaining and all(
+                                getattr(before, name) == getattr(after, name) == getattr(current, name)
+                                for name in attributes)
+            except (OSError, ValueError, TypeError, KeyError, AttributeError):
+                confirmed = False
+            # The caller commits only a readback result here, never an async operation.
+            yield confirmed
 
     @property
     def recovery_journal_path(self) -> Path | None:

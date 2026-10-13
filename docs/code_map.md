@@ -33,7 +33,11 @@ Session intake binds a durable explicit-ACK JetStream consumer to the existing
 journal, preserving journal-before-server-confirmed-ACK and known-Session
 deduplication/recovery. `verify_acquisition_evidence_receipt(marker)` checks exact
 journal-backed marker acceptance, original stream/consumer identity, retained
-history, and contiguous ACK progress, with asynchronous readback rechecks.
+history, and contiguous ACK progress, with asynchronous readback rechecks. It reads
+Session-matching broker publications through the marker and reconciles their exact
+identities/content against the current retained journal, not message-count equality.
+Ingestor holds its intake lock through the final synchronous confirmation, rejecting
+missing, incomplete, conflicting, or unverifiable journal coverage without repair.
 The minimal marker uses the existing RuntimeEvidenceMessage with evidence_type
 `acquisition_evidence_completion`; this readback does not certify producer
 confirmations, Normal Stop completeness, or archival preservation.
@@ -600,6 +604,7 @@ is complete; W030 records manual validation, focused tests, and audit reassessme
 - InMemoryIngestor.abort_session_initialization(session_id): Disables prepared intake while preserving durable journal entries and accepted evidence, clearing empty preparation bindings without deleting files.
 - InMemoryIngestor.release_session(session_id, *, storage_manager=None): Releases a matching healthy binding, requiring exact persistent runtime evidence/all runtime-audit archive coverage and existing terminal Session Record/acquisition-envelope preservation for evidence-bearing bindings; intake and storage guards remain held through temporary-state retirement without deleting journals.
 - InMemoryIngestor.has_durable_runtime_evidence(evidence): Confirms exact journal-backed message acceptance for a producer handoff, returning False for memory-only intake or uncertain journal state without claiming final archival.
+- InMemoryIngestor.durable_runtime_evidence_history_guard(session_id, journal_path, evidence): Read-only context manager yielding exact retained Session-journal coverage confirmation while holding intake/binding steady through synchronous receipt-result commitment; it permits additional local recovery evidence and performs no reconstruction or archival.
 - InMemoryIngestor._initialize_recovery_journal: Reuses journal creation/reconstruction and ordinary recovery-evidence intake for constructor and distributed preparation paths.
 - InMemoryIngestor.session_id: Returns the configured known Session identity or None for legacy in-memory use.
 - InMemoryIngestor.recovery_journal_path: Returns the caller-supplied journal Path or None for legacy in-memory use.
@@ -650,7 +655,7 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 - _execute_service_command: Delegates readiness/preparation/abort to the owner, includes configured maintenance identity and actual retirement confirmation in readiness replies, and retains command-ID deduplication.
 - _subscribe_participant_commands: Establishes the two addressed command subscriptions reused by mandatory service handlers.
 - NatsIngestorCommunication.subscribe_evidence(session_id, callback=None): Uses a stable Session-specific durable explicit-ACK consumer and server-confirmed ACK after matching-journal acceptance, validates existing receiving configuration and binding identity across subscription setup, and preserves the existing framework intake path for None.
-- NatsIngestorCommunication.verify_acquisition_evidence_receipt(marker): Returns plain-data receipt confirmation/reason and broker sequence information only when the exact completion marker is journal-backed, receiving origin/history are verified, and contiguous ACK progress covers it; this is not Session completion or archival confirmation.
+- NatsIngestorCommunication.verify_acquisition_evidence_receipt(marker): Reconciles Session-filtered publications through the marker with exact retained journal evidence under the Ingestor guard, plus receiving-origin/history and contiguous ACK checks; returns receipt confirmation/reason and broker sequences without repair, Session completion, or archival confirmation.
 - NatsIngestorCommunication._session_consumer_name(session_id): Derives a stable broker-safe durable consumer name from the Session identity without changing evidence identities.
 - NatsIngestorCommunication._receiving_history_intact(stream): Checks retained stream-origin coverage and missing/lost history using broker metadata, not producer evidence-count expectations.
 - NatsIngestorCommunication._validate_session_consumer(consumer, stream, session_id): Rejects mismatched durable identity, stream epoch, Session filter, delivery/ACK configuration, or receiving-origin metadata.
@@ -995,6 +1000,7 @@ foundation is implemented, not staged closeout.
 ## tests/evidence_receipt_fixtures.py
 
 - EvidenceReceiptBroker: Test-only JetStream state double for deterministic receipt, redelivery, missing-history, and invalid-progress workflows, reused by existing transport fixtures.
+- EvidenceReceiptBroker.get_msg(stream, seq=None, subject=None, next=False): Supplies sequence/subject-filtered test history readback for public receipt reconciliation workflows.
 
 ## tests/nats_server_fixture.py
 

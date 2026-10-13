@@ -31,6 +31,7 @@ from lab_sync_acquisition.communication import (
     RuntimeParticipant,
     RuntimeTelemetryMessage,
     build_runtime_subject,
+    parse_runtime_subject,
     aggregate_group_command_results,
     build_group_command_messages,
 )
@@ -870,6 +871,8 @@ class NatsIngestorCommunication:
                 )
             else:
                 self._validate_session_consumer(consumer, stream, session_id)
+                # Reusing broker ACK state does not establish local journal continuity;
+                # receipt confirmation reconciles the retained histories separately.
                 config = consumer.config
             if (self._ingestor.session_id != session_id
                     or self._ingestor.recovery_journal_path != journal):
@@ -990,11 +993,33 @@ class NatsIngestorCommunication:
             if floor.stream_seq < published.seq:
                 result["reason"] = "incomplete_acknowledgment_progress"
                 return result
+            required = {}
+            sequence = 1
+            while sequence <= published.seq:
+                record = await jetstream.get_msg(
+                    "LAB_EVIDENCE", seq=sequence,
+                    subject=f"messages.{session_id}.evidence.*.*.*", next=True)
+                routing = parse_runtime_subject(record.subject)
+                if (type(record.seq) is not int or not sequence <= record.seq <= published.seq
+                        or routing["session_id"] != session_id or routing["message_class"] != "evidence"):
+                    raise ValueError("Session publication history is unverifiable")
+                item = RuntimeEvidenceMessage.from_dict(json.loads(record.data))
+                if item.session_id != session_id:
+                    raise ValueError("Published evidence does not match the Session")
+                previous = required.get(item.evidence_id)
+                if previous is not None and previous != item:
+                    raise ValueError("Conflicting evidence identity in publication history")
+                required[item.evidence_id] = item
+                if record.seq == published.seq and item != marker:
+                    raise ValueError("Completion marker changed during history readback")
+                sequence = record.seq + 1
             # Recheck history after asynchronous readback; publication and journal
             # acceptance are separate from the broker's contiguous ACK floor.
             current = await jetstream.stream_info("LAB_EVIDENCE")
             current_consumer = await jetstream.consumer_info(
                 "LAB_EVIDENCE", self._session_consumer_name(session_id))
+            # Cover history changes during consumer readback as well as the scan.
+            current = await jetstream.stream_info("LAB_EVIDENCE")
             self._validate_session_consumer(current_consumer, current, session_id)
             if (current.created != stream.created or not self._receiving_history_intact(current)
                     or current_consumer.created != consumer.created
@@ -1004,10 +1029,16 @@ class NatsIngestorCommunication:
                     or self._ingestor.recovery_journal_path != journal
                     or not self._ingestor.has_durable_runtime_evidence(marker)):
                 return result
-            result.update(durable_receipt_confirmed=True, reason="contiguous_durable_receipt",
-                          marker_stream_sequence=published.seq,
-                          acknowledged_stream_sequence=floor.stream_seq,
-                          acknowledged_consumer_sequence=floor.consumer_seq)
+            with self._ingestor.durable_runtime_evidence_history_guard(
+                    session_id, journal, required.values()) as confirmed:
+                if not confirmed:
+                    result["reason"] = "journal_history_unconfirmed"
+                    return result
+                result.update(durable_receipt_confirmed=True, reason="contiguous_durable_receipt",
+                              marker_stream_sequence=published.seq,
+                              acknowledged_stream_sequence=floor.stream_seq,
+                              acknowledged_consumer_sequence=floor.consumer_seq)
+                return result
         except Exception as error:
             result["reason"] = f"unverifiable_progress: {error}"
         return result

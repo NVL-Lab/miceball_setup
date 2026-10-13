@@ -65,6 +65,19 @@ class EvidenceReceiptBroker:
             raise NotFoundError
         return matches[-1]
 
+    async def get_msg(self, stream, seq=None, subject=None, next=False):
+        if self.unavailable:
+            raise ConnectionError("broker unavailable")
+        for sequence in sorted(self.records):
+            record = self.records[sequence]
+            if (sequence >= seq and (next or sequence == seq)
+                    and (subject is None or all(
+                        wanted == "*" or wanted == actual
+                        for wanted, actual in zip(subject.split("."), record.subject.split(".")))
+                        and len(subject.split(".")) == len(record.subject.split(".")))):
+                return record
+        raise NotFoundError
+
     async def deliver(self, durable, sequence, *, acknowledge=True):
         consumer, record = self.consumers[durable], self.records[sequence]
         number = consumer.delivered.consumer_seq + 1

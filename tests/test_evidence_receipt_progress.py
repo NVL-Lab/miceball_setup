@@ -1,10 +1,12 @@
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from datetime import timedelta
 import json
 from pathlib import Path
 import sys
 import tempfile
+from threading import Event
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -93,6 +95,176 @@ class EvidenceReceiptProgressTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.path.read_bytes(), before)
         self.assertEqual(sum(item.evidence_id == marker.evidence_id for item in restored.accepted_runtime_evidence), 1)
         self.assertTrue((await self.proof(marker))["durable_receipt_confirmed"])
+
+    async def test_restart_with_marker_but_missing_earlier_journal_entry_is_unconfirmed(self):
+        for identity in ("first", "second"):
+            sequence = await self.publish(evidence(identity, kind="mapping_update"))
+            await self.broker.deliver(self.durable, sequence)
+        marker = await self.complete()
+        lines = self.path.read_bytes().splitlines(keepends=True)
+        self.path.write_bytes(b"".join(lines[1:]))
+        restored = InMemoryIngestor(session_id="A", recovery_journal_path=self.path)
+        self.receiver = NatsIngestorCommunication(self.boundary, restored)
+        await self.receiver.subscribe_evidence("A")
+        before = self.path.read_bytes()
+        self.assertTrue(restored.has_durable_runtime_evidence(marker))
+        self.assertFalse(restored.has_durable_runtime_evidence(evidence("first", kind="mapping_update")))
+        proof = await self.proof(marker)
+        self.assertFalse(proof["durable_receipt_confirmed"])
+        self.assertEqual(proof["reason"], "journal_history_unconfirmed")
+        self.assertEqual(self.path.read_bytes(), before)
+        self.assertEqual(restored.session_id, "A")
+
+    async def test_truncated_acked_journal_tail_is_not_recreated_from_broker_progress(self):
+        first = await self.publish(evidence("first", kind="mapping_update"))
+        await self.broker.deliver(self.durable, first)
+        last = await self.publish(evidence("lost", kind="mapping_update"))
+        await self.broker.deliver(self.durable, last)
+        lines = self.path.read_bytes().splitlines(keepends=True)
+        self.path.write_bytes(lines[0] + lines[1][:len(lines[1]) // 2])
+        restored = InMemoryIngestor(session_id="A", recovery_journal_path=self.path)
+        self.receiver = NatsIngestorCommunication(self.boundary, restored)
+        await self.receiver.subscribe_evidence("A")
+        marker = await self.complete()
+        self.assertFalse((await self.proof(marker))["durable_receipt_confirmed"])
+        self.assertFalse(restored.has_durable_runtime_evidence(evidence("lost", kind="mapping_update")))
+        self.assertTrue(restored.has_durable_runtime_evidence(marker))
+
+    async def test_live_journal_loss_or_corruption_does_not_use_cached_acceptance(self):
+        first = await self.publish(evidence("first", kind="mapping_update"))
+        await self.broker.deliver(self.durable, first)
+        marker = await self.complete()
+        original = self.path.read_bytes()
+        for fault in ("missing", "marker_only", "conflicting", "truncated"):
+            with self.subTest(fault=fault):
+                self.path.write_bytes(original)
+                if fault == "missing":
+                    self.path.unlink()
+                elif fault == "marker_only":
+                    self.path.write_bytes(original.splitlines(keepends=True)[-1])
+                elif fault == "conflicting":
+                    data = json.loads(original.splitlines()[0])
+                    data["payload"] = {"changed": True}
+                    self.path.write_bytes(json.dumps(data).encode() + b"\n" + original.splitlines(keepends=True)[-1])
+                else:
+                    self.path.write_bytes(original[:-10])
+                self.assertTrue(self.ingestor.has_durable_runtime_evidence(marker))
+                self.assertFalse((await self.proof(marker))["durable_receipt_confirmed"])
+                self.assertEqual(self.ingestor.session_id, "A")
+
+    async def test_duplicate_publications_and_local_recovery_do_not_require_equal_counts(self):
+        early = evidence("early", kind="mapping_update")
+        for _ in range(2):
+            await self.broker.deliver(self.durable, await self.publish(early))
+        await self.broker.publish("messages.B.evidence.acquisition_node.other.event", b"unrelated bytes")
+        marker = await self.complete()
+        restored = InMemoryIngestor(session_id="A", recovery_journal_path=self.path)
+        self.receiver = NatsIngestorCommunication(self.boundary, restored)
+        await self.receiver.subscribe_evidence("A")
+        before = self.path.read_bytes()
+        await self.broker.deliver(self.durable, await self.publish(early))
+        self.assertEqual(self.path.read_bytes(), before)
+        self.assertEqual(sum(item.evidence_id == "early" for item in restored.accepted_runtime_evidence), 1)
+        self.assertEqual(sum(item.evidence_type == "ingestor_recovery_evidence"
+                             for item in restored.accepted_runtime_evidence), 1)
+        proof = await self.proof(marker)
+        self.assertTrue(proof["durable_receipt_confirmed"], proof)
+        self.assertEqual(proof["marker_stream_sequence"], 4)
+        self.assertEqual(proof["acknowledged_consumer_sequence"], 4)
+        self.assertEqual(len(restored.accepted_runtime_evidence), 3)
+
+    async def test_unverifiable_or_conflicting_broker_history_is_unconfirmed(self):
+        early = evidence("early", kind="mapping_update")
+        await self.broker.deliver(self.durable, await self.publish(early))
+        duplicate = await self.publish(early)
+        await self.broker.deliver(self.durable, duplicate)
+        marker = await self.complete()
+        with patch.object(self.broker, "get_msg", side_effect=ConnectionError("history read unavailable")):
+            self.assertFalse((await self.proof(marker))["durable_receipt_confirmed"])
+        conflicting = replace(early, payload={"different": True})
+        self.broker.records[duplicate].data = json.dumps(conflicting.to_dict()).encode()
+        self.assertFalse((await self.proof(marker))["durable_receipt_confirmed"])
+
+    async def test_journal_loss_during_history_readback_prevents_confirmation(self):
+        marker = await self.complete()
+        entered, proceed = asyncio.Event(), asyncio.Event()
+        original = self.broker.get_msg
+
+        async def delayed_history(*args, **kwargs):
+            record = await original(*args, **kwargs)
+            entered.set()
+            await proceed.wait()
+            return record
+
+        with patch.object(self.broker, "get_msg", side_effect=delayed_history):
+            task = asyncio.create_task(self.proof(marker))
+            await entered.wait()
+            self.path.unlink()
+            proceed.set()
+            self.assertFalse((await task)["durable_receipt_confirmed"])
+
+    async def test_intake_abort_during_history_readback_prevents_confirmation(self):
+        marker = await self.complete()
+        entered, proceed = asyncio.Event(), asyncio.Event()
+        original = self.broker.get_msg
+
+        async def delayed_history(*args, **kwargs):
+            record = await original(*args, **kwargs)
+            entered.set()
+            await proceed.wait()
+            return record
+
+        before = self.path.read_bytes()
+        with patch.object(self.broker, "get_msg", side_effect=delayed_history):
+            task = asyncio.create_task(self.proof(marker))
+            await entered.wait()
+            self.assertTrue(self.ingestor.abort_session_initialization("A"))
+            proceed.set()
+            self.assertFalse((await task)["durable_receipt_confirmed"])
+        self.assertEqual(self.path.read_bytes(), before)
+        self.assertEqual(self.ingestor.session_id, "A")
+        self.assertTrue(self.ingestor.has_durable_runtime_evidence(marker))
+
+    async def test_history_loss_during_final_consumer_readback_is_unconfirmed(self):
+        early = await self.publish(evidence("early", kind="mapping_update"))
+        await self.broker.deliver(self.durable, early)
+        marker = await self.complete()
+        original = self.broker.consumer_info
+        calls = 0
+
+        async def lose_history(*args):
+            nonlocal calls
+            consumer = await original(*args)
+            calls += 1
+            if calls == 2:
+                del self.broker.records[early]
+            return consumer
+
+        with patch.object(self.broker, "consumer_info", side_effect=lose_history):
+            self.assertFalse((await self.proof(marker))["durable_receipt_confirmed"])
+
+    async def test_journal_history_guard_keeps_binding_steady_through_readback_commit(self):
+        marker = await self.complete()
+        entered, finished = Event(), Event()
+
+        def abort():
+            entered.set()
+            self.ingestor.abort_session_initialization("A")
+            finished.set()
+
+        before = self.path.read_bytes()
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            with self.ingestor.durable_runtime_evidence_history_guard("A", self.path, [marker]) as confirmed:
+                self.assertTrue(confirmed)
+                operation = executor.submit(abort)
+                self.assertTrue(entered.wait(5))
+                self.assertFalse(finished.is_set())
+                self.assertTrue(self.ingestor.check_ready().ready)
+                self.assertEqual(self.ingestor.session_id, "A")
+            operation.result(timeout=5)
+        self.assertTrue(finished.is_set())
+        self.assertEqual(self.path.read_bytes(), before)
+        self.assertTrue(self.ingestor.has_durable_runtime_evidence(marker))
 
     async def test_deleted_history_cannot_hide_behind_contiguous_filtered_sequences(self):
         first = await self.publish(evidence("first", kind="mapping_update"))
@@ -209,6 +381,60 @@ class EvidenceReceiptProgressTests(unittest.IsolatedAsyncioTestCase):
 
 @unittest.skipUnless(NATS_SERVER, "optional local nats-server unavailable")
 class LiveEvidenceReceiptTests(unittest.IsolatedAsyncioTestCase):
+    async def test_lost_journal_with_surviving_broker_acks_cannot_confirm_receipt(self):
+        with tempfile.TemporaryDirectory() as directory:
+            async with temporary_jetstream_server() as url:
+                boundary = NatsCommunicationBoundary("ingestor", "ingestor", (url,))
+                await boundary.connect()
+                try:
+                    await boundary.ensure_streams()
+                    path = Path(directory) / "journal.jsonl"
+                    ingestor = InMemoryIngestor(session_id="A", recovery_journal_path=path)
+                    receiver = NatsIngestorCommunication(boundary, ingestor)
+                    acknowledged = asyncio.Event()
+
+                    def observe_ack(js):
+                        original_subscribe = js.subscribe
+
+                        async def subscribe(topic, cb, **options):
+                            async def receive(message):
+                                await cb(message)
+                                acknowledged.set()
+                            return await original_subscribe(topic, cb=receive, **options)
+                        return subscribe
+
+                    js = boundary._require_jetstream()
+                    with patch.object(js, "subscribe", side_effect=observe_ack(js)):
+                        subscription = await receiver.subscribe_evidence("A")
+                    early = evidence("early", kind="mapping_update", source="node1")
+                    await js.publish(subject(early), json.dumps(early.to_dict()).encode())
+                    await asyncio.wait_for(acknowledged.wait(), 5)
+                    self.assertTrue(ingestor.has_durable_runtime_evidence(early))
+                    await subscription.unsubscribe()
+                    await boundary.close()
+                    path.unlink()
+
+                    await boundary.connect()
+                    restored = InMemoryIngestor(session_id="A", recovery_journal_path=path)
+                    receiver = NatsIngestorCommunication(boundary, restored)
+                    js = boundary._require_jetstream()
+                    acknowledged.clear()
+                    with patch.object(js, "subscribe", side_effect=observe_ack(js)):
+                        subscription = await receiver.subscribe_evidence("A")
+                    marker = evidence()
+                    await js.publish(subject(marker), json.dumps(marker.to_dict()).encode())
+                    await asyncio.wait_for(acknowledged.wait(), 5)
+                    self.assertTrue(restored.has_durable_runtime_evidence(marker))
+                    self.assertFalse(restored.has_durable_runtime_evidence(early))
+                    self.assertEqual([item.evidence_id for item in restored.accepted_runtime_evidence], ["marker"])
+                    proof = await receiver.verify_acquisition_evidence_receipt(marker)
+                    self.assertFalse(proof["durable_receipt_confirmed"], proof)
+                    self.assertEqual(proof["reason"], "journal_history_unconfirmed")
+                    self.assertEqual([item.evidence_id for item in restored.accepted_runtime_evidence], ["marker"])
+                    await subscription.unsubscribe()
+                finally:
+                    await boundary.close()
+
     async def test_real_receipt_restart_missing_history_and_redelivery(self):
         with tempfile.TemporaryDirectory() as directory:
             async with temporary_jetstream_server() as url:

@@ -9812,10 +9812,14 @@ subscription now retains a durable explicit-ACK receiving position and confirms
 ACKs only after existing journal acceptance. Readback verifies exact journal-backed
 completion-marker receipt, original receiving identity, intact stream-origin history,
 and coherent contiguous ACK progress, with rechecks after asynchronous operations.
+The audit correction additionally reconciles Session-matching publications through
+the marker with exact current retained journal contents under Ingestor's intake
+guard; lost or incomplete journal history cannot be replaced by historical ACKs.
 The existing three-stream provisioning uses disjoint five-/six-token filters and
 in-place legacy-filter correction without stream recreation. Developer automated
-tests include an isolated local JetStream server and controlled broker doubles;
-independent manual validation and audit are pending. Producer-confirmation and
+tests include an isolated local JetStream server and controlled broker doubles.
+Corrected independent manual validation and re-audit remain pending following the
+initial audit FAIL. Producer-confirmation and
 Controller Normal Stop/Kill orchestration remain unimplemented, as do Decisions
 362-365. Missing history or an unknown receiving origin cannot establish completeness;
 no narrower publication-interval boundary is invented. Q019 remains OPEN.
@@ -9933,8 +9937,9 @@ as either confirmed success or confirmed failure. This specifies Decisions 356-3
 normal and forced partial evidence-closeout requirements without changing ownership.
 
 **Implementation status for Decisions 361-365:** Low-level Q019 contracts accepted
-and synchronized. Decision 361's receiving foundation is implemented with developer
-automated coverage, not independently validated or audited; complete closeout and
+and synchronized. Decision 361's receiving foundation and journal-continuity audit
+correction have developer automated coverage, pending corrected independent
+validation and re-audit; complete closeout and
 Decisions 362-365 remain unimplemented. These decisions resolve the contract
 questions identified in Decisions 356-360; their
 historical text is preserved. Q019 remains OPEN pending implementation, exact
@@ -9959,9 +9964,10 @@ without automatically collecting artifacts or permanently closing that archive.
 Decisions 361-365 subsequently specify contiguous durable receiving progress,
 summary-based stage/closure information, temporary durable collection outcomes,
 a separate Session-associated JSON handoff, and normal/forced closeout confirmations.
-These Q019 contracts are accepted but unimplemented; technical feasibility,
-independent validation, and audit remain pending. Historical completed scopes
-remain unchanged.
+Decision 361's receiving foundation is implemented, pending corrected independent
+validation and re-audit. Producer-confirmation and Controller closeout orchestration
+and Decisions 362-365 remain unimplemented. Q019 remains OPEN; historical completed
+scopes remain unchanged.
 
 Decisions 349-355 subsequently resolve additional Q024 ownership and behavioral
 boundaries. Supported Decisions 351-352 startup reconciliation is complete with
@@ -10334,7 +10340,7 @@ requirements remain authoritative.
 362. The existing compilation summary records Stage A completion and Stage B permanent closure with distinct evidence origins; status alone is not preservation proof, and verified consistent durable closure makes the single archive immutable.
 363. StorageManager temporarily durably preserves each actual collection outcome and unique evidence ID before direct archival; confirmed archival and duplicate protection permit safe temporary retirement and authorized evidence-write recovery without repeating transfer.
 364. Ingestor's existing handoff is verified durably preserved by StorageManager as a separate Session-associated JSON file in the existing Session directory; later selected collection validates it without old bindings, invented registries, or guessed missing information.
-365. Normal Stop requires producer confirmations, complete durable Ingestor acceptance, and complete Stage A preservation; authorized Kill Session preserves confirmed accessible partial information without claiming completeness or safe resource release. Decisions 361-365 are accepted but unimplemented; Q019, Q024, Q022, Phase 16, and M015 remain OPEN.
+365. Normal Stop requires producer confirmations, complete durable Ingestor acceptance, and complete Stage A preservation; authorized Kill Session preserves confirmed accessible partial information without claiming completeness or safe resource release. Decision 361's receiving foundation is implemented pending corrected independent validation and re-audit; producer-confirmation and Controller closeout orchestration and Decisions 362-365 remain unimplemented. Q019, Q024, Q022, Phase 16, and M015 remain OPEN.
 
 ---
 
