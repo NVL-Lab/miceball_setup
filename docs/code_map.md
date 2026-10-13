@@ -954,8 +954,8 @@ deployment validation (M011), distinct from W032's software validation.
 - AcquisitionNode.artifact_manifest_evidence: Returns produced persistent RuntimeEvidenceMessage snapshots containing complete initial and finalized manifests, also submitted to the attached local Ingestor at the scientific lifecycle boundaries.
 - AcquisitionNode.health_runtime_evidence: Returns health messages retained at production with original Session/node-scoped identities, preventing interrupted publication or later reuse from relabeling them.
 - AcquisitionNode._record_artifact_manifest(manifest, *, resubmit_unconfirmed=False): Packages each manifest lifecycle state once and permits explicitly authorized recovery to resubmit its identical retained message only while durable Ingestor acceptance is unconfirmed, without changing normal finalization or local ownership.
-- NatsAcquisitionNodeCommunication.publish_new_artifact_manifest_evidence(): Publishes newly produced manifest messages through the existing JetStream evidence boundary, invoked after subscribed command execution or explicitly for caller-managed local operations.
-- NatsAcquisitionNodeCommunication.publish_new_health_interpretation_evidence(session_id): Publishes retained health messages without changing their original Session identity, advancing publication progress only after durable acknowledgment.
+- NatsAcquisitionNodeCommunication.publish_new_artifact_manifest_evidence(): Serializes overlapping publication passes through an asynchronous lock and advances the manifest cursor only after each entry's durable acknowledgment, retaining failed/cancelled entries for later publication before command results.
+- NatsAcquisitionNodeCommunication.publish_new_health_interpretation_evidence(session_id): Serializes overlapping health-publication passes without changing original Session identities, advancing each entry's cursor only after durable acknowledgment.
 - NatsAcquisitionNodeCommunication.publish_evidence(message): Retains unconfirmed node-owned messages for explicit later publication and requires durable acknowledgment before removing the obligation.
 - InMemoryIngestor.compile_artifact_collection_handoff(session_id): Groups retained Session-scoped artifact_manifest messages by manifest identity, selects complete finalized or initial manifests, and returns session_id plus artifacts entries containing artifact_manifest and missing_finalization_evidence.
 - Controller.finalize_session(): Requires an explicit Ingestor reference and all owned persistent Session evidence in compilation, writes runtime evidence/audit separately from the Session Record, rejects changed owned-evidence snapshots before completion, and retains exact decision archival confirmation without asserting Session-wide consumption or retrieving artifact bytes.
@@ -1040,8 +1040,8 @@ staged closeout. The latter prerequisite awaits independent validation and audit
 - PublicationBroker: Reuses existing transport doubles to record publication ordering and inject controlled acknowledgment failures or pauses without substituting framework owners.
 - HealthNode: Test-only AcquisitionNode fixture with explicit missing-frame policy for real health-evidence production.
 - interpretation(identity="observation"): Constructs valid health interpretation input for public Controller/communication workflows.
-- ProducerPublicationCompletionTests: Exercises optional/required producer publication, retention, correlation, pending health work, stable marker interruption/repetition, and scope isolation through public APIs.
-- RealProducerPublicationTests: Exercises two-node health/artifact and Controller publication through an isolated JetStream server, followed by actual W041 receipt verification.
+- ProducerPublicationCompletionTests: Exercises producer publication, overlapping command callbacks and health passes, failed/cancelled publication retry, correlation, pending health work, stable marker interruption/repetition, and scope isolation through public APIs.
+- RealProducerPublicationTests: Exercises overlapping Session-scoped preparation and Session-independent inventory callbacks plus two-node evidence publication through isolated JetStream, followed by actual W041 receipt verification.
 
 ## tests/evidence_receipt_fixtures.py
 

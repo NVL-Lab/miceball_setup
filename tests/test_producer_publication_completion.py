@@ -143,6 +143,200 @@ class ProducerPublicationCompletionTests(unittest.IsolatedAsyncioTestCase):
             await task
         self.assertTrue((await self.marker()).succeeded)
 
+    async def test_overlapping_inventory_cannot_skip_finalized_manifest(self):
+        sid = await self.running(two=False, artifacts=False)
+        f = self.fixture
+        participant = RuntimeParticipant("acquisition_node", "node-a")
+        initial_entered, initial_resume = asyncio.Event(), asyncio.Event()
+        inventory_executed = asyncio.Event()
+        final_entered, final_resume = asyncio.Event(), asyncio.Event()
+        original_execute = NatsAcquisitionNodeCommunication.execute_command
+
+        def observe_execute(handler, command):
+            result = original_execute(handler, command)
+            if command.command_type == "get_inventory":
+                inventory_executed.set()
+            return result
+
+        async def pause(subject, data):
+            if data.get("evidence_type") != "artifact_manifest":
+                return
+            if data["payload"]["lifecycle_state"] == "open" and not initial_entered.is_set():
+                initial_entered.set()
+                await initial_resume.wait()
+            elif data["payload"]["lifecycle_state"] == "finalized":
+                final_entered.set()
+                await final_resume.wait()
+
+        f.broker.before_publication = pause
+        tasks = []
+        try:
+            with patch.object(NatsAcquisitionNodeCommunication, "execute_command", new=observe_execute):
+                preparation = asyncio.create_task(f.communication.request_command(participant,
+                    "prepare_experiment_scientific_outputs", sid,
+                    {"experiment_id": "experiment", "scientific_outputs": [
+                        ScientificOutputSelection("node-a-device", "node-a", "events").to_dict()]}, 3))
+                tasks.append(preparation)
+                await asyncio.wait_for(initial_entered.wait(), 2)
+                inventory = asyncio.create_task(f.communication.request_command(
+                    participant, "get_inventory", None, {}, 3))
+                tasks.append(inventory)
+                await asyncio.wait_for(inventory_executed.wait(), 2)
+                initial_resume.set()
+                self.assertTrue((await preparation).success)
+                self.assertTrue((await inventory).success)
+            stopped = asyncio.create_task(f.controller.stop_launched_session())
+            tasks.append(stopped)
+            await asyncio.wait_for(final_entered.wait(), 2)
+            self.assertFalse((await self.marker()).succeeded)
+            self.assertFalse(self.published("acquisition_evidence_completion"))
+            self.assertFalse(any("command_result" in subject and subject.endswith(".stop_runtime")
+                and data["source_id"] == "node-a" for subject, data in f.broker.events))
+            final_resume.set()
+            self.assertTrue((await stopped).succeeded)
+            produced = [m.to_dict() for m in f.nodes["node-a"].artifact_manifest_evidence]
+            self.assertEqual(self.published("artifact_manifest"), produced)
+            self.assertTrue((await self.marker()).succeeded)
+            events = f.broker.events
+            final_index = next(i for i, (_, data) in enumerate(events) if data == produced[-1])
+            response_index = next(i for i, (subject, data) in enumerate(events)
+                if "command_result" in subject and subject.endswith(".stop_runtime")
+                and data["source_id"] == "node-a")
+            marker_index = next(i for i, (_, data) in enumerate(events)
+                if data.get("evidence_type") == "acquisition_evidence_completion")
+            self.assertLess(final_index, response_index)
+            self.assertLess(response_index, marker_index)
+        finally:
+            initial_resume.set()
+            final_resume.set()
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+    async def test_interrupted_manifest_publication_preserves_retry_and_unblocks_inventory(self):
+        sid = await self.running(two=False, artifacts=False)
+        f = self.fixture
+        node = f.nodes["node-a"]
+        participant = RuntimeParticipant("acquisition_node", "node-a")
+        original_execute = NatsAcquisitionNodeCommunication.execute_command
+        for mode in ("failure", "cancellation"):
+            with self.subTest(mode=mode):
+                entered, resume, inventory_executed = asyncio.Event(), asyncio.Event(), asyncio.Event()
+                tasks = []
+
+                def observe_execute(handler, command):
+                    result = original_execute(handler, command)
+                    if command.command_type == "get_inventory":
+                        inventory_executed.set()
+                    return result
+
+                async def pause(subject, data):
+                    if data.get("evidence_type") == "artifact_manifest" and not entered.is_set():
+                        entered.set()
+                        await resume.wait()
+                        if mode == "failure":
+                            raise ConnectionError("initial manifest publication unavailable")
+
+                payload = {"experiment_id": mode + "-experiment", "scientific_outputs": [
+                    ScientificOutputSelection("node-a-device", "node-a", "events").to_dict()]}
+                f.broker.before_publication = pause
+                try:
+                    with patch.object(NatsAcquisitionNodeCommunication, "execute_command", new=observe_execute):
+                        preparation = asyncio.create_task(f.communication.request_command(participant,
+                            "prepare_experiment_scientific_outputs", sid, payload, 3, command_id="prepare-" + mode))
+                        tasks.append(preparation)
+                        await asyncio.wait_for(entered.wait(), 2)
+                        retained = node.artifact_manifest_evidence
+                        inventory = asyncio.create_task(f.communication.request_command(
+                            participant, "get_inventory", None, {}, 3))
+                        tasks.append(inventory)
+                        await asyncio.wait_for(inventory_executed.wait(), 2)
+                        if mode == "failure":
+                            resume.set()
+                            with self.assertRaises(DurablePublicationError):
+                                await preparation
+                        else:
+                            preparation.cancel()
+                            with self.assertRaises(asyncio.CancelledError):
+                                await preparation
+                        self.assertTrue((await asyncio.wait_for(inventory, 2)).success)
+                    f.broker.before_publication = None
+                    retry = await f.communication.request_command(participant,
+                        "prepare_experiment_scientific_outputs", sid, payload, 3, command_id="prepare-" + mode)
+                    self.assertTrue(retry.success, retry.reason)
+                    self.assertEqual(node.artifact_manifest_evidence, retained)
+                    self.assertEqual(self.published("artifact_manifest"), [m.to_dict() for m in retained])
+                    self.assertEqual(node.reserved_for_session_id, sid)
+                finally:
+                    resume.set()
+                    for task in tasks:
+                        if not task.done():
+                            task.cancel()
+                    await asyncio.gather(*tasks, return_exceptions=True)
+        self.assertTrue((await f.controller.stop_launched_session()).succeeded)
+        self.assertEqual(self.published("artifact_manifest"), [m.to_dict() for m in node.artifact_manifest_evidence])
+        self.assertTrue((await self.marker()).succeeded)
+
+    async def test_overlapping_health_publications_cannot_skip_later_evidence(self):
+        f = self.fixture
+        await f.services()
+        node, declaration, _ = await f.node(node_class=HealthNode)
+        for subscription in tuple(f.broker.subscriptions):
+            if ".command.acquisition_node.node-a." in subscription.subject:
+                await subscription.unsubscribe()
+        handler = NatsAcquisitionNodeCommunication(_Boundary("acquisition_node", "node-a", f.broker), node)
+        await handler.subscribe_commands()
+        launched = await f.launch({"node-a": [declaration]})
+        self.assertTrue(launched.succeeded, launched.error)
+        sid = launched.details["session_id"]
+        self.assertTrue((await f.controller.start_launched_session()).succeeded)
+        mapping = (ExperimentRuntimeHealthMapping(declaration.device_id, "node-a", "frames", True, "frames"),)
+        node.activate_experiment_runtime_health_mapping("first-experiment", mapping)
+        entered, resume, overlapping_entered = asyncio.Event(), asyncio.Event(), asyncio.Event()
+        original_publish = handler.publish_new_health_interpretation_evidence
+
+        async def observe_publish(session_id):
+            if entered.is_set():
+                overlapping_entered.set()
+            await original_publish(session_id)
+
+        async def pause(subject, data):
+            if data.get("evidence_type") == "health_interpretation" and not entered.is_set():
+                entered.set()
+                await resume.wait()
+
+        f.broker.before_publication = pause
+        tasks = []
+        try:
+            with patch.object(handler, "publish_new_health_interpretation_evidence", new=observe_publish):
+                iteration = asyncio.create_task(f.communication.request_command(
+                    RuntimeParticipant("acquisition_node", "node-a"), "run_one_iteration", sid, {}, 3))
+                tasks.append(iteration)
+                await asyncio.wait_for(entered.wait(), 2)
+                publication = asyncio.create_task(handler.publish_new_health_interpretation_evidence(sid))
+                tasks.append(publication)
+                await asyncio.wait_for(overlapping_entered.wait(), 2)
+                resume.set()
+                self.assertTrue((await iteration).success)
+                await publication
+            node.clear_experiment_runtime_health_mapping()
+            node.activate_experiment_runtime_health_mapping("second-experiment", mapping)
+            result = await f.communication.request_command(RuntimeParticipant("acquisition_node", "node-a"),
+                "run_one_iteration", sid, {}, 3)
+            self.assertTrue(result.success, result.reason)
+            self.assertEqual(len(node.health_runtime_evidence), 2)
+            self.assertEqual(self.published("health_interpretation"),
+                             [m.to_dict() for m in node.health_runtime_evidence])
+            self.assertTrue((await f.controller.stop_launched_session()).succeeded)
+            self.assertTrue((await self.marker()).succeeded)
+        finally:
+            resume.set()
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+
     async def test_failed_node_publication_keeps_reservation_and_prevents_confirmation(self):
         await self.running(two=False)
         async def fail(subject, data):
@@ -486,10 +680,12 @@ class RealProducerPublicationTests(unittest.IsolatedAsyncioTestCase):
                 with patch.object(intake_boundary._require_jetstream(), "subscribe", side_effect=subscribe):
                     await intake.subscribe_commands()
                     selections = {}
+                    node_boundaries = {}
                     for node_id in ("node-a", "node-b"):
                         node, declaration, _ = await f.node(node_id, node_class=HealthNode)
                         selections[node_id] = [declaration]
                         node_boundary = await boundary("acquisition_node", node_id)
+                        node_boundaries[node_id] = node_boundary
                         await NatsAcquisitionNodeCommunication(node_boundary, node).subscribe_commands()
                     launched = await f.controller.launch_session(selections, communication=f.communication,
                         participants=f.participants, config_parameters=f.config, result_window_s=3)
@@ -502,10 +698,50 @@ class RealProducerPublicationTests(unittest.IsolatedAsyncioTestCase):
                             health_processed.set()
                     await f.communication.subscribe_health_interpretation_evidence(sid, f.controller, observed)
                     for node_id, declarations in selections.items():
-                        result = await f.communication.request_command(RuntimeParticipant("acquisition_node", node_id),
-                            "prepare_experiment_scientific_outputs", sid,
-                            {"experiment_id": "experiment", "scientific_outputs": [
-                                ScientificOutputSelection(declarations[0].device_id, node_id, "events").to_dict()]}, 3)
+                        participant = RuntimeParticipant("acquisition_node", node_id)
+                        payload = {"experiment_id": "experiment", "scientific_outputs": [
+                            ScientificOutputSelection(declarations[0].device_id, node_id, "events").to_dict()]}
+                        if node_id == "node-a":
+                            entered, resume, inventory_executed = asyncio.Event(), asyncio.Event(), asyncio.Event()
+                            original_publish = node_boundaries[node_id].publish_evidence
+                            original_execute = NatsAcquisitionNodeCommunication.execute_command
+
+                            async def pause(message):
+                                if message.evidence_type == "artifact_manifest" and not entered.is_set():
+                                    entered.set()
+                                    await resume.wait()
+                                await original_publish(message)
+
+                            def observe_execute(handler, command):
+                                result = original_execute(handler, command)
+                                if command.command_type == "get_inventory":
+                                    inventory_executed.set()
+                                return result
+
+                            tasks = []
+                            try:
+                                with patch.object(node_boundaries[node_id], "publish_evidence", new=pause), \
+                                        patch.object(NatsAcquisitionNodeCommunication, "execute_command", new=observe_execute):
+                                    preparation = asyncio.create_task(f.communication.request_command(
+                                        participant, "prepare_experiment_scientific_outputs", sid, payload, 3))
+                                    tasks.append(preparation)
+                                    await asyncio.wait_for(entered.wait(), 2)
+                                    inventory = asyncio.create_task(f.communication.request_command(
+                                        participant, "get_inventory", None, {}, 3))
+                                    tasks.append(inventory)
+                                    await asyncio.wait_for(inventory_executed.wait(), 2)
+                                    resume.set()
+                                    result = await preparation
+                                    self.assertTrue((await inventory).success)
+                            finally:
+                                resume.set()
+                                for task in tasks:
+                                    if not task.done():
+                                        task.cancel()
+                                await asyncio.gather(*tasks, return_exceptions=True)
+                        else:
+                            result = await f.communication.request_command(participant,
+                                "prepare_experiment_scientific_outputs", sid, payload, 3)
                         self.assertTrue(result.success, result.reason)
                         f.nodes[node_id].activate_experiment_runtime_health_mapping("experiment", (
                             ExperimentRuntimeHealthMapping(declarations[0].device_id, node_id, "frames", True, "frames"),))
@@ -524,6 +760,9 @@ class RealProducerPublicationTests(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(f.controller._session.current_state.value, "stopping")
                     accepted = f.ingestor.accepted_runtime_evidence
                     self.assertEqual(len([m for m in accepted if m.evidence_type == "artifact_manifest"]), 4)
+                    for node in f.nodes.values():
+                        for manifest_message in node.artifact_manifest_evidence:
+                            self.assertIn(manifest_message, accepted)
                     self.assertEqual(len([m for m in accepted if m.evidence_type == "health_interpretation"]), 2)
                     self.assertEqual(len([m for m in accepted if m.evidence_type == "controller_action_decision"]), 2)
             finally:

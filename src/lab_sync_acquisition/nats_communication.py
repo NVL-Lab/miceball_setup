@@ -688,6 +688,8 @@ class NatsAcquisitionNodeCommunication:
         self._results_by_command_id: dict[str, RuntimeCommandResultMessage] = {}
         self._published_health_interpretation_count = 0
         self._published_artifact_manifest_count = 0
+        self._health_publication_lock = asyncio.Lock()
+        self._artifact_manifest_publication_lock = asyncio.Lock()
         self._unpublished_evidence: dict[str, RuntimeEvidenceMessage] = {}
 
     async def subscribe_commands(self) -> tuple[Subscription, Subscription]:
@@ -823,10 +825,11 @@ class NatsAcquisitionNodeCommunication:
 
     async def publish_new_artifact_manifest_evidence(self) -> None:
         """Publish produced manifest lifecycle evidence through the existing boundary."""
-        evidence = getattr(self._acquisition_node, "artifact_manifest_evidence", ())
-        for message in evidence[self._published_artifact_manifest_count:]:
-            await self.publish_evidence(message)
-            self._published_artifact_manifest_count += 1
+        async with self._artifact_manifest_publication_lock:
+            evidence = getattr(self._acquisition_node, "artifact_manifest_evidence", ())
+            for message in evidence[self._published_artifact_manifest_count:]:
+                await self.publish_evidence(message)
+                self._published_artifact_manifest_count += 1
 
     async def publish_new_health_interpretation_evidence(
         self,
@@ -834,15 +837,16 @@ class NatsAcquisitionNodeCommunication:
     ) -> None:
         """Publish newly produced interpretation evidence without changing semantics."""
 
-        all_evidence = getattr(self._acquisition_node, "health_runtime_evidence", None)
-        if all_evidence is None:
-            all_evidence = tuple(RuntimeEvidenceMessage(
-                f"health-interpretation-{evidence.originating_observation_id}", session_id,
-                "health_interpretation", self._boundary.component_id, evidence.to_dict(), True)
-                for evidence in self._acquisition_node.health_interpretation_evidence)
-        for message in all_evidence[self._published_health_interpretation_count:]:
-            await self._boundary.publish_evidence(message)
-            self._published_health_interpretation_count += 1
+        async with self._health_publication_lock:
+            all_evidence = getattr(self._acquisition_node, "health_runtime_evidence", None)
+            if all_evidence is None:
+                all_evidence = tuple(RuntimeEvidenceMessage(
+                    f"health-interpretation-{evidence.originating_observation_id}", session_id,
+                    "health_interpretation", self._boundary.component_id, evidence.to_dict(), True)
+                    for evidence in self._acquisition_node.health_interpretation_evidence)
+            for message in all_evidence[self._published_health_interpretation_count:]:
+                await self._boundary.publish_evidence(message)
+                self._published_health_interpretation_count += 1
 
     async def publish_evidence(self, message: RuntimeEvidenceMessage) -> None:
         """Publish AcquisitionNode-owned durable runtime evidence."""
