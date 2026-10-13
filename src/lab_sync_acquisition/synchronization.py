@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from collections.abc import Awaitable, Callable
 from copy import deepcopy
 from threading import RLock
 from time import monotonic
@@ -191,6 +192,8 @@ class SynchronizationManager:
         ] = {}
         self._mapping_update_evidence: tuple[MappingUpdateEvidence, ...] = ()
         self._timing_reconciliation_evidence: list[RuntimeEvidenceMessage] = []
+        self._publication_session_id: str | None = None
+        self._mapping_publication_evidence: dict[int, RuntimeEvidenceMessage] = {}
 
     @service_operation(new_work=True)
     def prepare_session(self, session_id: str) -> ServiceReadiness:
@@ -202,6 +205,36 @@ class SynchronizationManager:
                 raise RuntimeError("SynchronizationManager already prepared for another Session")
             self._prepared_session_id = session_id
             return self.check_ready()
+
+    @service_operation()
+    async def complete_session_evidence_publication(
+        self, session_id: str, *, source_id: str,
+        publisher: Callable[[RuntimeEvidenceMessage], Awaitable[None]],
+    ) -> None:
+        """Finish a prepared Session's timing work and durably publish its retained evidence."""
+        with self._mapping_lock:
+            if self._prepared_session_id != session_id:
+                raise RuntimeError("Synchronization publication Session mismatch")
+            self.stop()
+            for identity, node_id in tuple(self._active_mappings):
+                if identity == session_id:
+                    self.retire_active_mapping(session_id, node_id, "acquisition_closeout")
+            messages = []
+            for update in self._mapping_update_evidence:
+                if update.session_id != session_id:
+                    continue
+                message = self._mapping_publication_evidence.get(id(update))
+                if message is None:
+                    message = update.to_runtime_evidence_message(uuid4().hex, source_id)
+                    self._mapping_publication_evidence[id(update)] = message
+                if message.source_id != source_id:
+                    raise RuntimeError("Synchronization publication source changed")
+                messages.append(message)
+            messages.extend(m for m in self._timing_reconciliation_evidence
+                            if m.session_id == session_id)
+            self._publication_session_id = session_id
+        for message in messages:
+            await publisher(message)
 
     @service_operation()
     def abort_session_initialization(self, session_id: str) -> bool:
@@ -243,6 +276,10 @@ class SynchronizationManager:
                     available.remove(match)
             self._mapping_update_evidence = tuple(
                 item for item in self._mapping_update_evidence if item.session_id != session_id)
+            self._mapping_publication_evidence = {
+                key: message for key, message in self._mapping_publication_evidence.items()
+                if message.session_id != session_id}
+            self._publication_session_id = None
             self._prepared_session_id = None
             self._started_at_monotonic_s = None
             self._stopped_session_time_s = None
@@ -277,6 +314,8 @@ class SynchronizationManager:
         """Create and activate an initial mapping for one AcquisitionNode."""
 
         with self._mapping_lock:
+            if session_id == self._publication_session_id:
+                raise RuntimeError("Session timing publication boundary is closed")
             key = (session_id, acquisition_node_id)
             if key in self._active_mappings:
                 raise RuntimeError("An active synchronization mapping already exists")
@@ -303,6 +342,8 @@ class SynchronizationManager:
         """Atomically replace one active mapping and preserve update evidence."""
 
         with self._mapping_lock:
+            if session_id == self._publication_session_id:
+                raise RuntimeError("Session timing publication boundary is closed")
             key = (session_id, acquisition_node_id)
             previous = self._active_mappings.get(key)
             if previous is None:
@@ -327,6 +368,8 @@ class SynchronizationManager:
         """Retire one active mapping and preserve update evidence."""
 
         with self._mapping_lock:
+            if session_id == self._publication_session_id:
+                raise RuntimeError("Session timing publication boundary is closed")
             key = (session_id, acquisition_node_id)
             if session_id in self._lost_time_scopes():
                 raise RuntimeError("Historical mappings must remain intact while Session Time continuity is unconfirmed")
@@ -419,6 +462,8 @@ class SynchronizationManager:
         """Start the session clock and return the initial Session Time."""
 
         with self._mapping_lock:
+            if self._prepared_session_id is not None and self._prepared_session_id == self._publication_session_id:
+                raise RuntimeError("Session timing publication boundary is closed")
             lost = self._lost_time_scopes()
             if lost and (self._prepared_session_id is None or self._prepared_session_id in lost):
                 raise RuntimeError("Cannot restart Session Time at zero for an interrupted ongoing Session")

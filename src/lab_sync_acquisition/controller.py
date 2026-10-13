@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import Awaitable, Callable
 from copy import deepcopy
 from dataclasses import dataclass, replace
@@ -163,6 +164,94 @@ class Controller:
         self._framework_shutdown_attempt_id: str | None = None
         self._framework_shutdown_attempts: dict[str, dict[str, Any]] = {}
         self._reconciliation_evidence: list[RuntimeEvidenceMessage] = []
+        self._acquisition_publication_active = False
+        self._acquisition_marker_session: Session | None = None
+        self._acquisition_marker: RuntimeEvidenceMessage | None = None
+        self._acquisition_marker_confirmed = False
+
+    @service_operation()
+    async def publish_acquisition_evidence_completion(
+        self, *, communication: NatsControllerCommunication, result_window_s: float,
+    ) -> ControllerCommandResult:
+        """Publish the Session boundary after owner confirmations, without completing the Session."""
+        session = self._require_session()
+        admitted = False
+        try:
+            with self._service_operation_lock:
+                if self._acquisition_publication_active:
+                    raise RuntimeError("Acquisition publication completion is already in progress")
+                if session.current_state != SessionState.STOPPING or not self._runtime_cleanup_confirmed:
+                    raise RuntimeError("Confirmed acquisition cleanup and a stopping Session are required")
+                if (communication._boundary.component_id != self._component_id
+                        or communication._boundary.component_type != "controller"):
+                    raise ValueError("Controller publication identity mismatch")
+                if self._acquisition_marker_session is session and self._acquisition_marker_confirmed:
+                    return self._record_successful_command("publish_acquisition_evidence_completion",
+                        {"marker": self._acquisition_marker.to_dict(), "publication_confirmed": True})
+                self._acquisition_publication_active = admitted = True
+            participants = session.configuration.expected_runtime_participants
+            nodes = tuple(p for p in participants if p.component_type == "acquisition_node")
+            if self._acquisition_node is not None and not any(
+                    p.component_id == self._acquisition_node.node_id for p in nodes):
+                nodes += (RuntimeParticipant("acquisition_node", self._acquisition_node.node_id),)
+            for participant in nodes:
+                if communication.session_acquisition_completion(participant, session.session_id) is None:
+                    raise RuntimeError(f"Acquisition publication unconfirmed: {participant.component_id}")
+            synchronization = [p for p in participants if p.component_type == "synchronization_manager"]
+            if len(synchronization) != 1:
+                raise RuntimeError("One authoritative Session synchronization participant is required")
+            result = await communication.request_command(synchronization[0], "stop_runtime",
+                session.session_id, {}, result_window_s)
+            if result is None or result.status != "succeeded" or result.success is not True:
+                raise RuntimeError("Synchronization evidence publication is unconfirmed")
+            if not await communication.confirm_session_health_processing(session.session_id, self):
+                raise RuntimeError("Controller Session health processing is unconfirmed")
+            with self._service_operation_lock:
+                if self._session is not session:
+                    raise RuntimeError("Controller Session binding changed during publication")
+                messages = list(self.controller_action_decision_evidence)
+                messages.extend(m for m in communication.unpublished_session_evidence(session.session_id)
+                                if self._acquisition_marker is None
+                                or m.evidence_id != self._acquisition_marker.evidence_id)
+                for recorded in self._command_results:
+                    if isinstance(recorded.details, Mapping):
+                        rejection = recorded.details.get("rejection_evidence")
+                        if isinstance(rejection, dict):
+                            messages.append(RuntimeEvidenceMessage.from_dict(rejection))
+                unique = {}
+                for message in messages:
+                    if message.session_id != session.session_id or message.source_id != self._component_id:
+                        continue
+                    prior = unique.get(message.evidence_id)
+                    if prior is not None and json.dumps(prior.to_dict(), sort_keys=True) != json.dumps(message.to_dict(), sort_keys=True):
+                        raise RuntimeError("Conflicting Controller publication evidence identity")
+                    unique[message.evidence_id] = message
+                messages = tuple(unique.values())
+                if self._acquisition_marker_session is not session:
+                    self._acquisition_marker = None
+                    self._acquisition_marker_session = session
+                    self._acquisition_marker_confirmed = False
+            for message in messages:
+                await communication.publish_evidence(message)
+            with self._service_operation_lock:
+                if self._session is not session:
+                    raise RuntimeError("Controller Session binding changed during publication")
+                if self._acquisition_marker is None:
+                    self._acquisition_marker = RuntimeEvidenceMessage(uuid4().hex,
+                        session.session_id, "acquisition_evidence_completion", self._component_id, {}, True)
+            await communication.publish_evidence(self._acquisition_marker)
+            with self._service_operation_lock:
+                if self._session is not session:
+                    raise RuntimeError("Controller Session binding changed during publication")
+                self._acquisition_marker_confirmed = True
+                return self._record_successful_command("publish_acquisition_evidence_completion",
+                    {"marker": self._acquisition_marker.to_dict(), "publication_confirmed": True})
+        except Exception as error:
+            return self._record_failed_command("publish_acquisition_evidence_completion", error)
+        finally:
+            if admitted:
+                with self._service_operation_lock:
+                    self._acquisition_publication_active = False
 
     def check_ready(self) -> ServiceReadiness:
         """Report service readiness independently of Session lifecycle and reservations."""
@@ -714,19 +803,22 @@ class Controller:
         return decision
 
     def _record_action_decision(self, decision: ControllerActionDecision) -> None:
-        if any(recorded is decision for recorded in self._controller_action_decisions):
-            return
-        message = RuntimeEvidenceMessage(
-            evidence_id=uuid4().hex,
-            session_id=decision.session_id,
-            evidence_type="controller_action_decision",
-            source_id=self._component_id,
-            payload=deepcopy(decision.to_dict()),
-            is_persistent=True,
-        )
-        # Retain ownership even if the existing intake handoff fails.
-        self._controller_action_decisions.append(decision)
-        self._controller_action_decision_evidence.append(message)
+        with self._service_operation_lock:
+            if any(recorded is decision for recorded in self._controller_action_decisions):
+                return
+            if self._acquisition_marker_session is self._session and self._session is not None:
+                raise RuntimeError("Session acquisition evidence publication boundary is closed")
+            message = RuntimeEvidenceMessage(
+                evidence_id=uuid4().hex,
+                session_id=decision.session_id,
+                evidence_type="controller_action_decision",
+                source_id=self._component_id,
+                payload=deepcopy(decision.to_dict()),
+                is_persistent=True,
+            )
+            # Retain ownership before handoff; do not nest Controller and intake locks.
+            self._controller_action_decisions.append(decision)
+            self._controller_action_decision_evidence.append(message)
         if self._ingestor is not None:
             audit = self._ingestor.receive_runtime_evidence(message)
             if not audit.accepted:
@@ -739,6 +831,20 @@ class Controller:
             if message.session_id == session_id
         }
 
+    def _controller_owned_session_evidence_snapshot(self, session_id: str) -> dict[str, dict[str, Any]]:
+        """Read owned persistent decisions, rejection evidence, and any produced marker."""
+        snapshot = self._controller_decision_evidence_snapshot(session_id)
+        for result in self._command_results:
+            if isinstance(result.details, Mapping):
+                contents = result.details.get("rejection_evidence")
+                if isinstance(contents, dict):
+                    message = RuntimeEvidenceMessage.from_dict(contents)
+                    if message.session_id == session_id and message.source_id == self._component_id and message.is_persistent:
+                        snapshot[message.evidence_id] = deepcopy(message.to_dict())
+        if self._acquisition_marker is not None and self._acquisition_marker.session_id == session_id:
+            snapshot[self._acquisition_marker.evidence_id] = deepcopy(self._acquisition_marker.to_dict())
+        return snapshot
+
     def _require_controller_decision_archival(
         self, session_id: str, confirmation: dict[str, Any] | None,
     ) -> None:
@@ -748,6 +854,10 @@ class Controller:
         archived = {message["evidence_id"]: message for message in confirmation["runtime_evidence"]}
         if any(archived.get(identity) != contents for identity, contents in decisions.items()):
             raise RuntimeError("Current Evidence Archive does not preserve required Controller decisions")
+        owned = self._controller_owned_session_evidence_snapshot(session_id)
+        if any(json.dumps(archived.get(identity), sort_keys=True) != json.dumps(contents, sort_keys=True)
+               for identity, contents in owned.items()):
+            raise RuntimeError("Current Evidence Archive does not preserve required Controller-owned evidence")
 
     @service_operation()
     def execute_controller_action_decision(
@@ -982,8 +1092,8 @@ class Controller:
                              "command_outcomes": [outcome.to_dict() for outcome in outcomes if isinstance(outcome, GroupCommandOutcome)]},
                     is_persistent=True,
                 )
-                self._ingestor.receive_runtime_evidence(message)
                 rejection_details = {"rejection_evidence": message.to_dict()}
+                self._ingestor.receive_runtime_evidence(message)
                 raise
             experiment_start_session_time_s = self._current_session_time_s()
             if experiment_start_session_time_s is None:
@@ -1081,7 +1191,7 @@ class Controller:
         """Persist Phase 13 products, completing only a stopping Session."""
 
         session = self._require_session()
-        if self._artifact_collection_in_progress:
+        if self._artifact_collection_in_progress or self._acquisition_publication_active:
             return self._record_failed_command(
                 "finalize_session", RuntimeError("Artifact collection/publication is in progress"))
         if session.current_state not in {
@@ -1098,6 +1208,7 @@ class Controller:
                 self._ingestor.compile_persistent_runtime_evidence()
             )
             decision_snapshot = self._controller_decision_evidence_snapshot(session.session_id)
+            owned_snapshot = self._controller_owned_session_evidence_snapshot(session.session_id)
             compiled_messages = {
                 message.evidence_id: message.to_dict()
                 for message in compiled_runtime_evidence["runtime_evidence"]
@@ -1105,6 +1216,9 @@ class Controller:
             if any(compiled_messages.get(identity) != contents
                    for identity, contents in decision_snapshot.items()):
                 raise RuntimeError("Required Controller decision evidence is missing from persistent compilation")
+            if any(json.dumps(compiled_messages.get(identity), sort_keys=True) != json.dumps(contents, sort_keys=True)
+                   for identity, contents in owned_snapshot.items()):
+                raise RuntimeError("Required Controller-owned evidence is missing from persistent compilation")
             artifact_collection_handoff = self._ingestor.compile_artifact_collection_handoff(
                 session.session_id
             )
@@ -1120,6 +1234,8 @@ class Controller:
             final_record_path = self._write_final_session_record()
             if decision_snapshot != self._controller_decision_evidence_snapshot(session.session_id):
                 raise RuntimeError("Controller decision evidence changed during final persistence")
+            if owned_snapshot != self._controller_owned_session_evidence_snapshot(session.session_id):
+                raise RuntimeError("Controller-owned evidence changed during final persistence")
         except Exception as error:
             self._mark_session_failed(str(error))
             return self._record_failed_command("finalize_session", error)
@@ -1201,6 +1317,9 @@ class Controller:
                 self._archived_controller_action_decisions = {}
                 self._controller_action_decisions.clear()
                 self._controller_action_decision_evidence.clear()
+                self._acquisition_marker_session = None
+                self._acquisition_marker = None
+                self._acquisition_marker_confirmed = False
                 self._active_experiment_runtime_health_mapping = ()
                 self._command_results.clear()
         except Exception as error:

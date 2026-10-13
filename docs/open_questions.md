@@ -489,8 +489,9 @@ successful completion response, regardless of selected-device optionality. Unuse
 optional devices add no obligation. Controller and SynchronizationManager finish
 their applicable closing-Session evidence publication before the single marker;
 Ingestor-owned locally journaled evidence needs no JetStream round trip and remains
-part of compilation/persistence. Coordination remains unimplemented, not unresolved
-producer selection or a new registry.
+part of compilation/persistence. The supported publication prerequisite is implemented
+with developer automated coverage, pending independent manual validation/audit;
+full closeout remains unimplemented, not unresolved producer selection or a new registry.
 
 Accepted architecture
 
@@ -602,12 +603,13 @@ after both audit corrections, not a full acquisition-closeout guarantee.
 
 Remaining implementation and technical-verification work
 
-- **Producer/receipt integration:** Integrate the W041-validated receiving foundation
-  with acquisition-stage producer publication confirmations and Controller marker
-  publication after those confirmations, using Decision 366's existing successful
-  participant responses and Session-scoped Controller/synchronization obligations.
-  Publication must precede successful participant completion responses; an earlier
-  command result cannot confirm later publication. Receipt alone does not prove these
+- **Producer/receipt integration:** Independently validate/audit the new Decision 366
+  producer-confirmation and marker prerequisite, then integrate W041 receipt proof
+  into complete acquisition closeout. The supported implementation publishes node
+  evidence before existing successful completion responses, confirms synchronization
+  publication, and explicitly publishes Controller-owned evidence before one stable
+  marker. It refuses unfinished Controller health processing without replay or polling.
+  No complete Normal Stop/archival integration is claimed. Receipt alone does not prove these
   obligations, successful Normal Stop, Session completion, or archive preservation.
   The current proof requires intact global stream history from sequence 1 and has
   linear broker-history read cost; losing unrelated older history can block proof.
@@ -1168,7 +1170,7 @@ The roadmap distinguishes accepted architecture from implemented milestones:
 Phase 13 — Global StorageManager (Evidence)
 Phase 14 — Global StorageManager (Finalized Scientific Data)
 Phase 15 — Controller-owned Session Launch & Runtime Assembly (launch path and Decision 302 sequential reuse implemented; independent validation/audit and M015 closure pending)
-Phase 16 — Operational Service Lifetime and Framework Stop/Kill (Decisions 304-366 accepted; Q025 resolved architecturally; narrow Session-binding release under Decisions 313/322 complete, manually software-validated and independently audited PASS in W035; individual-service maintenance complete, manually software-validated and independently audited PASS in W036; progressive two-phase coordinated shutdown complete, manually software-validated and independently re-audited PASS in W037; startup/return under Decisions 327-331 complete, independently manually software-validated and independently re-audited PASS after correction in W038; supported Q024-B cases under Decisions 339-348 complete with automated coverage, independent manual validation, and final independent re-audit PASS after correction in W039; supported Decisions 351-352 startup reconciliation/reservation protection complete, independently manually validated and independently re-audited PASS after correction in W040; Decisions 349-350 and 353-355 remain unimplemented; Decision 361 receiving foundation and routing prerequisite complete with automated testing, independent manual validation, and final independent re-audit PASS after correction in W041; Decision 366 resolves producer-publication scope, with coordination still unimplemented; producer-confirmation and Controller closeout orchestration and Decisions 362-365 remain unimplemented; Q019, Q024, Q022, Phase 16, and M015 remain open)
+Phase 16 — Operational Service Lifetime and Framework Stop/Kill (Decisions 304-366 accepted; Q025 resolved architecturally; narrow Session-binding release under Decisions 313/322 complete, manually software-validated and independently audited PASS in W035; individual-service maintenance complete, manually software-validated and independently audited PASS in W036; progressive two-phase coordinated shutdown complete, manually software-validated and independently re-audited PASS in W037; startup/return under Decisions 327-331 complete, independently manually software-validated and independently re-audited PASS after correction in W038; supported Q024-B cases under Decisions 339-348 complete with automated coverage, independent manual validation, and final independent re-audit PASS after correction in W039; supported Decisions 351-352 startup reconciliation/reservation protection complete, independently manually validated and independently re-audited PASS after correction in W040; Decisions 349-350 and 353-355 remain unimplemented; Decision 361 receiving foundation and routing prerequisite complete with automated testing, independent manual validation, and final independent re-audit PASS after correction in W041; Decision 366's supported producer/marker prerequisite is implemented with automated coverage pending independent manual validation and audit; complete Controller closeout orchestration and Decisions 362-365 remain unimplemented; Q019, Q024, Q022, Phase 16, and M015 remain open)
 Phase 17 — Device Acceptance / Validation
 Phase 18 — End-to-End Demo Architecture
 

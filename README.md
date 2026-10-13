@@ -525,7 +525,8 @@ selected devices; unused optional devices add no obligation. Controller and
 SynchronizationManager finish applicable closing-Session evidence publication
 before the single marker, without service-wide shutdown or publication barriers.
 Ingestor-owned locally journaled evidence needs no JetStream round trip and remains
-included in compilation/persistence. This coordination remains unimplemented;
+included in compilation/persistence. The supported publication prerequisite is
+implemented with automated coverage, pending independent manual validation/audit;
 the marker is not the Stop command and is not proof of archival or Session completion.
 The accepted future closeout flow remains: required acquisition-stage producers
 confirm durable publication before Controller publishes one Session-scoped
@@ -557,7 +558,8 @@ state. Normal Stop requires complete producer, durable acceptance, and Stage A
 confirmations. Kill identifies partial preservation when completeness is unavailable;
 that confirms only preserved content, not acquisition success or safe resource
 release. Unknown outcomes remain unconfirmed. The low-level contracts are accepted,
-but Q019 remains OPEN for producer-confirmation and Controller closeout integration,
+but Q019 remains OPEN for independent validation/audit of the new publication
+prerequisite, complete Controller closeout integration,
 staged archival, durable handoff, and their independent verification. The receiving
 proof has linear history-read cost and requires intact global stream history from
 sequence 1; losing unrelated older history can block confirmation.
@@ -565,6 +567,16 @@ No exact new filenames, fields, or APIs are
 defined here. W033/M013, W035, W039, and W040
 remain complete for their historical scopes; Q024, Q022, Phase 16, and M015 remain
 OPEN. NWB conversion and Cheaha upload remain later scientific processing stages.
+
+After existing brokered acquisition stop/cleanup, explicitly call
+`await controller.publish_acquisition_evidence_completion(communication=communication,
+result_window_s=5.0)`. Its ControllerCommandResult exposes `details["marker"]` and
+`details["publication_confirmed"]` on success. It requires correlated successful
+node completion results and one configured synchronization participant. Pending
+health inputs or missing/failed publication prevent the marker. Repeated confirmed
+calls reuse the same boundary; interrupted calls retain its identity for explicit
+retry, with no background retries. Independently use Ingestor's existing receipt
+verification; marker publication does not complete the Session or write an archive.
 
 Phase 14 / Slice 27 Ingestor Crash Recovery and Handoff Reconstruction implements
 Decisions 276-280 and is complete (M014, W034), following independent manual

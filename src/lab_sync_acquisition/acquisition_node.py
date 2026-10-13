@@ -151,6 +151,7 @@ class AcquisitionNode:
         self._health_interpretation_evidence: list[
             HealthInterpretationEvidence
         ] = []
+        self._health_runtime_evidence: list[RuntimeEvidenceMessage] = []
         self._next_health_observation_id = 1
 
     @property
@@ -514,6 +515,11 @@ class AcquisitionNode:
         """Policy interpretations in originating observation order."""
 
         return tuple(self._health_interpretation_evidence)
+
+    @property
+    def health_runtime_evidence(self) -> tuple[RuntimeEvidenceMessage, ...]:
+        """Retain health publication identities and original Session association at production."""
+        return tuple(self._health_runtime_evidence)
 
     @service_operation(new_work=True)
     def activate_experiment_runtime_health_mapping(
@@ -1420,6 +1426,10 @@ class AcquisitionNode:
                 details={"expected_contribution": mapping.expected_contribution},
             )
             self._health_interpretation_evidence.append(interpretation)
+            self._health_runtime_evidence.append(RuntimeEvidenceMessage(
+                evidence_id=f"health-interpretation-{self._session_id}-{self._node_id}-{interpretation.originating_observation_id}",
+                session_id=self._session_id, evidence_type="health_interpretation",
+                source_id=self._node_id, payload=interpretation.to_dict(), is_persistent=True))
             audits.append(
                 self._send_envelope(
                     source_device_id="acquisition_node",

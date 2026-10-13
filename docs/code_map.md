@@ -24,14 +24,26 @@ Decision 365 requires complete Normal Stop confirmations; authorized Kill Sessio
 preserves explicitly partial information and existing safety without automatic
 collection or permanent archive closure. Unknown outcomes remain unconfirmed.
 
-Decision 366 clarifies accepted, unimplemented publication coordination: participating
+Decision 366's supported publication prerequisite is implemented with automated
+coverage, pending independent manual validation and audit: participating
 AcquisitionNodes publish applicable evidence before existing successful completion
 responses, regardless of selected-device optionality. Controller and
 SynchronizationManager complete applicable closing-Session publication before the
 single marker; Ingestor's locally journaled evidence needs no JetStream round trip.
-Current command results published before later evidence cannot count as that
-confirmation. No separate producer-confirmation message or planned public API is
-documented as implemented; W041's receiving foundation remains unchanged.
+AcquisitionNode command handlers now publish evidence before results and retain
+unconfirmed publications for explicit later operations. No separate producer
+confirmation message is added; W041's receiving foundation remains unchanged.
+After existing stop orchestration, callers explicitly invoke
+`Controller.publish_acquisition_evidence_completion(communication=..., result_window_s=...)`.
+It requires a stopping Session, confirmed cleanup, correlated successful node stops,
+and one configured synchronization participant. Active or unconsumed Controller
+health inputs block publication without polling or replay; current retained broker
+history is read back when a health subscription exists. Controller closes only its
+own Session publication boundary and publishes retained decisions, rejection
+evidence, and unconfirmed scoped publications before the stable marker. Interrupted
+publication retains message identities; later explicit calls can republish identical
+messages, while confirmed repeated calls do not emit another marker. No receipt,
+archival, successful Normal Stop, or Session completion is claimed by this API.
 
 The Decision 361 Ingestor-side receiving foundation is now implemented; the
 remaining closeout contracts are accepted architecture, not current public APIs.
@@ -60,8 +72,9 @@ The receipt foundation and disjoint routing prerequisite are complete with autom
 testing, independent manual IPython validation, and final independent re-audit PASS
 after both corrections (W041), using isolated local JetStream and controlled doubles.
 Verification has linear broker-history read cost; no external-cluster or hardware
-validation is claimed. The remaining low-level contracts are accepted; producer
-confirmations, Controller marker/closeout integration, crash-safe staged archival,
+validation is claimed. Independent validation/audit of the new producer/marker
+prerequisite, full Controller
+closeout integration, crash-safe staged archival,
 and durable handoff lookup/selection remain unimplemented Q019 work.
 W033/M013, W035, W039, and W040 retain
 their validated scopes. Q019, Q024, Q022, Phase 16, and M015 remain OPEN. No
@@ -546,13 +559,15 @@ is complete; W030 records manual validation, focused tests, and audit reassessme
 - Controller.process_health_interpretation(evidence): Records one decision and its persistent runtime message per presentation, submitting to an attached Ingestor without changing lifecycle.
 - Controller._record_action_decision(decision): Retains one persistent message per decision instance before optional Ingestor submission, including externally supplied executable decisions, without duplicating an already recorded instance.
 - Controller._controller_decision_evidence_snapshot(session_id): Copies Session-specific owned message identities and contents for exact compilation and archival confirmation.
-- Controller._require_controller_decision_archival(session_id): Blocks release unless all current owned decision messages match the successful finalization snapshot.
+- Controller._controller_owned_session_evidence_snapshot(session_id): Copies persistent decisions, retained preparation-rejection messages, and any produced completion marker for exact Session-scoped preservation checks.
+- Controller._require_controller_decision_archival(session_id, confirmation): Blocks release unless decisions match the successful finalization snapshot and all owned persistent Session evidence remains present in the current guarded archive.
 - Controller: Sequentially coordinates one Session with optional keyword-only `component_id="controller"` for producer identity, preserves existing ownership, and orchestrates preparation, lifecycle, runtime cleanup, and final persistence.
 - Controller.__init__(acquisition_node=None, ingestor=None, storage_manager=None, session_record_path=None, synchronization_manager=None, *, component_id="controller"): Supports Controller creation before Session and without remote participant references while retaining existing local collaborators.
 - Controller.launch_session(selections, *, communication, participants, config_parameters, result_window_s, scientific_outputs=()): Asynchronously allocates a fresh intended Session ID, resolves node-scoped device selections, reserves resources, constructs final SessionConfig, confirms participant preparation, and returns operational success or cleanup-aware rollback diagnostics.
 - Controller.shutdown_framework(participants, *, communication, stop_attempt_id, administrator_id, result_window_s, authorize_kill=None): Surveys an explicit Session-independent scope and coordinates progressive W036 retirement with StorageManager/Controller preparation, exact pre-Ingestor archival, separately bounded per-service authorization, and retained later confirmations in ControllerCommandResult.details.
 - Controller.start_launched_session(): Starts reserved nodes through correlated NATS commands and then starts the Session, returning ControllerCommandResult and attempting cleanup if startup fails.
 - Controller.stop_launched_session(reason=None): Stops and locally finalizes all reserved nodes through NATS, releases only confirmed-clean reservations, and stops the Session without waiting for global collection.
+- Controller.publish_acquisition_evidence_completion(*, communication, result_window_s): Asynchronously confirms Session-scoped node and synchronization publication plus completed Controller health processing, publishes owned/retained evidence and one stable marker, and returns ControllerCommandResult without receipt, archival, or lifecycle completion.
 - Controller.get_status(): Returns Session/command status, the bounded last released terminal outcome, and the local AcquisitionNode snapshot or None, without fabricating remote runtime status.
 - Controller.reconcile_outcomes(*, session_id=None, participants=None, communication=None, result_window_s=None): Reads existing scoped outcomes or bounded current observations of explicit remote participants, retaining unassociated uncertainty and changed informational evidence without operational replay or lifecycle mutation.
 - Controller._validate_participant_reconciliation(participants, result_window_s): Checks explicit unique remote principal-service identities and the issuer-defined bounded observation window without discovering participants.
@@ -656,14 +671,18 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 - NatsControllerCommunication.check_ready(): Returns required NATS communication readiness for launch gating.
 - NatsControllerCommunication.request_command(participant, command_type, session_id, payload, result_window_s, *, command_id=None): Publishes once and awaits the bounded correlated result; when startup integration is attached to the same boundary, it also informs the service owner of missing results or explicit readiness observations without inferring technical unreadiness or using stale subscription bindings.
 - NatsControllerCommunication.subscribe_command_results(session_id, callback=None): Accepts None for participant-scoped results and a real Session ID for Session-scoped results.
+- NatsControllerCommunication.session_acquisition_completion(participant, session_id): Reads the successful result for this issuer's latest exactly correlated stop_runtime request, not an unrelated or historical response.
+- NatsControllerCommunication.confirm_session_health_processing(session_id, controller): Reads retained Session health publications against completed bound subscription callbacks, refusing unknown history or unfinished inputs without processing/replaying them.
+- NatsControllerCommunication.publish_evidence(message): Retains Controller-owned publication failures and requires the existing durable stream acknowledgment, rejecting conflicting retained identities.
+- NatsControllerCommunication.unpublished_session_evidence(session_id): Returns detached unconfirmed publication messages for only the requested Session.
 - NatsCommunicationBoundary.ensure_streams(): Provisions fixed five-/six-token filters on the three existing streams, narrows recognized legacy filters before adding missing coverage, and preserves stored messages, consumers, custom subjects, and unrelated settings without deleting/recreating streams; incompatible custom filters surface a broker error.
 - NatsCommunicationBoundary.subscribe_readiness_announcements(participant, callback): Subscribes the existing framework evidence subject with DeliverPolicy.NEW and AckPolicy.NONE so operational readiness never comes from retained history or redelivery; Ingestor's durable historical consumer is unchanged.
-- NatsAcquisitionNodeCommunication.subscribe_commands(): Returns two subscriptions for participant-scoped and Session-scoped addressed commands, keeping the same handler usable across binding changes.
+- NatsAcquisitionNodeCommunication.subscribe_commands(): Returns two addressed command subscriptions, publishing generated and retained scoped evidence before results so successful runtime completion confirms publication while keeping the handler reusable across bindings.
 - NatsAcquisitionNodeCommunication: Consumes targeted readiness, scientific-output preparation, or runtime commands, deduplicates by command_id, and publishes explicit outcomes without owning Experiment lifecycle.
 - NatsAcquisitionNodeCommunication.execute_command: Executes existing node commands and includes available owner diagnostics in readiness results while preserving readiness-only compatibility and scientific-output preparation behavior.
 - NatsIngestorCommunication: Consumes durable RuntimeEvidenceMessage records and passes them to InMemoryIngestor for separate evidence intake and audit.
 - NatsIngestorCommunication.subscribe_commands(): Returns participant- and Session-scoped subscriptions for readiness, journal preparation and evidence-subscription establishment, or initialization abort with intake-subscription cleanup before confirmation.
-- NatsSynchronizationManagerCommunication(boundary, synchronization_manager): Routes readiness and Session prepare/abort commands to the timing owner over existing command/result streams.
+- NatsSynchronizationManagerCommunication(boundary, synchronization_manager): Routes readiness, Session prepare/abort, and Session stop_runtime publication closeout to the timing owner over existing command/result streams, deduplicating completed requests.
 - NatsSynchronizationManagerCommunication.subscribe_commands(): Returns participant- and Session-scoped command subscriptions without implementing transport synchronization or remapping.
 - _participant_result: Builds an existing correlated final command-result message for one service-owned operation.
 - _execute_service_command: Delegates readiness/preparation/abort to the owner, includes configured maintenance identity and actual retirement confirmation in readiness replies, and retains command-ID deduplication.
@@ -836,6 +855,7 @@ recovery is introduced. Phase 16 and M015 remain open.
 - SynchronizationManager: Owns the Session clock plus per-AcquisitionNode active mapping creation, replacement, retirement, lookup, and in-memory mapping-update evidence without implementing mapping mathematics or drift estimation.
 - SynchronizationManager.prepare_session(session_id): Confirms Session-specific preparation independently of pre-Session service readiness, rejecting a different active preparation binding.
 - SynchronizationManager.abort_session_initialization(session_id): Clears only matching preparation state without altering mapping or established timing evidence.
+- SynchronizationManager.complete_session_evidence_publication(session_id, *, source_id, publisher): Stops prepared Session Time, retires only that Session's mappings, retains stable message identities and publishes its timing evidence before confirmation, guarding further timing changes without service retirement or archival claims.
 - SynchronizationManager.release_session(session_id, *, ingestor=None): Releases matching stopped preparation after mappings retire and each mapping update has exact durable Ingestor acceptance, retiring temporary history without waiting for downstream archival or terminating the service.
 - SynchronizationManager.create_and_activate_mapping: Creates and atomically activates one initial immutable mapping for an AcquisitionNode.
 - SynchronizationManager.replace_active_mapping: Atomically replaces one active mapping and records replacement evidence.
@@ -932,10 +952,13 @@ deployment validation (M011), distinct from W032's software validation.
 
 - LocalStorageManager retains artifact and manifest ownership; existing manifests and finalization results supply complete discovery information.
 - AcquisitionNode.artifact_manifest_evidence: Returns produced persistent RuntimeEvidenceMessage snapshots containing complete initial and finalized manifests, also submitted to the attached local Ingestor at the scientific lifecycle boundaries.
+- AcquisitionNode.health_runtime_evidence: Returns health messages retained at production with original Session/node-scoped identities, preventing interrupted publication or later reuse from relabeling them.
 - AcquisitionNode._record_artifact_manifest(manifest, *, resubmit_unconfirmed=False): Packages each manifest lifecycle state once and permits explicitly authorized recovery to resubmit its identical retained message only while durable Ingestor acceptance is unconfirmed, without changing normal finalization or local ownership.
 - NatsAcquisitionNodeCommunication.publish_new_artifact_manifest_evidence(): Publishes newly produced manifest messages through the existing JetStream evidence boundary, invoked after subscribed command execution or explicitly for caller-managed local operations.
+- NatsAcquisitionNodeCommunication.publish_new_health_interpretation_evidence(session_id): Publishes retained health messages without changing their original Session identity, advancing publication progress only after durable acknowledgment.
+- NatsAcquisitionNodeCommunication.publish_evidence(message): Retains unconfirmed node-owned messages for explicit later publication and requires durable acknowledgment before removing the obligation.
 - InMemoryIngestor.compile_artifact_collection_handoff(session_id): Groups retained Session-scoped artifact_manifest messages by manifest identity, selects complete finalized or initial manifests, and returns session_id plus artifacts entries containing artifact_manifest and missing_finalization_evidence.
-- Controller.finalize_session(): Requires an explicit Ingestor reference and every owned decision message in persistent compilation, writes runtime evidence/audit to the archive separately from the Session Record, rejects changed decision snapshots before completion, and confirms exact decision archival for release without asserting Session-wide consumption or retrieving artifact bytes.
+- Controller.finalize_session(): Requires an explicit Ingestor reference and all owned persistent Session evidence in compilation, writes runtime evidence/audit separately from the Session Record, rejects changed owned-evidence snapshots before completion, and retains exact decision archival confirmation without asserting Session-wide consumption or retrieving artifact bytes.
 - StorageManager owns Artifact Plane retrieval and global storage; byte retrieval was outside Slice 22 and is now implemented separately in Slice 23, with real Jetson/SSH-SFTP deployment validation still pending under M011.
 
 The historical implemented persistent-evidence compilation and Evidence Archive
@@ -1008,8 +1031,17 @@ Decision 303 resolves the former Q017 without changing these APIs or result
 vocabularies: later global collection, verification, transfer, or export failure
 cannot retroactively change a completed Session's lifecycle. Required
 pre-completion failure handling remains unchanged. Q019's Session-wide consumption/
-staged archive coordination is accepted in Decisions 356-365; only the receiving
-foundation is implemented, not staged closeout.
+staged archive coordination is accepted in Decisions 356-365; the receiving
+foundation and Decision 366 producer/marker prerequisite are implemented, not
+staged closeout. The latter prerequisite awaits independent validation and audit.
+
+## tests/test_producer_publication_completion.py
+
+- PublicationBroker: Reuses existing transport doubles to record publication ordering and inject controlled acknowledgment failures or pauses without substituting framework owners.
+- HealthNode: Test-only AcquisitionNode fixture with explicit missing-frame policy for real health-evidence production.
+- interpretation(identity="observation"): Constructs valid health interpretation input for public Controller/communication workflows.
+- ProducerPublicationCompletionTests: Exercises optional/required producer publication, retention, correlation, pending health work, stable marker interruption/repetition, and scope isolation through public APIs.
+- RealProducerPublicationTests: Exercises two-node health/artifact and Controller publication through an isolated JetStream server, followed by actual W041 receipt verification.
 
 ## tests/evidence_receipt_fixtures.py
 

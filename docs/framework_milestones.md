@@ -989,7 +989,8 @@ before existing successful completion responses, including when selected devices
 are optional. Controller and SynchronizationManager finish applicable closing-Session
 publication before the single marker; locally journaled Ingestor-owned evidence
 remains in compilation/persistence without a JetStream round trip. The marker is
-not the Stop command. This clarification is accepted, not implemented or validated;
+not the Stop command. The supported producer/marker prerequisite is implemented
+with developer automated coverage, pending independent manual validation and audit;
 it neither requires long-lived service shutdown nor changes W041's completed scope.
 
 Decision 361's receiving foundation and routing prerequisite are complete in W041:
@@ -1001,10 +1002,11 @@ and their corrections are preserved in W041. These are previously executed resul
 not tests run during documentation closure. Local NATS/software validation does not
 claim external-cluster, multi-host, Jetson, or hardware deployment validation.
 
-Complete producer-confirmation and Controller Normal Stop/Kill orchestration and
+Complete Controller Normal Stop/Kill orchestration and
 Decisions 362-365 remain unimplemented. No overall milestone completion is claimed.
-Q019 remains OPEN for remaining implementation and independent verification. The
-receipt proof has linear history-read cost and conservatively requires intact
+Q019 remains OPEN for remaining implementation and independent verification.
+The new prerequisite is not a completed validated slice and does not close a milestone.
+The receipt proof has linear history-read cost and conservatively requires intact
 global stream history from sequence 1; unrelated older history loss can prevent
 confirmation. W041 does not establish producer confirmations, Session completion,
 or archive preservation. No weaker closeout guarantee is substituted.

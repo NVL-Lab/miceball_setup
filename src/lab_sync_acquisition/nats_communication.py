@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from hashlib import sha256
+from copy import deepcopy
 import json
 import logging
 from collections.abc import Awaitable, Callable, Iterable
@@ -353,6 +354,9 @@ class NatsControllerCommunication:
         self._command_results: tuple[RuntimeCommandResultMessage, ...] = ()
         self._command_result_events: dict[str, asyncio.Event] = {}
         self._maintenance_requests: list[dict[str, Any]] = []
+        self._health_receivers: dict[str, list[dict[str, Any]]] = {}
+        self._runtime_stop_commands: dict[tuple, RuntimeCommandMessage] = {}
+        self._unpublished_evidence: dict[str, RuntimeEvidenceMessage] = {}
 
     @property
     def maintenance_requests(self) -> tuple[dict[str, Any], ...]:
@@ -387,6 +391,9 @@ class NatsControllerCommunication:
         try:
             command = RuntimeCommandMessage(command_id, session_id, command_type,
                 self._boundary.component_id, participant.component_id, payload)
+            if command_type == "stop_runtime":
+                self._runtime_stop_commands[(session_id, participant.component_type,
+                                             participant.component_id)] = command
             if command_type in ({"stop", "kill", "cancel", "prepare_stop", "check_stop_readiness"} | SERVICE_RECOVERY_COMMAND_TYPES):
                 from copy import deepcopy
                 if any(previous["command_id"] == command_id and previous != command.to_dict()
@@ -554,6 +561,9 @@ class NatsControllerCommunication:
         """Consume decision-relevant evidence without relaying or republishing it."""
 
         subject = f"messages.{session_id}.evidence.*.*.*"
+        state = {"controller": controller, "session": controller._session,
+                 "processed": {}, "active": 0}
+        self._health_receivers.setdefault(session_id, []).append(state)
 
         async def receive(message: Any) -> None:
             evidence_message = RuntimeEvidenceMessage.from_dict(
@@ -562,19 +572,95 @@ class NatsControllerCommunication:
             if evidence_message.evidence_type != "health_interpretation":
                 await message.ack()
                 return
-            interpretation = HealthInterpretationEvidence.from_dict(
-                evidence_message.payload
-            )
-            decision = controller.process_health_interpretation(interpretation)
-            if callback is not None:
-                await callback(decision)
-            await message.ack()
+            if evidence_message.session_id != session_id or controller._session is not state["session"]:
+                raise RuntimeError("Controller health subscription Session binding changed")
+            content = json.dumps(evidence_message.to_dict(), sort_keys=True,
+                                 separators=(",", ":"), allow_nan=False)
+            previous = state["processed"].get(evidence_message.evidence_id)
+            if previous is not None:
+                if previous != content:
+                    raise ValueError("Conflicting Controller health evidence identity")
+                await message.ack()
+                return
+            state["active"] += 1
+            try:
+                interpretation = HealthInterpretationEvidence.from_dict(evidence_message.payload)
+                decision = controller.process_health_interpretation(interpretation)
+                if callback is not None:
+                    await callback(decision)
+                await message.ack()
+                state["processed"][evidence_message.evidence_id] = content
+            finally:
+                state["active"] -= 1
 
         return await self._boundary._require_jetstream().subscribe(
             subject,
             cb=receive,
             manual_ack=True,
         )
+
+    async def confirm_session_health_processing(self, session_id: str, controller: Controller) -> bool:
+        """Read back published health inputs; unfinished callbacks cannot close publication."""
+        states = self._health_receivers.get(session_id, ())
+        if not states:
+            return True
+        if any(state["controller"] is not controller or state["active"] for state in states):
+            return False
+        broker = self._boundary._require_jetstream()
+        info = await broker.stream_info("LAB_EVIDENCE")
+        if info.state.messages and (info.state.first_seq != 1 or info.state.num_deleted):
+            return False
+        sequence = 1
+        while sequence <= info.state.last_seq:
+            try:
+                record = await broker.get_msg("LAB_EVIDENCE", seq=sequence,
+                    subject=f"messages.{session_id}.evidence.*.*.health_interpretation", next=True)
+            except NotFoundError:
+                break
+            if record.seq < sequence or record.seq > info.state.last_seq:
+                return False
+            evidence = RuntimeEvidenceMessage.from_dict(json.loads(record.data))
+            content = json.dumps(evidence.to_dict(), sort_keys=True,
+                                 separators=(",", ":"), allow_nan=False)
+            if evidence.session_id != session_id or any(
+                    state["processed"].get(evidence.evidence_id) != content for state in states):
+                return False
+            sequence = record.seq + 1
+        current = await broker.stream_info("LAB_EVIDENCE")
+        return (current.created == info.created and current.state == info.state
+                and all(not state["active"] for state in states))
+
+    def session_acquisition_completion(self, participant: RuntimeParticipant,
+                                       session_id: str) -> RuntimeCommandResultMessage | None:
+        """Read the successful result for this issuer's latest correlated runtime stop."""
+        command = self._runtime_stop_commands.get(
+            (session_id, participant.component_type, participant.component_id))
+        if command is None:
+            return None
+        results = [result for result in self._command_results
+                   if result.command_id == command.command_id
+                   and result.session_id == session_id
+                   and result.source_id == participant.component_id
+                   and result.target_id == command.source_id]
+        if not results or results[-1].status != "succeeded" or results[-1].success is not True:
+            return None
+        return results[-1]
+
+    async def publish_evidence(self, message: RuntimeEvidenceMessage) -> None:
+        """Publish Controller-owned evidence with the existing durable stream acknowledgment."""
+        self._boundary._validate_source_id(message.source_id)
+        previous = self._unpublished_evidence.get(message.evidence_id)
+        if previous is not None and json.dumps(previous.to_dict(), sort_keys=True) != json.dumps(message.to_dict(), sort_keys=True):
+            raise ValueError("Conflicting retained Controller evidence identity")
+        retained = RuntimeEvidenceMessage.from_dict(deepcopy(message.to_dict()))
+        self._unpublished_evidence[message.evidence_id] = retained
+        await self._boundary.publish_evidence(retained)
+        self._unpublished_evidence.pop(message.evidence_id, None)
+
+    def unpublished_session_evidence(self, session_id: str) -> tuple[RuntimeEvidenceMessage, ...]:
+        """Read retained unconfirmed Controller publications for one Session only."""
+        return tuple(RuntimeEvidenceMessage.from_dict(deepcopy(m.to_dict()))
+                     for m in self._unpublished_evidence.values() if m.session_id == session_id)
 
 
 class NatsAcquisitionNodeCommunication:
@@ -602,6 +688,7 @@ class NatsAcquisitionNodeCommunication:
         self._results_by_command_id: dict[str, RuntimeCommandResultMessage] = {}
         self._published_health_interpretation_count = 0
         self._published_artifact_manifest_count = 0
+        self._unpublished_evidence: dict[str, RuntimeEvidenceMessage] = {}
 
     async def subscribe_commands(self) -> tuple[Subscription, Subscription]:
         """Consume commands routed to this AcquisitionNode instance."""
@@ -624,18 +711,15 @@ class NatsAcquisitionNodeCommunication:
                     return
                 result = (await _execute_maintenance_command(self._boundary, self._acquisition_node, command)
                           if command.command_type in ({"stop", "kill", "cancel", "prepare_stop", "check_stop_readiness"} | SERVICE_RECOVERY_COMMAND_TYPES) else self.execute_command(command))
-                await self._boundary.publish_command_result(
-                    result,
-                    command.command_type,
-                )
-                logger.info(
-                    "command_result_published command_id=%s status=%s",
-                    result.command_id,
-                    result.status,
-                )
                 await self.publish_new_artifact_manifest_evidence()
                 if command.session_id is not None:
                     await self.publish_new_health_interpretation_evidence(command.session_id)
+                    for pending in tuple(self._unpublished_evidence.values()):
+                        if pending.session_id == command.session_id:
+                            await self.publish_evidence(pending)
+                await self._boundary.publish_command_result(result, command.command_type)
+                logger.info("command_result_published command_id=%s status=%s",
+                            result.command_id, result.status)
                 await message.ack()
             except Exception:
                 logger.exception("command_delivery_processing_failed")
@@ -750,19 +834,13 @@ class NatsAcquisitionNodeCommunication:
     ) -> None:
         """Publish newly produced interpretation evidence without changing semantics."""
 
-        all_evidence = self._acquisition_node.health_interpretation_evidence
-        new_evidence = all_evidence[self._published_health_interpretation_count :]
-        for evidence in new_evidence:
-            message = RuntimeEvidenceMessage(
-                evidence_id=(
-                    f"health-interpretation-{evidence.originating_observation_id}"
-                ),
-                session_id=session_id,
-                evidence_type="health_interpretation",
-                source_id=self._boundary.component_id,
-                payload=evidence.to_dict(),
-                is_persistent=True,
-            )
+        all_evidence = getattr(self._acquisition_node, "health_runtime_evidence", None)
+        if all_evidence is None:
+            all_evidence = tuple(RuntimeEvidenceMessage(
+                f"health-interpretation-{evidence.originating_observation_id}", session_id,
+                "health_interpretation", self._boundary.component_id, evidence.to_dict(), True)
+                for evidence in self._acquisition_node.health_interpretation_evidence)
+        for message in all_evidence[self._published_health_interpretation_count:]:
             await self._boundary.publish_evidence(message)
             self._published_health_interpretation_count += 1
 
@@ -771,7 +849,13 @@ class NatsAcquisitionNodeCommunication:
 
         if message.source_id != self._boundary.component_id:
             raise ValueError("Runtime evidence source_id does not match AcquisitionNode")
-        await self._boundary.publish_evidence(message)
+        previous = self._unpublished_evidence.get(message.evidence_id)
+        if previous is not None and json.dumps(previous.to_dict(), sort_keys=True) != json.dumps(message.to_dict(), sort_keys=True):
+            raise ValueError("Conflicting retained AcquisitionNode evidence identity")
+        retained = RuntimeEvidenceMessage.from_dict(deepcopy(message.to_dict()))
+        self._unpublished_evidence[message.evidence_id] = retained
+        await self._boundary.publish_evidence(retained)
+        self._unpublished_evidence.pop(message.evidence_id, None)
 
     def _result(
         self,
@@ -1114,7 +1198,19 @@ class NatsSynchronizationManagerCommunication:
             if command.target_id != self._boundary.component_id:
                 await message.ack()
                 return
-            result = (await _execute_maintenance_command(self._boundary, self._synchronization_manager, command)
+            if command.command_type == "stop_runtime" and command.command_id in self._results_by_command_id:
+                result = self._results_by_command_id[command.command_id]
+            elif command.command_type == "stop_runtime":
+                try:
+                    await self._synchronization_manager.complete_session_evidence_publication(
+                        command.session_id, source_id=self._boundary.component_id,
+                        publisher=self._boundary.publish_evidence)
+                    result = _participant_result(self._boundary, command, True, None, {})
+                except Exception as error:
+                    result = _participant_result(self._boundary, command, False, str(error), {})
+                self._results_by_command_id[command.command_id] = result
+            else:
+                result = (await _execute_maintenance_command(self._boundary, self._synchronization_manager, command)
                       if command.command_type in ({"stop", "kill", "cancel", "prepare_stop", "check_stop_readiness"} | SERVICE_RECOVERY_COMMAND_TYPES) else
                       _execute_service_command(self._boundary, self._synchronization_manager, command, self._results_by_command_id))
             await self._boundary.publish_command_result(result, command.command_type)
