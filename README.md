@@ -505,6 +505,30 @@ deployment validation, and M012 remains complete. W033 records Slice 25's softwa
 validation, not live NATS or real Jetson/SSH-SFTP deployment validation. The legacy
 unconfigured synchronous collection path remains supported.
 
+Accepted Q019 Decisions 356-360 now qualify that historical routing/finalization
+model; they are not implemented or validated. Required acquisition-stage producers
+confirm durable publication before Controller publishes one Session-scoped
+completion marker. Ingestor must independently verify earlier required durable
+acceptance; receiving the marker alone is insufficient. Confirmed Stage A writes
+acquisition evidence, intake audit, summary, and final Session Record, satisfying
+acquisition-side completion and applicable binding-release obligations before
+scientific collection. StorageManager durably preserves the existing handoff for
+later operator-selected stopped-Session collection without restoring original
+bindings. In Stage B it directly appends its own persistent collection evidence
+to the same archive, distinguishes origins in the summary without fabricated
+Ingestor audit, confirms durability, and permanently closes the archive without
+rewriting acquisition evidence, audit, final Session Record, or acquisition outcome.
+
+Separately authorized Kill Session preserves accessible evidence/files, partial
+Session Record, unresolved conditions, and safety where possible. It neither
+automatically collects artifacts nor permanently closes the partial archive;
+killed Sessions remain eligible for later collection, without a new lifecycle
+state. Q019 remains OPEN for exact contiguous-consumption proof, interrupted-write
+integrity/recovery, durable handoff representation/restart lookup/Session selection,
+and normal versus forced partial confirmations. W033/M013, W035, W039, and W040
+remain complete for their historical scopes; Q024, Q022, Phase 16, and M015 remain
+OPEN. NWB conversion and Cheaha upload remain later scientific processing stages.
+
 Phase 14 / Slice 27 Ingestor Crash Recovery and Handoff Reconstruction implements
 Decisions 276-280 and is complete (M014, W034), following independent manual
 software validation, correction of the initial audit's one blocking defect,
@@ -603,7 +627,7 @@ Slice 28 workflows remain historical evidence, not closure of its sequential-reu
 requirements. W035 separately validates the Phase 16 service binding-release path.
 
 Phase 16 Operational Service Lifetime and Framework Stop/Kill architecture is
-accepted in Decisions 304-355. The narrow Controller/Ingestor/SynchronizationManager
+accepted in Decisions 304-360. The narrow Controller/Ingestor/SynchronizationManager
 Session-binding release slice under Decisions 313 and 322 is complete, manually
 software-validated, and independently audited PASS (W035). Remaining Phase 16
 responsibilities are unfinished; Phase 16 completion is not claimed.

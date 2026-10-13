@@ -475,18 +475,54 @@ This question does not block current Phase 11 implementation slices that only re
 
 
 Q019: How is Session-wide evidence consumption coordinated before processing finalization?
-**Status:** OPEN / FUTURE - Session processing/finalization architecture
+**Status:** OPEN - high-level acquisition-completeness, two-stage archival, durable
+handoff, and forced-closeout contracts accepted in Decisions 356-360; low-level
+technical verification and implementation remain pending. Not implemented,
+independently validated, or complete.
+
+Accepted architecture
+
+- Required acquisition-stage producers finish evidence production and confirm
+  durable publication. Controller then publishes one Session-scoped acquisition-
+  evidence-completion marker using existing JetStream evidence. Ingestor must
+  independently prove earlier required durable acceptance using ordered delivery
+  and verified acknowledgment progress; receipt of the marker is insufficient.
+- Stage A preserves Ingestor-compiled persistent acquisition evidence, intake
+  audit, compilation summary, and the final Session Record. Confirmed preservation
+  satisfies acquisition-side completion and applicable binding-release obligations;
+  successful Session completion need not wait for global scientific collection.
+- Stage B follows operator-requested collection. StorageManager directly appends
+  its own persistent RuntimeEvidenceMessages to the same Session runtime evidence
+  file, distinguishes direct persistence from Ingestor acceptance in the summary,
+  confirms durability, and permanently closes the archive. No fabricated Ingestor
+  audit, acquisition-evidence rewrite, final Session Record change, or retroactive
+  acquisition outcome change is permitted.
+- Ingestor compiles the existing ArtifactManifest handoff at acquisition closeout;
+  StorageManager durably preserves it for later operator-selected collection of
+  one or multiple stopped Sessions without restoring original Session bindings.
+- Separately authorized Kill Session preserves accessible evidence, available
+  files, a partial Session Record, unresolved conditions, and resource safety where
+  possible. It does not automatically collect artifacts or permanently close the
+  partial archive. Killed Sessions remain eligible for later collection; confirmed
+  Stage B closure makes the archive immutable. No killed lifecycle state is added.
+
+Decisions 356-360 qualify historical Decisions 223-225, 228-229, 240, 243, and
+274-275. They reuse existing owners, evidence infrastructure, and Decisions
+276-280's journal-backed guarantees, not terminal markers per producer, count
+registries, arbitrary sleeps, polling, a new transport, or a new manifest registry.
 
 Why this matters
 
 Phase 12 established LocalStorageManager ownership of local scientific persistence. Decisions 219-231 establish that Ingestor compiles persistent runtime evidence and StorageManager writes the Evidence Archive and final Session Record. The framework still needs to define how the future global StorageManager assembles finalized local discovery information and scientific artifacts without taking ownership of the original local scientific records.
 
-Decisions 271-275 settle the narrow global collection evidence model: StorageManager
+Historical implementation and validation
+
+Decisions 271-275 historically settled the narrow global collection evidence model: StorageManager
 produces one compiled persistent record per completed pass through the existing
 durable evidence boundary. Scientific acquisition end is not Session processing
 finalization, and the Evidence Archive must not be treated as finally complete
 before legitimate post-session evidence has an opportunity to be produced.
-The accepted model is implemented through explicit awaited publication before
+That historical model is implemented through explicit awaited publication before
 finalization; it does not resolve the broader
 Session-wide consumption guarantee below.
 
@@ -501,7 +537,6 @@ and independently audited PASS (W035), not an open persistence-selection questio
 This does not establish that all participants' published evidence has been consumed,
 change global finalization semantics, or resolve the Session-wide questions below.
 
-Questions
 Decisions 240-244 settle the Slice 22 handoff: Ingestor groups Session-scoped
 manifest evidence by artifact_manifest_id, selects the complete finalized
 manifest or initial manifest with missing finalization reported, and makes the
@@ -517,34 +552,43 @@ Known-Session reconstruction of the normal Ingestor evidence/handoff view is
 settled by Decisions 276-280 and completed under M014 after independent manual
 software validation and corrected targeted re-audit PASS (W034). Recovery-journal
 cleanup and application-level Session discovery/resumption remain deferred in Q024.
-Which finalized local evidence must every LocalStorageManager provide?
-How does Controller know that all durably published evidence associated with a
-Session has actually been consumed/accepted by Ingestor before compiling and
-finally closing the Evidence Archive?
-What Session-wide publication/consumption ordering, JetStream consumer acknowledgment
-state, evidence draining, final shutdown guarantees, and Controller coordination
-establish that condition for all persistent runtime evidence?
-How is durable transport acceptance distinguished from Ingestor acceptance and
-final persistent archive completion?
 W033's manual Scenario 4 deliberately accepted publication without delivery:
 Ingestor retained zero collection records and finalization produced an archive
 without that undelivered evidence. This demonstrates the open consumption gap,
 not a Slice 25 implementation failure. The corrected active-operation guard
 prevents overtaking publication, but does not resolve post-publication consumption.
-How are multiple LocalStorageManagers reconciled into one global Session view?
-How are missing LocalStorageManagers or incomplete evidence represented?
-What evidence remains local even after global collection?
-Blocks
-Global evidence integration beyond the v1 Evidence Archive
-Global evidence persistence
-Future global integration beyond the accepted handoff; no Slice 22 lifecycle change
-Future Session-wide processing/finalization and evidence-drain guarantees
+W033/M013, W035, W039, and W040 remain historically complete for their validated
+scopes. None implements or validates the new Decisions 356-360 contracts.
 
-This remains OPEN and belongs to a future Session processing/finalization
-architecture phase. It is not StorageManager-specific. Slice 25 must not invent
-consumer-ACK waiting, polling, sleeps, arbitrary delays, evidence-count assumptions,
-or new broker protocols. If minimum Slice 25 ordering/wiring requires deciding
-this protocol, implementation must stop and report the dependency.
+Remaining low-level questions for LLC
+
+- **Contiguous consumption/acknowledgment proof:** What ordered JetStream evidence
+  and verified consumer progress demonstrate durable Ingestor acceptance of all
+  earlier required acquisition evidence? Verify the precise contiguous proof;
+  marker receipt, durable publication, and a journaled subset are not interchangeable.
+- **Two-stage integrity and interrupted direct writes:** What contracts preserve
+  original acquisition evidence/audit, protect duplicate identities, distinguish
+  summary origins, confirm crash-safe Stage B writes/closure, and recover an
+  interruption without false success, transfer replay, or rewriting closed history?
+- **Durable handoff and selection:** What existing-owner representation, post-restart
+  lookup, and eligible-Session selection support later collection without original
+  bindings or another authoritative manifest registry? Do not invent a schema/API.
+- **Normal versus forced partial closeout:** What producer/consumption/preservation
+  confirmations apply to Normal Stop versus Kill Session when required information
+  or participants are unavailable? Preserve uncertainty, accessible records, and
+  resource-safety protections without choosing a new lifecycle state.
+
+Blocks
+Implementation of accepted Q019 consumption proof and Stage A/Stage B persistence
+Durable closeout handoff and later eligible-Session lookup/selection
+Normal and forced partial acquisition-evidence closeout integration
+
+Q019 remains OPEN. Decisions 356-360 settle the high-level contracts above, not
+their low-level proofs or implementation. The original Slice 25 exclusions remain
+historical; they do not prohibit the newly accepted verified acknowledgment proof.
+Do not implement that proof through assumptions, polling, sleeps, count registries,
+or another transport. Q024, Q022, Phase 16, and M015 retain their open statuses;
+no new validated workflow or implementation completion is claimed.
 
 
 Q020: What is the global finalized scientific-data collection model?
@@ -1068,7 +1112,7 @@ The roadmap distinguishes accepted architecture from implemented milestones:
 Phase 13 — Global StorageManager (Evidence)
 Phase 14 — Global StorageManager (Finalized Scientific Data)
 Phase 15 — Controller-owned Session Launch & Runtime Assembly (launch path and Decision 302 sequential reuse implemented; independent validation/audit and M015 closure pending)
-Phase 16 — Operational Service Lifetime and Framework Stop/Kill (Decisions 304-355 accepted; Q025 resolved architecturally; narrow Session-binding release under Decisions 313/322 complete, manually software-validated and independently audited PASS in W035; individual-service maintenance complete, manually software-validated and independently audited PASS in W036; progressive two-phase coordinated shutdown complete, manually software-validated and independently re-audited PASS in W037; startup/return under Decisions 327-331 complete, independently manually software-validated and independently re-audited PASS after correction in W038; supported Q024-B cases under Decisions 339-348 complete with automated coverage, independent manual validation, and final independent re-audit PASS after correction in W039; supported Decisions 351-352 startup reconciliation/reservation protection complete, independently manually validated and independently re-audited PASS after correction in W040; Decisions 349-350 and 353-355 remain unimplemented; Q024, Phase 16, and M015 remain open)
+Phase 16 — Operational Service Lifetime and Framework Stop/Kill (Decisions 304-360 accepted; Q025 resolved architecturally; narrow Session-binding release under Decisions 313/322 complete, manually software-validated and independently audited PASS in W035; individual-service maintenance complete, manually software-validated and independently audited PASS in W036; progressive two-phase coordinated shutdown complete, manually software-validated and independently re-audited PASS in W037; startup/return under Decisions 327-331 complete, independently manually software-validated and independently re-audited PASS after correction in W038; supported Q024-B cases under Decisions 339-348 complete with automated coverage, independent manual validation, and final independent re-audit PASS after correction in W039; supported Decisions 351-352 startup reconciliation/reservation protection complete, independently manually validated and independently re-audited PASS after correction in W040; Decisions 349-350 and 353-355 remain unimplemented; Decisions 356-360 accept Q019 high-level contracts with low-level verification and implementation pending; Q019, Q024, Q022, Phase 16, and M015 remain open)
 Phase 17 — Device Acceptance / Validation
 Phase 18 — End-to-End Demo Architecture
 

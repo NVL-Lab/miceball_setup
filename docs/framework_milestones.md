@@ -479,6 +479,18 @@ Jetson/SSH-SFTP deployment validation; M012 stays complete for Slice 24.
 
 ---
 
+## Subsequent accepted Q019 qualification of M013
+
+Decisions 356-360 qualify the historical collection-evidence route and finalization
+order above: Stage A acquisition preservation permits successful Session completion
+before later operator-requested collection; Stage B directly persists StorageManager
+collection evidence and permanently closes the same archive. M013/W033 remain
+complete for their original validated scope. The new Q019 contracts are accepted,
+not implemented or validated; their low-level proof and recovery questions remain
+open. Original implementation results and audit records above are unchanged.
+
+---
+
 # M014 - Phase 14 / Slice 27 Ingestor Crash Recovery and Handoff Reconstruction
 
 **Status:** Completed
@@ -648,7 +660,7 @@ cleanup/reuse, not implementation of those service binding-release contracts.
 # Future Milestones
 
 Phase 16 Operational Service Lifetime and Framework Stop/Kill architecture is
-accepted in Decisions 304-355. At the earlier checkpoint implementation was
+accepted in Decisions 304-360. At the earlier checkpoint implementation was
 limited to the Session-binding release slice. Decision 323 adds the accepted
 framework Evidence Archive partition; individual-service stop/kill/cancel is now
 complete, manually software-validated, and independently audited PASS (W036),
@@ -944,6 +956,28 @@ remain open. No new implementation milestone or recovery subsystem is introduced
 Q024-B Decisions 339-348 remain complete, independently validated/audited in W039;
 all earlier workflow records are preserved. Decision 336 remains partially
 implemented. Q024, Q019, Q022, Phase 16, and M015 remain OPEN.
+
+## Accepted Q019 acquisition closeout and later collection (not implemented)
+
+Decisions 356-360 accept producer-confirmed acquisition evidence completion plus
+independent Ingestor consumption proof, Stage A acquisition evidence/audit/summary
+and final Session Record preservation, durable StorageManager handoff preservation,
+and later operator-selected stopped-Session collection without original bindings.
+StorageManager directly preserves its own Stage B collection evidence, distinguishes
+that origin without fabricated Ingestor audit, and confirms permanent archive
+closure. Acquisition outcomes and final Session Records are not rewritten.
+Separately authorized Kill Session preserves accessible partial records and safety
+while leaving the archive open for later collection; no killed lifecycle state or
+automatic collection is accepted.
+
+This is architecture synchronization, not implementation progress or a new
+completed milestone. Q019 remains OPEN for exact contiguous JetStream consumption/
+acknowledgment proof, two-stage integrity and interrupted direct-write recovery,
+durable handoff representation/restart lookup/eligible-Session selection, and
+normal versus forced partial closeout confirmations. No new workflow or validation
+is claimed. W033/M013, W035, W039, and W040 remain historically complete; Decision
+336 remains partial, Decisions 349-350 and 353-355 remain unimplemented, and Q024,
+Q022, Phase 16, and M015 remain OPEN.
 
 ## Completed Session-binding release slice validation
 

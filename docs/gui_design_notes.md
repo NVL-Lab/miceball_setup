@@ -107,6 +107,42 @@ not accepted architecture or approved implementation requirements. This document
 adds no service states, lifecycle behavior, startup mechanism, or recovery policy
 and does not resolve Q019, Q024, or other open architectural questions.
 
+## Session Closeout, Collection, and Archived Evidence
+
+**Status:** Future GUI design ideas, not accepted GUI architecture or implementation requirements.
+
+The future GUI could:
+
+- Present Normal Stop and separately operator-authorized **Kill Session** distinctly
+  from service-level Kill and operational framework shutdown. Explain partial
+  preservation, possible data/evidence loss, and unresolved resource-safety
+  conditions; authorization is not proof of successful cleanup.
+- Show actual participant progress, elapsed time, the last confirmed progress,
+  and unresolved conditions, never treating missing confirmation as completion.
+- Distinguish Stage A acquisition preservation/Session completion from later
+  Stage B collection-evidence preservation and permanent archive closure. Explain
+  that killed Sessions retain a partial archive open for later collection.
+- Let an operator request collection for selected stopped or killed Sessions,
+  including multiple Sessions, without presenting that choice as automatic
+  collection or restoration of their original bindings. Display actual retrieval,
+  verification, and evidence-preservation outcomes separately from acquisition.
+- Present future collection scheduling only after the relevant Q021 architecture
+  is accepted. No scheduling policy or command contract is defined here.
+- Explain missing/incomplete/corrupted files and guide manual recovery within
+  supported service-owned contracts. Unsupported procedures remain undefined;
+  evidence-persistence interruption must not be presented as authority to replay
+  artifact transfer or rewrite a permanently closed archive.
+- Offer archived evidence viewing by Session or date for operational inspection.
+  The GUI must not become a browser for viewing scientific artifacts. Artifact
+  metadata is not artifact bytes; NWB conversion and Cheaha upload remain separate
+  later processing stages, not newly specified GUI execution mechanisms.
+
+Decisions 356-360 accept the framework boundaries, not these presentation ideas.
+The framework contracts are unimplemented and their remaining Q019 low-level
+questions are open. These notes add no GUI commands, lifecycle states, recovery
+authority, or implementation requirements. Closing the GUI remains distinct from
+both Session closeout and operational framework shutdown.
+
 ## GUI Closure Versus Framework Shutdown
 
 **Closing the GUI and shutting down the operational framework are separate actions.**

@@ -9626,9 +9626,170 @@ must not be resolved by implementation assumptions.
 
 ---
 
+## Decision 356: Acquisition evidence completeness requires producer confirmations and independent consumption proof
+
+**Status:** Accepted
+
+Relevant acquisition-stage producers complete their evidence production and
+confirm successful durable publication. Controller waits for required producer
+confirmations, then publishes one Session-scoped acquisition-evidence-completion
+marker through the existing JetStream evidence infrastructure.
+
+Ingestor independently verifies that all earlier required acquisition evidence was
+durably accepted, using ordered JetStream evidence and verified consumer
+acknowledgment progress. Receiving the marker alone is insufficient. Producer
+publication, durable Ingestor acceptance, and StorageManager archival confirmation
+remain distinct.
+
+Reuse Decisions 276-280's journal-backed acceptance and recovery contracts. Do not
+introduce per-producer terminal markers, count registries, arbitrary sleeps,
+polling, or another evidence transport. Exact contiguous-consumption proof remains
+a Q019 low-level technical verification question, not an implementation assumption.
+This supplements Decisions 223-224 without transferring compilation, meaning,
+persistence-selection, or lifecycle ownership.
+
+---
+
+## Decision 357: Session Evidence Archives separate acquisition preservation from later final closure
+
+**Status:** Accepted
+
+The Session Evidence Archive has two preservation stages using the existing
+archive, not another archive or a new Session lifecycle state.
+
+**Stage A - acquisition preservation:** After acquisition stopping and applicable
+evidence-completeness confirmation, Ingestor compiles accepted persistent
+acquisition evidence and intake audit. StorageManager durably writes acquisition
+evidence, intake audit, compilation summary, and the final Session Record.
+Confirmed Stage A preservation satisfies acquisition-side final-persistence
+obligations for successful Session completion and applicable participant
+Session-binding release. The Session may reach `completed` before scientific-
+artifact collection. Applicable cleanup, handoff, and evidence obligations remain
+required; principal services retain their Session-independent lifetimes.
+
+**Stage B - later collection and permanent archive closure:** After operator-
+requested global collection, StorageManager appends its own collection evidence
+directly to the same `runtime_evidence.jsonl`, updates `compilation_summary.json`
+to distinguish Ingestor-accepted evidence from directly persisted StorageManager
+evidence, verifies durable preservation, and permanently closes the archive.
+The archive remains available for Stage B after Stage A. Stage B must not modify
+acquisition evidence, its existing Ingestor audit, the final Session Record, or
+the completed scientific acquisition outcome. Once final closure is confirmed,
+the archive is immutable; recovery cannot silently rewrite historical outcomes.
+
+This qualifies Decisions 228-229 and 275: required acquisition-side final
+persistence is Stage A, not a requirement to finish global collection first.
+Controller coordinates later collection; StorageManager confirms Stage B
+preservation and closes the archive. Session retains lifecycle ownership.
+Session Record and Evidence Archive remain separate under Decision 226. Recorded
+collection failures are valid operational outcomes and do not retroactively
+change a completed Session, consistent with Decision 303. NWB conversion and
+Cheaha upload remain later scientific processing stages.
+
+---
+
+## Decision 358: StorageManager directly preserves its later collection evidence in the Session archive
+
+**Status:** Accepted
+
+StorageManager constructs its own persistent `RuntimeEvidenceMessage` for actual
+collection outcomes and directly preserves it in the existing Session Evidence
+Archive during Stage B. Do not route this evidence back through Ingestor or
+fabricate Ingestor audit entries for directly persisted evidence. Compilation
+summary distinguishes the two preservation origins without a new archive.
+
+Preserve evidence identity, source and Session association, auditability,
+duplicate-ID protection, durability, integrity, and crash safety. Interrupted
+evidence persistence cannot imply success or automatically repeat artifact
+transfer. Do not introduce self-referential archival evidence. The exact integrity
+and interrupted-write recovery contracts remain Q019 low-level questions.
+
+This explicitly qualifies Decisions 223-225 for later StorageManager-owned
+collection evidence and supersedes Decision 274's Ingestor routing/compilation
+requirement for that Stage B evidence. Ingestor still owns acquisition evidence
+intake, audit, and compilation; producer-controlled persistence and Decision 224's
+prohibition on interpreting others' evidence remain intact. StorageManager does
+not acquire Session lifecycle, scientific interpretation, or local artifact
+ownership. Historical W033/M013 implementation and validation are preserved.
+
+---
+
+## Decision 359: Durable collection handoff permits later collection without original Session bindings
+
+**Status:** Accepted
+
+At acquisition closeout, Ingestor compiles the existing ArtifactManifest collection
+handoff and supplies it to StorageManager. StorageManager durably preserves it
+under the appropriate Session identity. The original Controller and Ingestor
+Session bindings may then be released once their applicable obligations are
+satisfied, preserving Decisions 313 and 322's safety and evidence requirements.
+
+Later, the long-lived Controller coordinates operator-selected collection for one
+or multiple stopped Sessions without restoring their original Session bindings.
+StorageManager retrieves the preserved handoff, resolves AcquisitionNode endpoints
+using deployment-local configuration, and performs retrieval and verification.
+Scientific artifacts remain locally owned by AcquisitionNodes until collected;
+manifest information is not artifact bytes. Existing local ownership is not
+transferred by handoff preservation.
+
+This qualifies Decisions 240 and 243's handoff availability/delivery boundary.
+Ingestor retains compilation ownership and StorageManager retains retrieval and
+persistence ownership. No automatic collection, new authoritative ArtifactManifest
+registry, or implicit retry/resumption is accepted. Durable representation,
+post-restart lookup, and eligible-Session selection remain Q019 low-level questions;
+no new API, storage schema, or deployment mechanism is defined here.
+
+---
+
+## Decision 360: Kill Session is authorized forced acquisition closeout without immediate archive closure
+
+**Status:** Accepted
+
+Kill Session is explicitly operator-authorized forced Session closeout, distinct
+from Normal Stop and service-level Kill. Preserve accessible acquisition evidence,
+available scientific files, a partial Session Record, and unresolved conditions
+promptly where possible. Preserve hardware and resource-safety requirements.
+Do not invent a `killed` Session lifecycle state or infer successful cleanup from
+forced closeout.
+
+Killed Sessions remain eligible for later operator-requested scientific-artifact
+collection, including attempts involving incomplete, missing, or corrupted files.
+Kill does not automatically initiate global collection. The partial Session
+Evidence Archive remains open for the later collection-evidence stage; do not
+permanently finalize it solely because the Session was killed. Once StorageManager
+confirms Stage B preservation and finalizes the archive, it is immutable. Later
+recovery does not silently rewrite historical outcomes.
+
+This qualifies Decisions 228-229 and 275's closeout/finalization boundary for
+forced partial acquisition closeout, without changing service-level maintenance
+authority or adding a lifecycle state. Normal versus forced partial acquisition-
+evidence closeout confirmations remain Q019 low-level questions; this decision
+does not choose their command contracts or required confirmation representation.
+
+**Implementation status for Decisions 356-360:** Accepted Q019 architecture
+synchronized only; not implemented, independently validated, or complete. Q019
+remains OPEN for contiguous JetStream consumption/acknowledgment proof, two-stage
+integrity and interrupted direct-write recovery, durable handoff representation/
+lookup/eligible-Session selection, and normal versus forced partial confirmations.
+Earlier decisions, implementation records, and validation results remain historical;
+W033/M013, W035, W039, and W040 retain their completed validated scopes. Decisions
+349-350 and 353-355 remain unimplemented; Decision 336 remains partial. Q024, Q022,
+Phase 16, and M015 remain OPEN. No new validated workflow is claimed.
+
+---
+
 # Accepted Architectural Principles
 
 The following principles summarize the accepted decisions so far.
+
+Decisions 356-360 qualify the historical Session closeout and collection-evidence
+contracts in Decisions 223-225, 228-229, 240, 243, and 274-275. Stage A confirms
+acquisition preservation for completion/binding release; later operator-requested
+collection uses a durable StorageManager-held handoff and direct Stage B collection
+evidence before permanent archive closure. Kill Session preserves partial closeout
+without automatically collecting artifacts or permanently closing that archive.
+These are accepted, unimplemented Q019 contracts; their low-level proofs and
+representations remain open, and historical completed scopes remain unchanged.
 
 Decisions 349-355 subsequently resolve additional Q024 ownership and behavioral
 boundaries. Supported Decisions 351-352 startup reconciliation is complete with
@@ -9992,6 +10153,11 @@ requirements remain authoritative.
 353. All principal services retire unnecessary temporary work after preservation/safety conditions while retaining reporting, resource protection, deduplication, and command-reexecution safeguards; Decision 336 remains partially implemented.
 354. Permanent framework Evidence Archives use YYYY-MM partitions with the existing three products, superseding Decision 323's shared layout without changing Session archives, scientific artifacts, timestamps, or temporary journals.
 355. Finalized means immutable, not necessarily safe to delete; confirmed safe deletion must never affect later operation/recovery, and historical archives are never automatically deleted. Decisions 349-350 and 353-355 remain unimplemented; supported Decisions 351-352 startup reconciliation is complete, independently manually validated and independently re-audited PASS after correction in W040; Q024, Q019, Q022, Phase 16, and M015 remain OPEN.
+356. Controller publishes one Session-scoped acquisition-evidence-completion marker after required producer publication confirmations; Ingestor independently verifies earlier durable acceptance using ordered JetStream evidence and acknowledgment progress, with exact contiguous proof still open.
+357. Confirmed Stage A acquisition evidence/audit/summary and final Session Record preservation permits successful Session completion and applicable binding release before later operator-requested collection; Stage B preserves collection evidence and permanently closes the same archive without altering acquisition outcomes.
+358. StorageManager directly persists its own persistent collection RuntimeEvidenceMessages in the Session archive, with separate provenance, no Ingestor routing or fabricated audit, and identity/durability/integrity/crash-safety protections; interrupted persistence is not success or automatic transfer replay.
+359. Ingestor compiles the existing handoff at acquisition closeout and StorageManager durably preserves it; later Controller-selected stopped-Session collection needs no original Session binding, new manifest registry, discovery, or automatic collection.
+360. Kill Session is separately authorized forced closeout preserving accessible evidence, files, partial Session Record, unresolved conditions, and safety; later collection remains eligible and the partial archive stays open until confirmed Stage B closure, without a killed lifecycle state. Decisions 356-360 are accepted but unimplemented; Q019, Q024, Q022, Phase 16, and M015 remain OPEN.
 
 ---
 

@@ -1,5 +1,28 @@
 # Code Map
 
+## Accepted Q019 closeout architecture (not implemented)
+
+Decisions 356-360 qualify historical Session closeout and collection-evidence
+contracts. The accepted future flow is producer publication confirmations, one
+Controller Session-scoped completion marker, independently verified Ingestor
+consumption, and Stage A acquisition evidence/audit/summary plus final Session
+Record preservation. Stage A permits successful completion and applicable binding
+release without waiting for scientific collection. StorageManager durably preserves
+Ingestor's existing handoff for later operator-selected stopped-Session collection
+without restoring original bindings; its own collection evidence is directly
+appended in Stage B with distinct summary provenance, then the archive is closed.
+Kill Session preserves accessible partial information and safety without automatic
+collection or permanent archive closure.
+
+These are accepted architecture, not current public APIs. The function entries
+below describe the historical implemented paths, including Ingestor-routed
+collection evidence and stopping-Session collection before finalization. Do not
+interpret those implementations as Stage A/Stage B or Kill Session support.
+Exact consumption/acknowledgment proof, interrupted-write integrity/recovery,
+durable handoff lookup/selection, and forced partial confirmations remain Q019
+low-level work. W033/M013, W035, W039, and W040 retain their validated scopes;
+Q019, Q024, Q022, Phase 16, and M015 remain OPEN. No new API or schema is defined.
+
 ## Phase 16 accepted responsibilities (binding release, maintenance, shutdown, and startup/return slices complete)
 
 The implemented historical Decision 323 uses the Evidence Archive's deployment-scoped
@@ -865,8 +888,10 @@ deployment validation (M011), distinct from W032's software validation.
 - Controller.finalize_session(): Requires an explicit Ingestor reference and every owned decision message in persistent compilation, writes runtime evidence/audit to the archive separately from the Session Record, rejects changed decision snapshots before completion, and confirms exact decision archival for release without asserting Session-wide consumption or retrieving artifact bytes.
 - StorageManager owns Artifact Plane retrieval and global storage; byte retrieval was outside Slice 22 and is now implemented separately in Slice 23, with real Jetson/SSH-SFTP deployment validation still pending under M011.
 
-Generic persistent-evidence compilation and Evidence Archive writing remain
-unchanged. Slice 27 adds known-Session restart reconstruction without modifying
+The historical implemented persistent-evidence compilation and Evidence Archive
+writing paths remain unchanged. Accepted Decisions 357-359 require subsequent
+two-stage persistence and durable handoff integration; those changes are not
+implemented. Slice 27 adds known-Session restart reconstruction without modifying
 this compiler; diagnostics compilation and application-wide restart remain deferred.
 
 ## Phase 14 / Slice 23 Integration - Pending Real Deployment Validation
