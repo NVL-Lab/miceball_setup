@@ -24,6 +24,15 @@ Decision 365 requires complete Normal Stop confirmations; authorized Kill Sessio
 preserves explicitly partial information and existing safety without automatic
 collection or permanent archive closure. Unknown outcomes remain unconfirmed.
 
+Decision 366 clarifies accepted, unimplemented publication coordination: participating
+AcquisitionNodes publish applicable evidence before existing successful completion
+responses, regardless of selected-device optionality. Controller and
+SynchronizationManager complete applicable closing-Session publication before the
+single marker; Ingestor's locally journaled evidence needs no JetStream round trip.
+Current command results published before later evidence cannot count as that
+confirmation. No separate producer-confirmation message or planned public API is
+documented as implemented; W041's receiving foundation remains unchanged.
+
 The Decision 361 Ingestor-side receiving foundation is now implemented; the
 remaining closeout contracts are accepted architecture, not current public APIs.
 The function entries below also describe historical paths, including Ingestor-routed

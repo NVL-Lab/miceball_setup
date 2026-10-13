@@ -1377,17 +1377,41 @@ archives and the separate durable JSON collection handoff.
 
 ---
 
+# Acquisition-stage Publication Completion
+
+Accepted Session-scoped boundary in Decision 366: an AcquisitionNode actually
+participating in acquisition finishes applicable work, evidence generation, and
+durable publication before its existing successful acquisition-completion response.
+That response confirms publication completion even when selected devices are
+optional; unused optional devices add no obligation. An earlier command result
+cannot confirm later evidence publication. Acquisition completion here is not
+successful Session completion or Evidence Archive preservation.
+
+Controller and SynchronizationManager finish their own applicable closing-Session
+publication before the marker, without shutting down their long-lived services or
+draining unrelated evidence. Ingestor-owned locally journaled evidence needs no
+JetStream round trip; applicable Session evidence remains part of compilation and
+persistence. Publication coordination is accepted but unimplemented.
+
+---
+
 # Acquisition-evidence-completion Marker
 
 The single Session-scoped marker Controller publishes through existing JetStream
 evidence after required acquisition-stage producers finish producing evidence and
-confirm durable publication (Decision 356). It is not a per-producer marker, count
-registry, or proof of Ingestor acceptance by itself. Ingestor independently verifies
+confirm durable publication (Decisions 356 and 366). The marker is not the Stop
+command; it establishes that Session's publication boundary, not a service-wide
+drain. Missing, failed, or uncertain required confirmations prevent that boundary;
+additional applicable evidence after confirmation must not invalidate it. It is
+not a per-producer marker, count registry, or proof of Ingestor acceptance by itself.
+Ingestor independently verifies
 earlier required durable acceptance using verified contiguous JetStream acknowledgment
 progress across the full relevant publication interval, with receiving position
 retained across restarts (Decision 361). Marker receipt or isolated ACKs alone are
-insufficient. Exact technical feasibility remains to be independently verified;
-the contract is unimplemented and no new message schema is specified here.
+insufficient. W041 validates the receiving foundation only; producer coordination
+and Controller marker publication remain unimplemented. Neither publication nor
+marker acceptance alone proves complete receipt, archival, or successful Session
+completion. No new message schema is specified here.
 
 ---
 

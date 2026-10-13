@@ -983,6 +983,15 @@ the existing Session directory and existing persistent information for selection
 (364); and complete Normal Stop confirmations versus truthful partial Kill
 preservation without weakening resource safety (365).
 
+Decision 366 resolves required producer scope and response ordering: participating
+AcquisitionNodes finish applicable evidence generation and durable publication
+before existing successful completion responses, including when selected devices
+are optional. Controller and SynchronizationManager finish applicable closing-Session
+publication before the single marker; locally journaled Ingestor-owned evidence
+remains in compilation/persistence without a JetStream round trip. The marker is
+not the Stop command. This clarification is accepted, not implemented or validated;
+it neither requires long-lived service shutdown nor changes W041's completed scope.
+
 Decision 361's receiving foundation and routing prerequisite are complete in W041:
 developer full suite 710 run, 703 passed, 7 optional skips, zero failures;
 independent manual IPython validation 6/6, 2/2, and 3/3 PASS at successive correction

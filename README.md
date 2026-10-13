@@ -518,6 +518,15 @@ broker progress, reconciling Session-matching publications with the current reta
 journal using canonical, type-sensitive contents. It does not certify producer
 confirmations, successful Normal Stop, Session completion, or archive preservation.
 Missing/truncated history or unknown original receiving state remains unconfirmed.
+Accepted Decision 366 resolves producer scope without new confirmation messages:
+participating AcquisitionNodes must durably publish applicable evidence before
+their existing successful acquisition-completion responses, even with optional
+selected devices; unused optional devices add no obligation. Controller and
+SynchronizationManager finish applicable closing-Session evidence publication
+before the single marker, without service-wide shutdown or publication barriers.
+Ingestor-owned locally journaled evidence needs no JetStream round trip and remains
+included in compilation/persistence. This coordination remains unimplemented;
+the marker is not the Stop command and is not proof of archival or Session completion.
 The accepted future closeout flow remains: required acquisition-stage producers
 confirm durable publication before Controller publishes one Session-scoped
 completion marker. Ingestor must independently verify earlier required durable

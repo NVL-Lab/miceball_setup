@@ -9957,6 +9957,84 @@ and M015 remain OPEN. W041 closes only the receiving-foundation slice.
 
 ---
 
+## Decision 366: Session acquisition-completion responses confirm producer publication before the Controller marker
+
+**Status:** Accepted
+
+This clarifies Decisions 356 and 361's required acquisition-stage producer scope
+and publication-completion boundary, using existing Session participation,
+communication, and command/result contracts.
+
+**AcquisitionNode completion:** An AcquisitionNode that actually participates in
+acquisition for a Session must finish applicable acquisition work, evidence
+generation, and successful durable publication before returning its existing
+successful acquisition-completion response. That response also confirms completion
+of all its applicable acquisition-stage evidence publication, regardless of whether
+its selected devices are required or optional. An optional device not selected or
+used creates no additional publication obligation. Accepted Session configuration
+and actual participant execution establish the relevant identities.
+
+A command result emitted before subsequent applicable artifact-manifest, health,
+or other evidence publication cannot count as completion confirmation. Failed,
+missing, or uncertain publication cannot support successful completion. Controller
+requires no separate publication-confirmation messages, producer registry, count
+mechanism, or per-producer terminal evidence marker.
+
+**Controller and SynchronizationManager publication:** Before publishing the
+Session's marker, Controller finishes publishing all its own applicable
+acquisition-stage evidence associated with the closing Session and coordinates
+completion of SynchronizationManager's applicable Session timing and mapping
+evidence publication, including mapping evidence generated during acquisition
+closeout. Reuse existing interfaces and communication mechanisms. Timing ownership
+remains with SynchronizationManager; Controller does not assume Ingestor's
+acceptance, completeness verification, compilation, or persistence responsibilities.
+
+These obligations are Session-scoped. Long-lived Controller and
+SynchronizationManager services remain operational and may produce evidence for
+other Sessions or outside a Session. No general service shutdown, service-wide
+evidence drain, global publication barrier, or new synchronization lifecycle is
+required.
+
+**Ingestor-owned evidence:** Ingestor-generated evidence, including recovery evidence
+written directly to its durable journal, need not be published to JetStream merely
+to return to Ingestor. Applicable locally generated Session evidence remains included
+in Ingestor's compilation and persistence obligations. Existing receiving,
+journaling, compilation, and persistence responsibilities and pathways are unchanged.
+
+**Accepted completion sequence:**
+
+1. Controller requests orderly acquisition shutdown through existing Session
+   coordination mechanisms.
+2. Participating AcquisitionNodes complete applicable acquisition work, evidence
+   generation, and durable publication.
+3. Their existing successful completion responses confirm publication completion.
+4. Controller ensures completion of its own applicable Session evidence publication
+   and SynchronizationManager's applicable Session evidence publication.
+5. Controller publishes exactly one Session-scoped `acquisition_evidence_completion`
+   marker through the existing JetStream evidence infrastructure.
+6. Ingestor independently verifies complete durable acceptance of the evidence
+   preceding that marker using Decision 361's W041-validated receiving foundation.
+7. Subsequent acquisition preservation and Session finalization follow the existing
+   accepted Q019 contracts.
+
+The marker is not the Stop command: it establishes the acquisition-stage evidence
+publication boundary for that Session. Neither durable JetStream publication nor
+marker acceptance alone proves complete Ingestor receipt, StorageManager archival,
+or successful Session completion. Missing, failed, or uncertain required
+confirmations prevent publication of a successful acquisition-evidence-completion
+boundary. A component must not generate additional applicable acquisition-stage
+evidence after confirming publication completion in a way that invalidates that
+boundary.
+
+**Implementation status:** Clarification accepted and synchronized only; producer
+coordination and Controller marker publication remain unimplemented and unvalidated.
+W041's receiving foundation remains independently validated and complete. Decisions
+362-365, full Normal Stop/Kill integration, and broader Q019 remain OPEN; no new
+component, transport, polling, sleeps, lifecycle state, or evidence pathway is added.
+Q024, Q022, Phase 16, and M015 remain OPEN.
+
+---
+
 # Accepted Architectural Principles
 
 The following principles summarize the accepted decisions so far.
@@ -9975,6 +10053,13 @@ and final independent re-audit PASS after correction (W041).
 Producer-confirmation and Controller closeout orchestration
 and Decisions 362-365 remain unimplemented. Q019 remains OPEN; historical completed
 scopes remain unchanged.
+
+Decision 366 resolves the producer-publication scope: participating AcquisitionNodes
+publish applicable evidence before existing successful completion responses,
+independently of device optionality; Controller and SynchronizationManager complete
+their applicable closing-Session publication before the single marker. Locally
+journaled Ingestor-owned evidence needs no JetStream round trip. These clarified
+coordination contracts remain unimplemented; W041 and existing ownership are unchanged.
 
 Decisions 349-355 subsequently resolve additional Q024 ownership and behavioral
 boundaries. Supported Decisions 351-352 startup reconciliation is complete with
@@ -10348,6 +10433,8 @@ requirements remain authoritative.
 363. StorageManager temporarily durably preserves each actual collection outcome and unique evidence ID before direct archival; confirmed archival and duplicate protection permit safe temporary retirement and authorized evidence-write recovery without repeating transfer.
 364. Ingestor's existing handoff is verified durably preserved by StorageManager as a separate Session-associated JSON file in the existing Session directory; later selected collection validates it without old bindings, invented registries, or guessed missing information.
 365. Normal Stop requires producer confirmations, complete durable Ingestor acceptance, and complete Stage A preservation; authorized Kill Session preserves confirmed accessible partial information without claiming completeness or safe resource release. Decision 361's receiving foundation is complete with independent manual validation and final independent re-audit PASS after correction (W041); producer-confirmation and Controller closeout orchestration and Decisions 362-365 remain unimplemented. Q019, Q024, Q022, Phase 16, and M015 remain OPEN.
+
+366. Participating AcquisitionNodes confirm durable acquisition-stage evidence publication through their existing successful completion responses regardless of selected-device optionality; Controller and SynchronizationManager finish applicable closing-Session publication before the single marker, while locally journaled Ingestor evidence needs no JetStream round trip. Publication coordination remains unimplemented; W041 is unchanged and Q019 remains OPEN.
 
 ---
 
