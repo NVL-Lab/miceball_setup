@@ -10091,6 +10091,19 @@ immutability boundary without weakening those Normal Stop protections.
 
 Use existing persistent Session information for eligible-Session selection. Missing,
 inconsistent, or unavailable information remains explicitly unresolved, not guessed.
+
+**Accepted LLC clarification (eligible-Session predicate):** Ordinary
+operator-selected scientific-artifact collection requires a durably confirmed
+terminal Session state: `completed`, `failed`, or `aborted`. A Session still
+recorded as `stopping` is not eligible until its termination status is resolved
+through existing recovery mechanisms. Incomplete, missing, or corrupted scientific
+files and unconfirmed participant cleanup do not disqualify an otherwise eligible
+Session. Eligibility does not authorize hardware or resource release. Reuse
+existing persisted Session information without a Session registry, new lifecycle
+states, or application restoration. This clarifies Decisions 359 and 360's
+stopped-Session and killed-Session collection descriptions; it does not settle
+candidate enumeration, selection ownership/scope, or collection actionability.
+
 No authoritative ArtifactManifest registry, Session registry, application-restoration
 system, or automatic collection is accepted. No exact handoff filename, new API,
 or additional registry schema is defined. This specifies Decision 359's durable

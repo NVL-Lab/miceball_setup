@@ -695,6 +695,19 @@ Remaining implementation and technical-verification work
   finalization stays explicit; corrupt/conflicting contents are not implicitly
   repaired. Later eligible-Session selection and overall integration validation remain
   unimplemented; no new registry or restoration mechanism is introduced.
+- **Eligibility predicate resolved; selection remains open:** Decision 364's
+  accepted clarification requires durably confirmed `completed`, `failed`, or
+  `aborted` for ordinary operator-selected collection. Persisted `stopping` is
+  ineligible until termination status is resolved through existing recovery.
+  Incomplete, missing, or corrupted scientific files and unconfirmed participant
+  cleanup do not disqualify an otherwise eligible Session; eligibility does not
+  authorize hardware or resource release. Existing persisted information is reused.
+  Still unresolved: explicitly supplied candidate Session IDs versus enumeration
+  of persistent storage, including enumeration ownership and scope; distinction
+  between eligibility, immediate collection actionability, required recovery or
+  repair, and permanently closed archives; and any additional multi-Session
+  selection semantics not already accepted. This resolves only the predicate,
+  not selection implementation or overall integration validation. Q019 remains OPEN.
 - **Closeout integration:** Decision 365's bounded Normal Stop confirmations are
   complete with independent validation and targeted re-audit PASS after correction
   (W047). Explicit partial Kill preservation is complete with independent validation and final re-audit PASS after corrections (W048),
