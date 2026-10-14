@@ -10101,8 +10101,17 @@ files and unconfirmed participant cleanup do not disqualify an otherwise eligibl
 Session. Eligibility does not authorize hardware or resource release. Reuse
 existing persisted Session information without a Session registry, new lifecycle
 states, or application restoration. This clarifies Decisions 359 and 360's
-stopped-Session and killed-Session collection descriptions; it does not settle
-candidate enumeration, selection ownership/scope, or collection actionability.
+stopped-Session and killed-Session collection descriptions. Collection actionability
+and additional mixed-selection semantics remain unresolved.
+
+**Accepted LLC clarification (enumeration and selection ownership):** StorageManager
+enumerates saved Sessions using existing persistent Session directories and records,
+without a Session registry. Controller coordinates operator selection of one or
+multiple Sessions. Each candidate Session must be independently validated for
+eligibility using existing persisted information and the predicate above. This
+does not resolve the distinction between eligibility, immediate collection
+actionability, required recovery or repair, and permanently closed archives, or
+additional mixed-selection semantics not already accepted.
 
 No authoritative ArtifactManifest registry, Session registry, application-restoration
 system, or automatic collection is accepted. No exact handoff filename, new API,

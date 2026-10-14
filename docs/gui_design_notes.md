@@ -122,10 +122,17 @@ The future GUI could:
 - Distinguish Stage A acquisition preservation/Session completion from later
   Stage B collection-evidence preservation and permanent archive closure. Explain
   that killed Sessions retain a partial archive open for later collection.
-- Let an operator request collection for selected stopped or killed Sessions,
-  including multiple Sessions, without presenting that choice as automatic
-  collection or restoration of their original bindings. Display actual retrieval,
-  verification, and evidence-preservation outcomes separately from acquisition.
+- Provide a future dropdown or multi-select table of saved Sessions that may need
+  scientific-data collection, showing Session identity and lifecycle status,
+  including `completed`, `failed`, and `aborted`. Operators could select one or
+  multiple Sessions for collection without automatic collection or restoration of
+  their original bindings. Proposed collection labels are not collected, partially
+  collected, fully collected, failed, or unresolved; these are future presentation
+  ideas, not accepted backend states or definitions. Their interpretation must await
+  resolution of backend actionability, recovery, and closed-archive distinctions.
+  Display actual retrieval, verification, and evidence-preservation outcomes
+  separately from acquisition. This feature is not current Q019 implementation
+  or an accepted GUI requirement.
 - Present future collection scheduling only after the relevant Q021 architecture
   is accepted. No scheduling policy or command contract is defined here.
 - Explain missing/incomplete/corrupted files and guide manual recovery within
@@ -138,8 +145,11 @@ The future GUI could:
   later processing stages, not newly specified GUI execution mechanisms.
 
 Decisions 356-365 accept the framework boundaries, not these presentation ideas.
-The high-level and low-level contracts are accepted but unimplemented; Q019 remains
-open for technical verification, independent validation, and audit. These notes add
+W041-W048 are complete; eligible-Session selection implementation and overall Q019
+integration validation remain open. Decision 364 accepts StorageManager enumeration
+from existing persistent directories/records and Controller-coordinated operator
+selection, with independent eligibility validation for each candidate, not these
+GUI presentation ideas or unresolved collection-status semantics. These notes add
 no GUI commands, lifecycle states, recovery authority, or implementation
 requirements. Closing the GUI remains distinct from
 both Session closeout and operational framework shutdown.
