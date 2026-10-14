@@ -2,7 +2,7 @@
 
 ## Accepted Q022-A Installation Contracts (Not Implemented)
 
-Decisions 367-375 accept one installed package with explicit role launching,
+Decisions 367-376 accept one installed package with explicit role launching,
 file-based local service/node configuration, explicit adapters and persistent node
 registration, adapter-defined Session-adjustable parameters, and manual installation
 verification. See [installation_and_deployment.md](installation_and_deployment.md).
@@ -16,8 +16,11 @@ yet. Configuration validity is not hardware readiness; device smoke tests are
 recommended, not commissioning/runtime gates. Q019 remains CLOSED; Q022/Q024/Phase 16/M015
 remain OPEN.
 
-Decision 375 requires independently launched services to use NATS for every
-inter-service interaction. Current Controller/Ingestor/StorageManager closeout,
+Decision 376 revises Decision 375: Ingestor and StorageManager share one process,
+startup/shutdown/restart lifetime, and permitted local calls while retaining distinct
+ownership. Controller, SynchronizationManager, and nodes remain independently
+deployed; all process-crossing interactions, including Controller access to both
+components, use NATS. Current Controller/Ingestor/StorageManager closeout,
 acquisition intake/timing, collection, release, and maintenance/recovery paths
 still use development-time direct collaborators and cross-owner guards; these
 are not deployed remote interfaces. Reuse existing command/result envelopes,
@@ -41,6 +44,14 @@ the malformed-correlation correction (W051); invalid present metadata is refused
 without changing history, while legacy uncorrelated records remain supported.
 Existing Controller closeout, framework/recovery adaptation, timing,
 configuration, and role launch work remain outstanding.
+
+W051 remains historically validated; internal NATS between the combined pair is
+no longer required. Local-interface reconciliation must preserve all W051 identity,
+durability, correlation, retry, readback, corruption/legacy and archival protections
+without duplicate state or separate lifetimes. AcquisitionNode intake requires
+stable delivery identity, durable correlation, journal-before-ACK and restart-safe
+deduplication distinct from persistence/archival confirmation. This reconciliation
+is not yet implemented or independently validated.
 
 Q019 is CLOSED following W041-W049 slice completion and W050 overall software
 integration validation/audit PASS. The permanent sequential Normal Stop regression

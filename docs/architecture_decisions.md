@@ -10551,6 +10551,10 @@ support remains separate from first-deployment/device-specific validation.
 
 **Status:** Accepted
 
+**Subsequent revision:** Decision 376 supersedes the independent-process and
+NATS-only communication requirements for the Ingestor-StorageManager pair.
+The original accepted text and historical W051 validation below are preserved.
+
 Controller, Ingestor, StorageManager, SynchronizationManager, and every
 AcquisitionNode are independently launched services and may run on different
 computers. All inter-service communication uses NATS. Direct Python-object
@@ -10591,6 +10595,46 @@ before enabling deployment launch paths that depend on them. Historical accepted
 decisions and validated workflows remain preserved; Q019 remains CLOSED in W050,
 while Q022, Q024, Phase 16, and M015 remain OPEN. Those earlier validations do not
 establish fully independent-service deployment compliance with this decision.
+
+---
+
+## Decision 376: Ingestor and StorageManager share one deployment process
+
+**Status:** Accepted
+
+Ingestor and StorageManager remain distinct software components with separate
+responsibilities, state, locks, and persistence authority, but must execute on the
+same computer within the same process. They share startup, shutdown, and restart
+lifetime and restart together. Direct Python calls between these components are
+permitted. This supersedes Decision 375's independently launched/separate-process
+requirement for this pair and its requirement that their mutual communication use
+NATS; it does not supersede their ownership or preservation responsibilities.
+
+Controller, SynchronizationManager, and every AcquisitionNode remain independently
+deployed. All communication crossing process boundaries uses NATS. Controller
+accesses both Ingestor and StorageManager capabilities exclusively through NATS.
+No new database, registry, infrastructure, or scientific-data ownership change is
+introduced. Distinct component identities and authoritative operations remain;
+a shared process does not merge their state or persistence authority.
+
+W051 remains a historically validated NATS implementation. Durable accepted-envelope
+persistence, stable persistence-command identity, retry idempotency/conflict
+detection, restart-safe correlation, journal-before-acknowledgment, exact owner
+readback, corruption rejection, legacy-record compatibility, and Q019 preservation,
+recovery, and immutable-archive protections remain required. Reconciliation should
+reuse existing local interfaces without unnecessary internal NATS messaging,
+duplicate authoritative state, or independent lifecycles for the pair.
+
+AcquisitionNode-to-Ingestor delivery remains a process-crossing NATS interaction:
+stable envelope-delivery identity, durable intake correlation, journal-before-ACK,
+and restart-safe deduplication must distinguish retries from separate identical
+scientific observations. Intake acknowledgment, StorageManager persistence
+confirmation, and archival completion are distinct; none substitutes for another.
+
+**Implementation status:** Accepted and synchronized; shared-process composition
+and acquisition-intake reconciliation are not yet implemented or independently
+validated. W051 history remains unchanged. Q019 remains CLOSED; Q022, Q024,
+Phase 16, and M015 remain OPEN.
 
 ---
 
@@ -11018,7 +11062,8 @@ requirements remain authoritative.
 373. Installation requires key-based SSH/SFTP setup and verified dummy retrieval using local endpoint/authentication references, not a continuously enforced Session connectivity gate.
 374. Initial manual installation verifies NATS and Controller-node readiness communication; device acquisition tests are strongly recommended, not mandatory runtime certification. Q022-A is accepted and synchronized, not implemented or independently validated; Q019 remains CLOSED and Q022, Q024, Phase 16, and M015 remain OPEN.
 
-375. All independently launched principal services communicate through NATS, retain their own operations/state/locks/evidence/persistence, and require trustworthy correlated confirmations without shared Python owners, implicit co-launching, or weakened Q019/recovery guarantees. Cross-service adaptation remains unimplemented; historical validation and project statuses are preserved.
+375. Historically required all principal services to communicate through NATS; Decision 376 supersedes separate deployment and internal NATS for the Ingestor-StorageManager pair, preserving ownership and trustworthy confirmations.
+376. Ingestor and StorageManager share one computer/process and startup/shutdown/restart lifetime with permitted local calls and distinct ownership; all process-crossing communication, including Controller access, uses NATS. W051 guarantees and stable, durable AcquisitionNode intake correlation remain mandatory; reconciliation is not yet implemented.
 
 ---
 

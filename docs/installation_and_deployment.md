@@ -2,7 +2,7 @@
 
 ## Status And Scope
 
-Q022-A Decisions 367-375 are accepted and synchronized. Configuration/launching
+Q022-A Decisions 367-376 are accepted and synchronized. Configuration/launching
 and full independent-service adaptation remain pending; the bounded owner
 persistence/readback foundation below is independently validated and audited
 after correction (W051). This is the initial manual installation contract and a
@@ -10,13 +10,14 @@ current-interface reference, not a working installer or deployment certification
 The framework remains device-independent; a first camera deployment does not
 define general adapter/configuration requirements. Q022 remains OPEN.
 
-Decision 375 resolves the independent-service composition question: all principal
-services and every AcquisitionNode launch independently, may run on different
-computers, and use NATS for all inter-service communication. Each retains its
-own operations, state, locks, evidence, and persistence. Direct Python calls within
-a service remain appropriate; shared service objects and implicit additional
-service owners are not the deployment architecture. Current direct dependencies
-are development/test implementation, not evidence of independent deployment.
+Decision 376 revises Decision 375: one Ingestor-StorageManager process runs on one
+computer, with shared startup, shutdown, and restart lifetime. The two components
+retain separate responsibilities, state, locks, and persistence authority and may
+communicate through local Python calls. Controller, SynchronizationManager, and
+each AcquisitionNode remain independently deployed; every process-crossing
+interaction uses NATS. Controller accesses both combined-process components only
+through NATS. No new registry, database, or scientific ownership is introduced.
+Shared-process composition/reconciliation is not yet implemented or validated.
 
 ## Accepted Manual Procedure
 
@@ -39,7 +40,8 @@ are development/test implementation, not evidence of independent deployment.
    to load it. Report duplicate identities as conflicts; do not launch against
    ambiguous identity. Coordinate restarts between Experiments without bypassing
    existing active-acquisition safeguards.
-6. Start the selected services independently. Verify node NATS connectivity and
+6. Start Controller, SynchronizationManager, and nodes independently, and start
+   Ingestor and StorageManager together in their combined process. Verify node NATS connectivity and
    Controller-to-node readiness request/response through existing communication.
    Historical announcements are not current readiness; missing replies mean
    unknown availability, not confirmed failure or stopped acquisition.
@@ -80,8 +82,9 @@ GUI, supervision, automatic discovery, or new readiness state is needed here.
 
 Controller archival/collection and maintenance preservation currently use actual
 Ingestor/StorageManager collaborators, including synchronous owner guards. They
-are not remote APIs merely because NATS participant commands exist. Decision 375
-resolves the transport/ownership choice; adapting these paths is pending
+are not remote APIs merely because NATS participant commands exist. Decision 376
+permits local Ingestor-StorageManager calls but requires NATS for Controller and
+other process-crossing access; adapting these paths is pending
 implementation. Establish the necessary service-owned NATS interfaces before
 enabling launch paths that depend on them. Missing responses, failures, and
 timeouts must remain unconfirmed; retries must retain existing identity,
@@ -97,9 +100,21 @@ remote-object subsystem. Reuse `RuntimeParticipant`, `RuntimeCommandMessage`,
 correlate requester, receiving identity, Session, and command, with bounded result
 waiting. Existing publication does not itself confirm receiver execution.
 
+The call-path descriptions below identify existing owner responsibilities, not
+separate processes for the combined pair. Ingestor-to-StorageManager and
+StorageManager-to-Ingestor readback, release guards, compilation, and recovery
+inputs may remain local under Decision 376. Only external callers require NATS
+adaptation; do not replace permitted local synchronization with remote requests.
+
 ### Implemented Owner Persistence Foundation
 
 The first bounded slice uses the existing command/result streams and owners:
+
+W051 is historical validation of this NATS boundary, not a requirement to retain
+internal NATS under Decision 376. Reuse local interfaces while preserving its
+durability, stable identity, retry/conflict, restart, readback, corruption/legacy,
+and archive/recovery guarantees. Do not duplicate owners or separate the pair's
+process lifetimes. This implementation reconciliation remains pending.
 
 - `NatsIngestorCommunication.persist_accepted_envelope(envelope, *,
   storage_participant, command_id, result_window_s)` sends already accepted
@@ -184,6 +199,11 @@ active-Session clock restoration. Local timing helpers are not new services.
 
 ### Producer Intake And Publication Confirmation
 
+Decision 376 requires stable AcquisitionNode envelope-delivery identity and
+durable intake correlation with journal-before-ACK and restart-safe deduplication.
+Retries are not separate identical observations. Intake acceptance, local
+StorageManager persistence confirmation, and archival completion remain distinct.
+
 **AcquisitionNode/Controller/other producers -> Ingestor:** Node `_send_envelope()`
 and `_record_artifact_manifest()` call intake directly; Controller decision and
 Experiment-rejection evidence also use direct `receive_runtime_evidence()`.
@@ -200,14 +220,14 @@ do not turn Ingestor's internal framework partition into another service owner.
 
 ### Accepted Acquisition Record Persistence
 
-**Ingestor -> StorageManager:** `receive_envelope()` directly invokes
+**Ingestor -> StorageManager (local under Decision 376):** `receive_envelope()` directly invokes
 `store_envelopes()`, and Controller later reads stored Session envelopes for the
 Session Record. Ingestor owns acceptance and audit; StorageManager owns record
 writing/readback. Reuse envelope serialization, existing persistent record APIs,
-and NATS request/results. Missing owner handlers must report actual storage
+and local calls with authoritative results. Adapted local interfaces must report actual storage
 outcomes and preserve Session/source association and existing failure semantics;
 neither a transport ACK nor a missing result is durable storage confirmation.
-Establish this boundary before enabling acquisition intake that relies on it.
+Reconcile this local boundary before enabling acquisition intake that relies on it.
 
 ### Receipt, Compilation, And Kill Obligations
 
@@ -301,8 +321,9 @@ evidence/persistence interfaces before independent-role startup is fully enabled
 These are proposed implementation boundaries, not additional accepted architecture
 or claims of implementation/validation:
 
-1. Establish Ingestor and StorageManager owner-side NATS intake, acceptance,
-   receipt/compilation, persistence, and current readback operations using existing
+1. Reconcile the combined process using existing local persistence/readback
+   interfaces with W051 guarantees, and owner-side NATS intake, acceptance,
+   receipt/compilation and external readback operations using existing
    envelopes/routing. Test exact identity, duplicates/conflicts, journal/ACK and
    write failure, missing/stale results, cancellation, and receiving-owner guards.
 2. Adapt acquisition/Experiment and synchronization interactions to those

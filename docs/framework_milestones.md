@@ -647,8 +647,11 @@ The first deployment target (one PC, one Jetson, one camera) is not
 a cardinality limit; existing communication boundaries must support separate
 processes/machines and multiple nodes/Controllers.
 
-Current development starts NATS/JetStream and each participant manually in
-independent processes. Intended deployment uses long-lived independent services.
+Historical development starts participants manually in independent processes.
+Decision 376 requires one long-lived Ingestor-StorageManager process with shared
+startup/shutdown/restart, plus independent Controller, SynchronizationManager, and
+node processes. Local calls within the pair are permitted; process-crossing access
+uses NATS. Composition/reconciliation is not yet implemented or validated.
 Controller does not manage NATS or launch participant processes. Required startup
 NATS connectivity precedes claimed operational distributed readiness; connection
 failure is explicit and does not wait indefinitely or introduce automatic retry.
@@ -1135,6 +1138,11 @@ W033/M013, W035, W039, and W040 remain historically complete; Decision
 Q022, Phase 16, and M015 remain OPEN.
 
 ## Completed NATS persistence boundary slice validation
+
+Decision 376 preserves W051 as historical validation but removes the internal
+NATS requirement for the combined Ingestor-StorageManager process. Pending local
+reconciliation must preserve its identity, durability, idempotency, readback,
+corruption/legacy and archive protections without duplicate owners/lifecycles.
 
 **W051 - Complete, bounded Q022 Ingestor-StorageManager ownership boundary.**
 Accepted-envelope persistence, current owner readback, journal-verified compilation,

@@ -851,7 +851,7 @@ Distributed operation
 ## Q022: What is the deployment-local configuration and initialization model?
 
 **Status:** OPEN - Q022-A installation/deployment design is accepted and synchronized
-in Decisions 367-375; the bounded Ingestor-StorageManager NATS persistence slice is
+in Decisions 367-376; the bounded Ingestor-StorageManager NATS persistence slice is
 complete with independent validation and final re-audit PASS after correction
 (W051). Remaining deployment implementation and verification are pending.
 Q022 as a whole is not closed. Q019 remains CLOSED in W050.
@@ -872,12 +872,14 @@ them to Controller for future GUI clients. Session overrides use existing config
 mechanisms and adapter validation without retaining prior-Session overrides.
 Startup configuration validity and actual hardware readiness are separate.
 
-Decision 375 resolves independent-service composition: all principal services and
-each AcquisitionNode launch independently, may run on different computers, and
-communicate with other services exclusively through NATS. Every receiving service
+Decision 376 revises Decision 375: Ingestor and StorageManager share one computer,
+process and startup/shutdown/restart lifetime, retaining distinct components and
+permitted local Python calls. Controller, SynchronizationManager, and nodes remain
+independently deployed; all process-crossing access, including Controller access
+to both components, uses NATS. Every receiving component
 retains its own operations, state, locks, evidence, and persistence authority.
-Development-time shared Python collaborators remain in the implementation and
-must be adapted; neither shared objects nor implicit additional owners are a
+Local collaborators within the pair are permitted; process-crossing direct
+collaborators still require adaptation. Duplicate authoritative owners are not a
 deployment solution. Requests require trustworthy confirmations; missing results,
 timeouts, and failures are not success. Existing identity, durability, idempotency,
 and recovery guarantees remain mandatory.
@@ -933,8 +935,8 @@ Manual independent-process startup is development infrastructure; intended
 long-lived service deployment/supervision remains future work (Decision 295).
 Decision 304 explicitly settles the Session-independent and GUI-independent
 lifetime of the five principal operational services, without requiring one
-process per service. Decision 375 now specifies independently launched services
-and NATS-only inter-service communication for deployment. Deployment automation
+process per service. Decision 376 requires a combined Ingestor-StorageManager
+process and NATS for communication crossing process boundaries. Deployment automation
 and supervision remain unresolved; Decisions 367-374 settle the initial manual
 file-based configuration scope.
 Decisions 313-321 settle maintenance,
@@ -966,7 +968,11 @@ exact formats remain implementation choices. No lifecycle API is introduced.
   deployment/device tests separate from framework software checks.
 * Broader configuration-model questions remain in Q008. Service supervision and
   deployment automation beyond manual explicit startup are not settled by Q022-A.
-* The former composition/access question is resolved by Decision 375. Implement
+* The composition/access question is resolved by Decision 376. Reconcile local
+  Ingestor-StorageManager interfaces with W051 guarantees and shared lifetime;
+  this work is not yet implemented or validated. AcquisitionNode intake requires
+  stable delivery identity, durable correlation, journal-before-ACK and restart-safe
+  deduplication, distinct from persistence or archival confirmation. Implement
   service-owned NATS requests/results for currently direct receipt, compilation,
   persistence, readback, timing, collection, release, and recovery interactions
   before enabling dependent role launch paths. Local owner guards cannot be
@@ -981,7 +987,7 @@ exact formats remain implementation choices. No lifecycle API is introduced.
 ### Blocks
 
 * Q022-A implementation and independent installation/startup verification.
-* Fully functional independent-role launching depends on the missing Decision 375
+* Combined-pair and independent-role launching depend on the remaining Decision 376
   NATS service interfaces, not another choice of composition or transport.
 * Broader Q022 completion, including any remaining accepted-scope questions.
 

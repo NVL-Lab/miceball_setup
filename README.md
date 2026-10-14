@@ -4,7 +4,7 @@
 
 A modular synchronization and acquisition framework for neuroscience experiments.
 
-Q022-A installation/deployment architecture is accepted in Decisions 367-375.
+Q022-A installation/deployment architecture is accepted in Decisions 367-376.
 Its bounded NATS Ingestor-StorageManager persistence foundation is complete with
 independent validation and final re-audit PASS after a malformed-correlation
 correction (W051). Full deployment implementation remains outstanding. The intended
@@ -14,8 +14,13 @@ Git, explicit known-node registration, and SSH/SFTP plus NATS/readiness installa
 checks. Device acquisition smoke tests are recommended, not runtime gates. See
 [Installation And Deployment](docs/installation_and_deployment.md) for the accepted
 manual procedure and current reusable interfaces/gaps. Q022 remains OPEN.
-Decision 375 requires independently launched services to communicate through NATS;
-current development-time shared-owner dependencies still need adaptation before
+Decision 376 revises Decision 375: Ingestor and StorageManager share one computer
+and process, startup/shutdown/restart lifetime, and permitted local Python calls
+while retaining separate ownership. Controller, SynchronizationManager, and nodes
+remain independently deployed; every process-crossing interaction uses NATS,
+including Controller access to both components. W051 remains historically
+validated; local-interface reconciliation preserving its guarantees is pending.
+Remaining process-crossing direct-owner dependencies still need adaptation before
 fully functional independent-role deployment. Historical Q019 validation remains
 complete and does not claim this deployment adaptation has been validated.
 
@@ -818,10 +823,10 @@ operations, and participant-specific preparation handlers. See docs/code_map.md
 for signatures. Distributed launch does not accept local_storage_roots;
 historical local Session initialization still supports explicit local overrides.
 
-For development/validation, NATS/JetStream and framework participants start
-manually in independent processes, potentially on different PCs/Jetsons, and
-each connects independently. Intended deployment uses long-lived independent
-services; Controller does not manage NATS or launch participant processes.
+Historical development/validation starts participants manually. Under Decision
+376, intended deployment uses one combined Ingestor-StorageManager process and
+independent Controller, SynchronizationManager, and node processes, potentially
+on different PCs/Jetsons. Controller does not manage NATS or launch processes.
 Required connectivity must succeed before distributed readiness, without
 indefinite startup waiting or automatic retry/reconnection policy. Pre-Session
 commands use participant identity without fabricated Session IDs; Session
