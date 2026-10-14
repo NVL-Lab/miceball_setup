@@ -3647,6 +3647,70 @@ collection, selection, and overall software integration scope only.
 
 ---
 
+# W051 - NATS Ingestor-StorageManager Persistence Boundary
+
+**Status:** Complete, independently validated and audited after correction.
+
+## Implemented workflow and interfaces
+
+Under Decisions 137 and 375, `NatsIngestorCommunication.persist_accepted_envelope()`
+delivers previously accepted Session intake to the existing StorageManager owner
+through NATS. `NatsStorageManagerCommunication` executes `persist_envelope`,
+`read_envelopes`, and `read_session_preservation` through authoritative owner
+methods and locks. Stable command/requester/target identities accompany envelopes
+in the existing records JSONL; no new persistence store or service owner is created.
+
+StorageManager flushes/fsyncs writes, performs supported directory synchronization,
+and verifies exact current owner-side readback before durability confirmation.
+Identical retries, including after restart, reconfirm rather than append;
+conflicting command reuse is rejected. Fresh-only NATS replies and per-attempt
+`request_nonce` correlation reject historical and delayed responses. Failed,
+timed-out, or cancelled requests retain Ingestor's accepted intake.
+
+Ingestor's `compile_session_evidence` and `verify_acquisition_receipt` NATS
+operations reuse journal-verified compilation and W041 receipt proof. Publication,
+journal acceptance, receipt, and archival confirmation remain distinct.
+Point-in-time owner readback is not a distributed lock or permission to release
+or complete a Session. Existing Q019 recovery and immutable-archive guards remain.
+
+Every present `persistence_command` block is validated before retry matching or
+confirmation. Malformed, null, incomplete, or invalid identity metadata is refused
+without appending, truncating, rewriting, or automatically repairing history.
+Legitimate legacy records without that field remain supported.
+
+## Validation and audit evidence
+
+- Initial developer testing: **32 targeted tests PASS**.
+- Initial independent manual IPython validation: **11/11 PASS**.
+- Initial independent audit: **FAIL**, one P2: damaged persisted correlation was
+  mistaken for an absent command, allowing duplicate envelope writes on retry.
+- Correction: validation in StorageManager's locked record reader before matching
+  and readback; public NATS regressions for null/incomplete metadata, restart,
+  unchanged history, and legacy compatibility.
+- Corrective developer testing: **13 targeted tests PASS**.
+- Independent manual IPython revalidation: **14/14 PASS**.
+- Final independent read-only re-audit: **PASS**, original P2 resolved and no
+  remaining confirmed P0-P3 findings. Five committed focused tests and one
+  temporary probe passed; the probe covered four additional malformed metadata
+  cases, new-command rejection, direct confirmation rejection, and unchanged bytes.
+
+These are previously executed results, not new testing during documentation closure.
+
+## Limitations and remaining work
+
+Validation uses actual service owners/adapters with broker doubles; it establishes
+no live NATS, multi-host, hardware, or independently tested power-loss guarantees.
+Completely removed correlation metadata is indistinguishable from genuine legacy
+history; no tamper-proof integrity guarantee is claimed.
+
+This bounded slice does not establish full independent-service deployment.
+Controller closeout/release, AcquisitionNode and SynchronizationManager adaptation,
+cross-process maintenance and authorized recovery, role launchers, and installation
+verification remain outstanding. Q022 remains OPEN. Q019 remains CLOSED in W050;
+Q024, Phase 16, and M015 remain OPEN. Historical workflows are unchanged.
+
+---
+
 # Future Workflows
 
 The following workflows are expected to be added as the framework evolves.

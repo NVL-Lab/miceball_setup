@@ -4,8 +4,8 @@
 
 Q022-A Decisions 367-375 are accepted and synchronized. Configuration/launching
 and full independent-service adaptation remain pending; the bounded owner
-persistence/readback foundation below has developer tests only. It is not yet
-independently validated or audited. This is the initial manual installation contract and a
+persistence/readback foundation below is independently validated and audited
+after correction (W051). This is the initial manual installation contract and a
 current-interface reference, not a working installer or deployment certification.
 The framework remains device-independent; a first camera deployment does not
 define general adapter/configuration requirements. Q022 remains OPEN.
@@ -138,8 +138,15 @@ not a distributed lock or permission to complete/release a Session.
 
 Developer testing: 25 new owner-boundary tests and 7 directly impacted existing
 regressions passed (32 total), using real framework adapters with broker doubles.
-Independent manual validation/audit, live NATS/cross-process deployment, and
-power-loss validation are not claimed. Configuration and role launching remain
+Independent manual validation passed initially (11/11) and after correction
+(14/14). The initial audit failed for malformed persisted correlation allowing
+duplicate writes; the correction passed 13 developer tests and final independent
+re-audit PASS with no remaining confirmed P0-P3 findings (W051). Present correlation
+must contain valid command/requester/target metadata; invalid history is refused
+unchanged, and legacy records without metadata remain supported. Complete removal
+of metadata cannot be distinguished from genuine legacy history.
+Live NATS, multi-host, hardware, and independently tested power-loss guarantees
+are not established. Configuration and role launching remain
 unimplemented; Q022, Q024, Phase 16, and M015 remain OPEN and Q019 remains CLOSED.
 
 ### Acquisition Commands And Experiment Context

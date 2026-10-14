@@ -10579,8 +10579,11 @@ lifetime. No communication infrastructure beyond NATS, new lifecycle states,
 weakened Q019 preservation/recovery guarantees, or implicit co-launching of other
 roles is authorized.
 
-**Implementation status:** Accepted and synchronized, not implemented or
-independently validated. Existing NATS participant commands, evidence publication,
+**Implementation status:** The bounded Ingestor-StorageManager NATS persistence,
+readback, journal-verified compilation, and W041 receipt foundation is complete
+with independent manual validation and final independent re-audit PASS after the
+malformed-correlation correction (W051). Full independent-service deployment
+remains unimplemented and unvalidated. Existing NATS participant commands, evidence publication,
 and readiness integration are reusable, but preservation, intake, timing,
 collection, release, and maintenance/recovery still contain development-time
 direct-object dependencies. Establish the required service-owned NATS interfaces

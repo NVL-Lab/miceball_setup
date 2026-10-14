@@ -4,8 +4,11 @@
 
 A modular synchronization and acquisition framework for neuroscience experiments.
 
-Q022-A installation/deployment architecture is accepted in Decisions 367-375 but
-not yet implemented or independently validated. The intended initial procedure
+Q022-A installation/deployment architecture is accepted in Decisions 367-375.
+Its bounded NATS Ingestor-StorageManager persistence foundation is complete with
+independent validation and final re-audit PASS after a malformed-correlation
+correction (W051). Full deployment implementation remains outstanding. The intended
+initial procedure
 uses one package, explicit service roles, local service/node configuration outside
 Git, explicit known-node registration, and SSH/SFTP plus NATS/readiness installation
 checks. Device acquisition smoke tests are recommended, not runtime gates. See

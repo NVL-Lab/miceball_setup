@@ -1134,6 +1134,19 @@ W033/M013, W035, W039, and W040 remain historically complete; Decision
 336 remains partial, Decisions 349-350 and 353-355 remain unimplemented, and Q024,
 Q022, Phase 16, and M015 remain OPEN.
 
+## Completed NATS persistence boundary slice validation
+
+**W051 - Complete, bounded Q022 Ingestor-StorageManager ownership boundary.**
+Accepted-envelope persistence, current owner readback, journal-verified compilation,
+and W041 receipt operations use NATS with stable write identity and fresh correlated
+replies. Initial developer tests 32 PASS and independent manual checks 11/11 PASS;
+initial audit FAIL for malformed correlation causing duplicate retry writes.
+Correction tests 13 PASS, independent revalidation 14/14 PASS, and final independent
+re-audit PASS, original P2 resolved with no remaining confirmed P0-P3 findings.
+This does not establish full independent-service deployment or live NATS,
+multi-host, hardware, or independently tested power-loss guarantees. Q019 remains
+CLOSED; Q022, Q024, Phase 16, and M015 remain OPEN with their separate criteria.
+
 ## Completed Session-binding release slice validation
 
 **Status:** Complete - narrow software implementation, manual IPython validation,

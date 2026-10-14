@@ -851,7 +851,9 @@ Distributed operation
 ## Q022: What is the deployment-local configuration and initialization model?
 
 **Status:** OPEN - Q022-A installation/deployment design is accepted and synchronized
-in Decisions 367-375; implementation and independent verification remain pending.
+in Decisions 367-375; the bounded Ingestor-StorageManager NATS persistence slice is
+complete with independent validation and final re-audit PASS after correction
+(W051). Remaining deployment implementation and verification are pending.
 Q022 as a whole is not closed. Q019 remains CLOSED in W050.
 
 ### Q022-A accepted scope
@@ -893,8 +895,11 @@ not evidence acceptance. Capability-appropriate device acquisition tests are
 strongly recommended but are not certification fields or runtime gates. Initial
 installation is manual, not a GUI/interactive installer. See
 [installation_and_deployment.md](installation_and_deployment.md) for the accepted
-procedure, current reuse/gaps, and validation boundaries. Q022-A is not yet
-implemented or independently validated; broader Q022/Q024/Phase 16/M015 remain open.
+procedure, current reuse/gaps, and validation boundaries. W051 closes only the
+NATS persistence/receipt/compilation foundation, not full independent-service
+deployment, Controller closeout/release, acquisition/timing adaptation,
+cross-process maintenance/recovery, configuration/launching, or installation
+verification; broader Q022/Q024/Phase 16/M015 remain open.
 
 ### Why this matters
 

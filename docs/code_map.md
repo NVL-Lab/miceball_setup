@@ -36,8 +36,10 @@ existing records JSONL, not another store; fsync and exact readback precede
 confirmation. Fresh-only result subscriptions and an echoed transient request
 nonce reject historical or late retry replies without changing durable operation
 identity. Accepted intake remains retained on failure, timeout, or cancellation.
-Developer impact-based tests passed; independent manual validation and audit are
-pending. Existing Controller closeout, framework/recovery adaptation, timing,
+This bounded slice is complete, independently validated and re-audited PASS after
+the malformed-correlation correction (W051); invalid present metadata is refused
+without changing history, while legacy uncorrelated records remain supported.
+Existing Controller closeout, framework/recovery adaptation, timing,
 configuration, and role launch work remain outstanding.
 
 Q019 is CLOSED following W041-W049 slice completion and W050 overall software
