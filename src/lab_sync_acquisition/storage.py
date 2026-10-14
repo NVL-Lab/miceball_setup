@@ -973,26 +973,114 @@ class PersistentStorageManager:
     ) -> None:
         """Append accepted acquisition envelopes to the JSONL records file."""
 
+        with self._preservation_lock:
+            self._append_envelope_records([envelope.to_dict() for envelope in envelopes])
+
+    def _append_envelope_records(self, records: list[dict]) -> None:
+        serialized = [json.dumps(record) + "\n" for record in records]
         self._records_path.parent.mkdir(parents=True, exist_ok=True)
-        with self._records_path.open("a", encoding="utf-8") as records_file:
-            for envelope in envelopes:
-                records_file.write(json.dumps(envelope.to_dict()))
-                records_file.write("\n")
+        if self._records_path.exists() and self._records_path.stat().st_size:
+            with self._records_path.open("rb") as source:
+                source.seek(-1, os.SEEK_END)
+                if source.read(1) != b"\n":
+                    raise RuntimeError("Acquisition record tail is incomplete; append is unsafe")
+        with self._records_path.open("a", encoding="utf-8") as output:
+            output.writelines(serialized)
+            output.flush()
+            os.fsync(output.fileno())
+        self._sync_artifact_handoff_directory(self._records_path)
+
+    def _read_envelope_records(self) -> list[dict]:
+        def unique_fields(pairs):
+            fields = {}
+            for key, value in pairs:
+                if key in fields:
+                    raise ValueError("Duplicate acquisition record fields")
+                fields[key] = value
+            return fields
+        if not self._records_path.exists():
+            return []
+        records = []
+        with self._records_path.open("r", encoding="utf-8") as source:
+            for line in source:
+                if line.strip():
+                    record = json.loads(line, object_pairs_hook=unique_fields)
+                    if not isinstance(record, dict):
+                        raise ValueError("Acquisition record is not an envelope")
+                    records.append(record)
+        return records
+
+    @service_operation()
+    def persist_envelope(
+        self, envelope: AcquisitionRecordEnvelope, *, command_id: str, requester_id: str,
+    ) -> dict[str, Any]:
+        """Durably append one command-correlated envelope, or reconfirm its identical retry."""
+        if any(not isinstance(value, str) or not value for value in (command_id, requester_id)):
+            raise ValueError("Persistence requires command and requester identities")
+        if (not isinstance(envelope, AcquisitionRecordEnvelope)
+                or any(not isinstance(value, str) or not value for value in
+                       (envelope.session_id, envelope.source_device_id, envelope.record_kind))
+                or envelope.records is None
+                or (envelope.source_node_id is not None and (
+                    not isinstance(envelope.source_node_id, str) or not envelope.source_node_id))):
+            raise ValueError("Persistence requires a complete Session-associated envelope")
+        record = deepcopy(envelope.to_dict())
+        record["persistence_command"] = {"command_id": command_id,
+            "source_id": requester_id, "target_id": self._component_id}
+        expected = json.dumps(record, sort_keys=True)
+        with self._preservation_lock:
+            records = self._read_envelope_records()
+            matches = [item for item in records if isinstance(item.get("persistence_command"), dict)
+                       and item["persistence_command"].get("command_id") == command_id]
+            if matches:
+                if len(matches) != 1 or json.dumps(matches[0], sort_keys=True) != expected:
+                    raise ValueError("Conflicting persistence command identity or contents")
+            else:
+                self._require_open_session_archive(envelope.session_id)
+                self._append_envelope_records([record])
+            confirmation = self.get_envelope_persistence_confirmation(command_id, requester_id=requester_id)
+            if confirmation is None or json.dumps(confirmation["envelope"], sort_keys=True) != json.dumps(
+                    envelope.to_dict(), sort_keys=True):
+                raise RuntimeError("Current envelope persistence readback is unconfirmed")
+            return {**confirmation, "already_persisted": bool(matches)}
+
+    def get_envelope_persistence_confirmation(
+        self, command_id: str, *, requester_id: str,
+    ) -> dict[str, Any] | None:
+        """Reconfirm exact command-owned contents and file durability from current records."""
+        if any(not isinstance(value, str) or not value for value in (command_id, requester_id)):
+            raise ValueError("Persistence readback requires command and requester identities")
+        with self._preservation_lock:
+            records = self._read_envelope_records()
+            matches = [item for item in records
+                       if isinstance(item.get("persistence_command"), dict)
+                       and item["persistence_command"].get("command_id") == command_id]
+            if not matches:
+                return None
+            if (len(matches) != 1 or matches[0]["persistence_command"] != {
+                    "command_id": command_id, "source_id": requester_id, "target_id": self._component_id}):
+                raise ValueError("Persistence readback has conflicting owner or command identity")
+            with self._records_path.open("r+b") as source:
+                os.fsync(source.fileno())
+            self._sync_artifact_handoff_directory(self._records_path)
+            if json.dumps(records, sort_keys=True) != json.dumps(
+                    self._read_envelope_records(), sort_keys=True):
+                raise RuntimeError("Persistence contents changed during readback")
+            envelope = AcquisitionRecordEnvelope.from_dict(matches[0])
+            if (any(not isinstance(value, str) or not value for value in
+                    (envelope.session_id, envelope.source_device_id, envelope.record_kind))
+                    or envelope.records is None):
+                raise ValueError("Persisted envelope contents are incomplete")
+            return {"command_id": command_id, "requester_id": requester_id,
+                "storage_manager_id": self._component_id, "session_id": envelope.session_id,
+                "durable_persistence_confirmed": True, "envelope": envelope.to_dict()}
 
     def read_envelopes(self) -> tuple[AcquisitionRecordEnvelope, ...]:
         """Read all stored acquisition envelopes from JSONL."""
 
-        if not self._records_path.exists():
-            return ()
-
-        envelopes = []
-        with self._records_path.open("r", encoding="utf-8") as records_file:
-            for line in records_file:
-                if line.strip():
-                    envelopes.append(
-                        AcquisitionRecordEnvelope.from_dict(json.loads(line))
-                    )
-        return tuple(envelopes)
+        with self._preservation_lock:
+            return tuple(AcquisitionRecordEnvelope.from_dict(record)
+                         for record in self._read_envelope_records())
 
     def get_envelopes_for_session(
         self,

@@ -71,6 +71,7 @@ from lab_sync_acquisition.nats_communication import (
     NatsCommunicationBoundary,
     NatsControllerCommunication,
     NatsIngestorCommunication,
+    NatsStorageManagerCommunication,
     NatsSynchronizationManagerCommunication,
     NatsServiceMaintenanceCommunication,
 )
@@ -135,6 +136,7 @@ __all__ = [
     "RuntimeEvidenceAuditRecord",
     "InMemoryStorageManager",
     "PersistentStorageManager",
+    "NatsStorageManagerCommunication",
     "ArtifactCollectionResult",
     "ArtifactRetrievalResult",
     "SshRetrievalEndpoint",

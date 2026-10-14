@@ -2,8 +2,10 @@
 
 ## Status And Scope
 
-Q022-A Decisions 367-375 are accepted and synchronized, not implemented or
-independently validated. This is the initial manual installation contract and a
+Q022-A Decisions 367-375 are accepted and synchronized. Configuration/launching
+and full independent-service adaptation remain pending; the bounded owner
+persistence/readback foundation below has developer tests only. It is not yet
+independently validated or audited. This is the initial manual installation contract and a
 current-interface reference, not a working installer or deployment certification.
 The framework remains device-independent; a first camera deployment does not
 define general adapter/configuration requirements. Q022 remains OPEN.
@@ -94,6 +96,51 @@ remote-object subsystem. Reuse `RuntimeParticipant`, `RuntimeCommandMessage`,
 `NatsControllerCommunication.request_command()`/group outcomes. These already
 correlate requester, receiving identity, Session, and command, with bounded result
 waiting. Existing publication does not itself confirm receiver execution.
+
+### Implemented Owner Persistence Foundation
+
+The first bounded slice uses the existing command/result streams and owners:
+
+- `NatsIngestorCommunication.persist_accepted_envelope(envelope, *,
+  storage_participant, command_id, result_window_s)` sends already accepted
+  current-Session intake to StorageManager, with no local StorageManager reference.
+- `NatsStorageManagerCommunication(boundary, storage_manager).subscribe_commands()`
+  receives `persist_envelope`, `read_envelopes`, and `read_session_preservation`.
+  StorageManager executes its own methods and returns actual failure or current
+  durability/readback results; missing products do not establish archival.
+- Ingestor's existing command handler receives `compile_session_evidence` and
+  `verify_acquisition_receipt`. Compilation requires current journal coverage and
+  includes existing persistent evidence, complete intake audit, acquisition
+  records/audit, and handoff. Receipt invokes the existing W041 owner proof.
+- `NatsControllerCommunication(boundary).request_persistence_command(participant,
+  command_type, session_id, payload, result_window_s, *, command_id)` handles these
+  Session-scoped operations. It automatically adds an echoed transient
+  `request_nonce` and uses fresh-only results, rejecting retained history and
+  delayed replies from earlier attempts. A timed-out result is `None`, not success.
+
+Keep the write `command_id` stable for identical retries. StorageManager retains
+the command/requester/target correlation as `persistence_command` alongside that
+envelope in its existing records JSONL. No new record file, evidence transport,
+registry, or service owner is created. Distinct commands may preserve distinct
+observations with identical values; conflicting reuse is rejected. Existing
+envelope readback and final Session Records retain their ordinary envelope shape.
+File flush/fsync, supported directory synchronization, and exact current readback
+precede durability confirmation, including retries after StorageManager restart.
+Corrupt/incomplete history is refused without rewriting or automatic repair.
+
+The original in-process interfaces remain available. Network failure,
+cancellation, missing replies, or a changed Ingestor binding cannot clear accepted
+intake or establish false current persistence. This slice does not migrate
+acquisition-side intake, Controller Stage A/Normal Stop/Kill orchestration,
+framework evidence/maintenance, authorized recovery, or cross-owner release
+commitment. Compilation/readback results are point-in-time owner observations,
+not a distributed lock or permission to complete/release a Session.
+
+Developer testing: 25 new owner-boundary tests and 7 directly impacted existing
+regressions passed (32 total), using real framework adapters with broker doubles.
+Independent manual validation/audit, live NATS/cross-process deployment, and
+power-loss validation are not claimed. Configuration and role launching remain
+unimplemented; Q022, Q024, Phase 16, and M015 remain OPEN and Q019 remains CLOSED.
 
 ### Acquisition Commands And Experiment Context
 

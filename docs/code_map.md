@@ -13,8 +13,7 @@ participants, `Controller.reconcile_outcomes()`, and StorageManager endpoint/pul
 interfaces are reusable. There is no general role CLI, deployment file loader,
 generic adjustable-parameter inventory, or installation dummy-retrieval interface
 yet. Configuration validity is not hardware readiness; device smoke tests are
-recommended, not commissioning/runtime gates. No source/API change is made by
-this architecture synchronization. Q019 remains CLOSED; Q022/Q024/Phase 16/M015
+recommended, not commissioning/runtime gates. Q019 remains CLOSED; Q022/Q024/Phase 16/M015
 remain OPEN.
 
 Decision 375 requires independently launched services to use NATS for every
@@ -26,8 +25,20 @@ participant identities, correlated requests, evidence publication, receipt proof
 and owner-local validation/persistence. See the cross-service dependency map and
 recommended implementation order in
 [installation_and_deployment.md](installation_and_deployment.md). NATS publication
-alone is not acceptance, complete receipt, or archival. No public API is changed
-by this synchronization, and historical Q019 validation remains intact.
+alone is not acceptance, complete receipt, or archival. Historical Q019 validation
+remains intact.
+
+The first bounded Decision 375 implementation adds Session-scoped Ingestor-to-
+StorageManager envelope persistence, current storage/preservation readback, and
+Ingestor-owned receipt/compilation requests through existing NATS command/results.
+Stable write command/requester identity is retained alongside envelopes in the
+existing records JSONL, not another store; fsync and exact readback precede
+confirmation. Fresh-only result subscriptions and an echoed transient request
+nonce reject historical or late retry replies without changing durable operation
+identity. Accepted intake remains retained on failure, timeout, or cancellation.
+Developer impact-based tests passed; independent manual validation and audit are
+pending. Existing Controller closeout, framework/recovery adaptation, timing,
+configuration, and role launch work remain outstanding.
 
 Q019 is CLOSED following W041-W049 slice completion and W050 overall software
 integration validation/audit PASS. The permanent sequential Normal Stop regression
@@ -581,6 +592,7 @@ guarantee remain deferred. M014/W034 retain completed Slice 27 scope and status.
 - NatsControllerCommunication: Public import for Controller-side durable command publication and command-result consumption.
 - NatsAcquisitionNodeCommunication: Public import for targeted AcquisitionNode command consumption, local duplicate detection, explicit command execution, command-result publication, and runtime evidence publication.
 - NatsIngestorCommunication: Public import for durable runtime evidence consumption into the existing Ingestor ownership boundary.
+- NatsStorageManagerCommunication: Public import for scoped owner-side envelope persistence and current readback over existing NATS command/results.
 - NatsSynchronizationManagerCommunication: Public import for participant-scoped readiness and Session preparation/abort command handling without transport-owned timing semantics.
 - NatsServiceMaintenanceCommunication: Public import for service-owned startup/readiness announcements and participant-scoped administrative commands using existing NATS pathways.
 - ServiceMaintenanceInterface: Public import for service-owned dependency readiness, framework evidence, correlated stop/kill/cancel, and evidence-confirmed operational retirement.
@@ -794,6 +806,8 @@ is complete; W030 records manual validation, focused tests, and audit reassessme
 - InMemoryIngestor._restore_runtime_evidence: Stages valid journal entries before restoring the normal evidence view, repairs only an interrupted final append, and rejects completed corruption or conflicting identities.
 - InMemoryIngestor._is_interrupted_json: Recognizes incomplete final JSON tokens without treating completed malformed lines as interrupted writes.
 - InMemoryIngestor.compile_persistent_runtime_evidence: Returns a detached, consistent snapshot of accepted persistent runtime messages and all runtime-evidence audit records under the intake lock without inferring persistence from evidence meaning.
+- InMemoryIngestor.persist_accepted_envelope(envelope, *, persist): Awaits a service-local transport callback for already accepted intake, retaining evidence and rechecking its Session binding without holding intake locks across network waits or duplicating acceptance.
+- InMemoryIngestor.compile_durable_session_evidence(session_id): Returns a detached journal-verified persistent compilation, complete runtime/acquisition intake audits, accepted envelopes, and existing artifact handoff without claiming receipt completeness or archival.
 
 Slice 27 (Decisions 276-280) is complete (M014, W034) after independent manual
 software validation and corrected targeted re-audit PASS. W034 preserves the
@@ -819,7 +833,7 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 - NatsControllerCommunication: Publishes unicast or issuer-fanned group commands, consumes and aggregates addressed per-target command results over an issuer-defined window, records missing results as unresolved, and independently presents HealthInterpretationEvidence without relaying evidence.
 - NatsControllerCommunication.check_ready(): Returns required NATS communication readiness for launch gating.
 - NatsControllerCommunication.request_command(participant, command_type, session_id, payload, result_window_s, *, command_id=None): Publishes once and awaits the bounded correlated result; when startup integration is attached to the same boundary, it also informs the service owner of missing results or explicit readiness observations without inferring technical unreadiness or using stale subscription bindings.
-- NatsControllerCommunication.subscribe_command_results(session_id, callback=None): Accepts None for participant-scoped results and a real Session ID for Session-scoped results.
+- NatsControllerCommunication.subscribe_command_results(session_id, callback=None, *, new_only=False, result_filter=None): Preserves historical result consumption by default and optionally limits delivery/filtering for current owner requests.
 - NatsControllerCommunication.session_acquisition_completion(participant, session_id): Reads the successful result for this issuer's latest exactly correlated stop_runtime request, not an unrelated or historical response.
 - NatsControllerCommunication.confirm_session_health_processing(session_id, controller): Reads retained Session health publications against completed bound subscription callbacks, refusing unknown history or unfinished inputs without processing/replaying them.
 - NatsControllerCommunication.publish_evidence(message): Retains Controller-owned publication failures and requires the existing durable stream acknowledgment, rejecting conflicting retained identities.
@@ -830,7 +844,14 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 - NatsAcquisitionNodeCommunication: Consumes targeted readiness, scientific-output preparation, or runtime commands, deduplicates by command_id, and publishes explicit outcomes without owning Experiment lifecycle.
 - NatsAcquisitionNodeCommunication.execute_command: Executes existing node commands and includes available owner diagnostics in readiness results while preserving readiness-only compatibility and scientific-output preparation behavior.
 - NatsIngestorCommunication: Consumes durable RuntimeEvidenceMessage records and passes them to InMemoryIngestor for separate evidence intake and audit.
-- NatsIngestorCommunication.subscribe_commands(): Returns participant- and Session-scoped subscriptions for readiness, journal preparation and evidence-subscription establishment, or initialization abort with intake-subscription cleanup before confirmation.
+- NatsIngestorCommunication.subscribe_commands(): Routes readiness/preparation/abort and scoped current compilation/receipt requests to the existing Ingestor owner, publishing results before command ACK.
+- NatsIngestorCommunication.persist_accepted_envelope(envelope, *, storage_participant, command_id, result_window_s): Forwards only owner-accepted envelopes over NATS, requiring matching current StorageManager identity/content/durability confirmation and never sharing a StorageManager object.
+- NatsIngestorCommunication._execute_evidence_readback(command): Delegates scoped compilation and W041 marker-receipt verification to the Ingestor owner with current-request reply correlation and explicit failed/unconfirmed results.
+- NatsStorageManagerCommunication(boundary, storage_manager): Binds one existing authoritative StorageManager to matching NATS participant identity without constructing another owner.
+- NatsStorageManagerCommunication.subscribe_commands(): Publishes authoritative persistence/readback results before delivery ACK and routes existing administrative commands only through the configured owner maintenance interface.
+- NatsStorageManagerCommunication.execute_command(command): Validates scoped persistence/readback requests and existing readiness without providing arbitrary remote methods, unrestricted recovery, collection, or closure.
+- _validate_owner_request(boundary, command): Validates target, requester, command, Session, connectivity, and transient reply correlation for the bounded owner operations.
+- NatsControllerCommunication.request_persistence_command(participant, command_type, session_id, payload, result_window_s, *, command_id): Makes one bounded scoped owner request with fresh-only results and an echoed per-attempt nonce, preserving the stable command ID while rejecting historical and late retry confirmations.
 - NatsSynchronizationManagerCommunication(boundary, synchronization_manager): Routes readiness, Session prepare/abort, and Session stop_runtime publication closeout to the timing owner over existing command/result streams, deduplicating completed requests.
 - NatsSynchronizationManagerCommunication.subscribe_commands(): Returns participant- and Session-scoped command subscriptions without implementing transport synchronization or remapping.
 - _participant_result: Builds an existing correlated final command-result message for one service-owned operation.
@@ -958,6 +979,11 @@ recovery is introduced. Phase 16 and M015 remain open.
 - InMemoryStorageManager: Reports service readiness, stores accepted AcquisitionRecordEnvelope objects in memory, and exposes all, session-filtered, and source-filtered readback without file writing or transformation.
 - PersistentStorageManager: Reports service readiness, stores accepted envelopes, and writes/reads v1 Session Record and Phase 13 Evidence Archive products from caller-supplied evidence.
 - PersistentStorageManager constructor: Accepts `records_path` and keyword-only `global_artifact_root=None`, `retrieval_endpoints=None`, `evidence_publisher=None`, and `component_id="storage"`; the publisher is an existing async runtime-evidence publication callable and component_id supplies the evidence source identity.
+- PersistentStorageManager.store_envelopes(envelopes): Preserves the existing in-process append API while serializing record writes under the owner preservation lock and flushing/fsyncing them.
+- PersistentStorageManager._append_envelope_records(records): Appends complete serialized records with fsync and supported directory synchronization, refusing an unfinished tail rather than repairing history.
+- PersistentStorageManager._read_envelope_records(): Rejects malformed or duplicate-field JSONL while preserving existing scientific non-finite values and keeping command correlation outside scientific envelope readback.
+- PersistentStorageManager.persist_envelope(envelope, *, command_id, requester_id): Durably appends one command-correlated envelope or reconfirms an identical retry, rejecting conflicts, unsafe history, and new writes for closed archives.
+- PersistentStorageManager.get_envelope_persistence_confirmation(command_id, *, requester_id): Reconfirms exact current command-owned record contents and file durability without cached success, another journal, or record rewriting.
 - PersistentStorageManager.write_session_record: Serializes and durably writes caller-supplied Session Record evidence under the preservation lock, refusing managed final-record mutation after archive closure.
 - SshRetrievalEndpoint(host, username, port=22, key_filename=None, known_hosts_path=None): Immutable deployment-local SSH configuration keyed by logical AcquisitionNode ID, using trusted host keys and optional explicit private-key/known-hosts files.
 - ArtifactRetrievalResult(artifact_manifest_id, outcome, global_destination=None, failure_information=None, verification_outcome=None, verification_information=None): Immutable per-artifact result whose `to_dict()` preserves retrieval success/failure separately from verification information, absent when retrieval failed.

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Iterable, Iterator
+from collections.abc import Awaitable, Callable, Iterable, Iterator
 from dataclasses import dataclass
 from contextlib import ExitStack, contextmanager
 from copy import deepcopy
@@ -720,6 +720,58 @@ class InMemoryIngestor:
                 if self._storage_manager is not None:
                     self._storage_manager.store_envelopes((envelope,))
             return audit
+
+    @service_operation()
+    async def persist_accepted_envelope(
+        self, envelope: AcquisitionRecordEnvelope, *,
+        persist: Callable[[AcquisitionRecordEnvelope], Awaitable[dict[str, Any] | None]],
+    ) -> dict[str, Any]:
+        """Send retained accepted intake to its storage owner without reaccepting or holding intake locks."""
+        with self._intake_lock:
+            if self._storage_manager is not None:
+                raise RuntimeError("Independent persistence must not also use a local StorageManager")
+            if (not isinstance(envelope, AcquisitionRecordEnvelope) or not self._session_prepared
+                    or envelope.session_id != self._session_id or self._journal_failed):
+                raise RuntimeError("Persistence requires the current prepared Ingestor Session")
+            content = json.dumps(envelope.to_dict(), sort_keys=True)
+            if not any(json.dumps(item.to_dict(), sort_keys=True) == content
+                       for item in self._accepted_envelopes):
+                raise ValueError("Envelope has not been accepted by this Ingestor")
+            session_id, journal = self._session_id, self._recovery_journal_path
+            snapshot = AcquisitionRecordEnvelope.from_dict(json.loads(content))
+        confirmation = await persist(snapshot)
+        with self._intake_lock:
+            if (self._session_id != session_id or self._recovery_journal_path != journal
+                    or not self._session_prepared or self._journal_failed):
+                raise RuntimeError("Ingestor binding changed during envelope persistence")
+            if confirmation is None:
+                return {"session_id": session_id, "durable_persistence_confirmed": False,
+                        "reason": "StorageManager persistence response is missing or timed out"}
+            if (confirmation.get("durable_persistence_confirmed") is True
+                    and json.dumps(confirmation.get("envelope"), sort_keys=True) != content):
+                raise ValueError("Persistence confirmation does not match accepted envelope contents")
+            return deepcopy(confirmation)
+
+    @service_operation()
+    def compile_durable_session_evidence(self, session_id: str) -> dict[str, Any]:
+        """Return current journal-verified compilation and acquisition intake, not archival confirmation."""
+        with self._intake_lock:
+            if not isinstance(session_id, str) or not session_id or session_id != self._session_id:
+                raise ValueError("Compilation requires the current Ingestor Session")
+            if self._recovery_journal_path is None:
+                raise RuntimeError("Compilation requires a durable recovery journal")
+            if any(envelope.session_id != session_id for envelope in self._accepted_envelopes):
+                raise RuntimeError("Acquisition intake has conflicting Session association")
+            with self.durable_runtime_evidence_history_guard(
+                    session_id, self._recovery_journal_path, self._accepted_runtime_evidence) as confirmed:
+                if not confirmed:
+                    raise RuntimeError("Current journal coverage is unconfirmed")
+                compiled = self.compile_persistent_runtime_evidence()
+                return deepcopy({"session_id": session_id, "journal_coverage_confirmed": True,
+                    **{name: [item.to_dict() for item in values] for name, values in compiled.items()},
+                    "accepted_acquisition_envelopes": [item.to_dict() for item in self._accepted_envelopes],
+                    "ingest_audit_records": [item.to_dict() for item in self._ingest_audit],
+                    "artifact_collection_handoff": self.compile_artifact_collection_handoff(session_id)})
 
     def _validate_envelope(self, envelope: AcquisitionRecordEnvelope) -> tuple[bool, str]:
         if not envelope.session_id:

@@ -10,6 +10,7 @@ import logging
 from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass, replace
 from typing import Any
+from uuid import uuid4
 
 import nats
 from nats.aio.client import Client as NATS
@@ -19,6 +20,7 @@ from nats.js.client import JetStreamContext
 from nats.js.errors import NotFoundError
 
 from lab_sync_acquisition.acquisition_node import AcquisitionNode
+from lab_sync_acquisition.acquisition_record import AcquisitionRecordEnvelope
 from lab_sync_acquisition.acquisition_health import HealthInterpretationEvidence
 from lab_sync_acquisition.communication import (
     SERVICE_RECOVERY_COMMAND_TYPES,
@@ -43,6 +45,7 @@ from lab_sync_acquisition.device import DeviceDeclaration
 from lab_sync_acquisition.synchronization import SynchronizationManager
 from lab_sync_acquisition.service_readiness import ServiceReadiness
 from lab_sync_acquisition.service_maintenance import service_operation
+from lab_sync_acquisition.storage import PersistentStorageManager
 
 
 RuntimeResultCallback = Callable[[RuntimeCommandResultMessage], Awaitable[None]]
@@ -373,6 +376,27 @@ class NatsControllerCommunication:
     def check_ready(self) -> ServiceReadiness:
         return self._boundary.check_ready()
 
+    async def request_persistence_command(
+        self, participant: RuntimeParticipant, command_type: str, session_id: str,
+        payload: dict[str, Any], result_window_s: float, *, command_id: str,
+    ) -> RuntimeCommandResultMessage | None:
+        """Request current owner readback/write results without accepting history or an earlier retry's reply."""
+        supported = {"storage_manager": {"persist_envelope", "read_envelopes", "read_session_preservation"},
+                     "ingestor": {"compile_session_evidence", "verify_acquisition_receipt"}}
+        if (not isinstance(participant, RuntimeParticipant)
+                or command_type not in supported.get(participant.component_type, set())
+                or "request_nonce" in payload):
+            raise ValueError("Unsupported scoped persistence request")
+        nonce = uuid4().hex
+        requests = NatsControllerCommunication(self._boundary)
+        subscription = await requests.subscribe_command_results(session_id, new_only=True,
+            result_filter=lambda result: result.payload.get("request_nonce") == nonce)
+        try:
+            return await requests.request_command(participant, command_type, session_id,
+                {**deepcopy(payload), "request_nonce": nonce}, result_window_s, command_id=command_id)
+        finally:
+            await subscription.unsubscribe()
+
     async def request_command(self, participant: RuntimeParticipant, command_type: str,
                               session_id: str | None, payload: dict[str, Any],
                               result_window_s: float, *, command_id: str | None = None) -> RuntimeCommandResultMessage | None:
@@ -521,6 +545,8 @@ class NatsControllerCommunication:
         self,
         session_id: str | None,
         callback: RuntimeResultCallback | None = None,
+        *, new_only: bool = False,
+        result_filter: Callable[[RuntimeCommandResultMessage], bool] | None = None,
     ) -> Subscription:
         """Consume durable results addressed to this command issuer."""
 
@@ -531,6 +557,9 @@ class NatsControllerCommunication:
                 json.loads(message.data.decode("utf-8"))
             )
             if result.target_id != self._boundary.component_id:
+                await message.ack()
+                return
+            if result_filter is not None and not result_filter(result):
                 await message.ack()
                 return
             self._command_results = self._command_results + (result,)
@@ -550,6 +579,8 @@ class NatsControllerCommunication:
             subject,
             cb=receive,
             manual_ack=True,
+            **({"config": ConsumerConfig(deliver_policy=DeliverPolicy.NEW,
+                                         ack_policy=AckPolicy.EXPLICIT)} if new_only else {}),
         )
 
     async def subscribe_health_interpretation_evidence(
@@ -902,7 +933,9 @@ class NatsIngestorCommunication:
             if command.target_id != self._boundary.component_id:
                 await message.ack()
                 return
-            result = (await _execute_maintenance_command(self._boundary, self._ingestor, command)
+            result = (await self._execute_evidence_readback(command)
+                      if command.command_type in {"compile_session_evidence", "verify_acquisition_receipt"} else
+                      await _execute_maintenance_command(self._boundary, self._ingestor, command)
                       if command.command_type in ({"stop", "kill", "cancel", "prepare_stop", "check_stop_readiness"} | SERVICE_RECOVERY_COMMAND_TYPES) else
                       _execute_service_command(self._boundary, self._ingestor, command, self._results_by_command_id))
             if result.success and command.command_type == "initialize_session" and command.session_id not in self._evidence_subscriptions:
@@ -923,6 +956,63 @@ class NatsIngestorCommunication:
             await self._boundary.publish_command_result(result, command.command_type)
             await message.ack()
         return await _subscribe_participant_commands(self._boundary, receive)
+
+    async def persist_accepted_envelope(
+        self, envelope: AcquisitionRecordEnvelope, *, storage_participant: RuntimeParticipant,
+        command_id: str, result_window_s: float,
+    ) -> dict[str, Any]:
+        """Forward accepted intake over NATS and return only the storage owner's correlated confirmation."""
+        if (self._boundary.component_type != "ingestor"
+                or self._boundary.component_id != self._ingestor._component_id):
+            raise ValueError("Persistence communication does not match its Ingestor owner")
+        if (not isinstance(storage_participant, RuntimeParticipant)
+                or storage_participant.component_type != "storage_manager"):
+            raise ValueError("Persistence requires an explicit StorageManager participant")
+
+        async def persist(snapshot):
+            requests = NatsControllerCommunication(self._boundary)
+            result = await requests.request_persistence_command(storage_participant, "persist_envelope",
+                snapshot.session_id, {"envelope": snapshot.to_dict()}, result_window_s,
+                command_id=command_id)
+            if result is None:
+                return None
+            if not result.success:
+                return {"session_id": snapshot.session_id, "command_id": command_id,
+                    "durable_persistence_confirmed": False, "reason": result.reason,
+                    "storage_result": result.to_dict()}
+            confirmation = result.payload
+            if (confirmation.get("durable_persistence_confirmed") is not True
+                    or confirmation.get("session_id") != snapshot.session_id
+                    or confirmation.get("command_id") != command_id
+                    or confirmation.get("requester_id") != self._boundary.component_id
+                    or confirmation.get("storage_manager_id") != storage_participant.component_id):
+                raise ValueError("StorageManager returned invalid persistence confirmation")
+            return confirmation
+
+        return await self._ingestor.persist_accepted_envelope(envelope, persist=persist)
+
+    async def _execute_evidence_readback(self, command):
+        nonce = command.payload.get("request_nonce")
+        try:
+            _validate_owner_request(self._boundary, command)
+            if self._boundary.component_id != self._ingestor._component_id:
+                raise ValueError("Ingestor communication identity differs from its owner")
+            if command.command_type == "compile_session_evidence":
+                if set(command.payload) != {"request_nonce"}:
+                    raise ValueError("Compilation accepts only the requested Session identity")
+                payload = self._ingestor.compile_durable_session_evidence(command.session_id)
+                return _participant_result(self._boundary, command, True, None, {**payload, "request_nonce": nonce})
+            if set(command.payload) != {"marker", "request_nonce"} or not isinstance(command.payload["marker"], dict):
+                raise ValueError("Receipt verification requires exactly one completion marker")
+            marker = RuntimeEvidenceMessage.from_dict(command.payload["marker"])
+            if marker.session_id != command.session_id:
+                raise ValueError("Completion marker does not match the requested Session")
+            proof = await self.verify_acquisition_evidence_receipt(marker)
+            confirmed = proof.get("durable_receipt_confirmed") is True
+            return _participant_result(self._boundary, command, confirmed,
+                None if confirmed else proof.get("reason"), {**proof, "request_nonce": nonce})
+        except Exception as error:
+            return _participant_result(self._boundary, command, False, str(error), {"request_nonce": nonce})
 
     async def subscribe_evidence(
         self,
@@ -1133,6 +1223,84 @@ class NatsIngestorCommunication:
         except Exception as error:
             result["reason"] = f"unverifiable_progress: {error}"
         return result
+
+
+def _validate_owner_request(boundary, command) -> None:
+    if (command.target_id != boundary.component_id
+            or any(not isinstance(value, str) or not value for value in
+                   (command.command_id, command.source_id, command.session_id))):
+        raise ValueError("Owner request requires matching target, command, requester, and Session identities")
+    if not isinstance(command.payload.get("request_nonce"), str) or not command.payload["request_nonce"]:
+        raise ValueError("Owner request requires current-request reply correlation")
+    if not boundary.check_ready().ready:
+        raise ConnectionError("Required NATS connection is not ready")
+
+
+class NatsStorageManagerCommunication:
+    """Route Session-scoped persistence and current readback to one authoritative storage owner."""
+
+    def __init__(self, boundary: NatsCommunicationBoundary, storage_manager: PersistentStorageManager):
+        if (not isinstance(storage_manager, PersistentStorageManager)
+                or boundary.component_type != "storage_manager"
+                or boundary.component_id != storage_manager._component_id):
+            raise ValueError("Storage communication must match its authoritative owner")
+        self._boundary = boundary
+        self._storage_manager = storage_manager
+
+    async def subscribe_commands(self) -> tuple[Subscription, Subscription]:
+        """Receive existing command envelopes; publish owner results before acknowledging delivery."""
+        async def receive(message):
+            command = RuntimeCommandMessage.from_dict(json.loads(message.data.decode("utf-8")))
+            if command.target_id != self._boundary.component_id:
+                await message.ack()
+                return
+            result = (await _execute_maintenance_command(self._boundary, self._storage_manager, command)
+                      if command.command_type in ({"stop", "kill", "cancel", "prepare_stop", "check_stop_readiness"}
+                                                 | SERVICE_RECOVERY_COMMAND_TYPES)
+                      else self.execute_command(command))
+            await self._boundary.publish_command_result(result, command.command_type)
+            await message.ack()
+        return await _subscribe_participant_commands(self._boundary, receive)
+
+    def execute_command(self, command: RuntimeCommandMessage) -> RuntimeCommandResultMessage:
+        """Execute scoped owner persistence/readback, never recovery or arbitrary remote method calls."""
+        nonce = command.payload.get("request_nonce")
+        try:
+            if command.command_type == "check_readiness":
+                return _execute_service_command(self._boundary, self._storage_manager, command, {})
+            _validate_owner_request(self._boundary, command)
+            if command.command_type == "persist_envelope":
+                if set(command.payload) != {"envelope", "request_nonce"} or not isinstance(command.payload["envelope"], dict):
+                    raise ValueError("Persistence requires exactly one acquisition envelope")
+                contents = command.payload["envelope"]
+                if (not set(contents).issubset({"session_id", "source_node_id", "source_device_id",
+                                               "record_kind", "records"})
+                        or not isinstance(contents.get("records"), list)):
+                    raise ValueError("Malformed acquisition envelope")
+                envelope = AcquisitionRecordEnvelope.from_dict(contents)
+                if envelope.session_id != command.session_id:
+                    raise ValueError("Envelope does not match the requested Session")
+                payload = self._storage_manager.persist_envelope(envelope,
+                    command_id=command.command_id, requester_id=command.source_id)
+            elif command.command_type == "read_envelopes":
+                if set(command.payload) != {"request_nonce"}:
+                    raise ValueError("Envelope readback accepts only the requested Session identity")
+                payload = {"session_id": command.session_id, "envelopes": [item.to_dict()
+                    for item in self._storage_manager.get_envelopes_for_session(command.session_id)]}
+            elif command.command_type == "read_session_preservation":
+                if set(command.payload) != {"request_nonce"}:
+                    raise ValueError("Preservation readback accepts only the requested Session identity")
+                confirmation = self._storage_manager.get_persisted_session_preservation_confirmation(command.session_id)
+                payload = {"session_id": command.session_id, "archival_confirmed": confirmation is not None,
+                           "confirmation": confirmation}
+                if confirmation is None:
+                    return _participant_result(self._boundary, command, False,
+                        "Current persisted Session preservation is unconfirmed", {**payload, "request_nonce": nonce})
+            else:
+                raise ValueError("Unsupported StorageManager persistence/readback command")
+            return _participant_result(self._boundary, command, True, None, {**payload, "request_nonce": nonce})
+        except Exception as error:
+            return _participant_result(self._boundary, command, False, str(error), {"request_nonce": nonce})
 
 
 def _participant_result(boundary: NatsCommunicationBoundary, command: RuntimeCommandMessage,
