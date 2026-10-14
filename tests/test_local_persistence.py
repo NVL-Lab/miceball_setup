@@ -1,9 +1,11 @@
 """Retained intake persists through distinct owners in one process."""
 
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 import json
 from pathlib import Path
 import tempfile
+from threading import Event
 import unittest
 from unittest.mock import patch
 
@@ -77,6 +79,49 @@ class LocalPersistenceTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(second["durable_persistence_confirmed"])
         self.assertEqual(sum(result["already_persisted"] for result in (first, second)), 1)
         self.assertEqual(self.storage.read_envelopes(), (self.envelope,))
+
+    async def test_binding_abort_waits_for_local_persistence(self):
+        entered, finish, abort_requested, persisted, aborted = (Event() for _ in range(5))
+        owner_persist = self.storage.persist_envelope
+
+        def coordinated_persist(*args, **kwargs):
+            entered.set()
+            if not finish.wait(5):
+                raise TimeoutError("Persistence coordination was not released")
+            confirmation = owner_persist(*args, **kwargs)
+            persisted.set()
+            return confirmation
+
+        def abort_binding():
+            abort_requested.set()
+            result = self.ingestor.abort_session_initialization("session")
+            self.assertTrue(persisted.is_set(), "Binding abort overtook owner persistence")
+            aborted.set()
+            return result
+
+        # Pause the owner call, not its locks; both threads execute real owner methods.
+        with ThreadPoolExecutor(max_workers=2) as workers:
+            with patch.object(self.storage, "persist_envelope", side_effect=coordinated_persist):
+                writing = workers.submit(lambda: asyncio.run(self.persist()))
+                try:
+                    self.assertTrue(entered.wait(5))
+                    aborting = workers.submit(abort_binding)
+                    self.assertTrue(abort_requested.wait(5))
+                    self.assertFalse(aborted.is_set())
+                    self.assertFalse(persisted.is_set())
+                finally:
+                    finish.set()
+                confirmation = writing.result(timeout=5)
+                self.assertTrue(aborting.result(timeout=5))
+
+        self.assertTrue(confirmation["durable_persistence_confirmed"])
+        self.assertEqual(confirmation["session_id"], "session")
+        self.assertTrue(aborted.is_set())
+        before = self.storage.records_path.read_bytes()
+        self.assertEqual(self.storage.read_envelopes(), (self.envelope,))
+        with self.assertRaisesRegex(RuntimeError, "prepared Ingestor Session"):
+            await self.persist()
+        self.assertEqual(self.storage.records_path.read_bytes(), before)
 
     async def test_failed_durability_retains_intake_for_idempotent_retry(self):
         with patch("lab_sync_acquisition.storage.os.fsync", side_effect=OSError("fsync unavailable")):
