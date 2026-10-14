@@ -510,7 +510,9 @@ model. Decision 361's Ingestor-side receiving foundation and JetStream routing
 prerequisite are complete with automated testing, independent manual IPython
 validation, and final independent re-audit PASS after both corrections (W041).
 Validation used local NATS/software, not an external cluster, multi-host, Jetson,
-or hardware deployment. Complete closeout and Decisions 362-365 are not implemented.
+or hardware deployment. Complete closeout remains unimplemented. Decision 362's
+explicit Stage A slice has developer automated coverage, pending independent
+validation/audit; Stage B and Decisions 363-365 remain unimplemented.
 Session evidence uses a durable explicit-ACK receiving position and journal-before-
 server-confirmed-ACK acceptance. Receipt readback verifies an existing completion
 marker against journal acceptance, retained stream-origin history, and contiguous
@@ -578,6 +580,20 @@ health inputs or missing/failed publication prevent the marker. Repeated confirm
 calls reuse the same boundary; interrupted calls retain its identity for explicit
 retry, with no background retries. Independently use Ingestor's existing receipt
 verification; marker publication does not complete the Session or write an archive.
+
+The next explicit operation is
+`await controller.archive_acquisition_evidence(communication=ingestor_communication)`.
+It requires the matching Ingestor receiving adapter, verifies durable receipt of
+the confirmed marker using W041, and protects journal/intake coverage while
+StorageManager writes the existing Evidence Archive and `session_record_final.json`.
+The summary records Stage A completion, marker identity/sequence, and Ingestor
+evidence provenance with `archive_closed=False`. Confirmation requires current
+product/record readback, not the flag alone. Failed or uncertain writes are not
+successful Stage A; interrupted persistence remains subject to existing authorized
+recovery. The operation leaves the Session stopping and does not release bindings,
+retrieve artifacts, write the durable handoff, or implement Stage B/Normal Stop/Kill.
+This slice has developer automated coverage only; independent validation/audit and
+all remaining Q019 work are pending. W041/W042 remain complete and unchanged.
 
 Phase 14 / Slice 27 Ingestor Crash Recovery and Handoff Reconstruction implements
 Decisions 276-280 and is complete (M014, W034), following independent manual

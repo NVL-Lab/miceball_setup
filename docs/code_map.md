@@ -73,8 +73,21 @@ The receipt foundation and disjoint routing prerequisite are complete with autom
 testing, independent manual IPython validation, and final independent re-audit PASS
 after both corrections (W041), using isolated local JetStream and controlled doubles.
 Verification has linear broker-history read cost; no external-cluster or hardware
-validation is claimed. W042 separately closes the producer/marker prerequisite;
-full Controller closeout integration, crash-safe staged archival,
+validation is claimed. W042 separately closes the producer/marker prerequisite.
+The explicit Stage A archival slice is implemented with developer automated coverage,
+pending independent manual validation and audit. After W042 publication, use
+`await controller.archive_acquisition_evidence(communication=ingestor_communication)`.
+It verifies W041 receipt, protects current journal/intake coverage, and passes the
+existing persistent compilation and actual Session Record evidence to StorageManager.
+The existing summary adds `stage_a_complete`, `archive_closed=False`, marker identity/
+sequence, and Ingestor evidence-origin IDs. Current exact readback of all products
+and the final Session Record is required; a status flag alone is not confirmation.
+Intake, storage, and Controller admission locks cover synchronous persistence/commit
+in that order, with no lock held during asynchronous receipt verification.
+The Session remains stopping and bound; no handoff is written or resources released.
+Interrupted writes require existing authorized recovery, not ordinary retry repair;
+retry after incomplete receipt and repeated healthy Stage A writes remain supported.
+Full Controller closeout integration, Stage B archival/closure,
 and durable handoff lookup/selection remain unimplemented Q019 work.
 W033/M013, W035, W039, and W040 retain
 their validated scopes. Q019, Q024, Q022, Phase 16, and M015 remain OPEN. No
@@ -568,6 +581,7 @@ is complete; W030 records manual validation, focused tests, and audit reassessme
 - Controller.start_launched_session(): Starts reserved nodes through correlated NATS commands and then starts the Session, returning ControllerCommandResult and attempting cleanup if startup fails.
 - Controller.stop_launched_session(reason=None): Stops and locally finalizes all reserved nodes through NATS, releases only confirmed-clean reservations, and stops the Session without waiting for global collection.
 - Controller.publish_acquisition_evidence_completion(*, communication, result_window_s): Asynchronously confirms Session-scoped node and synchronization publication plus completed Controller health processing, publishes owned/retained evidence and one stable marker, and returns ControllerCommandResult without receipt, archival, or lifecycle completion.
+- Controller.archive_acquisition_evidence(*, communication): Verifies receipt of its confirmed W042 marker through the matching NatsIngestorCommunication, archives current protected Ingestor compilation and existing Session Record evidence, and returns confirmed Stage A paths without lifecycle completion, collection, or binding release.
 - Controller.get_status(): Returns Session/command status, the bounded last released terminal outcome, and the local AcquisitionNode snapshot or None, without fabricating remote runtime status.
 - Controller.reconcile_outcomes(*, session_id=None, participants=None, communication=None, result_window_s=None): Reads existing scoped outcomes or bounded current observations of explicit remote participants, retaining unassociated uncertainty and changed informational evidence without operational replay or lifecycle mutation.
 - Controller._validate_participant_reconciliation(participants, result_window_s): Checks explicit unique remote principal-service identities and the issuer-defined bounded observation window without discovering participants.
@@ -823,8 +837,10 @@ recovery is introduced. Phase 16 and M015 remain open.
 - PersistentStorageManager.write_initial_session_record: Writes caller-supplied initial Session Record evidence to `session_<session_id>/session_record_initial.json`.
 - PersistentStorageManager.write_evidence_archive: Writes compiled persistent runtime evidence, runtime-evidence audit, and compilation summary to the unchanged Phase 13 files, retaining exact successful write input and invalidating prior confirmation on a failed rewrite.
 - PersistentStorageManager.write_final_session_record: Writes caller-supplied final Session Record evidence to `session_<session_id>/session_record_final.json`, confirming its path only after successful writing.
-- PersistentStorageManager.get_session_preservation_confirmation(session_id): Compares all current archive products and the final Session Record with their exact successful write inputs, returning a detached confirmation or None for missing/corrupt/partial products; the snapshot alone does not guard commitment.
-- PersistentStorageManager._write_record_contents: Writes retained serialized Session Record inputs with flush/fsync and supported directory durability, without creating lifecycle evidence.
+- PersistentStorageManager.write_acquisition_stage(session_id, compiled_runtime_evidence, *, receipt, **session_record_evidence): Reuses archive/record writers and fsync/readback, adds Stage A/open/provenance metadata to the existing summary only after required products are confirmed, and refuses implicit repair of interrupted or unconfirmed existing persistence.
+- PersistentStorageManager.get_acquisition_stage_preservation_confirmation(session_id): Requires exact current evidence/audit/summary and final-record preservation plus Stage A complete/open metadata, rather than trusting a stored flag or historical success.
+- PersistentStorageManager.get_session_preservation_confirmation(session_id): Canonically compares current archive products, including the retained complete compilation summary, and final Session Record with successful write inputs, returning detached confirmation including the summary or None; the snapshot alone does not guard commitment.
+- PersistentStorageManager._write_record_contents: Writes serialized Session Record or Stage A summary contents with flush/fsync and supported directory durability, without creating lifecycle evidence.
 - PersistentStorageManager._read_archive_products: Reads the existing evidence/audit/summary products for exact current-write confirmation, without interpreting evidence meaning.
 - PersistentStorageManager._framework_evidence_write_safe: Allows new protected informational/recovery evidence archival only for a pristine target or currently confirmed archive, not implicit repair of existing unconfirmed products.
 - PersistentStorageManager._recover_archive_write: Repeats one identified interrupted archive write from trusted Ingestor compilation and verifies all three durable products after journal-backed authorization/attempt admission.
@@ -1034,7 +1050,12 @@ pre-completion failure handling remains unchanged. Q019's Session-wide consumpti
 staged archive coordination is accepted in Decisions 356-365; the receiving
 foundation and Decision 366 producer/marker prerequisite are implemented, not
 staged closeout. W042 records independent validation and targeted re-audit PASS
-for the latter prerequisite after correction.
+for the latter prerequisite after correction. Explicit Stage A archival is implemented
+with developer tests, pending independent validation/audit; Stage B remains deferred.
+
+## tests/test_acquisition_stage_archival.py
+
+- AcquisitionStageArchivalTests: Exercises W041/W042-to-Stage-A persistence, full persistent evidence/all-audit coverage, receipt uncertainty, journal loss, write failures, cancellation, scope isolation, and safe explicit repetition through public APIs and existing broker doubles.
 
 ## tests/test_producer_publication_completion.py
 

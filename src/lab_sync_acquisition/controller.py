@@ -41,7 +41,7 @@ from lab_sync_acquisition.storage import PersistentStorageManager
 from lab_sync_acquisition.synchronization import SynchronizationManager
 
 if TYPE_CHECKING:
-    from lab_sync_acquisition.nats_communication import NatsControllerCommunication
+    from lab_sync_acquisition.nats_communication import NatsControllerCommunication, NatsIngestorCommunication
 
 
 @dataclass(frozen=True)
@@ -168,6 +168,67 @@ class Controller:
         self._acquisition_marker_session: Session | None = None
         self._acquisition_marker: RuntimeEvidenceMessage | None = None
         self._acquisition_marker_confirmed = False
+        self._acquisition_archival_active = False
+
+    @service_operation()
+    async def archive_acquisition_evidence(
+        self, *, communication: NatsIngestorCommunication,
+    ) -> ControllerCommandResult:
+        """Coordinate verified Stage A persistence without completing or releasing the Session."""
+        session = self._require_session()
+        admitted = False
+        try:
+            with self._service_operation_lock:
+                if self._acquisition_archival_active or self._acquisition_publication_active or self._artifact_collection_in_progress:
+                    raise RuntimeError("Acquisition publication or persistence is already in progress")
+                if (session.current_state != SessionState.STOPPING or not self._runtime_cleanup_confirmed
+                        or self._acquisition_marker_session is not session or not self._acquisition_marker_confirmed):
+                    raise RuntimeError("Confirmed cleanup and the closing Session's published marker are required")
+                if self._ingestor is None or communication._ingestor is not self._ingestor or self._storage_manager is None:
+                    raise RuntimeError("Matching Ingestor receiving and StorageManager references are required")
+                marker = self._acquisition_marker
+                self._acquisition_archival_active = admitted = True
+            receipt = await communication.verify_acquisition_evidence_receipt(marker)
+            if receipt.get("durable_receipt_confirmed") is not True:
+                raise RuntimeError(f"Acquisition receipt is unconfirmed: {receipt.get('reason')}")
+            intake = self._ingestor
+            with intake.durable_runtime_evidence_history_guard(
+                    session.session_id, intake.recovery_journal_path, intake.accepted_runtime_evidence) as confirmed:
+                if not confirmed:
+                    raise RuntimeError("Current acquisition journal coverage is unconfirmed")
+                # Match existing closeout lock order: intake, storage, then admission.
+                with self._storage_manager.session_preservation_guard(session.session_id), self._service_operation_lock:
+                    if self._session is not session or intake.session_id != session.session_id:
+                        raise RuntimeError("Session binding changed during Stage A verification")
+                    compiled = intake.compile_persistent_runtime_evidence()
+                    required = self._controller_owned_session_evidence_snapshot(session.session_id)
+                    actual = {message.evidence_id: message.to_dict() for message in compiled["runtime_evidence"]}
+                    if any(json.dumps(actual.get(identity), sort_keys=True) != json.dumps(contents, sort_keys=True)
+                           for identity, contents in required.items()):
+                        raise RuntimeError("Required Controller-owned evidence is missing from acquisition compilation")
+                    ingest_state = self._session_ingest_state()
+                    paths = self._storage_manager.write_acquisition_stage(
+                        session.session_id, compiled, receipt=receipt, **self._session_record_evidence())
+                    confirmation = self._storage_manager.get_acquisition_stage_preservation_confirmation(session.session_id)
+                    if (confirmation is None or ingest_state != self._session_ingest_state()
+                            or required != self._controller_owned_session_evidence_snapshot(session.session_id)
+                            or any(json.dumps(confirmation[name], sort_keys=True) != json.dumps(
+                                [item.to_dict() for item in compiled[name]], sort_keys=True)
+                                for name in ("runtime_evidence", "ingest_audit"))):
+                        raise RuntimeError("Current complete Stage A preservation is unconfirmed")
+                    return self._record_successful_command("archive_acquisition_evidence", {
+                        "session_id": session.session_id, "stage_a_complete": True, "archive_closed": False,
+                        "receipt": receipt, "paths": {name: str(path) for name, path in paths.items()},
+                    })
+        except Exception as error:
+            if self._session is not session:
+                return ControllerCommandResult("archive_acquisition_evidence", False,
+                    {"session_id": session.session_id}, f"{type(error).__name__}: {error}")
+            return self._record_failed_command("archive_acquisition_evidence", error)
+        finally:
+            if admitted:
+                with self._service_operation_lock:
+                    self._acquisition_archival_active = False
 
     @service_operation()
     async def publish_acquisition_evidence_completion(
@@ -1191,7 +1252,7 @@ class Controller:
         """Persist Phase 13 products, completing only a stopping Session."""
 
         session = self._require_session()
-        if self._artifact_collection_in_progress or self._acquisition_publication_active:
+        if self._artifact_collection_in_progress or self._acquisition_publication_active or self._acquisition_archival_active:
             return self._record_failed_command(
                 "finalize_session", RuntimeError("Artifact collection/publication is in progress"))
         if session.current_state not in {

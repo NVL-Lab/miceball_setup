@@ -1430,7 +1430,12 @@ without treating status alone as preservation proof. Decision 365 requires compl
 producer/acceptance/preservation confirmations for successful Normal Stop; Kill
 may preserve explicitly partial information, confirming only actual preserved
 content. Applicable cleanup and durable handoff obligations remain required.
-This is not implemented or validated.
+The explicit Stage A persistence slice is implemented with developer automated
+coverage, pending independent manual validation/audit. It requires W041 verified
+receipt of the W042 marker, preserves the existing archive products and final
+Session Record, and records Stage A completion with the archive still open.
+Full lifecycle/Stop/Kill integration, durable handoff, and binding release are not
+provided by this slice.
 
 ---
 

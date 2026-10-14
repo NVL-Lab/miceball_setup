@@ -612,6 +612,7 @@ class PersistentStorageManager:
                 "session_id": session_id,
                 "runtime_evidence": runtime_evidence,
                 "ingest_audit": ingest_audit,
+                "compilation_summary": deepcopy(summary),
             }
             self._unfinished_archive_scopes.discard(session_id)
             return {
@@ -619,6 +620,79 @@ class PersistentStorageManager:
                 "ingest_audit": ingest_audit_path,
                 "compilation_summary": compilation_summary_path,
             }
+
+    @service_operation()
+    def write_acquisition_stage(
+        self, session_id: str, compiled_runtime_evidence: dict[str, Iterable[Any]],
+        *, receipt: Mapping[str, Any], **session_record_evidence: Any,
+    ) -> dict[str, Path]:
+        """Preserve verified acquisition compilation and its record without closing the archive."""
+        with self._preservation_lock:
+            evidence = deepcopy([_to_plain_data(item) for item in compiled_runtime_evidence["runtime_evidence"]])
+            audit = deepcopy([_to_plain_data(item) for item in compiled_runtime_evidence["ingest_audit"]])
+            marker_id = receipt.get("evidence_id")
+            sequence = receipt.get("marker_stream_sequence")
+            if (receipt.get("durable_receipt_confirmed") is not True
+                    or receipt.get("session_id") != session_id
+                    or not isinstance(marker_id, str) or not marker_id
+                    or type(sequence) is not int or sequence <= 0
+                    or not any(item.get("evidence_id") == marker_id for item in evidence)
+                    or any(item.get("session_id") != session_id for item in evidence)):
+                raise ValueError("Matching verified acquisition receipt and compilation are required")
+            config = _to_plain_data(session_record_evidence.get("accepted_session_config"))
+            if not isinstance(config, dict) or config.get("session_id") != session_id:
+                raise ValueError("Final Session Record identity does not match acquisition compilation")
+            directory = self._session_directory(session_id) / "evidence"
+            final_path = directory.parent / "session_record_final.json"
+            if session_id in self._unfinished_archive_scopes or final_path in self._unfinished_record_paths:
+                raise RuntimeError("Interrupted persistence requires existing authorized recovery")
+            if any((directory / name).exists() for name in (
+                    "runtime_evidence.jsonl", "ingest_audit.jsonl", "compilation_summary.json")):
+                if self._archive_confirmation is None or self._archive_confirmation["session_id"] != session_id:
+                    raise RuntimeError("Existing Session archive preservation is unconfirmed")
+                expected = {name: self._archive_confirmation[name]
+                            for name in ("runtime_evidence", "ingest_audit", "compilation_summary")}
+                actual = self._read_archive_products(directory)
+                if json.dumps(actual, sort_keys=True) != json.dumps(expected, sort_keys=True):
+                    raise RuntimeError("Existing Session archive preservation is unconfirmed")
+                if actual["compilation_summary"].get("archive_closed") is True:
+                    raise RuntimeError("A closed Evidence Archive cannot accept Stage A writes")
+            if final_path.exists() and self.get_session_preservation_confirmation(session_id) is None:
+                raise RuntimeError("Existing final Session Record preservation is unconfirmed")
+            self._unfinished_archive_scopes.add(session_id)
+            try:
+                paths = self.write_evidence_archive(session_id,
+                    {"runtime_evidence": evidence, "ingest_audit": audit})
+                # Keep the operation unresolved until all products, including the record, are confirmed.
+                self._unfinished_archive_scopes.add(session_id)
+                paths["session_record"] = self.write_final_session_record(session_id, **session_record_evidence)
+                if self.get_session_preservation_confirmation(session_id) is None:
+                    raise RuntimeError("Acquisition archive and final Session Record readback is unconfirmed")
+                summary = deepcopy(self._archive_confirmation["compilation_summary"])
+                summary.update(stage_a_complete=True, archive_closed=False,
+                    acquisition_evidence_completion={"evidence_id": marker_id, "marker_stream_sequence": sequence},
+                    runtime_evidence_origins={"ingestor": list(summary["runtime_evidence_ids"])})
+                self._write_record_contents(paths["compilation_summary"], json.dumps(summary, indent=2))
+                self._archive_confirmation["compilation_summary"] = summary
+                if self.get_acquisition_stage_preservation_confirmation(session_id) is None:
+                    raise RuntimeError("Stage A preservation readback is unconfirmed")
+                self._unfinished_archive_scopes.discard(session_id)
+                return paths
+            except BaseException:
+                self._archive_confirmation = None
+                self._unfinished_archive_scopes.add(session_id)
+                raise
+
+    def get_acquisition_stage_preservation_confirmation(self, session_id: str) -> dict[str, Any] | None:
+        """Confirm current Stage A products and final record, not a summary flag alone."""
+        with self._preservation_lock:
+            confirmation = self.get_session_preservation_confirmation(session_id)
+            if confirmation is None:
+                return None
+            summary = confirmation["compilation_summary"]
+            if summary.get("stage_a_complete") is not True or summary.get("archive_closed") is not False:
+                return None
+            return confirmation
 
     def get_session_preservation_confirmation(self, session_id: str) -> dict[str, Any] | None:
         """Verify current archive products and read the successfully written final Session Record."""
@@ -630,15 +704,10 @@ class PersistentStorageManager:
                 return None
             confirmation = deepcopy(self._archive_confirmation)
             expected = {name: confirmation[name] for name in ("runtime_evidence", "ingest_audit")}
-            expected["compilation_summary"] = {
-                "session_id": session_id,
-                "runtime_evidence_count": len(expected["runtime_evidence"]),
-                "ingest_audit_count": len(expected["ingest_audit"]),
-                "runtime_evidence_ids": [m.get("evidence_id") for m in expected["runtime_evidence"]],
-                "ingest_audit_evidence_ids": [m.get("evidence_id") for m in expected["ingest_audit"]],
-            }
+            expected["compilation_summary"] = confirmation["compilation_summary"]
             try:
-                if self._read_archive_products(self._session_directory(session_id) / "evidence") != expected:
+                actual = self._read_archive_products(self._session_directory(session_id) / "evidence")
+                if json.dumps(actual, sort_keys=True) != json.dumps(expected, sort_keys=True):
                     return None
                 record = self.read_session_record(self._final_record_confirmation[1])
                 if json.dumps(record, sort_keys=True) != json.dumps(json.loads(self._final_record_confirmation[2]), sort_keys=True):
