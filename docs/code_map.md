@@ -180,7 +180,7 @@ developer tests 27/27 and independent manual validation 8/8 PASS; initial audit 
 for the unresolved-path guard; normalized target/root correction with developer
 tests 6/6 and independent validation 2/2 PASS; final targeted re-audit PASS with no
 remaining confirmed P0-P3 findings. Historical failure and correction are retained.
-Bounded Normal Stop is complete in W047; W048 Kill is complete with independent validation and final re-audit PASS after corrections, and eligible-Session selection remains unimplemented;
+Bounded Normal Stop is complete in W047; W048 Kill is complete with independent validation and final re-audit PASS after corrections. W049 eligible-Session selection has a bounded developer implementation pending independent manual validation and audit;
 overall Q019 integration validation remains pending.
 W033/M013, W035, W039, and W040 retain
 their validated scopes. Q019, Q024, Q022, Phase 16, and M015 remain OPEN. No
@@ -930,7 +930,10 @@ recovery is introduced. Phase 16 and M015 remain open.
 - PersistentStorageManager.collect_artifacts(handoff): Independently retrieves one file per manifest through SSH/SFTP, including missing-finalization candidates, then lightly verifies completed global copies without changing authoritative sources or Session products.
 - PersistentStorageManager.collect_artifacts_with_evidence(handoff): Awaits publication of one persistent global_artifact_collection_evidence message after a completed pass, preserving separate per-artifact retrieval/verification outcomes and operational wall-clock bounds.
 - PersistentStorageManager._record_collection_evidence: Creates and retains the same compiled global collection message for ordinary collection and an explicitly authorized fresh transfer.
-- PersistentStorageManager.collect_saved_artifacts(session_id, *, evidence_id): Collects an explicitly selected saved handoff, durably retains actual outcomes before direct archival, and returns collection results separately from preservation confirmation without automatic refetch on repetition.
+- PersistentStorageManager.collect_saved_artifacts(session_id, *, evidence_id, require_eligible=False): Collects a saved handoff with optional under-lock terminal-eligibility enforcement for operator selection, retaining durable outcomes before direct archival without automatic refetch on repetition.
+- PersistentStorageManager._read_saved_session_eligibility(session_id): Confirms persisted Session identity, lifecycle/final-status agreement, and record durability independently of collection preservation information.
+- PersistentStorageManager.get_saved_session_collection_status(session_id): Reports current persisted lifecycle, eligibility, collection availability, and separate blockage reasons without transfer or recovery.
+- PersistentStorageManager.list_saved_sessions(): Enumerates existing Session directories and independently assesses each, retaining incomplete or unavailable candidates in readback without a registry.
 - PersistentStorageManager.get_persisted_session_preservation_confirmation(session_id): Validates existing Stage A/B products, coverage, identities, provenance, and handoff after restart without cached Session bindings, returning detached products or None for uncertainty.
 - PersistentStorageManager.close_session_evidence_archive(session_id): Handles a separate explicit closure request by validating current durable coverage, refusing unresolved writes, atomically recording closure in the existing summary, and readback-confirming immutable contents without requiring artifact success.
 - PersistentStorageManager._require_open_session_archive(session_id): Refuses ordinary or authorized mutation of a closed or unconfirmed Session archive using current persisted summary information.
@@ -1117,6 +1120,7 @@ this compiler; diagnostics compilation and application-wide restart remain defer
 - Controller.collect_session_artifacts(): Explicitly initiates collection after the Session ends, compiles the existing handoff, and returns aggregate results in ControllerCommandResult.details without changing Session lifecycle or persistent Session products.
 - Controller.collect_session_artifacts_with_evidence(): Requires a stopping Session and stopped acquisition runtime, guards active collection/publication against overlapping collection or finalization, and releases the guard on success, failure, or cancellation without translating evidence or changing lifecycle.
 - Controller.collect_saved_session_artifacts(session_id, *, evidence_id): Coordinates explicit known-Session Stage B collection and returns aggregate results plus archival confirmation without restoring bindings or changing Session lifecycle.
+- Controller.collect_selected_session_artifacts(selections): Independently assesses a Session-ID-to-stable-evidence-ID mapping, blocks unavailable candidates, reuses per-Session collection, and reports individual outcomes plus complete_success, partial_success, or failure without automatic retries.
 
 Install the optional SSH dependency with `pip install -e ".[artifact-retrieval]"`.
 PersistentStorageManager maps logical node IDs to SshRetrievalEndpoint objects;

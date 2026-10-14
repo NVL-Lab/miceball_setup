@@ -1791,6 +1791,40 @@ class Controller:
                 RuntimeError("Collection or collection-evidence preservation is incomplete"), details)
         return self._record_successful_command("collect_saved_session_artifacts", details)
 
+    @service_operation(new_work=True)
+    def collect_selected_session_artifacts(self, selections: Mapping[str, str]) -> ControllerCommandResult:
+        """Collect independently selected Session IDs with caller-retained evidence identities."""
+        try:
+            if not isinstance(selections, Mapping) or not selections:
+                raise ValueError("Select one or more Session IDs with stable collection evidence IDs")
+            if any(not isinstance(sid, str) or not sid or not isinstance(identity, str) or not identity
+                   for sid, identity in selections.items()):
+                raise ValueError("Session and collection evidence identities must be nonempty strings")
+            results = []
+            for session_id, evidence_id in selections.items():
+                status = self._storage_manager.get_saved_session_collection_status(session_id)
+                item = {**status, "evidence_id": evidence_id, "succeeded": False,
+                        "collection_outcome": None, "error": None}
+                if status["eligible"] and status["collection_available"]:
+                    try:
+                        outcome = self._storage_manager.collect_saved_artifacts(
+                            session_id, evidence_id=evidence_id, require_eligible=True)
+                        item["collection_outcome"] = outcome
+                        item["succeeded"] = bool(outcome["archival_confirmed"]
+                                                 and outcome["artifact_collection_result"]["succeeded"])
+                    except Exception as error:
+                        item["error"] = f"{type(error).__name__}: {error}"
+                results.append(item)
+            successes = sum(item["succeeded"] for item in results)
+            details = {"session_results": results, "summary": (
+                "complete_success" if successes == len(results) else "partial_success" if successes else "failure")}
+            if successes != len(results):
+                return self._record_failed_command("collect_selected_session_artifacts",
+                    RuntimeError("One or more selected Sessions could not be collected and preserved"), details)
+            return self._record_successful_command("collect_selected_session_artifacts", details)
+        except Exception as error:
+            return self._record_failed_command("collect_selected_session_artifacts", error)
+
     def get_status(self) -> dict[str, Any]:
         """Return a small Controller view without redefining owned lifecycles."""
 

@@ -628,12 +628,90 @@ class PersistentStorageManager:
             item.get("failure_information") if item["collection_status"] == "success" else None,
         ) for item in message["payload"]["artifact_results"]))
 
+    def _read_saved_session_eligibility(self, session_id: str) -> dict:
+        """Confirm lifecycle independently of collection preservation products."""
+        status = {"session_id": session_id, "lifecycle_state": None, "eligible": False,
+                  "collection_available": False, "eligibility_reason": None,
+                  "availability_reason": None}
+        path = self._artifact_collection_handoff_path(session_id).parent / "session_record_final.json"
+        try:
+            if path in self._unfinished_record_paths:
+                raise RuntimeError("Final Session Record persistence is unconfirmed")
+            raw = path.read_bytes()
+            record = self._read_preservation_json(raw)
+            if not isinstance(record, dict) or not isinstance(record.get("accepted_session_config"), dict):
+                raise ValueError("Session identity is unconfirmed")
+            if record["accepted_session_config"].get("session_id") != session_id:
+                raise ValueError("Session identity conflicts with saved directory")
+            lifecycle = record.get("session_lifecycle_evidence")
+            if not isinstance(lifecycle, list) or not lifecycle or not isinstance(lifecycle[-1], dict):
+                raise ValueError("Session lifecycle is unconfirmed")
+            state = lifecycle[-1].get("to_state")
+            if state not in {"created", "initialized", "running", "stopping", "completed", "failed", "aborted"}:
+                raise ValueError("Session lifecycle state is invalid")
+            if state in {"completed", "failed", "aborted"}:
+                final = record.get("final_session_status")
+                if not isinstance(final, dict) or final.get("state") != state:
+                    raise ValueError("Terminal Session status is unconfirmed or conflicting")
+            with path.open("r+b") as source:
+                os.fsync(source.fileno())
+            self._sync_artifact_handoff_directory(path)
+            if path.read_bytes() != raw:
+                raise RuntimeError("Session Record changed during confirmation")
+            status["lifecycle_state"] = state
+            status["eligible"] = state in {"completed", "failed", "aborted"}
+            if not status["eligible"]:
+                status["eligibility_reason"] = "A durably confirmed terminal Session state is required"
+        except (OSError, ValueError, TypeError, RuntimeError) as error:
+            status["eligibility_reason"] = f"{type(error).__name__}: {error}"
+        return status
+
+    @service_operation()
+    def get_saved_session_collection_status(self, session_id: str) -> dict:
+        """Read eligibility and current collection availability without recovery or transfer."""
+        with self._preservation_lock:
+            status = {"session_id": session_id, "lifecycle_state": None, "eligible": False,
+                      "collection_available": False, "eligibility_reason": None,
+                      "availability_reason": None}
+            try:
+                with self._handoff_collection_guard(session_id):
+                    status = self._read_saved_session_eligibility(session_id)
+                    if not status["eligible"]:
+                        status["availability_reason"] = status["eligibility_reason"]
+                        return status
+                    if self._collection_outcome_path(session_id).exists():
+                        raise RuntimeError("Pending collection evidence requires authorized recovery")
+                    baseline = self._read_stage_b_baseline(session_id)
+                    if baseline["compilation_summary"]["archive_closed"]:
+                        raise RuntimeError("Permanently closed Evidence Archive cannot accept collection")
+                    status["collection_available"] = True
+            except Exception as error:
+                status["availability_reason"] = f"{type(error).__name__}: {error}"
+            return status
+
+    @service_operation()
+    def list_saved_sessions(self) -> list[dict]:
+        """Enumerate existing Session directories, retaining unavailable candidates in readback."""
+        root = self._records_path.parent
+        if not root.exists():
+            return []
+        return [self.get_saved_session_collection_status(path.name[len("session_"):])
+                for path in sorted(root.iterdir())
+                if path.is_dir() and path.name.startswith("session_") and path.name != "session_"]
+
     @service_operation(new_work=True)
-    def collect_saved_artifacts(self, session_id: str, *, evidence_id: str) -> dict:
+    def collect_saved_artifacts(self, session_id: str, *, evidence_id: str,
+                                require_eligible: bool = False) -> dict:
         """Collect an explicit known Session and directly preserve outcomes, without refetch on retry."""
         if not isinstance(evidence_id, str) or not evidence_id:
             raise ValueError("A stable unique collection evidence ID is required")
         with self._preservation_lock, self._handoff_collection_guard(session_id):
+            if require_eligible:
+                status = self._read_saved_session_eligibility(session_id)
+                if not status["eligible"]:
+                    raise RuntimeError(status["eligibility_reason"])
+                if self._collection_outcome_path(session_id).exists():
+                    raise RuntimeError("Pending collection evidence requires authorized recovery")
             pending_path = self._collection_outcome_path(session_id)
             if pending_path.exists():
                 self._unfinished_archive_scopes.add(session_id)
