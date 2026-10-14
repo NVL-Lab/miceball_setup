@@ -146,22 +146,25 @@ an explicitly resolved persistent default and a Session may override it without
 mutating that default or affecting later Sessions in the historical local path.
 Decision 298 qualifies distributed initialization: the node uses deployment-local
 roots/configuration and Controller cannot select/override remote roots through
-SessionConfig.local_storage_roots. External representation/provisioning remains
-open; root authority is settled, not a new configuration-model requirement.
+SessionConfig.local_storage_roots. Decisions 368-369 now settle initial file-based
+deployment-local provisioning; broader configuration representation/propagation
+remains open, and root authority is unchanged.
 
-Deployment-local retrieval configuration and its initialization handoff are
-tracked separately in Q022, as future work after Phase 14.
+Deployment-local retrieval configuration and installation are tracked separately
+in Q022: Decisions 367-374 are accepted and synchronized, with implementation
+and independent verification pending.
 
 Decisions 281-301 settle Slice 28's ownership and ordering: AcquisitionNode owns
 pre-Session inventory, Controller resolves selections/readiness/reservations,
 and SessionConfig is the final accepted configuration. Reuse existing device
 and product declarations without SessionLaunchIntent or product requiredness.
-External deployment/configuration representation and propagation remain open;
+Broader configuration representation and propagation remain open outside Q022-A;
 these settled selection and launch semantics are not Q008 schema questions.
 
 ### Questions
 
-* What external configuration file format should be used?
+* What external configuration representation is needed beyond Q022-A's accepted
+  file-based installation scope? Its exact initial file format is an implementation choice.
 * What is the policy for declaring and applying defaults?
 * How are accepted configuration values propagated to runtime owners?
 * What vocabulary and structure should be used for `DeviceDeclaration.declared_capabilities`?
@@ -847,7 +850,41 @@ Distributed operation
 
 ## Q022: What is the deployment-local configuration and initialization model?
 
-**Status:** OPEN / FUTURE - a future phase after Phase 14, not another Phase 14 slice
+**Status:** OPEN - Q022-A installation/deployment design is accepted and synchronized
+in Decisions 367-374; implementation and independent verification remain pending.
+Q022 as a whole is not closed. Q019 remains CLOSED in W050.
+
+### Q022-A accepted scope
+
+One installed package is launched with an explicit service role. Installation uses
+local files outside Git, derived from committed templates, with general service
+settings distinct from AcquisitionNode hardware configuration. Node configuration
+identifies persistent node/device identities, explicit adapter choices, physical
+connections, and node-owned scientific storage. Installation changes require
+service restart; node startup supports a default configuration location and an
+explicit path. File format, exact path, and final CLI syntax are implementation
+choices, not unresolved architecture.
+
+Adapters define exposed operator parameters and constraints; inventory exposes
+them to Controller for future GUI clients. Session overrides use existing config
+mechanisms and adapter validation without retaining prior-Session overrides.
+Startup configuration validity and actual hardware readiness are separate.
+
+Controller's local known-node list supplies existing startup/restart reconciliation;
+list changes require Controller restart. Duplicate node identities are conflicts
+and cannot be used ambiguously for launch. No registry, discovery, polling, or
+automatic stopping/recovery is introduced. General non-node identity policy is
+not expanded by this AcquisitionNode-specific clarification.
+
+Required installation checks cover key-based SSH/SFTP setup, verified dummy-file
+retrieval, node NATS connectivity, and Controller-to-node readiness communication.
+An offline node does not block StorageManager startup, and NATS connectivity is
+not evidence acceptance. Capability-appropriate device acquisition tests are
+strongly recommended but are not certification fields or runtime gates. Initial
+installation is manual, not a GUI/interactive installer. See
+[installation_and_deployment.md](installation_and_deployment.md) for the accepted
+procedure, current reuse/gaps, and validation boundaries. Q022-A is not yet
+implemented or independently validated; broader Q022/Q024/Phase 16/M015 remain open.
 
 ### Why this matters
 
@@ -866,21 +903,24 @@ configuration-model questions; this entry isolates deployment initialization.
 Slice 28 (Decisions 281-301) uses existing communication mechanisms and
 participants already available to Controller. RuntimeParticipant contains only
 component_type/component_id; AcquisitionNode inventory membership supplies device
-placement without another node ID in DeviceDeclaration. Participant registration,
-discovery, adapter installation/configuration, address resolution, and deployment
-file formats remain open here. Session launch ownership does not resolve them.
+placement without another node ID in DeviceDeclaration. Decisions 367-374 now
+settle explicit node registration, adapter installation configuration, and local
+retrieval mapping without discovery. Session launch ownership remains distinct;
+the accepted deployment contracts still require implementation and verification.
 
 Decision 298 settles root authority: remote AcquisitionNodes use their own
 deployment-defined local storage roots/configuration. Controller does not choose
 those roots or artifact paths, and the current SessionConfig.local_storage_roots
 override path is historical, not remote launch authority. This resolves ownership,
-not the future deployment configuration file format or provisioning mechanism.
+not the file format; Decisions 368-369 settle file-based local provisioning while
+leaving exact formats as implementation choices.
 Manual independent-process startup is development infrastructure; intended
 long-lived service deployment/supervision remains future work (Decision 295).
 Decision 304 explicitly settles the Session-independent and GUI-independent
 lifetime of the five principal operational services, without requiring one
-process per service. Deployment automation, supervision, and configuration
-mechanisms remain unresolved here. Decisions 313-321 settle maintenance,
+process per service. Deployment automation and supervision remain unresolved;
+Decisions 367-374 now settle the initial manual file-based configuration scope.
+Decisions 313-321 settle maintenance,
 independent startup/readiness, and service-owned Session-binding release without
 choosing deployment formats, a discovery/registration system, or supervision.
 Q025 is resolved architecturally. Session-binding release (W035) and individual-service
@@ -890,34 +930,40 @@ independently re-audited PASS (W037); independent startup/returning-service
 integration under Decisions 327-331 is complete, independently manually
 software-validated, and independently re-audited PASS after correction of the two
 P2 readiness findings (W038). Configured dependencies
-receive startup/return announcements directly; this does not settle deployment
-provisioning, configuration formats, or discovery details or authorize a registry.
+receive startup/return announcements directly; Decisions 367-374 supply their
+deployment-local configuration without authorizing discovery or a registry.
 
 Decision 302 additionally settles retained adapter reuse without process or adapter
 recreation: AcquisitionNode retains deployment configuration, but subsequent
 Session-specific settings come from that Session's resolved SessionConfig and
 must not be silently inherited. The generic return-to-DECLARED/readiness contract
 is implemented with automated coverage; independent validation and audit remain
-pending under M015. Deployment file formats and provisioning below
-remain open; no new configuration model or lifecycle API is introduced.
+pending under M015. Initial file-based provisioning is now accepted under Q022-A;
+exact formats remain implementation choices. No lifecycle API is introduced.
 
-### Questions
+### Remaining boundaries and implementation work
 
-* How is deployment-local configuration created and maintained from repository templates?
-* How are deployment participants and declared devices installed/registered, discovered if desired, and exposed to Controller without assuming automatic lab-wide discovery?
-* What policy applies to duplicate RuntimeParticipant identities in deployment?
-* How are node-owned local storage roots/configuration provisioned without Controller selecting remote filesystem paths?
-* How is logical `acquisition_node_id` mapped to retrieval endpoint information?
-* Where do SSH/SFTP host aliases, hostnames, usernames, key paths, and authentication references live, and how are they provisioned locally?
-* How is local-only configuration loaded and supplied to StorageManager through startup, Controller, or Session initialization?
-* How should existing readiness checks determine whether required retrieval configuration exists?
-* How are machine-specific values kept out of committed files, ArtifactManifest, Ingestor handoffs, portable Session evidence, and Experiment configuration while honoring Decisions 076 and 247?
-* How can this remain explicit and minimal without prematurely introducing a NetworkManager, dynamic discovery service, secret manager, database, transfer scheduler, or retry/replay system?
+* Implement the accepted role launcher, file loading/validation, parameter inventory,
+  explicit known-node configuration, and installation checks without new infrastructure.
+* Independently validate and audit supported installation workflows, keeping actual
+  deployment/device tests separate from framework software checks.
+* Broader configuration-model questions remain in Q008. Service supervision and
+  deployment automation beyond manual explicit startup are not settled by Q022-A.
+* Existing Controller archival and maintenance paths require actual local evidence
+  owners/guards. If the role launcher is to separate those owners into different
+  processes, clarify runtime composition and supported owner access before assuming
+  existing NATS commands supply remote compilation, archival, or locking semantics.
+  Decision 304 does not itself require one process per service; this is not a
+  reason to introduce proxies or automatically launch unselected services.
+* No automatic discovery, live reload/registration, GUI installer, configuration
+  database, or mandatory device commissioning gate is required by this scope.
+* AcquisitionNode duplicate-ID policy is accepted; do not infer a new general
+  policy for all RuntimeParticipant kinds or a global identity registry.
 
 ### Blocks
 
-* Future deployment configuration and initialization architecture after Phase 14
-* Future initialization/readiness validation of deployment-local retrieval configuration
+* Q022-A implementation and independent installation/startup verification.
+* Broader Q022 completion, including any remaining accepted-scope questions.
 
 ---
 
@@ -1314,7 +1360,9 @@ Phase 16 — Operational Service Lifetime and Framework Stop/Kill (Decisions 304
 Phase 17 — Device Acceptance / Validation
 Phase 18 — End-to-End Demo Architecture
 
-The Configuration Model remains future work under Q008/Q022; its phase placement
+Q022-A file-based installation configuration is accepted in Decisions 367-374 and
+awaits implementation/verification. The broader Configuration Model remains future
+work under Q008/Q022; its phase placement
 is not reassigned by this Phase 16 decision synchronization.
 
 Runtime artifact-transfer scheduling and monitoring remain future work under

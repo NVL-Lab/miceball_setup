@@ -6,6 +6,46 @@ These definitions take precedence over informal usage.
 
 ---
 
+# Installation And Deployment
+
+## Installation Configuration
+
+File-based deployment-local settings created during installation, outside Git,
+using committed templates/definitions (Decisions 076 and 368-369). General service
+settings (NATS, storage, retrieval/authentication references) are distinct from
+AcquisitionNode hardware settings (persistent identity, installed devices, explicit
+adapters, physical connections, and node-owned scientific storage). Changes require
+service restart, not live reload. Exact format/path are implementation choices;
+Session-specific operator parameters are not installation changes.
+
+## Operator-Adjustable Device Parameter
+
+A parameter explicitly exposed by its adapter with validation constraints for
+Session-specific adjustment (Decision 370). AcquisitionNode inventory exposes its
+definition, Controller makes it available to future clients, and the adapter
+validates selections before application. It is distinct from installation-only
+identity, adapter selection, and physical connection settings; overrides must not
+silently persist into later Sessions (Decision 302). No GUI is implemented.
+
+## Known AcquisitionNode Registration
+
+The explicit deployment-local Controller list of persistent unique node identities
+(Decision 372), not a registry or automatic discovery. Additions/changes require
+Controller restart. Duplicate node identities are conflicts and must not be used
+ambiguously for Session launch. Existing startup/readiness reconciliation remains
+authoritative; unreachable nodes are unknown, not automatically failed or stopped.
+
+## Installation Verification
+
+The initial manual checks of node NATS connectivity, Controller readiness
+request/response, and key-based SSH/SFTP setup with verified dummy-file retrieval
+(Decisions 373-374). This is not a continuously enforced reachability requirement
+or a new readiness state. Device-specific acquisition tests are strongly
+recommended, not mandatory commissioning certificates or runtime gates. NATS
+connectivity alone does not prove Ingestor acceptance of evidence.
+
+---
+
 # Long-lived Operational Service
 
 A principal framework service whose lifetime is independent of individual

@@ -1,5 +1,22 @@
 # Code Map
 
+## Accepted Q022-A Installation Contracts (Not Implemented)
+
+Decisions 367-374 accept one installed package with explicit role launching,
+file-based local service/node configuration, explicit adapters and persistent node
+registration, adapter-defined Session-adjustable parameters, and manual installation
+verification. See [installation_and_deployment.md](installation_and_deployment.md).
+Existing constructors, `AcquisitionNode.declared_devices`/readiness,
+`SessionConfig.device_configurations`, adapter initialization, NATS inventory and
+readiness commands, `NatsServiceMaintenanceCommunication.start()` with configured
+participants, `Controller.reconcile_outcomes()`, and StorageManager endpoint/pull
+interfaces are reusable. There is no general role CLI, deployment file loader,
+generic adjustable-parameter inventory, or installation dummy-retrieval interface
+yet. Configuration validity is not hardware readiness; device smoke tests are
+recommended, not commissioning/runtime gates. No source/API change is made by
+this architecture synchronization. Q019 remains CLOSED; Q022/Q024/Phase 16/M015
+remain OPEN.
+
 Q019 is CLOSED following W041-W049 slice completion and W050 overall software
 integration validation/audit PASS. The permanent sequential Normal Stop regression
 uses Session-filtered test delivery; no production API changed during closure.

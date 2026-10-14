@@ -10376,6 +10376,177 @@ Q024, Q022, Phase 16, and M015 remain OPEN.
 
 ---
 
+## Decision 367: One installed framework package uses explicit service-role launching
+
+**Status:** Accepted
+
+Install the framework as one software package containing its principal services
+and supported DeviceAdapters. Select Controller, Ingestor, StorageManager,
+SynchronizationManager, or AcquisitionNode explicitly when launching. Configuration
+does not implicitly select which services run. Preserve independent long-lived
+service operation; introduce neither separate packages per service nor an
+orchestration framework. Exact executable names and CLI syntax are implementation
+details, not fixed by illustrative commands in the Q022-A handoff.
+
+---
+
+## Decision 368: Installation uses separate deployment-local configuration files
+
+**Status:** Accepted
+
+Reuse Decision 076: actual machine/lab values, credentials, and private keys remain
+outside Git. Committed templates and configuration definitions may be copied and
+customized locally. General service configuration supplies NATS connection details,
+service storage locations, StorageManager retrieval endpoints/authentication
+references, and other machine-specific operational settings. It remains distinct
+from AcquisitionNode hardware configuration. No configuration database, central
+configuration-management service, or secret-management infrastructure is introduced.
+
+The initial version is file-based. A future setup utility may produce the same
+files, but runtime loading and validation use the same mechanism regardless of
+file producer. No interactive installer is required. AcquisitionNode loads its
+installation configuration at startup, supporting a default local location and
+an explicit path. Installation-configuration changes require service restart;
+live reload is not required. Session-specific operator parameters remain separate
+and do not require node restart. Exact file format and default location are
+implementation details unless they require architectural clarification.
+
+---
+
+## Decision 369: AcquisitionNode installation explicitly identifies devices and adapters
+
+**Status:** Accepted
+
+Each AcquisitionNode maintains persistent installation configuration identifying
+its node identity, installed devices, explicitly selected adapter for each device,
+device-specific physical connection settings, and local scientific storage
+configuration. Preserve Decision 298's node authority over local storage roots;
+Controller does not choose remote scientific-file paths. Neither automatic
+hardware discovery nor a new adapter plugin system is required.
+
+This is device-independent: the first camera deployment is an example, not the
+general hardware contract. Other supported hardware and adapters may have
+different connection/configuration requirements. Installation-only identity,
+adapter selection, connection information, and fixed deployment settings remain
+distinct from operator-adjustable Session settings.
+
+---
+
+## Decision 370: Adapters define Session-specific operator-adjustable parameters
+
+**Status:** Accepted
+
+Each DeviceAdapter defines which parameters are exposed for operator adjustment
+and their applicable validation constraints, including allowed values or ranges
+where appropriate. Use the existing AcquisitionNode inventory mechanism to
+expose installed devices and these parameter definitions. Controller makes the
+definitions available to a future GUI without hard-coded device-specific controls.
+
+Operator selections use existing Session configuration mechanisms; the adapter
+validates them before applying them. Preserve Decision 302: Session-specific
+settings must not silently persist into subsequent Sessions. Installation-only
+settings remain separate under Decisions 368-369. This accepts no GUI
+implementation or universal camera-specific parameter set.
+
+---
+
+## Decision 371: Configuration validity and hardware readiness remain distinct
+
+**Status:** Accepted
+
+AcquisitionNode validates installation configuration at startup. Missing or invalid
+configuration yields a clear diagnostic and prevents acquisition from proceeding.
+Configured hardware that is unavailable or technically unready is reported using
+existing ServiceReadiness, AcquisitionNodeReadiness, and related contracts.
+Successful configuration loading does not establish hardware readiness. No new
+readiness states or installation-certification system are introduced.
+
+StorageManager validates its local retrieval configuration at startup; actual
+node connectivity is checked when retrieval is requested. An offline node does
+not prevent StorageManager startup. Preserve existing Session initialization,
+reservation, cleanup, and safety requirements.
+
+---
+
+## Decision 372: Persistent node identities use explicit Controller registration
+
+**Status:** Accepted
+
+Assign each AcquisitionNode a persistent unique identity during installation.
+Controller's deployment-local configuration contains an explicit list of known
+AcquisitionNode identities. Register a node by adding its identity; Controller
+must restart to load registered-node additions or changes. No live registration,
+configuration reload, automatic lab-wide discovery, registration database, or
+centralized service registry is required.
+
+Duplicate AcquisitionNode identities are reported as conflicts; ambiguous identities
+must not be used for Session launch until corrected. Coordinate infrequent
+installation restarts between Experiments while preserving safeguards for ongoing
+acquisition. Reuse Decisions 327-328 and 351-352: identity/readiness announcements
+use existing NATS, and Controller requests current readiness/status from configured
+known nodes at startup or restart. Historical announcements are evidence, not
+current availability; unreachable nodes remain unknown, not automatically failed
+or stopped. Controller restart must not automatically stop safely running node
+acquisition. No heartbeat, periodic polling, or replacement reconciliation system
+is introduced. Q022-A supplies deployment-local participants to existing mechanisms.
+
+---
+
+## Decision 373: SSH/SFTP setup and verified dummy retrieval are installation obligations
+
+**Status:** Accepted
+
+SSH/SFTP retrieval setup is mandatory when installing an AcquisitionNode, using
+key-based authentication. StorageManager's deployment-local configuration maps
+logical node identity to retrieval connection information such as host, username,
+and private-key path. Credentials/private keys stay outside Git; endpoints and
+authentication do not enter portable ArtifactManifests, compiled handoffs, or
+scientific evidence, preserving Decision 247 and Q019 ownership.
+
+Installation configures SSH/SFTP and StorageManager retrieval settings, verifies
+connectivity, retrieves a small dummy file, and verifies that retrieved contents
+match the source. A node is not fully installed until required retrieval setup
+succeeds. This is an installation procedure, not a continuously enforced Session
+reachability gate. Preserve Decision 371's offline-node startup distinction and
+existing retrieval-time connectivity checks. Dummy-file matching does not add a
+checksum or deep-verification policy for scientific artifacts.
+
+---
+
+## Decision 374: Manual installation verifies communication and recommends device tests
+
+**Status:** Accepted
+
+The initial documented manual installation procedure installs the common package,
+creates applicable local service and node hardware configuration, configures and
+tests SSH/SFTP, registers node identities, and verifies node NATS connectivity
+and Controller-to-node readiness request/response through existing interfaces.
+Separate installation communication tests between every pair of services are
+unnecessary. Ingestor Session readiness and evidence acceptance retain their
+existing initialization and Q019 completeness requirements; NATS connection alone
+does not prove particular evidence acceptance.
+
+Strongly recommend a capability-appropriate basic acquisition test for each newly
+installed device: initialize/communicate, acquire representative data, inspect
+output/local persistence where applicable, stop safely, release resources, and
+record installation results. Initially these may be manual and device-specific.
+They are not mandatory software-enforced prerequisites: no commissioning
+certification, required test-status field, runtime gate based on documentation,
+or universal acquisition-test interface is introduced. Actual failures remain
+subject to ordinary readiness, initialization, and safety requirements. No GUI,
+graphical installer, installation service, discovery, or unnecessary deployment
+machinery is accepted. A future utility may automate the same file-based workflow.
+
+**Q022-A implementation status (Decisions 367-374):** Accepted and synchronized,
+not implemented or independently validated. Existing package, constructor settings,
+inventory, Session overrides, readiness, startup reconciliation, NATS communication,
+and SSH/SFTP retrieval are reusable foundations. Role launching, local file loading,
+parameter-definition exposure, and installation verification still need integration.
+Q019 remains CLOSED; Q022, Q024, Phase 16, and M015 remain OPEN. General framework
+support remains separate from first-deployment/device-specific validation.
+
+---
+
 # Accepted Architectural Principles
 
 The following principles summarize the accepted decisions so far.
@@ -10790,6 +10961,15 @@ requirements remain authoritative.
 365. Normal Stop requires producer confirmations, complete durable Ingestor acceptance, and complete Stage A preservation; authorized Kill Session preserves confirmed accessible partial information without claiming completeness or safe resource release. Decision 361's receiving foundation is complete with independent manual validation and final independent re-audit PASS after correction (W041); the supported producer/marker prerequisite is complete with automated coverage, independent manual validation, and targeted independent re-audit PASS after correction (W042); bounded Stage A under Decision 362 is complete with automated testing, independent manual validation, and independent audit PASS (W043); bounded Decision 364 durable handoff is complete with automated testing, independent manual validation, and independent audit PASS (W044); bounded Stage B collection/Decision 363 evidence persistence is complete with independent manual validation and final targeted independent re-audit PASS after correction (W045); W046 explicit permanent closure is complete with independent manual validation and targeted independent re-audit PASS after correction; bounded Normal Stop integration is complete with independent validation and targeted re-audit PASS after correction (W047); Bounded Kill Session integration is complete in W048; eligible-Session selection is complete with independent validation and final audit PASS after correction (W049), and overall Q019 software integration validation is complete in W050. Q019 is CLOSED in W050; Q024, Q022, Phase 16, and M015 remain OPEN.
 
 366. Participating AcquisitionNodes confirm durable acquisition-stage evidence publication through their existing successful completion responses regardless of selected-device optionality; Controller and SynchronizationManager finish applicable closing-Session publication before the single marker, while locally journaled Ingestor evidence needs no JetStream round trip. The supported publication prerequisite is complete with automated coverage, independent manual validation, and targeted independent re-audit PASS after correction (W042); W041 is unchanged and Q019 is CLOSED following overall software integration validation (W050).
+
+367. One installed framework package uses explicit service-role launching, not configuration-selected services or a new orchestration framework.
+368. Installation uses file-based local configuration outside Git, with separate general service and node hardware settings, startup loading, and restart for changes.
+369. AcquisitionNode installation explicitly configures persistent identity, devices, adapters, connections, and node-owned scientific storage without discovery or camera-specific assumptions.
+370. Adapters expose validated Session-adjustable parameter definitions through existing inventory and configuration, without leaking overrides into subsequent Sessions or implementing a GUI.
+371. Configuration validity is distinct from hardware readiness; invalid node configuration prevents acquisition, while offline nodes do not prevent StorageManager startup.
+372. Persistent unique node identities use explicit Controller registration loaded on restart, duplicate conflicts, and existing startup/readiness reconciliation without a registry or automatic stopping.
+373. Installation requires key-based SSH/SFTP setup and verified dummy retrieval using local endpoint/authentication references, not a continuously enforced Session connectivity gate.
+374. Initial manual installation verifies NATS and Controller-node readiness communication; device acquisition tests are strongly recommended, not mandatory runtime certification. Q022-A is accepted and synchronized, not implemented or independently validated; Q019 remains CLOSED and Q022, Q024, Phase 16, and M015 remain OPEN.
 
 ---
 
