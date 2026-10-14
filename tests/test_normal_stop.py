@@ -1,11 +1,15 @@
 """Normal Stop composes the validated producer, receipt, archival, and handoff owners."""
 
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import unittest
 from unittest.mock import patch
 
-from lab_sync_acquisition import Controller, PersistentStorageManager, ScientificOutputSelection
+from lab_sync_acquisition import (
+    AcquisitionRecordEnvelope, Controller, InMemoryIngestor,
+    PersistentStorageManager, ScientificOutputSelection,
+)
 from tests import test_producer_publication_completion as producers
 
 
@@ -186,6 +190,100 @@ class NormalStopTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.fixture.controller.get_status()["session_state"], "stopping")
         self.assertEqual(self.fixture.ingestor.session_id, self.sid)
         self.assertIsNone(self.storage.get_acquisition_stage_preservation_confirmation(self.sid))
+
+    async def test_cancellation_before_marker_cannot_fall_back_to_legacy_completion(self):
+        await self.running()
+        entered, proceed = asyncio.Event(), asyncio.Event()
+        request = self.fixture.communication.request_command
+
+        async def paused(participant, command_type, *args, **kwargs):
+            if participant.component_type == "synchronization_manager" and command_type == "stop_runtime":
+                entered.set()
+                await proceed.wait()
+            return await request(participant, command_type, *args, **kwargs)
+
+        with patch.object(self.fixture.communication, "request_command", new=paused):
+            task = asyncio.create_task(self.stop())
+            await asyncio.wait_for(entered.wait(), 3)
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+        journal = self.fixture.ingestor.recovery_journal_path.read_bytes()
+        self.assertEqual(self.fixture.controller.get_status()["session_state"], "stopping")
+        self.assertEqual(self.producer.published("acquisition_evidence_completion"), [])
+        self.assertIsNone(self.storage.get_acquisition_stage_preservation_confirmation(self.sid))
+        self.assertFalse(self.fixture.controller.finalize_session().succeeded)
+        self.assertFalse((await self.fixture.controller.release_session()).succeeded)
+        self.assertEqual(self.fixture.controller.get_status()["session_state"], "stopping")
+        self.assertEqual(self.fixture.ingestor.session_id, self.sid)
+        self.assertEqual(self.fixture.ingestor.recovery_journal_path.read_bytes(), journal)
+        self.assertFalse((self.fixture.root / f"session_{self.sid}/artifact_collection_handoff.json").exists())
+        self.assertTrue((await self.stop()).succeeded)
+        self.assertEqual(len(self.producer.published("acquisition_evidence_completion")), 1)
+        self.assertIsNotNone(self.storage.get_acquisition_stage_preservation_confirmation(self.sid))
+        self.assertEqual(self.storage.read_artifact_collection_handoff(self.sid)["session_id"], self.sid)
+
+    async def test_failed_synchronization_confirmation_cannot_fall_back_to_legacy_completion(self):
+        await self.running()
+        self.fixture.broker.drop_results.add(("sync", "stop_runtime"))
+        self.assertFalse((await self.stop()).succeeded)
+        self.assertEqual(self.producer.published("acquisition_evidence_completion"), [])
+        self.assertFalse(self.fixture.controller.finalize_session().succeeded)
+        self.assertEqual(self.fixture.controller.get_status()["session_state"], "stopping")
+        self.assertIsNone(self.storage.get_acquisition_stage_preservation_confirmation(self.sid))
+        self.fixture.broker.drop_results.clear()
+        self.assertTrue((await self.stop()).succeeded)
+
+    async def test_late_acquisition_intake_requires_preserved_record_coverage_before_completion(self):
+        await self._exercise_late_acquisition_intake(accepted=True)
+
+    async def test_late_rejected_acquisition_intake_requires_preserved_audit_before_completion(self):
+        await self._exercise_late_acquisition_intake(accepted=False)
+
+    async def _exercise_late_acquisition_intake(self, *, accepted):
+        intake = InMemoryIngestor(self.storage,
+            recovery_journal_root=self.fixture.root / "late-intake-journals")
+        self.fixture.ingestor = intake
+        self.fixture.controller = Controller(ingestor=intake, storage_manager=self.storage,
+            synchronization_manager=self.fixture.sync)
+        await self.running()
+        preserve = self.fixture.controller.preserve_artifact_collection_handoff
+        envelope = AcquisitionRecordEnvelope(self.sid, "node-a-device", "event",
+            ({"session_time_s": 1.0, "event_type": "late-acquisition-event"},) if accepted else
+            ({"event_type": "missing-session-time"},), source_node_id="node-a")
+        baseline = {}
+        with ThreadPoolExecutor(max_workers=1) as workers:
+            def late_intake():
+                result = preserve()
+                self.assertTrue(result.succeeded, result.error)
+                baseline.update(self.products())
+                received = workers.submit(intake.receive_envelope, envelope).result(timeout=3)
+                self.assertIs(received.accepted, accepted)
+                return result
+
+            with patch.object(self.fixture.controller, "preserve_artifact_collection_handoff", side_effect=late_intake):
+                failed = await self.stop()
+        self.assertFalse(failed.succeeded)
+        self.assertIn("acquisition-envelope and audit preservation", failed.error)
+        self.assertEqual(self.fixture.controller.get_status()["session_state"], "stopping")
+        self.assertEqual(intake.session_id, self.sid)
+        self.assertEqual(self.products(), baseline)
+        record = self.storage.get_acquisition_stage_preservation_confirmation(self.sid)["session_record"]
+        self.assertEqual(record["accepted_acquisition_envelopes"], [])
+        self.assertEqual(record["ingest_audit_records"], [])
+        self.assertFalse(self.fixture.controller.finalize_session().succeeded)
+        self.assertFalse((await self.fixture.controller.release_session()).succeeded)
+        commands = len(self.fixture.broker.commands)
+        journal = intake.recovery_journal_path.read_bytes()
+        self.assertTrue((await self.stop()).succeeded)
+        self.assertEqual(len(self.fixture.broker.commands), commands)
+        self.assertEqual(intake.recovery_journal_path.read_bytes(), journal)
+        record = self.storage.get_acquisition_stage_preservation_confirmation(self.sid)["session_record"]
+        self.assertEqual(record["accepted_acquisition_envelopes"], [item.to_dict() for item in intake.accepted_envelopes])
+        self.assertEqual(record["ingest_audit_records"], [item.to_dict() for item in intake.ingest_audit])
+        self.assertTrue((await self.fixture.controller.release_session()).succeeded)
+        self.assertTrue(intake.release_session(self.sid, storage_manager=self.storage))
+        self.assertTrue(self.fixture.sync.release_session(self.sid))
 
     async def test_q019_finalization_reuses_stage_a_without_rewriting_summary(self):
         await self.running()

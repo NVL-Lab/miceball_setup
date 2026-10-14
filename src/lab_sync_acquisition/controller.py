@@ -195,6 +195,11 @@ class Controller:
                     raise ValueError("Normal Stop requires a finite positive result window")
                 if session.current_state not in {SessionState.RUNNING, SessionState.STOPPING, SessionState.COMPLETED}:
                     raise RuntimeError("Normal Stop requires a running, stopping, or normally completed Session")
+                # Retain Q019 obligations even if shutdown fails before producing a marker.
+                if self._acquisition_marker_session is not session:
+                    self._acquisition_marker_session = session
+                    self._acquisition_marker = None
+                    self._acquisition_marker_confirmed = False
                 self._normal_stop_task = asyncio.current_task()
                 admitted = True
             if session.current_state == SessionState.RUNNING:
@@ -250,6 +255,12 @@ class Controller:
                         [item.to_dict() for item in compiled[name]], sort_keys=True)
                         for name in ("runtime_evidence", "ingest_audit")):
                     raise RuntimeError("Current complete Stage A preservation is unconfirmed")
+                record = archived["session_record"]
+                if (json.dumps(record.get("accepted_acquisition_envelopes"), sort_keys=True) != json.dumps(
+                        [item.to_dict() for item in intake.accepted_envelopes], sort_keys=True)
+                        or json.dumps(record.get("ingest_audit_records"), sort_keys=True) != json.dumps(
+                            [item.to_dict() for item in intake.ingest_audit], sort_keys=True)):
+                    raise RuntimeError("Current acquisition-envelope and audit preservation is unconfirmed")
                 actual = {message["evidence_id"]: message for message in archived["runtime_evidence"]}
                 required = self._controller_owned_session_evidence_snapshot(session.session_id)
                 if any(json.dumps(actual.get(identity), sort_keys=True) != json.dumps(contents, sort_keys=True)
