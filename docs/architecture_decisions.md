@@ -3981,6 +3981,13 @@ Controller executes `record_session_failure_decision` through its existing faile
 
 This decision does not introduce `experiment_abort`, a generic Experiment end-reason field, notification, retry, recovery, distributed delivery, aggregation, polling, callbacks, or event buses.
 
+**W048 clarification (Decisions 360/365):** Kill Session terminates an active
+Experiment using the established canonical `experiment_abort` behavior for
+intentional early termination. Unconfirmed participant cleanup is recorded
+separately from Experiment termination; the event does not confirm hardware or
+resource cleanup. The historical Phase 8b scope above is preserved. This
+clarification does not claim W048 implementation or validation.
+
 **Principle**
 
 ```text
@@ -9937,6 +9944,15 @@ registry, database, additional snapshot record, or new evidence infrastructure i
 required. Original acquisition evidence must not be reconstructed or overwritten
 from a new Ingestor compilation merely to establish this baseline.
 
+**W048 clarification (partial Kill preservation):** Decision 365 permits later
+operator-requested scientific-artifact collection using available verified
+artifact information from partial Kill preservation. Partial preservation must
+remain distinguishable from complete Stage A preservation; it must not fabricate
+complete receipt, marker provenance, or missing information. Existing identity,
+consistency, durable preservation, and recovery requirements remain applicable to
+the information actually preserved. This does not weaken Normal Stop's complete
+preservation requirements or implement partial-baseline support.
+
 Stage B preserves original acquisition evidence, the existing Ingestor intake
 audit, and the final Session Record unchanged. It appends StorageManager collection
 evidence to the existing runtime-evidence file and updates the existing compilation
@@ -10093,6 +10109,17 @@ completeness cannot be established. Partial preservation confirms only what was
 actually preserved, not successful acquisition, artifact retrieval, complete
 cleanup, or safe hardware release. Resource release still requires existing
 device and hardware safety confirmations.
+
+**W048 clarification:** Kill Session terminates an active Experiment using
+`experiment_abort`, with unconfirmed participant cleanup recorded separately.
+Preserve all available evidence and explicitly identify missing or uncertain
+information; never claim complete preservation when it cannot be established.
+Later operator-requested scientific-artifact collection remains permitted using
+available verified artifact information, including when acquisition preservation
+is partial. Reuse existing lifecycle, evidence, storage, and recovery mechanisms;
+do not weaken Normal Stop guarantees or introduce new infrastructure. The
+implementation-facing partial-baseline clarification is recorded in Decision 362.
+This documentation synchronization does not implement or validate W048.
 
 **Both:** Preserve accessible acquisition evidence promptly; do not automatically
 start global artifact collection. Support later operator-requested collection,

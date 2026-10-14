@@ -30,6 +30,17 @@ Decision 365 requires complete Normal Stop confirmations; authorized Kill Sessio
 preserves explicitly partial information and existing safety without automatic
 collection or permanent archive closure. Unknown outcomes remain unconfirmed.
 
+W048's synchronized clarification in Decisions 113, 362, and 365 uses canonical
+`experiment_abort` for an active Experiment during Kill Session, separately records
+unconfirmed cleanup, preserves available evidence without inventing completeness,
+and permits later operator-requested collection from available verified artifact
+information. This is an accepted implementation contract, not current Kill support.
+The existing complete-receipt Stage A writer and complete-only persisted collection
+baseline need narrowly scoped partial-preservation integration using the existing
+owners and mechanisms; their Normal Stop guarantees must remain unchanged.
+W048 remains unimplemented and unvalidated. No new lifecycle state, infrastructure,
+automatic collection, or implicit archive closure is specified.
+
 Decision 366's supported publication prerequisite is complete with automated
 coverage, independent manual validation, and targeted independent re-audit PASS
 after the cursor-race correction (W042): participating

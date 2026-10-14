@@ -557,6 +557,13 @@ Accepted architecture
   Partial preservation does not prove acquisition success, retrieval, cleanup, or
   safe hardware release. Existing device/resource safety remains required; unknown
   is neither confirmed success nor confirmed failure. No killed state is added.
+  The W048 clarification in Decisions 113, 362, and 365 specifies `experiment_abort`
+  for the active Experiment, separates unconfirmed cleanup from that termination,
+  and permits later collection from available verified artifact information while
+  explicitly retaining partial preservation and missing/uncertain information.
+  Normal Stop completeness requirements are unchanged. W048 implementation and
+  independent verification remain pending; this is not a new unresolved Experiment
+  event-mapping question.
 
 Decisions 356-360 qualify historical Decisions 223-225, 228-229, 240, 243, and
 274-275. They reuse existing owners, evidence infrastructure, and Decisions
