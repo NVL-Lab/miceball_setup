@@ -84,7 +84,12 @@ class InMemoryIngestor:
         recovery_journal_root: str | Path | None = None,
         framework_recovery_journal_path: str | Path | None = None,
         evidence_scope: str = "session",
+        correlated_persistence: bool = False,
     ) -> None:
+        if not isinstance(correlated_persistence, bool):
+            raise ValueError("correlated_persistence must be a boolean")
+        if correlated_persistence and not isinstance(storage_manager, PersistentStorageManager):
+            raise ValueError("Correlated local persistence requires a PersistentStorageManager owner")
         if evidence_scope not in {"session", "framework"}:
             raise ValueError("Unknown runtime evidence scope")
         if evidence_scope == "framework" and session_id is not None:
@@ -96,6 +101,7 @@ class InMemoryIngestor:
         if session_id is not None and (not isinstance(session_id, str) or not session_id):
             raise ValueError("Recovery requires a nonempty known Session identity")
         self._storage_manager = storage_manager
+        self._correlated_persistence = correlated_persistence
         self._service_operation_lock = RLock()
         self._active_service_operations = 0
         self._evidence_scope = evidence_scope
@@ -717,19 +723,25 @@ class InMemoryIngestor:
             self._ingest_audit += (audit,)
             if accepted:
                 self._accepted_envelopes += (envelope,)
-                if self._storage_manager is not None:
+                if self._storage_manager is not None and not self._correlated_persistence:
                     self._storage_manager.store_envelopes((envelope,))
             return audit
 
     @service_operation()
     async def persist_accepted_envelope(
         self, envelope: AcquisitionRecordEnvelope, *,
-        persist: Callable[[AcquisitionRecordEnvelope], Awaitable[dict[str, Any] | None]],
+        persist: Callable[[AcquisitionRecordEnvelope], Awaitable[dict[str, Any] | None]] | None = None,
+        command_id: str | None = None,
     ) -> dict[str, Any]:
         """Send retained accepted intake to its storage owner without reaccepting or holding intake locks."""
         with self._intake_lock:
-            if self._storage_manager is not None:
+            if self._storage_manager is not None and not self._correlated_persistence:
                 raise RuntimeError("Independent persistence must not also use a local StorageManager")
+            if self._correlated_persistence:
+                if persist is not None or not isinstance(command_id, str) or not command_id.strip():
+                    raise ValueError("Local correlated persistence requires command_id and no transport callback")
+            elif persist is None or command_id is not None:
+                raise ValueError("Transport persistence requires a callback and callback-owned command identity")
             if (not isinstance(envelope, AcquisitionRecordEnvelope) or not self._session_prepared
                     or envelope.session_id != self._session_id or self._journal_failed):
                 raise RuntimeError("Persistence requires the current prepared Ingestor Session")
@@ -739,6 +751,10 @@ class InMemoryIngestor:
                 raise ValueError("Envelope has not been accepted by this Ingestor")
             session_id, journal = self._session_id, self._recovery_journal_path
             snapshot = AcquisitionRecordEnvelope.from_dict(json.loads(content))
+            if self._correlated_persistence:
+                # Local writes cannot suspend: retain the binding lock through owner readback.
+                return self._storage_manager.persist_envelope(
+                    snapshot, command_id=command_id, requester_id=self._component_id)
         confirmation = await persist(snapshot)
         with self._intake_lock:
             if (self._session_id != session_id or self._recovery_journal_path != journal

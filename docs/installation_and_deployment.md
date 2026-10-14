@@ -17,7 +17,9 @@ communicate through local Python calls. Controller, SynchronizationManager, and
 each AcquisitionNode remain independently deployed; every process-crossing
 interaction uses NATS. Controller accesses both combined-process components only
 through NATS. No new registry, database, or scientific ownership is introduced.
-Shared-process composition/reconciliation is not yet implemented or validated.
+The explicit local correlated persistence path is implemented with developer
+coverage; independent validation and audit remain pending. Shared-lifetime
+bootstrap/launch composition is not implemented in this bounded persistence slice.
 
 ## Accepted Manual Procedure
 
@@ -114,7 +116,17 @@ W051 is historical validation of this NATS boundary, not a requirement to retain
 internal NATS under Decision 376. Reuse local interfaces while preserving its
 durability, stable identity, retry/conflict, restart, readback, corruption/legacy,
 and archive/recovery guarantees. Do not duplicate owners or separate the pair's
-process lifetimes. This implementation reconciliation remains pending.
+process lifetimes. Local persistence is now supported by constructing the existing
+Ingestor with its PersistentStorageManager owner and `correlated_persistence=True`.
+`receive_envelope()` retains validated intake without an uncorrelated append;
+`await persist_accepted_envelope(envelope, command_id=...)` performs the existing
+owner's durable correlated write/readback locally. Keep command identity stable
+on retry. Exceptions retain intake and do not establish confirmation. Legacy
+constructor behavior and W051 NATS adapters remain compatible; no second owner
+or internal NATS request is created by this mode. Both owners can be constructed
+and restarted together by the same process; general lifecycle bootstrap is deferred.
+Acquisition intake reconstruction/acknowledgment is not implemented here.
+Independent validation and audit of this local adaptation remain pending.
 
 - `NatsIngestorCommunication.persist_accepted_envelope(envelope, *,
   storage_participant, command_id, result_window_s)` sends already accepted

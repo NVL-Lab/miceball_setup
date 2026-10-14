@@ -51,7 +51,9 @@ durability, correlation, retry, readback, corruption/legacy and archival protect
 without duplicate state or separate lifetimes. AcquisitionNode intake requires
 stable delivery identity, durable correlation, journal-before-ACK and restart-safe
 deduplication distinct from persistence/archival confirmation. This reconciliation
-is not yet implemented or independently validated.
+has an implemented explicit local correlated persistence path with developer
+coverage; independent validation/audit, lifecycle bootstrap, and acquisition-intake
+adaptation remain pending. No general launcher or additional owner is introduced.
 
 Q019 is CLOSED following W041-W049 slice completion and W050 overall software
 integration validation/audit PASS. The permanent sequential Normal Stop regression
@@ -796,6 +798,7 @@ is complete; W030 records manual validation, focused tests, and audit reassessme
 
 - IngestAuditRecord: Records ingest order, receive time, accepted status, and reason for one received acquisition envelope and exposes audit evidence as plain data.
 - InMemoryIngestor: Receives envelopes and runtime evidence, optionally journals/reconstructs the normal evidence view for a known Session, deduplicates evidence_id content, and compiles persistent evidence without interpreting meaning.
+- InMemoryIngestor constructor correlated_persistence=False: Explicit True with a supplied PersistentStorageManager retains accepted envelopes for command-correlated local persistence instead of legacy immediate uncorrelated forwarding.
 - InMemoryIngestor.__init__(storage_manager=None, *, session_id=None, recovery_journal_path=None, component_id="ingestor", recovery_journal_root=None, framework_recovery_journal_path=None, evidence_scope="session"): Preserves known-Session intake and optionally creates a deployment-scoped framework partition using the same Ingestor implementation without a Session binding.
 - InMemoryIngestor.prepare_framework_evidence(recovery_journal_path): Configures framework journal-backed intake once, retaining accepted messages and original duplicate/rejected intake audit across recovery independently of Session release.
 - InMemoryIngestor.compile_framework_runtime_evidence(): Returns only producer-marked persistent framework messages and all framework intake audit records through the existing compilation mechanism.
@@ -819,7 +822,7 @@ is complete; W030 records manual validation, focused tests, and audit reassessme
 - InMemoryIngestor._restore_runtime_evidence: Stages valid journal entries before restoring the normal evidence view, repairs only an interrupted final append, and rejects completed corruption or conflicting identities.
 - InMemoryIngestor._is_interrupted_json: Recognizes incomplete final JSON tokens without treating completed malformed lines as interrupted writes.
 - InMemoryIngestor.compile_persistent_runtime_evidence: Returns a detached, consistent snapshot of accepted persistent runtime messages and all runtime-evidence audit records under the intake lock without inferring persistence from evidence meaning.
-- InMemoryIngestor.persist_accepted_envelope(envelope, *, persist): Awaits a service-local transport callback for already accepted intake, retaining evidence and rechecking its Session binding without holding intake locks across network waits or duplicating acceptance.
+- InMemoryIngestor.persist_accepted_envelope(envelope, *, persist=None, command_id=None): Persists retained accepted intake through the configured local owner in explicit correlated mode, or the compatible transport callback with binding rechecks after network waits.
 - InMemoryIngestor.compile_durable_session_evidence(session_id): Returns a detached journal-verified persistent compilation, complete runtime/acquisition intake audits, accepted envelopes, and existing artifact handoff without claiming receipt completeness or archival.
 
 Slice 27 (Decisions 276-280) is complete (M014, W034) after independent manual
