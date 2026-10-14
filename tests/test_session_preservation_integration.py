@@ -1,4 +1,4 @@
-"""Q019 closeout products remain usable through restart, selection, recovery, and closure."""
+"""Session preservation remains usable through restart, collection, recovery, and closure."""
 
 from pathlib import Path
 import sys
@@ -25,7 +25,7 @@ class _ScientificEventAdapter(launch._CollectingAdapter):
                     "records": [{"data_product_id": "events", "value": 1}]}}
 
 
-class Q019IntegrationTests(unittest.IsolatedAsyncioTestCase):
+class SessionPreservationIntegrationTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.fixture = launch.SessionLaunchTests()
         self.fixture.addCleanup = self.addCleanup
@@ -108,7 +108,7 @@ class Q019IntegrationTests(unittest.IsolatedAsyncioTestCase):
                 Path(entry["artifact_manifest"]["local_storage_path"]).read_bytes()
                 for entry in handoff["artifacts"]}
 
-    async def test_normal_stop_and_kill_reuse_restart_mixed_collection_and_closure(self):
+    async def test_normal_stop_and_kill_preservation_support_saved_collection(self):
         completed = await self.complete_normal_stop()
         original = self.products(completed)
         files = self.scientific_files(completed)
@@ -161,7 +161,7 @@ class Q019IntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual({sid: self.products(sid) for sid in snapshot}, snapshot)
         self.assertEqual(self.fixture.nodes["node-a"].reserved_for_session_id, aborted)
 
-    async def test_interrupted_collection_restart_authorized_repair_idempotency_and_closure(self):
+    async def test_authorized_recovery_preserves_collection_without_refetch(self):
         sid = await self.complete_normal_stop()
         original = self.products(sid)
         files = self.scientific_files(sid)
