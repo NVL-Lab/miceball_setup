@@ -510,13 +510,15 @@ model. Decision 361's Ingestor-side receiving foundation and JetStream routing
 prerequisite are complete with automated testing, independent manual IPython
 validation, and final independent re-audit PASS after both corrections (W041).
 Validation used local NATS/software, not an external cluster, multi-host, Jetson,
-or hardware deployment. Complete closeout remains unimplemented. Decision 362's
+or hardware deployment. Kill Session integration remains unimplemented. Decision 362's
 explicit Stage A slice is complete with developer automated testing, independent
 manual validation, and independent audit PASS (W043); bounded Stage B collection
 and Decision 363 evidence persistence are complete with independent manual
 validation and final targeted independent re-audit PASS after correction (W045),
 while W046 explicit permanent closure is complete with independent manual validation
-and targeted independent re-audit PASS after correction, and Decision 365 remains unimplemented;
+and targeted independent re-audit PASS after correction. Decision 365's bounded
+Normal Stop integration is complete after correction and independent re-audit PASS
+(W047); Kill Session integration remains unimplemented;
 Decision 364's bounded durable handoff is complete
 with automated testing, independent manual validation, and independent audit PASS (W044).
 Session evidence uses a durable explicit-ACK receiving position and journal-before-
@@ -688,8 +690,13 @@ tests 6/6 and independent correction validation 2/2 PASS; targeted independent
 re-audit PASS with no remaining confirmed P0-P3 findings. The guard now resolves
 the complete target and storage root before identifying the managed final record.
 These are prior validation results, not new tests during documentation closure.
-Bounded W047 Normal Stop integration is implemented and developer-tested, pending
-independent manual validation and audit. For a launched Session, call
+Bounded W047 Normal Stop integration is complete with independent manual validation
+and targeted independent re-audit PASS after correction. Initial developer tests
+19/19 and independent IPython checks 6/6 passed; the initial audit found two P2
+defects. Corrections passed 12/12 developer tests and 3/3 independent checks; final
+re-audit found no remaining confirmed P0-P3 findings. The retained Q019 association
+prevents cancellation from enabling legacy completion, and current envelopes/audits
+must match the durable final record before completion. For a launched Session, call
 `await controller.normal_stop_session(communication=controller_communication,
 receiving=ingestor_communication, result_window_s=...)`. The existing launch window
 bounds node shutdown requests; the supplied window bounds producer closeout requests.
@@ -700,7 +707,7 @@ It never automatically collects artifacts, closes the archive, or releases retai
 service bindings. Existing explicit binding release preserves the terminal Session
 Record; later Stage B uses the saved handoff. Uncertain receipt or preservation
 cannot confirm Normal Stop; unsafe persistence still requires authorized recovery.
-Q019 remains OPEN for independent Normal Stop validation/audit, Kill integration,
+Q019 remains OPEN for Kill Session integration,
 eligible-Session selection, and overall integration validation. W041-W044, Q024, Q022,
 Phase 16, and M015 statuses are unchanged.
 

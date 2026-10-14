@@ -490,12 +490,15 @@ not fully implemented or independently validated. Decision 361's receiving
 foundation and routing prerequisite are separately complete with automated testing,
 independent manual validation, and final independent re-audit PASS in W041;
 the producer/marker prerequisite is separately complete after correction in W042.
-Complete closeout remains unimplemented; the explicit Stage A slice under Decision
+Kill Session integration remains unimplemented; the explicit Stage A slice under Decision
 362 is complete with automated testing, independent manual validation, and
 independent audit PASS (W043). Bounded Stage B collection/direct persistence is
 complete with independent manual validation and final targeted independent re-audit
 PASS after correction (W045); W046 explicit closure is complete with independent
-validation and targeted re-audit PASS after correction, and Decision 365 remains unimplemented; the bounded Decision 364 durable handoff
+validation and targeted re-audit PASS after correction. Decision 365's bounded
+Normal Stop integration is complete with independent validation and targeted
+re-audit PASS after correction (W047); Kill Session integration remains unimplemented.
+The bounded Decision 364 durable handoff
 is complete with automated testing, independent manual validation, and independent
 audit PASS (W044).
 Original implementation results and audit records above are unchanged.
@@ -1070,7 +1073,17 @@ no remaining confirmed P0-P3 findings. Target/root normalization precedes manage
 record identification, preventing bypass after restart without blocking pre-closure
 writing. These are prior results, not validation during documentation closure.
 No broader milestone closure is recorded.
-Full Normal Stop/Kill integration, eligible-Session selection, and overall Q019
+**W047 - Complete, bounded Normal Stop integration.**
+Initial developer tests 19/19 and independent IPython validation 6/6 PASS; initial
+audit FAIL with two P2 defects: pre-marker cancellation permitting legacy completion
+and late acquisition intake missing from the preserved final Session Record.
+Corrections retain the Q019 association before asynchronous shutdown and require
+current envelope/audit coverage under existing locks before completion. Correction
+developer tests 12/12 and independent validation 3/3 PASS; targeted independent
+re-audit PASS with no remaining confirmed P0-P3 findings. Stage B collection and
+permanent closure remain separate requests. These are prior results, not new
+validation during documentation closure; no broader milestone is closed.
+Kill Session integration, eligible-Session selection, and overall Q019
 integration validation remain pending; Q022 and Q024
 remain OPEN.
 W041-W044 remain historically complete and unchanged;

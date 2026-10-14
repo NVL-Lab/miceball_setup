@@ -1,9 +1,9 @@
 # Code Map
 
-## Accepted Q019 closeout architecture (W041-W045 bounded slices validated; full closeout pending)
+## Accepted Q019 closeout architecture (W041-W047 bounded slices validated; remaining integration pending)
 
 Decisions 356-365 qualify historical Session closeout and collection-evidence
-contracts. The accepted future flow is producer publication confirmations, one
+contracts. The accepted flow is producer publication confirmations, one
 Controller Session-scoped completion marker, independently verified Ingestor
 consumption, and Stage A acquisition evidence/audit/summary plus final Session
 Record preservation. Stage A permits successful completion and applicable binding
@@ -53,7 +53,9 @@ messages, while confirmed repeated calls do not emit another marker. No receipt,
 archival, successful Normal Stop, or Session completion is claimed by this API.
 
 The receiving foundation, producer/marker prerequisite, and bounded Stage A
-archival are validated in W041-W043; full closeout remains unimplemented.
+archival are validated in W041-W043; bounded Normal Stop integration is complete
+with independent validation and targeted re-audit PASS after correction (W047).
+Kill Session integration and overall Q019 integration validation remain pending.
 The function entries below also describe historical paths, including Ingestor-routed
 collection evidence and stopping-Session collection before finalization. Do not
 interpret those implementations as Stage A/Stage B or Kill Session support.
@@ -139,7 +141,8 @@ developer tests 27/27 and independent manual validation 8/8 PASS; initial audit 
 for the unresolved-path guard; normalized target/root correction with developer
 tests 6/6 and independent validation 2/2 PASS; final targeted re-audit PASS with no
 remaining confirmed P0-P3 findings. Historical failure and correction are retained.
-Full Controller closeout and later eligible-Session selection remain unimplemented;
+Bounded Normal Stop is complete in W047; Kill Session integration and later
+eligible-Session selection remain unimplemented;
 overall Q019 integration validation remains pending.
 W033/M013, W035, W039, and W040 retain
 their validated scopes. Q019, Q024, Q022, Phase 16, and M015 remain OPEN. No
@@ -1135,8 +1138,13 @@ with developer tests, independent manual validation, and independent audit PASS
 manual validation and final targeted independent re-audit PASS after correction
 (W045); W046 explicit permanent closure is complete with independent manual
 validation and targeted independent re-audit PASS after correction. Bounded W047
-Normal Stop orchestration is implemented and developer-tested, pending independent
-manual validation and audit. It uses the launched command/result boundary and a
+Normal Stop orchestration is complete with independent manual validation and
+targeted independent re-audit PASS after both P2 corrections. Initial developer
+tests 19/19 and manual checks 6/6 passed; initial audit FAIL exposed pre-marker
+cancellation enabling legacy completion and late acquisition intake omitted from
+the final record. Correction tests 12/12 and independent checks 3/3 passed, followed
+by re-audit PASS with no remaining confirmed P0-P3 findings. It uses the launched
+command/result boundary and a
 matching W041 Ingestor receiver; incomplete preservation retains the stopping
 binding, while node cleanup failures use the existing failed-Session path.
 Cancellation propagates, releases operation admission, and retains obligations.

@@ -3262,6 +3262,112 @@ closure does not complete or release the Session or close these broader mileston
 
 ---
 
+# W047 - Q019 Normal Stop Integration
+
+**Status:** Complete - bounded Normal Stop implementation, developer automated
+testing, independent manual IPython validation, and targeted independent read-only
+re-audit PASS after correction of two P2 findings.
+
+## Purpose
+
+Validate Normal Stop under Decisions 356, 357, 362, 364, and 365, using the completed
+W041 receipt, W042 producer/marker, W043 Stage A, and W044 durable handoff mechanisms.
+Normal Stop completion is separate from later operator-requested Stage B collection
+and separately requested permanent Evidence Archive closure.
+
+## Workflow
+
+```text
+Explicit Normal Stop for the launched Session
+    -> retain the Session's Q019 closeout association before asynchronous shutdown
+    -> stop/finalize participating AcquisitionNodes and confirm their publications
+    -> release only confirmed-clean node reservations and record active Experiment end
+    -> confirm SynchronizationManager and Controller closing-Session publications
+    -> durably publish the Session acquisition_evidence_completion marker
+    -> independently verify complete durable Ingestor receipt through W041
+    -> archive current protected Stage A evidence, audit, summary, and final record
+    -> compile and durably preserve the separate ArtifactManifest handoff
+    -> recheck current preservation under intake/storage/admission locks
+    -> Session completes; Evidence Archive remains OPEN
+```
+
+Call `await controller.normal_stop_session(communication=controller_communication,
+receiving=ingestor_communication, result_window_s=..., reason=None)` with the original
+launch communication, matching Ingestor receiver, and configured StorageManager.
+The launch window bounds node shutdown requests; the explicit result window bounds
+producer closeout requests. No new command schema, lifecycle state, transport, or
+service ownership is introduced.
+
+Completion requires confirmed producer publication, independent receipt verification,
+current durable Stage A readback, marker identity, all required Controller-owned
+evidence, and matching durable handoff. Current acquisition envelopes and their
+audit must match the preserved final Session Record. Intake, StorageManager
+preservation, and Controller admission locks remain held in that order through
+the synchronous completion commitment; no synchronous lock spans an await.
+
+Cancellation propagates and clears temporary operation admission, but retains the
+Session's Q019 association, evidence, journals, and outstanding obligations. Failed
+or uncertain preservation cannot permit legacy finalization or binding release.
+Node cleanup failures retain the existing failed-Session behavior. Late accepted
+or rejected acquisition intake blocks completion when record/audit coverage is
+missing, without replacing the preserved baseline. Explicit retry can persist
+changed intake through existing Stage A interfaces, without repeating confirmed
+node shutdown or refinalizing scientific files. Unsafe or interrupted products
+still require existing authorized recovery, not implicit repair.
+
+Normal Stop does not automatically collect artifacts, permanently close the archive,
+or release retained service bindings. Existing explicit binding release preserves
+the terminal Session Record. Later Stage B uses the durable saved handoff without
+restoring original bindings; permanent closure remains a separate operator request.
+
+## Independent manual IPython validation
+
+- Initial independent validation: **6/6 PASS**.
+- Independent correction validation: **3/3 PASS**.
+
+These are separate validation stages; the initial passing scenarios did not cover
+the two subsequently reproduced failure windows.
+
+## Automated validation and independent audit
+
+- Initial developer impact-selected tests: **19/19 PASS**.
+- Initial independent read-only audit: **FAIL**, with two confirmed P2 defects.
+  Cancellation before marker creation allowed legacy finalization to complete
+  without receipt verification, Stage A preservation, or durable handoff. A separate
+  controlled cross-thread probe accepted late acquisition intake after handoff
+  preservation; Normal Stop completed while the final Session Record omitted the
+  envelope and its audit. Stored scientific data was not demonstrated lost.
+- Correction establishes the existing Q019 association before the first await and
+  retains it through failure/cancellation. Completion now compares current envelopes
+  and audits against the durable final record under existing locks, rejecting missing
+  coverage without substituting an unarchived snapshot.
+- Developer correction tests: **12/12 PASS** - four new regressions and eight directly
+  affected existing tests. Coverage includes pre-marker cancellation, missing
+  synchronization confirmation, late accepted and rejected intake, preservation
+  of existing products/journals, explicit retry, and unchanged public interfaces.
+- Final targeted independent read-only re-audit: **PASS**, both original P2 findings
+  resolved, with no remaining confirmed P0-P3 findings. No additional tests were
+  necessary during that source re-audit under impact-based testing.
+
+These are previously executed developer tests and independent validation/audit
+results, not software tests or another audit performed during documentation closure.
+No full-suite result is claimed for W047.
+
+## Limitations and completion
+
+Only bounded Normal Stop integration is complete. W041-W046 retain unchanged
+historical validation records and scopes. Controlled local software/broker-double
+coverage and reported IPython checks do not establish live external NATS, multi-host,
+Jetson, hardware, or power-loss validation. Existing W041 receiving-origin/history
+requirements and StorageManager filesystem/durability prerequisites still apply.
+No automatic replay, recovery subsystem, scientific transformation, eligible-Session
+discovery, or implicit Stage B/closure operation is introduced.
+
+Q019 remains OPEN for Kill Session integration, eligible-Session selection, and
+overall integration validation. Q024, Q022, Phase 16, and M015 remain OPEN.
+
+---
+
 # Future Workflows
 
 The following workflows are expected to be added as the framework evolves.
