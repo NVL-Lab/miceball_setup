@@ -260,8 +260,10 @@ and Stage A archival slices are validated in W041-W043. Decisions 356-365 accept
 acquisition preservation before successful completion, a durable later handoff,
 and Stage B direct StorageManager collection-evidence persistence/archive closure;
 the bounded durable handoff is complete with automated testing, independent manual
-validation, and independent audit PASS (W044). Full Normal Stop/Kill integration and Stage B remain unimplemented
-under Q019, which remains OPEN.
+validation, and independent audit PASS (W044). Bounded Stage B collection/evidence
+persistence is complete with independent manual validation and final targeted
+re-audit PASS after correction (W045). Permanent closure and full Normal Stop/Kill
+integration remain unimplemented under Q019, which remains OPEN.
 
 The GUI and Controller are conceptually separate, even if they run on the same machine.
 
@@ -1451,7 +1453,8 @@ unchanged. Decision 362 records permanent closure in the existing summary only
 after verified consistent durable preservation. The closed archive is immutable.
 Decision 363 requires temporary durable outcome/evidence-ID preservation before
 direct archival and distinguishes complete evidence from interrupted/conflicting
-writes. These contracts are accepted but not implemented or validated.
+writes. Bounded collection/evidence persistence is implemented and independently
+validated/audited in W045; permanent closure remains unimplemented.
 
 The accepted W045 LLC clarification permits StorageManager to establish a trusted
 Stage A baseline for a known Session by validating the persisted runtime evidence,
@@ -1467,8 +1470,9 @@ subject to existing authorization and permanent-closure protections.
 Scientific-artifact preservation is primary. Stage B retrieves artifacts created
 and finalized by their respective Experiments without reopening or modifying them.
 Operational-evidence uncertainty is not automatically scientific-data loss or
-corruption; mandatory evidence guarantees remain applicable. W045 remains OPEN,
-with its clarification accepted but implementation/validation pending.
+corruption; mandatory evidence guarantees remain applicable. W045 is complete
+with independent manual validation and final targeted re-audit PASS after correction;
+Q019 remains OPEN for permanent closure and remaining integration work.
 
 ---
 
@@ -1481,7 +1485,8 @@ file transfer. Duplicate IDs must not duplicate archival records; uncertain writ
 do not prove preservation or closure. Retire the temporary record only when safe
 after verified archival. If outcome durability was never established, the outcome
 remains unconfirmed. This is not a permanent Evidence Archive or artifact registry;
-no filename/schema is specified, and the contract is unimplemented.
+no filename/schema is specified by this architectural definition. The bounded
+implementation is independently validated/audited in W045.
 
 The accepted W045 clarification retains these durable outcomes and evidence IDs
 during restarted evidence-write recovery without requiring original live Ingestor

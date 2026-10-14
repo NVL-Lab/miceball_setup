@@ -1,6 +1,6 @@
 # Code Map
 
-## Accepted Q019 closeout architecture (receiving, publication, and Stage A validated; full closeout pending)
+## Accepted Q019 closeout architecture (W041-W045 bounded slices validated; full closeout pending)
 
 Decisions 356-365 qualify historical Session closeout and collection-evidence
 contracts. The accepted future flow is producer publication confirmations, one
@@ -100,8 +100,11 @@ refused. Unconfirmed writes remain visible in existing unfinished-record diagnos
 readback after restart without original runtime bindings. Applicable Q019 Controller
 and Ingestor release guards require current handoff coverage. Legacy non-Q019 release
 paths are unchanged. No lifecycle completion or release is performed by preservation.
-Bounded Stage B collection/direct evidence persistence is implemented for developer
-verification, pending independent validation and audit (W045 remains OPEN).
+Bounded Stage B collection/direct evidence persistence is complete with developer
+automated testing, independent manual validation, and final targeted independent
+re-audit PASS after correction (W045). The initial audit failed on two P2 findings;
+corrections block inconsistent provenance from authorizing archive replacement and
+reject cross-Session envelopes or incomplete intake audit as a trusted baseline.
 `Controller.collect_saved_session_artifacts(session_id, evidence_id=...)` delegates
 to StorageManager without restoring a Session binding. Persisted evidence, audit,
 summary, final record, and handoff establish a known-Session baseline after restart
@@ -119,7 +122,8 @@ history. Unknown interruption outcomes are distinct from proven scientific loss.
 The existing preservation lock serializes owner operations; known-Session lookup
 does not discover all pending work. This does not support multiple simultaneously
 authoritative StorageManagers sharing a directory. Full Controller closeout,
-permanent closure, and later eligible-Session selection remain unimplemented.
+permanent closure, and later eligible-Session selection remain unimplemented;
+overall Q019 integration validation remains pending.
 W033/M013, W035, W039, and W040 retain
 their validated scopes. Q019, Q024, Q022, Phase 16, and M015 remain OPEN. No
 additional architectural API or storage schema is defined here.
@@ -1104,8 +1108,9 @@ foundation and Decision 366 producer/marker prerequisite do not provide full
 staged closeout. W042 records independent validation and targeted re-audit PASS
 for the latter prerequisite after correction. Explicit Stage A archival is complete
 with developer tests, independent manual validation, and independent audit PASS
-(W043); bounded Stage B collection/evidence persistence is implemented pending
-independent validation/audit, while permanent closure and full closeout remain deferred.
+(W043); bounded Stage B collection/evidence persistence is complete with independent
+manual validation and final targeted independent re-audit PASS after correction
+(W045), while permanent closure and full closeout remain deferred.
 
 ## tests/test_acquisition_stage_archival.py
 

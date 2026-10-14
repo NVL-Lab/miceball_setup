@@ -513,8 +513,9 @@ Validation used local NATS/software, not an external cluster, multi-host, Jetson
 or hardware deployment. Complete closeout remains unimplemented. Decision 362's
 explicit Stage A slice is complete with developer automated testing, independent
 manual validation, and independent audit PASS (W043); bounded Stage B collection
-and Decision 363 evidence persistence are implemented pending independent
-validation/audit, while permanent closure and Decision 365 remain unimplemented;
+and Decision 363 evidence persistence are complete with independent manual
+validation and final targeted independent re-audit PASS after correction (W045),
+while permanent closure and Decision 365 remain unimplemented;
 Decision 364's bounded durable handoff is complete
 with automated testing, independent manual validation, and independent audit PASS (W044).
 Session evidence uses a durable explicit-ACK receiving position and journal-before-
@@ -616,8 +617,9 @@ IPython validation 17/17 PASS, and independent audit PASS with no confirmed P0-P
 defects (W044). It does not change W041-W043, complete/release the Session, select eligible Sessions,
 perform Stage B collection, or close the archive. Q019 remains OPEN.
 
-The bounded W045 Stage B implementation is available for developer verification;
-independent manual validation/audit and workflow closure remain pending. Given the
+The bounded W045 Stage B implementation is complete with developer automated
+testing, independent manual validation, and final targeted independent re-audit
+PASS after correction. Given the
 same `records_path` parent, logical StorageManager `component_id`, configured
 `global_artifact_root`, and node-keyed SSH endpoints, it needs no old Session binding:
 
@@ -642,6 +644,14 @@ OPEN and existing scientific sources, Stage A evidence, audit, and final record 
 unchanged. Reusing a confirmed ID reads its result without another transfer;
 pending evidence never triggers automatic refetch or repair.
 
+W045 preserves the full validation history: 32 initial developer tests passed,
+initial independent IPython validation 9/9 PASS, initial source audit FAIL with
+two P2 findings, 14 correction tests passed, independent correction validation
+3/3 PASS, and final targeted re-audit PASS with no remaining confirmed P0-P3 defects.
+The corrections prevent missing/inconsistent provenance from authorizing archive
+replacement and reject cross-Session envelopes or incomplete intake audit as a
+trusted Stage A baseline. These are prior results, not new tests during closure.
+
 Interrupted evidence writes use the existing ServiceMaintenanceInterface:
 record a new explicit `resume` decision for `recover_archive_write` tied to its
 command ID and `obligation={"session_id": session_id, "evidence_id": attempt_id}`,
@@ -653,8 +663,9 @@ bytes are refused. If a crash precedes outcome durability, missing outcomes are
 not reconstructed from artifact existence; only still-retained live outcomes can
 be preserved. Known-Session lookup is not application-wide discovery. Filesystem
 hard-link/fsync prerequisites still apply, and power-loss behavior is unvalidated.
-Permanent closure, eligible-Session selection, and full Normal Stop/Kill remain
-deferred; W041-W044, Q024, Q022, Phase 16, and M015 statuses are unchanged.
+Q019 remains OPEN for permanent closure, eligible-Session selection, full Normal
+Stop/Kill integration, and overall integration validation. W041-W044, Q024, Q022,
+Phase 16, and M015 statuses are unchanged.
 
 Phase 14 / Slice 27 Ingestor Crash Recovery and Handoff Reconstruction implements
 Decisions 276-280 and is complete (M014, W034), following independent manual

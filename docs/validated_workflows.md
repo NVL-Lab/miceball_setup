@@ -3035,6 +3035,128 @@ component ownership, lifecycle state, or evidence transport is changed.
 
 ---
 
+# W045 - Q019 Stage B Artifact Collection and Persistent Evidence
+
+**Status:** Complete - bounded Stage B collection/evidence-persistence implementation,
+developer automated testing, independent manual IPython validation, and final
+targeted independent read-only re-audit PASS after correction.
+
+## Purpose
+
+Validate later collection from W044's durable ArtifactManifest handoff under
+Decisions 357, 358, 362, and 363 and their accepted LLC clarifications. StorageManager
+uses a trustworthy persisted Stage A baseline without original Session bindings,
+preserves actual collection outcomes, and directly archives its own evidence.
+This completes collection/evidence persistence only, not permanent archive closure
+or full Normal Stop/Kill integration.
+
+## Workflow
+
+```text
+Explicit collection request for a known Session and stable evidence identity
+    -> validate persisted Stage A products and W044 handoff under preservation lock
+    -> retrieve scientific artifacts through existing Artifact Plane mechanisms
+    -> retain actual retrieval/verification results and uncertain outcomes
+    -> durably preserve temporary collection outcome and evidence identity
+    -> append StorageManager evidence directly to the Session Evidence Archive
+    -> update compilation summary with separate preservation origins
+    -> exact current readback confirms archival independently of collection success
+    -> safely retire the temporary outcome; Evidence Archive remains OPEN
+```
+
+Use `controller.collect_saved_session_artifacts(session_id, evidence_id=attempt_id)`
+or `storage.collect_saved_artifacts(session_id, evidence_id=attempt_id)`. Retain the
+caller-supplied unique identity for repeated requests and result readback. Existing
+storage-root/component identity and deployment-local retrieval configuration remain
+required; no Session restoration or participant discovery is performed.
+
+StorageManager validates existing `runtime_evidence.jsonl`, `ingest_audit.jsonl`,
+`compilation_summary.json`, `session_record_final.json`, and
+`artifact_collection_handoff.json` after restart or another Session's archival.
+Counts, evidence identities, provenance, completion information, Session associations,
+and file/supported-directory durability are checked; a status flag or historical
+cached confirmation is insufficient. Cross-Session acquisition envelopes and
+incomplete intake-audit records cannot establish preservation confirmation.
+
+Collection reuses existing source selection, deterministic non-overwriting
+destinations, independent artifact attempts, and light verification. Scientific
+sources remain unchanged. Retrieval success, verification, aggregate collection
+result, temporary-outcome durability, archival confirmation, and preservation
+warnings remain distinct. Failure and unknown outcomes are retained without
+inventing success or treating evidence uncertainty as scientific-data loss.
+
+`artifact_collection_outcome.json` durably retains the actual collection message
+and stable evidence ID before append. StorageManager directly appends its persistent
+`RuntimeEvidenceMessage` to the existing archive, without a JetStream round trip or
+fabricated Ingestor audit. Summary provenance distinguishes Ingestor-accepted
+acquisition evidence from directly persisted StorageManager evidence. Original
+acquisition evidence, intake audit, final Session Record, handoff, and previously
+confirmed collection evidence remain protected. Missing or inconsistent provenance
+cannot authorize destructive replacement by an acquisition compilation.
+
+Reusing an already confirmed identity returns its outcome without refetch or
+duplicate evidence. Interrupted persistence remains unconfirmed. Existing
+`ServiceMaintenanceInterface` recovery requires a new explicit administrator
+`resume` decision and correlated `recover_archive_write` command with
+`obligation={"session_id": session_id, "evidence_id": attempt_id}`. Journal-backed
+authorization/attempt acceptance precedes recovery. A trustworthy matching pending
+outcome can complete evidence append/summary persistence after restart without the
+old Session intake, repeated scientific transfers, or replacement of confirmed
+history. Conflicting or untrustworthy products are refused, not silently repaired.
+
+## Independent manual IPython validation
+
+- Initial Stage B independent manual validation: **9/9 PASS**.
+- Independent correction validation of the two audit findings: **3/3 PASS**.
+
+These are separate validation stages; the initial successful scenarios did not
+establish that the subsequent source audit would pass without correction.
+
+## Automated validation and independent audit
+
+- Initial developer impact-selected automated checks: **32 distinct tests passed**.
+- Initial independent source audit: **FAIL**, with two confirmed P2 defects:
+  missing/inconsistent provenance could permit replacement of existing Stage B
+  evidence, and cross-Session acquisition envelopes or incomplete intake audit
+  could establish an invalid persisted Stage A baseline.
+- Corrections strengthened pre-write archive consistency/provenance protection,
+  validated envelope Session association and required audit fields, and retained
+  the separately authorized interrupted-write recovery path.
+- Developer correction checks: **14 passed**, including targeted regressions for
+  both findings and directly affected creation, persistence, and recovery behavior.
+- Final targeted independent read-only re-audit: **PASS**. Both original P2 findings
+  were resolved; no remaining confirmed P0-P3 defects were found within scope.
+  One additional temporary-directory probe confirmed authorized acquisition-archive
+  repair after Ingestor journal reconstruction with durable acceptance and actual
+  write confirmation. No full suite or unrelated regressions were rerun.
+
+These are previously executed developer tests and independent validation/audit
+results, not tests run during documentation closure. No full-suite result is
+claimed for W045.
+
+## Limitations and completion
+
+Only the bounded Stage B collection and persistent collection-evidence slice is
+complete. Preservation does not complete/release a Session or permanently close
+the Evidence Archive. Known-Session lookup is not application-wide discovery.
+Owner preservation locking serializes operations; multiple simultaneously
+authoritative StorageManagers sharing one directory are not supported.
+
+If interruption precedes temporary-outcome durability, missing outcomes are not
+reconstructed from artifact existence; only still-retained live outcomes can be
+preserved. Existing hard-link/filesystem and fsync prerequisites apply; power-loss
+behavior was not independently tested. Validation used controlled software and
+SSH/SFTP boundary doubles, not live external NATS, multi-host, Jetson, or hardware
+acquisition validation. No automatic retry/refetch, new recovery subsystem,
+evidence transport, registry, or lifecycle state is introduced.
+
+W041-W044 retain their unchanged historical records and validated scopes. Q019
+remains OPEN for permanent Evidence Archive closure, full Normal Stop/Kill
+integration, eligible-Session selection, and overall integration validation.
+Q024, Q022, Phase 16, and M015 remain OPEN.
+
+---
+
 # Future Workflows
 
 The following workflows are expected to be added as the framework evolves.

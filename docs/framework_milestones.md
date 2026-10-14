@@ -493,7 +493,8 @@ the producer/marker prerequisite is separately complete after correction in W042
 Complete closeout remains unimplemented; the explicit Stage A slice under Decision
 362 is complete with automated testing, independent manual validation, and
 independent audit PASS (W043). Bounded Stage B collection/direct persistence is
-implemented pending independent validation/audit; permanent closure and Decision
+complete with independent manual validation and final targeted independent re-audit
+PASS after correction (W045); permanent closure and Decision
 365 remain unimplemented; the bounded Decision 364 durable handoff
 is complete with automated testing, independent manual validation, and independent
 audit PASS (W044).
@@ -1033,7 +1034,7 @@ It does not alter Stage A products or lifecycle. At W044 closure, Stage B and
 Decisions 363/365 remained unimplemented; the bounded subsequent W045 progress is
 tracked below. No overall milestone completion is claimed.
 
-**W045 - OPEN, bounded implementation and developer testing; independent validation/audit pending.**
+**W045 - Complete, bounded collection/evidence persistence; independent manual validation and final targeted re-audit PASS after correction.**
 For a known Session, StorageManager may establish the trusted Stage A baseline from
 validated existing Session products independently of cached state and original
 Controller/Ingestor bindings (clarifications to Decisions 358/362/363). Stage B
@@ -1047,9 +1048,17 @@ scientific-data loss. Mandatory evidence guarantees remain applicable.
 The bounded implementation now validates persisted baselines, collects from saved
 handoffs, retains durable temporary outcomes, directly appends collection evidence,
 updates provenance, and supports existing authorized evidence-only recovery without
-refetch. Focused developer tests do not constitute independent validation or audit.
-No W045 closure is recorded; permanent archive closure, full Normal Stop/Kill
-integration, eligible-Session selection, Q022, and Q024 remain deferred.
+refetch. Initial developer testing passed 32 distinct targeted tests, and initial
+independent IPython validation passed 9/9 checks. The initial independent audit
+returned FAIL with two P2 defects: destructive replacement despite missing or
+inconsistent Stage B provenance, and invalid Stage A confirmation from cross-Session
+envelopes or incomplete intake audit. Corrections passed 14 developer tests and
+3/3 independent manual checks. The final targeted independent re-audit returned
+PASS with no remaining confirmed P0-P3 defects. These are previously executed
+results, not validation performed during documentation closure.
+Permanent archive closure, full Normal Stop/Kill integration, eligible-Session
+selection, and overall Q019 integration validation remain pending; Q022 and Q024
+remain OPEN.
 W041-W044 remain historically complete and unchanged;
 Phase 16 and M015 remain OPEN.
 
