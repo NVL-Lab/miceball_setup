@@ -884,7 +884,7 @@ recovery is introduced. Phase 16 and M015 remain open.
 - PersistentStorageManager.get_persisted_session_preservation_confirmation(session_id): Validates existing Stage A/B products, coverage, identities, provenance, and handoff after restart without cached Session bindings, returning detached products or None for uncertainty.
 - PersistentStorageManager.close_session_evidence_archive(session_id): Handles a separate explicit closure request by validating current durable coverage, refusing unresolved writes, atomically recording closure in the existing summary, and readback-confirming immutable contents without requiring artifact success.
 - PersistentStorageManager._require_open_session_archive(session_id): Refuses ordinary or authorized mutation of a closed or unconfirmed Session archive using current persisted summary information.
-- PersistentStorageManager._require_session_record_writable(path): Protects the managed final Session Record from generic or recovery writes after closure, including equivalent path spellings.
+- PersistentStorageManager._require_session_record_writable(path): Resolves the complete target and configured storage root before identifying and protecting a managed final Session Record from generic or recovery writes after closure.
 - PersistentStorageManager._collection_outcome_path(session_id): Locates the temporary outcome message in the existing known-Session directory.
 - PersistentStorageManager._read_preservation_json(contents): Reads preservation JSON while rejecting duplicate fields and non-finite values.
 - PersistentStorageManager._require_complete_runtime_audit(audit): Validates all existing RuntimeEvidenceAuditRecord fields and intake ordering without inventing missing timestamps or reasons.

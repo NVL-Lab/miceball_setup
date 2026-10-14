@@ -9,6 +9,7 @@ from threading import Event
 import unittest
 from unittest.mock import patch
 
+from lab_sync_acquisition import PersistentStorageManager
 from tests import test_stage_b_collection as collection
 from tests import test_storage as records
 
@@ -191,6 +192,42 @@ class PermanentArchiveClosureTests(unittest.IsolatedAsyncioTestCase):
                 finish_serializing.set()
             writing.result(timeout=5)
             self.assertTrue(closing.result(timeout=5)["archival_confirmed"])
+
+    async def test_closed_final_record_rejects_nested_parent_alias_after_restart(self):
+        self.fixture.collect()
+        self.fixture.storage.close_session_evidence_archive("session")
+        (self.directory / "nested").mkdir()
+        (self.fixture.root / "root-alias").mkdir()
+        target = self.directory / "session_record_final.json"
+        alias = self.directory / "nested" / ".." / target.name
+        self.assertEqual(alias.resolve(), target.resolve())
+        evidence = records.PersistentStorageManagerTests._minimal_session_record_evidence("session")
+        evidence["warnings_or_failures"] = ("must not be written after closure",)
+        before = self.snapshot()
+        storages = (
+            self.fixture.storage,
+            self.fixture.new_storage(),
+            PersistentStorageManager(self.fixture.root / "root-alias" / ".." / "records.jsonl"),
+        )
+        for storage in storages:
+            with self.subTest(records_path=storage):
+                with self.assertRaises(RuntimeError):
+                    storage.write_session_record(alias, **evidence)
+                self.assertEqual(self.snapshot(), before)
+                self.assertTrue(storage.close_session_evidence_archive("session")["archival_confirmed"])
+                self.assertEqual(self.snapshot(), before)
+
+    async def test_preclosure_nested_path_and_storage_root_alias_support_record_writing(self):
+        (self.directory / "nested").mkdir()
+        (self.fixture.root / "root-alias").mkdir()
+        alias = self.directory / "nested" / ".." / "session_record_final.json"
+        storage = PersistentStorageManager(self.fixture.root / "root-alias" / ".." / "records.jsonl")
+        evidence = records.PersistentStorageManagerTests._minimal_session_record_evidence("session")
+        evidence["warnings_or_failures"] = ("legitimate pre-closure record",)
+        storage.write_session_record(alias, **evidence)
+        record = storage.read_session_record(self.directory / "session_record_final.json")
+        self.assertEqual(record["warnings_or_failures"], list(evidence["warnings_or_failures"]))
+        self.assertFalse(json.loads(self.summary_path.read_bytes())["archive_closed"])
 
     async def test_repeated_closure_and_restart_reconfirm_without_rewriting(self):
         self.fixture.collect()

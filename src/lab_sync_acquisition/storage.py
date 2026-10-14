@@ -467,8 +467,10 @@ class PersistentStorageManager:
 
     def _require_session_record_writable(self, path: Path) -> None:
         """Protect the managed final Session Record even through generic record writing."""
+        path = path.resolve()
+        storage_root = self._records_path.parent.resolve()
         if (path.name == "session_record_final.json" and path.parent.name.startswith("session_")
-                and path.parent.parent.resolve() == self._records_path.parent.resolve()):
+                and path.parent.parent == storage_root):
             self._require_open_session_archive(path.parent.name[len("session_"):])
 
     def _validate_collection_outcome(self, session_id: str, message: Any) -> dict:
