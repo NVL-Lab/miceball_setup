@@ -9686,6 +9686,10 @@ collection failures are valid operational outcomes and do not retroactively
 change a completed Session, consistent with Decision 303. NWB conversion and
 Cheaha upload remain later scientific processing stages.
 
+**Accepted LLC clarification (permanent closure):** Permanent closure requires a
+separate explicit operator request, not automatic closure after collection. Decision
+362 records the closure conditions and their distinction from artifact outcomes.
+
 ---
 
 ## Decision 358: StorageManager directly preserves its later collection evidence in the Session archive
@@ -9876,6 +9880,24 @@ requires verified consistency and durable preservation of the archive products;
 after confirmed permanent closure, the archive is immutable. Preserve original
 acquisition evidence, Ingestor intake audit, final Session Record, and acquisition
 outcome. This specifies Decision 357's stage and closure-information contract.
+
+**Accepted LLC clarification (permanent Evidence Archive closure):**
+
+- Permanent closure requires a separate, explicit operator request; it does not
+  occur automatically after Stage B artifact collection.
+- Closure does not require every scientific artifact to have been successfully
+  retrieved or verified.
+- All applicable collection outcomes must be durably recorded, with no unresolved
+  evidence writes.
+- StorageManager must verify consistency and durable preservation of the existing
+  Session Evidence Archive before confirming closure.
+- Once permanently closed, the archive is immutable, including after restart.
+
+Scientific-artifact collection outcomes, evidence preservation, Session lifecycle,
+and permanent archive closure remain separate. This clarification is accepted;
+permanent closure implementation and validation remain pending. W041-W045 remain
+complete and Q019 remains OPEN. No new lifecycle state, database, registry, or
+recovery infrastructure is introduced.
 
 **Accepted LLC clarification (W045 - trusted Stage A baseline):** For a known
 Session, StorageManager may establish a trustworthy Stage A preservation baseline

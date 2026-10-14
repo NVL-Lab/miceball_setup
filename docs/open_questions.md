@@ -519,7 +519,12 @@ Accepted architecture
 - Stage B follows operator-requested collection. StorageManager directly appends
   its own persistent RuntimeEvidenceMessages to the same Session runtime evidence
   file, distinguishes direct persistence from Ingestor acceptance in the summary,
-  confirms durability, and permanently closes the archive. No fabricated Ingestor
+  and confirms durability. Permanent closure requires a separate explicit operator
+  request, all applicable collection outcomes durably recorded, no unresolved
+  evidence writes, and StorageManager verification of archive consistency and
+  durable preservation. It is not automatic after collection and does not require
+  every scientific artifact to have been retrieved or verified. A permanently closed
+  archive is immutable, including after restart. No fabricated Ingestor
   audit, acquisition-evidence rewrite, final Session Record change, or retroactive
   acquisition outcome change is permitted. The existing compilation summary records
   Stage A completion versus permanent Stage B closure; status alone proves neither
@@ -669,6 +674,10 @@ Remaining implementation and technical-verification work
 - **Closeout integration:** Implement and independently validate Decision 365's
   complete Normal Stop confirmations and explicit partial Kill preservation while
   retaining safety, uncertainty, and binding-release obligations.
+- **Permanent archive closure:** The accepted Decision 362 clarification resolves
+  the separate-request and closure-eligibility contract above. Implementation and
+  independent validation remain pending; W045's completed collection/evidence
+  persistence does not permanently close the archive or change Session lifecycle.
 
 These are accepted low-level contracts awaiting implementation and verification,
 not four unresolved architectural choices. Any inability to satisfy them returns

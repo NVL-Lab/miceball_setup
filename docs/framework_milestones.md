@@ -975,8 +975,13 @@ independent Ingestor consumption proof, Stage A acquisition evidence/audit/summa
 and final Session Record preservation, durable StorageManager handoff preservation,
 and later operator-selected stopped-Session collection without original bindings.
 StorageManager directly preserves its own Stage B collection evidence, distinguishes
-that origin without fabricated Ingestor audit, and confirms permanent archive
-closure. Acquisition outcomes and final Session Records are not rewritten.
+that origin without fabricated Ingestor audit. Permanent closure requires a separate
+explicit operator request, all applicable collection outcomes durably recorded,
+no unresolved evidence writes, and verified consistent durable archive preservation;
+it is not automatic after collection or contingent on every artifact being retrieved
+or verified. Confirmed closed archives are immutable, including after restart.
+Closure implementation remains pending. Acquisition outcomes and final Session
+Records are not rewritten.
 Separately authorized Kill Session preserves accessible partial records and safety
 while leaving the archive open for later collection; no killed lifecycle state or
 automatic collection is accepted.

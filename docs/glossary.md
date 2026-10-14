@@ -1447,10 +1447,16 @@ provided by this slice.
 Accepted later operator-requested collection closeout in Decisions 357-358:
 StorageManager directly appends its own persistent collection RuntimeEvidenceMessages
 to the same runtime evidence file, updates summary provenance without fabricated
-Ingestor audit, confirms durable preservation, and permanently closes the archive.
+Ingestor audit, and confirms durable preservation. Permanent closure requires a
+separate explicit operator request, not automatic closure after collection.
+It requires all applicable collection outcomes durably recorded, no unresolved
+evidence writes, and StorageManager verification of archive consistency and durable
+preservation; it does not require every artifact to be retrieved or verified.
 Acquisition evidence, its audit, final Session Record, and acquisition outcome are
 unchanged. Decision 362 records permanent closure in the existing summary only
-after verified consistent durable preservation. The closed archive is immutable.
+after verified consistent durable preservation. The closed archive is immutable,
+including after restart. Collection outcomes, evidence preservation, Session
+lifecycle, and permanent closure remain distinct.
 Decision 363 requires temporary durable outcome/evidence-ID preservation before
 direct archival and distinguishes complete evidence from interrupted/conflicting
 writes. Bounded collection/evidence persistence is implemented and independently

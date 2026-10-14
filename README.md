@@ -551,8 +551,14 @@ bindings, using a separate small Session-associated JSON handoff in the existing
 Session directory and existing persistent Session information for selection.
 In Stage B it directly appends its own persistent collection evidence
 to the same archive, distinguishes origins in the summary without fabricated
-Ingestor audit, confirms durability, and permanently closes the archive without
-rewriting acquisition evidence, audit, final Session Record, or acquisition outcome.
+Ingestor audit, and confirms durability. Permanent closure requires a separate
+explicit operator request, not automatic closure after collection. All applicable
+collection outcomes must be durably recorded, with no unresolved evidence writes,
+and StorageManager must verify archive consistency and durable preservation.
+Closure does not require every artifact to be retrieved or verified; once closed,
+the archive is immutable, including after restart. Closure does not rewrite
+acquisition evidence, audit, final Session Record, or acquisition outcome, and
+remains distinct from collection outcomes, evidence preservation, and Session lifecycle.
 The existing summary records Stage A completion versus permanent Stage B closure;
 status alone is not durability proof. Before direct archival, StorageManager
 temporarily durably preserves the actual collection outcome and unique evidence ID.

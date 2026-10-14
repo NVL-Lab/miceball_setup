@@ -10,7 +10,12 @@ Record preservation. Stage A permits successful completion and applicable bindin
 release without waiting for scientific collection. StorageManager durably preserves
 Ingestor's existing handoff for later operator-selected stopped-Session collection
 without restoring original bindings; its own collection evidence is directly
-appended in Stage B with distinct summary provenance, then the archive is closed.
+appended in Stage B with distinct summary provenance. Permanent closure requires a
+separate explicit operator request, all applicable collection outcomes durably
+recorded, no unresolved evidence writes, and verified consistent durable archive
+preservation. It does not require every artifact to be retrieved or verified;
+confirmed closed archives are immutable, including after restart. Closure remains
+unimplemented and separate from collection outcomes and Session lifecycle.
 Decision 361 requires restart-safe Session-specific receiving progress and verified
 contiguous JetStream acknowledgment coverage of the full relevant publication
 interval. Decision 362 records stages/closure in the existing summary, requiring
