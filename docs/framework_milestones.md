@@ -491,7 +491,8 @@ foundation and routing prerequisite are separately complete with automated testi
 independent manual validation, and final independent re-audit PASS in W041;
 the producer/marker prerequisite is separately complete after correction in W042.
 Complete closeout remains unimplemented; the explicit Stage A slice under Decision
-362 has developer coverage pending independent validation/audit. Stage B and
+362 is complete with automated testing, independent manual validation, and
+independent audit PASS (W043). Stage B and
 Decisions 363-365 remain unimplemented.
 Original implementation results and audit records above are unchanged.
 
@@ -1006,11 +1007,17 @@ and their corrections are preserved in W041. These are previously executed resul
 not tests run during documentation closure. Local NATS/software validation does not
 claim external-cluster, multi-host, Jetson, or hardware deployment validation.
 
-Explicit Stage A archival under Decision 362 is implemented with developer
-automated coverage, pending independent manual validation/audit. It requires W041
+Bounded Stage A archival under Decision 362 is complete with developer automated
+testing, independent manual validation, and independent audit PASS (W043). It requires W041
 receipt of the W042 marker, protects current intake through persistence, and checks
 the evidence/audit/summary plus final Session Record before confirming Stage A;
 the archive remains open and Session lifecycle/bindings are unchanged.
+W043 records 16 focused developer tests passed; independent manual IPython
+validation 7/7, 5/5, and 5/5 PASS (17/17 total) using local real JetStream; and
+independent audit PASS with no confirmed P0-P3 defects or corrections required.
+Additional cross-thread archive-rewrite coverage was an optional suggestion,
+not a closure condition. These are previously executed/reported results, not
+validation performed during documentation closure.
 Complete Controller Normal Stop/Kill orchestration, Stage B, and Decisions 363-365
 remain unimplemented. No overall milestone completion is claimed.
 Q019 remains OPEN for remaining implementation and independent verification.

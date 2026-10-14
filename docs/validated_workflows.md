@@ -2808,6 +2808,120 @@ new evidence transport, automatic retry/replay, polling, or lifecycle state is a
 
 ---
 
+# W043 - Q019 Stage A Acquisition Evidence Archival
+
+**Status:** Complete - bounded Stage A archival implementation, developer automated
+testing, independent manual IPython validation, and independent read-only audit PASS.
+
+## Purpose
+
+Validate acquisition evidence preservation under Decisions 357 and 362 after
+W041's durable receipt proof of the W042 completion marker. This completes Stage A
+archival only, not Session completion, binding release, or broader Q019 closeout.
+
+## Workflow
+
+```text
+Existing acquisition stop/cleanup and W042 producer/marker confirmation
+    -> Controller requests W041 verification of durable receipt through the marker
+    -> Ingestor confirms current durable journal coverage under its intake guard
+    -> Ingestor compiles persistent runtime evidence and complete runtime intake audit
+    -> StorageManager durably writes evidence, audit, and compilation summary
+    -> StorageManager durably writes the separate final Session Record
+    -> StorageManager records Stage A completion and an OPEN archive in the summary
+    -> current exact readback confirms all products through Stage A commitment
+```
+
+Call `await controller.archive_acquisition_evidence(communication=ingestor_communication)`
+after the confirmed W042 marker. The matching Ingestor receiving adapter must
+independently verify durable receipt; marker publication or acceptance alone cannot
+authorize successful archival. Current journal coverage is checked again before
+compilation, so historical ACK progress cannot substitute for a lost journal.
+
+The existing Ingestor compilation selects accepted persistent runtime evidence
+using only producer-controlled `is_persistent`. Applicable locally journaled
+Ingestor evidence is included without republishing it to JetStream. Complete
+retained runtime intake audit includes duplicate, rejected, and nonpersistent
+intake; nonpersistent messages are not added to the archive merely for coverage.
+
+StorageManager persists the existing Session products:
+
+- `evidence/runtime_evidence.jsonl`
+- `evidence/ingest_audit.jsonl`
+- `evidence/compilation_summary.json`
+- `session_record_final.json`
+
+Session Record and Evidence Archive remain separate. The summary records counts,
+evidence identities, `stage_a_complete=True`, completion-marker identity and stream
+sequence, Ingestor evidence provenance, and `archive_closed=False`. A flag or
+historical write result is insufficient: confirmation requires exact current
+readback of the evidence, audit, summary, and final Session Record.
+
+Intake, StorageManager preservation, and Controller admission locks protect the
+synchronous compilation, persistence, readback, and commitment in that order.
+No synchronous lock is held across asynchronous receipt verification. Overlapping
+Stage A requests are rejected; cancellation during verification does not write
+products. Failed or partial persistence invalidates confirmation and preserves
+the journal and Session binding. Interrupted persistence requires existing
+authorized recovery, not implicit repair by ordinary retry. Explicit retry after
+incomplete receipt and repeated healthy Stage A calls remain supported.
+
+Successful results expose `details["stage_a_complete"]`, `details["archive_closed"]`,
+receipt information, and persisted paths. The Session remains stopping and bound;
+Stage A does not advance lifecycle, release resources, or close the Evidence Archive.
+
+## Independent manual IPython validation
+
+- Successful end-to-end Stage A archival using local real JetStream: **7/7 PASS**.
+- Incomplete receipt, rejection, and successful explicit retry: **5/5 PASS**.
+- Injected persistence failure, preserved journal, rejected unsafe retry, and
+  retained Session binding: **5/5 PASS**.
+
+Total independent manual validation: **17/17 PASS**.
+
+## Automated validation and independent audit
+
+- Developer impact-selected automated tests: **16 passed**. Ten new public-workflow
+  checks cover full persistent evidence/all-audit preservation, incomplete ACK
+  progress and retry, lost journal coverage, archive/record/summary write failures,
+  corruption, healthy repetition, cancellation/overlap, and receiver isolation.
+  Six existing directly affected checks cover legacy archive/record writing,
+  exact preservation and release, failed rewrite invalidation, guarded concurrent
+  rewriting, and the existing bounded Controller Session workflow.
+- **Independent read-only source audit: PASS.** No confirmed P0-P3 defects,
+  architectural violations, or required corrections were found. It reviewed
+  receipt gating, protected compilation, exact current readback, failure behavior,
+  concurrency, and unchanged ownership/lifecycle boundaries.
+- Additional deterministic cross-thread archive-rewrite coverage was suggested
+  as an optional test improvement, not a defect or closure condition. No additional
+  tests were run during the audit because no concrete unresolved suspicion
+  warranted execution under impact-based testing.
+
+These are previously executed developer tests and independent manual/audit results,
+not software tests or IPython validation performed during documentation closure.
+No full-suite result is claimed for this slice; no failed audit or correction is
+being omitted from this Stage A history.
+
+## Limitations and completion
+
+Only the bounded Stage A archival implementation is complete. W041 and W042 retain
+their unchanged historical records and independently validated scopes. W041's
+receiving-history limitations still apply. Validation used controlled software/
+broker doubles and local real JetStream, not an external NATS cluster, multi-host,
+Jetson, or camera hardware deployment.
+
+Q019 remains OPEN for Stage B operator artifact collection and permanent Evidence
+Archive closure, Decision 363's temporary durable collection outcomes, Decision
+364's durable ArtifactManifest handoff, and full Decision 365 Normal Stop/Kill
+integration. Stage A does not substitute an in-memory handoff for the deferred
+durable handoff, perform global collection, or authorize premature binding release.
+
+Q024, Q022, Phase 16, and M015 remain OPEN. No new service, lifecycle state,
+registry, evidence transport, automatic retry/replay, or recovery mechanism is
+introduced by this slice.
+
+---
+
 # Future Workflows
 
 The following workflows are expected to be added as the framework evolves.

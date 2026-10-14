@@ -1,6 +1,6 @@
 # Code Map
 
-## Accepted Q019 closeout architecture (receiving and publication prerequisites validated; closeout pending)
+## Accepted Q019 closeout architecture (receiving, publication, and Stage A validated; full closeout pending)
 
 Decisions 356-365 qualify historical Session closeout and collection-evidence
 contracts. The accepted future flow is producer publication confirmations, one
@@ -46,8 +46,8 @@ publication retains message identities; later explicit calls can republish ident
 messages, while confirmed repeated calls do not emit another marker. No receipt,
 archival, successful Normal Stop, or Session completion is claimed by this API.
 
-The Decision 361 Ingestor-side receiving foundation is now implemented; the
-remaining closeout contracts are accepted architecture, not current public APIs.
+The receiving foundation, producer/marker prerequisite, and bounded Stage A
+archival are validated in W041-W043; full closeout remains unimplemented.
 The function entries below also describe historical paths, including Ingestor-routed
 collection evidence and stopping-Session collection before finalization. Do not
 interpret those implementations as Stage A/Stage B or Kill Session support.
@@ -74,8 +74,9 @@ testing, independent manual IPython validation, and final independent re-audit P
 after both corrections (W041), using isolated local JetStream and controlled doubles.
 Verification has linear broker-history read cost; no external-cluster or hardware
 validation is claimed. W042 separately closes the producer/marker prerequisite.
-The explicit Stage A archival slice is implemented with developer automated coverage,
-pending independent manual validation and audit. After W042 publication, use
+The bounded Stage A archival slice is complete with developer automated testing,
+independent manual IPython validation, and independent audit PASS (W043).
+After W042 publication, use
 `await controller.archive_acquisition_evidence(communication=ingestor_communication)`.
 It verifies W041 receipt, protects current journal/intake coverage, and passes the
 existing persistent compilation and actual Session Record evidence to StorageManager.
@@ -1048,10 +1049,11 @@ vocabularies: later global collection, verification, transfer, or export failure
 cannot retroactively change a completed Session's lifecycle. Required
 pre-completion failure handling remains unchanged. Q019's Session-wide consumption/
 staged archive coordination is accepted in Decisions 356-365; the receiving
-foundation and Decision 366 producer/marker prerequisite are implemented, not
+foundation and Decision 366 producer/marker prerequisite do not provide full
 staged closeout. W042 records independent validation and targeted re-audit PASS
-for the latter prerequisite after correction. Explicit Stage A archival is implemented
-with developer tests, pending independent validation/audit; Stage B remains deferred.
+for the latter prerequisite after correction. Explicit Stage A archival is complete
+with developer tests, independent manual validation, and independent audit PASS
+(W043); Stage B and full closeout remain deferred.
 
 ## tests/test_acquisition_stage_archival.py
 

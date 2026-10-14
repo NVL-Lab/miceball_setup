@@ -511,8 +511,9 @@ prerequisite are complete with automated testing, independent manual IPython
 validation, and final independent re-audit PASS after both corrections (W041).
 Validation used local NATS/software, not an external cluster, multi-host, Jetson,
 or hardware deployment. Complete closeout remains unimplemented. Decision 362's
-explicit Stage A slice has developer automated coverage, pending independent
-validation/audit; Stage B and Decisions 363-365 remain unimplemented.
+explicit Stage A slice is complete with developer automated testing, independent
+manual validation, and independent audit PASS (W043); Stage B and Decisions
+363-365 remain unimplemented.
 Session evidence uses a durable explicit-ACK receiving position and journal-before-
 server-confirmed-ACK acceptance. Receipt readback verifies an existing completion
 marker against journal acceptance, retained stream-origin history, and contiguous
@@ -592,8 +593,10 @@ product/record readback, not the flag alone. Failed or uncertain writes are not
 successful Stage A; interrupted persistence remains subject to existing authorized
 recovery. The operation leaves the Session stopping and does not release bindings,
 retrieve artifacts, write the durable handoff, or implement Stage B/Normal Stop/Kill.
-This slice has developer automated coverage only; independent validation/audit and
-all remaining Q019 work are pending. W041/W042 remain complete and unchanged.
+This bounded slice is complete with 16 focused developer tests passed, independent
+manual IPython validation 17/17 PASS using local real JetStream, and independent
+audit PASS with no confirmed P0-P3 defects (W043). Remaining Q019 work is open;
+W041/W042 remain complete and unchanged.
 
 Phase 14 / Slice 27 Ingestor Crash Recovery and Handoff Reconstruction implements
 Decisions 276-280 and is complete (M014, W034), following independent manual

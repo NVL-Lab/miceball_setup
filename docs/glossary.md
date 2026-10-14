@@ -255,12 +255,12 @@ Historical Decision 275 assigns Controller overall Session processing finalizati
 through required post-session operations, distinct from scientific acquisition end.
 Controller orchestrates collection but does not translate StorageManager's
 operational results into StorageManager evidence. Slice 25 implements an explicit
-awaited collection-before-finalization path; the Session-wide evidence-drain
-proof remains unimplemented under Q019. Decisions 356-365 now accept Stage A
+awaited collection-before-finalization path; the bounded receiving, producer/marker,
+and Stage A archival slices are validated in W041-W043. Decisions 356-365 accept Stage A
 acquisition preservation before successful completion, a durable later handoff,
 and Stage B direct StorageManager collection-evidence persistence/archive closure;
-their high-level and low-level contracts are accepted but unimplemented, pending
-technical verification, independent validation, and audit.
+full Normal Stop/Kill integration, durable handoff, and Stage B remain unimplemented
+under Q019, which remains OPEN.
 
 The GUI and Controller are conceptually separate, even if they run on the same machine.
 
@@ -1430,9 +1430,9 @@ without treating status alone as preservation proof. Decision 365 requires compl
 producer/acceptance/preservation confirmations for successful Normal Stop; Kill
 may preserve explicitly partial information, confirming only actual preserved
 content. Applicable cleanup and durable handoff obligations remain required.
-The explicit Stage A persistence slice is implemented with developer automated
-coverage, pending independent manual validation/audit. It requires W041 verified
-receipt of the W042 marker, preserves the existing archive products and final
+The bounded Stage A persistence slice is complete with developer automated testing,
+independent manual validation, and independent audit PASS (W043). It requires
+W041 verified receipt of the W042 marker, preserves the existing archive products and final
 Session Record, and records Stage A completion with the archive still open.
 Full lifecycle/Stop/Kill integration, durable handoff, and binding release are not
 provided by this slice.

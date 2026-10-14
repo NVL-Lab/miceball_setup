@@ -9829,8 +9829,9 @@ results; this is not complete acquisition closeout. The subsequent supported
 producer-confirmation/marker prerequisite under Decision 366 is complete with automated
 coverage, independent manual validation, and targeted independent re-audit PASS after
 correction (W042). Full Controller Normal Stop/Kill
-orchestration remains unimplemented. Decision 362's explicit Stage A slice has
-developer automated coverage pending independent validation/audit; Stage B and
+orchestration remains unimplemented. Decision 362's bounded Stage A slice is
+complete with automated testing, independent manual validation, and independent
+audit PASS (W043); Stage B and
 Decisions 363-365 remain unimplemented. Missing history or an unknown receiving origin cannot establish completeness;
 no narrower publication-interval boundary is invented. Q019 remains OPEN.
 
@@ -9867,8 +9868,11 @@ snapshot before StorageManager persists the existing evidence/audit/summary and
 final Session Record. The summary records Stage A completion, open-archive status,
 marker identity/sequence, and Ingestor origin IDs; exact current readback is required.
 Failure is not confirmation and interrupted writes require existing authorized
-recovery. This slice has developer automated coverage, pending independent manual
-validation/audit. It does not complete or release the Session, persist Decision 364's
+recovery. This bounded slice is complete with 16 focused developer tests passed,
+independent manual IPython validation 17/17 PASS using local real JetStream, and
+independent audit PASS with no confirmed P0-P3 defects or corrections required
+(W043). Additional cross-thread archive-rewrite coverage was suggested only as an
+optional improvement. It does not complete or release the Session, persist Decision 364's
 handoff, implement Stage B, or provide full Normal Stop/Kill integration.
 
 ---
@@ -9962,8 +9966,9 @@ complete with automated testing, independent manual validation, and final indepe
 re-audit PASS after both corrections (W041). The supported Decision 366 producer/marker
 prerequisite is complete with automated coverage, independent manual validation,
 and targeted independent re-audit PASS after correction (W042). Complete closeout
-remains unimplemented. The explicit Stage A slice under Decision 362 has developer coverage pending
-independent validation/audit; Stage B and Decisions 363-365 remain unimplemented.
+remains unimplemented. The bounded Stage A slice under Decision 362 is complete
+with automated testing, independent manual validation, and independent audit PASS
+(W043); Stage B and Decisions 363-365 remain unimplemented.
 These decisions resolve the contract
 questions identified in Decisions 356-360; their
 historical text is preserved. Q019 remains OPEN for implementation and independent
@@ -10087,8 +10092,9 @@ and final independent re-audit PASS after correction (W041).
 The supported Decision 366 producer/marker prerequisite is complete with developer
 automated coverage, independent manual validation, and targeted independent
 re-audit PASS after correction (W042). Complete Controller closeout
-orchestration remains unimplemented. Explicit Stage A under Decision 362 has developer
-coverage pending independent validation/audit; Stage B and Decisions 363-365 remain
+orchestration remains unimplemented. Bounded Stage A under Decision 362 is complete
+with automated testing, independent manual validation, and independent audit PASS
+(W043); Stage B and Decisions 363-365 remain
 unimplemented. Q019 remains OPEN; historical completed
 scopes remain unchanged.
 
@@ -10472,7 +10478,7 @@ requirements remain authoritative.
 362. The existing compilation summary records Stage A completion and Stage B permanent closure with distinct evidence origins; status alone is not preservation proof, and verified consistent durable closure makes the single archive immutable.
 363. StorageManager temporarily durably preserves each actual collection outcome and unique evidence ID before direct archival; confirmed archival and duplicate protection permit safe temporary retirement and authorized evidence-write recovery without repeating transfer.
 364. Ingestor's existing handoff is verified durably preserved by StorageManager as a separate Session-associated JSON file in the existing Session directory; later selected collection validates it without old bindings, invented registries, or guessed missing information.
-365. Normal Stop requires producer confirmations, complete durable Ingestor acceptance, and complete Stage A preservation; authorized Kill Session preserves confirmed accessible partial information without claiming completeness or safe resource release. Decision 361's receiving foundation is complete with independent manual validation and final independent re-audit PASS after correction (W041); the supported producer/marker prerequisite is complete with automated coverage, independent manual validation, and targeted independent re-audit PASS after correction (W042); explicit Stage A under Decision 362 is implemented with developer coverage pending independent manual validation/audit; complete Controller closeout, Stage B, and Decisions 363-365 remain unimplemented. Q019, Q024, Q022, Phase 16, and M015 remain OPEN.
+365. Normal Stop requires producer confirmations, complete durable Ingestor acceptance, and complete Stage A preservation; authorized Kill Session preserves confirmed accessible partial information without claiming completeness or safe resource release. Decision 361's receiving foundation is complete with independent manual validation and final independent re-audit PASS after correction (W041); the supported producer/marker prerequisite is complete with automated coverage, independent manual validation, and targeted independent re-audit PASS after correction (W042); bounded Stage A under Decision 362 is complete with automated testing, independent manual validation, and independent audit PASS (W043); complete Controller closeout, Stage B, and Decisions 363-365 remain unimplemented. Q019, Q024, Q022, Phase 16, and M015 remain OPEN.
 
 366. Participating AcquisitionNodes confirm durable acquisition-stage evidence publication through their existing successful completion responses regardless of selected-device optionality; Controller and SynchronizationManager finish applicable closing-Session publication before the single marker, while locally journaled Ingestor evidence needs no JetStream round trip. The supported publication prerequisite is complete with automated coverage, independent manual validation, and targeted independent re-audit PASS after correction (W042); W041 is unchanged and Q019 remains OPEN.
 

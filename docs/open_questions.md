@@ -480,8 +480,9 @@ contracts resolved/accepted in Decisions 361-365. Decision 361's receiving found
 and routing prerequisite are complete with automated testing, independent manual
 IPython validation, and final independent re-audit PASS after correction (W041).
 Remaining implementation and independent verification are still pending. Complete
-closeout remains unimplemented. Decision 362's explicit Stage A slice has developer
-coverage pending independent manual validation/audit; Stage B and Decisions 363-365
+closeout remains unimplemented. Decision 362's bounded Stage A slice is complete
+with automated testing, independent manual validation, and independent audit PASS
+(W043); Stage B and Decisions 363-365
 remain unimplemented. Q019 is not complete.
 
 Decision 366 resolves the producer-confirmation scope ambiguity architecturally:
@@ -554,8 +555,9 @@ Phase 12 established LocalStorageManager ownership of local scientific persisten
 Decisions 219-231 establish Ingestor compilation and StorageManager writing of the
 Evidence Archive and final Session Record. Q019's accepted contracts now specify
 acquisition completeness, two-stage archival, and durable later collection handoff
-without transferring ownership of local scientific records. Their implementation
-and technical guarantees still require verification.
+without transferring ownership of local scientific records. W041-W043 validate
+the bounded receiving, publication, and Stage A archival slices; remaining
+implementation and technical guarantees still require verification.
 
 Historical implementation and validation
 
@@ -617,8 +619,8 @@ Remaining implementation and technical-verification work
   The current proof requires intact global stream history from sequence 1 and has
   linear broker-history read cost; losing unrelated older history can block proof.
   Missing history or gaps cannot be waived.
-- **Stage information and interrupted writes:** Independently validate/audit the
-  implemented Stage A slice: W041 receipt of the W042 marker, current complete
+- **Stage information and interrupted writes:** W043 completes independent validation
+  and audit of the bounded Stage A slice: W041 receipt of the W042 marker, current complete
   persistent evidence/all runtime audit plus final Session Record, exact readback,
   and an open archive. The Session remains stopping and bound; no durable handoff
   is substituted. Implement and verify remaining Decisions 362-363 preservation,
@@ -638,19 +640,20 @@ not four unresolved architectural choices. Any inability to satisfy them returns
 for architectural review; this task chooses no speculative broker configuration.
 
 Blocks
-Implementation of accepted Q019 consumption proof and Stage A/Stage B persistence
+Remaining Q019 closeout integration and Stage B persistence/closure
 Durable closeout handoff and later eligible-Session lookup/selection
 Normal and forced partial acquisition-evidence closeout integration
 
 Q019 remains OPEN. Decisions 356-365 and clarification 366 settle the high-level
-and low-level contracts above. W041 and W042 complete only the receiving and
-publication prerequisites; remaining implementation and verification are pending.
+and low-level contracts above. W041, W042, and W043 complete only the receiving,
+publication, and bounded Stage A archival slices; remaining implementation and
+verification are pending.
 The original
 Slice 25 exclusions remain historical; they do not prohibit the newly accepted
 verified acknowledgment proof.
 Do not implement that proof through assumptions, polling, sleeps, count registries,
 or another transport. Q024, Q022, Phase 16, and M015 retain their open statuses;
-no new validated workflow or implementation completion is claimed.
+no broader Q019 completion is claimed.
 
 
 Q020: What is the global finalized scientific-data collection model?
@@ -1178,7 +1181,7 @@ The roadmap distinguishes accepted architecture from implemented milestones:
 Phase 13 — Global StorageManager (Evidence)
 Phase 14 — Global StorageManager (Finalized Scientific Data)
 Phase 15 — Controller-owned Session Launch & Runtime Assembly (launch path and Decision 302 sequential reuse implemented; independent validation/audit and M015 closure pending)
-Phase 16 — Operational Service Lifetime and Framework Stop/Kill (Decisions 304-366 accepted; Q025 resolved architecturally; narrow Session-binding release under Decisions 313/322 complete, manually software-validated and independently audited PASS in W035; individual-service maintenance complete, manually software-validated and independently audited PASS in W036; progressive two-phase coordinated shutdown complete, manually software-validated and independently re-audited PASS in W037; startup/return under Decisions 327-331 complete, independently manually software-validated and independently re-audited PASS after correction in W038; supported Q024-B cases under Decisions 339-348 complete with automated coverage, independent manual validation, and final independent re-audit PASS after correction in W039; supported Decisions 351-352 startup reconciliation/reservation protection complete, independently manually validated and independently re-audited PASS after correction in W040; Decisions 349-350 and 353-355 remain unimplemented; Decision 361 receiving foundation and routing prerequisite complete with automated testing, independent manual validation, and final independent re-audit PASS after correction in W041; Decision 366's supported producer/marker prerequisite is complete with automated coverage, independent manual validation, and targeted independent re-audit PASS after correction in W042; explicit Stage A under Decision 362 is implemented with developer coverage pending independent manual validation/audit; complete Controller closeout, Stage B, and Decisions 363-365 remain unimplemented; Q019, Q024, Q022, Phase 16, and M015 remain open)
+Phase 16 — Operational Service Lifetime and Framework Stop/Kill (Decisions 304-366 accepted; Q025 resolved architecturally; narrow Session-binding release under Decisions 313/322 complete, manually software-validated and independently audited PASS in W035; individual-service maintenance complete, manually software-validated and independently audited PASS in W036; progressive two-phase coordinated shutdown complete, manually software-validated and independently re-audited PASS in W037; startup/return under Decisions 327-331 complete, independently manually software-validated and independently re-audited PASS after correction in W038; supported Q024-B cases under Decisions 339-348 complete with automated coverage, independent manual validation, and final independent re-audit PASS after correction in W039; supported Decisions 351-352 startup reconciliation/reservation protection complete, independently manually validated and independently re-audited PASS after correction in W040; Decisions 349-350 and 353-355 remain unimplemented; Decision 361 receiving foundation and routing prerequisite complete with automated testing, independent manual validation, and final independent re-audit PASS after correction in W041; Decision 366's supported producer/marker prerequisite is complete with automated coverage, independent manual validation, and targeted independent re-audit PASS after correction in W042; bounded Stage A under Decision 362 is complete with automated testing, independent manual validation, and independent audit PASS in W043; complete Controller closeout, Stage B, and Decisions 363-365 remain unimplemented; Q019, Q024, Q022, Phase 16, and M015 remain open)
 Phase 17 — Device Acceptance / Validation
 Phase 18 — End-to-End Demo Architecture
 
