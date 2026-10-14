@@ -250,6 +250,17 @@ class PersistentStorageManager:
             raise ValueError("Non-finite preservation value")
         return json.loads(contents, object_pairs_hook=unique_fields, parse_constant=invalid_number)
 
+    @staticmethod
+    def _require_complete_runtime_audit(audit: list[dict]) -> None:
+        """Check the existing RuntimeEvidenceAuditRecord fields without inventing intake."""
+        if any(not isinstance(item, dict) or type(item.get("accepted")) is not bool
+               or type(item.get("ingest_order")) is not int or item["ingest_order"] != index
+               or type(item.get("ingest_received_at")) not in {int, float}
+               or not isinstance(item.get("reason"), str)
+               or not isinstance(item.get("evidence_id"), str)
+               for index, item in enumerate(audit, 1)):
+            raise ValueError("Runtime evidence intake audit is incomplete or inconsistent")
+
     def _read_stage_b_baseline(self, session_id: str, pending: dict | None = None) -> dict:
         """Validate existing products; only the identified pending append may be incomplete."""
         directory = self._artifact_collection_handoff_path(session_id).parent
@@ -282,6 +293,7 @@ class PersistentStorageManager:
             raise ValueError("Intake audit ends with an incomplete record")
         if any(not isinstance(item, dict) for item in evidence + audit):
             raise ValueError("Invalid evidence or audit record")
+        self._require_complete_runtime_audit(audit)
         ids = [item.get("evidence_id") for item in evidence]
         if (any(not isinstance(identity, str) or not identity for identity in ids)
                 or len(set(ids)) != len(ids) or ids != summary.get("runtime_evidence_ids")
@@ -291,10 +303,7 @@ class PersistentStorageManager:
                               for name in ("source_id", "evidence_type")) for item in evidence)
                 or type(summary.get("ingest_audit_count")) is not int
                 or summary["ingest_audit_count"] != len(audit)
-                or [item.get("evidence_id") for item in audit] != summary.get("ingest_audit_evidence_ids")
-                or any(type(item.get("accepted")) is not bool
-                       or type(item.get("ingest_order")) is not int
-                       or item["ingest_order"] != index for index, item in enumerate(audit, 1))):
+                or [item.get("evidence_id") for item in audit] != summary.get("ingest_audit_evidence_ids")):
             raise ValueError("Evidence or complete intake-audit coverage is inconsistent")
         origins = summary.get("runtime_evidence_origins")
         if (not isinstance(origins, dict) or set(origins) - {"ingestor", "storage_manager"}
@@ -328,6 +337,14 @@ class PersistentStorageManager:
                 or (record.get("final_session_status") is not None
                     and not isinstance(record["final_session_status"], dict))):
             raise ValueError("Final Session Record identity is inconsistent")
+        for data in record["accepted_acquisition_envelopes"]:
+            if (not isinstance(data, dict) or data.get("session_id") != session_id
+                    or not isinstance(data.get("source_device_id"), str) or not data["source_device_id"]
+                    or not isinstance(data.get("record_kind"), str) or not data["record_kind"]
+                    or not isinstance(data.get("records"), list)
+                    or (data.get("source_node_id") is not None and not isinstance(data["source_node_id"], str))):
+                raise ValueError("Final Session Record contains incomplete or conflicting acquisition envelopes")
+            AcquisitionRecordEnvelope.from_dict(data)
         handoff = self._validate_artifact_collection_handoff(
             session_id, self._read_preservation_json(raw["artifact_collection_handoff"]))
         # Readback verifies the saved compiler output against the accepted manifest evidence.
@@ -916,17 +933,26 @@ class PersistentStorageManager:
     ) -> dict[str, Path]:
         """Write the Phase 13 Evidence Archive from Ingestor compilation."""
 
+        return self._write_session_evidence_archive(session_id, compiled_runtime_evidence)
+
+    def _write_session_evidence_archive(
+        self, session_id: str, compiled_runtime_evidence: dict[str, Iterable[Any]],
+        *, authorized_recovery: bool = False,
+    ) -> dict[str, Path]:
+        """Reuse the existing writer with replacement checks and explicit repair admission."""
+
         with self._preservation_lock:
-            self._require_rewritable_session_archive(session_id)
+            compiled_runtime_evidence = {
+                name: deepcopy([_to_plain_data(item) for item in compiled_runtime_evidence.get(name, ())])
+                for name in ("runtime_evidence", "ingest_audit")
+            }
+            self._require_rewritable_session_archive(session_id,
+                recovery_compilation=compiled_runtime_evidence if authorized_recovery else None)
             # A failed rewrite must never leave an earlier receipt authorizing release.
             self._archive_confirmation = None
             self._unfinished_archive_scopes.add(session_id)
-            runtime_evidence = deepcopy([
-                _to_plain_data(item) for item in compiled_runtime_evidence.get("runtime_evidence", ())
-            ])
-            ingest_audit = deepcopy([
-                _to_plain_data(item) for item in compiled_runtime_evidence.get("ingest_audit", ())
-            ])
+            runtime_evidence = compiled_runtime_evidence["runtime_evidence"]
+            ingest_audit = compiled_runtime_evidence["ingest_audit"]
             archive_directory = self._session_directory(session_id) / "evidence"
             archive_directory.mkdir(parents=True, exist_ok=True)
             runtime_evidence_path = archive_directory / "runtime_evidence.jsonl"
@@ -966,16 +992,81 @@ class PersistentStorageManager:
                 "compilation_summary": compilation_summary_path,
             }
 
-    def _require_rewritable_session_archive(self, session_id: str) -> None:
+    def _require_rewritable_session_archive(self, session_id: str, *, recovery_compilation: dict | None = None) -> None:
         """Legacy compilation must not erase direct collection evidence or a closed archive."""
         if self._collection_outcome_path(session_id).exists():
             raise RuntimeError("Pending collection evidence requires authorized recovery, not archive replacement")
-        path = self._session_directory(session_id) / "evidence/compilation_summary.json"
-        if path.exists():
-            summary = self._read_preservation_json(path.read_bytes())
-            if (summary.get("archive_closed") is True
-                    or summary.get("runtime_evidence_origins", {}).get("storage_manager")):
-                raise RuntimeError("Stage B or closed archive products cannot be replaced by acquisition compilation")
+        directory = self._session_directory(session_id) / "evidence"
+        paths = {name: directory / filename for name, filename in (
+            ("runtime_evidence", "runtime_evidence.jsonl"), ("ingest_audit", "ingest_audit.jsonl"),
+            ("compilation_summary", "compilation_summary.json"))}
+        raw = {name: path.read_bytes() for name, path in paths.items() if path.exists()}
+        if not raw:
+            return
+        if recovery_compilation is not None:
+            # Only the already-authorized repair path may replace interrupted
+            # acquisition output, and never discard evidence absent from intake.
+            for name in ("runtime_evidence", "ingest_audit"):
+                expected = "".join(json.dumps(item) + os.linesep for item in recovery_compilation[name]).encode("utf-8")
+                if not expected.startswith(raw.get(name, b"")):
+                    raise RuntimeError("Existing archive is not an interrupted prefix of the trusted acquisition compilation")
+            expected_messages = {item.get("evidence_id"): item for item in recovery_compilation["runtime_evidence"]}
+            if any(message.session_id == session_id and self._collection_evidence_line(
+                    expected_messages.get(message.evidence_id, {})) != self._collection_evidence_line(message.to_dict())
+                   for message in self._collection_evidence):
+                raise RuntimeError("Acquisition repair cannot discard owned collection evidence")
+            try:
+                summary = self._read_preservation_json(raw["compilation_summary"]) if "compilation_summary" in raw else {}
+            except ValueError:
+                # The existing repair command already requires an identified
+                # failed write and complete journal-backed acquisition inputs.
+                summary = {}
+        else:
+            if set(raw) != set(paths):
+                raise RuntimeError("Existing archive products are incomplete; authorized recovery is required")
+            summary = self._read_preservation_json(raw["compilation_summary"])
+            evidence = [self._read_preservation_json(line) for line in raw["runtime_evidence"].splitlines()]
+            audit = [self._read_preservation_json(line) for line in raw["ingest_audit"].splitlines()]
+            if (not isinstance(summary, dict) or summary.get("session_id") != session_id
+                    or any(not isinstance(item, dict) for item in evidence + audit)
+                    or any(raw[name] and not raw[name].endswith(b"\n") for name in ("runtime_evidence", "ingest_audit"))
+                    or any(type(summary.get(name + "_count")) is not int
+                           or summary[name + "_count"] != len(items)
+                           or summary.get(name + "_ids" if name == "runtime_evidence" else "ingest_audit_evidence_ids")
+                              != [item.get("evidence_id") for item in items]
+                           for name, items in (("runtime_evidence", evidence), ("ingest_audit", audit)))):
+                raise RuntimeError("Existing archive coverage is unconfirmed")
+            self._require_complete_runtime_audit(audit)
+            ids = summary["runtime_evidence_ids"]
+            origins = summary.get("runtime_evidence_origins")
+            if (any(not isinstance(identity, str) or not identity for identity in ids)
+                    or len(set(ids)) != len(ids)
+                    or any(item.get("session_id") != session_id or item.get("is_persistent") is not True
+                           or not isinstance(item.get("payload"), dict)
+                           or any(not isinstance(item.get(name), str) or not item[name]
+                                  for name in ("source_id", "evidence_type")) for item in evidence)
+                    or (origins is not None and (
+                        not isinstance(origins, dict) or set(origins) - {"ingestor", "storage_manager"}
+                        or not isinstance(origins.get("ingestor"), list)
+                        or not isinstance(origins.get("storage_manager", []), list)
+                        or origins["ingestor"] + origins.get("storage_manager", []) != ids))
+                    or (summary.get("stage_a_complete") is True and origins is None)):
+                raise RuntimeError("Existing archive identity or provenance is unconfirmed")
+            for item in evidence:
+                RuntimeEvidenceMessage.from_dict(item)
+            accepted = {item.get("evidence_id") for item in audit if item.get("accepted") is True}
+            if any(item.get("evidence_type") == "global_artifact_collection_evidence"
+                   and item.get("evidence_id") not in accepted for item in evidence):
+                raise RuntimeError("Direct collection evidence cannot be replaced by acquisition compilation")
+            if self._archive_confirmation is not None and self._archive_confirmation["session_id"] == session_id:
+                actual = {"runtime_evidence": evidence, "ingest_audit": audit, "compilation_summary": summary}
+                expected = {name: self._archive_confirmation[name] for name in actual}
+                if json.dumps(actual, sort_keys=True) != json.dumps(expected, sort_keys=True):
+                    raise RuntimeError("Existing archive differs from confirmed preservation")
+        if (not isinstance(summary, dict) or summary.get("archive_closed") is True
+                or not isinstance(summary.get("runtime_evidence_origins", {}), dict)
+                or summary.get("runtime_evidence_origins", {}).get("storage_manager")):
+            raise RuntimeError("Stage B or closed archive products cannot be replaced by acquisition compilation")
 
     @service_operation()
     def write_acquisition_stage(
@@ -1334,7 +1425,7 @@ class PersistentStorageManager:
             compiled = intake.compile_persistent_runtime_evidence()
         attempt["actions"].append("archive_write_attempted")
         paths = (self.write_framework_evidence_archive(compiled) if scope is None
-                 else self.write_evidence_archive(scope, compiled))
+                 else self._write_session_evidence_archive(scope, compiled, authorized_recovery=True))
         actual = self._read_archive_products(paths["runtime_evidence"].parent)
         expected = {name: [_to_plain_data(item) for item in compiled[name]]
                     for name in ("runtime_evidence", "ingest_audit")}

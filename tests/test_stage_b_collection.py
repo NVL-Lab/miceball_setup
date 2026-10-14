@@ -10,13 +10,14 @@ import unittest
 from unittest.mock import AsyncMock, patch
 
 from lab_sync_acquisition import (
-    Controller, InMemoryIngestor, PersistentStorageManager, RuntimeCommandMessage,
+    AcquisitionRecordEnvelope, Controller, InMemoryIngestor, PersistentStorageManager, RuntimeCommandMessage,
     RuntimeEvidenceMessage, RuntimeParticipant, ServiceMaintenanceInterface, SshRetrievalEndpoint,
 )
 from tests import test_artifact_retrieval as retrieval
 from tests import test_local_storage_hdf5 as hdf5
 from tests import test_storage as records
 from tests import test_acquisition_stage_archival as stages
+from tests import test_authorized_recovery as recovery
 
 
 class StageBCollectionTests(unittest.IsolatedAsyncioTestCase):
@@ -476,6 +477,129 @@ class StageBCollectionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(collected.details["artifact_collection_result"]["artifact_results"][0][
             "verification_outcome"], "copied_unverified")
         self.assertEqual(stage.fixture.controller.get_status()["session_state"], "stopping")
+
+    async def test_missing_storage_provenance_cannot_authorize_destructive_replacement(self):
+        collected = self.collect()
+        self.assertTrue(collected["archival_confirmed"])
+        summary_path = self.root / "session_session/evidence/compilation_summary.json"
+        original = summary_path.read_bytes()
+        for variant in ("missing_storage_origin", "missing_all_origins", "falsely_ingestor_owned"):
+            with self.subTest(variant=variant):
+                summary = json.loads(original)
+                if variant == "missing_storage_origin":
+                    summary["runtime_evidence_origins"].pop("storage_manager")
+                elif variant == "missing_all_origins":
+                    summary.pop("runtime_evidence_origins")
+                else:
+                    summary["runtime_evidence_origins"] = {"ingestor": summary["runtime_evidence_ids"]}
+                summary_path.write_text(json.dumps(summary), encoding="utf-8")
+                before, before_summary = self.products(), summary_path.read_bytes()
+                for storage in (self.storage, self.new_storage()):
+                    self.assertIsNone(storage.get_persisted_session_preservation_confirmation("session"))
+                    with self.assertRaises(RuntimeError):
+                        storage.write_evidence_archive("session", self.intake.compile_persistent_runtime_evidence())
+                    with self.assertRaises(RuntimeError):
+                        storage.write_final_session_record("session",
+                            **records.PersistentStorageManagerTests._minimal_session_record_evidence("session"))
+                    self.assertEqual(self.products(), before)
+                    self.assertEqual(summary_path.read_bytes(), before_summary)
+                self.assertIn(collected["collection_evidence"]["evidence_id"].encode(),
+                              before["evidence/runtime_evidence.jsonl"])
+        self.assertEqual(len(self.sftp.opened), 1)
+
+    async def test_incomplete_stage_b_archive_cannot_be_replaced(self):
+        self.assertTrue(self.collect()["archival_confirmed"])
+        directory = self.root / "session_session/evidence"
+        for name in ("runtime_evidence.jsonl", "ingest_audit.jsonl", "compilation_summary.json"):
+            path = directory / name
+            original = path.read_bytes()
+            with self.subTest(name=name):
+                path.unlink()
+                restored = self.new_storage()
+                before = {p.name: p.read_bytes() for p in directory.iterdir()}
+                with self.assertRaises(RuntimeError):
+                    restored.write_evidence_archive("session", self.intake.compile_persistent_runtime_evidence())
+                self.assertEqual({p.name: p.read_bytes() for p in directory.iterdir()}, before)
+                path.write_bytes(original)
+        self.assertEqual(len(self.sftp.opened), 1)
+
+    async def test_cross_session_envelope_in_final_record_cannot_confirm_baseline(self):
+        evidence = records.PersistentStorageManagerTests._minimal_session_record_evidence("session")
+        evidence["accepted_acquisition_envelopes"] = (AcquisitionRecordEnvelope(
+            "session", "device", "events", [], "node"),)
+        path = self.storage.write_final_session_record("session", **evidence)
+        original = path.read_bytes()
+        self.assertIsNotNone(self.new_storage().get_persisted_session_preservation_confirmation("session"))
+        record = json.loads(original)
+        record["accepted_acquisition_envelopes"][0]["session_id"] = "unrelated-session"
+        path.write_text(json.dumps(record), encoding="utf-8")
+        before = self.products()
+        restored = self.new_storage()
+        self.assertIsNone(restored.get_persisted_session_preservation_confirmation("session"))
+        with self.assertRaises(ValueError):
+            self.collect(restored)
+        controller = Controller(storage_manager=restored)
+        rejected = controller.collect_saved_session_artifacts("session", evidence_id="collection")
+        self.assertFalse(rejected.succeeded)
+        self.assertEqual(controller.get_status()["session_id"], None)
+        self.assertEqual(self.products(), before)
+        self.assertEqual(self.sftp.opened, [])
+        self.assertFalse((path.parent / "artifact_collection_outcome.json").exists())
+        path.write_bytes(original)
+        self.assertTrue(self.collect(restored)["archival_confirmed"])
+
+    async def test_incomplete_intake_audit_cannot_confirm_baseline(self):
+        path = self.root / "session_session/evidence/ingest_audit.jsonl"
+        original = path.read_bytes()
+        for missing in (("ingest_received_at",), ("reason",), ("ingest_received_at", "reason")):
+            with self.subTest(missing=missing):
+                audit = [json.loads(line) for line in original.splitlines()]
+                for item in audit:
+                    for field in missing:
+                        item.pop(field)
+                path.write_text("".join(json.dumps(item) + "\n" for item in audit), encoding="utf-8")
+                before = self.products()
+                restored = self.new_storage()
+                self.assertIsNone(restored.get_persisted_session_preservation_confirmation("session"))
+                with self.assertRaises(ValueError):
+                    self.collect(restored)
+                with self.assertRaises(ValueError):
+                    restored.write_evidence_archive("session", self.intake.compile_persistent_runtime_evidence())
+                self.assertEqual(self.products(), before)
+                self.assertEqual(self.sftp.opened, [])
+                self.assertFalse((path.parent.parent / "artifact_collection_outcome.json").exists())
+        path.write_bytes(original)
+        self.assertTrue(self.collect(self.new_storage())["archival_confirmed"])
+
+    async def test_partial_acquisition_archive_still_requires_and_allows_authorized_repair(self):
+        fixture = recovery.AuthorizedRecoveryTests()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        original = RuntimeEvidenceMessage("original", "session-a", "note", "source", {}, True)
+        fixture.ingestor.receive_runtime_evidence(original)
+        compilation = fixture.ingestor.compile_persistent_runtime_evidence()
+        original_open = Path.open
+        def fail_audit(path, *args, **kwargs):
+            if (path.name == "ingest_audit.jsonl" and path.parent.parent.name == "session_session-a"
+                    and args and args[0] == "w"):
+                raise OSError("audit write interrupted")
+            return original_open(path, *args, **kwargs)
+        with patch.object(Path, "open", new=fail_audit):
+            with self.assertRaises(OSError):
+                fixture.storage.write_evidence_archive("session-a", compilation)
+        runtime_path = fixture.root / "session_session-a/evidence/runtime_evidence.jsonl"
+        initial_bytes = runtime_path.read_bytes()
+        with self.assertRaises(RuntimeError):
+            fixture.storage.write_evidence_archive("session-a", compilation)
+        self.assertEqual(runtime_path.read_bytes(), initial_bytes)
+        command = await fixture.authorize("recover_archive_write", {"session_id": "session-a"})
+        result = await fixture.interface.execute_command(command)
+        self.assertTrue(result.success, result.reason)
+        self.assertTrue(result.payload["confirmation"]["actual_write_confirmed"])
+        self.assertEqual(runtime_path.read_bytes(), initial_bytes)
+        audit_path = runtime_path.parent / "ingest_audit.jsonl"
+        self.assertEqual([json.loads(line) for line in audit_path.read_bytes().splitlines()],
+                         [item.to_dict() for item in compilation["ingest_audit"]])
 
 
 if __name__ == "__main__":
