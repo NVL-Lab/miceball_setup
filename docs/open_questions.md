@@ -564,6 +564,14 @@ Accepted architecture
   Normal Stop completeness requirements are unchanged. W048 implementation and
   independent verification remain pending; this is not a new unresolved Experiment
   event-mapping question.
+  Decision 364 now permits StorageManager to refresh a partial handoff from
+  additional verified manifests obtained through authorized recovery, following
+  existing Ingestor compilation rules and confirmed durability while preserving
+  existing evidence. Only pre-Stage-B refresh is permitted: the first collection
+  attempt, even if failed or incomplete, makes the handoff immutable. Historical
+  evidence, collection outcomes, and permanent archive closure cannot be rewritten.
+  This resolves the partial-handoff evolution question, not W048 implementation or
+  validation; Normal Stop guarantees and broader open work remain unchanged.
 
 Decisions 356-360 qualify historical Decisions 223-225, 228-229, 240, 243, and
 274-275. They reuse existing owners, evidence infrastructure, and Decisions

@@ -30,7 +30,7 @@ Decision 365 requires complete Normal Stop confirmations; authorized Kill Sessio
 preserves explicitly partial information and existing safety without automatic
 collection or permanent archive closure. Unknown outcomes remain unconfirmed.
 
-W048's synchronized clarification in Decisions 113, 362, and 365 uses canonical
+W048's synchronized clarification in Decisions 113, 362, 364, and 365 uses canonical
 `experiment_abort` for an active Experiment during Kill Session, separately records
 unconfirmed cleanup, preserves available evidence without inventing completeness,
 and permits later operator-requested collection from available verified artifact
@@ -38,6 +38,13 @@ information. This is an accepted implementation contract, not current Kill suppo
 The existing complete-receipt Stage A writer and complete-only persisted collection
 baseline need narrowly scoped partial-preservation integration using the existing
 owners and mechanisms; their Normal Stop guarantees must remain unchanged.
+Decision 364 permits a partial handoff to incorporate additional verified manifest
+evidence from authorized recovery only before the first Stage B collection attempt.
+Refresh must preserve existing evidence, follow the Ingestor compiler, and confirm
+durability. Beginning any collection attempt, including failed or incomplete
+attempts, makes the handoff immutable; historical evidence, collection outcomes,
+and permanent archive closure cannot be rewritten. This accepted boundary is not
+implemented by the historical W044 non-overwriting writer or W045 collection path.
 W048 remains unimplemented and unvalidated. No new lifecycle state, infrastructure,
 automatic collection, or implicit archive closure is specified.
 

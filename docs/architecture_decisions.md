@@ -9953,6 +9953,10 @@ consistency, durable preservation, and recovery requirements remain applicable t
 the information actually preserved. This does not weaken Normal Stop's complete
 preservation requirements or implement partial-baseline support.
 
+Decision 364's W048 clarification defines the permitted partial-handoff refresh
+boundary before the first Stage B collection attempt, without authorizing changes
+to historical evidence or collection outcomes.
+
 Stage B preserves original acquisition evidence, the existing Ingestor intake
 audit, and the final Session Record unchanged. It appends StorageManager collection
 evidence to the existing runtime-evidence file and updates the existing compilation
@@ -10060,6 +10064,23 @@ endpoints using deployment-local settings; collection does not restore old Sessi
 bindings. Preserve existing compilation semantics: prefer finalized manifests,
 retain initial manifests when finalization evidence is missing, and report missing
 finalization. A killed Session may have a partial or unconfirmed handoff.
+
+**W048 clarification (partial handoff refresh):** StorageManager may refresh a
+partially preserved ArtifactManifest handoff using additional verified manifest
+evidence obtained through authorized recovery. Refresh is permitted only before
+the first Stage B collection attempt begins. It must preserve existing evidence,
+follow the existing Ingestor compilation rules, and be durably verified.
+
+Once any Stage B collection attempt begins, including a failed or incomplete
+attempt, the handoff becomes immutable. Historical evidence, collection outcomes,
+and permanent Evidence Archive closure must never be rewritten. Normal Stop
+guarantees remain unchanged. Reuse existing evidence, handoff, persistence, and
+recovery mechanisms; introduce no new infrastructure.
+
+This clarification does not implement or validate refresh support. The historical
+W044 non-overwriting implementation and validation below remain unchanged; W048
+must integrate the permitted pre-collection partial refresh and first-attempt
+immutability boundary without weakening those Normal Stop protections.
 
 Use existing persistent Session information for eligible-Session selection. Missing,
 inconsistent, or unavailable information remains explicitly unresolved, not guessed.
