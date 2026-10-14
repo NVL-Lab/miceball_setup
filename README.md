@@ -19,7 +19,9 @@ and process, startup/shutdown/restart lifetime, and permitted local Python calls
 while retaining separate ownership. Controller, SynchronizationManager, and nodes
 remain independently deployed; every process-crossing interaction uses NATS,
 including Controller access to both components. W051 remains historically
-validated; local-interface reconciliation preserving its guarantees is pending.
+validated; bounded local correlated persistence is complete with independent
+validation and audit PASS (W052). Shared-lifetime bootstrap and durable acquisition
+intake reconstruction remain deferred.
 Remaining process-crossing direct-owner dependencies still need adaptation before
 fully functional independent-role deployment. Historical Q019 validation remains
 complete and does not claim this deployment adaptation has been validated.

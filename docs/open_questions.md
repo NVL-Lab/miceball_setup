@@ -853,7 +853,9 @@ Distributed operation
 **Status:** OPEN - Q022-A installation/deployment design is accepted and synchronized
 in Decisions 367-376; the bounded Ingestor-StorageManager NATS persistence slice is
 complete with independent validation and final re-audit PASS after correction
-(W051). Remaining deployment implementation and verification are pending.
+(W051). The local correlated persistence adaptation is also complete with
+independent validation and audit PASS (W052); remaining deployment implementation
+and verification are pending.
 Q022 as a whole is not closed. Q019 remains CLOSED in W050.
 
 ### Q022-A accepted scope
@@ -970,7 +972,8 @@ exact formats remain implementation choices. No lifecycle API is introduced.
   deployment automation beyond manual explicit startup are not settled by Q022-A.
 * The composition/access question is resolved by Decision 376. Reconcile local
   Ingestor-StorageManager interfaces with W051 guarantees and shared lifetime;
-  this work is not yet implemented or validated. AcquisitionNode intake requires
+  local correlated persistence is complete in W052, while bootstrap/lifetime
+  enforcement remains deferred. AcquisitionNode intake requires
   stable delivery identity, durable correlation, journal-before-ACK and restart-safe
   deduplication, distinct from persistence or archival confirmation. Implement
   service-owned NATS requests/results for currently direct receipt, compilation,

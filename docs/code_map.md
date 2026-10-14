@@ -51,9 +51,10 @@ durability, correlation, retry, readback, corruption/legacy and archival protect
 without duplicate state or separate lifetimes. AcquisitionNode intake requires
 stable delivery identity, durable correlation, journal-before-ACK and restart-safe
 deduplication distinct from persistence/archival confirmation. This reconciliation
-has an implemented explicit local correlated persistence path with developer
-coverage; independent validation/audit, lifecycle bootstrap, and acquisition-intake
-adaptation remain pending. No general launcher or additional owner is introduced.
+has a complete explicit local correlated persistence path, independently validated
+and audited PASS (W052), including permanent binding-abort ordering coverage.
+Lifecycle bootstrap and acquisition-intake adaptation remain pending.
+No general launcher or additional owner is introduced.
 
 Q019 is CLOSED following W041-W049 slice completion and W050 overall software
 integration validation/audit PASS. The permanent sequential Normal Stop regression

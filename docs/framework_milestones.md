@@ -1155,6 +1155,20 @@ This does not establish full independent-service deployment or live NATS,
 multi-host, hardware, or independently tested power-loss guarantees. Q019 remains
 CLOSED; Q022, Q024, Phase 16, and M015 remain OPEN with their separate criteria.
 
+## Completed local correlated persistence slice validation
+
+**W052 - Complete, bounded shared-process correlated persistence.**
+Explicit local Ingestor-to-StorageManager persistence suppresses legacy automatic
+forwarding and preserves W051 identity, retry/restart, corruption/legacy, durable
+readback, and Q019 archive protections. Developer tests 17 PASS; independent
+IPython validation 16/16 PASS; independent audit PASS with no confirmed P0-P3
+defects (eight tests and two probes PASS). Permanent binding-abort ordering
+coverage was committed before closure; four focused developer tests PASS.
+Shared-lifetime bootstrap/enforcement and durable acquisition-intake reconstruction
+remain deferred; synchronous I/O can block the event loop. No live NATS,
+multi-host, hardware, or independently tested power-loss guarantees are established.
+Q019 remains CLOSED; Q022, Q024, Phase 16, and M015 remain OPEN.
+
 ## Completed Session-binding release slice validation
 
 **Status:** Complete - narrow software implementation, manual IPython validation,

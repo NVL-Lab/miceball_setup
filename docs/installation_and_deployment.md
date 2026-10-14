@@ -17,8 +17,8 @@ communicate through local Python calls. Controller, SynchronizationManager, and
 each AcquisitionNode remain independently deployed; every process-crossing
 interaction uses NATS. Controller accesses both combined-process components only
 through NATS. No new registry, database, or scientific ownership is introduced.
-The explicit local correlated persistence path is implemented with developer
-coverage; independent validation and audit remain pending. Shared-lifetime
+The explicit local correlated persistence path is complete with independent
+validation and audit PASS (W052). Shared-lifetime
 bootstrap/launch composition is not implemented in this bounded persistence slice.
 
 ## Accepted Manual Procedure
@@ -126,7 +126,12 @@ constructor behavior and W051 NATS adapters remain compatible; no second owner
 or internal NATS request is created by this mode. Both owners can be constructed
 and restarted together by the same process; general lifecycle bootstrap is deferred.
 Acquisition intake reconstruction/acknowledgment is not implemented here.
-Independent validation and audit of this local adaptation remain pending.
+This local adaptation is independently validated and audited PASS in W052:
+17 targeted developer tests, 16/16 independent IPython checks, eight focused audit
+tests and two probes passed. The permanent binding-abort regression and three
+directly relevant controls passed (four tests); it was committed before closure.
+Local disk I/O may block the event loop. No independently validated live NATS,
+multi-host, hardware, or power-loss guarantees are claimed.
 
 - `NatsIngestorCommunication.persist_accepted_envelope(envelope, *,
   storage_participant, command_id, result_window_s)` sends already accepted

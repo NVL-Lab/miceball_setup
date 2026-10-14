@@ -3711,6 +3711,76 @@ Q024, Phase 16, and M015 remain OPEN. Historical workflows are unchanged.
 
 ---
 
+# W052 - Shared-Process Correlated Envelope Persistence
+
+**Status:** Complete, independently validated and audited.
+
+## Implemented workflow and interfaces
+
+Decision 376 permits local communication between distinct Ingestor and StorageManager
+owners within one process. Construct `InMemoryIngestor` with its existing
+`PersistentStorageManager` and `correlated_persistence=True`. In this explicit
+mode, `receive_envelope()` retains accepted intake without legacy automatic
+uncorrelated forwarding. `await persist_accepted_envelope(envelope,
+command_id=...)` calls the same authoritative StorageManager correlated writer
+locally, without internal NATS, a second owner, or another persistence mechanism.
+Legacy construction and transport-callback behavior remain supported.
+
+Stable command/requester/target identity remains in existing records JSONL.
+StorageManager retains persistence locking, flush/fsync, supported directory
+synchronization, correlation validation, and exact current readback. Identical
+retries, including after reconstructing both components, do not append; conflicting
+command reuse is refused. Invalid correlation/history cannot authorize repair or
+duplicate append, and legitimate uncorrelated legacy records remain compatible.
+
+Ingestor retains its binding lock through synchronous local owner confirmation,
+using existing intake-to-storage lock ordering. Concurrent Session-binding abort
+cannot overtake persistence; subsequent persistence against the aborted binding
+is rejected without another append. Persistence failure retains accepted intake.
+A failed runtime-evidence journal blocks confirmation; existing runtime evidence
+journal-before-acknowledgment behavior is unchanged. Persistence confirmation is
+not acquisition-intake durability or archival completion.
+
+W051's NATS adapters remain compatible for existing external/compatibility use.
+Existing Q019 preservation, authorized recovery, and immutable archive protections
+remain; closed archives reject new writes while identical persistence readback
+can reconfirm already stored records without changing archived products.
+
+## Validation and audit evidence
+
+- Developer verification: **17 distinct targeted tests PASS**.
+- Independent user-run manual IPython validation: **16/16 PASS**.
+- Independent read-only audit: **PASS**, no confirmed P0-P3 defects.
+- Audit checks: **eight focused tests and two temporary probes PASS**, including
+  binding-abort ordering and rejection of combined legacy/correlated forwarding.
+- The binding-abort probe was retained as
+  `test_binding_abort_waits_for_local_persistence` in
+  `tests/test_local_persistence.py`; **four focused developer tests PASS**.
+  Explicit events coordinate actual owner calls without sleeps or mocked locks;
+  byte readback verifies no append after abort. Its presence in committed HEAD
+  was verified before closure (file commit
+  `cb7dc6160aed96e794840bfc6a61012105b8af84`).
+
+These are previously executed results, not new software testing or independent
+validation during documentation closure. W051's history is unchanged.
+
+## Limitations and remaining work
+
+Synchronous local disk I/O may block the calling event loop and cannot be
+interrupted by task cancellation during the synchronous section. Restart coverage
+resupplies acquisition intake; durable AcquisitionNode-to-Ingestor intake
+reconstruction remains unimplemented. Shared-process bootstrap and lifetime
+enforcement are deferred, not established merely by constructing both components.
+No independently validated live NATS, multi-host, hardware, or power-loss
+guarantees are claimed.
+
+Q022 remains OPEN for acquisition/Experiment/synchronization adaptation,
+Controller closeout/release, external maintenance/recovery, configuration/launch
+and installation verification. Q019 remains CLOSED; Q024, Phase 16, and M015
+remain OPEN. This closes only the supported local persistence slice.
+
+---
+
 # Future Workflows
 
 The following workflows are expected to be added as the framework evolves.
