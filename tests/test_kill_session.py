@@ -184,6 +184,34 @@ class KillSessionTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue((await self.kill()).succeeded)
         self.assertTrue(intake.release_session(self.sid, storage_manager=self.storage))
 
+    async def test_empty_kill_summary_failure_retains_ingestor_binding_and_journal(self):
+        self.sid = self.normal.sid = await self.normal.producer.running(two=False, artifacts=False)
+        intake = self.fixture.ingestor
+        journal_path = intake.recovery_journal_path
+        journal = journal_path.read_bytes()
+        write = self.storage._write_record_contents
+
+        def fail_summary(path, *args, **kwargs):
+            if Path(path).name == "compilation_summary.json":
+                raise OSError("summary unavailable")
+            return write(path, *args, **kwargs)
+
+        with patch.object(self.storage, "_write_record_contents", side_effect=fail_summary):
+            self.assertFalse((await self.kill()).succeeded)
+        self.assertFalse(intake.accepted_runtime_evidence)
+        self.assertFalse(intake.runtime_evidence_audit)
+        self.assertFalse(intake.accepted_envelopes)
+        self.assertFalse(intake.ingest_audit)
+        self.assertIsNone(self.storage.get_session_preservation_confirmation(self.sid))
+        with self.assertRaisesRegex(RuntimeError, "confirmation is unavailable"):
+            intake.release_session(self.sid, storage_manager=self.storage)
+        self.assertEqual(intake.session_id, self.sid)
+        self.assertEqual(intake.recovery_journal_path, journal_path)
+        self.assertEqual(journal_path.read_bytes(), journal)
+        with self.assertRaisesRegex(RuntimeError, "confirmation is unavailable"):
+            intake.release_session(self.sid, storage_manager=self.storage)
+        self.assertEqual(intake.session_id, self.sid)
+
     async def test_late_rejected_acquisition_audit_blocks_kill_reconfirmation_and_release(self):
         await self._exercise_late_kill_acquisition_intake(accepted=False)
 

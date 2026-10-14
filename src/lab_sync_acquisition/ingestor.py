@@ -105,6 +105,7 @@ class InMemoryIngestor:
         self._session_prepared = session_id is not None
         self._requires_prepared_session = session_id is not None or recovery_journal_root is not None
         self._session_id = session_id
+        self._kill_handoff_required = False
         self._component_id = component_id
         self._recovery_journal_path = (
             Path(recovery_journal_path) if recovery_journal_path is not None else None
@@ -256,10 +257,17 @@ class InMemoryIngestor:
             if self._session_id not in {None, session_id}:
                 raise RuntimeError("Initialization abort does not match Ingestor Session")
             self._session_prepared = False
-            if not self._accepted_runtime_evidence:
+            if not self._accepted_runtime_evidence and not self._kill_handoff_required:
                 self._session_id = None
                 self._recovery_journal_path = None
             return True
+
+    def _require_kill_handoff(self, session_id: str) -> None:
+        """Retain an admitted Kill's handoff obligation independently of archive success."""
+        with self._intake_lock:
+            if self._session_id != session_id:
+                raise RuntimeError("Kill handoff obligation does not match Ingestor Session")
+            self._kill_handoff_required = True
 
     @service_operation()
     def release_session(
@@ -276,8 +284,8 @@ class InMemoryIngestor:
             storage = storage_manager if storage_manager is not None else self._storage_manager
             confirmation = (preservation.enter_context(storage.session_preservation_guard(session_id))
                             if isinstance(storage, PersistentStorageManager) else None)
-            partial_kill = (confirmation is not None
-                            and confirmation["compilation_summary"].get("kill_preservation") is not None)
+            partial_kill = (self._kill_handoff_required or (confirmation is not None
+                            and confirmation["compilation_summary"].get("kill_preservation") is not None))
             if (self._accepted_runtime_evidence or self._runtime_evidence_audit
                     or self._accepted_envelopes or self._ingest_audit or partial_kill):
                 if not isinstance(storage, PersistentStorageManager):
@@ -285,6 +293,8 @@ class InMemoryIngestor:
                 # Lock order is intake -> storage; retain both through state retirement.
                 if confirmation is None:
                     raise RuntimeError("Evidence preservation confirmation is unavailable")
+                if self._kill_handoff_required and confirmation["compilation_summary"].get("kill_preservation") is None:
+                    raise RuntimeError("Kill preservation confirmation is unavailable")
                 record = confirmation["session_record"]
                 state = (record.get("final_session_status") or {}).get("state")
                 lifecycle = record.get("session_lifecycle_evidence", [])
@@ -309,6 +319,7 @@ class InMemoryIngestor:
                     raise RuntimeError("Acquisition-envelope preservation is unconfirmed")
             self._session_prepared = False
             self._session_id = None
+            self._kill_handoff_required = False
             self._recovery_journal_path = None
             self._accepted_evidence_content.clear()
             self._accepted_runtime_evidence = ()

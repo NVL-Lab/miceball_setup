@@ -185,7 +185,7 @@ class Controller:
         session = self._require_session()
         admitted = False
         try:
-            with self._service_operation_lock:
+            with (self._ingestor._intake_lock if self._ingestor is not None else nullcontext()), self._service_operation_lock:
                 if operator_authorized is not True:
                     raise ValueError("Kill Session requires explicit operator authorization")
                 if (communication is not self._launch_communication or self._ingestor is None
@@ -199,6 +199,7 @@ class Controller:
                     raise RuntimeError("Session closeout is already in progress")
                 if session.current_state not in {SessionState.RUNNING, SessionState.STOPPING, SessionState.ABORTED}:
                     raise RuntimeError("Kill requires a running, stopping, or already aborted Session")
+                self._ingestor._require_kill_handoff(session.session_id)
                 if self._kill_closeout_session is not session:
                     self._kill_closeout_session = session
                     self._kill_closeout = {"session_id": session.session_id, "reason": reason,
