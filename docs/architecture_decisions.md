@@ -10102,15 +10102,15 @@ Session. Eligibility does not authorize hardware or resource release. Reuse
 existing persisted Session information without a Session registry, new lifecycle
 states, or application restoration. This clarifies Decisions 359 and 360's
 stopped-Session and killed-Session collection descriptions. Eligibility is distinct
-from collection availability as clarified below; additional mixed-selection
-semantics remain unresolved.
+from collection availability as clarified below; multi-Session selection follows
+the accepted clarification below.
 
 **Accepted LLC clarification (enumeration and selection ownership):** StorageManager
 enumerates saved Sessions using existing persistent Session directories and records,
 without a Session registry. Controller coordinates operator selection of one or
 multiple Sessions. Each candidate Session must be independently validated for
 eligibility using existing persisted information and the predicate above.
-Additional mixed-selection semantics not already accepted remain unresolved.
+Multi-Session selection follows the accepted clarification below.
 
 **Accepted LLC clarification (eligibility versus collection availability):** A
 Session with a durably confirmed terminal state (`completed`, `failed`, or
@@ -10125,6 +10125,18 @@ Archives cannot accept further collection. Report eligibility, collection
 availability, and reasons for any blockage separately. Persisted `stopping` remains
 ineligible. No new lifecycle states, infrastructure, or recovery mechanisms are
 introduced; enumeration and selection ownership above remain unchanged.
+
+**Accepted LLC clarification (multi-Session selection):** Operators may select
+only Sessions confirmed eligible and available for scientific-artifact collection.
+Unavailable Sessions remain visible in the saved-Session listing but cannot be
+selected; report the reason for unavailability. When multiple Sessions are selected,
+Controller processes each independently. A collection failure for one Session does
+not prevent collection of the others. Results report each Session's collection
+outcome, with an overall summary distinguishing complete success, partial success,
+and failure. No all-or-nothing transaction, special ordering, or automatic retries
+are required. Existing per-Session collection, recovery, and archive-closure
+guarantees remain unchanged. This completes the selection clarification of
+Decisions 359-360 without implementing selection or closing Q019.
 
 No authoritative ArtifactManifest registry, Session registry, application-restoration
 system, or automatic collection is accepted. No exact handoff filename, new API,

@@ -125,7 +125,7 @@ The future GUI could:
 - Provide a future dropdown or multi-select table of saved Sessions that may need
   scientific-data collection, showing Session identity and lifecycle status,
   including `completed`, `failed`, and `aborted`. Operators could select one or
-  multiple Sessions for collection without automatic collection or restoration of
+  multiple confirmed eligible and available Sessions for collection without automatic collection or restoration of
   their original bindings. Proposed collection labels are not collected, partially
   collected, fully collected, failed, or unresolved; these are future presentation
   ideas, not accepted backend states or definitions; no detailed mapping of these
@@ -140,8 +140,11 @@ The future GUI could:
   attempts, unconfirmed preservation information requires existing authorized
   recovery, and permanently closed archives cannot accept further collection.
   This is future GUI functionality, not current Q019 implementation or a new GUI
-  contract; retain lifecycle/collection-status displays and multi-selection without
-  defining still-open mixed-selection behavior.
+  contract; retain lifecycle/collection-status displays and multi-selection.
+- In the future table, keep unavailable Sessions visible but disable their
+  selection controls. Display a reason explaining why collection is blocked for
+  each unavailable Session. This proposed GUI behavior reflects the accepted
+  backend selection boundary; it is not implemented GUI functionality in Q019.
 - Present future collection scheduling only after the relevant Q021 architecture
   is accepted. No scheduling policy or command contract is defined here.
 - Explain missing/incomplete/corrupted files and guide manual recovery within

@@ -695,7 +695,7 @@ Remaining implementation and technical-verification work
   finalization stays explicit; corrupt/conflicting contents are not implicitly
   repaired. Later eligible-Session selection and overall integration validation remain
   unimplemented; no new registry or restoration mechanism is introduced.
-- **Eligibility, selection ownership, and collection availability resolved; implementation remains open:** Decision 364's
+- **Eligible-Session selection contracts resolved; implementation remains open:** Decision 364's
   accepted clarification requires durably confirmed `completed`, `failed`, or
   `aborted` for ordinary operator-selected collection. Persisted `stopping` is
   ineligible until termination status is resolved through existing recovery.
@@ -713,9 +713,15 @@ Remaining implementation and technical-verification work
   preservation information blocks collection until existing authorized recovery
   resolves it. Permanently closed archives cannot accept further collection.
   Eligibility, availability, and blockage reasons are reported separately.
-  Still unresolved: additional multi-Session selection semantics not already
-  accepted. This resolves the predicate, ownership, and availability distinctions,
-  not selection implementation or overall integration validation. Q019 remains OPEN.
+  Operators may select only confirmed eligible and available Sessions. Unavailable
+  Sessions remain listed, cannot be selected, and report an unavailability reason.
+  Controller processes selected Sessions independently; one collection failure
+  does not prevent the others. Results include each Session's collection outcome
+  and an overall summary of complete success, partial success, or failure. No
+  all-or-nothing transaction, special ordering, or automatic retries are required.
+  The additional multi-Session selection semantics are resolved, preserving
+  per-Session collection, recovery, and closure protections. Q019 remains OPEN
+  for selection implementation and overall integration validation.
 - **Closeout integration:** Decision 365's bounded Normal Stop confirmations are
   complete with independent validation and targeted re-audit PASS after correction
   (W047). Explicit partial Kill preservation is complete with independent validation and final re-audit PASS after corrections (W048),
