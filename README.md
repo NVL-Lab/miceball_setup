@@ -510,7 +510,8 @@ model. Decision 361's Ingestor-side receiving foundation and JetStream routing
 prerequisite are complete with automated testing, independent manual IPython
 validation, and final independent re-audit PASS after both corrections (W041).
 Validation used local NATS/software, not an external cluster, multi-host, Jetson,
-or hardware deployment. Kill Session integration remains unimplemented. Decision 362's
+or hardware deployment. W048 Kill now has a developer implementation awaiting
+independent manual validation and audit. Decision 362's
 explicit Stage A slice is complete with developer automated testing, independent
 manual validation, and independent audit PASS (W043); bounded Stage B collection
 and Decision 363 evidence persistence are complete with independent manual
@@ -518,7 +519,7 @@ validation and final targeted independent re-audit PASS after correction (W045),
 while W046 explicit permanent closure is complete with independent manual validation
 and targeted independent re-audit PASS after correction. Decision 365's bounded
 Normal Stop integration is complete after correction and independent re-audit PASS
-(W047); Kill Session integration remains unimplemented;
+(W047); W048 Kill awaits independent validation and audit;
 Decision 364's bounded durable handoff is complete
 with automated testing, independent manual validation, and independent audit PASS (W044).
 Session evidence uses a durable explicit-ACK receiving position and journal-before-
@@ -567,6 +568,15 @@ status alone is not durability proof. Before direct archival, StorageManager
 temporarily durably preserves the actual collection outcome and unique evidence ID.
 Duplicate protection and verified archival permit safe temporary retirement and
 authorized evidence-write recovery without repeating scientific-file transfer.
+
+Kill Session preservation is exposed through `Controller.kill_session(*, communication,
+result_window_s, operator_authorized, reason=None)`. It records `experiment_abort`
+and local Session abortion, reports participant cleanup uncertainty separately,
+retains reservations, and does not initiate collection or permanent closure.
+`PersistentStorageManager.refresh_partial_artifact_collection_handoff(session_id,
+*, ingestor)` accepts additional verified manifests from existing authorized
+recovery only before collection starts, preserving historical evidence and the
+final record. This is developer implementation, not independent W048 validation.
 
 Separately authorized Kill Session preserves accessible evidence/files, partial
 Session Record, unresolved conditions, and safety where possible. It neither

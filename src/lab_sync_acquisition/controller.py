@@ -170,6 +170,149 @@ class Controller:
         self._acquisition_marker_confirmed = False
         self._acquisition_archival_active = False
         self._normal_stop_task: asyncio.Task[Any] | None = None
+        self._kill_closeout_session: Session | None = None
+        self._kill_closeout: dict[str, Any] | None = None
+
+    @service_operation()
+    async def kill_session(
+        self, *, communication: NatsControllerCommunication, result_window_s: float,
+        operator_authorized: bool, reason: str | None = None,
+    ) -> ControllerCommandResult:
+        """Explicit forced closeout; preserve available evidence without confirming Normal Stop."""
+        from math import isfinite
+
+        session = self._require_session()
+        admitted = False
+        try:
+            with self._service_operation_lock:
+                if operator_authorized is not True:
+                    raise ValueError("Kill Session requires explicit operator authorization")
+                if (communication is not self._launch_communication or self._ingestor is None
+                        or self._ingestor.session_id != session.session_id or self._storage_manager is None):
+                    raise ValueError("Kill requires the launched communication and original evidence owners")
+                if (type(result_window_s) not in {int, float} or not isfinite(result_window_s)
+                        or result_window_s <= 0):
+                    raise ValueError("Kill requires a finite positive result window")
+                if (self._normal_stop_task is not None or self._acquisition_archival_active
+                        or self._acquisition_publication_active or self._artifact_collection_in_progress):
+                    raise RuntimeError("Session closeout is already in progress")
+                if session.current_state not in {SessionState.RUNNING, SessionState.STOPPING, SessionState.ABORTED}:
+                    raise RuntimeError("Kill requires a running, stopping, or already aborted Session")
+                if self._kill_closeout_session is not session:
+                    self._kill_closeout_session = session
+                    self._kill_closeout = {"session_id": session.session_id, "reason": reason,
+                        "participants": [], "command_ids": {},
+                        "uncertainties": [{"reason": "Complete acquisition receipt is unconfirmed"}]}
+                self._normal_stop_task = asyncio.current_task()
+                admitted = True
+                # Retain the Q019 association before any suspension, including cancellation.
+                self._acquisition_marker_session = session
+                if session.current_state == SessionState.RUNNING:
+                    if self._active_experiment_id is not None:
+                        session.record_experiment_lifecycle(self._active_experiment_id,
+                            "experiment_abort", self._current_session_time_s(), {"reason": reason})
+                        self._active_experiment_id = None
+                        self._active_experiment_runtime_health_mapping = ()
+                    session.stop(reason)
+                if session.current_state == SessionState.STOPPING:
+                    session.abort(reason)
+            confirmed = {item["participant"]["component_id"] for item in self._kill_closeout["participants"]
+                         if item["cleanup_confirmed"]}
+            participants = tuple(self._reserved_participants) + tuple(
+                p for p in session.configuration.expected_runtime_participants
+                if p.component_type == "synchronization_manager")
+            for participant in participants:
+                if participant.component_id in confirmed:
+                    continue
+                outcome = {"participant": participant.to_dict(), "cleanup_confirmed": False}
+                try:
+                    result = await communication.request_command(participant, "stop_runtime",
+                        session.session_id, {}, result_window_s,
+                        command_id=self._kill_closeout["command_ids"].setdefault(
+                            (participant.component_type, participant.component_id), uuid4().hex))
+                    outcome["cleanup_confirmed"] = (result is not None and result.success is True
+                        and result.status == "succeeded")
+                    outcome["result"] = result.to_dict() if result is not None else None
+                except Exception as error:
+                    outcome["error"] = f"{type(error).__name__}: {error}"
+                if self._session is not session or self._kill_closeout_session is not session:
+                    raise RuntimeError("Controller Session binding changed during Kill")
+                self._kill_closeout["participants"].append(outcome)
+            self._runtime_cleanup_confirmed = bool(participants) and all(
+                any(item["participant"] == p.to_dict() and item["cleanup_confirmed"]
+                    for item in self._kill_closeout["participants"]) for p in participants)
+            details = self._preserve_kill_closeout(session)
+            return self._record_successful_command("kill_session", details)
+        except asyncio.CancelledError:
+            if admitted and self._session is session:
+                self._kill_closeout["uncertainties"].append({"reason": "Kill interrupted; participant cleanup is unconfirmed"})
+                try:
+                    self._preserve_kill_closeout(session)
+                except Exception as error:
+                    self._kill_closeout["preservation_warning"] = f"{type(error).__name__}: {error}"
+            raise
+        except Exception as error:
+            if self._session is not session:
+                return ControllerCommandResult("kill_session", False,
+                    {"session_id": session.session_id}, f"{type(error).__name__}: {error}")
+            return self._record_failed_command("kill_session", error,
+                {"session_id": session.session_id, "archive_closed": False,
+                 "preservation_confirmed": False})
+        finally:
+            if admitted:
+                with self._service_operation_lock:
+                    if self._normal_stop_task is asyncio.current_task():
+                        self._normal_stop_task = None
+
+    def _preserve_kill_closeout(self, session: Session) -> dict[str, Any]:
+        """Preserve exact available intake under existing intake/persistence/admission guards."""
+        intake = self._ingestor
+        with intake.durable_runtime_evidence_history_guard(
+                session.session_id, intake.recovery_journal_path, intake.accepted_runtime_evidence) as confirmed:
+            if not confirmed:
+                raise RuntimeError("Available Kill evidence journal coverage is unconfirmed")
+            with self._storage_manager.session_preservation_guard(session.session_id), self._service_operation_lock:
+                if self._session is not session or intake.session_id != session.session_id:
+                    raise RuntimeError("Session binding changed during Kill")
+                uncertainties = deepcopy(self._kill_closeout["uncertainties"])
+                uncertainties.extend(deepcopy(self._kill_closeout["participants"]))
+                uncertainties.extend({"participant": p.to_dict(), "reservation_release_confirmed": False,
+                    "reason": "Reservation retained; existing node-owned release safety remains required"}
+                    for p in self._reserved_participants)
+                available = {m.evidence_id for m in intake.accepted_runtime_evidence}
+                uncertainties.extend({"evidence_id": identity, "acceptance_confirmed": False,
+                    "reason": "Required Controller evidence is retained but not durably accepted"}
+                    for identity in self._controller_owned_session_evidence_snapshot(session.session_id)
+                    if identity not in available)
+                observed = {item["participant"]["component_id"] for item in self._kill_closeout["participants"]}
+                uncertainties.extend({"participant": p.to_dict(), "cleanup_confirmed": False,
+                    "reason": "No confirmed cleanup result; hardware/resource obligations remain"}
+                    for p in session.configuration.expected_runtime_participants
+                    if p.component_type in {"acquisition_node", "synchronization_manager"}
+                    and p.component_id not in observed)
+                current = self._storage_manager.get_persisted_session_preservation_confirmation(session.session_id)
+                if current is None:
+                    self._storage_manager.write_kill_acquisition_stage(session.session_id,
+                        intake.compile_persistent_runtime_evidence(), uncertainties=uncertainties,
+                        **self._session_record_evidence())
+                    handoff = intake.compile_artifact_collection_handoff(session.session_id)
+                    self._storage_manager.write_artifact_collection_handoff(session.session_id, handoff)
+                    current = self._storage_manager.get_persisted_session_preservation_confirmation(session.session_id)
+                if current is None or current["compilation_summary"].get("kill_preservation") is None:
+                    raise RuntimeError("Current partial Kill preservation is unconfirmed")
+                compiled = intake.compile_persistent_runtime_evidence()
+                if any(current[name] != [item.to_dict() for item in compiled[name]]
+                       for name in ("runtime_evidence", "ingest_audit")):
+                    raise RuntimeError("Additional Kill intake requires preserved append-only recovery evidence")
+                self._archived_controller_action_decisions = self._controller_decision_evidence_snapshot(session.session_id)
+                self._finalization_confirmation = (self._session_ingest_state(), str(
+                    self._storage_manager._session_directory(session.session_id) / "session_record_final.json"))
+                return {"session_id": session.session_id, "session_state": session.current_state.value,
+                    "stage_a_complete": False, "archive_closed": False, "preservation_confirmed": True,
+                    "participant_cleanup_confirmed": self._runtime_cleanup_confirmed,
+                    "participants": deepcopy(self._kill_closeout["participants"]),
+                    "uncertainties": uncertainties,
+                    "artifact_collection_handoff": current["artifact_collection_handoff"]}
 
     @service_operation()
     async def normal_stop_session(
@@ -1520,7 +1663,8 @@ class Controller:
             with self._storage_manager.session_preservation_guard(session.session_id) as confirmation:
                 self._require_controller_decision_archival(session.session_id, confirmation)
                 # Refresh the pre-completion record to preserve the actual terminal outcome.
-                record_path = str(self._write_final_session_record())
+                if self._kill_closeout_session is not session:
+                    record_path = str(self._write_final_session_record())
             subscriptions = self._launch_subscriptions
             for subscription in subscriptions:
                 await subscription.unsubscribe()
@@ -1557,6 +1701,8 @@ class Controller:
                 self._acquisition_marker_session = None
                 self._acquisition_marker = None
                 self._acquisition_marker_confirmed = False
+                self._kill_closeout_session = None
+                self._kill_closeout = None
                 self._active_experiment_runtime_health_mapping = ()
                 self._command_results.clear()
         except Exception as error:

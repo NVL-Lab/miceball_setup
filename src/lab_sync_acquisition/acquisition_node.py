@@ -861,7 +861,11 @@ class AcquisitionNode:
                 device_stop_results = self._runtime_device_manager.stop_all()
                 device_shutdown_results = self._runtime_device_manager.shutdown_all()
                 self._running = False
-                self._finalize_prepared_scientific_outputs()
+                try:
+                    self._finalize_prepared_scientific_outputs()
+                finally:
+                    self.clear_experiment_runtime_context()
+                    self.clear_experiment_runtime_health_mapping()
         self._initialization_cleanup_confirmed = all(r.succeeded for r in (*device_stop_results, *device_shutdown_results))
         return {
             "final_session_time_s": final_session_time_s,

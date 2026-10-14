@@ -487,7 +487,8 @@ independent manual validation and final targeted independent re-audit PASS after
 correction (W045); W046 explicit closure is complete with independent manual
 validation and targeted re-audit PASS after correction. Decision 365's bounded
 Normal Stop integration is complete with independent validation and targeted
-re-audit PASS after correction (W047); Kill Session integration remains unimplemented.
+re-audit PASS after correction (W047); W048 Kill has a developer implementation
+awaiting independent validation and audit.
 Decision 364's bounded
 durable handoff is complete with automated testing, independent manual validation,
 and independent audit PASS (W044).
@@ -503,7 +504,7 @@ Ingestor-owned locally journaled evidence needs no JetStream round trip and rema
 part of compilation/persistence. The supported publication prerequisite is complete
 with developer automated coverage, independent manual validation, and targeted
 independent re-audit PASS after correction (W042);
-Kill Session integration remains unimplemented, not unresolved producer selection
+Kill Session integration awaits independent validation/audit, not unresolved producer selection
 or a new registry; bounded Normal Stop is complete in W047.
 
 Accepted architecture
@@ -561,16 +562,16 @@ Accepted architecture
   for the active Experiment, separates unconfirmed cleanup from that termination,
   and permits later collection from available verified artifact information while
   explicitly retaining partial preservation and missing/uncertain information.
-  Normal Stop completeness requirements are unchanged. W048 implementation and
-  independent verification remain pending; this is not a new unresolved Experiment
+  Normal Stop completeness requirements are unchanged. W048 now has a bounded
+  developer implementation; independent validation and audit remain pending. This is not a new unresolved Experiment
   event-mapping question.
   Decisions 034/365 also permit Session transition to `aborted` when participant
   cleanup remains unconfirmed. `cleanup_occurred=True` records local Session
   cleanup, not confirmed cleanup of all participants. Participant cleanup, hardware
   safety, and resource-release obligations remain separately represented, with
   existing safety and authorized recovery protections mandatory. The Session
-  lifecycle clarification is resolved; W048 implementation and validation remain
-  pending, without changing Normal Stop guarantees.
+  lifecycle clarification is resolved; W048 independent validation and audit remain
+  pending, without changing Normal Stop guarantees or closing Q019.
   Decision 364 now permits StorageManager to refresh a partial handoff from
   additional verified manifests obtained through authorized recovery, following
   existing Ingestor compilation rules and confirmed durability while preserving
@@ -700,7 +701,8 @@ Remaining implementation and technical-verification work
   unimplemented; no new registry or restoration mechanism is introduced.
 - **Closeout integration:** Decision 365's bounded Normal Stop confirmations are
   complete with independent validation and targeted re-audit PASS after correction
-  (W047). Explicit partial Kill preservation remains to be implemented and validated,
+  (W047). Explicit partial Kill preservation now has a developer implementation
+  awaiting independent validation and audit,
   retaining safety, uncertainty, and binding-release obligations.
 - **Permanent archive closure:** The accepted Decision 362 clarification resolves
   the separate-request and closure-eligibility contract above. W046 explicit closure

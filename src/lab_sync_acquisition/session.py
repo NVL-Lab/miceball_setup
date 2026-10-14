@@ -383,6 +383,7 @@ class Session:
             "experiment_start",
             "experiment_stop",
             "experiment_fail",
+            "experiment_abort",
         }:
             raise ValueError(f"Unsupported Experiment lifecycle event: {event_type}")
         if event_type == "experiment_start":

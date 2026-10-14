@@ -34,23 +34,33 @@ W048's synchronized clarification in Decisions 113, 362, 364, and 365 uses canon
 `experiment_abort` for an active Experiment during Kill Session, separately records
 unconfirmed cleanup, preserves available evidence without inventing completeness,
 and permits later operator-requested collection from available verified artifact
-information. This is an accepted implementation contract, not current Kill support.
+information. The bounded W048 developer implementation now exposes explicit Kill
+and partial preservation; independent manual validation and audit remain pending.
 Decisions 034/365 permit Kill to transition the Session to `aborted` despite
 unconfirmed participant cleanup. `cleanup_occurred=True` denotes the Session's
 local cleanup procedure only; participant cleanup, hardware safety, and resource-
 release obligations remain separately represented and protected by existing safety
 and authorized recovery requirements. This does not weaken Normal Stop guarantees.
-The existing complete-receipt Stage A writer and complete-only persisted collection
-baseline need narrowly scoped partial-preservation integration using the existing
-owners and mechanisms; their Normal Stop guarantees must remain unchanged.
+The complete-receipt Stage A writer retains its Normal Stop checks. A separate Kill
+entry point preserves available journal-backed evidence, the intake audit, final
+aborted Session Record, explicit uncertainty, and the existing handoff without
+claiming complete receipt or releasing participant reservations. Persisted partial
+baselines support later collection without original runtime bindings.
 Decision 364 permits a partial handoff to incorporate additional verified manifest
 evidence from authorized recovery only before the first Stage B collection attempt.
 Refresh must preserve existing evidence, follow the Ingestor compiler, and confirm
 durability. Beginning any collection attempt, including failed or incomplete
 attempts, makes the handoff immutable; historical evidence, collection outcomes,
-and permanent archive closure cannot be rewritten. This accepted boundary is not
-implemented by the historical W044 non-overwriting writer or W045 collection path.
-W048 remains unimplemented and unvalidated. No new lifecycle state, infrastructure,
+and permanent archive closure cannot be rewritten. Refresh checks existing durable
+administrator/recovery evidence, appends new accepted evidence and audit without
+changing historical bytes or the final record, and verifies handoff/summary readback.
+The existing summary durably records collection start before partial-handoff
+retrieval. Collection, refresh, closure, and archive repair serialize on the stable
+final record using nonblocking OS file locks as well as the existing owner lock;
+no lock file is introduced. Interrupted writes require explicit existing authorized
+archive repair, including for an explicitly identified partial archive after restart.
+W048 is implemented with focused developer tests; independent validation and audit
+remain pending. No new lifecycle state, infrastructure,
 automatic collection, or implicit archive closure is specified.
 
 Decision 366's supported publication prerequisite is complete with automated
@@ -78,7 +88,8 @@ archival, successful Normal Stop, or Session completion is claimed by this API.
 The receiving foundation, producer/marker prerequisite, and bounded Stage A
 archival are validated in W041-W043; bounded Normal Stop integration is complete
 with independent validation and targeted re-audit PASS after correction (W047).
-Kill Session integration and overall Q019 integration validation remain pending.
+W048 Kill has a developer implementation awaiting independent validation/audit;
+overall Q019 integration validation remains pending.
 The function entries below also describe historical paths, including Ingestor-routed
 collection evidence and stopping-Session collection before finalization. Do not
 interpret those implementations as Stage A/Stage B or Kill Session support.
@@ -164,8 +175,8 @@ developer tests 27/27 and independent manual validation 8/8 PASS; initial audit 
 for the unresolved-path guard; normalized target/root correction with developer
 tests 6/6 and independent validation 2/2 PASS; final targeted re-audit PASS with no
 remaining confirmed P0-P3 findings. Historical failure and correction are retained.
-Bounded Normal Stop is complete in W047; Kill Session integration and later
-eligible-Session selection remain unimplemented;
+Bounded Normal Stop is complete in W047; W048 Kill has a developer implementation
+awaiting independent validation/audit, and eligible-Session selection remains unimplemented;
 overall Q019 integration validation remains pending.
 W033/M013, W035, W039, and W040 retain
 their validated scopes. Q019, Q024, Q022, Phase 16, and M015 remain OPEN. No
@@ -662,6 +673,8 @@ is complete; W030 records manual validation, focused tests, and audit reassessme
 - Controller.archive_acquisition_evidence(*, communication): Verifies receipt of its confirmed W042 marker through the matching NatsIngestorCommunication, archives current protected Ingestor compilation and existing Session Record evidence, and returns confirmed Stage A paths without lifecycle completion, collection, or binding release.
 - Controller.preserve_artifact_collection_handoff(): Compiles journal-backed artifact information after current Stage A confirmation and returns verified durable handoff preservation without changing lifecycle or releasing bindings.
 - Controller.normal_stop_session(*, communication, receiving, result_window_s, reason=None): Associates the Session with Q019 before asynchronous shutdown and retains that requirement through failure/cancellation, then coordinates cleanup, producer/marker publication, independently verified receipt, Stage A archival, durable handoff, and completion without automatic collection, binding release, or archive closure.
+- Controller.kill_session(*, communication, result_window_s, operator_authorized, reason=None): Explicitly aborts the active Experiment and Session, preserves partial acquisition evidence and handoff, retains correlated cleanup uncertainty and reservations, and never initiates collection or permanent closure.
+- Controller._preserve_kill_closeout(session): Confirms current journal-backed partial archive and handoff under intake, persistence, and admission guards without claiming complete receipt.
 - Controller._complete_preserved_acquisition(session): Rechecks current journal, Stage A runtime evidence/audit, current acquisition envelopes/audit against the durable final Session Record, owned evidence, marker identity, and handoff under intake/storage/admission locks before completion, rejecting changed coverage without replacing the preserved baseline.
 - Controller.get_status(): Returns Session/command status, the bounded last released terminal outcome, and the local AcquisitionNode snapshot or None, without fabricating remote runtime status.
 - Controller.reconcile_outcomes(*, session_id=None, participants=None, communication=None, result_window_s=None): Reads existing scoped outcomes or bounded current observations of explicit remote participants, retaining unassociated uncertainty and changed informational evidence without operational replay or lifecycle mutation.
@@ -919,7 +932,8 @@ recovery is introduced. Phase 16 and M015 remain open.
 - PersistentStorageManager._collection_outcome_path(session_id): Locates the temporary outcome message in the existing known-Session directory.
 - PersistentStorageManager._read_preservation_json(contents): Reads preservation JSON while rejecting duplicate fields and non-finite values.
 - PersistentStorageManager._require_complete_runtime_audit(audit): Validates all existing RuntimeEvidenceAuditRecord fields and intake ordering without inventing missing timestamps or reasons.
-- PersistentStorageManager._read_stage_b_baseline(session_id, pending=None): Validates complete intake audit, final-record acquisition-envelope Session associations, confirmed product coverage, and saved manifests, permitting only the identified pending append suffix for evidence-only recovery.
+- PersistentStorageManager._read_stage_b_baseline(session_id, pending=None, *, allow_handoff_refresh=False): Validates complete or explicitly partial Kill preservation, intake audit, Session associations, product coverage, and manifests, with the refresh-only mismatch allowance unavailable to collection or closure.
+- PersistentStorageManager._handoff_collection_guard(session_id): Uses the unchanged final Session Record for nonblocking OS serialization of handoff refresh, collection, closure, and archive repair across StorageManager instances.
 - PersistentStorageManager._validate_collection_outcome(session_id, message): Validates the retained owner/Session/evidence identity and separate success, failure, or unknown collection outcomes.
 - PersistentStorageManager._collection_evidence_line(message): Serializes one stable collection message with type-sensitive JSON identity for append and retry checks.
 - PersistentStorageManager._write_collection_outcome(message): Non-overwritingly publishes and fsync/readback-confirms the temporary actual outcome before any direct archival append.
@@ -936,8 +950,12 @@ recovery is introduced. Phase 16 and M015 remain open.
 - PersistentStorageManager._write_session_evidence_archive(session_id, compiled_runtime_evidence, *, authorized_recovery=False): Reuses the existing locked/fsynced Session archive writer with ordinary replacement checks or the already-authorized acquisition-repair path, without changing public signatures.
 - PersistentStorageManager.write_final_session_record: Writes caller-supplied final Session Record evidence to `session_<session_id>/session_record_final.json`, confirming its path only after successful writing.
 - PersistentStorageManager.write_acquisition_stage(session_id, compiled_runtime_evidence, *, receipt, **session_record_evidence): Reuses archive/record writers and fsync/readback, adds Stage A/open/provenance metadata to the existing summary only after required products are confirmed, and refuses implicit repair of interrupted or unconfirmed existing persistence.
+- PersistentStorageManager.write_kill_acquisition_stage(session_id, compiled_runtime_evidence, *, uncertainties, **session_record_evidence): Reuses acquisition persistence with explicitly partial Kill metadata, preserving uncertainty without fabricating receipt or completion-marker provenance.
+- PersistentStorageManager._write_acquisition_stage: Shares durable product writing between verified Normal Stop and explicitly partial Kill while keeping their confirmation requirements separate.
+- PersistentStorageManager._publish_preservation_summary(path, summary): Atomically publishes fsynced existing-summary metadata and verifies directory durability and exact readback.
 - PersistentStorageManager.get_acquisition_stage_preservation_confirmation(session_id): Requires exact current evidence/audit/summary and final-record preservation plus Stage A complete/open metadata, rather than trusting a stored flag or historical success.
 - PersistentStorageManager.write_artifact_collection_handoff(session_id, handoff): Durably publishes the existing compiled handoff in the Session directory with non-overwriting publication, exact readback, and identical-content retries.
+- PersistentStorageManager.refresh_partial_artifact_collection_handoff(session_id, *, ingestor): Verifies journal-backed authorized manifest recovery, appends accepted evidence and audit, and refreshes an open partial handoff only before collection starts.
 - PersistentStorageManager.read_artifact_collection_handoff(session_id): Validates saved handoff identities, structure, and finalization uncertainty without any original Session binding, refusing missing/corrupt/unconfirmed contents.
 - PersistentStorageManager._validate_artifact_collection_handoff(session_id, handoff): Checks the existing portable handoff structure and consistent Session/artifact identities without interpreting scientific contents.
 - PersistentStorageManager._artifact_collection_handoff_path(session_id): Locates the separate handoff JSON using a validated single-component Session identity.
@@ -948,6 +966,7 @@ recovery is introduced. Phase 16 and M015 remain open.
 - PersistentStorageManager._read_archive_products: Reads the existing evidence/audit/summary products for exact current-write confirmation, without interpreting evidence meaning.
 - PersistentStorageManager._framework_evidence_write_safe: Allows new protected informational/recovery evidence archival only for a pristine target or currently confirmed archive, not implicit repair of existing unconfirmed products.
 - PersistentStorageManager._recover_archive_write: Uses existing journal-backed authorization/attempt admission to recover either legacy compiled archival or an identified durable Stage B outcome append without refetching scientific artifacts or requiring the old Session intake.
+- PersistentStorageManager._recover_archive_write_contents: Retains the existing repair contracts and partial Kill provenance for explicit interrupted-write recovery without refreshing a handoff or executing artifact transfer.
 - PersistentStorageManager._recover_session_record_write: Repeats an interrupted initial/final record write only from complete retained original inputs, confirming actual contents without advancing Session lifecycle.
 - PersistentStorageManager._recover_artifact_transfer: Makes one authorized fresh complete transfer from the original failed collection and authoritative handoff through existing destination/source/verification mechanisms, retaining normal global collection evidence.
 - PersistentStorageManager.session_preservation_guard(session_id): Synchronous context manager yielding current confirmation while holding the archive/final-record write lock through the caller's release commit; callers must not await or acquire a new Ingestor intake lock while holding it.
