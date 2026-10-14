@@ -273,13 +273,16 @@ class InMemoryIngestor:
                 raise RuntimeError("Session release does not match Ingestor Session")
             if self._journal_failed:
                 raise RuntimeError("Recovery journal integrity is unresolved")
+            storage = storage_manager if storage_manager is not None else self._storage_manager
+            confirmation = (preservation.enter_context(storage.session_preservation_guard(session_id))
+                            if isinstance(storage, PersistentStorageManager) else None)
+            partial_kill = (confirmation is not None
+                            and confirmation["compilation_summary"].get("kill_preservation") is not None)
             if (self._accepted_runtime_evidence or self._runtime_evidence_audit
-                    or self._accepted_envelopes or self._ingest_audit):
-                storage = storage_manager if storage_manager is not None else self._storage_manager
+                    or self._accepted_envelopes or self._ingest_audit or partial_kill):
                 if not isinstance(storage, PersistentStorageManager):
                     raise RuntimeError("Evidence preservation confirmation is required before release")
                 # Lock order is intake -> storage; retain both through state retirement.
-                confirmation = preservation.enter_context(storage.session_preservation_guard(session_id))
                 if confirmation is None:
                     raise RuntimeError("Evidence preservation confirmation is unavailable")
                 record = confirmation["session_record"]
@@ -293,8 +296,8 @@ class InMemoryIngestor:
                 if any(confirmation[name] != [item.to_dict() for item in compiled[name]]
                        for name in ("runtime_evidence", "ingest_audit")):
                     raise RuntimeError("Archive confirmation does not cover current runtime intake")
-                if any(message.evidence_type == "acquisition_evidence_completion"
-                       for message in self._accepted_runtime_evidence):
+                if partial_kill or any(message.evidence_type == "acquisition_evidence_completion"
+                                       for message in self._accepted_runtime_evidence):
                     if json.dumps(storage.read_artifact_collection_handoff(session_id), sort_keys=True) != json.dumps(
                             self.compile_artifact_collection_handoff(session_id), sort_keys=True):
                         raise RuntimeError("Durable artifact handoff does not cover current Session manifests")

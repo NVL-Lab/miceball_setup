@@ -10,7 +10,8 @@ from unittest.mock import AsyncMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from lab_sync_acquisition import (Controller, PersistentStorageManager, ScientificOutputSelection,
+from lab_sync_acquisition import (AcquisitionRecordEnvelope, Controller, InMemoryIngestor,
+                                 PersistentStorageManager, ScientificOutputSelection,
                                  RuntimeParticipant, ServiceMaintenanceInterface, SshRetrievalEndpoint)
 from tests import test_normal_stop as normal
 from tests import test_authorized_recovery as recovery
@@ -143,6 +144,117 @@ class KillSessionTests(unittest.IsolatedAsyncioTestCase):
                 patch.object(self.storage, "write_evidence_archive", side_effect=AssertionError("archive rewrite")):
             self.assertTrue((await self.kill()).succeeded)
         self.assertEqual({path: path.read_bytes() for path in before}, before)
+
+    async def test_failed_kill_handoff_blocks_ingestor_release_until_matching_durable_retry(self):
+        await self.running()
+        with patch("lab_sync_acquisition.storage.os.link", side_effect=OSError("handoff unavailable")):
+            self.assertFalse((await self.kill()).succeeded)
+        intake = self.fixture.ingestor
+        retained = intake.accepted_runtime_evidence
+        audit = intake.runtime_evidence_audit
+        journal_path = intake.recovery_journal_path
+        journal = journal_path.read_bytes()
+        historical = self.normal.products()
+        with self.assertRaisesRegex(RuntimeError, "handoff"):
+            intake.release_session(self.sid, storage_manager=self.storage)
+        self.assertEqual(intake.session_id, self.sid)
+        self.assertEqual(intake.accepted_runtime_evidence, retained)
+        self.assertEqual(intake.runtime_evidence_audit, audit)
+        self.assertEqual(journal_path.read_bytes(), journal)
+        self.assertEqual(self.normal.products(), historical)
+        self.assertTrue((await self.kill()).succeeded)
+        self.assertTrue((await self.fixture.controller.release_session()).succeeded)
+        self.assertTrue(intake.release_session(self.sid, storage_manager=self.storage))
+        self.assertIsNone(intake.session_id)
+        self.assertEqual(journal_path.read_bytes(), journal)
+
+    async def test_late_accepted_acquisition_blocks_kill_reconfirmation_and_release(self):
+        await self._exercise_late_kill_acquisition_intake(accepted=True)
+
+    async def test_partial_kill_with_empty_runtime_intake_still_requires_its_handoff(self):
+        self.sid = self.normal.sid = await self.normal.producer.running(two=False, artifacts=False)
+        with patch("lab_sync_acquisition.storage.os.link", side_effect=OSError("handoff unavailable")):
+            self.assertFalse((await self.kill()).succeeded)
+        intake = self.fixture.ingestor
+        self.assertFalse(intake.accepted_runtime_evidence)
+        self.assertFalse(intake.runtime_evidence_audit)
+        with self.assertRaisesRegex(RuntimeError, "handoff"):
+            intake.release_session(self.sid, storage_manager=self.storage)
+        self.assertEqual(intake.session_id, self.sid)
+        self.assertTrue((await self.kill()).succeeded)
+        self.assertTrue(intake.release_session(self.sid, storage_manager=self.storage))
+
+    async def test_late_rejected_acquisition_audit_blocks_kill_reconfirmation_and_release(self):
+        await self._exercise_late_kill_acquisition_intake(accepted=False)
+
+    async def _exercise_late_kill_acquisition_intake(self, *, accepted):
+        intake = InMemoryIngestor(self.storage, recovery_journal_root=self.fixture.root / "late-journals")
+        self.fixture.ingestor = intake
+        self.fixture.controller = Controller(ingestor=intake, storage_manager=self.storage,
+                                             synchronization_manager=self.fixture.sync)
+        await self.running()
+        self.assertTrue((await self.kill()).succeeded)
+        historical = self.normal.products()
+        envelope = AcquisitionRecordEnvelope(self.sid, "node-a-device", "event",
+            ({"session_time_s": 0.0, "event_type": "late-after-kill"},) if accepted else
+            ({"event_type": "missing-session-time"},), source_node_id="node-a")
+        audit = intake.receive_envelope(envelope)
+        self.assertIs(audit.accepted, accepted)
+        retained = (intake.accepted_envelopes, intake.ingest_audit, intake.accepted_runtime_evidence,
+                    intake.runtime_evidence_audit, intake.recovery_journal_path.read_bytes())
+        with patch.object(self.storage, "write_final_session_record", side_effect=AssertionError("historical rewrite")):
+            retry = await self.kill()
+            self.assertFalse(retry.succeeded)
+            self.assertFalse(retry.details["preservation_confirmed"])
+            self.assertIn("acquisition-envelope and audit preservation", retry.error)
+            self.assertFalse((await self.fixture.controller.release_session()).succeeded)
+        self.assertEqual(self.fixture.controller.get_status()["session_state"], "aborted")
+        self.assertEqual(intake.session_id, self.sid)
+        self.assertEqual(self.normal.products(), historical)
+        self.assertEqual((intake.accepted_envelopes, intake.ingest_audit, intake.accepted_runtime_evidence,
+            intake.runtime_evidence_audit, intake.recovery_journal_path.read_bytes()), retained)
+
+    async def test_kill_retry_after_permanent_closure_reports_current_state_without_mutation(self):
+        await self.running()
+        self.assertTrue((await self.kill()).succeeded)
+        self.assertTrue(self.storage.close_session_evidence_archive(self.sid)["archive_closed"])
+        historical = self.normal.products()
+        with patch.object(self.storage, "write_kill_acquisition_stage", side_effect=AssertionError("archive rewrite")), \
+                patch.object(self.storage, "write_artifact_collection_handoff", side_effect=AssertionError("handoff rewrite")):
+            retry = await self.kill()
+        self.assertTrue(retry.succeeded, retry.error)
+        self.assertTrue(retry.details["archive_closed"])
+        self.assertTrue(retry.details["preservation_confirmed"])
+        self.assertEqual(self.normal.products(), historical)
+        restored = PersistentStorageManager(self.fixture.root / "accepted_records.jsonl")
+        self.assertTrue(restored.get_persisted_session_preservation_confirmation(self.sid)
+                        ["compilation_summary"]["archive_closed"])
+
+    async def test_acquisition_during_kill_release_unsubscription_keeps_binding_and_record(self):
+        intake = InMemoryIngestor(self.storage, recovery_journal_root=self.fixture.root / "release-journals")
+        self.fixture.ingestor = intake
+        self.fixture.controller = Controller(ingestor=intake, storage_manager=self.storage,
+                                             synchronization_manager=self.fixture.sync)
+        await self.running()
+        self.assertTrue((await self.kill()).succeeded)
+        historical = self.normal.products()
+        subscription = self.fixture.controller._launch_subscriptions[0]
+        original = subscription.unsubscribe
+        received = []
+        envelope = AcquisitionRecordEnvelope(self.sid, "node-a-device", "event",
+            ({"session_time_s": 0.0, "event_type": "during-unsubscribe"},), source_node_id="node-a")
+        async def late_intake():
+            audit = await asyncio.wait_for(asyncio.to_thread(intake.receive_envelope, envelope), 3)
+            received.append(audit.accepted)
+            await original()
+        with patch.object(subscription, "unsubscribe", side_effect=late_intake):
+            result = await self.fixture.controller.release_session()
+        self.assertEqual(received, [True])
+        self.assertFalse(result.succeeded)
+        self.assertEqual(self.fixture.controller.get_status()["session_state"], "aborted")
+        self.assertEqual(intake.session_id, self.sid)
+        self.assertIn(envelope, intake.accepted_envelopes)
+        self.assertEqual(self.normal.products(), historical)
 
     async def test_multiple_nodes_preserve_independent_cleanup_results(self):
         await self.normal.running(two=True)

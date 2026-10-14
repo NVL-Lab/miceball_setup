@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import Awaitable, Callable
+from contextlib import nullcontext
 from copy import deepcopy
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -304,15 +305,28 @@ class Controller:
                 if any(current[name] != [item.to_dict() for item in compiled[name]]
                        for name in ("runtime_evidence", "ingest_audit")):
                     raise RuntimeError("Additional Kill intake requires preserved append-only recovery evidence")
+                self._require_kill_acquisition_record_coverage(session.session_id, current["session_record"])
                 self._archived_controller_action_decisions = self._controller_decision_evidence_snapshot(session.session_id)
                 self._finalization_confirmation = (self._session_ingest_state(), str(
                     self._storage_manager._session_directory(session.session_id) / "session_record_final.json"))
                 return {"session_id": session.session_id, "session_state": session.current_state.value,
-                    "stage_a_complete": False, "archive_closed": False, "preservation_confirmed": True,
+                    "stage_a_complete": False,
+                    "archive_closed": current["compilation_summary"]["archive_closed"], "preservation_confirmed": True,
                     "participant_cleanup_confirmed": self._runtime_cleanup_confirmed,
                     "participants": deepcopy(self._kill_closeout["participants"]),
                     "uncertainties": uncertainties,
                     "artifact_collection_handoff": current["artifact_collection_handoff"]}
+
+    def _require_kill_acquisition_record_coverage(self, session_id: str, record: dict[str, Any]) -> None:
+        """Require current acquisition intake in the immutable Kill record under caller-held guards."""
+        intake = self._ingestor
+        if (intake is None or intake.session_id != session_id
+                or record.get("accepted_session_config", {}).get("session_id") != session_id
+                or json.dumps(record.get("accepted_acquisition_envelopes"), sort_keys=True) != json.dumps(
+                    [item.to_dict() for item in intake.accepted_envelopes], sort_keys=True)
+                or json.dumps(record.get("ingest_audit_records"), sort_keys=True) != json.dumps(
+                    [item.to_dict() for item in intake.ingest_audit], sort_keys=True)):
+            raise RuntimeError("Current acquisition-envelope and audit preservation is unconfirmed")
 
     @service_operation()
     async def normal_stop_session(
@@ -1660,22 +1674,28 @@ class Controller:
             ingest_state, record_path = self._finalization_confirmation
             if ingest_state != self._session_ingest_state():
                 raise RuntimeError("Accepted intake changed after final persistence")
-            with self._storage_manager.session_preservation_guard(session.session_id) as confirmation:
+            with (self._ingestor._intake_lock if self._kill_closeout_session is session else nullcontext()), \
+                    self._storage_manager.session_preservation_guard(session.session_id) as confirmation:
                 self._require_controller_decision_archival(session.session_id, confirmation)
                 # Refresh the pre-completion record to preserve the actual terminal outcome.
                 if self._kill_closeout_session is not session:
                     record_path = str(self._write_final_session_record())
+                else:
+                    self._require_kill_acquisition_record_coverage(session.session_id, confirmation["session_record"])
             subscriptions = self._launch_subscriptions
             for subscription in subscriptions:
                 await subscription.unsubscribe()
                 if self._session is not session:
                     raise RuntimeError("Controller Session binding changed during release")
             # No await inside this guard: archive/record writes cannot overtake commitment.
-            with self._storage_manager.session_preservation_guard(session.session_id) as confirmation:
+            with (self._ingestor._intake_lock if self._kill_closeout_session is session else nullcontext()), \
+                    self._storage_manager.session_preservation_guard(session.session_id) as confirmation:
                 if ingest_state != self._session_ingest_state():
                     raise RuntimeError("Accepted intake changed during Session release")
                 self._require_controller_decision_archival(session.session_id, confirmation)
                 record = confirmation["session_record"]
+                if self._kill_closeout_session is session:
+                    self._require_kill_acquisition_record_coverage(session.session_id, record)
                 lifecycle = record.get("session_lifecycle_evidence", [])
                 if (record.get("accepted_session_config", {}).get("session_id") != session.session_id
                         or record.get("final_session_status") != session.final_status
