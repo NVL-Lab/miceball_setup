@@ -1783,7 +1783,8 @@ class Controller:
     def collect_saved_session_artifacts(self, session_id: str, *, evidence_id: str) -> ControllerCommandResult:
         """Coordinate explicit saved-handoff collection without restoring a Session binding."""
         try:
-            details = self._storage_manager.collect_saved_artifacts(session_id, evidence_id=evidence_id)
+            details = self._storage_manager.collect_saved_artifacts(
+                session_id, evidence_id=evidence_id, require_eligible=True)
         except Exception as error:
             return self._record_failed_command("collect_saved_session_artifacts", error)
         if not details["archival_confirmed"] or not details["artifact_collection_result"]["succeeded"]:

@@ -701,8 +701,8 @@ class PersistentStorageManager:
 
     @service_operation(new_work=True)
     def collect_saved_artifacts(self, session_id: str, *, evidence_id: str,
-                                require_eligible: bool = False) -> dict:
-        """Collect an explicit known Session and directly preserve outcomes, without refetch on retry."""
+                                require_eligible: bool = True) -> dict:
+        """Collect an eligible saved Session; False is for existing internal Stage B/recovery work."""
         if not isinstance(evidence_id, str) or not evidence_id:
             raise ValueError("A stable unique collection evidence ID is required")
         with self._preservation_lock, self._handoff_collection_guard(session_id):

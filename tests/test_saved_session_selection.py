@@ -15,8 +15,8 @@ from lab_sync_acquisition import Controller
 class SavedSessionSelectionTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.fixture = stages.StageBCollectionTests()
+        self.fixture.addCleanup = self.addCleanup
         self.fixture.setUp()
-        self.addCleanup(self.fixture.doCleanups)
         self.storage = self.fixture.storage
         self.root = self.fixture.root
         self.terminal("session")
@@ -51,6 +51,35 @@ class SavedSessionSelectionTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(items[sid]["eligible"])
             self.assertFalse(items[sid]["collection_available"])
             self.assertTrue(items[sid]["availability_reason"])
+
+    async def test_existing_single_session_api_rejects_stopping_without_transfer(self):
+        self.terminal("session", "stopping")
+        before = self.fixture.products()
+        controller = Controller(storage_manager=self.storage)
+        result = controller.collect_saved_session_artifacts("session", evidence_id="ineligible")
+        self.assertFalse(result.succeeded)
+        self.assertIn("terminal Session", result.error)
+        self.assertEqual(self.fixture.sftp.opened, [])
+        self.assertEqual(self.fixture.products(), before)
+        with self.assertRaisesRegex(RuntimeError, "terminal Session"):
+            self.storage.collect_saved_artifacts("session", evidence_id="direct-ineligible")
+
+    async def test_existing_single_session_api_collects_terminal_session(self):
+        transport, _ = self.fixture.retrieval.ssh(self.fixture.sftp)
+        with transport:
+            result = Controller(storage_manager=self.storage).collect_saved_session_artifacts(
+                "session", evidence_id="terminal")
+        self.assertTrue(result.succeeded, result.error)
+        self.assertTrue(result.details["archival_confirmed"])
+        self.assertEqual(len(self.fixture.sftp.opened), 1)
+
+    async def test_existing_single_session_api_blocks_unavailable_preservation(self):
+        path = self.root / "session_session" / "evidence" / "ingest_audit.jsonl"
+        path.write_bytes(b"invalid")
+        result = Controller(storage_manager=self.storage).collect_saved_session_artifacts(
+            "session", evidence_id="corrupt")
+        self.assertFalse(result.succeeded)
+        self.assertEqual(self.fixture.sftp.opened, [])
 
     async def test_terminal_states_qualify_without_participant_cleanup(self):
         for state in ("completed", "failed", "aborted", "stopping"):
@@ -108,6 +137,8 @@ class SavedSessionSelectionTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(status["collection_available"])
         result = Controller(storage_manager=restored).collect_selected_session_artifacts({"session": "closed"})
         self.assertFalse(result.succeeded)
+        self.assertFalse(Controller(storage_manager=restored).collect_saved_session_artifacts(
+            "session", evidence_id="closed-single").succeeded)
         self.assertEqual(self.fixture.products(), before)
 
     async def test_interrupted_evidence_blocks_selection_without_recovery_or_refetch(self):
@@ -123,6 +154,8 @@ class SavedSessionSelectionTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result.succeeded)
         self.assertIsNone(result.details["session_results"][0]["collection_outcome"])
         self.assertEqual(self.fixture.sftp.opened, opened)
+        self.assertFalse(Controller(storage_manager=restored).collect_saved_session_artifacts(
+            "session", evidence_id="collection").succeeded)
 
     async def test_mixed_selection_continues_after_failure_and_blocks_unavailable(self):
         self.saved_baseline("good")
@@ -177,6 +210,34 @@ class SavedSessionSelectionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.details["summary"], "partial_success")
         self.assertIn("transport unavailable", result.details["session_results"][0]["error"])
         self.assertTrue(result.details["session_results"][1]["succeeded"])
+
+
+class SavedSessionFixtureCleanupTests(unittest.TestCase):
+    def test_fixture_resources_are_cleaned_by_active_test_owner(self):
+        case = SavedSessionSelectionTests("test_mixed_selection_continues_after_failure_and_blocks_unavailable")
+        result = unittest.TestResult()
+        case.run(result)
+        self.assertEqual(result.errors, [])
+        self.assertEqual(result.failures, [])
+        self.assertFalse(case.root.exists())
+
+    def test_cleanup_failure_is_reported_without_skipping_other_cleanup(self):
+        class FailingCleanupCase(SavedSessionSelectionTests):
+            def setUp(self):
+                super().setUp()
+
+                def fail_cleanup():
+                    raise OSError("injected cleanup failure")
+
+                self.addCleanup(fail_cleanup)
+
+        case = FailingCleanupCase("test_terminal_states_qualify_without_participant_cleanup")
+        result = unittest.TestResult()
+        case.run(result)
+        self.assertEqual(len(result.errors), 1)
+        self.assertIn("injected cleanup failure", result.errors[0][1])
+        self.assertEqual(result.failures, [])
+        self.assertFalse(case.root.exists())
 
 
 if __name__ == "__main__":

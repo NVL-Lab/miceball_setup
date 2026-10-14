@@ -86,7 +86,9 @@ class StageBCollectionTests(unittest.IsolatedAsyncioTestCase):
     def collect(self, storage=None, identity="collection"):
         transport, _ = self.retrieval.ssh(self.sftp)
         with transport:
-            return (storage or self.storage).collect_saved_artifacts("session", evidence_id=identity)
+            # Exercise the existing internal Stage B/recovery contract, not operator selection.
+            return (storage or self.storage).collect_saved_artifacts(
+                "session", evidence_id=identity, require_eligible=False)
 
     async def recover(self, storage=None, *, identity="recovery", evidence_id="collection"):
         storage = storage or self.storage
@@ -297,6 +299,10 @@ class StageBCollectionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.sftp.opened), 1)
 
     async def test_controller_without_session_binding_coordinates_saved_collection(self):
+        evidence = records.PersistentStorageManagerTests._minimal_session_record_evidence("session")
+        evidence["lifecycle_evidence"] = ({"from_state": "stopping", "to_state": "completed"},)
+        evidence["final_session_status"] = {"state": "completed"}
+        self.storage.write_final_session_record("session", **evidence)
         controller = Controller(storage_manager=self.new_storage())
         before = controller.get_status()
         transport, _ = self.retrieval.ssh(self.sftp)
@@ -426,7 +432,8 @@ class StageBCollectionTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_empty_saved_handoff_records_empty_pass_without_inventing_artifacts(self):
         self.baseline("empty-session")
-        result = self.new_storage().collect_saved_artifacts("empty-session", evidence_id="empty-collection")
+        result = self.new_storage().collect_saved_artifacts(
+            "empty-session", evidence_id="empty-collection", require_eligible=False)
         self.assertTrue(result["archival_confirmed"])
         self.assertEqual(result["artifact_collection_result"], {"succeeded": True, "artifact_results": []})
         self.assertEqual(self.sftp.opened, [])
@@ -456,8 +463,8 @@ class StageBCollectionTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_actual_w043_w044_closeout_is_usable_without_original_bindings(self):
         stage = stages.AcquisitionStageArchivalTests()
+        stage.addCleanup = self.addCleanup
         stage.setUp()
-        self.addCleanup(stage.doCleanups)
         await stage.prepare()
         await stage.acknowledge()
         result = await stage.archive()
@@ -471,10 +478,11 @@ class StageBCollectionTests(unittest.IsolatedAsyncioTestCase):
         sftp = retrieval.SftpDouble(files)
         transport, _ = self.retrieval.ssh(sftp)
         with transport:
-            collected = Controller(storage_manager=restored).collect_saved_session_artifacts(
-                stage.session_id, evidence_id="collection")
-        self.assertTrue(collected.details["archival_confirmed"], collected.error)
-        self.assertEqual(collected.details["artifact_collection_result"]["artifact_results"][0][
+            # Stage A preservation alone is not ordinary terminal-Session operator selection.
+            collected = restored.collect_saved_artifacts(
+                stage.session_id, evidence_id="collection", require_eligible=False)
+        self.assertTrue(collected["archival_confirmed"])
+        self.assertEqual(collected["artifact_collection_result"]["artifact_results"][0][
             "verification_outcome"], "copied_unverified")
         self.assertEqual(stage.fixture.controller.get_status()["session_state"], "stopping")
 

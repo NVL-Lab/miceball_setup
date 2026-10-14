@@ -372,7 +372,8 @@ class PartialHandoffRecoveryTests(unittest.IsolatedAsyncioTestCase):
         transport, _ = retrieval.ArtifactRetrievalTests().ssh(
             retrieval.SftpDouble({manifest["local_storage_path"]: artifact}))
         with transport:
-            result = restored.collect_saved_artifacts(self.sid, evidence_id="recovered-collection")
+            result = restored.collect_saved_artifacts(
+                self.sid, evidence_id="recovered-collection", require_eligible=False)
         self.assertTrue(result["archival_confirmed"], result["preservation_warning"])
         self.assertEqual(result["artifact_collection_result"]["artifact_results"][0]["outcome"], "success")
         self.assertEqual(Path(manifest["local_storage_path"]).read_bytes(), artifact)
@@ -393,7 +394,8 @@ class PartialHandoffRecoveryTests(unittest.IsolatedAsyncioTestCase):
                 self.storage.refresh_partial_artifact_collection_handoff(self.sid, ingestor=self.intake)
         self.assertIsNone(self.baseline())
         with self.assertRaises(RuntimeError):
-            self.storage.collect_saved_artifacts(self.sid, evidence_id="not-authorized-refetch")
+            self.storage.collect_saved_artifacts(
+                self.sid, evidence_id="not-authorized-refetch", require_eligible=False)
         restored = PersistentStorageManager(self.recovery.root / "records.jsonl")
         interface = ServiceMaintenanceInterface(restored, RuntimeParticipant("storage_manager", "storage"),
             ingestor=self.intake, storage_manager=restored, preservation_window_s=0,
@@ -409,11 +411,13 @@ class PartialHandoffRecoveryTests(unittest.IsolatedAsyncioTestCase):
     async def test_started_but_interrupted_collection_freezes_partial_handoff_after_restart(self):
         with patch.object(self.storage, "_collect_artifacts", side_effect=KeyboardInterrupt("interrupted")):
             with self.assertRaises(KeyboardInterrupt):
-                self.storage.collect_saved_artifacts(self.sid, evidence_id="interrupted-collection")
+                self.storage.collect_saved_artifacts(
+                    self.sid, evidence_id="interrupted-collection", require_eligible=False)
         restored = PersistentStorageManager(self.recovery.root / "records.jsonl")
         with self.assertRaises(RuntimeError):
             restored.refresh_partial_artifact_collection_handoff(self.sid, ingestor=self.intake)
-        outcome = restored.collect_saved_artifacts(self.sid, evidence_id="interrupted-collection")
+        outcome = restored.collect_saved_artifacts(
+            self.sid, evidence_id="interrupted-collection", require_eligible=False)
         self.assertEqual(outcome["artifact_collection_result"]["artifact_results"][0]["outcome"], "unknown")
 
     async def test_concurrent_restart_owner_cannot_refresh_or_close_during_collection(self):
