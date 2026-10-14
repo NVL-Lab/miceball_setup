@@ -1,6 +1,6 @@
 # Code Map
 
-## Accepted Q019 closeout architecture (W041-W048 bounded slices validated; remaining integration pending)
+## Accepted Q019 closeout architecture (W041-W049 bounded slices validated; remaining integration pending)
 
 Decisions 356-365 qualify historical Session closeout and collection-evidence
 contracts. The accepted flow is producer publication confirmations, one
@@ -180,7 +180,7 @@ developer tests 27/27 and independent manual validation 8/8 PASS; initial audit 
 for the unresolved-path guard; normalized target/root correction with developer
 tests 6/6 and independent validation 2/2 PASS; final targeted re-audit PASS with no
 remaining confirmed P0-P3 findings. Historical failure and correction are retained.
-Bounded Normal Stop is complete in W047; W048 Kill is complete with independent validation and final re-audit PASS after corrections. W049 eligible-Session selection has a bounded developer implementation pending independent manual validation and audit;
+Bounded Normal Stop is complete in W047; W048 Kill is complete with independent validation and final re-audit PASS after corrections. W049 eligible-Session selection is complete with independent manual validation and final independent audit PASS after correction;
 overall Q019 integration validation remains pending.
 W033/M013, W035, W039, and W040 retain
 their validated scopes. Q019, Q024, Q022, Phase 16, and M015 remain OPEN. No

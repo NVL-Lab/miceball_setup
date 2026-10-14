@@ -585,9 +585,16 @@ state. Normal Stop requires complete producer, durable acceptance, and Stage A
 confirmations. Kill identifies partial preservation when completeness is unavailable;
 that confirms only preserved content, not acquisition success or safe resource
 release. Unknown outcomes remain unconfirmed. The low-level contracts are accepted,
-but Q019 remains OPEN for eligible-Session selection and overall integration validation. The receiving
+but Q019 remains OPEN for overall integration validation; eligible-Session selection is complete in W049. The receiving
 proof has linear history-read cost and requires intact global stream history from
 sequence 1; losing unrelated older history can block confirmation.
+W049 saved-Session selection is complete with independent manual validation and
+final independent audit PASS after correcting single-Session eligibility bypass
+and fixture cleanup. StorageManager lists candidates with separate eligibility,
+availability, and reasons; Controller independently collects selected Sessions
+and reports individual outcomes plus complete success, partial success, or failure.
+The validation is software/fixture-based, not hardware, deployment, or power-loss
+verification. W049 records the full failed-audit/correction history.
 No exact new filenames, fields, or APIs are
 defined here. W033/M013, W035, W039, and W040
 remain complete for their historical scopes; Q024, Q022, Phase 16, and M015 remain
@@ -715,7 +722,7 @@ It never automatically collects artifacts, closes the archive, or releases retai
 service bindings. Existing explicit binding release preserves the terminal Session
 Record; later Stage B uses the saved handoff. Uncertain receipt or preservation
 cannot confirm Normal Stop; unsafe persistence still requires authorized recovery.
-Q019 remains OPEN for Eligible-Session selection and overall integration validation. W041-W044, Q024, Q022,
+Q019 remains OPEN for overall integration validation; eligible-Session selection is complete in W049. W041-W044, Q024, Q022,
 Phase 16, and M015 statuses are unchanged.
 
 Phase 14 / Slice 27 Ingestor Crash Recovery and Handoff Reconstruction implements

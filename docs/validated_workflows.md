@@ -3464,6 +3464,102 @@ validation. Q022, Q024, Phase 16, and M015 remain OPEN.
 
 ---
 
+# W049 - Q019 Eligible-Session Selection and Multi-Session Collection
+
+**Status:** Complete - bounded implementation, targeted developer testing,
+independent manual validation, and final independent read-only audit PASS after
+correction of the original P2 and P3 findings.
+
+## Purpose
+
+Validate Decisions 359, 360, and 364's saved-Session enumeration, independent
+eligibility and collection-availability assessment, and operator-selected collection
+using existing W041-W048 persistence, handoff, recovery, and closure mechanisms.
+
+## Workflow and interfaces
+
+```text
+StorageManager enumerates existing persistent Session directories and records
+    -> independently confirms each candidate's lifecycle and collection availability
+    -> retains unavailable candidates with separate blockage reasons
+Operator selects one or multiple confirmed eligible and available Sessions
+    -> Controller independently processes each selected Session
+    -> StorageManager revalidates under collection guards before retrieval/persistence
+    -> existing per-Session collection preserves actual outcomes and evidence
+    -> report individual results and complete_success, partial_success, or failure
+```
+
+- `PersistentStorageManager.list_saved_sessions()` lists saved candidates without
+  a registry, original runtime bindings, or application restoration.
+- `get_saved_session_collection_status(session_id)` reports Session identity,
+  confirmed lifecycle state, eligibility, availability, and separate reasons.
+- `collect_saved_artifacts(session_id, *, evidence_id, require_eligible=True)`
+  enforces ordinary selection requirements by default. Explicit `False` preserves
+  existing internal Stage B/recovery preconditions, not ordinary operator selection.
+- `Controller.collect_saved_session_artifacts(session_id, *, evidence_id)` enforces
+  the same requirements for the existing single-Session operator entry point.
+- `collect_selected_session_artifacts(selections)` accepts a Session-ID-to-stable-
+  evidence-ID mapping and reuses per-Session collection independently. Ineligible or
+  unavailable candidates are rejected without collection; individual failures do
+  not prevent processing other valid candidates. Results include assessments,
+  collection outcomes/errors, and an overall summary.
+
+Eligibility requires durably confirmed `completed`, `failed`, or `aborted`;
+`stopping` or unverified terminal information does not qualify. Scientific-file
+incompleteness, absence, corruption, or unconfirmed participant cleanup does not
+independently disqualify a terminal Session. Collection availability separately
+requires verified safe preservation information. Missing, inconsistent, corrupted,
+or interrupted preservation blocks ordinary collection pending existing authorized
+recovery; permanently closed archives cannot accept further collection.
+
+Listing is observational; collection revalidates under existing preservation and
+handoff guards. Stable evidence identities preserve idempotency without automatic
+refetch, repair, retries, or cross-Session transactions. No special ordering is
+required. Selection does not authorize hardware/resource release or change lifecycle.
+Existing handoff freezing, immutable records/history, and archive closure remain intact.
+
+## Validation and audit history
+
+- Initial developer tests: **14/14 PASS**.
+- Initial independent manual IPython validation: **6/6 PASS**.
+- Initial independent read-only audit: **FAIL**. P2: the existing single-Session
+  API omitted eligibility enforcement, allowing retrieval from persisted `stopping`.
+  P3: nested W049 `IsolatedAsyncioTestCase` fixture cleanup silently failed because
+  the nested fixture had no initialized runner, causing temporary-resource problems.
+- Corrections explicitly enforce eligibility in ordinary Controller APIs and
+  change StorageManager's default after caller review. Internal Stage B/recovery
+  callers explicitly retain different preconditions where permitted. W049 fixture
+  cleanup callbacks register with the active owner; tests verify both resource
+  removal and observable cleanup failure without skipping remaining callbacks.
+- Corrective developer tests: **24/24 PASS**.
+- Independent manual correction validation: **6/6 PASS**; the Windows HDF5
+  temporary-file cleanup error did not recur.
+- Final independent read-only audit: **PASS**. Both original findings fully
+  resolved; no new confirmed P0-P3 findings. Six focused tests passed with zero
+  failures or skips. An independent mixed-selection resource probe confirmed zero
+  test errors/failures, removed temporary root, and zero additional open HDF5 files.
+
+These are prior developer tests and independent validation/audit results, not tests
+or another audit performed during documentation closure. No full-suite result is
+claimed. No production resource-lifecycle defect was demonstrated by the fixture issue.
+
+## Limitations and remaining work
+
+Enumeration uses the configured records directory, not discovery of other storage
+roots, and does not pre-probe scientific sources. Validation is software/fixture-
+based; it does not establish live external NATS, multi-host, Jetson, hardware,
+deployment, or power-loss guarantees. Existing filesystem, journal, receiving,
+and authorized-recovery prerequisites remain applicable. GUI presentation remains
+future work outside this repository; no new lifecycle, registry, or recovery
+infrastructure is introduced. W041-W048 historical records remain unchanged.
+
+Q019 remains OPEN for overall integration validation across its completed bounded
+slices, including their combined lifecycle, preservation, recovery, and collection
+boundaries. W049 does not establish that broader validation or close Q019.
+Q022, Q024, Phase 16, and M015 remain OPEN.
+
+---
+
 # Future Workflows
 
 The following workflows are expected to be added as the framework evolves.

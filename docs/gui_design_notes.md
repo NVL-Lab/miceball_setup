@@ -157,8 +157,8 @@ The future GUI could:
   later processing stages, not newly specified GUI execution mechanisms.
 
 Decisions 356-365 accept the framework boundaries, not these presentation ideas.
-W041-W048 are complete; eligible-Session selection implementation and overall Q019
-integration validation remain open. Decision 364 accepts StorageManager enumeration
+W041-W049 backend slices are complete; overall Q019 integration validation remains
+open, and all GUI features here remain future ideas. Decision 364 accepts StorageManager enumeration
 from existing persistent directories/records and Controller-coordinated operator
 selection, with independent eligibility validation for each candidate, not these
 GUI presentation ideas or unresolved collection-status semantics. These notes add

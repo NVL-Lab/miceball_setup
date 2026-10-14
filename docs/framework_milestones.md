@@ -1095,13 +1095,23 @@ Final correction passed 9/9 developer tests and 2/2 independent checks; final
 independent re-audit PASS found no remaining P0-P3 findings. W048 preserves the
 full history and Normal Stop guarantees. These are prior results, not new checks
 performed during documentation closure; no broader milestone is closed.
-Eligible-Session selection and overall Q019
-integration validation remain pending; Q022 and Q024
+**W049 - Complete, eligible-Session selection and multi-Session collection.**
+StorageManager enumerates existing saved directories and independently confirms
+terminal eligibility and safe collection availability. Controller processes selected
+Sessions independently with per-Session and aggregate outcomes; ordinary single-
+and multi-Session collection revalidate under existing guards. Initial developer
+tests 14/14 and independent manual validation 6/6 PASS preceded audit FAIL with
+P2 single-Session bypass and P3 nested fixture cleanup failure. Correction tests
+24/24 and independent correction validation 6/6 PASS; final independent audit PASS,
+both resolved and no new P0-P3 findings. W049 preserves the history and software-
+validation limitations. No broader milestone closure is recorded.
+Eligible-Session selection is complete in W049; overall Q019
+integration validation remains pending; Q022 and Q024
 remain OPEN.
 W041-W044 remain historically complete and unchanged;
 Phase 16 and M015 remain OPEN.
 
-Q019 remains OPEN for remaining implementation and independent verification.
+Q019 remains OPEN for overall integration validation of its completed bounded slices.
 W042 records only the completed publication prerequisite: initial independent manual
 validation 5/5 and 4/4 PASS; initial audit FAIL for the concurrent manifest cursor;
 manifest/health lock correction with 10 focused developer tests passed; real
