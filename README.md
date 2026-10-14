@@ -526,8 +526,10 @@ SynchronizationManager finish applicable closing-Session evidence publication
 before the single marker, without service-wide shutdown or publication barriers.
 Ingestor-owned locally journaled evidence needs no JetStream round trip and remains
 included in compilation/persistence. The supported publication prerequisite is
-implemented with automated coverage, pending independent manual validation/audit;
-the marker is not the Stop command and is not proof of archival or Session completion.
+complete with automated coverage, independent manual validation, and targeted
+independent re-audit PASS after the concurrent manifest/health cursor correction
+(W042). The marker is not the Stop command and is not proof of archival or
+Session completion.
 The accepted future closeout flow remains: required acquisition-stage producers
 confirm durable publication before Controller publishes one Session-scoped
 completion marker. Ingestor must independently verify earlier required durable
@@ -558,8 +560,7 @@ state. Normal Stop requires complete producer, durable acceptance, and Stage A
 confirmations. Kill identifies partial preservation when completeness is unavailable;
 that confirms only preserved content, not acquisition success or safe resource
 release. Unknown outcomes remain unconfirmed. The low-level contracts are accepted,
-but Q019 remains OPEN for independent validation/audit of the new publication
-prerequisite, complete Controller closeout integration,
+but Q019 remains OPEN for complete Controller closeout integration,
 staged archival, durable handoff, and their independent verification. The receiving
 proof has linear history-read cost and requires intact global stream history from
 sequence 1; losing unrelated older history can block confirmation.

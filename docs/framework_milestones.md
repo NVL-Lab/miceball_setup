@@ -489,7 +489,8 @@ complete for their original validated scope. The new Q019 contracts are accepted
 not fully implemented or independently validated. Decision 361's receiving
 foundation and routing prerequisite are separately complete with automated testing,
 independent manual validation, and final independent re-audit PASS in W041;
-complete closeout and Decisions 362-365 remain unimplemented.
+the producer/marker prerequisite is separately complete after correction in W042.
+Complete closeout and Decisions 362-365 remain unimplemented.
 Original implementation results and audit records above are unchanged.
 
 ---
@@ -960,7 +961,7 @@ Q024-B Decisions 339-348 remain complete, independently validated/audited in W03
 all earlier workflow records are preserved. Decision 336 remains partially
 implemented. Q024, Q019, Q022, Phase 16, and M015 remain OPEN.
 
-## Accepted Q019 acquisition closeout and later collection (receiving foundation validated)
+## Accepted Q019 acquisition closeout and later collection (receiving and publication prerequisites validated)
 
 Decisions 356-365 accept producer-confirmed acquisition evidence completion plus
 independent Ingestor consumption proof, Stage A acquisition evidence/audit/summary
@@ -989,8 +990,9 @@ before existing successful completion responses, including when selected devices
 are optional. Controller and SynchronizationManager finish applicable closing-Session
 publication before the single marker; locally journaled Ingestor-owned evidence
 remains in compilation/persistence without a JetStream round trip. The marker is
-not the Stop command. The supported producer/marker prerequisite is implemented
-with developer automated coverage, pending independent manual validation and audit;
+not the Stop command. The supported producer/marker prerequisite is complete
+with developer automated coverage, independent manual validation, and targeted
+independent re-audit PASS after the cursor-race correction (W042);
 it neither requires long-lived service shutdown nor changes W041's completed scope.
 
 Decision 361's receiving foundation and routing prerequisite are complete in W041:
@@ -1005,7 +1007,12 @@ claim external-cluster, multi-host, Jetson, or hardware deployment validation.
 Complete Controller Normal Stop/Kill orchestration and
 Decisions 362-365 remain unimplemented. No overall milestone completion is claimed.
 Q019 remains OPEN for remaining implementation and independent verification.
-The new prerequisite is not a completed validated slice and does not close a milestone.
+W042 records only the completed publication prerequisite: initial independent manual
+validation 5/5 and 4/4 PASS; initial audit FAIL for the concurrent manifest cursor;
+manifest/health lock correction with 10 focused developer tests passed; real
+JetStream correction validation 7/7 PASS; and targeted independent re-audit PASS
+with no remaining confirmed P0-P3 findings. These are previously executed results,
+not new validation during documentation closure, and do not close a milestone.
 The receipt proof has linear history-read cost and conservatively requires intact
 global stream history from sequence 1; unrelated older history loss can prevent
 confirmation. W041 does not establish producer confirmations, Session completion,

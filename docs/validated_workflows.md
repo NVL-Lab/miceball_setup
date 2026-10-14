@@ -2685,6 +2685,129 @@ registry, per-producer terminal marker, polling, or new lifecycle state was intr
 
 ---
 
+# W042 - Q019 Decision 366 Producer Publication Confirmation and Completion Marker
+
+**Status:** Complete - narrow producer-confirmation and marker-publication
+prerequisite, developer automated testing, independent manual IPython validation,
+and targeted independent read-only re-audit PASS after the P2 correction.
+
+## Purpose
+
+Validate publication of applicable acquisition-stage evidence before successful
+producer completion responses and the single Controller Session-scoped marker.
+Use W041's existing Ingestor receiving foundation to verify durable receipt
+separately. This completes the publication prerequisite, not broader Q019 closeout.
+
+## Workflow
+
+```text
+Existing acquisition stop/cleanup orchestration
+    -> participating AcquisitionNodes generate and durably publish applicable evidence
+    -> existing successful node completion responses confirm publication
+    -> SynchronizationManager finishes closing-Session timing/mapping publication
+    -> Controller confirms producers and completed health processing
+    -> Controller durably publishes its own applicable Session evidence
+    -> Controller durably publishes one acquisition_evidence_completion marker
+    -> Ingestor independently verifies receipt through the marker using W041
+```
+
+Every AcquisitionNode actually participating in acquisition has the publication
+obligation, including nodes with selected optional devices. Unused optional devices
+create no obligation. Initial and finalized ArtifactManifest messages retain their
+artifact identity; applicable manifest, health, and pending runtime evidence precede
+successful node completion responses. Failed, missing, or uncertain publication
+prevents completion confirmation and marker publication.
+
+SynchronizationManager stops prepared Session Time, retires only the closing
+Session's mappings, and publishes applicable retained timing/mapping updates,
+including closeout updates, before confirming. Other Session mappings and the
+long-lived service remain independent. Ingestor-owned locally journaled recovery
+evidence is not republished through JetStream.
+
+After existing brokered stop/cleanup, callers explicitly use
+`Controller.publish_acquisition_evidence_completion(communication=..., result_window_s=...)`.
+It requires correlated successful participating-node stops and synchronization
+publication confirmation, refuses unfinished Controller health processing, and
+publishes owned decisions, rejection evidence, and pending scoped publications
+before the marker. Successful results expose `details["marker"]` and
+`details["publication_confirmed"]`. Interrupted operations retain evidence identity
+for explicit retry; confirmed repeated calls emit no new marker. An uncertain ACK
+can lead to identical retransmission, using existing evidence-ID deduplication.
+
+Separate asynchronous locks serialize manifest and health publication passes.
+Snapshot selection, durable publication, and cursor advancement are protected
+together; each entry advances progress only after its acknowledgment. Failure or
+cancellation releases the lock without skipping evidence and preserves retry
+identity. A waiting callback rereads current progress rather than advancing a
+stale cursor. No synchronous lock is held across publication awaits.
+
+The marker is not the Stop command, Ingestor receipt proof, Evidence Archive
+confirmation, or Session completion. W041 verifies the actually published prefix;
+producer guarantees separately establish that applicable evidence was published.
+
+## Independent manual IPython validation
+
+- Initial successful two-node publication, including an optional device, ordering,
+  synchronization/Controller evidence, and W041 receipt: **5/5 PASS**.
+- Initial failed producer publication, unsuccessful cleanup confirmation, retained
+  evidence, and marker withholding: **4/4 PASS**. The logged NATS exception was
+  deliberately injected.
+- After correction, real JetStream concurrency reproduction: **7/7 PASS**.
+  Exactly one initial `open` manifest and one `finalized` manifest were published,
+  followed by the successful stop response and completion marker. Cleanup-only
+  connection-reset logs resulted from the manual harness stopping its temporary
+  server before closing clients, not a demonstrated framework failure.
+
+## Automated validation and independent audit
+
+- **Initial independent audit: FAIL.** One blocking P2: overlapping Session-scoped
+  artifact preparation and Session-independent `get_inventory` callbacks could
+  publish the same initial manifest and independently increment the shared cursor.
+  The later finalized manifest was skipped despite successful stop/marker results.
+  Broker-double and real JetStream probes reproduced this; W041 correctly confirmed
+  the published prefix but could not detect the producer's omitted message.
+- The correction serializes manifest publication and the equivalent health cursor
+  path with separate asynchronous locks, retaining the existing identities,
+  acknowledgment, publication order, and retry contracts.
+- Developer impact-selected correction tests: **10 passed, 0 failed, 0 skipped**.
+  Coverage includes the exact overlapping-callback reproduction, withholding the
+  marker while finalized publication is pending, failure/cancellation with waiting
+  callbacks and identical retry, overlapping health publication and later evidence,
+  and actual real JetStream publication followed by W041 receipt verification.
+  Existing selected checks cover producer ordering, delayed/failed publication,
+  retained caller-managed evidence, health Session isolation, and evidence transport.
+- **Independent targeted read-only re-audit: PASS.** The original P2 was resolved;
+  no confirmed remaining P0-P3 findings or directly related architectural violations
+  were identified. Source review found no concrete issue requiring additional
+  test execution; no suites were rerun during the targeted re-audit.
+
+These are previously executed developer tests and independent manual/audit results,
+not tests or IPython validation performed during this documentation closure. The
+initial failed audit is preserved; the implementation is not described as having
+passed without correction. No full-suite result is claimed for this correction.
+
+## Limitations and completion
+
+Only Decision 366's producer-confirmation/marker prerequisite is complete. W041's
+historical record remains unchanged: its then-unimplemented producer work is the
+subsequent scope closed here. W041 receiving-history limitations still apply.
+
+Q019 remains OPEN for complete Controller Normal Stop/Kill integration, Decision
+362 Stage A/Stage B preservation and permanent archive closure, Decision 363
+temporary durable collection outcomes, and Decision 364 durable artifact handoff
+and later stopped-Session collection. Decision 365 complete normal/partial forced
+closeout remains unimplemented. Marker publication alone does not advance lifecycle
+or implement these archival and collection responsibilities.
+
+Q024, Q022, Phase 16, and M015 remain OPEN. Decision 336 remains partial and
+Decisions 349-350 and 353-355 remain unimplemented. Earlier validated workflows
+retain their historical scopes. Validation used controlled software/broker doubles
+and isolated/local real JetStream, not an external NATS cluster, multi-host, Jetson,
+or camera hardware deployment. No producer registry, per-producer terminal marker,
+new evidence transport, automatic retry/replay, polling, or lifecycle state is added.
+
+---
+
 # Future Workflows
 
 The following workflows are expected to be added as the framework evolves.

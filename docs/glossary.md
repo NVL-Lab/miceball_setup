@@ -1391,8 +1391,9 @@ Controller and SynchronizationManager finish their own applicable closing-Sessio
 publication before the marker, without shutting down their long-lived services or
 draining unrelated evidence. Ingestor-owned locally journaled evidence needs no
 JetStream round trip; applicable Session evidence remains part of compilation and
-persistence. The supported publication prerequisite is implemented with automated
-coverage, pending independent manual validation and audit; complete closeout is deferred.
+persistence. The supported publication prerequisite is complete with automated
+coverage, independent manual validation, and targeted re-audit PASS after correction
+(W042); complete closeout is deferred.
 
 ---
 
@@ -1410,8 +1411,8 @@ earlier required durable acceptance using verified contiguous JetStream acknowle
 progress across the full relevant publication interval, with receiving position
 retained across restarts (Decision 361). Marker receipt or isolated ACKs alone are
 insufficient. W041 validates the receiving foundation only; the subsequent supported
-producer/marker prerequisite has automated coverage, pending independent validation
-and audit. Neither publication nor
+producer/marker prerequisite is independently validated and audited after correction
+(W042). Neither publication nor
 marker acceptance alone proves complete receipt, archival, or successful Session
 completion. No new message schema is specified here.
 

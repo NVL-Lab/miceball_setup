@@ -1,6 +1,6 @@
 # Code Map
 
-## Accepted Q019 closeout architecture (receiving foundation validated; closeout pending)
+## Accepted Q019 closeout architecture (receiving and publication prerequisites validated; closeout pending)
 
 Decisions 356-365 qualify historical Session closeout and collection-evidence
 contracts. The accepted future flow is producer publication confirmations, one
@@ -24,8 +24,9 @@ Decision 365 requires complete Normal Stop confirmations; authorized Kill Sessio
 preserves explicitly partial information and existing safety without automatic
 collection or permanent archive closure. Unknown outcomes remain unconfirmed.
 
-Decision 366's supported publication prerequisite is implemented with automated
-coverage, pending independent manual validation and audit: participating
+Decision 366's supported publication prerequisite is complete with automated
+coverage, independent manual validation, and targeted independent re-audit PASS
+after the cursor-race correction (W042): participating
 AcquisitionNodes publish applicable evidence before existing successful completion
 responses, regardless of selected-device optionality. Controller and
 SynchronizationManager complete applicable closing-Session publication before the
@@ -72,9 +73,8 @@ The receipt foundation and disjoint routing prerequisite are complete with autom
 testing, independent manual IPython validation, and final independent re-audit PASS
 after both corrections (W041), using isolated local JetStream and controlled doubles.
 Verification has linear broker-history read cost; no external-cluster or hardware
-validation is claimed. Independent validation/audit of the new producer/marker
-prerequisite, full Controller
-closeout integration, crash-safe staged archival,
+validation is claimed. W042 separately closes the producer/marker prerequisite;
+full Controller closeout integration, crash-safe staged archival,
 and durable handoff lookup/selection remain unimplemented Q019 work.
 W033/M013, W035, W039, and W040 retain
 their validated scopes. Q019, Q024, Q022, Phase 16, and M015 remain OPEN. No
@@ -1033,7 +1033,8 @@ cannot retroactively change a completed Session's lifecycle. Required
 pre-completion failure handling remains unchanged. Q019's Session-wide consumption/
 staged archive coordination is accepted in Decisions 356-365; the receiving
 foundation and Decision 366 producer/marker prerequisite are implemented, not
-staged closeout. The latter prerequisite awaits independent validation and audit.
+staged closeout. W042 records independent validation and targeted re-audit PASS
+for the latter prerequisite after correction.
 
 ## tests/test_producer_publication_completion.py
 
