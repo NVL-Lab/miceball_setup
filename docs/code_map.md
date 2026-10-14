@@ -100,8 +100,26 @@ refused. Unconfirmed writes remain visible in existing unfinished-record diagnos
 readback after restart without original runtime bindings. Applicable Q019 Controller
 and Ingestor release guards require current handoff coverage. Legacy non-Q019 release
 paths are unchanged. No lifecycle completion or release is performed by preservation.
-Full Controller closeout integration, Stage B archival/closure, and later
-eligible-Session selection remain unimplemented Q019 work.
+Bounded Stage B collection/direct evidence persistence is implemented for developer
+verification, pending independent validation and audit (W045 remains OPEN).
+`Controller.collect_saved_session_artifacts(session_id, evidence_id=...)` delegates
+to StorageManager without restoring a Session binding. Persisted evidence, audit,
+summary, final record, and handoff establish a known-Session baseline after restart
+or another Session's archival; file/supported-directory fsync and reread reconfirm
+durability without content replacement. Collection uses existing retrieval/light verification.
+`artifact_collection_outcome.json` temporarily retains the existing collection
+message and stable caller-supplied identity before direct append; summary origin
+IDs distinguish Ingestor evidence from StorageManager evidence. Original acquisition
+bytes, audit, final record, and handoff remain unchanged. Current readback, not a
+status flag, confirms preservation; no JetStream publication or invented audit is used.
+An identified pending append requires the existing authorized `recover_archive_write`
+operation with `obligation={"session_id": ..., "evidence_id": ...}`. It can complete
+only the matching append/summary, never refetch artifacts or rewrite confirmed
+history. Unknown interruption outcomes are distinct from proven scientific loss.
+The existing preservation lock serializes owner operations; known-Session lookup
+does not discover all pending work. This does not support multiple simultaneously
+authoritative StorageManagers sharing a directory. Full Controller closeout,
+permanent closure, and later eligible-Session selection remain unimplemented.
 W033/M013, W035, W039, and W040 retain
 their validated scopes. Q019, Q024, Q022, Phase 16, and M015 remain OPEN. No
 additional architectural API or storage schema is defined here.
@@ -843,6 +861,17 @@ recovery is introduced. Phase 16 and M015 remain open.
 - PersistentStorageManager.collect_artifacts(handoff): Independently retrieves one file per manifest through SSH/SFTP, including missing-finalization candidates, then lightly verifies completed global copies without changing authoritative sources or Session products.
 - PersistentStorageManager.collect_artifacts_with_evidence(handoff): Awaits publication of one persistent global_artifact_collection_evidence message after a completed pass, preserving separate per-artifact retrieval/verification outcomes and operational wall-clock bounds.
 - PersistentStorageManager._record_collection_evidence: Creates and retains the same compiled global collection message for ordinary collection and an explicitly authorized fresh transfer.
+- PersistentStorageManager.collect_saved_artifacts(session_id, *, evidence_id): Collects an explicitly selected saved handoff, durably retains actual outcomes before direct archival, and returns collection results separately from preservation confirmation without automatic refetch on repetition.
+- PersistentStorageManager.get_persisted_session_preservation_confirmation(session_id): Validates existing Stage A/B products, coverage, identities, provenance, and handoff after restart without cached Session bindings, returning detached products or None for uncertainty.
+- PersistentStorageManager._collection_outcome_path(session_id): Locates the temporary outcome message in the existing known-Session directory.
+- PersistentStorageManager._read_preservation_json(contents): Reads preservation JSON while rejecting duplicate fields and non-finite values.
+- PersistentStorageManager._read_stage_b_baseline(session_id, pending=None): Validates confirmed product coverage and saved manifest associations, permitting only the identified pending append suffix for evidence-only recovery.
+- PersistentStorageManager._validate_collection_outcome(session_id, message): Validates the retained owner/Session/evidence identity and separate success, failure, or unknown collection outcomes.
+- PersistentStorageManager._collection_evidence_line(message): Serializes one stable collection message with type-sensitive JSON identity for append and retry checks.
+- PersistentStorageManager._write_collection_outcome(message): Non-overwritingly publishes and fsync/readback-confirms the temporary actual outcome before any direct archival append.
+- PersistentStorageManager._append_collection_evidence(message, *, expected_baseline=None): Preserves confirmed historical bytes, completes only the matching outcome append and provenance update, verifies current durable products, and safely retires the temporary outcome.
+- PersistentStorageManager._saved_collection_result(message): Reconstructs existing ArtifactCollectionResult objects from retained outcome evidence without reexecuting collection.
+- PersistentStorageManager._require_rewritable_session_archive(session_id): Prevents legacy acquisition writers from replacing pending/direct collection evidence, closed archives, or their final Session Record.
 - Configured evidence publication requires the awaited collection method; collect_artifacts rejects that configuration rather than silently bypassing publication, while legacy unconfigured synchronous collection remains supported.
 - PersistentStorageManager._verify_artifact: Selects the current framework-managed HDF5 contract from existing manifest format metadata and checks read-only structure, identity, and counts without reading scientific datasets or altering copies.
 - _VerificationReader: Private read-only HDF5 file-access wrapper tracking actual I/O failure without retaining callback tracebacks, so format rejection is classified independently of diagnostic wording.
@@ -863,7 +892,7 @@ recovery is introduced. Phase 16 and M015 remain open.
 - PersistentStorageManager._write_record_contents: Writes serialized Session Record or Stage A summary contents with flush/fsync and supported directory durability, without creating lifecycle evidence.
 - PersistentStorageManager._read_archive_products: Reads the existing evidence/audit/summary products for exact current-write confirmation, without interpreting evidence meaning.
 - PersistentStorageManager._framework_evidence_write_safe: Allows new protected informational/recovery evidence archival only for a pristine target or currently confirmed archive, not implicit repair of existing unconfirmed products.
-- PersistentStorageManager._recover_archive_write: Repeats one identified interrupted archive write from trusted Ingestor compilation and verifies all three durable products after journal-backed authorization/attempt admission.
+- PersistentStorageManager._recover_archive_write: Uses existing journal-backed authorization/attempt admission to recover either legacy compiled archival or an identified durable Stage B outcome append without refetching scientific artifacts or requiring the old Session intake.
 - PersistentStorageManager._recover_session_record_write: Repeats an interrupted initial/final record write only from complete retained original inputs, confirming actual contents without advancing Session lifecycle.
 - PersistentStorageManager._recover_artifact_transfer: Makes one authorized fresh complete transfer from the original failed collection and authoritative handoff through existing destination/source/verification mechanisms, retaining normal global collection evidence.
 - PersistentStorageManager.session_preservation_guard(session_id): Synchronous context manager yielding current confirmation while holding the archive/final-record write lock through the caller's release commit; callers must not await or acquire a new Ingestor intake lock while holding it.
@@ -1007,6 +1036,7 @@ this compiler; diagnostics compilation and application-wide restart remain defer
 
 - Controller.collect_session_artifacts(): Explicitly initiates collection after the Session ends, compiles the existing handoff, and returns aggregate results in ControllerCommandResult.details without changing Session lifecycle or persistent Session products.
 - Controller.collect_session_artifacts_with_evidence(): Requires a stopping Session and stopped acquisition runtime, guards active collection/publication against overlapping collection or finalization, and releases the guard on success, failure, or cancellation without translating evidence or changing lifecycle.
+- Controller.collect_saved_session_artifacts(session_id, *, evidence_id): Coordinates explicit known-Session Stage B collection and returns aggregate results plus archival confirmation without restoring bindings or changing Session lifecycle.
 
 Install the optional SSH dependency with `pip install -e ".[artifact-retrieval]"`.
 PersistentStorageManager maps logical node IDs to SshRetrievalEndpoint objects;
@@ -1072,7 +1102,8 @@ foundation and Decision 366 producer/marker prerequisite do not provide full
 staged closeout. W042 records independent validation and targeted re-audit PASS
 for the latter prerequisite after correction. Explicit Stage A archival is complete
 with developer tests, independent manual validation, and independent audit PASS
-(W043); Stage B and full closeout remain deferred.
+(W043); bounded Stage B collection/evidence persistence is implemented pending
+independent validation/audit, while permanent closure and full closeout remain deferred.
 
 ## tests/test_acquisition_stage_archival.py
 
@@ -1082,6 +1113,10 @@ with developer tests, independent manual validation, and independent audit PASS
 
 - DurableArtifactHandoffTests: Exercises durable manifest handoff readback, missing finalization, malformed data, interruption, concurrent publication, safe retry, and known-Session restart lookup through real persistence.
 - CloseoutArtifactHandoffTests: Exercises the explicit post-Stage-A Controller step, protected journal/archival prerequisites, failure retention, unchanged Stage A products, and applicable release protection with later binding-independent readback.
+
+## tests/test_stage_b_collection.py
+
+- StageBCollectionTests: Exercises known-Session Stage B using real persistence and SSH-only doubles, including W043/W044 integration, restart/other-Session baselines, independent failure/unknown outcomes, direct evidence provenance, concurrent idempotency, corruption, interruption, authorized evidence-only recovery, and unchanged historical products.
 
 ## tests/test_producer_publication_completion.py
 

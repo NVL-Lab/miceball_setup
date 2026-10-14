@@ -9779,9 +9779,10 @@ does not choose their command contracts or required confirmation representation.
 synchronized; complete closeout is not implemented, independently validated, or
 complete. W041 separately completes Decision 361's receiving foundation and routing
 prerequisite after independent validation and final re-audit PASS. Q019
-remains OPEN for complete Controller closeout orchestration, two-stage
-integrity and interrupted direct-write recovery, durable handoff representation/
-lookup/eligible-Session selection, and normal versus forced partial confirmations.
+remains OPEN for complete Controller closeout orchestration, permanent archive
+closure, eligible-Session selection, and normal versus forced partial confirmations.
+W043/W044 separately complete bounded Stage A and durable handoff; bounded Stage B
+collection/evidence persistence is implemented pending independent validation/audit.
 Earlier decisions, implementation records, and validation results remain historical;
 W033/M013, W035, W039, and W040 retain their completed validated scopes. Decisions
 349-350 and 353-355 remain unimplemented; Decision 336 remains partial. Q024, Q022,
@@ -9840,8 +9841,9 @@ coverage, independent manual validation, and targeted independent re-audit PASS 
 correction (W042). Full Controller Normal Stop/Kill
 orchestration remains unimplemented. Decision 362's bounded Stage A slice is
 complete with automated testing, independent manual validation, and independent
-audit PASS (W043); Stage B and
-Decisions 363/365 remain unimplemented; the bounded Decision 364 handoff is complete
+audit PASS (W043); bounded Stage B collection/direct evidence persistence is
+implemented pending independent validation/audit, while permanent closure and
+Decision 365 remain unimplemented; the bounded Decision 364 handoff is complete
 with automated testing, independent manual validation, and independent audit PASS
 (W044). Missing history or an unknown receiving origin cannot establish completeness;
 no narrower publication-interval boundary is invented. Q019 remains OPEN.
@@ -9895,8 +9897,9 @@ information. Previously confirmed Stage B evidence is recognized without
 duplication; duplicate evidence IDs cannot generate duplicate archive records.
 Permanent archive immutability remains required after confirmed closure. Missing,
 conflicting, incomplete, or untrustworthy evidence is reported without inventing
-preservation success. This clarification is accepted; W045 implementation and
-validation remain pending, and Q019 remains OPEN.
+preservation success. This clarification is accepted; bounded W045 implementation
+is available with focused developer testing, while independent validation/audit
+and closure remain pending. Q019 remains OPEN.
 
 **Implementation status (Stage A slice):** Explicit Controller archival now verifies
 W041 receipt of its confirmed W042 marker and protects the current journal/intake
@@ -9949,7 +9952,23 @@ collection outcomes and evidence IDs. Interrupted evidence persistence must not
 automatically trigger scientific-artifact transfer again or imply successful
 permanent archive closure. Existing authorization and recovery constraints remain
 applicable; no new recovery subsystem or automatic repair policy is authorized.
-This clarification is not implemented or validated by documentation synchronization.
+Documentation synchronization itself did not implement or validate this clarification.
+
+**Implementation status (bounded Stage B collection/evidence persistence):**
+StorageManager validates existing known-Session products and the saved handoff
+after restart or another Session's archival, without old bindings or a new
+compilation. Explicit collection reuses existing retrieval/light verification;
+actual results and a stable evidence ID are fsync/readback-preserved temporarily
+before direct runtime-evidence append and provenance update. Exact current
+readback confirms preservation separately from collection success. Existing
+authorized `recover_archive_write` can complete the identified pending evidence
+write without refetch, duplicate records, or historical replacement. Corrupt or
+conflicting products remain unconfirmed. Original acquisition evidence, audit,
+record, and prior confirmed collection evidence are preserved; the archive stays
+OPEN. Developer coverage is implemented in `tests/test_stage_b_collection.py`;
+independent manual validation, audit, and W045 closure remain pending. Permanent
+closure, eligible-Session selection, and full Normal Stop/Kill are not implemented.
+Q019, Q024, Q022, Phase 16, and M015 remain OPEN.
 
 ---
 
@@ -10032,7 +10051,9 @@ prerequisite is complete with automated coverage, independent manual validation,
 and targeted independent re-audit PASS after correction (W042). Complete closeout
 remains unimplemented. The bounded Stage A slice under Decision 362 is complete
 with automated testing, independent manual validation, and independent audit PASS
-(W043); Stage B and Decisions 363/365 remain unimplemented. The bounded Decision 364
+(W043); bounded Stage B collection/Decision 363 persistence is implemented pending
+independent validation/audit; permanent closure and Decision 365 remain unimplemented.
+The bounded Decision 364
 handoff is complete with automated testing, independent manual validation, and
 independent audit PASS (W044).
 These decisions resolve the contract
@@ -10160,7 +10181,9 @@ automated coverage, independent manual validation, and targeted independent
 re-audit PASS after correction (W042). Complete Controller closeout
 orchestration remains unimplemented. Bounded Stage A under Decision 362 is complete
 with automated testing, independent manual validation, and independent audit PASS
-(W043); Stage B and Decisions 363/365 remain unimplemented. Decision 364's bounded
+(W043); bounded Stage B collection/Decision 363 persistence is implemented pending
+independent validation/audit; permanent closure and Decision 365 remain unimplemented.
+Decision 364's bounded
 durable handoff is complete with automated testing, independent manual validation,
 and independent audit PASS (W044);
 eligible-Session selection remains unimplemented. Q019 remains OPEN; historical completed
@@ -10546,7 +10569,7 @@ requirements remain authoritative.
 362. The existing compilation summary records Stage A completion and Stage B permanent closure with distinct evidence origins; status alone is not preservation proof, and verified consistent durable closure makes the single archive immutable.
 363. StorageManager temporarily durably preserves each actual collection outcome and unique evidence ID before direct archival; confirmed archival and duplicate protection permit safe temporary retirement and authorized evidence-write recovery without repeating transfer.
 364. Ingestor's existing handoff is verified durably preserved by StorageManager as a separate Session-associated JSON file in the existing Session directory; later selected collection validates it without old bindings, invented registries, or guessed missing information.
-365. Normal Stop requires producer confirmations, complete durable Ingestor acceptance, and complete Stage A preservation; authorized Kill Session preserves confirmed accessible partial information without claiming completeness or safe resource release. Decision 361's receiving foundation is complete with independent manual validation and final independent re-audit PASS after correction (W041); the supported producer/marker prerequisite is complete with automated coverage, independent manual validation, and targeted independent re-audit PASS after correction (W042); bounded Stage A under Decision 362 is complete with automated testing, independent manual validation, and independent audit PASS (W043); bounded Decision 364 durable handoff is complete with automated testing, independent manual validation, and independent audit PASS (W044); complete Controller closeout, Stage B, Decisions 363/365, and eligible-Session selection remain unimplemented. Q019, Q024, Q022, Phase 16, and M015 remain OPEN.
+365. Normal Stop requires producer confirmations, complete durable Ingestor acceptance, and complete Stage A preservation; authorized Kill Session preserves confirmed accessible partial information without claiming completeness or safe resource release. Decision 361's receiving foundation is complete with independent manual validation and final independent re-audit PASS after correction (W041); the supported producer/marker prerequisite is complete with automated coverage, independent manual validation, and targeted independent re-audit PASS after correction (W042); bounded Stage A under Decision 362 is complete with automated testing, independent manual validation, and independent audit PASS (W043); bounded Decision 364 durable handoff is complete with automated testing, independent manual validation, and independent audit PASS (W044); bounded Stage B collection/Decision 363 evidence persistence is implemented pending independent validation/audit; complete Controller closeout, permanent closure, Decision 365, and eligible-Session selection remain unimplemented. Q019, Q024, Q022, Phase 16, and M015 remain OPEN.
 
 366. Participating AcquisitionNodes confirm durable acquisition-stage evidence publication through their existing successful completion responses regardless of selected-device optionality; Controller and SynchronizationManager finish applicable closing-Session publication before the single marker, while locally journaled Ingestor evidence needs no JetStream round trip. The supported publication prerequisite is complete with automated coverage, independent manual validation, and targeted independent re-audit PASS after correction (W042); W041 is unchanged and Q019 remains OPEN.
 

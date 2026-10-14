@@ -220,9 +220,10 @@ class PersistentStorageManager:
         await self._evidence_publisher(message)
         return result
 
-    def _record_collection_evidence(self, session_id: str, started_at: float, evidence_results: list[dict]) -> RuntimeEvidenceMessage:
+    def _record_collection_evidence(self, session_id: str, started_at: float, evidence_results: list[dict],
+                                    *, evidence_id: str | None = None) -> RuntimeEvidenceMessage:
         message = RuntimeEvidenceMessage(
-            evidence_id=uuid4().hex,
+            evidence_id=evidence_id or uuid4().hex,
             session_id=session_id,
             evidence_type="global_artifact_collection_evidence",
             source_id=self._component_id,
@@ -232,6 +233,348 @@ class PersistentStorageManager:
         )
         self._collection_evidence.append(message)
         return message
+
+    def _collection_outcome_path(self, session_id: str) -> Path:
+        return self._artifact_collection_handoff_path(session_id).parent / "artifact_collection_outcome.json"
+
+    @staticmethod
+    def _read_preservation_json(contents: bytes) -> Any:
+        def unique_fields(pairs):
+            fields = {}
+            for key, value in pairs:
+                if key in fields:
+                    raise ValueError("Conflicting duplicate preservation fields")
+                fields[key] = value
+            return fields
+        def invalid_number(value):
+            raise ValueError("Non-finite preservation value")
+        return json.loads(contents, object_pairs_hook=unique_fields, parse_constant=invalid_number)
+
+    def _read_stage_b_baseline(self, session_id: str, pending: dict | None = None) -> dict:
+        """Validate existing products; only the identified pending append may be incomplete."""
+        directory = self._artifact_collection_handoff_path(session_id).parent
+        if (any(path in self._unfinished_record_paths for path in (
+                directory / "session_record_final.json", directory / "artifact_collection_handoff.json"))
+                or (session_id in self._unfinished_archive_scopes and pending is None)):
+            raise RuntimeError("Existing persistence remains unconfirmed")
+        files = {name: directory / "evidence" / filename for name, filename in (
+            ("runtime_evidence", "runtime_evidence.jsonl"), ("ingest_audit", "ingest_audit.jsonl"),
+            ("compilation_summary", "compilation_summary.json"))}
+        files.update(session_record=directory / "session_record_final.json",
+                     artifact_collection_handoff=directory / "artifact_collection_handoff.json")
+        raw = {name: path.read_bytes() for name, path in files.items()}
+        summary = self._read_preservation_json(raw["compilation_summary"])
+        if (not isinstance(summary, dict) or summary.get("session_id") != session_id
+                or summary.get("stage_a_complete") is not True
+                or type(summary.get("archive_closed")) is not bool):
+            raise ValueError("Stage A completion and archive state are unconfirmed")
+        count = summary.get("runtime_evidence_count")
+        if type(count) is not int or count < 1:
+            raise ValueError("Invalid evidence coverage count")
+        lines = raw["runtime_evidence"].splitlines(keepends=True)
+        prefix = b"".join(lines[:count])
+        suffix = b"".join(lines[count:])
+        if len(lines) < count or any(not line.endswith(b"\n") for line in lines[:count]):
+            raise ValueError("Confirmed evidence prefix is incomplete")
+        evidence = [self._read_preservation_json(line) for line in lines[:count]]
+        audit = [self._read_preservation_json(line) for line in raw["ingest_audit"].splitlines()]
+        if raw["ingest_audit"] and not raw["ingest_audit"].endswith(b"\n"):
+            raise ValueError("Intake audit ends with an incomplete record")
+        if any(not isinstance(item, dict) for item in evidence + audit):
+            raise ValueError("Invalid evidence or audit record")
+        ids = [item.get("evidence_id") for item in evidence]
+        if (any(not isinstance(identity, str) or not identity for identity in ids)
+                or len(set(ids)) != len(ids) or ids != summary.get("runtime_evidence_ids")
+                or any(item.get("session_id") != session_id or item.get("is_persistent") is not True
+                       or not isinstance(item.get("payload"), dict)
+                       or any(not isinstance(item.get(name), str) or not item[name]
+                              for name in ("source_id", "evidence_type")) for item in evidence)
+                or type(summary.get("ingest_audit_count")) is not int
+                or summary["ingest_audit_count"] != len(audit)
+                or [item.get("evidence_id") for item in audit] != summary.get("ingest_audit_evidence_ids")
+                or any(type(item.get("accepted")) is not bool
+                       or type(item.get("ingest_order")) is not int
+                       or item["ingest_order"] != index for index, item in enumerate(audit, 1))):
+            raise ValueError("Evidence or complete intake-audit coverage is inconsistent")
+        origins = summary.get("runtime_evidence_origins")
+        if (not isinstance(origins, dict) or set(origins) - {"ingestor", "storage_manager"}
+                or not isinstance(origins.get("ingestor"), list)
+                or not isinstance(origins.get("storage_manager", []), list)
+                or origins["ingestor"] + origins.get("storage_manager", []) != ids):
+            raise ValueError("Evidence provenance is inconsistent")
+        accepted = {item.get("evidence_id") for item in audit if item["accepted"]}
+        if not set(origins["ingestor"]).issubset(accepted):
+            raise ValueError("Acquisition evidence lacks accepted intake coverage")
+        for item in evidence:
+            RuntimeEvidenceMessage.from_dict(item)
+            if item["evidence_id"] in origins.get("storage_manager", []):
+                self._validate_collection_outcome(session_id, item)
+        marker = summary.get("acquisition_evidence_completion")
+        if (not isinstance(marker, dict) or type(marker.get("marker_stream_sequence")) is not int
+                or marker["marker_stream_sequence"] <= 0
+                or marker.get("evidence_id") not in origins["ingestor"]
+                or not any(item["evidence_id"] == marker["evidence_id"]
+                           and item.get("evidence_type") == "acquisition_evidence_completion" for item in evidence)):
+            raise ValueError("Acquisition receipt provenance is unconfirmed")
+        record = self._read_preservation_json(raw["session_record"])
+        if (not isinstance(record, dict) or not isinstance(record.get("accepted_session_config"), dict)
+                or record["accepted_session_config"].get("session_id") != session_id
+                or any(not isinstance(record.get(name), list) for name in (
+                    "session_lifecycle_evidence", "readiness_evidence", "device_readiness_evidence",
+                    "service_readiness_evidence", "accepted_acquisition_envelopes", "ingest_audit_records",
+                    "runtime_evidence", "runtime_evidence_audit", "warnings_or_failures",
+                    "experiment_lifecycle_evidence", "experiment_descriptors"))
+                or not isinstance(record.get("cleanup_evidence"), dict)
+                or (record.get("final_session_status") is not None
+                    and not isinstance(record["final_session_status"], dict))):
+            raise ValueError("Final Session Record identity is inconsistent")
+        handoff = self._validate_artifact_collection_handoff(
+            session_id, self._read_preservation_json(raw["artifact_collection_handoff"]))
+        # Readback verifies the saved compiler output against the accepted manifest evidence.
+        manifests = {}
+        for item in evidence:
+            if item.get("evidence_type") == "artifact_manifest":
+                manifest = ArtifactManifest.from_dict(item["payload"])
+                if manifest.session_id != session_id:
+                    raise ValueError("Manifest evidence has a conflicting Session identity")
+                if manifest.artifact_manifest_id not in manifests or manifest.lifecycle_state == "finalized":
+                    manifests[manifest.artifact_manifest_id] = manifest.to_dict()
+        if [entry["artifact_manifest"] for entry in handoff["artifacts"]] != list(manifests.values()):
+            raise ValueError("Saved handoff differs from accepted manifest evidence")
+        artifact_ids = [entry["artifact_manifest"]["artifact_manifest_id"] for entry in handoff["artifacts"]]
+        for item in evidence + ([pending] if pending is not None else []):
+            if item.get("evidence_type") == "global_artifact_collection_evidence" and item["evidence_id"] not in origins["ingestor"]:
+                self._validate_collection_outcome(session_id, item)
+                if [result["artifact_manifest_id"] for result in item["payload"]["artifact_results"]] != artifact_ids:
+                    raise ValueError("Collection outcome coverage differs from saved artifact identities")
+                for result, entry in zip(item["payload"]["artifact_results"], handoff["artifacts"]):
+                    if any(result.get(name) != entry["artifact_manifest"][name] for name in (
+                            "experiment_id", "acquisition_node_id", "artifact_type")):
+                        raise ValueError("Collection outcome participant association conflicts with saved manifest")
+        if suffix:
+            if pending is None or pending["evidence_id"] in ids or not self._collection_evidence_line(pending).startswith(suffix):
+                raise ValueError("Unconfirmed or conflicting evidence append")
+        if pending is not None:
+            matching = [item for item in evidence if item["evidence_id"] == pending["evidence_id"]]
+            if matching and self._collection_evidence_line(matching[0]) != self._collection_evidence_line(pending):
+                raise ValueError("Collection evidence identity conflicts with archived contents")
+        archived = {item["evidence_id"]: item for item in evidence}
+        for retained in self._collection_evidence:
+            if retained.session_id == session_id:
+                actual = (pending if pending is not None and retained.evidence_id == pending["evidence_id"]
+                          else archived.get(retained.evidence_id))
+                if actual is None or self._collection_evidence_line(actual) != self._collection_evidence_line(retained.to_dict()):
+                    raise ValueError("Retained collection evidence is missing or conflicts with current preservation")
+        # After restart there is no successful-write cache: reconfirm the existing
+        # files and directory entries without rewriting their contents.
+        for path in files.values():
+            with path.open("r+b") as source:
+                os.fsync(source.fileno())
+        self._sync_artifact_handoff_directory(files["artifact_collection_handoff"])
+        self._sync_artifact_handoff_directory(files["runtime_evidence"])
+        if any(path.read_bytes() != raw[name] for name, path in files.items()):
+            raise RuntimeError("Persisted products changed during baseline confirmation")
+        return {"session_id": session_id, "runtime_evidence": evidence, "ingest_audit": audit,
+                "compilation_summary": summary, "session_record": record,
+                "artifact_collection_handoff": handoff, "raw": raw, "paths": files,
+                "prefix": prefix, "suffix": suffix}
+
+    def get_persisted_session_preservation_confirmation(self, session_id: str) -> dict | None:
+        """Validate a known Session's persisted Stage A/B products without cached bindings."""
+        with self._preservation_lock:
+            try:
+                if self._collection_outcome_path(session_id).exists():
+                    return None
+                baseline = self._read_stage_b_baseline(session_id)
+                return {name: baseline[name] for name in (
+                    "session_id", "runtime_evidence", "ingest_audit", "compilation_summary",
+                    "session_record", "artifact_collection_handoff")}
+            except (OSError, ValueError, TypeError, KeyError, RuntimeError):
+                return None
+
+    def _validate_collection_outcome(self, session_id: str, message: Any) -> dict:
+        if (not isinstance(message, dict) or message.get("session_id") != session_id
+                or message.get("source_id") != self._component_id
+                or message.get("evidence_type") != "global_artifact_collection_evidence"
+                or message.get("is_persistent") is not True
+                or not isinstance(message.get("evidence_id"), str) or not message["evidence_id"]
+                or not isinstance(message.get("payload"), dict)
+                or any(type(message["payload"].get(name)) not in {int, float}
+                       for name in ("started_at", "finished_at"))
+                or not isinstance(message["payload"].get("artifact_results"), list)
+                or any(not isinstance(item, dict) or item.get("collection_status") not in {"success", "failure", "unknown"}
+                       or not isinstance(item.get("artifact_manifest_id"), str)
+                       or not item["artifact_manifest_id"]
+                       or (item["collection_status"] == "success" and (
+                           not isinstance(item.get("global_artifact_locator"), str)
+                           or not item["global_artifact_locator"]
+                           or item.get("verification_status") not in {
+                               "verified", "copied_unverified", "structurally_invalid", "verification_failed"}))
+                       or (item["collection_status"] != "success" and (
+                           item.get("global_artifact_locator") is not None
+                           or item.get("verification_status") is not None
+                           or not isinstance(item.get("failure_information"), str)))
+                       for item in message["payload"]["artifact_results"])):
+            raise ValueError("Collection outcome identity or contents are unconfirmed")
+        RuntimeEvidenceMessage.from_dict(message)
+        return message
+
+    @staticmethod
+    def _collection_evidence_line(message: dict) -> bytes:
+        return (json.dumps(message, sort_keys=True, allow_nan=False) + "\n").encode("utf-8")
+
+    def _write_collection_outcome(self, message: dict) -> None:
+        path = self._collection_outcome_path(message["session_id"])
+        temporary = None
+        try:
+            if path.exists():
+                if self._collection_evidence_line(self._read_preservation_json(path.read_bytes())) != self._collection_evidence_line(message):
+                    raise ValueError("Another collection outcome requires authorized reconciliation")
+            else:
+                with NamedTemporaryFile(dir=path.parent, prefix=".incomplete-outcome-", delete=False) as output:
+                    temporary = Path(output.name)
+                self._write_record_contents(temporary, json.dumps(message, sort_keys=True, allow_nan=False))
+                os.link(temporary, path)
+            with path.open("r+b") as output:
+                os.fsync(output.fileno())
+            self._sync_artifact_handoff_directory(path)
+            if self._collection_evidence_line(self._read_preservation_json(path.read_bytes())) != self._collection_evidence_line(message):
+                raise RuntimeError("Collection outcome durability is unconfirmed")
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
+
+    def _append_collection_evidence(self, message: dict, *, expected_baseline: dict | None = None) -> None:
+        session_id = message["session_id"]
+        baseline = self._read_stage_b_baseline(session_id, message)
+        if expected_baseline is not None and baseline["raw"] != expected_baseline["raw"]:
+            raise RuntimeError("Persisted baseline changed during artifact collection")
+        summary = deepcopy(baseline["compilation_summary"])
+        if summary["archive_closed"]:
+            raise RuntimeError("Closed Evidence Archive is immutable")
+        paths, raw = baseline["paths"], baseline["raw"]
+        expected_evidence = baseline["runtime_evidence"]
+        if message["evidence_id"] not in summary["runtime_evidence_ids"]:
+            expected_evidence = expected_evidence + [message]
+            # Only the identified pending suffix may be replaced during authorized recovery.
+            with paths["runtime_evidence"].open("r+b") as output:
+                if output.read() != raw["runtime_evidence"]:
+                    raise RuntimeError("Evidence changed during collection preservation")
+                output.seek(len(baseline["prefix"]))
+                output.write(self._collection_evidence_line(message))
+                output.truncate()
+                output.flush()
+                os.fsync(output.fileno())
+            summary["runtime_evidence_ids"].append(message["evidence_id"])
+            summary["runtime_evidence_count"] += 1
+            summary["runtime_evidence_origins"].setdefault("storage_manager", []).append(message["evidence_id"])
+            temporary = None
+            try:
+                with NamedTemporaryFile(dir=paths["compilation_summary"].parent,
+                                        prefix=".incomplete-summary-", delete=False) as output:
+                    temporary = Path(output.name)
+                self._write_record_contents(temporary, json.dumps(summary, indent=2, allow_nan=False))
+                if paths["compilation_summary"].read_bytes() != raw["compilation_summary"]:
+                    raise RuntimeError("Compilation summary changed during collection preservation")
+                os.replace(temporary, paths["compilation_summary"])
+                temporary = None
+                self._sync_artifact_handoff_directory(paths["compilation_summary"])
+            finally:
+                if temporary is not None:
+                    temporary.unlink(missing_ok=True)
+        # Confirm durability again even when a previous append completed before interruption.
+        for name in ("runtime_evidence", "compilation_summary"):
+            with paths[name].open("r+b") as output:
+                os.fsync(output.fileno())
+        self._sync_artifact_handoff_directory(paths["runtime_evidence"])
+        current = self._read_stage_b_baseline(session_id, message)
+        if (current["runtime_evidence"] != expected_evidence or current["compilation_summary"] != summary
+                or not current["raw"]["runtime_evidence"].startswith(baseline["prefix"])
+                or any(current["raw"][name] != raw[name] for name in (
+                    "ingest_audit", "session_record", "artifact_collection_handoff"))):
+            raise RuntimeError("Collection evidence archival readback is unconfirmed")
+        self._archive_confirmation = {name: current[name] for name in (
+            "session_id", "runtime_evidence", "ingest_audit", "compilation_summary")}
+        self._final_record_confirmation = (session_id, paths["session_record"], raw["session_record"].decode("utf-8"))
+        self._unfinished_archive_scopes.discard(session_id)
+        self._collection_outcome_path(session_id).unlink()
+        self._sync_artifact_handoff_directory(self._collection_outcome_path(session_id))
+
+    @staticmethod
+    def _saved_collection_result(message: dict) -> ArtifactCollectionResult:
+        return ArtifactCollectionResult(tuple(ArtifactRetrievalResult(
+            item["artifact_manifest_id"], item["collection_status"], item.get("global_artifact_locator"),
+            item.get("failure_information") if item["collection_status"] != "success" else None,
+            item.get("verification_status"),
+            item.get("failure_information") if item["collection_status"] == "success" else None,
+        ) for item in message["payload"]["artifact_results"]))
+
+    @service_operation(new_work=True)
+    def collect_saved_artifacts(self, session_id: str, *, evidence_id: str) -> dict:
+        """Collect an explicit known Session and directly preserve outcomes, without refetch on retry."""
+        if not isinstance(evidence_id, str) or not evidence_id:
+            raise ValueError("A stable unique collection evidence ID is required")
+        with self._preservation_lock:
+            pending_path = self._collection_outcome_path(session_id)
+            if pending_path.exists():
+                self._unfinished_archive_scopes.add(session_id)
+            pending = (self._validate_collection_outcome(session_id, self._read_preservation_json(pending_path.read_bytes()))
+                       if pending_path.exists() else None)
+            if pending is not None and not any(m.evidence_id == pending["evidence_id"]
+                                               and m.session_id == session_id for m in self._collection_evidence):
+                self._collection_evidence.append(RuntimeEvidenceMessage.from_dict(pending))
+            retained = next((m.to_dict() for m in self._collection_evidence
+                             if m.session_id == session_id and m.evidence_id == evidence_id), None)
+            baseline = self._read_stage_b_baseline(session_id, pending or retained)
+            if baseline["compilation_summary"]["archive_closed"]:
+                raise RuntimeError("Closed Evidence Archive is immutable")
+            archived = next((m for m in baseline["runtime_evidence"] if m["evidence_id"] == evidence_id), None)
+            if archived is not None:
+                self._validate_collection_outcome(session_id, archived)
+                if evidence_id not in baseline["compilation_summary"]["runtime_evidence_origins"].get("storage_manager", []):
+                    raise ValueError("Collection evidence ID already belongs to acquisition evidence")
+                if pending is not None and pending["evidence_id"] != evidence_id:
+                    raise RuntimeError("Pending collection evidence requires authorized recovery")
+                if pending is None and not baseline["suffix"]:
+                    return {"session_id": session_id, "artifact_collection_result": self._saved_collection_result(archived).to_dict(),
+                            "collection_evidence": archived, "outcome_durable": True,
+                            "archival_confirmed": True, "archive_closed": False, "preservation_warning": None}
+            if pending is not None and pending["evidence_id"] != evidence_id:
+                raise RuntimeError("Pending collection evidence requires authorized recovery")
+            message = pending or retained
+            if message is not None:
+                return {"session_id": session_id, "artifact_collection_result": self._saved_collection_result(message).to_dict(),
+                        "collection_evidence": message, "outcome_durable": pending is not None,
+                        "archival_confirmed": False, "archive_closed": False,
+                        "preservation_warning": "Collection outcome requires separately authorized evidence recovery; no artifacts refetched"}
+            results = []
+            started = time()
+            interrupted = None
+            try:
+                self._collect_artifacts(baseline["artifact_collection_handoff"], results)
+            except BaseException as error:
+                interrupted = error
+                for entry in baseline["artifact_collection_handoff"]["artifacts"][len(results):]:
+                    manifest = ArtifactManifest.from_dict(entry["artifact_manifest"])
+                    results.append(self._collection_evidence_result(manifest, entry["artifact_manifest"],
+                        ArtifactRetrievalResult(manifest.artifact_manifest_id, "unknown",
+                            failure_information="Collection interrupted before a confirmed outcome; transfer is not automatically repeated")))
+            message = self._record_collection_evidence(session_id, started, results, evidence_id=evidence_id).to_dict()
+            durable = confirmed = False
+            warning = None
+            self._unfinished_archive_scopes.add(session_id)
+            try:
+                self._write_collection_outcome(message)
+                durable = True
+                self._append_collection_evidence(message, expected_baseline=baseline)
+                confirmed = True
+            except Exception as error:
+                warning = f"{type(error).__name__}: {error}; scientific collection outcomes remain separate from evidence preservation"
+            if interrupted is not None:
+                raise interrupted
+            return {"session_id": session_id, "artifact_collection_result": self._saved_collection_result(message).to_dict(),
+                    "collection_evidence": message, "outcome_durable": durable,
+                    "archival_confirmed": confirmed, "archive_closed": False, "preservation_warning": warning}
 
     def _collect_artifacts(
         self, handoff: dict[str, Any], evidence_results: list[dict[str, Any]] | None = None,
@@ -558,6 +901,7 @@ class PersistentStorageManager:
         """Write the final Phase 13 Session Record to its accepted path."""
 
         with self._preservation_lock:
+            self._require_rewritable_session_archive(session_id)
             self._final_record_confirmation = None
             path = self._session_directory(session_id) / "session_record_final.json"
             self.write_session_record(path, **session_record_evidence)
@@ -573,6 +917,7 @@ class PersistentStorageManager:
         """Write the Phase 13 Evidence Archive from Ingestor compilation."""
 
         with self._preservation_lock:
+            self._require_rewritable_session_archive(session_id)
             # A failed rewrite must never leave an earlier receipt authorizing release.
             self._archive_confirmation = None
             self._unfinished_archive_scopes.add(session_id)
@@ -620,6 +965,17 @@ class PersistentStorageManager:
                 "ingest_audit": ingest_audit_path,
                 "compilation_summary": compilation_summary_path,
             }
+
+    def _require_rewritable_session_archive(self, session_id: str) -> None:
+        """Legacy compilation must not erase direct collection evidence or a closed archive."""
+        if self._collection_outcome_path(session_id).exists():
+            raise RuntimeError("Pending collection evidence requires authorized recovery, not archive replacement")
+        path = self._session_directory(session_id) / "evidence/compilation_summary.json"
+        if path.exists():
+            summary = self._read_preservation_json(path.read_bytes())
+            if (summary.get("archive_closed") is True
+                    or summary.get("runtime_evidence_origins", {}).get("storage_manager")):
+                raise RuntimeError("Stage B or closed archive products cannot be replaced by acquisition compilation")
 
     @service_operation()
     def write_acquisition_stage(
@@ -939,6 +1295,8 @@ class PersistentStorageManager:
             blockers = ["Unfinished persistence"] if self._unfinished_archive_scopes or self._unfinished_record_paths else []
             for message in self._collection_evidence:
                 confirmation = self.get_session_preservation_confirmation(message.session_id)
+                if confirmation is None:
+                    confirmation = self.get_persisted_session_preservation_confirmation(message.session_id)
                 if confirmation is None or message.to_dict() not in confirmation["runtime_evidence"]:
                     blockers.append("Unpreserved collection evidence")
                     break
@@ -948,6 +1306,23 @@ class PersistentStorageManager:
         interface = self._maintenance
         interface._require_recovery_authorization(command)
         scope = command.payload["obligation"].get("session_id")
+        if scope is not None and command.payload["obligation"].get("evidence_id") is not None:
+            path = self._collection_outcome_path(scope)
+            identity = command.payload["obligation"]["evidence_id"]
+            message = (self._read_preservation_json(path.read_bytes()) if path.exists() else next(
+                (m.to_dict() for m in self._collection_evidence
+                 if m.session_id == scope and m.evidence_id == identity), None))
+            message = self._validate_collection_outcome(scope, message)
+            if message["evidence_id"] != identity:
+                raise ValueError("Authorized evidence identity differs from the pending collection outcome")
+            self._read_stage_b_baseline(scope, message)
+            self._unfinished_archive_scopes.add(scope)
+            attempt["actions"].append("collection_evidence_write_attempted")
+            self._write_collection_outcome(message)
+            self._append_collection_evidence(message)
+            attempt["actions"].append("collection_evidence_write_confirmed")
+            return {"actual_write_confirmed": True, "session_id": scope, "evidence_id": identity,
+                    "artifact_refetch_performed": False}
         if scope not in self._unfinished_archive_scopes:
             raise ValueError("No identified interrupted archive write remains")
         intake = interface.ingestor
@@ -1045,12 +1420,16 @@ class PersistentStorageManager:
         evidence = []
         for message in messages:
             confirmation = self.get_session_preservation_confirmation(message.session_id)
+            if confirmation is None:
+                confirmation = self.get_persisted_session_preservation_confirmation(message.session_id)
             preserved = confirmation is not None and message.to_dict() in confirmation["runtime_evidence"]
             evidence.append({"session_id": message.session_id, "evidence_id": message.evidence_id,
                 "archival_outcome": "completed" if preserved else "unresolved",
                 "administrative_outcome": interface._administrative_outcome({"evidence_id": message.evidence_id}) if interface else None,
                 "recovery_assessment": (None if preserved else "potentially_recoverable"
-                    if ingestor.has_durable_runtime_evidence(message) else "administrator_intervention"),
+                    if (self._collection_outcome_path(message.session_id).exists()
+                        or (ingestor is not None and ingestor.has_durable_runtime_evidence(message)))
+                    else "administrator_intervention"),
                 "artifact_results": deepcopy(message.payload["artifact_results"])})
         return {
             "unfinished_archive_scopes": scopes,

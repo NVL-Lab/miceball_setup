@@ -1477,6 +1477,18 @@ class Controller:
                 "collect_session_artifacts_with_evidence", RuntimeError("Artifact collection had failures"), details)
         return self._record_successful_command("collect_session_artifacts_with_evidence", details)
 
+    @service_operation(new_work=True)
+    def collect_saved_session_artifacts(self, session_id: str, *, evidence_id: str) -> ControllerCommandResult:
+        """Coordinate explicit saved-handoff collection without restoring a Session binding."""
+        try:
+            details = self._storage_manager.collect_saved_artifacts(session_id, evidence_id=evidence_id)
+        except Exception as error:
+            return self._record_failed_command("collect_saved_session_artifacts", error)
+        if not details["archival_confirmed"] or not details["artifact_collection_result"]["succeeded"]:
+            return self._record_failed_command("collect_saved_session_artifacts",
+                RuntimeError("Collection or collection-evidence preservation is incomplete"), details)
+        return self._record_successful_command("collect_saved_session_artifacts", details)
+
     def get_status(self) -> dict[str, Any]:
         """Return a small Controller view without redefining owned lifecycles."""
 

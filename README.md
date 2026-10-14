@@ -512,8 +512,10 @@ validation, and final independent re-audit PASS after both corrections (W041).
 Validation used local NATS/software, not an external cluster, multi-host, Jetson,
 or hardware deployment. Complete closeout remains unimplemented. Decision 362's
 explicit Stage A slice is complete with developer automated testing, independent
-manual validation, and independent audit PASS (W043); Stage B and Decisions
-363 and 365 remain unimplemented; Decision 364's bounded durable handoff is complete
+manual validation, and independent audit PASS (W043); bounded Stage B collection
+and Decision 363 evidence persistence are implemented pending independent
+validation/audit, while permanent closure and Decision 365 remain unimplemented;
+Decision 364's bounded durable handoff is complete
 with automated testing, independent manual validation, and independent audit PASS (W044).
 Session evidence uses a durable explicit-ACK receiving position and journal-before-
 server-confirmed-ACK acceptance. Receipt readback verifies an existing completion
@@ -564,8 +566,8 @@ state. Normal Stop requires complete producer, durable acceptance, and Stage A
 confirmations. Kill identifies partial preservation when completeness is unavailable;
 that confirms only preserved content, not acquisition success or safe resource
 release. Unknown outcomes remain unconfirmed. The low-level contracts are accepted,
-but Q019 remains OPEN for complete Controller closeout integration,
-staged archival, durable handoff, and their independent verification. The receiving
+but Q019 remains OPEN for complete Controller closeout integration, permanent
+archive closure, eligible-Session selection, and remaining independent verification. The receiving
 proof has linear history-read cost and requires intact global stream history from
 sequence 1; losing unrelated older history can block confirmation.
 No exact new filenames, fields, or APIs are
@@ -613,6 +615,46 @@ slice is complete with 24 focused developer tests passed, independent manual
 IPython validation 17/17 PASS, and independent audit PASS with no confirmed P0-P3
 defects (W044). It does not change W041-W043, complete/release the Session, select eligible Sessions,
 perform Stage B collection, or close the archive. Q019 remains OPEN.
+
+The bounded W045 Stage B implementation is available for developer verification;
+independent manual validation/audit and workflow closure remain pending. Given the
+same `records_path` parent, logical StorageManager `component_id`, configured
+`global_artifact_root`, and node-keyed SSH endpoints, it needs no old Session binding:
+
+```python
+from uuid import uuid4
+
+attempt_id = uuid4().hex  # Retain this unique identity for readback/repeated requests.
+result = controller.collect_saved_session_artifacts(session_id, evidence_id=attempt_id)
+details = result.details
+```
+
+The synchronous StorageManager entry point is
+`storage.collect_saved_artifacts(session_id, evidence_id=attempt_id)`;
+`storage.get_persisted_session_preservation_confirmation(session_id)` checks
+persisted products without cached Stage A snapshots, reconfirming file and supported
+directory durability without changing bytes (existing products require owner
+read/write access for fsync). Collection result, temporary
+outcome durability, archival confirmation, and preservation warning remain separate
+in returned details. StorageManager appends its own evidence directly and updates
+summary provenance without JetStream or fabricated intake audit; the archive stays
+OPEN and existing scientific sources, Stage A evidence, audit, and final record are
+unchanged. Reusing a confirmed ID reads its result without another transfer;
+pending evidence never triggers automatic refetch or repair.
+
+Interrupted evidence writes use the existing ServiceMaintenanceInterface:
+record a new explicit `resume` decision for `recover_archive_write` tied to its
+command ID and `obligation={"session_id": session_id, "evidence_id": attempt_id}`,
+then execute that correlated command. Existing framework journal-backed
+authorization and attempt acceptance remain required, including after restart;
+original Session intake is unnecessary. Recovery completes only a trustworthy
+matching temporary outcome/append and summary. Invalid baselines or conflicting
+bytes are refused. If a crash precedes outcome durability, missing outcomes are
+not reconstructed from artifact existence; only still-retained live outcomes can
+be preserved. Known-Session lookup is not application-wide discovery. Filesystem
+hard-link/fsync prerequisites still apply, and power-loss behavior is unvalidated.
+Permanent closure, eligible-Session selection, and full Normal Stop/Kill remain
+deferred; W041-W044, Q024, Q022, Phase 16, and M015 statuses are unchanged.
 
 Phase 14 / Slice 27 Ingestor Crash Recovery and Handoff Reconstruction implements
 Decisions 276-280 and is complete (M014, W034), following independent manual

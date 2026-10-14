@@ -492,8 +492,9 @@ independent manual validation, and final independent re-audit PASS in W041;
 the producer/marker prerequisite is separately complete after correction in W042.
 Complete closeout remains unimplemented; the explicit Stage A slice under Decision
 362 is complete with automated testing, independent manual validation, and
-independent audit PASS (W043). Stage B and
-Decisions 363/365 remain unimplemented; the bounded Decision 364 durable handoff
+independent audit PASS (W043). Bounded Stage B collection/direct persistence is
+implemented pending independent validation/audit; permanent closure and Decision
+365 remain unimplemented; the bounded Decision 364 durable handoff
 is complete with automated testing, independent manual validation, and independent
 audit PASS (W044).
 Original implementation results and audit records above are unchanged.
@@ -1028,11 +1029,11 @@ validation 6/6, 5/5, and 6/6 PASS (17/17 total), and independent audit PASS with
 no confirmed P0-P3 defects or required corrections. Filesystem/hard-link
 prerequisites remain applicable; power-loss behavior was not independently tested.
 These are previously executed/reported results, not validation during documentation closure.
-It does not alter Stage A products or lifecycle. Complete Controller Normal Stop/Kill
-orchestration, Stage B, Decisions 363/365, and eligible-Session selection remain
-unimplemented. No overall milestone completion is claimed.
+It does not alter Stage A products or lifecycle. At W044 closure, Stage B and
+Decisions 363/365 remained unimplemented; the bounded subsequent W045 progress is
+tracked below. No overall milestone completion is claimed.
 
-**W045 - OPEN, accepted LLC clarification synchronized; implementation pending.**
+**W045 - OPEN, bounded implementation and developer testing; independent validation/audit pending.**
 For a known Session, StorageManager may establish the trusted Stage A baseline from
 validated existing Session products independently of cached state and original
 Controller/Ingestor bindings (clarifications to Decisions 358/362/363). Stage B
@@ -1043,9 +1044,13 @@ contents and durable temporary outcomes/IDs under existing authorization, withou
 automatic refetch, repair, or new preservation infrastructure. Scientific-artifact
 preservation is primary; operational-evidence uncertainty is not automatically
 scientific-data loss. Mandatory evidence guarantees remain applicable.
-This synchronization does not implement or validate W045, close Q019, or advance
-permanent archive closure, full Normal Stop/Kill integration, eligible-Session
-selection, Q022, or Q024. W041-W044 remain historically complete and unchanged;
+The bounded implementation now validates persisted baselines, collects from saved
+handoffs, retains durable temporary outcomes, directly appends collection evidence,
+updates provenance, and supports existing authorized evidence-only recovery without
+refetch. Focused developer tests do not constitute independent validation or audit.
+No W045 closure is recorded; permanent archive closure, full Normal Stop/Kill
+integration, eligible-Session selection, Q022, and Q024 remain deferred.
+W041-W044 remain historically complete and unchanged;
 Phase 16 and M015 remain OPEN.
 
 Q019 remains OPEN for remaining implementation and independent verification.
