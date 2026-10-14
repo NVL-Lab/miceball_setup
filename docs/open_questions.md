@@ -564,6 +564,13 @@ Accepted architecture
   Normal Stop completeness requirements are unchanged. W048 implementation and
   independent verification remain pending; this is not a new unresolved Experiment
   event-mapping question.
+  Decisions 034/365 also permit Session transition to `aborted` when participant
+  cleanup remains unconfirmed. `cleanup_occurred=True` records local Session
+  cleanup, not confirmed cleanup of all participants. Participant cleanup, hardware
+  safety, and resource-release obligations remain separately represented, with
+  existing safety and authorized recovery protections mandatory. The Session
+  lifecycle clarification is resolved; W048 implementation and validation remain
+  pending, without changing Normal Stop guarantees.
   Decision 364 now permits StorageManager to refresh a partial handoff from
   additional verified manifests obtained through authorized recovery, following
   existing Ingestor compilation rules and confirmed durability while preserving

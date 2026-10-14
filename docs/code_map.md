@@ -35,6 +35,11 @@ W048's synchronized clarification in Decisions 113, 362, 364, and 365 uses canon
 unconfirmed cleanup, preserves available evidence without inventing completeness,
 and permits later operator-requested collection from available verified artifact
 information. This is an accepted implementation contract, not current Kill support.
+Decisions 034/365 permit Kill to transition the Session to `aborted` despite
+unconfirmed participant cleanup. `cleanup_occurred=True` denotes the Session's
+local cleanup procedure only; participant cleanup, hardware safety, and resource-
+release obligations remain separately represented and protected by existing safety
+and authorized recovery requirements. This does not weaken Normal Stop guarantees.
 The existing complete-receipt Stage A writer and complete-only persisted collection
 baseline need narrowly scoped partial-preservation integration using the existing
 owners and mechanisms; their Normal Stop guarantees must remain unchanged.

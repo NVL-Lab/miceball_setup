@@ -935,6 +935,15 @@ fatal error   -> failed
 user abort    -> aborted
 ```
 
+**W048 clarification (Decision 365):** Kill Session may transition to `aborted`
+even when participant cleanup remains unconfirmed. `cleanup_occurred=True` means
+the Session performed its local cleanup procedure; it does not confirm successful
+cleanup of all participants. Unconfirmed participant cleanup, hardware safety,
+and resource-release obligations must be represented separately. Existing safety
+requirements and authorized recovery protections remain mandatory. This
+clarification does not change Normal Stop guarantees or unrelated lifecycle
+behavior and introduces no new lifecycle states or infrastructure.
+
 ---
 
 ## Decision 035: Failure is recorded as data
@@ -10141,6 +10150,20 @@ is partial. Reuse existing lifecycle, evidence, storage, and recovery mechanisms
 do not weaken Normal Stop guarantees or introduce new infrastructure. The
 implementation-facing partial-baseline clarification is recorded in Decision 362.
 This documentation synchronization does not implement or validate W048.
+
+**W048 clarification (Session lifecycle and cleanup):** Kill Session may transition
+the Session to `aborted` even when participant cleanup remains unconfirmed.
+`cleanup_occurred=True` means the Session performed its local cleanup procedure,
+not that all participants were successfully cleaned up. Unconfirmed participant
+cleanup, hardware safety, and resource-release obligations must be represented
+separately; existing safety requirements and authorized recovery protections
+remain mandatory. This qualifies Decision 034's cleanup wording for Kill only.
+Experiment termination remains `experiment_abort` under Decision 113; neither
+that event nor Session abortion confirms participant cleanup, complete evidence
+preservation, or safe resource release. Normal Stop guarantees and Decision 364's
+pre-Stage-B partial-handoff refresh boundary remain unchanged. No new lifecycle
+states or infrastructure are required. This clarification does not implement or
+validate W048.
 
 **Both:** Preserve accessible acquisition evidence promptly; do not automatically
 start global artifact collection. Support later operator-requested collection,
