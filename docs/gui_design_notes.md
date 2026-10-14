@@ -128,11 +128,20 @@ The future GUI could:
   multiple Sessions for collection without automatic collection or restoration of
   their original bindings. Proposed collection labels are not collected, partially
   collected, fully collected, failed, or unresolved; these are future presentation
-  ideas, not accepted backend states or definitions. Their interpretation must await
-  resolution of backend actionability, recovery, and closed-archive distinctions.
+  ideas, not accepted backend states or definitions; no detailed mapping of these
+  presentation labels is defined here.
   Display actual retrieval, verification, and evidence-preservation outcomes
   separately from acquisition. This feature is not current Q019 implementation
   or an accepted GUI requirement.
+- Add a future **collection-availability column** to that table, distinguishing
+  Session eligibility from whether collection can currently proceed and explaining
+  why it is unavailable or requires recovery. Reflect Decision 364's accepted
+  backend distinction: scientific-file defects alone do not block collection
+  attempts, unconfirmed preservation information requires existing authorized
+  recovery, and permanently closed archives cannot accept further collection.
+  This is future GUI functionality, not current Q019 implementation or a new GUI
+  contract; retain lifecycle/collection-status displays and multi-selection without
+  defining still-open mixed-selection behavior.
 - Present future collection scheduling only after the relevant Q021 architecture
   is accepted. No scheduling policy or command contract is defined here.
 - Explain missing/incomplete/corrupted files and guide manual recovery within

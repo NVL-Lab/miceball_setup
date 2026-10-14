@@ -695,7 +695,7 @@ Remaining implementation and technical-verification work
   finalization stays explicit; corrupt/conflicting contents are not implicitly
   repaired. Later eligible-Session selection and overall integration validation remain
   unimplemented; no new registry or restoration mechanism is introduced.
-- **Eligibility predicate and selection ownership resolved; implementation remains open:** Decision 364's
+- **Eligibility, selection ownership, and collection availability resolved; implementation remains open:** Decision 364's
   accepted clarification requires durably confirmed `completed`, `failed`, or
   `aborted` for ordinary operator-selected collection. Persisted `stopping` is
   ineligible until termination status is resolved through existing recovery.
@@ -705,10 +705,16 @@ Remaining implementation and technical-verification work
   StorageManager enumerates saved Sessions from existing persistent Session
   directories and records without a registry; Controller coordinates operator
   selection of one or multiple Sessions. Each candidate is independently validated
-  using existing persisted information. Still unresolved: the distinction
-  between eligibility, immediate collection actionability, required recovery or
-  repair, and permanently closed archives; and any additional multi-Session
-  selection semantics not already accepted. This resolves the predicate and ownership,
+  using existing persisted information. A durably confirmed terminal Session remains
+  eligible despite incomplete or corrupted saved collection information. Collection
+  availability is separate: StorageManager must verify the persisted information
+  required for safe retrieval and evidence persistence. Scientific-file defects
+  alone do not block attempts; missing, inconsistent, corrupted, or interrupted
+  preservation information blocks collection until existing authorized recovery
+  resolves it. Permanently closed archives cannot accept further collection.
+  Eligibility, availability, and blockage reasons are reported separately.
+  Still unresolved: additional multi-Session selection semantics not already
+  accepted. This resolves the predicate, ownership, and availability distinctions,
   not selection implementation or overall integration validation. Q019 remains OPEN.
 - **Closeout integration:** Decision 365's bounded Normal Stop confirmations are
   complete with independent validation and targeted re-audit PASS after correction

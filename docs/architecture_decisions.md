@@ -10101,17 +10101,30 @@ files and unconfirmed participant cleanup do not disqualify an otherwise eligibl
 Session. Eligibility does not authorize hardware or resource release. Reuse
 existing persisted Session information without a Session registry, new lifecycle
 states, or application restoration. This clarifies Decisions 359 and 360's
-stopped-Session and killed-Session collection descriptions. Collection actionability
-and additional mixed-selection semantics remain unresolved.
+stopped-Session and killed-Session collection descriptions. Eligibility is distinct
+from collection availability as clarified below; additional mixed-selection
+semantics remain unresolved.
 
 **Accepted LLC clarification (enumeration and selection ownership):** StorageManager
 enumerates saved Sessions using existing persistent Session directories and records,
 without a Session registry. Controller coordinates operator selection of one or
 multiple Sessions. Each candidate Session must be independently validated for
-eligibility using existing persisted information and the predicate above. This
-does not resolve the distinction between eligibility, immediate collection
-actionability, required recovery or repair, and permanently closed archives, or
-additional mixed-selection semantics not already accepted.
+eligibility using existing persisted information and the predicate above.
+Additional mixed-selection semantics not already accepted remain unresolved.
+
+**Accepted LLC clarification (eligibility versus collection availability):** A
+Session with a durably confirmed terminal state (`completed`, `failed`, or
+`aborted`) remains eligible even when its saved collection information is incomplete
+or corrupted. Eligibility and collection availability are distinct. Collection may
+proceed only when StorageManager verifies the persisted information required for
+safe artifact retrieval and evidence persistence. Missing, incomplete, or corrupted
+scientific artifacts alone do not prevent collection attempts. Missing, inconsistent,
+corrupted, or interrupted preservation information blocks collection until resolved
+through existing authorized recovery mechanisms. Permanently closed Evidence
+Archives cannot accept further collection. Report eligibility, collection
+availability, and reasons for any blockage separately. Persisted `stopping` remains
+ineligible. No new lifecycle states, infrastructure, or recovery mechanisms are
+introduced; enumeration and selection ownership above remain unchanged.
 
 No authoritative ArtifactManifest registry, Session registry, application-restoration
 system, or automatic collection is accepted. No exact handoff filename, new API,
