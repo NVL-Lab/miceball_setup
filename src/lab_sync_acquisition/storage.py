@@ -409,6 +409,68 @@ class PersistentStorageManager:
             except (OSError, ValueError, TypeError, KeyError, RuntimeError):
                 return None
 
+    @service_operation(new_work=True)
+    def close_session_evidence_archive(self, session_id: str) -> dict:
+        """Explicitly close a consistent durable archive, independently of artifact success."""
+        with self._preservation_lock:
+            directory = self._artifact_collection_handoff_path(session_id).parent
+            if (self._collection_outcome_path(session_id).exists()
+                    or any(path.parent.resolve() in {directory.resolve(), (directory / "evidence").resolve()}
+                           for path in self._unfinished_record_paths)):
+                raise RuntimeError("Unresolved evidence writes prevent permanent closure")
+            baseline = self._read_stage_b_baseline(session_id)
+            summary = deepcopy(baseline["compilation_summary"])
+            summary["archive_closed"] = True
+            temporary = None
+            try:
+                if not baseline["compilation_summary"]["archive_closed"]:
+                    if self._archive_confirmation is not None and self._archive_confirmation["session_id"] == session_id:
+                        self._archive_confirmation = None
+                    path = baseline["paths"]["compilation_summary"]
+                    with NamedTemporaryFile(dir=path.parent, prefix=".incomplete-summary-", delete=False) as output:
+                        temporary = Path(output.name)
+                    self._write_record_contents(temporary, json.dumps(summary, indent=2, allow_nan=False))
+                    if any(path.read_bytes() != baseline["raw"][name]
+                           for name, path in baseline["paths"].items()):
+                        raise RuntimeError("Archive products changed before closure publication")
+                    os.replace(temporary, path)
+                    temporary = None
+                    self._sync_artifact_handoff_directory(path)
+                # A retry after publication but failed fsync/readback reconfirms the
+                # existing closed contents; it never reopens or rewrites them.
+                current = self._read_stage_b_baseline(session_id)
+                if (current["compilation_summary"] != summary
+                        or any(current["raw"][name] != baseline["raw"][name]
+                               for name in baseline["raw"] if name != "compilation_summary")):
+                    raise RuntimeError("Permanent archive closure readback is unconfirmed")
+                self._archive_confirmation = {name: current[name] for name in (
+                    "session_id", "runtime_evidence", "ingest_audit", "compilation_summary")}
+                self._final_record_confirmation = (session_id, current["paths"]["session_record"],
+                    current["raw"]["session_record"].decode("utf-8"))
+                return {"session_id": session_id, "archive_closed": True, "archival_confirmed": True,
+                        "paths": {name: str(path) for name, path in current["paths"].items()}}
+            finally:
+                if temporary is not None:
+                    temporary.unlink(missing_ok=True)
+
+    def _require_open_session_archive(self, session_id: str) -> None:
+        """Prevent ordinary and authorized writes from reopening a closed Session archive."""
+        path = self._session_directory(session_id) / "evidence" / "compilation_summary.json"
+        if not path.exists():
+            if any((path.parent / name).exists() for name in ("runtime_evidence.jsonl", "ingest_audit.jsonl")):
+                raise RuntimeError("Missing archive state cannot authorize mutation of existing products")
+        else:
+            summary = self._read_preservation_json(path.read_bytes())
+            if (not isinstance(summary, dict) or summary.get("session_id") != session_id
+                    or summary.get("archive_closed", False) is not False):
+                raise RuntimeError("Closed or unconfirmed Evidence Archive cannot be changed")
+
+    def _require_session_record_writable(self, path: Path) -> None:
+        """Protect the managed final Session Record even through generic record writing."""
+        if (path.name == "session_record_final.json" and path.parent.name.startswith("session_")
+                and path.parent.parent.resolve() == self._records_path.parent.resolve()):
+            self._require_open_session_archive(path.parent.name[len("session_"):])
+
     def _validate_collection_outcome(self, session_id: str, message: Any) -> dict:
         if (not isinstance(message, dict) or message.get("session_id") != session_id
                 or message.get("source_id") != self._component_id
@@ -856,26 +918,26 @@ class PersistentStorageManager:
 
         path = Path(session_record_path)
         with self._preservation_lock:
+            self._require_session_record_writable(path)
             self._unfinished_record_paths.add(path)
             self._unfinished_record_contents.pop(path, None)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        session_record = _session_record_from_evidence(
-            accepted_session_config=accepted_session_config,
-            lifecycle_evidence=lifecycle_evidence,
-            readiness_evidence=readiness_evidence,
-            device_readiness_evidence=device_readiness_evidence,
-            service_readiness_evidence=service_readiness_evidence,
-            accepted_acquisition_envelopes=accepted_acquisition_envelopes,
-            ingest_audit_records=ingest_audit_records,
-            final_session_status=final_session_status,
-            cleanup_evidence=cleanup_evidence,
-            warnings_or_failures=warnings_or_failures,
-            experiment_lifecycle_evidence=experiment_lifecycle_evidence,
-            experiment_descriptors=experiment_descriptors,
-            runtime_evidence=runtime_evidence,
-            runtime_evidence_audit=runtime_evidence_audit,
-        )
-        with self._preservation_lock:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            session_record = _session_record_from_evidence(
+                accepted_session_config=accepted_session_config,
+                lifecycle_evidence=lifecycle_evidence,
+                readiness_evidence=readiness_evidence,
+                device_readiness_evidence=device_readiness_evidence,
+                service_readiness_evidence=service_readiness_evidence,
+                accepted_acquisition_envelopes=accepted_acquisition_envelopes,
+                ingest_audit_records=ingest_audit_records,
+                final_session_status=final_session_status,
+                cleanup_evidence=cleanup_evidence,
+                warnings_or_failures=warnings_or_failures,
+                experiment_lifecycle_evidence=experiment_lifecycle_evidence,
+                experiment_descriptors=experiment_descriptors,
+                runtime_evidence=runtime_evidence,
+                runtime_evidence_audit=runtime_evidence_audit,
+            )
             serialized = json.dumps(session_record, indent=2)
             self._unfinished_record_contents[path] = serialized
             self._write_record_contents(path, serialized)
@@ -1207,6 +1269,7 @@ class PersistentStorageManager:
     def write_artifact_collection_handoff(self, session_id: str, handoff: dict[str, Any]) -> Path:
         """Publish one durable handoff; identical retries never overwrite existing contents."""
         with self._preservation_lock:
+            self._require_open_session_archive(session_id)
             path = self._artifact_collection_handoff_path(session_id)
             expected = self._validate_artifact_collection_handoff(session_id, handoff)
             serialized = json.dumps(expected, sort_keys=True, indent=2, allow_nan=False)
@@ -1397,6 +1460,9 @@ class PersistentStorageManager:
         interface = self._maintenance
         interface._require_recovery_authorization(command)
         scope = command.payload["obligation"].get("session_id")
+        if scope is not None and (command.payload["obligation"].get("evidence_id") is not None
+                or (self._session_directory(scope) / "evidence/compilation_summary.json").exists()):
+            self._require_open_session_archive(scope)
         if scope is not None and command.payload["obligation"].get("evidence_id") is not None:
             path = self._collection_outcome_path(scope)
             identity = command.payload["obligation"]["evidence_id"]
@@ -1448,6 +1514,7 @@ class PersistentStorageManager:
         if not isinstance(scope, str) or not scope or kind not in {"initial", "final"}:
             raise ValueError("Identified initial/final Session Record scope is required")
         path = self._session_directory(scope) / f"session_record_{kind}.json"
+        self._require_session_record_writable(path)
         serialized = self._unfinished_record_contents.get(path)
         if path not in self._unfinished_record_paths or serialized is None:
             raise ValueError("Complete trustworthy inputs for this interrupted write are unavailable")

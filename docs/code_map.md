@@ -14,8 +14,9 @@ appended in Stage B with distinct summary provenance. Permanent closure requires
 separate explicit operator request, all applicable collection outcomes durably
 recorded, no unresolved evidence writes, and verified consistent durable archive
 preservation. It does not require every artifact to be retrieved or verified;
-confirmed closed archives are immutable, including after restart. Closure remains
-unimplemented and separate from collection outcomes and Session lifecycle.
+confirmed closed archives are immutable, including after restart. W046 explicit
+closure is implemented with developer tests; independent validation/audit remain
+pending. Closure is separate from collection outcomes and Session lifecycle.
 Decision 361 requires restart-safe Session-specific receiving progress and verified
 contiguous JetStream acknowledgment coverage of the full relevant publication
 interval. Decision 362 records stages/closure in the existing summary, requiring
@@ -126,8 +127,16 @@ only the matching append/summary, never refetch artifacts or rewrite confirmed
 history. Unknown interruption outcomes are distinct from proven scientific loss.
 The existing preservation lock serializes owner operations; known-Session lookup
 does not discover all pending work. This does not support multiple simultaneously
-authoritative StorageManagers sharing a directory. Full Controller closeout,
-permanent closure, and later eligible-Session selection remain unimplemented;
+authoritative StorageManagers sharing a directory. Explicit permanent closure is
+available through `storage.close_session_evidence_archive(session_id)`; it validates
+current products under the preservation lock, atomically publishes a fsynced summary,
+and reconfirms all products before returning. Failed/unknown artifact outcomes do
+not block closure when their evidence is durable. Pending writes or inconsistent
+products do block it. Repeated/restarted requests reconfirm closed contents without
+rewriting them. Generic final-record writing and authorized recovery honor closure;
+record serialization/write is serialized with closure. W046 has 17 new developer
+tests and 10 directly affected regressions passed, not independent validation/audit.
+Full Controller closeout and later eligible-Session selection remain unimplemented;
 overall Q019 integration validation remains pending.
 W033/M013, W035, W039, and W040 retain
 their validated scopes. Q019, Q024, Q022, Phase 16, and M015 remain OPEN. No
@@ -864,6 +873,7 @@ recovery is introduced. Phase 16 and M015 remain open.
 - InMemoryStorageManager: Reports service readiness, stores accepted AcquisitionRecordEnvelope objects in memory, and exposes all, session-filtered, and source-filtered readback without file writing or transformation.
 - PersistentStorageManager: Reports service readiness, stores accepted envelopes, and writes/reads v1 Session Record and Phase 13 Evidence Archive products from caller-supplied evidence.
 - PersistentStorageManager constructor: Accepts `records_path` and keyword-only `global_artifact_root=None`, `retrieval_endpoints=None`, `evidence_publisher=None`, and `component_id="storage"`; the publisher is an existing async runtime-evidence publication callable and component_id supplies the evidence source identity.
+- PersistentStorageManager.write_session_record: Serializes and durably writes caller-supplied Session Record evidence under the preservation lock, refusing managed final-record mutation after archive closure.
 - SshRetrievalEndpoint(host, username, port=22, key_filename=None, known_hosts_path=None): Immutable deployment-local SSH configuration keyed by logical AcquisitionNode ID, using trusted host keys and optional explicit private-key/known-hosts files.
 - ArtifactRetrievalResult(artifact_manifest_id, outcome, global_destination=None, failure_information=None, verification_outcome=None, verification_information=None): Immutable per-artifact result whose `to_dict()` preserves retrieval success/failure separately from verification information, absent when retrieval failed.
 - ArtifactCollectionResult(artifact_results): Immutable aggregate whose `succeeded` requires every requested artifact to have retrieval success and verified status, with `to_dict()` retaining ordered per-artifact details without lifecycle interpretation; empty collections remain successful.
@@ -872,6 +882,9 @@ recovery is introduced. Phase 16 and M015 remain open.
 - PersistentStorageManager._record_collection_evidence: Creates and retains the same compiled global collection message for ordinary collection and an explicitly authorized fresh transfer.
 - PersistentStorageManager.collect_saved_artifacts(session_id, *, evidence_id): Collects an explicitly selected saved handoff, durably retains actual outcomes before direct archival, and returns collection results separately from preservation confirmation without automatic refetch on repetition.
 - PersistentStorageManager.get_persisted_session_preservation_confirmation(session_id): Validates existing Stage A/B products, coverage, identities, provenance, and handoff after restart without cached Session bindings, returning detached products or None for uncertainty.
+- PersistentStorageManager.close_session_evidence_archive(session_id): Handles a separate explicit closure request by validating current durable coverage, refusing unresolved writes, atomically recording closure in the existing summary, and readback-confirming immutable contents without requiring artifact success.
+- PersistentStorageManager._require_open_session_archive(session_id): Refuses ordinary or authorized mutation of a closed or unconfirmed Session archive using current persisted summary information.
+- PersistentStorageManager._require_session_record_writable(path): Protects the managed final Session Record from generic or recovery writes after closure, including equivalent path spellings.
 - PersistentStorageManager._collection_outcome_path(session_id): Locates the temporary outcome message in the existing known-Session directory.
 - PersistentStorageManager._read_preservation_json(contents): Reads preservation JSON while rejecting duplicate fields and non-finite values.
 - PersistentStorageManager._require_complete_runtime_audit(audit): Validates all existing RuntimeEvidenceAuditRecord fields and intake ordering without inventing missing timestamps or reasons.
@@ -1115,7 +1128,8 @@ for the latter prerequisite after correction. Explicit Stage A archival is compl
 with developer tests, independent manual validation, and independent audit PASS
 (W043); bounded Stage B collection/evidence persistence is complete with independent
 manual validation and final targeted independent re-audit PASS after correction
-(W045), while permanent closure and full closeout remain deferred.
+(W045); W046 explicit permanent closure is implemented with focused developer
+testing pending independent validation/audit, while full closeout remains deferred.
 
 ## tests/test_acquisition_stage_archival.py
 
@@ -1129,6 +1143,10 @@ manual validation and final targeted independent re-audit PASS after correction
 ## tests/test_stage_b_collection.py
 
 - StageBCollectionTests: Exercises known-Session Stage B using real persistence and SSH-only doubles, including W043/W044 integration, restart/other-Session baselines, independent failure/unknown outcomes, direct evidence provenance, concurrent idempotency, corruption, interruption, authorized evidence-only recovery, and unchanged historical products.
+
+## tests/test_permanent_archive_closure.py
+
+- PermanentArchiveClosureTests: Exercises explicit closure, durable failed/unknown collection outcomes, pending writes and authorized recovery, corruption, interruption/restart, concurrent requests, and immutable Session archive products through public StorageManager interfaces.
 
 ## tests/test_producer_publication_completion.py
 

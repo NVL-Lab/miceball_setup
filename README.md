@@ -515,7 +515,8 @@ explicit Stage A slice is complete with developer automated testing, independent
 manual validation, and independent audit PASS (W043); bounded Stage B collection
 and Decision 363 evidence persistence are complete with independent manual
 validation and final targeted independent re-audit PASS after correction (W045),
-while permanent closure and Decision 365 remain unimplemented;
+while W046 explicit permanent closure is implemented pending independent validation
+and audit, and Decision 365 remains unimplemented;
 Decision 364's bounded durable handoff is complete
 with automated testing, independent manual validation, and independent audit PASS (W044).
 Session evidence uses a durable explicit-ACK receiving position and journal-before-
@@ -669,6 +670,20 @@ bytes are refused. If a crash precedes outcome durability, missing outcomes are
 not reconstructed from artifact existence; only still-retained live outcomes can
 be preserved. Known-Session lookup is not application-wide discovery. Filesystem
 hard-link/fsync prerequisites still apply, and power-loss behavior is unvalidated.
+W046 now exposes the separate explicit operator entry point
+`storage.close_session_evidence_archive(session_id)`. It returns `archive_closed=True`,
+`archival_confirmed=True`, the Session identity, and product paths only after current
+durability and consistency checks. Failed retrieval, failed verification, and durably
+recorded unknown collection outcomes need not prevent closure; unresolved writes or
+unconfirmed products do. It updates only the existing compilation summary, preserving
+all other products. No artifact collection call invokes closure automatically.
+Repeated requests, including after restart, reconfirm existing closed contents without
+rewriting. An interrupted publication or fsync/readback raises rather than reporting
+success; explicit retry can reconfirm safely, never reopen a closed archive or refetch
+artifacts. Archive writes, generic managed final-record writes, handoff writes, and
+authorized archive/record recovery cannot mutate closed products.
+Developer testing: 17 new closure tests and 10 directly affected regressions passed.
+Independent manual validation and audit remain pending; no W046 completion is claimed.
 Q019 remains OPEN for permanent closure, eligible-Session selection, full Normal
 Stop/Kill integration, and overall integration validation. W041-W044, Q024, Q022,
 Phase 16, and M015 statuses are unchanged.
