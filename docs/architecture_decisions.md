@@ -10110,7 +10110,9 @@ with automated testing, independent manual validation, and independent audit PAS
 (W043); bounded Stage B collection/Decision 363 persistence is complete with
 independent manual validation and final targeted independent re-audit PASS after
 correction (W045); W046 explicit closure is complete with independent validation
-and targeted re-audit PASS after correction, and Decision 365 remains unimplemented.
+and targeted re-audit PASS after correction. Decision 365's bounded Normal Stop
+integration is implemented and developer-tested (W047 scope), pending independent
+manual validation and audit; Kill Session integration remains unimplemented.
 The bounded Decision 364
 handoff is complete with automated testing, independent manual validation, and
 independent audit PASS (W044).

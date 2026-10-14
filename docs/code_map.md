@@ -631,10 +631,12 @@ is complete; W030 records manual validation, focused tests, and audit reassessme
 - Controller.launch_session(selections, *, communication, participants, config_parameters, result_window_s, scientific_outputs=()): Asynchronously allocates a fresh intended Session ID, resolves node-scoped device selections, reserves resources, constructs final SessionConfig, confirms participant preparation, and returns operational success or cleanup-aware rollback diagnostics.
 - Controller.shutdown_framework(participants, *, communication, stop_attempt_id, administrator_id, result_window_s, authorize_kill=None): Surveys an explicit Session-independent scope and coordinates progressive W036 retirement with StorageManager/Controller preparation, exact pre-Ingestor archival, separately bounded per-service authorization, and retained later confirmations in ControllerCommandResult.details.
 - Controller.start_launched_session(): Starts reserved nodes through correlated NATS commands and then starts the Session, returning ControllerCommandResult and attempting cleanup if startup fails.
-- Controller.stop_launched_session(reason=None): Stops and locally finalizes all reserved nodes through NATS, releases only confirmed-clean reservations, and stops the Session without waiting for global collection.
+- Controller.stop_launched_session(reason=None): Stops and locally finalizes all reserved nodes through NATS, releases only confirmed-clean reservations, records the Controller-owned end of any active Experiment without refinalizing node files, and stops the Session without waiting for global collection.
 - Controller.publish_acquisition_evidence_completion(*, communication, result_window_s): Asynchronously confirms Session-scoped node and synchronization publication plus completed Controller health processing, publishes owned/retained evidence and one stable marker, and returns ControllerCommandResult without receipt, archival, or lifecycle completion.
 - Controller.archive_acquisition_evidence(*, communication): Verifies receipt of its confirmed W042 marker through the matching NatsIngestorCommunication, archives current protected Ingestor compilation and existing Session Record evidence, and returns confirmed Stage A paths without lifecycle completion, collection, or binding release.
 - Controller.preserve_artifact_collection_handoff(): Compiles journal-backed artifact information after current Stage A confirmation and returns verified durable handoff preservation without changing lifecycle or releasing bindings.
+- Controller.normal_stop_session(*, communication, receiving, result_window_s, reason=None): Coordinates launched-node cleanup, producer/marker publication, independently verified receipt, Stage A archival, durable handoff, and protected Session completion without automatically collecting artifacts, releasing service bindings, or closing the archive.
+- Controller._complete_preserved_acquisition(session): Rechecks current journal, complete Stage A evidence/audit/record coverage, owned evidence, marker identity, and durable handoff under intake/storage/admission locks before committing normal completion and retaining binding-release confirmation.
 - Controller.get_status(): Returns Session/command status, the bounded last released terminal outcome, and the local AcquisitionNode snapshot or None, without fabricating remote runtime status.
 - Controller.reconcile_outcomes(*, session_id=None, participants=None, communication=None, result_window_s=None): Reads existing scoped outcomes or bounded current observations of explicit remote participants, retaining unassociated uncertainty and changed informational evidence without operational replay or lifecycle mutation.
 - Controller._validate_participant_reconciliation(participants, result_window_s): Checks explicit unique remote principal-service identities and the issuer-defined bounded observation window without discovering participants.
@@ -1050,7 +1052,7 @@ deployment validation (M011), distinct from W032's software validation.
 - NatsAcquisitionNodeCommunication.publish_new_health_interpretation_evidence(session_id): Serializes overlapping health-publication passes without changing original Session identities, advancing each entry's cursor only after durable acknowledgment.
 - NatsAcquisitionNodeCommunication.publish_evidence(message): Retains unconfirmed node-owned messages for explicit later publication and requires durable acknowledgment before removing the obligation.
 - InMemoryIngestor.compile_artifact_collection_handoff(session_id): Groups retained Session-scoped artifact_manifest messages by manifest identity, selects complete finalized or initial manifests, and returns session_id plus artifacts entries containing artifact_manifest and missing_finalization_evidence.
-- Controller.finalize_session(): Requires an explicit Ingestor reference and all owned persistent Session evidence in compilation, writes runtime evidence/audit separately from the Session Record, rejects changed owned-evidence snapshots before completion, and retains exact decision archival confirmation without asserting Session-wide consumption or retrieving artifact bytes.
+- Controller.finalize_session(): Retains legacy finalization for Sessions without a Q019 marker; for a produced Q019 marker it refuses unconfirmed publication and requires current Stage A/handoff coverage before completion, without rewriting the acquisition archive or discarding its summary metadata.
 - StorageManager owns Artifact Plane retrieval and global storage; byte retrieval was outside Slice 22 and is now implemented separately in Slice 23, with real Jetson/SSH-SFTP deployment validation still pending under M011.
 
 The historical implemented persistent-evidence compilation and Evidence Archive
@@ -1132,7 +1134,23 @@ with developer tests, independent manual validation, and independent audit PASS
 (W043); bounded Stage B collection/evidence persistence is complete with independent
 manual validation and final targeted independent re-audit PASS after correction
 (W045); W046 explicit permanent closure is complete with independent manual
-validation and targeted independent re-audit PASS after correction, while full closeout remains deferred.
+validation and targeted independent re-audit PASS after correction. Bounded W047
+Normal Stop orchestration is implemented and developer-tested, pending independent
+manual validation and audit. It uses the launched command/result boundary and a
+matching W041 Ingestor receiver; incomplete preservation retains the stopping
+binding, while node cleanup failures use the existing failed-Session path.
+Cancellation propagates, releases operation admission, and retains obligations.
+Explicit retry resumes closeout without repeating confirmed node shutdown or
+automatically repairing unsafe products. Successful repeated completion rechecks
+current coverage without rewriting products. The existing independent release
+workflow still refreshes the pre-completion final record with the terminal outcome;
+Stage B collection remains a later explicit request and permanent closure is never
+automatic. Kill integration and overall closeout validation remain deferred.
+
+## tests/test_normal_stop.py
+
+- NormalStopTests: Exercises public brokered Normal Stop ordering, multiple/optional nodes, active Experiment termination, independently verified receipt, persistence and handoff failures, current-archive corruption, cancellation/overlap, explicit retries, Q019-aware finalization, and unchanged scientific files using existing transport doubles.
+- NormalStopTests.connect_receipt(): Connects the existing broker-double durable receipt callback and controlled marker-time delivery without substituting framework owners or receipt verification.
 
 ## tests/test_acquisition_stage_archival.py
 

@@ -169,6 +169,106 @@ class Controller:
         self._acquisition_marker: RuntimeEvidenceMessage | None = None
         self._acquisition_marker_confirmed = False
         self._acquisition_archival_active = False
+        self._normal_stop_task: asyncio.Task[Any] | None = None
+
+    @service_operation()
+    async def normal_stop_session(
+        self, *, communication: NatsControllerCommunication,
+        receiving: NatsIngestorCommunication, result_window_s: float,
+        reason: str | None = None,
+    ) -> ControllerCommandResult:
+        """Stop a launched Session and confirm Stage A/handoff before completion, not collection."""
+        from math import isfinite
+
+        session = self._require_session()
+        admitted = False
+        try:
+            with self._service_operation_lock:
+                if (self._normal_stop_task is not None or self._acquisition_publication_active
+                        or self._acquisition_archival_active or self._artifact_collection_in_progress):
+                    raise RuntimeError("Session closeout is already in progress")
+                if (communication is not self._launch_communication or self._ingestor is None
+                        or receiving._ingestor is not self._ingestor or self._storage_manager is None):
+                    raise ValueError("Normal Stop requires the launched communication and matching evidence owners")
+                if (isinstance(result_window_s, bool) or not isinstance(result_window_s, (int, float))
+                        or not isfinite(result_window_s) or result_window_s <= 0):
+                    raise ValueError("Normal Stop requires a finite positive result window")
+                if session.current_state not in {SessionState.RUNNING, SessionState.STOPPING, SessionState.COMPLETED}:
+                    raise RuntimeError("Normal Stop requires a running, stopping, or normally completed Session")
+                self._normal_stop_task = asyncio.current_task()
+                admitted = True
+            if session.current_state == SessionState.RUNNING:
+                stopped = await self.stop_launched_session(reason)
+                if not stopped.succeeded:
+                    raise RuntimeError(stopped.error)
+            if self._session is not session:
+                raise RuntimeError("Controller Session binding changed during Normal Stop")
+            if session.current_state == SessionState.STOPPING:
+                published = await self.publish_acquisition_evidence_completion(
+                    communication=communication, result_window_s=result_window_s)
+                if not published.succeeded:
+                    raise RuntimeError(published.error)
+                archived = await self.archive_acquisition_evidence(communication=receiving)
+                if not archived.succeeded:
+                    raise RuntimeError(archived.error)
+                handoff = self.preserve_artifact_collection_handoff()
+                if not handoff.succeeded:
+                    raise RuntimeError(handoff.error)
+            details = self._complete_preserved_acquisition(session)
+            return self._record_successful_command("normal_stop_session", details)
+        except Exception as error:
+            if self._session is not session:
+                return ControllerCommandResult("normal_stop_session", False,
+                    {"session_id": session.session_id}, f"{type(error).__name__}: {error}")
+            return self._record_failed_command("normal_stop_session", error,
+                {"session_id": session.session_id})
+        finally:
+            if admitted:
+                with self._service_operation_lock:
+                    self._normal_stop_task = None
+
+    def _complete_preserved_acquisition(self, session: Session) -> dict[str, Any]:
+        """Commit completion while current journal, Stage A, and handoff coverage are protected."""
+        intake = self._ingestor
+        if intake is None or self._storage_manager is None:
+            raise RuntimeError("Normal completion requires Ingestor and StorageManager")
+        with intake.durable_runtime_evidence_history_guard(
+                session.session_id, intake.recovery_journal_path, intake.accepted_runtime_evidence) as confirmed:
+            if not confirmed:
+                raise RuntimeError("Current acquisition journal coverage is unconfirmed")
+            with self._storage_manager.session_preservation_guard(session.session_id), self._service_operation_lock:
+                if (self._session is not session or intake.session_id != session.session_id
+                        or session.current_state not in {SessionState.STOPPING, SessionState.COMPLETED}
+                        or not self._runtime_cleanup_confirmed or self._active_experiment_id is not None
+                        or self._acquisition_marker_session is not session or not self._acquisition_marker_confirmed
+                        or self._acquisition_publication_active or self._acquisition_archival_active
+                        or self._artifact_collection_in_progress):
+                    raise RuntimeError("Normal acquisition completion prerequisites are unconfirmed")
+                archived = self._storage_manager.get_acquisition_stage_preservation_confirmation(session.session_id)
+                compiled = intake.compile_persistent_runtime_evidence()
+                if archived is None or any(json.dumps(archived[name], sort_keys=True) != json.dumps(
+                        [item.to_dict() for item in compiled[name]], sort_keys=True)
+                        for name in ("runtime_evidence", "ingest_audit")):
+                    raise RuntimeError("Current complete Stage A preservation is unconfirmed")
+                actual = {message["evidence_id"]: message for message in archived["runtime_evidence"]}
+                required = self._controller_owned_session_evidence_snapshot(session.session_id)
+                if any(json.dumps(actual.get(identity), sort_keys=True) != json.dumps(contents, sort_keys=True)
+                       for identity, contents in required.items()):
+                    raise RuntimeError("Required Controller-owned evidence is missing from Stage A")
+                if archived["compilation_summary"].get("acquisition_evidence_completion", {}).get("evidence_id") != self._acquisition_marker.evidence_id:
+                    raise RuntimeError("Stage A does not preserve this Session's completion marker")
+                handoff = intake.compile_artifact_collection_handoff(session.session_id)
+                if json.dumps(self._storage_manager.read_artifact_collection_handoff(session.session_id), sort_keys=True) != json.dumps(handoff, sort_keys=True):
+                    raise RuntimeError("Current durable artifact handoff is unconfirmed")
+                record_path = self._storage_manager._session_directory(session.session_id) / "session_record_final.json"
+                if session.current_state == SessionState.STOPPING:
+                    session.complete()
+                self._archived_controller_action_decisions = self._controller_decision_evidence_snapshot(session.session_id)
+                self._finalization_confirmation = (self._session_ingest_state(), str(record_path))
+                return {"session_id": session.session_id, "session_state": session.current_state.value,
+                        "stage_a_complete": True, "archive_closed": False,
+                        "session_record_path": str(record_path),
+                        "artifact_collection_handoff": handoff}
 
     @service_operation()
     async def archive_acquisition_evidence(
@@ -179,6 +279,8 @@ class Controller:
         admitted = False
         try:
             with self._service_operation_lock:
+                if self._normal_stop_task is not None and self._normal_stop_task is not asyncio.current_task():
+                    raise RuntimeError("Normal Stop is in progress")
                 if self._acquisition_archival_active or self._acquisition_publication_active or self._artifact_collection_in_progress:
                     raise RuntimeError("Acquisition publication or persistence is already in progress")
                 if (session.current_state != SessionState.STOPPING or not self._runtime_cleanup_confirmed
@@ -243,6 +345,8 @@ class Controller:
                 if not confirmed:
                     raise RuntimeError("Current artifact evidence journal coverage is unconfirmed")
                 with self._storage_manager.session_preservation_guard(session.session_id), self._service_operation_lock:
+                    if self._normal_stop_task is not None and self._normal_stop_task is not asyncio.current_task():
+                        raise RuntimeError("Normal Stop is in progress")
                     if (self._session is not session or intake.session_id != session.session_id
                             or session.current_state != SessionState.STOPPING or not self._runtime_cleanup_confirmed
                             or self._acquisition_archival_active or self._artifact_collection_in_progress):
@@ -276,6 +380,8 @@ class Controller:
         admitted = False
         try:
             with self._service_operation_lock:
+                if self._normal_stop_task is not None and self._normal_stop_task is not asyncio.current_task():
+                    raise RuntimeError("Normal Stop is in progress")
                 if self._acquisition_publication_active:
                     raise RuntimeError("Acquisition publication completion is already in progress")
                 if session.current_state != SessionState.STOPPING or not self._runtime_cleanup_confirmed:
@@ -827,6 +933,8 @@ class Controller:
     async def stop_launched_session(self, reason: str | None = None) -> ControllerCommandResult:
         """Stop/finalize every reserved node before releasing it, independently of global collection."""
         session = self._require_session()
+        if self._normal_stop_task is not None and self._normal_stop_task is not asyncio.current_task():
+            return self._record_failed_command("stop_session", RuntimeError("Normal Stop is in progress"))
         self._runtime_cleanup_confirmed = False
         outcomes = []
         for participant in self._reserved_participants:
@@ -843,6 +951,11 @@ class Controller:
         if any(not o["released"] for o in outcomes):
             self._mark_session_failed("Distributed runtime cleanup unconfirmed")
             return self._record_failed_command("stop_session", RuntimeError("Distributed runtime cleanup unconfirmed"), {"nodes": outcomes})
+        if self._active_experiment_id is not None:
+            # Nodes already finalized their files; record the Controller-owned Experiment end only.
+            session.record_experiment_lifecycle(self._active_experiment_id, "experiment_stop", self._current_session_time_s())
+            self._active_experiment_id = None
+            self._active_experiment_runtime_health_mapping = ()
         session.stop(reason)
         self._runtime_cleanup_confirmed = True
         return self._record_successful_command("stop_session", {"session_state": session.current_state.value, "nodes": outcomes})
@@ -1270,6 +1383,8 @@ class Controller:
         """Stop runtime cleanup first, then move Session to stopping."""
 
         session = self._require_session()
+        if self._normal_stop_task is not None:
+            return self._record_failed_command("stop_session", RuntimeError("Normal Stop is in progress"))
         self._runtime_cleanup_confirmed = False
         try:
             runtime_result = self._acquisition_node.stop_runtime()
@@ -1293,9 +1408,16 @@ class Controller:
         """Persist Phase 13 products, completing only a stopping Session."""
 
         session = self._require_session()
-        if self._artifact_collection_in_progress or self._acquisition_publication_active or self._acquisition_archival_active:
+        if self._artifact_collection_in_progress or self._acquisition_publication_active or self._acquisition_archival_active or self._normal_stop_task is not None:
             return self._record_failed_command(
                 "finalize_session", RuntimeError("Artifact collection/publication is in progress"))
+        if self._acquisition_marker_session is session:
+            try:
+                if not self._acquisition_marker_confirmed:
+                    raise RuntimeError("Controller-owned evidence is missing durable acquisition publication confirmation")
+                return self._record_successful_command("finalize_session", self._complete_preserved_acquisition(session))
+            except Exception as error:
+                return self._record_failed_command("finalize_session", error)
         if session.current_state not in {
                 SessionState.STOPPING, SessionState.COMPLETED, SessionState.FAILED, SessionState.ABORTED}:
             return self._record_failed_command(
@@ -1365,6 +1487,8 @@ class Controller:
         session = self._session
         try:
             session = self._require_session()
+            if self._normal_stop_task is not None:
+                raise RuntimeError("Normal Stop is in progress")
             if session.current_state not in {SessionState.COMPLETED, SessionState.FAILED, SessionState.ABORTED}:
                 raise RuntimeError("Session release requires a terminal Session")
             if not session.cleanup_occurred or not self._runtime_cleanup_confirmed:

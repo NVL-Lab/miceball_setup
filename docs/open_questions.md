@@ -701,6 +701,11 @@ and low-level contracts above. W041-W046 complete only the receiving,
 publication, bounded Stage A archival, durable handoff, and bounded Stage B
 collection/evidence-persistence and explicit permanent closure slices; remaining implementation and overall
 integration validation are pending.
+The bounded W047 Normal Stop path is now implemented and developer-tested, pending
+independent manual validation and audit. It composes W041-W044 prerequisites before
+normal completion without automatically invoking Stage B or permanent closure.
+Kill integration, eligible-Session selection, and overall integration validation
+remain open; W047 is not a completed validated workflow.
 The original
 Slice 25 exclusions remain historical; they do not prohibit the newly accepted
 verified acknowledgment proof.

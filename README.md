@@ -688,8 +688,20 @@ tests 6/6 and independent correction validation 2/2 PASS; targeted independent
 re-audit PASS with no remaining confirmed P0-P3 findings. The guard now resolves
 the complete target and storage root before identifying the managed final record.
 These are prior validation results, not new tests during documentation closure.
-Q019 remains OPEN for eligible-Session selection, full Normal
-Stop/Kill integration, and overall integration validation. W041-W044, Q024, Q022,
+Bounded W047 Normal Stop integration is implemented and developer-tested, pending
+independent manual validation and audit. For a launched Session, call
+`await controller.normal_stop_session(communication=controller_communication,
+receiving=ingestor_communication, result_window_s=...)`. The existing launch window
+bounds node shutdown requests; the supplied window bounds producer closeout requests.
+It composes node cleanup/publication, the W042 marker, W041 receipt verification,
+Stage A persistence, and the durable artifact handoff before Session completion.
+Current journal/archive/handoff coverage remains protected through completion.
+It never automatically collects artifacts, closes the archive, or releases retained
+service bindings. Existing explicit binding release preserves the terminal Session
+Record; later Stage B uses the saved handoff. Uncertain receipt or preservation
+cannot confirm Normal Stop; unsafe persistence still requires authorized recovery.
+Q019 remains OPEN for independent Normal Stop validation/audit, Kill integration,
+eligible-Session selection, and overall integration validation. W041-W044, Q024, Q022,
 Phase 16, and M015 statuses are unchanged.
 
 Phase 14 / Slice 27 Ingestor Crash Recovery and Handoff Reconstruction implements
