@@ -493,7 +493,8 @@ the producer/marker prerequisite is separately complete after correction in W042
 Complete closeout remains unimplemented; the explicit Stage A slice under Decision
 362 is complete with automated testing, independent manual validation, and
 independent audit PASS (W043). Stage B and
-Decisions 363-365 remain unimplemented.
+Decisions 363/365 remain unimplemented; the bounded Decision 364 durable handoff
+has developer automated coverage pending independent validation/audit.
 Original implementation results and audit records above are unchanged.
 
 ---
@@ -1018,8 +1019,12 @@ independent audit PASS with no confirmed P0-P3 defects or corrections required.
 Additional cross-thread archive-rewrite coverage was an optional suggestion,
 not a closure condition. These are previously executed/reported results, not
 validation performed during documentation closure.
-Complete Controller Normal Stop/Kill orchestration, Stage B, and Decisions 363-365
-remain unimplemented. No overall milestone completion is claimed.
+The bounded Decision 364 handoff slice is implemented with developer coverage,
+pending independent manual validation/audit: explicit post-Stage-A compilation,
+separate durable JSON/readback after restart, and applicable release protection.
+It does not alter Stage A products or lifecycle. Complete Controller Normal Stop/Kill
+orchestration, Stage B, Decisions 363/365, and eligible-Session selection remain
+unimplemented. No overall milestone completion is claimed.
 Q019 remains OPEN for remaining implementation and independent verification.
 W042 records only the completed publication prerequisite: initial independent manual
 validation 5/5 and 4/4 PASS; initial audit FAIL for the concurrent manifest cursor;

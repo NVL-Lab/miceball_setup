@@ -231,6 +231,43 @@ class Controller:
                     self._acquisition_archival_active = False
 
     @service_operation()
+    def preserve_artifact_collection_handoff(self) -> ControllerCommandResult:
+        """Preserve the protected closeout handoff after Stage A, without advancing lifecycle."""
+        session = self._require_session()
+        try:
+            intake = self._ingestor
+            if intake is None or self._storage_manager is None:
+                raise RuntimeError("Handoff preservation requires Ingestor and StorageManager")
+            with intake.durable_runtime_evidence_history_guard(
+                    session.session_id, intake.recovery_journal_path, intake.accepted_runtime_evidence) as confirmed:
+                if not confirmed:
+                    raise RuntimeError("Current artifact evidence journal coverage is unconfirmed")
+                with self._storage_manager.session_preservation_guard(session.session_id), self._service_operation_lock:
+                    if (self._session is not session or intake.session_id != session.session_id
+                            or session.current_state != SessionState.STOPPING or not self._runtime_cleanup_confirmed
+                            or self._acquisition_archival_active or self._artifact_collection_in_progress):
+                        raise RuntimeError("Handoff requires the closing Session and completed acquisition persistence")
+                    archived = self._storage_manager.get_acquisition_stage_preservation_confirmation(session.session_id)
+                    compiled = intake.compile_persistent_runtime_evidence()
+                    if archived is None or any(json.dumps(archived[name], sort_keys=True) != json.dumps(
+                            [item.to_dict() for item in compiled[name]], sort_keys=True)
+                            for name in ("runtime_evidence", "ingest_audit")):
+                        raise RuntimeError("Current Stage A coverage must be confirmed before handoff preservation")
+                    handoff = intake.compile_artifact_collection_handoff(session.session_id)
+                    path = self._storage_manager.write_artifact_collection_handoff(session.session_id, handoff)
+                    if json.dumps(self._storage_manager.read_artifact_collection_handoff(session.session_id), sort_keys=True) != json.dumps(handoff, sort_keys=True):
+                        raise RuntimeError("Current artifact handoff preservation is unconfirmed")
+                    return self._record_successful_command("preserve_artifact_collection_handoff", {
+                        "session_id": session.session_id, "artifact_collection_handoff_path": str(path),
+                        "handoff_preservation_confirmed": True,
+                    })
+        except Exception as error:
+            if self._session is not session:
+                return ControllerCommandResult("preserve_artifact_collection_handoff", False,
+                    {"session_id": session.session_id}, f"{type(error).__name__}: {error}")
+            return self._record_failed_command("preserve_artifact_collection_handoff", error)
+
+    @service_operation()
     async def publish_acquisition_evidence_completion(
         self, *, communication: NatsControllerCommunication, result_window_s: float,
     ) -> ControllerCommandResult:
@@ -919,6 +956,10 @@ class Controller:
         if any(json.dumps(archived.get(identity), sort_keys=True) != json.dumps(contents, sort_keys=True)
                for identity, contents in owned.items()):
             raise RuntimeError("Current Evidence Archive does not preserve required Controller-owned evidence")
+        if self._acquisition_marker_session is self._session and self._acquisition_marker is not None:
+            expected_handoff = self._ingestor.compile_artifact_collection_handoff(session_id)
+            if json.dumps(self._storage_manager.read_artifact_collection_handoff(session_id), sort_keys=True) != json.dumps(expected_handoff, sort_keys=True):
+                raise RuntimeError("Current durable artifact handoff does not cover the closing Session")
 
     @service_operation()
     def execute_controller_action_decision(

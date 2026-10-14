@@ -88,8 +88,20 @@ in that order, with no lock held during asynchronous receipt verification.
 The Session remains stopping and bound; no handoff is written or resources released.
 Interrupted writes require existing authorized recovery, not ordinary retry repair;
 retry after incomplete receipt and repeated healthy Stage A writes remain supported.
-Full Controller closeout integration, Stage B archival/closure,
-and durable handoff lookup/selection remain unimplemented Q019 work.
+The bounded Decision 364 handoff slice is implemented with developer automated
+coverage, pending independent manual validation/audit. After Stage A, explicitly
+call `controller.preserve_artifact_collection_handoff()`; protected journal/intake
+compilation is persisted separately as `session_<session_id>/artifact_collection_handoff.json`.
+StorageManager uses fsynced same-directory temporary contents, non-overwriting
+hard-link publication, supported directory fsync, and exact readback. Identical
+retries reconfirm durability without rewriting; conflicting/corrupt files are
+refused. Unconfirmed writes remain visible in existing unfinished-record diagnostics.
+`storage.read_artifact_collection_handoff(session_id)` validates known-Session
+readback after restart without original runtime bindings. Applicable Q019 Controller
+and Ingestor release guards require current handoff coverage. Legacy non-Q019 release
+paths are unchanged. No lifecycle completion or release is performed by preservation.
+Full Controller closeout integration, Stage B archival/closure, and later
+eligible-Session selection remain unimplemented Q019 work.
 W033/M013, W035, W039, and W040 retain
 their validated scopes. Q019, Q024, Q022, Phase 16, and M015 remain OPEN. No
 additional architectural API or storage schema is defined here.
@@ -574,7 +586,7 @@ is complete; W030 records manual validation, focused tests, and audit reassessme
 - Controller._record_action_decision(decision): Retains one persistent message per decision instance before optional Ingestor submission, including externally supplied executable decisions, without duplicating an already recorded instance.
 - Controller._controller_decision_evidence_snapshot(session_id): Copies Session-specific owned message identities and contents for exact compilation and archival confirmation.
 - Controller._controller_owned_session_evidence_snapshot(session_id): Copies persistent decisions, retained preparation-rejection messages, and any produced completion marker for exact Session-scoped preservation checks.
-- Controller._require_controller_decision_archival(session_id, confirmation): Blocks release unless decisions match the successful finalization snapshot and all owned persistent Session evidence remains present in the current guarded archive.
+- Controller._require_controller_decision_archival(session_id, confirmation): Blocks release unless decisions and owned evidence remain archived, also requiring current matching durable handoff coverage for a Session with its Q019 completion marker.
 - Controller: Sequentially coordinates one Session with optional keyword-only `component_id="controller"` for producer identity, preserves existing ownership, and orchestrates preparation, lifecycle, runtime cleanup, and final persistence.
 - Controller.__init__(acquisition_node=None, ingestor=None, storage_manager=None, session_record_path=None, synchronization_manager=None, *, component_id="controller"): Supports Controller creation before Session and without remote participant references while retaining existing local collaborators.
 - Controller.launch_session(selections, *, communication, participants, config_parameters, result_window_s, scientific_outputs=()): Asynchronously allocates a fresh intended Session ID, resolves node-scoped device selections, reserves resources, constructs final SessionConfig, confirms participant preparation, and returns operational success or cleanup-aware rollback diagnostics.
@@ -583,6 +595,7 @@ is complete; W030 records manual validation, focused tests, and audit reassessme
 - Controller.stop_launched_session(reason=None): Stops and locally finalizes all reserved nodes through NATS, releases only confirmed-clean reservations, and stops the Session without waiting for global collection.
 - Controller.publish_acquisition_evidence_completion(*, communication, result_window_s): Asynchronously confirms Session-scoped node and synchronization publication plus completed Controller health processing, publishes owned/retained evidence and one stable marker, and returns ControllerCommandResult without receipt, archival, or lifecycle completion.
 - Controller.archive_acquisition_evidence(*, communication): Verifies receipt of its confirmed W042 marker through the matching NatsIngestorCommunication, archives current protected Ingestor compilation and existing Session Record evidence, and returns confirmed Stage A paths without lifecycle completion, collection, or binding release.
+- Controller.preserve_artifact_collection_handoff(): Compiles journal-backed artifact information after current Stage A confirmation and returns verified durable handoff preservation without changing lifecycle or releasing bindings.
 - Controller.get_status(): Returns Session/command status, the bounded last released terminal outcome, and the local AcquisitionNode snapshot or None, without fabricating remote runtime status.
 - Controller.reconcile_outcomes(*, session_id=None, participants=None, communication=None, result_window_s=None): Reads existing scoped outcomes or bounded current observations of explicit remote participants, retaining unassociated uncertainty and changed informational evidence without operational replay or lifecycle mutation.
 - Controller._validate_participant_reconciliation(participants, result_window_s): Checks explicit unique remote principal-service identities and the issuer-defined bounded observation window without discovering participants.
@@ -646,7 +659,7 @@ is complete; W030 records manual validation, focused tests, and audit reassessme
 - InMemoryIngestor.maintenance_blockers(ingestor, storage_manager): Reports unresolved journal integrity or incompletely preserved Session intake without deciding lifecycle or inferring dependencies.
 - InMemoryIngestor.prepare_session(session_id): Creates or reconstructs the intended Session recovery journal from its deployment root before confirming evidence intake preparation.
 - InMemoryIngestor.abort_session_initialization(session_id): Disables prepared intake while preserving durable journal entries and accepted evidence, clearing empty preparation bindings without deleting files.
-- InMemoryIngestor.release_session(session_id, *, storage_manager=None): Releases a matching healthy binding, requiring exact persistent runtime evidence/all runtime-audit archive coverage and existing terminal Session Record/acquisition-envelope preservation for evidence-bearing bindings; intake and storage guards remain held through temporary-state retirement without deleting journals.
+- InMemoryIngestor.release_session(session_id, *, storage_manager=None): Releases a matching healthy binding only after exact archive/terminal-record preservation and applicable Q019 durable handoff coverage, retaining intake/storage guards through retirement without deleting journals.
 - InMemoryIngestor.has_durable_runtime_evidence(evidence): Confirms exact journal-backed message acceptance for a producer handoff, returning False for memory-only intake or uncertain journal state without claiming final archival.
 - InMemoryIngestor.durable_runtime_evidence_history_guard(session_id, journal_path, evidence): Read-only context manager yielding exact retained Session-journal coverage confirmation while holding intake/binding steady through synchronous receipt-result commitment; it permits additional local recovery evidence and performs no reconstruction or archival.
 - InMemoryIngestor._initialize_recovery_journal: Reuses journal creation/reconstruction and ordinary recovery-evidence intake for constructor and distributed preparation paths.
@@ -840,6 +853,12 @@ recovery is introduced. Phase 16 and M015 remain open.
 - PersistentStorageManager.write_final_session_record: Writes caller-supplied final Session Record evidence to `session_<session_id>/session_record_final.json`, confirming its path only after successful writing.
 - PersistentStorageManager.write_acquisition_stage(session_id, compiled_runtime_evidence, *, receipt, **session_record_evidence): Reuses archive/record writers and fsync/readback, adds Stage A/open/provenance metadata to the existing summary only after required products are confirmed, and refuses implicit repair of interrupted or unconfirmed existing persistence.
 - PersistentStorageManager.get_acquisition_stage_preservation_confirmation(session_id): Requires exact current evidence/audit/summary and final-record preservation plus Stage A complete/open metadata, rather than trusting a stored flag or historical success.
+- PersistentStorageManager.write_artifact_collection_handoff(session_id, handoff): Durably publishes the existing compiled handoff in the Session directory with non-overwriting publication, exact readback, and identical-content retries.
+- PersistentStorageManager.read_artifact_collection_handoff(session_id): Validates saved handoff identities, structure, and finalization uncertainty without any original Session binding, refusing missing/corrupt/unconfirmed contents.
+- PersistentStorageManager._validate_artifact_collection_handoff(session_id, handoff): Checks the existing portable handoff structure and consistent Session/artifact identities without interpreting scientific contents.
+- PersistentStorageManager._artifact_collection_handoff_path(session_id): Locates the separate handoff JSON using a validated single-component Session identity.
+- PersistentStorageManager._sync_artifact_handoff_directory(path): Confirms supported directory durability after handoff publication or identical retry.
+- PersistentStorageManager._read_artifact_collection_handoff_contents(session_id, path): Reads and validates handoff JSON while refusing duplicate fields instead of silently selecting conflicting values.
 - PersistentStorageManager.get_session_preservation_confirmation(session_id): Canonically compares current archive products, including the retained complete compilation summary, and final Session Record with successful write inputs, returning detached confirmation including the summary or None; the snapshot alone does not guard commitment.
 - PersistentStorageManager._write_record_contents: Writes serialized Session Record or Stage A summary contents with flush/fsync and supported directory durability, without creating lifecycle evidence.
 - PersistentStorageManager._read_archive_products: Reads the existing evidence/audit/summary products for exact current-write confirmation, without interpreting evidence meaning.
@@ -1058,6 +1077,11 @@ with developer tests, independent manual validation, and independent audit PASS
 ## tests/test_acquisition_stage_archival.py
 
 - AcquisitionStageArchivalTests: Exercises W041/W042-to-Stage-A persistence, full persistent evidence/all-audit coverage, receipt uncertainty, journal loss, write failures, cancellation, scope isolation, and safe explicit repetition through public APIs and existing broker doubles.
+
+## tests/test_durable_artifact_handoff.py
+
+- DurableArtifactHandoffTests: Exercises durable manifest handoff readback, missing finalization, malformed data, interruption, concurrent publication, safe retry, and known-Session restart lookup through real persistence.
+- CloseoutArtifactHandoffTests: Exercises the explicit post-Stage-A Controller step, protected journal/archival prerequisites, failure retention, unchanged Stage A products, and applicable release protection with later binding-independent readback.
 
 ## tests/test_producer_publication_completion.py
 

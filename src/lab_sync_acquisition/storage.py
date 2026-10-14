@@ -694,6 +694,111 @@ class PersistentStorageManager:
                 return None
             return confirmation
 
+    @staticmethod
+    def _validate_artifact_collection_handoff(session_id: str, handoff: Any) -> dict[str, Any]:
+        """Validate the existing portable handoff without interpreting scientific data."""
+        plain = json.loads(json.dumps(_to_plain_data(handoff), allow_nan=False))
+        if (not isinstance(plain, dict) or plain.get("session_id") != session_id
+                or not isinstance(plain.get("artifacts"), list)):
+            raise ValueError("Artifact handoff must identify the requested Session and its artifacts")
+        identities = set()
+        for entry in plain["artifacts"]:
+            if not isinstance(entry, dict) or not isinstance(entry.get("artifact_manifest"), dict):
+                raise ValueError("Artifact handoff entry requires a complete manifest")
+            data = entry["artifact_manifest"]
+            if not isinstance(data.get("local_managed_paths"), list) or not isinstance(data.get("details"), dict):
+                raise ValueError("Artifact handoff manifest requires structured paths and details")
+            manifest = ArtifactManifest.from_dict(data)
+            if (manifest.session_id != session_id or any(
+                    not isinstance(value, str) or not value for value in (
+                        manifest.artifact_manifest_id, manifest.experiment_id,
+                        manifest.acquisition_node_id, manifest.source_component_id,
+                        manifest.storage_id, manifest.artifact_type, manifest.lifecycle_state))
+                    or not isinstance(manifest.local_storage_path, str)
+                    or (manifest.external_artifact_path is not None
+                        and not isinstance(manifest.external_artifact_path, str))
+                    or not all(isinstance(path, str) for path in manifest.local_managed_paths)):
+                raise ValueError("Artifact handoff contains inconsistent manifest identities or paths")
+            missing = entry.get("missing_finalization_evidence")
+            if type(missing) is not bool or missing != (manifest.lifecycle_state != "finalized"):
+                raise ValueError("Artifact handoff finalization information is inconsistent")
+            if manifest.artifact_manifest_id in identities:
+                raise ValueError("Artifact handoff contains duplicate artifact identities")
+            identities.add(manifest.artifact_manifest_id)
+        return plain
+
+    def _artifact_collection_handoff_path(self, session_id: str) -> Path:
+        if (not isinstance(session_id, str) or not session_id or session_id in {".", ".."}
+                or any(character in session_id for character in '/\\\x00:')):
+            raise ValueError("Handoff Session identity must be a single path component")
+        return self._session_directory(session_id) / "artifact_collection_handoff.json"
+
+    @staticmethod
+    def _sync_artifact_handoff_directory(path: Path) -> None:
+        if os.name == "posix":
+            for directory in (path.parent, path.parent.parent):
+                descriptor = os.open(directory, os.O_RDONLY)
+                try:
+                    os.fsync(descriptor)
+                finally:
+                    os.close(descriptor)
+
+    def _read_artifact_collection_handoff_contents(self, session_id: str, path: Path) -> dict[str, Any]:
+        def unique_fields(pairs):
+            fields = {}
+            for name, value in pairs:
+                if name in fields:
+                    raise ValueError("Artifact handoff contains conflicting duplicate JSON fields")
+                fields[name] = value
+            return fields
+
+        with path.open(encoding="utf-8") as source:
+            return self._validate_artifact_collection_handoff(
+                session_id, json.load(source, object_pairs_hook=unique_fields))
+
+    @service_operation()
+    def write_artifact_collection_handoff(self, session_id: str, handoff: dict[str, Any]) -> Path:
+        """Publish one durable handoff; identical retries never overwrite existing contents."""
+        with self._preservation_lock:
+            path = self._artifact_collection_handoff_path(session_id)
+            expected = self._validate_artifact_collection_handoff(session_id, handoff)
+            serialized = json.dumps(expected, sort_keys=True, indent=2, allow_nan=False)
+            temporary = None
+            self._unfinished_record_paths.add(path)
+            try:
+                if os.path.lexists(path):
+                    actual = self._read_artifact_collection_handoff_contents(session_id, path)
+                    if json.dumps(actual, sort_keys=True) != json.dumps(expected, sort_keys=True):
+                        raise ValueError("Existing artifact handoff differs from the trusted compilation")
+                    with path.open("r+b") as source:
+                        os.fsync(source.fileno())
+                else:
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    with NamedTemporaryFile(dir=path.parent, prefix=".incomplete-handoff-", delete=False) as output:
+                        temporary = Path(output.name)
+                    self._write_record_contents(temporary, serialized)
+                    os.link(temporary, path)
+                    temporary.unlink()
+                    temporary = None
+                self._sync_artifact_handoff_directory(path)
+                actual = self._read_artifact_collection_handoff_contents(session_id, path)
+                if json.dumps(actual, sort_keys=True) != json.dumps(expected, sort_keys=True):
+                    raise RuntimeError("Artifact handoff preservation readback is unconfirmed")
+                self._unfinished_record_paths.discard(path)
+                return path
+            finally:
+                if temporary is not None:
+                    temporary.unlink(missing_ok=True)
+
+    @service_operation()
+    def read_artifact_collection_handoff(self, session_id: str) -> dict[str, Any]:
+        """Read a validated saved handoff without any original runtime Session binding."""
+        with self._preservation_lock:
+            path = self._artifact_collection_handoff_path(session_id)
+            if path in self._unfinished_record_paths:
+                raise RuntimeError("Artifact handoff persistence remains unconfirmed")
+            return self._read_artifact_collection_handoff_contents(session_id, path)
+
     def get_session_preservation_confirmation(self, session_id: str) -> dict[str, Any] | None:
         """Verify current archive products and read the successfully written final Session Record."""
         with self._preservation_lock:

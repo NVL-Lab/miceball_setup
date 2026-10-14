@@ -259,7 +259,8 @@ awaited collection-before-finalization path; the bounded receiving, producer/mar
 and Stage A archival slices are validated in W041-W043. Decisions 356-365 accept Stage A
 acquisition preservation before successful completion, a durable later handoff,
 and Stage B direct StorageManager collection-evidence persistence/archive closure;
-full Normal Stop/Kill integration, durable handoff, and Stage B remain unimplemented
+the bounded durable handoff now has developer coverage pending independent
+validation/audit. Full Normal Stop/Kill integration and Stage B remain unimplemented
 under Q019, which remains OPEN.
 
 The GUI and Controller are conceptually separate, even if they run on the same machine.

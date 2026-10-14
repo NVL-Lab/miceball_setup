@@ -293,6 +293,11 @@ class InMemoryIngestor:
                 if any(confirmation[name] != [item.to_dict() for item in compiled[name]]
                        for name in ("runtime_evidence", "ingest_audit")):
                     raise RuntimeError("Archive confirmation does not cover current runtime intake")
+                if any(message.evidence_type == "acquisition_evidence_completion"
+                       for message in self._accepted_runtime_evidence):
+                    if json.dumps(storage.read_artifact_collection_handoff(session_id), sort_keys=True) != json.dumps(
+                            self.compile_artifact_collection_handoff(session_id), sort_keys=True):
+                        raise RuntimeError("Durable artifact handoff does not cover current Session manifests")
                 # Acquisition envelopes and their audit stay on the existing Session Record path.
                 if (record.get("accepted_acquisition_envelopes") != [
                         envelope.to_dict() for envelope in self._accepted_envelopes]

@@ -513,7 +513,8 @@ Validation used local NATS/software, not an external cluster, multi-host, Jetson
 or hardware deployment. Complete closeout remains unimplemented. Decision 362's
 explicit Stage A slice is complete with developer automated testing, independent
 manual validation, and independent audit PASS (W043); Stage B and Decisions
-363-365 remain unimplemented.
+363 and 365 remain unimplemented; Decision 364's bounded durable handoff now has
+developer automated coverage pending independent validation/audit.
 Session evidence uses a durable explicit-ACK receiving position and journal-before-
 server-confirmed-ACK acceptance. Receipt readback verifies an existing completion
 marker against journal acceptance, retained stream-origin history, and contiguous
@@ -597,6 +598,20 @@ This bounded slice is complete with 16 focused developer tests passed, independe
 manual IPython validation 17/17 PASS using local real JetStream, and independent
 audit PASS with no confirmed P0-P3 defects (W043). Remaining Q019 work is open;
 W041/W042 remain complete and unchanged.
+
+After confirmed Stage A, explicitly call
+`controller.preserve_artifact_collection_handoff()` to durably preserve Ingestor's
+existing compilation at `session_<session_id>/artifact_collection_handoff.json`.
+The separate JSON retains complete manifests and missing-finalization flags;
+it neither contains scientific bytes nor establishes collection success.
+`storage.read_artifact_collection_handoff(session_id)` validates the saved handoff
+after restart without original Controller/Ingestor/AcquisitionNode bindings.
+Publication is non-overwriting, with fsync/readback confirmation; identical retries
+reconfirm durability, while corrupt or conflicting existing files are refused.
+Applicable Q019 binding release requires current handoff coverage. This bounded
+slice has developer automated tests only, pending independent validation/audit;
+it does not change W041-W043, complete/release the Session, select eligible Sessions,
+perform Stage B collection, or close the archive. Q019 remains OPEN.
 
 Phase 14 / Slice 27 Ingestor Crash Recovery and Handoff Reconstruction implements
 Decisions 276-280 and is complete (M014, W034), following independent manual
