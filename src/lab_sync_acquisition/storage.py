@@ -1007,6 +1007,16 @@ class PersistentStorageManager:
                     record = json.loads(line, object_pairs_hook=unique_fields)
                     if not isinstance(record, dict):
                         raise ValueError("Acquisition record is not an envelope")
+                    if "persistence_command" in record:
+                        correlation = record["persistence_command"]
+                        if (not isinstance(correlation, dict)
+                                or set(correlation) != {"command_id", "source_id", "target_id"}
+                                or any(not isinstance(value, str) or not value.strip()
+                                       for value in correlation.values())):
+                            raise ValueError(
+                                "Invalid persisted persistence_command correlation: expected "
+                                "nonempty command_id, source_id, and target_id; "
+                                "existing history requires investigation before retry")
                     records.append(record)
         return records
 

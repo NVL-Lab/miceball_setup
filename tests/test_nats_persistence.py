@@ -304,6 +304,67 @@ class NatsPersistenceTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(failed["durable_persistence_confirmed"])
         self.assertEqual(self.storage.records_path.read_bytes(), before)
 
+    async def test_invalid_correlation_blocks_retry_without_rewriting(self):
+        self.assertTrue((await self.persist())["durable_persistence_confirmed"])
+        original = json.loads(self.storage.records_path.read_text(encoding="utf-8"))
+        valid = original["persistence_command"]
+        invalid = [None, [], "write", {},
+                   {key: value for key, value in valid.items() if key != "command_id"}]
+        for field in valid:
+            invalid.extend({**valid, field: value} for value in (None, 7, "", " "))
+        invalid.append({**valid, "unexpected": True})
+        for correlation in invalid:
+            with self.subTest(correlation=correlation):
+                damaged = {**original, "persistence_command": correlation}
+                self.storage.records_path.write_text(json.dumps(damaged) + "\n", encoding="utf-8")
+                before = self.storage.records_path.read_bytes()
+                failed = await self.persist()
+                self.assertFalse(failed["durable_persistence_confirmed"], failed)
+                self.assertIn("persistence_command correlation", failed["reason"])
+                self.assertEqual(self.storage.records_path.read_bytes(), before)
+                self.assertEqual(len(before.splitlines()), 1)
+
+    async def test_invalid_correlation_blocks_retry_after_storage_restart(self):
+        self.assertTrue((await self.persist())["durable_persistence_confirmed"])
+        original = json.loads(self.storage.records_path.read_text(encoding="utf-8"))
+        for correlation in (None, {key: value for key, value in
+                                  original["persistence_command"].items() if key != "command_id"}):
+            with self.subTest(correlation=correlation):
+                damaged = {**original, "persistence_command": correlation}
+                self.storage.records_path.write_text(json.dumps(damaged) + "\n", encoding="utf-8")
+                before = self.storage.records_path.read_bytes()
+                for subscription in tuple(self.broker.subscriptions):
+                    if ".command.storage_manager.storage." in subscription.subject:
+                        await subscription.unsubscribe()
+                restored = PersistentStorageManager(self.storage.records_path, component_id="storage")
+                writer = NatsStorageManagerCommunication(
+                    _Boundary("storage_manager", "storage", self.broker), restored)
+                for subscription in await writer.subscribe_commands():
+                    self.addAsyncCleanup(subscription.unsubscribe)
+                failed = await self.persist()
+                self.assertFalse(failed["durable_persistence_confirmed"], failed)
+                self.assertIn("persistence_command correlation", failed["reason"])
+                self.assertEqual(restored.records_path.read_bytes(), before)
+                self.assertEqual(len(before.splitlines()), 1)
+
+    async def test_legacy_envelopes_remain_readable_with_correlated_retries(self):
+        self.storage.store_envelopes((self.envelope,))
+        legacy = self.storage.records_path.read_bytes()
+        self.assertNotIn("persistence_command", json.loads(legacy))
+        readback = await self.request(self.store_peer, "read_envelopes")
+        self.assertTrue(readback.success)
+        self.assertEqual(readback.payload["envelopes"], [self.envelope.to_dict()])
+        first = await self.persist()
+        self.assertTrue(first["durable_persistence_confirmed"])
+        self.assertFalse(first["already_persisted"])
+        before = self.storage.records_path.read_bytes()
+        self.assertTrue(before.startswith(legacy))
+        retry = await self.persist()
+        self.assertTrue(retry["durable_persistence_confirmed"])
+        self.assertTrue(retry["already_persisted"])
+        self.assertEqual(self.storage.records_path.read_bytes(), before)
+        self.assertEqual(self.storage.read_envelopes(), (self.envelope, self.envelope))
+
     async def test_stale_or_mismatched_success_reply_cannot_confirm_persistence(self):
         for field, value in (("session_id", "other"), ("requester_id", "other"),
                              ("storage_manager_id", "other"), ("command_id", "old"),
