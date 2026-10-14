@@ -4,13 +4,17 @@
 
 A modular synchronization and acquisition framework for neuroscience experiments.
 
-Q022-A installation/deployment architecture is accepted in Decisions 367-374 but
+Q022-A installation/deployment architecture is accepted in Decisions 367-375 but
 not yet implemented or independently validated. The intended initial procedure
 uses one package, explicit service roles, local service/node configuration outside
 Git, explicit known-node registration, and SSH/SFTP plus NATS/readiness installation
 checks. Device acquisition smoke tests are recommended, not runtime gates. See
 [Installation And Deployment](docs/installation_and_deployment.md) for the accepted
 manual procedure and current reusable interfaces/gaps. Q022 remains OPEN.
+Decision 375 requires independently launched services to communicate through NATS;
+current development-time shared-owner dependencies still need adaptation before
+fully functional independent-role deployment. Historical Q019 validation remains
+complete and does not claim this deployment adaptation has been validated.
 
 
 

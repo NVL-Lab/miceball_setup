@@ -44,6 +44,17 @@ or a new readiness state. Device-specific acquisition tests are strongly
 recommended, not mandatory commissioning certificates or runtime gates. NATS
 connectivity alone does not prove Ingestor acceptance of evidence.
 
+## Independent-Service Communication
+
+The deployment boundary in Decision 375: Controller, Ingestor, StorageManager,
+SynchronizationManager, and every AcquisitionNode launch independently, may run
+on different computers, and communicate with one another only through NATS.
+Each service owns its operations, state, locks, evidence, and persistence.
+Development/test shared Python objects are not deployment dependencies; direct
+calls within a service remain appropriate. A missing or timed-out response is
+unconfirmed, not success, and publication, acceptance, receipt, and archival
+remain distinct. This contract still requires implementation and validation.
+
 ---
 
 # Long-lived Operational Service
@@ -56,6 +67,9 @@ Sessions and be idle or inactive between runs without being recreated.
 Long-lived does not mean continuously acquiring, retaining all Session data
 without bounds, occupying hardware continuously, or requiring its own OS process.
 Session-specific objects may still be created, finalized, and released.
+Decision 375 subsequently requires independent launching and NATS-only
+inter-service communication for deployment; the historical process-neutral
+lifetime definition does not authorize deployed shared-owner dependencies.
 DeviceManager remains AcquisitionNode-owned, and DeviceAdapters remain managed
 runtime objects under their existing lifecycle and cleanup/reuse contracts.
 Accepted lifetime architecture does not claim that every current collaborator

@@ -2,7 +2,7 @@
 
 ## Accepted Q022-A Installation Contracts (Not Implemented)
 
-Decisions 367-374 accept one installed package with explicit role launching,
+Decisions 367-375 accept one installed package with explicit role launching,
 file-based local service/node configuration, explicit adapters and persistent node
 registration, adapter-defined Session-adjustable parameters, and manual installation
 verification. See [installation_and_deployment.md](installation_and_deployment.md).
@@ -16,6 +16,18 @@ yet. Configuration validity is not hardware readiness; device smoke tests are
 recommended, not commissioning/runtime gates. No source/API change is made by
 this architecture synchronization. Q019 remains CLOSED; Q022/Q024/Phase 16/M015
 remain OPEN.
+
+Decision 375 requires independently launched services to use NATS for every
+inter-service interaction. Current Controller/Ingestor/StorageManager closeout,
+acquisition intake/timing, collection, release, and maintenance/recovery paths
+still use development-time direct collaborators and cross-owner guards; these
+are not deployed remote interfaces. Reuse existing command/result envelopes,
+participant identities, correlated requests, evidence publication, receipt proof,
+and owner-local validation/persistence. See the cross-service dependency map and
+recommended implementation order in
+[installation_and_deployment.md](installation_and_deployment.md). NATS publication
+alone is not acceptance, complete receipt, or archival. No public API is changed
+by this synchronization, and historical Q019 validation remains intact.
 
 Q019 is CLOSED following W041-W049 slice completion and W050 overall software
 integration validation/audit PASS. The permanent sequential Normal Stop regression

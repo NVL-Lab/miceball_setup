@@ -851,7 +851,7 @@ Distributed operation
 ## Q022: What is the deployment-local configuration and initialization model?
 
 **Status:** OPEN - Q022-A installation/deployment design is accepted and synchronized
-in Decisions 367-374; implementation and independent verification remain pending.
+in Decisions 367-375; implementation and independent verification remain pending.
 Q022 as a whole is not closed. Q019 remains CLOSED in W050.
 
 ### Q022-A accepted scope
@@ -869,6 +869,16 @@ Adapters define exposed operator parameters and constraints; inventory exposes
 them to Controller for future GUI clients. Session overrides use existing config
 mechanisms and adapter validation without retaining prior-Session overrides.
 Startup configuration validity and actual hardware readiness are separate.
+
+Decision 375 resolves independent-service composition: all principal services and
+each AcquisitionNode launch independently, may run on different computers, and
+communicate with other services exclusively through NATS. Every receiving service
+retains its own operations, state, locks, evidence, and persistence authority.
+Development-time shared Python collaborators remain in the implementation and
+must be adapted; neither shared objects nor implicit additional owners are a
+deployment solution. Requests require trustworthy confirmations; missing results,
+timeouts, and failures are not success. Existing identity, durability, idempotency,
+and recovery guarantees remain mandatory.
 
 Controller's local known-node list supplies existing startup/restart reconciliation;
 list changes require Controller restart. Duplicate node identities are conflicts
@@ -918,8 +928,10 @@ Manual independent-process startup is development infrastructure; intended
 long-lived service deployment/supervision remains future work (Decision 295).
 Decision 304 explicitly settles the Session-independent and GUI-independent
 lifetime of the five principal operational services, without requiring one
-process per service. Deployment automation and supervision remain unresolved;
-Decisions 367-374 now settle the initial manual file-based configuration scope.
+process per service. Decision 375 now specifies independently launched services
+and NATS-only inter-service communication for deployment. Deployment automation
+and supervision remain unresolved; Decisions 367-374 settle the initial manual
+file-based configuration scope.
 Decisions 313-321 settle maintenance,
 independent startup/readiness, and service-owned Session-binding release without
 choosing deployment formats, a discovery/registration system, or supervision.
@@ -949,12 +961,13 @@ exact formats remain implementation choices. No lifecycle API is introduced.
   deployment/device tests separate from framework software checks.
 * Broader configuration-model questions remain in Q008. Service supervision and
   deployment automation beyond manual explicit startup are not settled by Q022-A.
-* Existing Controller archival and maintenance paths require actual local evidence
-  owners/guards. If the role launcher is to separate those owners into different
-  processes, clarify runtime composition and supported owner access before assuming
-  existing NATS commands supply remote compilation, archival, or locking semantics.
-  Decision 304 does not itself require one process per service; this is not a
-  reason to introduce proxies or automatically launch unselected services.
+* The former composition/access question is resolved by Decision 375. Implement
+  service-owned NATS requests/results for currently direct receipt, compilation,
+  persistence, readback, timing, collection, release, and recovery interactions
+  before enabling dependent role launch paths. Local owner guards cannot be
+  replaced by cached confirmations or assumed shared/distributed locks. The
+  dependency map in installation_and_deployment.md records current gaps, not
+  implemented remote APIs or new architectural contracts.
 * No automatic discovery, live reload/registration, GUI installer, configuration
   database, or mandatory device commissioning gate is required by this scope.
 * AcquisitionNode duplicate-ID policy is accepted; do not infer a new general
@@ -963,6 +976,8 @@ exact formats remain implementation choices. No lifecycle API is introduced.
 ### Blocks
 
 * Q022-A implementation and independent installation/startup verification.
+* Fully functional independent-role launching depends on the missing Decision 375
+  NATS service interfaces, not another choice of composition or transport.
 * Broader Q022 completion, including any remaining accepted-scope questions.
 
 ---

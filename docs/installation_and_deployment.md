@@ -2,11 +2,19 @@
 
 ## Status And Scope
 
-Q022-A Decisions 367-374 are accepted and synchronized, not implemented or
+Q022-A Decisions 367-375 are accepted and synchronized, not implemented or
 independently validated. This is the initial manual installation contract and a
 current-interface reference, not a working installer or deployment certification.
 The framework remains device-independent; a first camera deployment does not
 define general adapter/configuration requirements. Q022 remains OPEN.
+
+Decision 375 resolves the independent-service composition question: all principal
+services and every AcquisitionNode launch independently, may run on different
+computers, and use NATS for all inter-service communication. Each retains its
+own operations, state, locks, evidence, and persistence. Direct Python calls within
+a service remain appropriate; shared service objects and implicit additional
+service owners are not the deployment architecture. Current direct dependencies
+are development/test implementation, not evidence of independent deployment.
 
 ## Accepted Manual Procedure
 
@@ -69,13 +77,205 @@ contract. No principal-service package split, registry, database, plugin framewo
 GUI, supervision, automatic discovery, or new readiness state is needed here.
 
 Controller archival/collection and maintenance preservation currently use actual
-Ingestor/StorageManager collaborators, including synchronous owner guards; they
-are not remote APIs merely because NATS participant commands exist. Decision 304
-does not require one process per service. If separate-process launching is intended
-for these collaborating owners, return the composition/access contract to LLC
-before inventing proxies, distributed locking, or implicitly launching unselected
-services. This interface gap does not change the accepted Q022-A decisions or
-require a new subsystem for file loading, node inventory, or installation checks.
+Ingestor/StorageManager collaborators, including synchronous owner guards. They
+are not remote APIs merely because NATS participant commands exist. Decision 375
+resolves the transport/ownership choice; adapting these paths is pending
+implementation. Establish the necessary service-owned NATS interfaces before
+enabling launch paths that depend on them. Missing responses, failures, and
+timeouts must remain unconfirmed; retries must retain existing identity,
+durability, idempotency, and recovery protections.
+
+## Cross-Service Implementation Boundaries
+
+This source assessment groups current interactions by receiving owner; it does
+not approve new command names, payload schemas, distributed locks, or a generic
+remote-object subsystem. Reuse `RuntimeParticipant`, `RuntimeCommandMessage`,
+`RuntimeCommandResultMessage`, existing routing/streams, and
+`NatsControllerCommunication.request_command()`/group outcomes. These already
+correlate requester, receiving identity, Session, and command, with bounded result
+waiting. Existing publication does not itself confirm receiver execution.
+
+### Acquisition Commands And Experiment Context
+
+**Controller -> AcquisitionNode:** Local `start_session()`, `run_one_iteration()`,
+`stop_session()`, `start_experiment()`, `_end_experiment()`, and release checks
+directly read/control node runtime, Experiment context, health mapping, scientific
+finalization, and device cleanup. Reuse existing inventory/readiness, reservation,
+Session initialization/rollback, scientific-output preparation, and
+start/iteration/stop NATS commands. Missing coverage includes remaining Experiment
+context/health activation and end/finalization operations, current owner diagnostics,
+and binding release where no equivalent command exists. The node must retain
+Session-keyed reservations, terminal Experiment/file protections, device safety,
+and W042 publication-before-success with concurrency-safe evidence cursors. A
+timeout cannot prove cleanup or reservation release. Depends on receiving/timing
+interfaces below, not creation of node collaborators in Controller.
+
+### Timing And Synchronization
+
+**AcquisitionNode/Controller -> SynchronizationManager:** Node readiness,
+start/stop, acquisition timestamps, and Controller Experiment lifecycle timestamps
+read a direct synchronization object (`current_session_time_s`, `start()`,
+`stop()`). Mapping operations also remain SynchronizationManager-owned.
+Reuse existing Session preparation/readiness, serialized local-time/mapping
+records, and `NatsSynchronizationManagerCommunication` closing-Session timing
+publication. Add the missing owner requests/readback or existing-mechanism
+delivery needed for timing and mapping use; do not substitute NATS arrival/ingest
+time for scientific Session time or instantiate a second authoritative clock.
+**SynchronizationManager -> Ingestor/StorageManager:** `release_session()` and
+`reconcile_timing()` inspect accepted mapping evidence, journal durability, and
+framework archival through direct owners. Missing NATS evidence readback and
+acceptance/preservation checks depend on the evidence-owner interfaces below.
+Retain historical mappings, uncertainty, and the prohibition on untrustworthy
+active-Session clock restoration. Local timing helpers are not new services.
+
+### Producer Intake And Publication Confirmation
+
+**AcquisitionNode/Controller/other producers -> Ingestor:** Node `_send_envelope()`
+and `_record_artifact_manifest()` call intake directly; Controller decision and
+Experiment-rejection evidence also use direct `receive_runtime_evidence()`.
+Manifest recovery calls `has_durable_runtime_evidence()` on the same object.
+Reuse existing evidence publication/subscription and producer retention, existing
+acquisition-envelope serialization, and existing correlated commands/results.
+Missing functionality is NATS delivery/owner responses for acquisition envelopes
+and exact evidence-acceptance readback, not another evidence transport. Preserve
+envelope validation/audit, sender handoff-failure policy, stable evidence identity,
+same-content deduplication, retained-manifest retry, and journal-before-ACK.
+Publication confirmation, Ingestor acceptance, and complete receipt remain distinct.
+Depends on owner intake validation and StorageManager persistence forwarding;
+do not turn Ingestor's internal framework partition into another service owner.
+
+### Accepted Acquisition Record Persistence
+
+**Ingestor -> StorageManager:** `receive_envelope()` directly invokes
+`store_envelopes()`, and Controller later reads stored Session envelopes for the
+Session Record. Ingestor owns acceptance and audit; StorageManager owns record
+writing/readback. Reuse envelope serialization, existing persistent record APIs,
+and NATS request/results. Missing owner handlers must report actual storage
+outcomes and preserve Session/source association and existing failure semantics;
+neither a transport ACK nor a missing result is durable storage confirmation.
+Establish this boundary before enabling acquisition intake that relies on it.
+
+### Receipt, Compilation, And Kill Obligations
+
+**Controller -> Ingestor:** `normal_stop_session()` and
+`archive_acquisition_evidence()` require a local `NatsIngestorCommunication`
+instance and matching Ingestor object. `_preserve_kill_closeout()` admits Kill
+handoff obligations and reads current journal-backed evidence, acquisition
+envelopes, and both intake audits. Reuse Ingestor's existing W041
+`verify_acquisition_evidence_receipt()`, journal verification, persistent
+compilation, and handoff compiler inside the receiving service. Missing NATS
+operations expose their owner-confirmed results and admit obligations before
+asynchronous shutdown, including empty intake. Preserve marker identity/sequence,
+receiving origin, intact history, contiguous ACK proof, journal-before-ACK,
+Session isolation, and explicit Kill incompleteness. Missing/invalid proof is not
+complete receipt. Depends on producer/record intake; no Controller-owned consumer
+or receipt reconstruction is needed.
+
+### Stage A, Session Records, Handoff, And Binding Release
+
+**Controller/Ingestor -> StorageManager:** Controller directly writes Stage A,
+partial Kill preservation, initial/final Session Records, and the handoff, then
+reads preservation confirmations; completion/release compare current Ingestor
+contents with durable products under shared guards. Ingestor `release_session()`
+likewise uses `session_preservation_guard()` and handoff readback directly.
+Reuse StorageManager writers, persisted-product validation/readback, and NATS
+request/results. Missing handlers must preserve exact compilation/audit/envelope
+coverage, final-record Session identity, marker provenance, fsync/readback,
+non-overwriting handoff semantics, and immutable historical/closed contents.
+Adapt completion and release to trustworthy current owner confirmations, not
+cached flags, borrowed remote context managers, or shared locks. Revalidate
+Session/operation identity after network waits; late accepted or rejected intake,
+cancellation, and stale release must not bypass obligations or retire a new
+binding. Depends on Ingestor receipt/compilation and StorageManager persistence
+interfaces; Stage A is not collection or permanent closure.
+
+### Partial-Handoff Refresh And Authorized Recovery Inputs
+
+**StorageManager -> Ingestor:** `refresh_partial_artifact_collection_handoff()`
+directly reads journal-backed compilations, handoff contents, administrator
+authorization, and actual scientific-recovery evidence. Archive/transfer recovery
+also reads trusted compilation/manifests through maintenance's Ingestor object.
+Reuse existing compilers/acceptance verification and the already routed
+obligation-scoped recovery commands. Missing NATS readback must establish exact
+scope and trustworthy inputs before StorageManager acts under its own preservation
+and collection guards. Preserve prior evidence/audit prefixes, authorization and
+execution correlation, refusal of ambiguous inputs, no automatic refetch, and
+handoff immutability once any collection attempt begins. Depends on evidence
+confirmation and maintenance authorization interfaces, not an unrestricted
+replacement-handoff operation.
+
+### Saved-Session Collection And Permanent Closure
+
+**Controller -> StorageManager:** Single/multi-Session collection directly calls
+`get_saved_session_collection_status()` and `collect_saved_artifacts()`; listing,
+handoff readback, and `close_session_evidence_archive()` are local StorageManager
+APIs rather than remote service operations. Reuse those APIs through scoped NATS
+owner requests/results. StorageManager independently enumerates/validates saved
+products, rechecks eligibility/availability under collection guards, and retains
+stable per-Session evidence IDs and durable outcomes before direct Stage B archival.
+Do not send Stage B evidence through Ingestor merely to archive it. Preserve
+failure isolation, per-Session results, aggregate reporting, authorized interrupted
+write recovery without refetch, and separate explicit permanent closure with
+restart-safe immutability. Existing SSH/SFTP file retrieval remains a
+StorageManager persistence mechanism under Decision 373, not a Python call to an
+AcquisitionNode service owner. Depends on preserved baselines/handoffs, but not
+restoration of old Session runtime bindings.
+
+### Framework Maintenance, Recovery, And Reconciliation
+
+**Each service's maintenance interface -> Ingestor/StorageManager:**
+`_preserve_message()`, `_require_recovery_authorization()`, retirement guards,
+and owner diagnostics directly await journal acceptance, inspect archive safety,
+compile/write/read archives, and share intake/persistence locks. Controller
+`reconcile_outcomes()` and SynchronizationManager `reconcile_timing()` also use
+direct acceptance/archival readback. Reuse fresh readiness subscriptions, startup
+reconciliation, bounded correlated maintenance/recovery commands, retained
+producer evidence, and existing owner-local recovery/preservation methods.
+Missing NATS requests must distinguish publication, durable acceptance, current
+archival, actual execution, and remaining obligations. Decision 347 requires
+authorization and attempt acceptance before repair, without circular dependence
+on successful repair of the unavailable archive. Unsafe archives cannot be
+silently repaired by startup. Owner admission/retirement checks must remain
+effective across asynchronous callbacks; prepared retirement requires complete
+evidence and audit coverage without a new post-Ingestor dependency. Cross-service
+dependent callbacks and Controller shutdown's direct owner-identity checks also
+need owner-reported confirmations, not assumed shared objects. Depends on the
+evidence/persistence interfaces before independent-role startup is fully enabled.
+
+## Recommended Implementation Order
+
+These are proposed implementation boundaries, not additional accepted architecture
+or claims of implementation/validation:
+
+1. Establish Ingestor and StorageManager owner-side NATS intake, acceptance,
+   receipt/compilation, persistence, and current readback operations using existing
+   envelopes/routing. Test exact identity, duplicates/conflicts, journal/ACK and
+   write failure, missing/stale results, cancellation, and receiving-owner guards.
+2. Adapt acquisition/Experiment and synchronization interactions to those
+   interfaces and existing node commands. Test scientific timing, parameter/context
+   isolation, local finalization, sender failures, reservations, and producer
+   publication-before-completion without duplicate service owners.
+3. Adapt Q019 Controller Normal Stop/Kill, Stage A/handoff, completion/release,
+   saved collection, and explicit closure coordination. Test current coverage,
+   network-wait races, late intake, partial Kill, restart readback, batch isolation,
+   idempotency, and archive immutability using independently owned services.
+4. Adapt framework startup evidence, reconciliation, maintenance and authorized
+   recovery, including partial-handoff refresh and prepared retirement. Test
+   durable authorization/attempt before action, missing results, failed cleanup,
+   corrupted archives, pre-collection refresh, and no post-retirement self-write.
+5. Enable configuration/explicit-role bootstrap only after its required remote
+   interfaces exist; wire local known identities, adapters, validated paths and
+   retrieval settings, then installation checks. Configuration parsing/templates
+   can be prepared independently, but may not implicitly instantiate other owners.
+   Validate role isolation, invalid files, offline nodes, fresh readiness,
+   Controller restart reconciliation, and verified installation dummy retrieval.
+
+The former ownership/transport question is resolved. The principal implementation
+risk is preserving current cross-owner coverage and admission guarantees across
+network suspension: local locks must remain local, and cached confirmations must
+not replace final owner verification. Any essential guarantee that cannot be
+satisfied within existing contracts must return through ICC for clarification;
+this assessment does not select a distributed transaction or new recovery system.
 
 ## Validation Boundaries
 

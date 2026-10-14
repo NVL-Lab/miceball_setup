@@ -10547,6 +10547,50 @@ support remains separate from first-deployment/device-specific validation.
 
 ---
 
+## Decision 375: Independently launched operational services communicate exclusively through NATS
+
+**Status:** Accepted
+
+Controller, Ingestor, StorageManager, SynchronizationManager, and every
+AcquisitionNode are independently launched services and may run on different
+computers. All inter-service communication uses NATS. Direct Python-object
+access between services was permitted during development and testing, but is not
+the intended deployment architecture. Direct Python calls remain appropriate
+within an individual service.
+
+Each service remains the authoritative owner of its operations, state, locks,
+evidence, and persistence responsibilities. Adapt all existing cross-service
+interactions to NATS, including Controller-Ingestor-StorageManager receipt
+verification, preservation, archival confirmation, and authorized recovery under
+Q019 and its dependencies. Independently deployed services must not require
+shared Python objects or silently instantiate additional service owners.
+
+Requests require trustworthy confirmations. Failures, missing responses, and
+timeouts never establish successful completion. Retries preserve existing
+identity, durability, idempotency, and recovery protections. NATS publication,
+durable Ingestor acceptance, independently verified acquisition receipt, and
+StorageManager archival confirmation remain distinct under Decisions 276-280
+and 356-366.
+
+This resolves the Q022-A independent-service composition boundary and qualifies
+Decision 304's historical process-neutral lifetime description for deployment,
+without changing service ownership, responsibilities, or Session-independent
+lifetime. No communication infrastructure beyond NATS, new lifecycle states,
+weakened Q019 preservation/recovery guarantees, or implicit co-launching of other
+roles is authorized.
+
+**Implementation status:** Accepted and synchronized, not implemented or
+independently validated. Existing NATS participant commands, evidence publication,
+and readiness integration are reusable, but preservation, intake, timing,
+collection, release, and maintenance/recovery still contain development-time
+direct-object dependencies. Establish the required service-owned NATS interfaces
+before enabling deployment launch paths that depend on them. Historical accepted
+decisions and validated workflows remain preserved; Q019 remains CLOSED in W050,
+while Q022, Q024, Phase 16, and M015 remain OPEN. Those earlier validations do not
+establish fully independent-service deployment compliance with this decision.
+
+---
+
 # Accepted Architectural Principles
 
 The following principles summarize the accepted decisions so far.
@@ -10970,6 +11014,8 @@ requirements remain authoritative.
 372. Persistent unique node identities use explicit Controller registration loaded on restart, duplicate conflicts, and existing startup/readiness reconciliation without a registry or automatic stopping.
 373. Installation requires key-based SSH/SFTP setup and verified dummy retrieval using local endpoint/authentication references, not a continuously enforced Session connectivity gate.
 374. Initial manual installation verifies NATS and Controller-node readiness communication; device acquisition tests are strongly recommended, not mandatory runtime certification. Q022-A is accepted and synchronized, not implemented or independently validated; Q019 remains CLOSED and Q022, Q024, Phase 16, and M015 remain OPEN.
+
+375. All independently launched principal services communicate through NATS, retain their own operations/state/locks/evidence/persistence, and require trustworthy correlated confirmations without shared Python owners, implicit co-launching, or weakened Q019/recovery guarantees. Cross-service adaptation remains unimplemented; historical validation and project statuses are preserved.
 
 ---
 
