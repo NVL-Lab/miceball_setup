@@ -9712,6 +9712,15 @@ prohibition on interpreting others' evidence remain intact. StorageManager does
 not acquire Session lifecycle, scientific interpretation, or local artifact
 ownership. Historical W033/M013 implementation and validation are preserved.
 
+**Accepted LLC clarification (W045 - scientific data priority):** Preservation of
+scientific artifacts is the primary objective. Operational evidence remains
+important for diagnostics and auditability, but does not justify unnecessary
+recovery infrastructure. Stage B retrieves scientific artifacts created and
+finalized by their respective Experiments; it does not reopen or modify them.
+Uncertainty about operational evidence must not automatically be represented as
+loss or corruption of scientific data. Previously accepted mandatory evidence
+guarantees and existing partial-artifact/missing-finalization contracts remain in force.
+
 ---
 
 ## Decision 359: Durable collection handoff permits later collection without original Session bindings
@@ -9864,6 +9873,31 @@ after confirmed permanent closure, the archive is immutable. Preserve original
 acquisition evidence, Ingestor intake audit, final Session Record, and acquisition
 outcome. This specifies Decision 357's stage and closure-information contract.
 
+**Accepted LLC clarification (W045 - trusted Stage A baseline):** For a known
+Session, StorageManager may establish a trustworthy Stage A preservation baseline
+by reading and validating persisted Session products, independently of previous
+in-memory state and original Controller/Ingestor Session bindings. The relevant
+existing products are `evidence/runtime_evidence.jsonl`, `evidence/ingest_audit.jsonl`,
+`evidence/compilation_summary.json`, `session_record_final.json`, and
+`artifact_collection_handoff.json` for the applicable collection handoff.
+StorageManager verifies internal consistency and Session association using existing
+identities, counts, evidence provenance, completion information, and persistence
+guarantees. A `stage_a_complete` flag alone is insufficient. No separate preservation
+registry, database, additional snapshot record, or new evidence infrastructure is
+required. Original acquisition evidence must not be reconstructed or overwritten
+from a new Ingestor compilation merely to establish this baseline.
+
+Stage B preserves original acquisition evidence, the existing Ingestor intake
+audit, and the final Session Record unchanged. It appends StorageManager collection
+evidence to the existing runtime-evidence file and updates the existing compilation
+summary with separate evidence origins and applicable Stage B preservation
+information. Previously confirmed Stage B evidence is recognized without
+duplication; duplicate evidence IDs cannot generate duplicate archive records.
+Permanent archive immutability remains required after confirmed closure. Missing,
+conflicting, incomplete, or untrustworthy evidence is reported without inventing
+preservation success. This clarification is accepted; W045 implementation and
+validation remain pending, and Q019 remains OPEN.
+
 **Implementation status (Stage A slice):** Explicit Controller archival now verifies
 W041 receipt of its confirmed W042 marker and protects the current journal/intake
 snapshot before StorageManager persists the existing evidence/audit/summary and
@@ -9904,6 +9938,18 @@ historical-result rewriting, or self-referential archival evidence are authorize
 The temporary record is not another permanent Evidence Archive or artifact
 registry. Its filename and schema are not specified here. This specifies Decision
 358's direct-write integrity and interrupted-persistence recovery contract.
+
+**Accepted LLC clarification (W045 - interrupted writes and recovery):** A restarted
+StorageManager may examine the existing Session archive without the original live
+Ingestor compilation or cached Stage A snapshots, using Decision 362's clarified
+persisted-product baseline. Recovery preserves established Stage A contents and
+previously confirmed Stage B evidence, distinguishes intact evidence from
+interrupted or conflicting writes, and retains this decision's durable temporary
+collection outcomes and evidence IDs. Interrupted evidence persistence must not
+automatically trigger scientific-artifact transfer again or imply successful
+permanent archive closure. Existing authorization and recovery constraints remain
+applicable; no new recovery subsystem or automatic repair policy is authorized.
+This clarification is not implemented or validated by documentation synchronization.
 
 ---
 

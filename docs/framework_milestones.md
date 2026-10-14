@@ -1031,6 +1031,23 @@ These are previously executed/reported results, not validation during documentat
 It does not alter Stage A products or lifecycle. Complete Controller Normal Stop/Kill
 orchestration, Stage B, Decisions 363/365, and eligible-Session selection remain
 unimplemented. No overall milestone completion is claimed.
+
+**W045 - OPEN, accepted LLC clarification synchronized; implementation pending.**
+For a known Session, StorageManager may establish the trusted Stage A baseline from
+validated existing Session products independently of cached state and original
+Controller/Ingestor bindings (clarifications to Decisions 358/362/363). Stage B
+preserves acquisition evidence, audit, and final Session Record; directly appends
+collection evidence with distinct provenance; and recognizes confirmed evidence
+without duplication. Restarted evidence-write recovery preserves established
+contents and durable temporary outcomes/IDs under existing authorization, without
+automatic refetch, repair, or new preservation infrastructure. Scientific-artifact
+preservation is primary; operational-evidence uncertainty is not automatically
+scientific-data loss. Mandatory evidence guarantees remain applicable.
+This synchronization does not implement or validate W045, close Q019, or advance
+permanent archive closure, full Normal Stop/Kill integration, eligible-Session
+selection, Q022, or Q024. W041-W044 remain historically complete and unchanged;
+Phase 16 and M015 remain OPEN.
+
 Q019 remains OPEN for remaining implementation and independent verification.
 W042 records only the completed publication prerequisite: initial independent manual
 validation 5/5 and 4/4 PASS; initial audit FAIL for the concurrent manifest cursor;

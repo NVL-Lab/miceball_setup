@@ -629,6 +629,25 @@ Remaining implementation and technical-verification work
   Stage B/closure and distinct direct-storage origins,
   temporary outcome durability, duplicate protection, and authorized evidence-write
   recovery. Exact fields/temporary filenames are not specified by this synchronization.
+- **Stage B trusted baseline (accepted LLC clarification for W045):** The prior
+  preservation-baseline blocker is resolved architecturally. For a known Session,
+  StorageManager may validate persisted runtime evidence, intake audit, compilation
+  summary, final Session Record, and applicable durable handoff independently of
+  cached state or original Controller/Ingestor bindings. Existing identities,
+  counts, provenance, completion information, and persistence guarantees establish
+  internal consistency and Session association; a Stage A flag alone is insufficient.
+  No preservation registry, database, additional snapshot record, or new evidence
+  infrastructure is required. Acquisition evidence must not be rebuilt from a new
+  Ingestor compilation to establish the baseline. Stage B preserves acquisition
+  evidence, intake audit, and final Session Record, recognizes confirmed direct
+  evidence without duplication, and respects confirmed permanent closure.
+  Restarted evidence-write recovery retains durable temporary outcomes/IDs and
+  existing authorization constraints, without automatic artifact refetch or repair.
+  Missing/conflicting/incomplete/untrustworthy evidence remains unconfirmed.
+  Scientific-artifact preservation is primary; operational-evidence uncertainty
+  does not automatically mean scientific-data loss or corruption, and mandatory
+  evidence guarantees still apply. W045 and Q019 remain OPEN; implementation and
+  independent validation/audit have not been completed.
 - **Durable handoff and selection:** The bounded Decision 364 handoff slice is
   complete with automated testing, independent manual validation, and independent audit PASS (W044):
   explicit protected post-Stage-A compilation, separate durable JSON, known-Session

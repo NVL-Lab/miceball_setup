@@ -1453,6 +1453,23 @@ Decision 363 requires temporary durable outcome/evidence-ID preservation before
 direct archival and distinguishes complete evidence from interrupted/conflicting
 writes. These contracts are accepted but not implemented or validated.
 
+The accepted W045 LLC clarification permits StorageManager to establish a trusted
+Stage A baseline for a known Session by validating the persisted runtime evidence,
+intake audit, summary, final Session Record, and applicable durable handoff using
+existing identities, counts, provenance, completion information, and persistence
+guarantees. It does not require previous cached state or original runtime bindings;
+a Stage A flag alone is insufficient. No new preservation registry, snapshot
+record, database, or evidence infrastructure is required. Acquisition evidence is
+not rebuilt from a new Ingestor compilation. Restarted recovery preserves Stage A
+and confirmed Stage B contents and recognizes existing evidence without duplication,
+subject to existing authorization and permanent-closure protections.
+
+Scientific-artifact preservation is primary. Stage B retrieves artifacts created
+and finalized by their respective Experiments without reopening or modifying them.
+Operational-evidence uncertainty is not automatically scientific-data loss or
+corruption; mandatory evidence guarantees remain applicable. W045 remains OPEN,
+with its clarification accepted but implementation/validation pending.
+
 ---
 
 # Temporary Durable Collection Outcome
@@ -1465,6 +1482,11 @@ do not prove preservation or closure. Retire the temporary record only when safe
 after verified archival. If outcome durability was never established, the outcome
 remains unconfirmed. This is not a permanent Evidence Archive or artifact registry;
 no filename/schema is specified, and the contract is unimplemented.
+
+The accepted W045 clarification retains these durable outcomes and evidence IDs
+during restarted evidence-write recovery without requiring original live Ingestor
+compilation or cached Stage A snapshots. It does not authorize automatic scientific-
+artifact transfer, automatic repair, or a new recovery subsystem.
 
 ---
 
