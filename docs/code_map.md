@@ -88,8 +88,8 @@ in that order, with no lock held during asynchronous receipt verification.
 The Session remains stopping and bound; no handoff is written or resources released.
 Interrupted writes require existing authorized recovery, not ordinary retry repair;
 retry after incomplete receipt and repeated healthy Stage A writes remain supported.
-The bounded Decision 364 handoff slice is implemented with developer automated
-coverage, pending independent manual validation/audit. After Stage A, explicitly
+The bounded Decision 364 handoff slice is complete with developer automated testing,
+independent manual IPython validation, and independent audit PASS (W044). After Stage A, explicitly
 call `controller.preserve_artifact_collection_handoff()`; protected journal/intake
 compilation is persisted separately as `session_<session_id>/artifact_collection_handoff.json`.
 StorageManager uses fsynced same-directory temporary contents, non-overwriting

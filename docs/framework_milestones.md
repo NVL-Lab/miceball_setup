@@ -494,7 +494,8 @@ Complete closeout remains unimplemented; the explicit Stage A slice under Decisi
 362 is complete with automated testing, independent manual validation, and
 independent audit PASS (W043). Stage B and
 Decisions 363/365 remain unimplemented; the bounded Decision 364 durable handoff
-has developer automated coverage pending independent validation/audit.
+is complete with automated testing, independent manual validation, and independent
+audit PASS (W044).
 Original implementation results and audit records above are unchanged.
 
 ---
@@ -1019,9 +1020,14 @@ independent audit PASS with no confirmed P0-P3 defects or corrections required.
 Additional cross-thread archive-rewrite coverage was an optional suggestion,
 not a closure condition. These are previously executed/reported results, not
 validation performed during documentation closure.
-The bounded Decision 364 handoff slice is implemented with developer coverage,
-pending independent manual validation/audit: explicit post-Stage-A compilation,
+The bounded Decision 364 handoff slice is complete with developer automated testing,
+independent manual validation, and independent audit PASS (W044): explicit post-Stage-A compilation,
 separate durable JSON/readback after restart, and applicable release protection.
+W044 records 24 focused developer tests passed, independent manual IPython
+validation 6/6, 5/5, and 6/6 PASS (17/17 total), and independent audit PASS with
+no confirmed P0-P3 defects or required corrections. Filesystem/hard-link
+prerequisites remain applicable; power-loss behavior was not independently tested.
+These are previously executed/reported results, not validation during documentation closure.
 It does not alter Stage A products or lifecycle. Complete Controller Normal Stop/Kill
 orchestration, Stage B, Decisions 363/365, and eligible-Session selection remain
 unimplemented. No overall milestone completion is claimed.

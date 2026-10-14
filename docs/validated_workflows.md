@@ -2922,6 +2922,119 @@ introduced by this slice.
 
 ---
 
+# W044 - Q019 Durable ArtifactManifest Handoff
+
+**Status:** Complete - bounded handoff implementation under Decisions 359/364,
+developer automated testing, independent manual IPython validation, and independent
+read-only source audit PASS.
+
+## Purpose
+
+Validate durable preservation of Ingestor's existing ArtifactManifest collection
+handoff so it remains readable without original Session runtime bindings, including
+after StorageManager restart. This completes the bounded handoff slice, not Stage B
+collection, permanent archive closure, or full Normal Stop/Kill integration.
+
+## Workflow
+
+```text
+Confirmed W043 Stage A preservation after W041/W042 receipt/publication prerequisites
+    -> Controller requests explicit handoff preservation
+    -> current durable journal/intake and Stage A coverage are protected and checked
+    -> Ingestor compiles the existing ArtifactManifest handoff
+    -> StorageManager writes and fsyncs same-directory temporary JSON contents
+    -> non-overwriting publication and supported directory fsync preserve the handoff
+    -> exact current readback confirms preservation
+    -> later known-Session readback needs no original runtime bindings
+```
+
+After confirmed Stage A, call `controller.preserve_artifact_collection_handoff()`.
+Controller checks current Stage A evidence/audit coverage against the protected
+Ingestor compilation and verifies durable journal coverage. The existing compiler
+groups accepted artifact-manifest evidence by artifact identity within the Session,
+prefers finalized manifests, and retains initial manifests when finalized evidence
+is missing. Missing or uncertain finalization remains explicit through
+`missing_finalization_evidence` and the retained manifest information. Neither
+missing artifacts nor successful finalization is invented.
+
+StorageManager persists `session_<session_id>/artifact_collection_handoff.json`
+using the existing `session_id` plus `artifacts` handoff representation. This file
+is separate from `session_record_final.json`, the Evidence Archive, and scientific
+artifact bytes. The handoff identifies artifacts; it is not collection success.
+
+`PersistentStorageManager.write_artifact_collection_handoff(session_id, handoff)`
+uses its preservation lock, fsynced/closed temporary contents, a same-directory
+non-overwriting hard link, supported directory fsync, and exact readback. Identical
+retries reconfirm durability without replacing or rewriting existing contents.
+Conflicting or corrupted existing files are refused, not silently repaired.
+Interrupted persistence remains unconfirmed; an explicit identical retry can
+confirm complete matching contents after a failed publication/durability step.
+Malformed identities, inconsistent finalization flags, duplicate artifacts/JSON
+fields, and invalid handoff structure cannot establish preservation.
+
+`PersistentStorageManager.read_artifact_collection_handoff(session_id)` validates
+the saved handoff with a new StorageManager instance without the original
+Controller, Ingestor, or AcquisitionNode Session bindings. No registry, discovery,
+Session restoration, or scientific-file retrieval is needed for known-Session readback.
+
+Applicable Q019 Controller and Ingestor release guards require current handoff
+coverage, not merely a historical preservation result. Comparisons distinguish
+JSON types. Controller rechecks after asynchronous unsubscription; Ingestor retains
+intake/preservation guards through release commitment. Delayed preservation
+requests cannot record their outcome in a subsequent Session's binding/history.
+Existing non-Q019 paths retain their historical scope.
+
+Handoff preservation itself does not complete or release the Session, alter Stage A
+products, or close the Evidence Archive. The Evidence Archive remains OPEN for later Stage B.
+
+## Independent manual IPython validation
+
+- Durable preservation, new StorageManager restart readback, identical retry,
+  unchanged Stage A and lifecycle: **6/6 PASS**.
+- Finalized versus missing/uncertain finalization and independent handoff
+  persistence: **5/5 PASS**.
+- Conflicting/corrupted handoffs, rejected overwrite, interrupted publication,
+  and safe explicit retry: **6/6 PASS**.
+
+Total independent manual validation: **17/17 PASS**.
+
+## Automated validation and independent audit
+
+- Developer impact-selected automated checks: **24 passed**. Fifteen new tests
+  cover durable roundtrip/restart, initial/uncertain and empty handoffs, identical
+  retry, competing writers, corruption and malformed data, persistence interruption,
+  protected post-Stage-A integration, release safety, and delayed-request isolation.
+  Nine existing directly relevant checks cover Stage A success/failure, manifest
+  grouping and initial-only compilation, journal-restored handoff compilation,
+  legacy/stale Controller release, and exact/concurrent Ingestor release.
+- **Independent read-only implementation audit: PASS.** No confirmed P0-P3 defects
+  or required corrections. Source review verified the supported Decisions 359/364
+  boundaries, preservation/readback, concurrency, identity consistency, and release
+  safety. No additional probes or suites were executed during the audit because
+  no concrete unresolved suspicion warranted them under impact-based testing.
+
+These are previously executed developer tests and independent manual/audit results,
+not software tests or IPython validation performed during documentation closure.
+No full-suite result or new deployment validation is claimed for this slice.
+
+## Limitations and completion
+
+Only the bounded durable handoff slice is complete. W041-W043 retain their unchanged
+historical records and independently validated scopes. Existing hard-link support,
+same-filesystem publication, and platform-specific filesystem durability
+prerequisites remain applicable. Power-loss behavior was not independently tested.
+Validation concerns software/local persistence, not external NATS deployment,
+multi-host, Jetson, or camera hardware operation. No new handoff repair operation
+or automatic retry/replay is introduced.
+
+Q019 remains OPEN for Stage B artifact collection and collection-evidence
+persistence, permanent Evidence Archive closure, eligible-Session selection, and
+full Normal Stop/Kill integration. Later Stage B use of the saved handoff remains
+deferred. Q024, Q022, Phase 16, and M015 remain OPEN. No accepted architecture,
+component ownership, lifecycle state, or evidence transport is changed.
+
+---
+
 # Future Workflows
 
 The following workflows are expected to be added as the framework evolves.

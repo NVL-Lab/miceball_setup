@@ -513,8 +513,8 @@ Validation used local NATS/software, not an external cluster, multi-host, Jetson
 or hardware deployment. Complete closeout remains unimplemented. Decision 362's
 explicit Stage A slice is complete with developer automated testing, independent
 manual validation, and independent audit PASS (W043); Stage B and Decisions
-363 and 365 remain unimplemented; Decision 364's bounded durable handoff now has
-developer automated coverage pending independent validation/audit.
+363 and 365 remain unimplemented; Decision 364's bounded durable handoff is complete
+with automated testing, independent manual validation, and independent audit PASS (W044).
 Session evidence uses a durable explicit-ACK receiving position and journal-before-
 server-confirmed-ACK acceptance. Receipt readback verifies an existing completion
 marker against journal acceptance, retained stream-origin history, and contiguous
@@ -609,8 +609,9 @@ after restart without original Controller/Ingestor/AcquisitionNode bindings.
 Publication is non-overwriting, with fsync/readback confirmation; identical retries
 reconfirm durability, while corrupt or conflicting existing files are refused.
 Applicable Q019 binding release requires current handoff coverage. This bounded
-slice has developer automated tests only, pending independent validation/audit;
-it does not change W041-W043, complete/release the Session, select eligible Sessions,
+slice is complete with 24 focused developer tests passed, independent manual
+IPython validation 17/17 PASS, and independent audit PASS with no confirmed P0-P3
+defects (W044). It does not change W041-W043, complete/release the Session, select eligible Sessions,
 perform Stage B collection, or close the archive. Q019 remains OPEN.
 
 Phase 14 / Slice 27 Ingestor Crash Recovery and Handoff Reconstruction implements
