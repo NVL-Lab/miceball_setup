@@ -3368,6 +3368,102 @@ overall integration validation. Q024, Q022, Phase 16, and M015 remain OPEN.
 
 ---
 
+# W048 - Q019 Kill Session Integration
+
+**Status:** Complete - bounded Kill implementation, targeted developer testing,
+independent manual IPython validation, and final independent read-only re-audit
+PASS after correction of all previously identified findings.
+
+## Purpose
+
+Validate explicitly authorized Kill under Decisions 034, 113, 313, and 357-365,
+using existing evidence, handoff, storage, lifecycle, and recovery mechanisms.
+Kill preserves available information without claiming Normal Stop completeness.
+
+## Workflow
+
+Call `await controller.kill_session(communication=controller_communication,
+result_window_s=..., operator_authorized=True, reason=None)` for the launched
+Session with its original evidence owners.
+
+```text
+Explicit operator-authorized Kill
+    -> retain the bound Ingestor's Kill handoff obligation before any suspension
+    -> record experiment_abort for an active Experiment and abort the Session
+    -> attempt participant shutdown; report actual cleanup results and uncertainty
+    -> preserve available journal-backed evidence, intake audit, partial summary,
+       final aborted Session Record, and verified ArtifactManifest handoff
+    -> retain outstanding safety, preservation, and resource-release obligations
+```
+
+Local `cleanup_occurred=True` does not confirm participant cleanup or hardware
+safety. Partial preservation does not establish complete acquisition receipt;
+unavailable information and unconfirmed cleanup remain explicit. Kill neither
+automatically collects scientific artifacts nor permanently closes the archive.
+
+Later operator-requested Stage B collection can use the durable partial handoff
+without original runtime bindings. Additional verified manifests from authorized
+recovery may refresh it only before the first Stage B attempt. Any attempt,
+including failed or incomplete collection, makes the handoff immutable. Existing
+historical evidence, collection outcomes, and permanent archive closure remain
+protected. Repeated Kill reports the verified durable closure state without mutation.
+
+Ingestor release requires matching current durable preservation and handoff
+coverage, including admitted Kill obligations with empty intake or unavailable
+archival confirmation. Failed release retains the binding, evidence, and journal.
+Kill retry and Controller release reject current acquisition envelopes or intake
+audit not represented in the immutable final Session Record. Intake and storage
+guards protect synchronous confirmation; release rechecks after asynchronous
+unsubscription without holding synchronous preservation locks across an await.
+Unsafe writes require existing authorized recovery, not implicit repair or replay.
+
+## Independent manual IPython validation
+
+- Initial independent validation: **5/5 PASS**.
+- First correction revalidation: **4/4 PASS**.
+- Final empty-intake correction revalidation: **2/2 PASS**.
+
+## Automated validation and independent audit
+
+- Original developer impact-selected tests: **45/45 PASS**.
+- Initial independent audit: **FAIL**, two P2 findings and one P3 finding.
+  Partial Kill without a completion marker could release Ingestor without durable
+  handoff; late accepted acquisition envelopes or rejected-intake audit could be
+  omitted from the immutable final record while preservation was reconfirmed;
+  repeated Kill incorrectly reported an already closed archive as open.
+- First corrections require partial-Kill handoff coverage, exact current
+  acquisition-envelope/audit coverage, and verified closure-state reporting.
+  Developer correction tests: **13/13 PASS**.
+- Subsequent independent re-audit: **FAIL**, remaining P2 empty-intake case.
+  Failed compilation-summary persistence left confirmation unavailable; release
+  incorrectly interpreted that absence as no Kill preservation obligation.
+- Final correction registers a binding-local Kill handoff obligation before
+  asynchronous shutdown, retains it through failure/cancellation, and clears it
+  only after confirmed release. Targeted developer tests: **9/9 PASS**.
+- Final independent read-only re-audit: **PASS**, all previous defects resolved,
+  with no remaining confirmed P0-P3 findings. It independently ran four focused
+  tests covering failed summary persistence, cancellation/retry, empty-intake
+  handoff failure/retry, and concurrent intake during release unsubscription;
+  **4 passed, zero failures or skips**.
+
+These are prior developer testing and independent validation/audit results, not
+tests or another audit performed during documentation closure. No full-suite
+result is claimed for W048.
+
+## Limitations and completion
+
+Only bounded Kill integration is complete. W041-W047 historical records remain
+unchanged. This record does not claim live external NATS, multi-host, Jetson,
+hardware, or power-loss validation. Existing journal, receiving, filesystem,
+and explicit authorized-recovery prerequisites remain applicable. No automatic
+recovery, application restoration, new lifecycle state, or evidence subsystem is
+introduced. Normal Stop completeness and resource-safety requirements are unchanged.
+
+Q019 remains OPEN for eligible-Session selection and overall integration
+validation. Q022, Q024, Phase 16, and M015 remain OPEN.
+
+---
+
 # Future Workflows
 
 The following workflows are expected to be added as the framework evolves.

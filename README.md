@@ -510,8 +510,7 @@ model. Decision 361's Ingestor-side receiving foundation and JetStream routing
 prerequisite are complete with automated testing, independent manual IPython
 validation, and final independent re-audit PASS after both corrections (W041).
 Validation used local NATS/software, not an external cluster, multi-host, Jetson,
-or hardware deployment. W048 Kill now has a developer implementation awaiting
-independent manual validation and audit. Decision 362's
+or hardware deployment. W048 Kill is complete with independent manual validation and final re-audit PASS after corrections. Decision 362's
 explicit Stage A slice is complete with developer automated testing, independent
 manual validation, and independent audit PASS (W043); bounded Stage B collection
 and Decision 363 evidence persistence are complete with independent manual
@@ -519,7 +518,7 @@ validation and final targeted independent re-audit PASS after correction (W045),
 while W046 explicit permanent closure is complete with independent manual validation
 and targeted independent re-audit PASS after correction. Decision 365's bounded
 Normal Stop integration is complete after correction and independent re-audit PASS
-(W047); W048 Kill awaits independent validation and audit;
+(W047); W048 Kill is complete with independent validation and final re-audit PASS after corrections;
 Decision 364's bounded durable handoff is complete
 with automated testing, independent manual validation, and independent audit PASS (W044).
 Session evidence uses a durable explicit-ACK receiving position and journal-before-
@@ -576,7 +575,7 @@ retains reservations, and does not initiate collection or permanent closure.
 `PersistentStorageManager.refresh_partial_artifact_collection_handoff(session_id,
 *, ingestor)` accepts additional verified manifests from existing authorized
 recovery only before collection starts, preserving historical evidence and the
-final record. This is developer implementation, not independent W048 validation.
+final record. W048 is independently validated and audited PASS after corrections.
 
 Separately authorized Kill Session preserves accessible evidence/files, partial
 Session Record, unresolved conditions, and safety where possible. It neither
@@ -586,8 +585,7 @@ state. Normal Stop requires complete producer, durable acceptance, and Stage A
 confirmations. Kill identifies partial preservation when completeness is unavailable;
 that confirms only preserved content, not acquisition success or safe resource
 release. Unknown outcomes remain unconfirmed. The low-level contracts are accepted,
-but Q019 remains OPEN for complete Controller closeout integration, permanent
-archive closure, eligible-Session selection, and remaining independent verification. The receiving
+but Q019 remains OPEN for eligible-Session selection and overall integration validation. The receiving
 proof has linear history-read cost and requires intact global stream history from
 sequence 1; losing unrelated older history can block confirmation.
 No exact new filenames, fields, or APIs are
@@ -717,8 +715,7 @@ It never automatically collects artifacts, closes the archive, or releases retai
 service bindings. Existing explicit binding release preserves the terminal Session
 Record; later Stage B uses the saved handoff. Uncertain receipt or preservation
 cannot confirm Normal Stop; unsafe persistence still requires authorized recovery.
-Q019 remains OPEN for Kill Session integration,
-eligible-Session selection, and overall integration validation. W041-W044, Q024, Q022,
+Q019 remains OPEN for Eligible-Session selection and overall integration validation. W041-W044, Q024, Q022,
 Phase 16, and M015 statuses are unchanged.
 
 Phase 14 / Slice 27 Ingestor Crash Recovery and Handoff Reconstruction implements

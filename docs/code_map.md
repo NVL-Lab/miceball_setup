@@ -1,6 +1,6 @@
 # Code Map
 
-## Accepted Q019 closeout architecture (W041-W047 bounded slices validated; remaining integration pending)
+## Accepted Q019 closeout architecture (W041-W048 bounded slices validated; remaining integration pending)
 
 Decisions 356-365 qualify historical Session closeout and collection-evidence
 contracts. The accepted flow is producer publication confirmations, one
@@ -34,8 +34,7 @@ W048's synchronized clarification in Decisions 113, 362, 364, and 365 uses canon
 `experiment_abort` for an active Experiment during Kill Session, separately records
 unconfirmed cleanup, preserves available evidence without inventing completeness,
 and permits later operator-requested collection from available verified artifact
-information. The bounded W048 developer implementation now exposes explicit Kill
-and partial preservation; independent manual validation and audit remain pending.
+information. Bounded W048 Kill and partial preservation are complete with independent manual validation and final re-audit PASS after corrections.
 Decisions 034/365 permit Kill to transition the Session to `aborted` despite
 unconfirmed participant cleanup. `cleanup_occurred=True` denotes the Session's
 local cleanup procedure only; participant cleanup, hardware safety, and resource-
@@ -59,9 +58,15 @@ retrieval. Collection, refresh, closure, and archive repair serialize on the sta
 final record using nonblocking OS file locks as well as the existing owner lock;
 no lock file is introduced. Interrupted writes require explicit existing authorized
 archive repair, including for an explicitly identified partial archive after restart.
-W048 is implemented with focused developer tests; independent validation and audit
-remain pending. No new lifecycle state, infrastructure,
+W048 is complete with targeted developer testing, independent manual validation, and final re-audit PASS after corrections. No new lifecycle state, infrastructure,
 automatic collection, or implicit archive closure is specified.
+
+Admitted Kill obligations are retained before asynchronous shutdown, independently
+of archive success. Ingestor release requires matching durable handoff and evidence
+coverage even with empty intake or unavailable confirmation. Kill retry and
+Controller release reject acquisition-envelope/audit changes absent from the
+immutable final record; repeated Kill reports verified durable closure state.
+W048 records both failed audit rounds, their corrections, and the final PASS.
 
 Decision 366's supported publication prerequisite is complete with automated
 coverage, independent manual validation, and targeted independent re-audit PASS
@@ -88,7 +93,7 @@ archival, successful Normal Stop, or Session completion is claimed by this API.
 The receiving foundation, producer/marker prerequisite, and bounded Stage A
 archival are validated in W041-W043; bounded Normal Stop integration is complete
 with independent validation and targeted re-audit PASS after correction (W047).
-W048 Kill has a developer implementation awaiting independent validation/audit;
+W048 Kill is complete with independent manual validation and final re-audit PASS after corrections;
 overall Q019 integration validation remains pending.
 The function entries below also describe historical paths, including Ingestor-routed
 collection evidence and stopping-Session collection before finalization. Do not
@@ -175,8 +180,7 @@ developer tests 27/27 and independent manual validation 8/8 PASS; initial audit 
 for the unresolved-path guard; normalized target/root correction with developer
 tests 6/6 and independent validation 2/2 PASS; final targeted re-audit PASS with no
 remaining confirmed P0-P3 findings. Historical failure and correction are retained.
-Bounded Normal Stop is complete in W047; W048 Kill has a developer implementation
-awaiting independent validation/audit, and eligible-Session selection remains unimplemented;
+Bounded Normal Stop is complete in W047; W048 Kill is complete with independent validation and final re-audit PASS after corrections, and eligible-Session selection remains unimplemented;
 overall Q019 integration validation remains pending.
 W033/M013, W035, W039, and W040 retain
 their validated scopes. Q019, Q024, Q022, Phase 16, and M015 remain OPEN. No

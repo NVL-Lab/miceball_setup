@@ -490,14 +490,14 @@ not fully implemented or independently validated. Decision 361's receiving
 foundation and routing prerequisite are separately complete with automated testing,
 independent manual validation, and final independent re-audit PASS in W041;
 the producer/marker prerequisite is separately complete after correction in W042.
-Kill Session integration remains unimplemented; the explicit Stage A slice under Decision
+Bounded Kill Session integration is complete with independent validation and final re-audit PASS after corrections (W048); the explicit Stage A slice under Decision
 362 is complete with automated testing, independent manual validation, and
 independent audit PASS (W043). Bounded Stage B collection/direct persistence is
 complete with independent manual validation and final targeted independent re-audit
 PASS after correction (W045); W046 explicit closure is complete with independent
 validation and targeted re-audit PASS after correction. Decision 365's bounded
 Normal Stop integration is complete with independent validation and targeted
-re-audit PASS after correction (W047); Kill Session integration remains unimplemented.
+re-audit PASS after correction (W047); Bounded Kill Session integration is complete with independent validation and final re-audit PASS after corrections (W048).
 The bounded Decision 364 durable handoff
 is complete with automated testing, independent manual validation, and independent
 audit PASS (W044).
@@ -1083,7 +1083,19 @@ developer tests 12/12 and independent validation 3/3 PASS; targeted independent
 re-audit PASS with no remaining confirmed P0-P3 findings. Stage B collection and
 permanent closure remain separate requests. These are prior results, not new
 validation during documentation closure; no broader milestone is closed.
-Kill Session integration, eligible-Session selection, and overall Q019
+**W048 - Complete, bounded Kill Session integration.**
+Explicitly authorized Kill aborts the active Experiment and Session while keeping
+participant cleanup, hardware safety, and release obligations separate. Available
+evidence and partial handoff preservation do not claim complete receipt; authorized
+refresh is pre-Stage-B only. Collection and permanent closure remain separate.
+Initial developer tests 45/45 and independent validation 5/5 PASS preceded audit
+FAIL with two P2 and one P3 findings. First corrections passed 13/13 developer
+tests and 4/4 independent checks; re-audit found the remaining empty-intake P2.
+Final correction passed 9/9 developer tests and 2/2 independent checks; final
+independent re-audit PASS found no remaining P0-P3 findings. W048 preserves the
+full history and Normal Stop guarantees. These are prior results, not new checks
+performed during documentation closure; no broader milestone is closed.
+Eligible-Session selection and overall Q019
 integration validation remain pending; Q022 and Q024
 remain OPEN.
 W041-W044 remain historically complete and unchanged;
