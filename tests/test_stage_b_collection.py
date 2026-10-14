@@ -144,8 +144,10 @@ class StageBCollectionTests(unittest.IsolatedAsyncioTestCase):
     async def test_concurrent_identical_requests_do_not_refetch_or_duplicate_evidence(self):
         transport, _ = self.retrieval.ssh(self.sftp)
         with transport, ThreadPoolExecutor(max_workers=2) as pool:
-            first = pool.submit(self.storage.collect_saved_artifacts, "session", evidence_id="collection")
-            second = pool.submit(self.storage.collect_saved_artifacts, "session", evidence_id="collection")
+            first = pool.submit(self.storage.collect_saved_artifacts, "session", evidence_id="collection",
+                                require_eligible=False)
+            second = pool.submit(self.storage.collect_saved_artifacts, "session", evidence_id="collection",
+                                 require_eligible=False)
             self.assertTrue(first.result()["archival_confirmed"])
             self.assertTrue(second.result()["archival_confirmed"])
         self.assertEqual(len(self.sftp.opened), 1)
