@@ -9848,8 +9848,8 @@ orchestration remains unimplemented. Decision 362's bounded Stage A slice is
 complete with automated testing, independent manual validation, and independent
 audit PASS (W043); bounded Stage B collection/direct evidence persistence is
 complete with independent manual validation and final targeted independent re-audit
-PASS after correction (W045). W046 explicit closure is implemented pending independent
-validation/audit; Decision 365 remains unimplemented. The bounded Decision 364 handoff is complete
+PASS after correction (W045). W046 explicit closure is complete with independent
+validation and targeted re-audit PASS after correction; Decision 365 remains unimplemented. The bounded Decision 364 handoff is complete
 with automated testing, independent manual validation, and independent audit PASS
 (W044). Missing history or an unknown receiving origin cannot establish completeness;
 no narrower publication-interval boundary is invented. Q019 remains OPEN.
@@ -9895,8 +9895,8 @@ outcome. This specifies Decision 357's stage and closure-information contract.
 
 Scientific-artifact collection outcomes, evidence preservation, Session lifecycle,
 and permanent archive closure remain separate. This clarification is accepted;
-W046 permanent closure is implemented with focused developer testing; independent
-manual validation and audit remain pending. W041-W045 remain complete and Q019
+W046 permanent closure is complete with developer testing, independent manual
+validation, and targeted independent re-audit PASS after correction. W041-W045 remain complete and Q019
 remains OPEN. No new lifecycle state, database, registry, or
 recovery infrastructure is introduced.
 
@@ -9910,9 +9910,15 @@ publication followed by supported directory fsync and current product readback.
 Repeated/restarted closure reconfirms closed contents without rewriting. Failed
 publication or durability/readback cannot return success. Applicable ordinary and
 authorized write paths enforce immutability; generic final-record writes serialize
-with closure. Developer tests: 17 new tests and 10 directly affected regressions
-passed. No independent validation, audit, completed W046 workflow, full Normal
-Stop/Kill integration, or eligible-Session selection is claimed.
+with closure. W046 records initial developer tests 27/27 PASS, initial independent
+IPython validation 8/8 PASS, initial audit FAIL with one P2 path-alias immutability
+defect, correction tests 6/6 PASS, independent correction validation 2/2 PASS, and
+targeted independent re-audit PASS with no remaining confirmed P0-P3 findings.
+The corrected guard resolves the complete target path and configured storage root
+before identifying the managed final record, preserving pre-closure writing while
+preventing equivalent-path bypass after restart. These are prior results, not new
+validation during documentation closure. Full Normal Stop/Kill integration,
+eligible-Session selection, and overall Q019 integration validation remain pending.
 
 **Accepted LLC clarification (W045 - trusted Stage A baseline):** For a known
 Session, StorageManager may establish a trustworthy Stage A preservation baseline
@@ -10011,8 +10017,8 @@ independent re-audit PASS with no remaining confirmed P0-P3 defects. Corrections
 prevent missing/inconsistent provenance from authorizing destructive archive
 replacement and reject cross-Session acquisition envelopes or incomplete intake
 audit as a trustworthy persisted Stage A baseline. These are prior results, not
-new validation during documentation closure. W046 explicit closure is implemented
-pending independent validation/audit; eligible-Session selection and full Normal
+new validation during documentation closure. W046 explicit closure is complete with
+independent validation and targeted re-audit PASS after correction; eligible-Session selection and full Normal
 Stop/Kill are not implemented.
 Q019, Q024, Q022, Phase 16, and M015 remain OPEN.
 
@@ -10058,8 +10064,8 @@ no confirmed P0-P3 defects or required corrections (W044). Existing hard-link an
 filesystem durability prerequisites remain applicable; power-loss behavior was not
 independently tested. Bounded Stage B collection/evidence persistence is separately
 complete with independent manual validation and final targeted re-audit PASS after
-correction (W045). W046 explicit closure is implemented pending independent
-validation/audit; eligible-Session selection and full Normal Stop/Kill integration
+correction (W045). W046 explicit closure is complete with independent validation
+and targeted re-audit PASS after correction; eligible-Session selection and full Normal Stop/Kill integration
 remain unimplemented. W041-W043 and all broader open statuses
 are unchanged.
 
@@ -10103,8 +10109,8 @@ remains unimplemented. The bounded Stage A slice under Decision 362 is complete
 with automated testing, independent manual validation, and independent audit PASS
 (W043); bounded Stage B collection/Decision 363 persistence is complete with
 independent manual validation and final targeted independent re-audit PASS after
-correction (W045); W046 explicit closure is implemented pending independent
-validation/audit, and Decision 365 remains unimplemented.
+correction (W045); W046 explicit closure is complete with independent validation
+and targeted re-audit PASS after correction, and Decision 365 remains unimplemented.
 The bounded Decision 364
 handoff is complete with automated testing, independent manual validation, and
 independent audit PASS (W044).
@@ -10235,8 +10241,8 @@ orchestration remains unimplemented. Bounded Stage A under Decision 362 is compl
 with automated testing, independent manual validation, and independent audit PASS
 (W043); bounded Stage B collection/Decision 363 persistence is complete with
 independent manual validation and final targeted independent re-audit PASS after
-correction (W045); W046 explicit closure is implemented pending independent
-validation/audit, and Decision 365 remains unimplemented.
+correction (W045); W046 explicit closure is complete with independent validation
+and targeted re-audit PASS after correction, and Decision 365 remains unimplemented.
 Decision 364's bounded
 durable handoff is complete with automated testing, independent manual validation,
 and independent audit PASS (W044);
@@ -10623,7 +10629,7 @@ requirements remain authoritative.
 362. The existing compilation summary records Stage A completion and Stage B permanent closure with distinct evidence origins; status alone is not preservation proof, and verified consistent durable closure makes the single archive immutable.
 363. StorageManager temporarily durably preserves each actual collection outcome and unique evidence ID before direct archival; confirmed archival and duplicate protection permit safe temporary retirement and authorized evidence-write recovery without repeating transfer.
 364. Ingestor's existing handoff is verified durably preserved by StorageManager as a separate Session-associated JSON file in the existing Session directory; later selected collection validates it without old bindings, invented registries, or guessed missing information.
-365. Normal Stop requires producer confirmations, complete durable Ingestor acceptance, and complete Stage A preservation; authorized Kill Session preserves confirmed accessible partial information without claiming completeness or safe resource release. Decision 361's receiving foundation is complete with independent manual validation and final independent re-audit PASS after correction (W041); the supported producer/marker prerequisite is complete with automated coverage, independent manual validation, and targeted independent re-audit PASS after correction (W042); bounded Stage A under Decision 362 is complete with automated testing, independent manual validation, and independent audit PASS (W043); bounded Decision 364 durable handoff is complete with automated testing, independent manual validation, and independent audit PASS (W044); bounded Stage B collection/Decision 363 evidence persistence is complete with independent manual validation and final targeted independent re-audit PASS after correction (W045); W046 explicit permanent closure is implemented pending independent manual validation/audit; complete Controller closeout, Decision 365, and eligible-Session selection remain unimplemented. Q019, Q024, Q022, Phase 16, and M015 remain OPEN.
+365. Normal Stop requires producer confirmations, complete durable Ingestor acceptance, and complete Stage A preservation; authorized Kill Session preserves confirmed accessible partial information without claiming completeness or safe resource release. Decision 361's receiving foundation is complete with independent manual validation and final independent re-audit PASS after correction (W041); the supported producer/marker prerequisite is complete with automated coverage, independent manual validation, and targeted independent re-audit PASS after correction (W042); bounded Stage A under Decision 362 is complete with automated testing, independent manual validation, and independent audit PASS (W043); bounded Decision 364 durable handoff is complete with automated testing, independent manual validation, and independent audit PASS (W044); bounded Stage B collection/Decision 363 evidence persistence is complete with independent manual validation and final targeted independent re-audit PASS after correction (W045); W046 explicit permanent closure is complete with independent manual validation and targeted independent re-audit PASS after correction; complete Controller closeout, Decision 365, and eligible-Session selection remain unimplemented. Q019, Q024, Q022, Phase 16, and M015 remain OPEN.
 
 366. Participating AcquisitionNodes confirm durable acquisition-stage evidence publication through their existing successful completion responses regardless of selected-device optionality; Controller and SynchronizationManager finish applicable closing-Session publication before the single marker, while locally journaled Ingestor evidence needs no JetStream round trip. The supported publication prerequisite is complete with automated coverage, independent manual validation, and targeted independent re-audit PASS after correction (W042); W041 is unchanged and Q019 remains OPEN.
 

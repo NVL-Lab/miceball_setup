@@ -1460,8 +1460,8 @@ lifecycle, and permanent closure remain distinct.
 Decision 363 requires temporary durable outcome/evidence-ID preservation before
 direct archival and distinguishes complete evidence from interrupted/conflicting
 writes. Bounded collection/evidence persistence is implemented and independently
-validated/audited in W045. W046 explicit permanent closure is implemented with
-developer testing; independent manual validation and audit remain pending.
+validated/audited in W045. W046 explicit permanent closure is complete with
+independent manual validation and targeted independent re-audit PASS after correction.
 
 The accepted W045 LLC clarification permits StorageManager to establish a trusted
 Stage A baseline for a known Session by validating the persisted runtime evidence,
@@ -1479,7 +1479,8 @@ and finalized by their respective Experiments without reopening or modifying the
 Operational-evidence uncertainty is not automatically scientific-data loss or
 corruption; mandatory evidence guarantees remain applicable. W045 is complete
 with independent manual validation and final targeted re-audit PASS after correction;
-Q019 remains OPEN for permanent closure and remaining integration work.
+W046 separately validates permanent closure; Q019 remains OPEN for remaining
+Session shutdown, selection, and overall integration work.
 
 ---
 

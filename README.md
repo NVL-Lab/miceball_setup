@@ -515,8 +515,8 @@ explicit Stage A slice is complete with developer automated testing, independent
 manual validation, and independent audit PASS (W043); bounded Stage B collection
 and Decision 363 evidence persistence are complete with independent manual
 validation and final targeted independent re-audit PASS after correction (W045),
-while W046 explicit permanent closure is implemented pending independent validation
-and audit, and Decision 365 remains unimplemented;
+while W046 explicit permanent closure is complete with independent manual validation
+and targeted independent re-audit PASS after correction, and Decision 365 remains unimplemented;
 Decision 364's bounded durable handoff is complete
 with automated testing, independent manual validation, and independent audit PASS (W044).
 Session evidence uses a durable explicit-ACK receiving position and journal-before-
@@ -682,9 +682,13 @@ rewriting. An interrupted publication or fsync/readback raises rather than repor
 success; explicit retry can reconfirm safely, never reopen a closed archive or refetch
 artifacts. Archive writes, generic managed final-record writes, handoff writes, and
 authorized archive/record recovery cannot mutate closed products.
-Developer testing: 17 new closure tests and 10 directly affected regressions passed.
-Independent manual validation and audit remain pending; no W046 completion is claimed.
-Q019 remains OPEN for permanent closure, eligible-Session selection, full Normal
+W046 is complete: initial developer tests 27/27 and independent IPython validation
+8/8 PASS; initial audit FAIL with one P2 final-record path-alias bypass; correction
+tests 6/6 and independent correction validation 2/2 PASS; targeted independent
+re-audit PASS with no remaining confirmed P0-P3 findings. The guard now resolves
+the complete target and storage root before identifying the managed final record.
+These are prior validation results, not new tests during documentation closure.
+Q019 remains OPEN for eligible-Session selection, full Normal
 Stop/Kill integration, and overall integration validation. W041-W044, Q024, Q022,
 Phase 16, and M015 statuses are unchanged.
 

@@ -3157,6 +3157,111 @@ Q024, Q022, Phase 16, and M015 remain OPEN.
 
 ---
 
+# W046 - Q019 Permanent Evidence Archive Closure
+
+**Status:** Complete - bounded explicit permanent closure implementation, developer
+automated testing, independent manual IPython validation, and targeted independent
+read-only re-audit PASS after correction.
+
+## Purpose
+
+Validate the separate operator-requested permanent closure contract under Decisions
+357, 358, 362, and 363 and the accepted explicit-closure clarification. W045 collection
+and evidence preservation do not automatically close an archive. This slice does
+not implement Normal Stop/Kill orchestration or complete Q019.
+
+## Workflow
+
+```text
+Separate explicit operator closure request for a known Session
+    -> StorageManager checks unresolved writes under its preservation lock
+    -> validate current persisted Stage A/B products, provenance, and final record
+    -> fsync/readback confirms consistency and durability without cached bindings
+    -> publish archive_closed=True in the existing compilation summary
+    -> current readback reconfirms protected contents and closure
+    -> ordinary and authorized writes cannot mutate closed products after restart
+```
+
+Call `storage.close_session_evidence_archive(session_id)` using the existing storage
+root and original StorageManager component identity. No original Session binding,
+SSH connection, new transport, or Session restoration is required. Collection
+outcomes, evidence preservation, Session lifecycle, and archive closure remain
+separate. Closure does not require successful retrieval or verification of every
+scientific artifact: failed or unknown collection outcomes may coexist with closure
+when all applicable outcomes are durably recorded.
+
+StorageManager reuses the persisted Stage A/B baseline to check evidence identities,
+Session associations, counts, provenance, complete intake audit, final Session
+Record, and durable handoff. Pending outcomes, unresolved writes, conflicting or
+incomplete products, and unconfirmed preservation block closure. A status flag,
+cached confirmation, or successful artifact result alone cannot establish closure.
+
+Only `evidence/compilation_summary.json` changes. Fsynced same-directory temporary
+contents are atomically published, with supported directory fsync and current
+product readback through commitment. Acquisition evidence, collection evidence,
+intake audit, final Session Record, handoff, and scientific artifacts remain
+unchanged. The existing preservation lock serializes closure with collection,
+record writing, and recovery; overlapping closure requests publish only once.
+
+Success returns `session_id`, `archive_closed=True`, `archival_confirmed=True`, and
+product paths. Unsuccessful publication, durability, or readback raises instead of
+confirming closure. If interruption follows summary publication, mutation remains
+blocked; explicit retry, including after restart, reconfirms current closed contents
+without rewriting or reopening them. Corruption remains unconfirmed, not silently
+repaired. Existing authorized evidence recovery remains distinct and cannot modify
+closed products. No extra closure file or self-referential evidence is introduced.
+
+## Independent manual IPython validation
+
+- Initial independent validation: **8/8 PASS**.
+- Independent P2 correction validation: **2/2 PASS**.
+
+These are separate validation stages. The initial successful scenarios did not
+establish immutability for every equivalent path spelling.
+
+## Automated validation and independent audit
+
+- Initial developer impact-selected tests: **27/27 PASS** (17 new closure tests and
+  10 directly affected persistence/recovery regressions).
+- Initial independent source audit: **FAIL**, with one confirmed P2 defect.
+  `session_session/nested/../session_record_final.json` bypassed the generic record
+  guard because it inspected the unresolved parent name. After closure and restart,
+  the protected final Session Record could be overwritten while the archive still
+  reported closed. An independent temporary-directory probe reproduced the defect;
+  two existing nearby tests passed but did not cover that alias after closure.
+- Correction resolves the complete target path and configured storage root before
+  identifying the managed final record. Public signatures and existing closure
+  contracts are unchanged.
+- Developer correction tests: **6/6 PASS**. The new regression reproduced the defect
+  before correction and covers original/restarted owners and an aliased storage
+  root; a positive regression preserves legitimate pre-closure writing. Selected
+  existing tests cover alias concurrency, closed-write rejection, authorized record
+  recovery, and normal record writing.
+- Final targeted independent read-only re-audit: **PASS**. The original P2 finding
+  was resolved, with no remaining confirmed P0-P3 findings within scope. No additional
+  tests or probes were necessary during that re-audit under impact-based testing.
+
+These are previously executed developer tests and independent validation/audit
+results, not software tests or a new audit performed during documentation closure.
+No full-suite result is claimed for W046.
+
+## Limitations and completion
+
+Only explicit permanent Evidence Archive closure is complete. W041-W045 retain
+their unchanged historical records and validated scopes. Existing single-owner,
+filesystem/fsync, and owner-access prerequisites apply; multiple simultaneously
+authoritative StorageManagers sharing a directory remain unsupported. Power-loss
+behavior was not independently tested. Validation used controlled local software
+and SSH/SFTP boundary doubles, not live external NATS, multi-host, Jetson, or hardware
+acquisition validation. No registry, database, new lifecycle state, automatic replay,
+recovery subsystem, or scientific transformation is introduced.
+
+Q019 remains OPEN for full Normal Stop/Kill integration, eligible-Session selection,
+and overall integration validation. Q024, Q022, Phase 16, and M015 remain OPEN. Archive
+closure does not complete or release the Session or close these broader milestones.
+
+---
+
 # Future Workflows
 
 The following workflows are expected to be added as the framework evolves.

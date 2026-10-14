@@ -15,8 +15,8 @@ separate explicit operator request, all applicable collection outcomes durably
 recorded, no unresolved evidence writes, and verified consistent durable archive
 preservation. It does not require every artifact to be retrieved or verified;
 confirmed closed archives are immutable, including after restart. W046 explicit
-closure is implemented with developer tests; independent validation/audit remain
-pending. Closure is separate from collection outcomes and Session lifecycle.
+closure is complete with independent manual validation and targeted independent
+re-audit PASS after correction. Closure is separate from collection outcomes and Session lifecycle.
 Decision 361 requires restart-safe Session-specific receiving progress and verified
 contiguous JetStream acknowledgment coverage of the full relevant publication
 interval. Decision 362 records stages/closure in the existing summary, requiring
@@ -134,8 +134,11 @@ and reconfirms all products before returning. Failed/unknown artifact outcomes d
 not block closure when their evidence is durable. Pending writes or inconsistent
 products do block it. Repeated/restarted requests reconfirm closed contents without
 rewriting them. Generic final-record writing and authorized recovery honor closure;
-record serialization/write is serialized with closure. W046 has 17 new developer
-tests and 10 directly affected regressions passed, not independent validation/audit.
+record serialization/write is serialized with closure. W046 is complete: initial
+developer tests 27/27 and independent manual validation 8/8 PASS; initial audit FAIL
+for the unresolved-path guard; normalized target/root correction with developer
+tests 6/6 and independent validation 2/2 PASS; final targeted re-audit PASS with no
+remaining confirmed P0-P3 findings. Historical failure and correction are retained.
 Full Controller closeout and later eligible-Session selection remain unimplemented;
 overall Q019 integration validation remains pending.
 W033/M013, W035, W039, and W040 retain
@@ -1128,8 +1131,8 @@ for the latter prerequisite after correction. Explicit Stage A archival is compl
 with developer tests, independent manual validation, and independent audit PASS
 (W043); bounded Stage B collection/evidence persistence is complete with independent
 manual validation and final targeted independent re-audit PASS after correction
-(W045); W046 explicit permanent closure is implemented with focused developer
-testing pending independent validation/audit, while full closeout remains deferred.
+(W045); W046 explicit permanent closure is complete with independent manual
+validation and targeted independent re-audit PASS after correction, while full closeout remains deferred.
 
 ## tests/test_acquisition_stage_archival.py
 

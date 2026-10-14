@@ -494,8 +494,8 @@ Complete closeout remains unimplemented; the explicit Stage A slice under Decisi
 362 is complete with automated testing, independent manual validation, and
 independent audit PASS (W043). Bounded Stage B collection/direct persistence is
 complete with independent manual validation and final targeted independent re-audit
-PASS after correction (W045); W046 explicit closure is implemented pending independent
-validation/audit, and Decision 365 remains unimplemented; the bounded Decision 364 durable handoff
+PASS after correction (W045); W046 explicit closure is complete with independent
+validation and targeted re-audit PASS after correction, and Decision 365 remains unimplemented; the bounded Decision 364 durable handoff
 is complete with automated testing, independent manual validation, and independent
 audit PASS (W044).
 Original implementation results and audit records above are unchanged.
@@ -980,8 +980,8 @@ explicit operator request, all applicable collection outcomes durably recorded,
 no unresolved evidence writes, and verified consistent durable archive preservation;
 it is not automatic after collection or contingent on every artifact being retrieved
 or verified. Confirmed closed archives are immutable, including after restart.
-W046 closure implementation has focused developer tests; independent manual
-validation/audit remain pending. Acquisition outcomes and final Session
+W046 closure is complete with independent manual validation and targeted independent
+re-audit PASS after correction. Acquisition outcomes and final Session
 Records are not rewritten.
 Separately authorized Kill Session preserves accessible partial records and safety
 while leaving the archive open for later collection; no killed lifecycle state or
@@ -1062,9 +1062,14 @@ envelopes or incomplete intake audit. Corrections passed 14 developer tests and
 3/3 independent manual checks. The final targeted independent re-audit returned
 PASS with no remaining confirmed P0-P3 defects. These are previously executed
 results, not validation performed during documentation closure.
-W046 explicit permanent closure is implemented with 17 new developer tests and
-10 directly affected regressions passed. Independent manual validation/audit remain
-pending; no completed W046 workflow or milestone closure is recorded.
+**W046 - Complete, bounded explicit permanent Evidence Archive closure.**
+Initial developer tests 27/27 and independent manual validation 8/8 PASS; initial
+audit FAIL with one P2 final-record path-alias bypass; correction tests 6/6 and
+independent correction validation 2/2 PASS; targeted independent re-audit PASS with
+no remaining confirmed P0-P3 findings. Target/root normalization precedes managed
+record identification, preventing bypass after restart without blocking pre-closure
+writing. These are prior results, not validation during documentation closure.
+No broader milestone closure is recorded.
 Full Normal Stop/Kill integration, eligible-Session selection, and overall Q019
 integration validation remain pending; Q022 and Q024
 remain OPEN.

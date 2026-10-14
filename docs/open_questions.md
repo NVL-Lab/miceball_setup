@@ -484,8 +484,8 @@ closeout remains unimplemented. Decision 362's bounded Stage A slice is complete
 with automated testing, independent manual validation, and independent audit PASS
 (W043); bounded Stage B collection/Decision 363 persistence is complete with
 independent manual validation and final targeted independent re-audit PASS after
-correction (W045); W046 explicit closure is implemented pending independent manual
-validation/audit, and Decision 365 remains unimplemented.
+correction (W045); W046 explicit closure is complete with independent manual
+validation and targeted re-audit PASS after correction, and Decision 365 remains unimplemented.
 Decision 364's bounded
 durable handoff is complete with automated testing, independent manual validation,
 and independent audit PASS (W044).
@@ -636,7 +636,8 @@ Remaining implementation and technical-verification work
   and an open archive. The Session remains stopping and bound; no durable handoff
   is substituted. W045 separately completes bounded Stage B collection/direct-storage
   origins, temporary outcome durability, duplicate protection, and authorized
-  evidence-write recovery. Permanent closure and full integration remain pending.
+  evidence-write recovery. W046 separately validates explicit permanent closure;
+  full integration remains pending.
 - **Stage B trusted baseline (accepted LLC clarification for W045):** The prior
   preservation-baseline blocker is resolved architecturally. For a known Session,
   StorageManager may validate persisted runtime evidence, intake audit, compilation
@@ -662,7 +663,7 @@ Remaining implementation and technical-verification work
   3/3 independent correction checks passed, and final re-audit PASS with no remaining
   confirmed P0-P3 defects. Corrected guards reject missing/inconsistent provenance,
   cross-Session acquisition envelopes, and incomplete intake audit before unsafe
-  replacement or baseline confirmation. Q019 remains OPEN for permanent closure,
+  replacement or baseline confirmation. Q019 remains OPEN for
   full Normal Stop/Kill integration, eligible-Session selection, and overall
   integration validation.
 - **Durable handoff and selection:** The bounded Decision 364 handoff slice is
@@ -676,25 +677,29 @@ Remaining implementation and technical-verification work
   complete Normal Stop confirmations and explicit partial Kill preservation while
   retaining safety, uncertainty, and binding-release obligations.
 - **Permanent archive closure:** The accepted Decision 362 clarification resolves
-  the separate-request and closure-eligibility contract above. W046 implements
-  explicit StorageManager closure with 17 new developer tests and 10 directly
-  affected regressions passed. Independent manual validation/audit remain pending;
+  the separate-request and closure-eligibility contract above. W046 explicit closure
+  is complete with initial developer tests 27/27 and manual validation 8/8 PASS;
+  initial audit FAIL with one P2 path-alias defect; correction tests 6/6 and
+  independent correction validation 2/2 PASS; targeted independent re-audit PASS
+  with no remaining confirmed P0-P3 findings. Complete target/root normalization
+  prevents final-record immutability bypass after restart and preserves valid
+  pre-closure writes. These are prior results, not new validation during closure;
   W045's completed collection/evidence persistence never automatically closes the
-  archive or changes Session lifecycle. No W046 completion is recorded.
+  archive or changes Session lifecycle. W046 does not close Q019.
 
 These are accepted low-level contracts awaiting implementation and verification,
 not four unresolved architectural choices. Any inability to satisfy them returns
 for architectural review; this task chooses no speculative broker configuration.
 
 Blocks
-Remaining Q019 closeout integration and permanent Evidence Archive closure
+Remaining Q019 Session closeout integration
 Overall integration validation and later eligible-Session selection
 Normal and forced partial acquisition-evidence closeout integration
 
 Q019 remains OPEN. Decisions 356-365 and clarification 366 settle the high-level
-and low-level contracts above. W041-W045 complete only the receiving,
+and low-level contracts above. W041-W046 complete only the receiving,
 publication, bounded Stage A archival, durable handoff, and bounded Stage B
-collection/evidence-persistence slices; remaining implementation and overall
+collection/evidence-persistence and explicit permanent closure slices; remaining implementation and overall
 integration validation are pending.
 The original
 Slice 25 exclusions remain historical; they do not prohibit the newly accepted
@@ -1229,7 +1234,7 @@ The roadmap distinguishes accepted architecture from implemented milestones:
 Phase 13 — Global StorageManager (Evidence)
 Phase 14 — Global StorageManager (Finalized Scientific Data)
 Phase 15 — Controller-owned Session Launch & Runtime Assembly (launch path and Decision 302 sequential reuse implemented; independent validation/audit and M015 closure pending)
-Phase 16 — Operational Service Lifetime and Framework Stop/Kill (Decisions 304-366 accepted; Q025 resolved architecturally; narrow Session-binding release under Decisions 313/322 complete, manually software-validated and independently audited PASS in W035; individual-service maintenance complete, manually software-validated and independently audited PASS in W036; progressive two-phase coordinated shutdown complete, manually software-validated and independently re-audited PASS in W037; startup/return under Decisions 327-331 complete, independently manually software-validated and independently re-audited PASS after correction in W038; supported Q024-B cases under Decisions 339-348 complete with automated coverage, independent manual validation, and final independent re-audit PASS after correction in W039; supported Decisions 351-352 startup reconciliation/reservation protection complete, independently manually validated and independently re-audited PASS after correction in W040; Decisions 349-350 and 353-355 remain unimplemented; Decision 361 receiving foundation and routing prerequisite complete with automated testing, independent manual validation, and final independent re-audit PASS after correction in W041; Decision 366's supported producer/marker prerequisite is complete with automated coverage, independent manual validation, and targeted independent re-audit PASS after correction in W042; bounded Stage A under Decision 362 is complete with automated testing, independent manual validation, and independent audit PASS in W043; bounded Decision 364 durable handoff is complete with automated testing, independent manual validation, and independent audit PASS (W044); bounded Stage B collection/Decision 363 evidence persistence is complete with independent manual validation and final targeted re-audit PASS after correction (W045); W046 explicit permanent closure is implemented pending independent manual validation/audit; complete Controller closeout, Decision 365, and eligible-Session selection remain unimplemented; Q019, Q024, Q022, Phase 16, and M015 remain open)
+Phase 16 — Operational Service Lifetime and Framework Stop/Kill (Decisions 304-366 accepted; Q025 resolved architecturally; narrow Session-binding release under Decisions 313/322 complete, manually software-validated and independently audited PASS in W035; individual-service maintenance complete, manually software-validated and independently audited PASS in W036; progressive two-phase coordinated shutdown complete, manually software-validated and independently re-audited PASS in W037; startup/return under Decisions 327-331 complete, independently manually software-validated and independently re-audited PASS after correction in W038; supported Q024-B cases under Decisions 339-348 complete with automated coverage, independent manual validation, and final independent re-audit PASS after correction in W039; supported Decisions 351-352 startup reconciliation/reservation protection complete, independently manually validated and independently re-audited PASS after correction in W040; Decisions 349-350 and 353-355 remain unimplemented; Decision 361 receiving foundation and routing prerequisite complete with automated testing, independent manual validation, and final independent re-audit PASS after correction in W041; Decision 366's supported producer/marker prerequisite is complete with automated coverage, independent manual validation, and targeted independent re-audit PASS after correction in W042; bounded Stage A under Decision 362 is complete with automated testing, independent manual validation, and independent audit PASS in W043; bounded Decision 364 durable handoff is complete with automated testing, independent manual validation, and independent audit PASS (W044); bounded Stage B collection/Decision 363 evidence persistence is complete with independent manual validation and final targeted re-audit PASS after correction (W045); W046 explicit permanent closure is complete with independent manual validation and targeted independent re-audit PASS after correction; complete Controller closeout, Decision 365, and eligible-Session selection remain unimplemented; Q019, Q024, Q022, Phase 16, and M015 remain open)
 Phase 17 — Device Acceptance / Validation
 Phase 18 — End-to-End Demo Architecture
 
