@@ -64,6 +64,18 @@ class SessionPreservationIntegrationTests(unittest.IsolatedAsyncioTestCase):
         sid = launched.details["session_id"]
         self.stop.sid = sid
         self.stop.connect_receipt()
+        topic = f"messages.{sid}.evidence.*.*.*"
+        self.stop.durable = next(name for name, consumer in f.broker.consumers.items()
+                                 if consumer.config.filter_subject == topic)
+        f.broker.callbacks[self.stop.durable] = next(
+            subscription.callback for subscription in f.broker.subscriptions if subscription.subject == topic)
+
+        async def acknowledge_session():
+            for sequence, record in sorted(f.broker.records.items()):
+                if f.broker.matches(topic, record.subject):
+                    await f.broker.deliver(self.stop.durable, sequence)
+
+        self.stop.acknowledge = acknowledge_session
         self.assertTrue((await f.controller.start_launched_session()).succeeded)
         outputs = (ScientificOutputSelection(self.declaration.device_id, "node-a", "events"),) if scientific else ()
         started = f.controller.start_experiment("experiment", scientific_outputs=outputs)
@@ -74,8 +86,8 @@ class SessionPreservationIntegrationTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(iteration.success, iteration.reason)
         return sid
 
-    async def complete_normal_stop(self):
-        sid = await self.start()
+    async def complete_normal_stop(self, *, reuse=False):
+        sid = await self.start(reuse=reuse)
         result = await self.stop.stop()
         self.assertTrue(result.succeeded, result.error)
         summary = self.storage.get_acquisition_stage_preservation_confirmation(sid)["compilation_summary"]
@@ -107,6 +119,45 @@ class SessionPreservationIntegrationTests(unittest.IsolatedAsyncioTestCase):
         return {entry["artifact_manifest"]["local_storage_path"]:
                 Path(entry["artifact_manifest"]["local_storage_path"]).read_bytes()
                 for entry in handoff["artifacts"]}
+
+    async def test_successive_normal_stops_preserve_separate_sessions(self):
+        first = await self.complete_normal_stop()
+        owners = (self.fixture.controller, self.fixture.ingestor, self.fixture.sync,
+                  self.fixture.nodes["node-a"], self.fixture.adapters["node-a"][0])
+        original = self.products(first)
+        first_files = self.scientific_files(first)
+        self.assertTrue(first_files)
+        self.assertTrue(all(first_files.values()))
+        second = await self.complete_normal_stop(reuse=True)
+        self.assertNotEqual(first, second)
+        current_owners = (self.fixture.controller, self.fixture.ingestor, self.fixture.sync,
+                          self.fixture.nodes["node-a"], self.fixture.adapters["node-a"][0])
+        self.assertTrue(all(before is after for before, after in zip(owners, current_owners)))
+        self.assertIsNone(self.fixture.controller.get_status()["session_id"])
+        self.assertIsNone(self.fixture.ingestor.session_id)
+        self.assertIsNone(self.fixture.nodes["node-a"].reserved_for_session_id)
+        restored = self.restored_storage()
+        marker_ids = set()
+        for sid in (first, second):
+            saved = restored.get_persisted_session_preservation_confirmation(sid)
+            self.assertIsNotNone(saved)
+            self.assertEqual(saved["session_record"]["final_session_status"]["state"], "completed")
+            self.assertTrue(saved["compilation_summary"]["stage_a_complete"])
+            self.assertTrue(all(message["session_id"] == sid for message in saved["runtime_evidence"]))
+            marker_ids.add(saved["compilation_summary"]["acquisition_evidence_completion"]["evidence_id"])
+            handoff = restored.read_artifact_collection_handoff(sid)
+            self.assertEqual(len(handoff["artifacts"]), 1)
+            self.assertTrue(all(entry["artifact_manifest"]["session_id"] == sid
+                                and entry["artifact_manifest"]["lifecycle_state"] == "finalized"
+                                for entry in handoff["artifacts"]))
+            self.assertTrue(all(self.scientific_files(sid).values()))
+        self.assertEqual(len(marker_ids), 2)
+        self.assertEqual(self.products(first), original)
+        for path, contents in first_files.items():
+            self.assertEqual(Path(path).read_bytes(), contents)
+        listed = restored.list_saved_sessions()
+        self.assertEqual({entry["session_id"] for entry in listed}, {first, second})
+        self.assertTrue(all(entry["eligible"] and entry["collection_available"] for entry in listed))
 
     async def test_normal_stop_and_kill_preservation_support_saved_collection(self):
         completed = await self.complete_normal_stop()

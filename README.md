@@ -499,7 +499,7 @@ Decision 303 resolves Q017: later global collection, verification, transfer, or
 export failure cannot retroactively change a Session that reached `completed`.
 These are operational outcomes, not Session acquisition lifecycle outcomes.
 Required pre-completion cleanup and final persistence remain necessary, and
-Q019's evidence-consumption/final archive coordination remains open.
+Q019's evidence-consumption/final archive coordination is complete in W041-W050.
 M011 remains open pending real Jetson/SSH-SFTP
 deployment validation, and M012 remains complete. W033 records Slice 25's software
 validation, not live NATS or real Jetson/SSH-SFTP deployment validation. The legacy
@@ -585,9 +585,18 @@ state. Normal Stop requires complete producer, durable acceptance, and Stage A
 confirmations. Kill identifies partial preservation when completeness is unavailable;
 that confirms only preserved content, not acquisition success or safe resource
 release. Unknown outcomes remain unconfirmed. The low-level contracts are accepted,
-but Q019 remains OPEN for overall integration validation; eligible-Session selection is complete in W049. The receiving
+but Q019 is CLOSED following overall software integration validation (W050); eligible-Session selection is complete in W049. The receiving
 proof has linear history-read cost and requires intact global stream history from
 sequence 1; losing unrelated older history can block confirmation.
+Q019 is **CLOSED** for the supported evidence-closeout and collection software
+scope (W050). W041-W049 are complete; overall independent manual validation 2/2
+PASS and final independent integration audit PASS found no confirmed P0-P3
+production defects. Permanent regression coverage now includes two successive
+Normal Stop Sessions with scientific output; its developer integration run passed
+3/3 tests. Broker/SFTP infrastructure is simulated, with no demonstrated live
+hardware, multi-host/external deployment, or power-loss guarantees. Q022, Q024,
+Phase 16, and M015 remain open under their existing separate criteria.
+
 W049 saved-Session selection is complete with independent manual validation and
 final independent audit PASS after correcting single-Session eligibility bypass
 and fixture cleanup. StorageManager lists candidates with separate eligibility,
@@ -623,7 +632,7 @@ recovery. The operation leaves the Session stopping and does not release binding
 retrieve artifacts, write the durable handoff, or implement Stage B/Normal Stop/Kill.
 This bounded slice is complete with 16 focused developer tests passed, independent
 manual IPython validation 17/17 PASS using local real JetStream, and independent
-audit PASS with no confirmed P0-P3 defects (W043). Remaining Q019 work is open;
+audit PASS with no confirmed P0-P3 defects (W043). Remaining Q019 work was subsequently completed in W044-W050;
 W041/W042 remain complete and unchanged.
 
 After confirmed Stage A, explicitly call
@@ -639,7 +648,7 @@ Applicable Q019 binding release requires current handoff coverage. This bounded
 slice is complete with 24 focused developer tests passed, independent manual
 IPython validation 17/17 PASS, and independent audit PASS with no confirmed P0-P3
 defects (W044). It does not change W041-W043, complete/release the Session, select eligible Sessions,
-perform Stage B collection, or close the archive. Q019 remains OPEN.
+perform Stage B collection, or close the archive. Q019 is CLOSED following overall software integration validation (W050).
 
 The bounded W045 Stage B implementation is complete with developer automated
 testing, independent manual validation, and final targeted independent re-audit
@@ -722,7 +731,7 @@ It never automatically collects artifacts, closes the archive, or releases retai
 service bindings. Existing explicit binding release preserves the terminal Session
 Record; later Stage B uses the saved handoff. Uncertain receipt or preservation
 cannot confirm Normal Stop; unsafe persistence still requires authorized recovery.
-Q019 remains OPEN for overall integration validation; eligible-Session selection is complete in W049. W041-W044, Q024, Q022,
+Q019 is CLOSED following overall software integration validation (W050); eligible-Session selection is complete in W049. W041-W044, Q024, Q022,
 Phase 16, and M015 statuses are unchanged.
 
 Phase 14 / Slice 27 Ingestor Crash Recovery and Handoff Reconstruction implements
@@ -749,7 +758,8 @@ storage/communication/NATS regressions, and 82 artifact/Controller regressions
 passed; full discovery 376 passed, zero failed, and seven optional rendering
 skips (383 total). These are prior validation results, not tests run during closure.
 Journal cleanup/retention and application-wide restart/discovery remain Q024;
-Q019's Session-wide evidence-consumption/finalization guarantee remains OPEN.
+Q019's supported Session-wide evidence-consumption/finalization integration is
+complete, with consolidated independent validation and audit PASS (W050).
 Software closure does not validate hardware deployment, real Jetson/SSH-SFTP,
 or live JetStream server crash/recovery. M011 remains open; M012 and M013 remain
 complete.
@@ -966,7 +976,7 @@ safe to delete: deletion must not affect later operation or recovery. Permanent
 archives are never automatically deleted. Cross-month confirmation/maintenance
 dependencies, unavailable-evidence auditing, memory limits, and Q019-dependent
 closure remain open contracts; no replacement recovery infrastructure is chosen.
-Q024-B/W039 completion is unchanged. Q024, Q019, Q022, Phase 16, and M015 remain OPEN.
+Q024-B/W039 completion is unchanged. Q019 is CLOSED in W050; Q024, Q022, Phase 16, and M015 remain OPEN.
 
 Decision 322 accepts persistence for every ControllerActionDecision, including
 no-mutation outcomes, with Controller-supplied is_persistent=True through the

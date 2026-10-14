@@ -3560,6 +3560,93 @@ Q022, Q024, Phase 16, and M015 remain OPEN.
 
 ---
 
+# W050 - Q019 Consolidated Session Preservation and Collection Integration
+
+**Status:** Complete - W041-W049 independently validated/audited, overall
+independent manual integration validation PASS, and final independent integration
+source audit PASS with no confirmed P0-P3 production defects. Q019 is CLOSED.
+
+## Scope and accepted contracts
+
+Decisions 356-366 and the accepted Decision 364 selection clarifications are
+implemented through the completed W041-W049 slices:
+
+- W041: durable Session-specific receiving progress, journal-before-confirmed-ACK,
+  independent receipt proof, and non-overlapping JetStream routing.
+- W042: producer publication confirmations and stable Controller completion marker.
+- W043: protected Stage A evidence/audit/summary and separate final Session Record.
+- W044: verified durable ArtifactManifest handoff independent of runtime bindings.
+- W045: Stage B collection and direct durable collection evidence with authorized
+  interrupted-write recovery and no implicit refetch.
+- W046: separate explicit permanent closure and immutable archived products.
+- W047: complete Normal Stop preservation before successful completion.
+- W048: authorized Kill, Experiment abort, explicit partial preservation and safety
+  obligations, and authorized pre-collection partial-handoff refresh.
+- W049: persisted enumeration, terminal eligibility versus collection availability,
+  independent single/multi-Session collection, and aggregate outcome reporting.
+
+Historical slice records and their failed audits, corrections, and validation
+results remain unchanged. Closure does not change accepted contracts or owners.
+
+## Composite integration scenarios
+
+`tests/test_session_preservation_integration.py` uses actual domain and command
+owners with controlled broker/SFTP doubles:
+
+1. Scientific acquisition and Normal Stop, durable receipt and preservation,
+   handoff and safe service release, retained-service reuse for Kill with Experiment
+   abort, restart enumeration, saved single/multi-Session collection, idempotency,
+   and explicit permanent closure. Source bytes, historical evidence/audit/records,
+   retained Kill reservations, and post-closure rejection are checked.
+2. Interrupted collection-evidence persistence, unavailable status after restart,
+   rejected unauthorized recovery, accepted specifically authorized recovery,
+   stable-outcome readback without refetch, and subsequent closure.
+3. Permanent sequential-Normal-Stop regression: both Sessions produce actual
+   scientific output, retain separate durable marker/receipt and finalized handoff
+   identities, safely release and reuse the same services/adapters, preserve the
+   first Session's bytes/records, and appear eligible and available after restart.
+
+The third scenario is named
+`test_successive_normal_stops_preserve_separate_sessions`. Test-double delivery
+selects the current Session's consumer by filter and delivers only matching
+history; it does not feed one Session's history into another's journal.
+
+## Validation and audit evidence
+
+- Prior developer integration testing: **7/7 PASS** (two composite workflows and
+  five impact-selected existing controls).
+- Independent manual IPython integration validation: **2/2 PASS**, including
+  temporary-resource cleanup.
+- Final comprehensive independent read-only source audit: **PASS**, no confirmed
+  P0-P3 production defects and no required correction. Both committed composites
+  passed independently (**2 tests, zero failures/skips**). An additional temporary
+  sequential Normal Stop probe passed after matching real Session-filtered broker
+  delivery; initial probe failures were test-double delivery issues, not production
+  defects. The audit recommended retaining the successful probe as permanent coverage.
+- Closure preparation added that permanent regression. Newly executed developer
+  tests: **3/3 PASS**, covering the new scenario and the two existing composites
+  directly affected by the test delivery helper. No production code was changed,
+  no full suite was run, and no additional independent validation/audit is claimed.
+- `git diff --check` and documentation consistency checks passed during closure.
+
+## Limitations and remaining work
+
+Integration validation uses simulated broker/SFTP infrastructure. It does not
+establish live hardware, external NATS deployment, multi-host/Jetson operation,
+or power-loss guarantees. The integrated scientific product is JSONL and correctly
+reports `copied_unverified`; validated HDF5 verification remains in the slice
+coverage. Existing intact broker-history, journal, hard-link/filesystem, and
+durability prerequisites remain applicable.
+
+Q019 closure does not implement automatic recovery, application restoration,
+journal deletion, scientific transformation, a GUI, or new lifecycle states.
+Q022, broader Q024 (including deferred journal/resource retirement), Phase 16, and
+M015 remain OPEN, with their existing separate implementation, deployment, and
+validation criteria unchanged. W050 closes Q019's supported evidence-closeout,
+collection, selection, and overall software integration scope only.
+
+---
+
 # Future Workflows
 
 The following workflows are expected to be added as the framework evolves.

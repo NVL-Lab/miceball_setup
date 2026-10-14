@@ -1,6 +1,12 @@
 # Code Map
 
-## Accepted Q019 closeout architecture (W041-W049 bounded slices validated; remaining integration pending)
+Q019 is CLOSED following W041-W049 slice completion and W050 overall software
+integration validation/audit PASS. The permanent sequential Normal Stop regression
+uses Session-filtered test delivery; no production API changed during closure.
+Q022, Q024, Phase 16, and M015 remain OPEN. Hardware, multi-host deployment,
+external NATS deployment, and power-loss guarantees are not established by this closure.
+
+## Accepted Q019 closeout architecture (W041-W049 bounded slices validated; overall software integration validated in W050)
 
 Decisions 356-365 qualify historical Session closeout and collection-evidence
 contracts. The accepted flow is producer publication confirmations, one
@@ -94,7 +100,7 @@ The receiving foundation, producer/marker prerequisite, and bounded Stage A
 archival are validated in W041-W043; bounded Normal Stop integration is complete
 with independent validation and targeted re-audit PASS after correction (W047).
 W048 Kill is complete with independent manual validation and final re-audit PASS after corrections;
-overall Q019 integration validation remains pending.
+overall Q019 software integration validation is complete in W050.
 The function entries below also describe historical paths, including Ingestor-routed
 collection evidence and stopping-Session collection before finalization. Do not
 interpret those implementations as Stage A/Stage B or Kill Session support.
@@ -181,9 +187,9 @@ for the unresolved-path guard; normalized target/root correction with developer
 tests 6/6 and independent validation 2/2 PASS; final targeted re-audit PASS with no
 remaining confirmed P0-P3 findings. Historical failure and correction are retained.
 Bounded Normal Stop is complete in W047; W048 Kill is complete with independent validation and final re-audit PASS after corrections. W049 eligible-Session selection is complete with independent manual validation and final independent audit PASS after correction;
-overall Q019 integration validation remains pending.
+overall Q019 software integration validation is complete in W050.
 W033/M013, W035, W039, and W040 retain
-their validated scopes. Q019, Q024, Q022, Phase 16, and M015 remain OPEN. No
+their validated scopes. Q019 is CLOSED in W050; Q024, Q022, Phase 16, and M015 remain OPEN. No
 additional architectural API or storage schema is defined here.
 
 ## Phase 16 accepted responsibilities (binding release, maintenance, shutdown, and startup/return slices complete)
@@ -288,7 +294,7 @@ spans an await and no new post-Ingestor archival obligation is introduced.
 coordinated shutdown. Decisions 318-319 accept Session-independent
 framework evidence through existing infrastructure, not a separate evidence system. Independent
 startup/readiness and returning-service recognition do not resume interrupted
-work. Q025 is resolved architecturally; Q019 and Q024 remain open.
+work. Q025 is resolved architecturally; Q019 is CLOSED in W050; Q024 remains open.
 Individual-service maintenance now has a narrow implementation through the
 target-owned ServiceMaintenanceInterface and existing participant commands.
 It is manually software-validated and independently audited PASS (W036). Progressive

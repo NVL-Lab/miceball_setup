@@ -105,7 +105,7 @@ These are existing framework contracts, not new GUI requirements. The Services
 tab, its controls, and all presentation ideas above remain future design ideas,
 not accepted architecture or approved implementation requirements. This document
 adds no service states, lifecycle behavior, startup mechanism, or recovery policy
-and does not resolve Q019, Q024, or other open architectural questions.
+and does not itself resolve architecture; Q019 is closed in W050 while Q024 and other open questions remain.
 
 ## Session Closeout, Collection, and Archived Evidence
 
@@ -157,8 +157,7 @@ The future GUI could:
   later processing stages, not newly specified GUI execution mechanisms.
 
 Decisions 356-365 accept the framework boundaries, not these presentation ideas.
-W041-W049 backend slices are complete; overall Q019 integration validation remains
-open, and all GUI features here remain future ideas. Decision 364 accepts StorageManager enumeration
+W041-W049 backend slices are complete; overall Q019 software integration validation is complete in W050, and all GUI features here remain future ideas. Decision 364 accepts StorageManager enumeration
 from existing persistent directories/records and Controller-coordinated operator
 selection, with independent eligibility validation for each candidate, not these
 GUI presentation ideas or unresolved collection-status semantics. These notes add

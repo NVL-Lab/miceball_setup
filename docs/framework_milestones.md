@@ -474,7 +474,7 @@ count assumptions, new broker protocol/transport/archive, scientific timing or
 Experiment lifecycle change, checksum, export, retry/resume, or background transfer.
 Collection outcome must not retroactively change acquisition success or local
 finalization. Decision 303 also preserves a Session's completed lifecycle despite
-later global processing failure; Q019 remains open. M011 stays open pending real
+later global processing failure; Q019 is CLOSED following overall software integration validation (W050). M011 stays open pending real
 Jetson/SSH-SFTP deployment validation; M012 stays complete for Slice 24.
 
 ---
@@ -567,8 +567,9 @@ the final corrected independent re-audit PASS and software closure. No new
 component/database/snapshot/identity/handoff, producer
 retry machinery, application restart orchestration, or Session cleanup policy is
 accepted. Journal lifecycle and application-wide discovery/resumption remain Q024.
-Q019 remains OPEN: durable Ingestor recovery does not prove Session-wide consumption
-to Controller before archive closure. M013 and M012 stay complete; M011 stays open.
+At this slice's closure, Q019 remained open: durable Ingestor recovery alone does
+not prove Session-wide consumption to Controller before archive closure. Q019 is
+now CLOSED through W041-W050. M013 and M012 stay complete; M011 stays open.
 Closure does not validate live JetStream server crash/recovery, hardware deployment,
 real Jetson/SSH-SFTP, application-wide restart/discovery, or scientific artifact
 reconstruction beyond the existing handoff semantics.
@@ -746,7 +747,7 @@ full-suite result: 541 run, 534 passed, 7 optional rendering skips, zero failure
 This completes only individual-service maintenance, not Phase 16 or M015.
 Coordinated shutdown is separately validated in W037; startup/returning-service
 integration is separately validated in W038. M015 retains its separate launch/reuse validation and audit
-criteria; Q019 and Q024 remain open. No hardware or external live NATS validation
+criteria; Q019 is CLOSED in W050; Q024 remains open. No hardware or external live NATS validation
 is claimed, and no tests were rerun during documentation synchronization.
 
 ## Completed progressive framework shutdown slice validation
@@ -776,7 +777,7 @@ documentation closure. W037 records the workflow and preservation correction;
 W035/W036 historical results are preserved. No real hardware, live cross-process,
 or external NATS deployment validation is claimed. Startup/returning-service
 integration is separately validated in W038; Phase 16 remains incomplete.
-M015 retains its separate launch/reuse validation criteria, and Q019/Q024 remain open.
+M015 retains its separate launch/reuse validation criteria, and Q019 is CLOSED in W050; Q024 remains open.
 
 ## Completed independent startup and returning-service integration slice validation
 
@@ -917,7 +918,7 @@ Accepted service boundaries:
 The completed, independently validated/audited Decisions 332-338 narrow slice and
 all prior validation records remain intact. Decision 336 remains partially
 implemented, limited to guarded release of redundant producer-owned evidence copies.
-Q024, Q019, Q022, Phase 16, and M015 remain OPEN. Journal retention/deletion,
+Q019 is CLOSED in W050; Q024, Q022, Phase 16, and M015 remain OPEN. Journal retention/deletion,
 abandoned journals, application-wide Session discovery, Controller/application
 restoration, stale reservations, and remaining memory/cache retirement are deferred.
 No new automatic recovery/replay/retry/resumption, process supervision, Session
@@ -969,7 +970,7 @@ remain open. No new implementation milestone or recovery subsystem is introduced
 
 Q024-B Decisions 339-348 remain complete, independently validated/audited in W039;
 all earlier workflow records are preserved. Decision 336 remains partially
-implemented. Q024, Q019, Q022, Phase 16, and M015 remain OPEN.
+implemented. Q019 is CLOSED in W050; Q024, Q022, Phase 16, and M015 remain OPEN.
 
 ## Accepted Q019 acquisition closeout and later collection (receiving and publication prerequisites validated)
 
@@ -1105,13 +1106,20 @@ P2 single-Session bypass and P3 nested fixture cleanup failure. Correction tests
 24/24 and independent correction validation 6/6 PASS; final independent audit PASS,
 both resolved and no new P0-P3 findings. W049 preserves the history and software-
 validation limitations. No broader milestone closure is recorded.
-Eligible-Session selection is complete in W049; overall Q019
-integration validation remains pending; Q022 and Q024
+**W050 - Complete, consolidated Q019 software integration; Q019 CLOSED.**
+W041-W049 and their historical validation/audit records remain complete. Prior
+developer integration tests 7/7 and independent manual checks 2/2 PASS; final
+independent integration audit PASS, no confirmed P0-P3 production defects or
+required corrections. The successful sequential Normal Stop probe is now a
+permanent regression; newly executed developer integration tests 3/3 PASS.
+These results do not establish hardware, multi-host deployment, external NATS,
+or power-loss guarantees. Q019 closure does not close this milestone or Phase 16.
+Eligible-Session selection and overall Q019 integration are complete; Q022 and Q024
 remain OPEN.
 W041-W044 remain historically complete and unchanged;
 Phase 16 and M015 remain OPEN.
 
-Q019 remains OPEN for overall integration validation of its completed bounded slices.
+Q019 is CLOSED following overall software integration validation of its completed bounded slices (W050).
 W042 records only the completed publication prerequisite: initial independent manual
 validation 5/5 and 4/4 PASS; initial audit FAIL for the concurrent manifest cursor;
 manifest/health lock correction with 10 focused developer tests passed; real
@@ -1143,7 +1151,7 @@ and independent audit PASS under Decisions 313 and 322 (W035).
 These are previously reported validation/audit results, not new tests performed
 during documentation synchronization. This is controlled software/broker-double
 validation, not real hardware, external NATS deployment, or live cross-process
-validation. Phase 16 remains incomplete, M015 remains open, and Q019/Q024 remain open.
+validation. Phase 16 remains incomplete, M015 remains open, and Q019 is CLOSED in W050; Q024 remains open.
 
 ### Earlier implementation results (historical)
 
