@@ -517,18 +517,7 @@ class ControllerWorkflowTests(unittest.TestCase):
     def test_failed_acquisition_node_marks_session_failed_and_stops_runtime(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            config = self._config(
-                root,
-                acquisition_configuration={
-                    "handoff_failure_policy": "must_preserve",
-                    "handoff_failure_policies": {
-                        "must_preserve": {
-                            "preserve_failed_envelope": True,
-                            "consecutive_failure_threshold": 1,
-                        }
-                    },
-                },
-            )
+            config = self._config(root)
             adapter = ControllerFakeAdapter()
             manager = DeviceManager((adapter,))
             storage = PersistentStorageManager(root)

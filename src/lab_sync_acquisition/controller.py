@@ -1669,10 +1669,10 @@ class Controller:
             if self._finalization_confirmation is None:
                 raise RuntimeError("Required final persistence is unconfirmed")
             ingest_state, record_path = self._finalization_confirmation
-            if ingest_state != self._session_ingest_state():
-                raise RuntimeError("Accepted intake changed after final persistence")
-            with (self._ingestor._intake_lock if self._kill_closeout_session is session else nullcontext()), \
+            with (self._ingestor._intake_lock if self._ingestor is not None else nullcontext()), \
                     self._storage_manager.session_preservation_guard(session.session_id) as confirmation:
+                if ingest_state != self._session_ingest_state():
+                    raise RuntimeError("Accepted intake changed after final persistence")
                 self._require_controller_decision_archival(session.session_id, confirmation)
                 # Refresh the pre-completion record to preserve the actual terminal outcome.
                 if self._kill_closeout_session is not session:
@@ -1684,8 +1684,8 @@ class Controller:
                 await subscription.unsubscribe()
                 if self._session is not session:
                     raise RuntimeError("Controller Session binding changed during release")
-            # No await inside this guard: archive/record writes cannot overtake commitment.
-            with (self._ingestor._intake_lock if self._kill_closeout_session is session else nullcontext()), \
+            # Lock order is intake -> storage; retain both through retirement, never an await.
+            with (self._ingestor._intake_lock if self._ingestor is not None else nullcontext()), \
                     self._storage_manager.session_preservation_guard(session.session_id) as confirmation:
                 if ingest_state != self._session_ingest_state():
                     raise RuntimeError("Accepted intake changed during Session release")

@@ -3,6 +3,7 @@
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Event
 import unittest
 import sys
 from unittest.mock import patch
@@ -106,6 +107,112 @@ class NormalStopTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue((await self.stop()).succeeded)
         self.assertEqual(len(self.fixture.broker.commands), commands)
         self.assertEqual(len(self.producer.published("acquisition_evidence_completion")), 1)
+
+    async def test_release_serializes_new_evidence_during_final_readback(self):
+        await self._exercise_release_intake("accepted", during_readback=True)
+
+    async def test_release_serializes_rejected_intake_during_final_readback(self):
+        await self._exercise_release_intake("rejected", during_readback=True)
+
+    async def test_release_serializes_redelivery_during_final_readback(self):
+        await self._exercise_release_intake("duplicate", during_readback=True)
+
+    async def test_new_evidence_during_unsubscribe_blocks_release(self):
+        await self._exercise_release_intake("accepted", during_readback=False)
+
+    async def test_rejected_intake_during_unsubscribe_blocks_release(self):
+        await self._exercise_release_intake("rejected", during_readback=False)
+
+    async def test_redelivery_during_unsubscribe_blocks_release(self):
+        await self._exercise_release_intake("duplicate", during_readback=False)
+
+    async def _exercise_release_intake(self, variant, *, during_readback):
+        await self.running()
+        self.assertTrue((await self.stop()).succeeded)
+        controller, intake = self.fixture.controller, self.fixture.ingestor
+        evidence = (intake.accepted_runtime_evidence[0] if variant == "duplicate" else
+                    RuntimeEvidenceMessage("late-release" if variant == "accepted" else "",
+                        self.sid, "event", "node-a", {"event_type": "late-status"}, True))
+        accepted_before = intake.accepted_runtime_evidence
+        audit_before = intake.runtime_evidence_audit
+        attempted = Event()
+        blocked, observed_bindings, pending, preserved = [], [], [], {}
+
+        def receive():
+            # Probe the real lock without a scheduling-dependent timeout or sleep.
+            acquired = intake._intake_lock.acquire(blocking=False)
+            blocked.append(not acquired)
+            attempted.set()
+            if not acquired:
+                intake._intake_lock.acquire()
+            try:
+                observed_bindings.append(controller.get_status()["session_id"])
+                return intake.receive_runtime_evidence(evidence)
+            finally:
+                intake._intake_lock.release()
+
+        with ThreadPoolExecutor(max_workers=1) as workers:
+            if during_readback:
+                readback = self.storage.read_artifact_collection_handoff
+                calls = 0
+
+                def read_handoff(session_id):
+                    nonlocal calls
+                    handoff = readback(session_id)
+                    calls += 1
+                    if calls == 2:
+                        preserved.update(self.products())
+                        pending.append(workers.submit(receive))
+                        if not attempted.wait(5):
+                            raise RuntimeError("Concurrent intake did not reach the release boundary")
+                    return handoff
+
+                with patch.object(self.storage, "read_artifact_collection_handoff", side_effect=read_handoff):
+                    released = await controller.release_session()
+                self.assertEqual(calls, 2)
+            else:
+                subscription = controller._launch_subscriptions[0]
+                unsubscribe = subscription.unsubscribe
+
+                async def receive_before_commit():
+                    preserved.update(self.products())
+                    pending.append(workers.submit(receive))
+                    await asyncio.wait_for(asyncio.wrap_future(pending[0]), 5)
+                    await unsubscribe()
+
+                with patch.object(subscription, "unsubscribe", side_effect=receive_before_commit):
+                    released = await controller.release_session()
+            received = pending[0].result(timeout=5)
+
+        self.assertIs(received.accepted, variant != "rejected")
+        self.assertEqual(received.reason, {"accepted": "accepted", "rejected": "missing_required_identity",
+                                          "duplicate": "already_accepted"}[variant])
+        self.assertEqual(intake.runtime_evidence_audit[:-1], audit_before)
+        self.assertEqual(intake.runtime_evidence_audit[-1], received)
+        self.assertEqual(intake.accepted_runtime_evidence,
+                         accepted_before + ((evidence,) if variant == "accepted" else ()))
+        self.assertEqual(intake.session_id, self.sid)
+        self.assertEqual(self.products(), preserved)
+        confirmation = self.storage.get_acquisition_stage_preservation_confirmation(self.sid)
+        self.assertEqual(confirmation["ingest_audit"], [item.to_dict() for item in audit_before])
+        self.assertEqual(len(intake.runtime_evidence_audit), len(confirmation["ingest_audit"]) + 1)
+        if received.accepted:
+            self.assertTrue(intake.has_durable_runtime_evidence(evidence))
+        with self.assertRaisesRegex(RuntimeError, "current runtime intake"):
+            intake.release_session(self.sid, storage_manager=self.storage)
+        if during_readback:
+            self.assertTrue(released.succeeded, released.error)
+            self.assertEqual(blocked, [True])
+            self.assertEqual(observed_bindings, [None])
+            self.assertIsNone(controller.get_status()["session_id"])
+        else:
+            self.assertFalse(released.succeeded)
+            self.assertIn("Accepted intake changed during Session release", released.error)
+            self.assertEqual(blocked, [False])
+            self.assertEqual(observed_bindings, [self.sid])
+            self.assertEqual(controller.get_status()["session_id"], self.sid)
+            self.assertFalse((await controller.release_session()).succeeded)
+            self.assertEqual(self.products(), preserved)
 
     async def test_failed_producer_publication_cannot_complete_or_release_reservation(self):
         await self.running()
