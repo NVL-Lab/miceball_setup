@@ -62,7 +62,7 @@ class ArtifactRetrievalTests(unittest.TestCase):
 
     def storage(self, root, endpoints=None):
         return PersistentStorageManager(
-            root / "records.jsonl", global_artifact_root=root / "global",
+            root, global_artifact_root=root / "global",
             retrieval_endpoints=endpoints if endpoints is not None else {
                 "node": SshRetrievalEndpoint("lab-host", "scientist", port=2222,
                                              key_filename="key", known_hosts_path="hosts")},
@@ -312,9 +312,9 @@ class ArtifactRetrievalTests(unittest.TestCase):
                 root = Path(directory)
                 fixture = handoff_tests.ArtifactCollectionHandoffTests()
 
-                def configured_storage(records_path):
+                def configured_storage(storage_root):
                     return PersistentStorageManager(
-                        records_path, global_artifact_root=root / "global",
+                        storage_root, global_artifact_root=root / "global",
                         retrieval_endpoints={"node-001": SshRetrievalEndpoint("jetson", "scientist")})
 
                 with patch("tests.test_scientific_output_preparation.PersistentStorageManager",

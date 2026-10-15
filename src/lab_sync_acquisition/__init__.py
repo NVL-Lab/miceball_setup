@@ -9,7 +9,6 @@ from lab_sync_acquisition.acquisition_health import (
     HealthInterpretationEvidence,
 )
 from lab_sync_acquisition.acquisition_node_readiness import AcquisitionNodeReadiness
-from lab_sync_acquisition.acquisition_record import AcquisitionRecordEnvelope
 from lab_sync_acquisition.controller import (
     Controller,
     ControllerActionDecision,
@@ -56,8 +55,7 @@ from lab_sync_acquisition.experiment_runtime import (
     ExperimentRuntimeHealthMapping,
     ExperimentScopedHealthObservation,
 )
-from lab_sync_acquisition.ingestor import IngestAuditRecord, InMemoryIngestor
-from lab_sync_acquisition.ingestor import RuntimeEvidenceAuditRecord
+from lab_sync_acquisition.ingestor import InMemoryIngestor, RuntimeEvidenceAuditRecord
 from lab_sync_acquisition.local_storage import (
     ArtifactManifest,
     LocalStorageCompletionSummary,
@@ -95,7 +93,6 @@ from lab_sync_acquisition.opencv_camera import (
 from lab_sync_acquisition.storage import (
     ArtifactCollectionResult,
     ArtifactRetrievalResult,
-    InMemoryStorageManager,
     PersistentStorageManager,
     SshRetrievalEndpoint,
 )
@@ -120,7 +117,6 @@ __all__ = [
     "DeviceDeclaration",
     "ScientificProductDeclaration",
     "ScientificOutputSelection",
-    "AcquisitionRecordEnvelope",
     "Controller",
     "ControllerActionDecision",
     "ControllerCommandResult",
@@ -130,10 +126,8 @@ __all__ = [
     "DeviceReadinessNotImplementedError",
     "DeviceStatus",
     "DurablePublicationError",
-    "IngestAuditRecord",
     "InMemoryIngestor",
     "RuntimeEvidenceAuditRecord",
-    "InMemoryStorageManager",
     "PersistentStorageManager",
     "NatsStorageManagerCommunication",
     "ArtifactCollectionResult",

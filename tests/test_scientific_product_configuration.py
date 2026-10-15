@@ -118,7 +118,7 @@ class ScientificProductConfigurationTests(unittest.TestCase):
             config = self.config(root, (self.device((self.product(),)),))
             adapter = ReadyFakeAdapter("camera-001", "camera", ("stream",), True)
             manager = DeviceManager((adapter,))
-            storage = PersistentStorageManager(root / "records.jsonl")
+            storage = PersistentStorageManager(root)
             ingestor = InMemoryIngestor(storage_manager=storage)
             synchronization = SynchronizationManager()
             node = AcquisitionNode(
@@ -126,6 +126,7 @@ class ScientificProductConfigurationTests(unittest.TestCase):
                 synchronization_manager=synchronization, ingestor=ingestor,
                 error_evidence_location=config.error_evidence_location,
                 node_id="node-001", default_local_storage_root=root / "local",
+                device_declarations=config.selected_devices,
             )
             controller = Controller(node, ingestor, storage, root / "session_record.json",
                                     synchronization_manager=synchronization)

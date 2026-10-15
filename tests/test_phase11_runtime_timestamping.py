@@ -83,7 +83,7 @@ class Phase11RuntimeTimestampingTests(unittest.TestCase):
                 ScientificProductDeclaration("samples", "stream", {"sample_index": "int"}, "jsonl"),))
             manager = DeviceManager((adapter,))
             synchronization = ControlledSynchronizationManager()
-            storage = PersistentStorageManager(root / "records.jsonl")
+            storage = PersistentStorageManager(root)
             ingestor = InMemoryIngestor(storage_manager=storage)
             node = AcquisitionNode(
                 session_id="phase11-session",
@@ -154,7 +154,6 @@ class Phase11RuntimeTimestampingTests(unittest.TestCase):
 
             manifest, = node.local_storage_manager.manifests
             rows = [json.loads(line) for line in Path(manifest.local_storage_path).read_text().splitlines()]
-            self.assertEqual(ingestor.accepted_envelopes, ())
             controller.stop_session()
 
             self.assertTrue(started.succeeded, started.error)

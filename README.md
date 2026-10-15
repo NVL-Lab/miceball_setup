@@ -35,7 +35,10 @@ Decision 378 requires clean replacement of legacy collection/scientific-envelope
 paths: installation declares supported products, Experiments explicitly select
 them, and adapters produce scientific observations/metadata for local storage
 separately from operational evidence. W051/W052 history does not mandate obsolete
-API compatibility. Owner-level envelope cleanup remains for Slice 3B; final independent integration
+API compatibility. Slice 3B removes owner-level scientific-envelope intake,
+correlated persistence, exports and demos, and reconciles closeout against
+operational evidence/audit and manifests. Developer regression verification passed
+(848 run, 841 passed, seven optional skips); independent validation and final integration
 audit must verify both preserved guarantees and absence of obsolete architecture.
 Remaining process-crossing direct-owner dependencies still need adaptation before
 fully functional independent-role deployment. Historical Q019 validation remains
@@ -412,12 +415,11 @@ finalization is rejected. A caller may explicitly flush or finalize after an
 or recovery is introduced.
 
 Explicit local scientific camera collection is also implemented and tested with
-synthetic NumPy frames. `DeviceManager.collect_scientific_records()` returns
-`DeviceCollectionResult` objects with separate `runtime_records` and optional
-`scientific_records`; the camera's scientific rows contain the original `frame`
-array plus frame index and available device metadata. Both collections are
-produced by the same camera reads. The adapter's `collect_records()` and the
-manager's existing default path remain metadata-only. Neither DeviceAdapter nor
+synthetic NumPy frames. `DeviceManager.collect_products()` returns source-identified
+`DeviceCollectionResult` objects with selected `scientific_products` and separate
+`operational_evidence`; the camera's scientific rows retain the original `frame`
+array, frame index and available metadata locally. Empty product selection does
+not acquire scientific observations. Neither DeviceAdapter nor
 DeviceManager assigns Session Time or Experiment Time. Scientific results are
 local collections and are not automatically enveloped, transported, or ingested.
 OpenCV zero-valued optional properties are ambiguous with unsupported-property
@@ -690,7 +692,7 @@ perform Stage B collection, or close the archive. Q019 is CLOSED following overa
 The bounded W045 Stage B implementation is complete with developer automated
 testing, independent manual validation, and final targeted independent re-audit
 PASS after correction. Given the
-same `records_path` parent, logical StorageManager `component_id`, configured
+same explicit `storage_root` directory, logical StorageManager `component_id`, configured
 `global_artifact_root`, and node-keyed SSH endpoints, it needs no old Session binding:
 
 ```python
@@ -756,7 +758,7 @@ and targeted independent re-audit PASS after correction. Initial developer tests
 19/19 and independent IPython checks 6/6 passed; the initial audit found two P2
 defects. Corrections passed 12/12 developer tests and 3/3 independent checks; final
 re-audit found no remaining confirmed P0-P3 findings. The retained Q019 association
-prevents cancellation from enabling legacy completion, and current envelopes/audits
+prevents cancellation from enabling legacy completion, and current operational evidence/audits
 must match the durable final record before completion. For a launched Session, call
 `await controller.normal_stop_session(communication=controller_communication,
 receiving=ingestor_communication, result_window_s=...)`. The existing launch window
@@ -1028,7 +1030,7 @@ missing decisions invalidate release confirmation; successful release retires
 temporary decisions, never durable evidence. The audited release slice under
 Decisions 313 and 322 is complete. Evidence-bearing Ingestor release checks exact archived persistent
 messages and all runtime-evidence intake audit against the current intake snapshot,
-plus existing terminal Session Record and acquisition-envelope preservation.
+plus existing terminal Session Record and manifest preservation.
 Concurrent intake and release commit are serialized; nonpersistent messages remain
 nonpersistent. Ingestor holds StorageManager's preservation guard through release
 commitment so concurrent archive or final-record writes cannot invalidate its
@@ -1049,7 +1051,7 @@ These are previously executed software validations, not real hardware or externa
 NATS deployment validation. Phase 16 remains incomplete, M015 open, and Q019/Q024
 unresolved. Session Record
 construction now keeps raw runtime evidence and its intake audit in the separate
-Evidence Archive, preserving Session context and acquisition-envelope audit in
+Evidence Archive, preserving Session context without obsolete scientific-envelope intake in
 the Session Record. Local Session start and finalization require an explicit
 Controller Ingestor reference; the optional constructor remains available for
 brokered orchestration without introducing a node-owned Ingestor fallback.
@@ -1161,7 +1163,8 @@ docs/local_cross_process_demo.md
 
 
 
-This document explains the live two-shell localhost socket demos, including the basic plain-envelope sender and the OpenCV camera-adapter metadata sender.
+This historical record describes retired two-shell socket demonstrations; its
+recorded outcomes remain, but the scientific-envelope demos are no longer runnable.
 
 
 

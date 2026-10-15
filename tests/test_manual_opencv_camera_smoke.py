@@ -94,7 +94,7 @@ class ManualOpenCVCameraSmokeTests(unittest.TestCase):
             result, output, errors, capture = self.run_smoke(root, [])
             self.assertNotEqual(result, 0)
             self.assertIn("validation=FAIL", output)
-            self.assertIn("Empty acquisition", errors)
+            self.assertIn("Camera read did not produce a scientific observation", errors)
             self.assertTrue(capture.released)
             self.assertEqual(self.manifest(root).lifecycle_state, "finalized")
 

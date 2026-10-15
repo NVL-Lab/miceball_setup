@@ -4,22 +4,23 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import unittest
+import sys
 from unittest.mock import patch
 
-from lab_sync_acquisition import (
-    AcquisitionRecordEnvelope, Controller, InMemoryIngestor,
-    PersistentStorageManager, ScientificOutputSelection,
-)
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+
+from lab_sync_acquisition import Controller, InMemoryIngestor, PersistentStorageManager, RuntimeEvidenceMessage, ScientificOutputSelection
 from tests import test_producer_publication_completion as producers
 
 
 class NormalStopTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.producer = producers.ProducerPublicationCompletionTests()
+        self.producer.addCleanup = self.addCleanup
+        self.producer.addAsyncCleanup = self.addAsyncCleanup
         self.producer.setUp()
-        self.addCleanup(self.producer.doCleanups)
         self.fixture = self.producer.fixture
-        self.storage = PersistentStorageManager(self.fixture.root / "accepted_records.jsonl")
+        self.storage = PersistentStorageManager(self.fixture.root)
         self.fixture.controller = Controller(ingestor=self.fixture.ingestor,
             storage_manager=self.storage, synchronization_manager=self.fixture.sync)
 
@@ -89,7 +90,7 @@ class NormalStopTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(self.fixture.sync.release_session(self.sid, ingestor=self.fixture.ingestor))
         self.assertTrue((await self.fixture.controller.release_session()).succeeded)
         self.assertTrue(self.fixture.ingestor.release_session(self.sid, storage_manager=self.storage))
-        restored = PersistentStorageManager(self.fixture.root / "accepted_records.jsonl")
+        restored = PersistentStorageManager(self.fixture.root)
         self.assertEqual(restored.read_artifact_collection_handoff(self.sid), handoff)
 
     async def test_incomplete_receipt_withholds_completion_and_explicit_retry_succeeds(self):
@@ -234,13 +235,13 @@ class NormalStopTests(unittest.IsolatedAsyncioTestCase):
         self.fixture.broker.drop_results.clear()
         self.assertTrue((await self.stop()).succeeded)
 
-    async def test_late_acquisition_intake_requires_preserved_record_coverage_before_completion(self):
-        await self._exercise_late_acquisition_intake(accepted=True)
+    async def test_late_operational_intake_requires_preserved_record_coverage_before_completion(self):
+        await self._exercise_late_operational_intake(accepted=True)
 
-    async def test_late_rejected_acquisition_intake_requires_preserved_audit_before_completion(self):
-        await self._exercise_late_acquisition_intake(accepted=False)
+    async def test_late_rejected_operational_intake_requires_preserved_audit_before_completion(self):
+        await self._exercise_late_operational_intake(accepted=False)
 
-    async def _exercise_late_acquisition_intake(self, *, accepted):
+    async def _exercise_late_operational_intake(self, *, accepted):
         intake = InMemoryIngestor(self.storage,
             recovery_journal_root=self.fixture.root / "late-intake-journals")
         self.fixture.ingestor = intake
@@ -248,29 +249,27 @@ class NormalStopTests(unittest.IsolatedAsyncioTestCase):
             synchronization_manager=self.fixture.sync)
         await self.running()
         preserve = self.fixture.controller.preserve_artifact_collection_handoff
-        envelope = AcquisitionRecordEnvelope(self.sid, "node-a-device", "event",
-            ({"session_time_s": 1.0, "event_type": "late-acquisition-event"},) if accepted else
-            ({"event_type": "missing-session-time"},), source_node_id="node-a")
+        envelope = RuntimeEvidenceMessage("late-operational" if accepted else "", self.sid, "event", "node-a", {"event_type": "late-operational-status"}, True)
         baseline = {}
         with ThreadPoolExecutor(max_workers=1) as workers:
             def late_intake():
                 result = preserve()
                 self.assertTrue(result.succeeded, result.error)
                 baseline.update(self.products())
-                received = workers.submit(intake.receive_envelope, envelope).result(timeout=3)
+                received = workers.submit(intake.receive_runtime_evidence, envelope).result(timeout=3)
                 self.assertIs(received.accepted, accepted)
                 return result
 
             with patch.object(self.fixture.controller, "preserve_artifact_collection_handoff", side_effect=late_intake):
                 failed = await self.stop()
         self.assertFalse(failed.succeeded)
-        self.assertIn("acquisition-envelope and audit preservation", failed.error)
+        self.assertIn("Current complete Stage A preservation is unconfirmed", failed.error)
         self.assertEqual(self.fixture.controller.get_status()["session_state"], "stopping")
         self.assertEqual(intake.session_id, self.sid)
         self.assertEqual(self.products(), baseline)
         record = self.storage.get_acquisition_stage_preservation_confirmation(self.sid)["session_record"]
-        self.assertEqual(record["accepted_acquisition_envelopes"], [])
-        self.assertEqual(record["ingest_audit_records"], [])
+        self.assertEqual(record["runtime_evidence"], [])
+        self.assertEqual(record["runtime_evidence_audit"], [])
         self.assertFalse(self.fixture.controller.finalize_session().succeeded)
         self.assertFalse((await self.fixture.controller.release_session()).succeeded)
         commands = len(self.fixture.broker.commands)
@@ -279,8 +278,6 @@ class NormalStopTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.fixture.broker.commands), commands)
         self.assertEqual(intake.recovery_journal_path.read_bytes(), journal)
         record = self.storage.get_acquisition_stage_preservation_confirmation(self.sid)["session_record"]
-        self.assertEqual(record["accepted_acquisition_envelopes"], [item.to_dict() for item in intake.accepted_envelopes])
-        self.assertEqual(record["ingest_audit_records"], [item.to_dict() for item in intake.ingest_audit])
         self.assertTrue((await self.fixture.controller.release_session()).succeeded)
         self.assertTrue(intake.release_session(self.sid, storage_manager=self.storage))
         self.assertTrue(self.fixture.sync.release_session(self.sid))

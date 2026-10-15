@@ -63,7 +63,7 @@ class ScientificAcquisitionPersistenceTests(unittest.TestCase):
             for additional_adapter in additional_adapters:
                 additional_adapter.initialize({})
             manager = DeviceManager((adapter, *additional_adapters))
-            storage = PersistentStorageManager(root / "runtime.jsonl")
+            storage = PersistentStorageManager(root)
             ingestor = InMemoryIngestor(storage)
             sync = SynchronizationManager()
             node = AcquisitionNode("session", manager, sync, ingestor, node_id="node",
@@ -118,9 +118,9 @@ class ScientificAcquisitionPersistenceTests(unittest.TestCase):
                     self.assertEqual(saved["device_local_time"], 123.4)
                     self.assertEqual(saved["experiment_id"], "experiment")
                 self.assertGreater(artifact["acquisition_node_local_time_s"][1], artifact["acquisition_node_local_time_s"][0])
-            for envelope in ingestor.accepted_envelopes:
-                json.dumps(envelope.to_dict())
-                self.assertTrue(all("frame" not in row for row in envelope.records))
+            for message in ingestor.accepted_runtime_evidence:
+                json.dumps(message.to_dict())
+                self.assertNotIn("frame", message.payload)
 
     def test_missing_device_native_timing_is_not_fabricated(self):
         with self.workflow() as (controller, node, _, _):
@@ -218,7 +218,6 @@ class ScientificAcquisitionPersistenceTests(unittest.TestCase):
             self.assertTrue(controller.run_one_iteration().succeeded)
             self.assertEqual(capture.read_count, 0)
             self.assertEqual(node.local_storage_manager.manifests, ())
-            self.assertEqual(ingestor.accepted_envelopes, ())
 
     def test_jsonl_scientific_product_persists_with_framework_timing(self):
         product = ScientificProductDeclaration("events", "events", {"value": "number"}, "jsonl")
@@ -269,7 +268,6 @@ class ScientificAcquisitionPersistenceTests(unittest.TestCase):
         with self.workflow(adapter=adapter, products=(product,), selected=False) as (controller, _, _, _):
             self.assertTrue(controller.run_one_iteration().succeeded)
             self.assertEqual(adapter.scientific_calls, 0)
-
 
 
 if __name__ == "__main__":

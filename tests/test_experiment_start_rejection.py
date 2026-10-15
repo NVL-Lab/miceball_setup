@@ -6,12 +6,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
-from lab_sync_acquisition import (
-    RuntimeCommandMessage, RuntimeCommandResultMessage, RuntimeEvidenceMessage,
-    RuntimeParticipant, ServiceReadiness, aggregate_group_command_results,
-    NatsAcquisitionNodeCommunication, NatsCommunicationBoundary, NatsIngestorCommunication,
-    InMemoryIngestor, InMemoryStorageManager,
-)
+from lab_sync_acquisition import RuntimeCommandMessage, RuntimeCommandResultMessage, RuntimeEvidenceMessage, RuntimeParticipant, ServiceReadiness, aggregate_group_command_results, NatsAcquisitionNodeCommunication, NatsCommunicationBoundary, NatsIngestorCommunication, InMemoryIngestor, PersistentStorageManager
 from tests import test_scientific_output_preparation as preparation_tests
 from tests.evidence_receipt_fixtures import EvidenceReceiptBroker
 
@@ -173,7 +168,7 @@ class ExperimentStartRejectionTests(unittest.TestCase):
             client = SimpleNamespace(jetstream=lambda: jetstream, is_connected=True)
             publisher = NatsCommunicationBoundary("controller", "controller")
             consumer_boundary = NatsCommunicationBoundary("ingestor", "ingestor")
-            ingestor = InMemoryIngestor(InMemoryStorageManager(), session_id=message.session_id,
+            ingestor = InMemoryIngestor(PersistentStorageManager(self.enterContext(tempfile.TemporaryDirectory())), session_id=message.session_id,
                                        recovery_journal_path=Path(root) / "rejection-recovery.jsonl")
             with patch("lab_sync_acquisition.nats_communication.nats.connect", AsyncMock(return_value=client)):
                 await publisher.connect()

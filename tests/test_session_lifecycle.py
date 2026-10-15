@@ -1,4 +1,5 @@
-﻿import unittest
+import tempfile
+import unittest
 from pathlib import Path
 import sys
 
@@ -7,20 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 sys.path.insert(0, str(SRC))
 
-from lab_sync_acquisition import (
-    DeviceAdapter,
-    DeviceDeclaration,
-    DeviceManager,
-    DeviceReadiness,
-    InMemoryIngestor,
-    InMemoryStorageManager,
-    Session,
-    SessionConfig,
-    SessionLifecycleError,
-    SessionState,
-    ServiceReadiness,
-    SynchronizationManager,
-)
+from lab_sync_acquisition import DeviceAdapter, DeviceDeclaration, DeviceManager, DeviceReadiness, InMemoryIngestor, Session, SessionConfig, SessionLifecycleError, SessionState, ServiceReadiness, SynchronizationManager, PersistentStorageManager
 from tests.fakes import ReadyFakeAdapter
 
 
@@ -658,7 +646,7 @@ class SessionLifecycleTests(unittest.TestCase):
 
     def test_services_report_readiness_for_session_initialization(self) -> None:
         ingestor = InMemoryIngestor()
-        storage = InMemoryStorageManager()
+        storage = PersistentStorageManager(self.enterContext(tempfile.TemporaryDirectory()))
 
         ingestor_readiness = ingestor.check_ready()
         storage_readiness = storage.check_ready()
@@ -676,7 +664,7 @@ class SessionLifecycleTests(unittest.TestCase):
         self,
     ) -> None:
         ingestor = InMemoryIngestor()
-        storage = InMemoryStorageManager()
+        storage = PersistentStorageManager(self.enterContext(tempfile.TemporaryDirectory()))
         service_readiness = [ingestor.check_ready(), storage.check_ready()]
         session = Session(session_id="session-001", configuration=config())
 
@@ -684,9 +672,6 @@ class SessionLifecycleTests(unittest.TestCase):
 
         self.assertIs(session.current_state, SessionState.INITIALIZED)
         self.assertEqual(session.service_readiness_checks, tuple(service_readiness))
-        self.assertEqual(ingestor.accepted_envelopes, ())
-        self.assertEqual(ingestor.ingest_audit, ())
-        self.assertEqual(storage.stored_envelopes, ())
 
     def test_required_not_ready_service_blocks_initialization(self) -> None:
         session = Session(session_id="session-001", configuration=config())
@@ -741,7 +726,7 @@ class SessionLifecycleTests(unittest.TestCase):
         )
         manager = DeviceManager(adapters=[adapter])
         ingestor = InMemoryIngestor()
-        storage = InMemoryStorageManager()
+        storage = PersistentStorageManager(self.enterContext(tempfile.TemporaryDirectory()))
         synchronization = SynchronizationManager()
         manager.initialize_all(config={})
         device_readiness_summary = manager.check_readiness()

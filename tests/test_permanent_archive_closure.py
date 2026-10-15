@@ -207,10 +207,10 @@ class PermanentArchiveClosureTests(unittest.IsolatedAsyncioTestCase):
         storages = (
             self.fixture.storage,
             self.fixture.new_storage(),
-            PersistentStorageManager(self.fixture.root / "root-alias" / ".." / "records.jsonl"),
+            PersistentStorageManager(self.fixture.root / "root-alias" / ".."),
         )
         for storage in storages:
-            with self.subTest(records_path=storage):
+            with self.subTest(storage=storage):
                 with self.assertRaises(RuntimeError):
                     storage.write_session_record(alias, **evidence)
                 self.assertEqual(self.snapshot(), before)
@@ -221,7 +221,7 @@ class PermanentArchiveClosureTests(unittest.IsolatedAsyncioTestCase):
         (self.directory / "nested").mkdir()
         (self.fixture.root / "root-alias").mkdir()
         alias = self.directory / "nested" / ".." / "session_record_final.json"
-        storage = PersistentStorageManager(self.fixture.root / "root-alias" / ".." / "records.jsonl")
+        storage = PersistentStorageManager(self.fixture.root / "root-alias" / "..")
         evidence = records.PersistentStorageManagerTests._minimal_session_record_evidence("session")
         evidence["warnings_or_failures"] = ("legitimate pre-closure record",)
         storage.write_session_record(alias, **evidence)
@@ -319,7 +319,7 @@ class PermanentArchiveClosureTests(unittest.IsolatedAsyncioTestCase):
         transport, _ = self.fixture.retrieval.ssh(self.fixture.sftp)
         with transport, patch.object(self.fixture.sftp, "open", side_effect=paused_open), \
                 ThreadPoolExecutor(max_workers=2) as pool:
-            collecting = pool.submit(self.fixture.storage.collect_saved_artifacts, "session", evidence_id="collection")
+            collecting = pool.submit(self.fixture.storage.collect_saved_artifacts, "session", evidence_id="collection", require_eligible=False)
             try:
                 self.assertTrue(transfer_entered.wait(5))
                 closing = pool.submit(close)

@@ -24,7 +24,7 @@ class AuthorizedRecoveryTests(unittest.IsolatedAsyncioTestCase):
         self.root = Path(self.temporary.name)
         async def publish(message):
             self.ingestor.receive_runtime_evidence(message)
-        self.storage = PersistentStorageManager(self.root / "records.jsonl",
+        self.storage = PersistentStorageManager(self.root,
             global_artifact_root=self.root / "global", retrieval_endpoints={"node": SshRetrievalEndpoint("fake", "user")},
             evidence_publisher=publish)
         self.ingestor = InMemoryIngestor(self.storage, session_id="session-a",

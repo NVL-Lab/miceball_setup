@@ -49,10 +49,11 @@ class ScientificOutputPreparationTests(unittest.TestCase):
             local_storage_roots={"node-001": str(override)} if override is not None else None,
         )
         manager = DeviceManager((ReadyFakeAdapter("camera-001", "camera", ("stream",), True),))
-        storage = PersistentStorageManager(root / "records.jsonl")
+        storage = PersistentStorageManager(root)
         ingestor = InMemoryIngestor(storage_manager=storage)
         sync = SynchronizationManager()
         node = AcquisitionNode(session_id, manager, sync, ingestor, node_id="node-001",
+                               device_declarations=config.selected_devices,
                                error_evidence_location=config.error_evidence_location,
                                default_local_storage_root=root / "default" if default else None)
         controller = Controller(node, ingestor, storage, root / "session_record.json",

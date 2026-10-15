@@ -24,7 +24,7 @@ class UnresolvedWorkTests(unittest.IsolatedAsyncioTestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
-        self.storage = PersistentStorageManager(self.root / "records.jsonl")
+        self.storage = PersistentStorageManager(self.root)
         self.ingestor = InMemoryIngestor(self.storage,
             framework_recovery_journal_path=self.root / "framework.jsonl")
         self.sync = SynchronizationManager()
@@ -254,7 +254,7 @@ class UnresolvedWorkTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(self.storage.get_framework_preservation_confirmation())
 
     async def test_storage_diagnostics_do_not_hold_archive_lock_during_intake_confirmation(self):
-        storage = PersistentStorageManager(self.root / "collection.jsonl",
+        storage = PersistentStorageManager(self.root,
             evidence_publisher=AsyncMock(return_value=None))
         await storage.collect_artifacts_with_evidence({"session_id": "session-a", "artifacts": []})
         calls = []

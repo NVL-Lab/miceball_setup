@@ -50,7 +50,8 @@ class ArtifactCollectionHandoffTests(unittest.TestCase):
             self.assertEqual(handoff, {"session_id": "session-001", "artifacts": [
                 {"artifact_manifest": finalized.payload, "missing_finalization_evidence": False}]})
             archive = Path(result.details["evidence_archive_paths"]["runtime_evidence"])
-            self.assertEqual([json.loads(line) for line in archive.read_text().splitlines()],
+            self.assertEqual([message for line in archive.read_text().splitlines()
+                              if (message := json.loads(line))["evidence_type"] == "artifact_manifest"],
                              [initial.to_dict(), finalized.to_dict()])
             record = json.loads(Path(result.details["session_record_path"]).read_text())
             self.assertEqual([event["event_type"] for event in record["experiment_lifecycle_evidence"]],
@@ -129,12 +130,12 @@ class ArtifactCollectionHandoffTests(unittest.TestCase):
                 await sender.publish_command(RuntimeCommandMessage(
                     "stop", "session-001", "stop_runtime", "controller", "node-001", {}), "acquisition_node")
                 await communication.publish_new_artifact_manifest_evidence()
-            messages = receiver.accepted_runtime_evidence
+            messages = tuple(m for m in receiver.accepted_runtime_evidence if m.evidence_type == "artifact_manifest")
             self.assertEqual(len(messages), 2)
             self.assertEqual([message.payload["lifecycle_state"] for message in messages], ["open", "finalized"])
             self.assertEqual(messages[1].payload, node.local_storage_manager.manifests[0].to_dict())
             self.assertEqual([stream for subject, _, stream in published if ".evidence." in subject],
-                             ["LAB_EVIDENCE", "LAB_EVIDENCE"])
+                             ["LAB_EVIDENCE"] * len(receiver.accepted_runtime_evidence))
             self.assertFalse(receiver.compile_artifact_collection_handoff("session-001")["artifacts"][0]
                              ["missing_finalization_evidence"])
 

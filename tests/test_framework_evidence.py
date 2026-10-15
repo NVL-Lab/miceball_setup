@@ -17,7 +17,7 @@ class FrameworkEvidenceTests(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
         self.journal = self.root / "intake" / "framework.jsonl"
-        self.storage = PersistentStorageManager(self.root / "records.jsonl")
+        self.storage = PersistentStorageManager(self.root)
         self.ingestor = InMemoryIngestor(framework_recovery_journal_path=self.journal)
 
     def message(self, identity="evidence-1", persistent=True):

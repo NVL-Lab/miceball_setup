@@ -54,7 +54,7 @@ class ServiceStartupTests(unittest.IsolatedAsyncioTestCase):
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
         self.broker = AnnouncementBroker()
-        self.storage = PersistentStorageManager(self.root / "records.jsonl")
+        self.storage = PersistentStorageManager(self.root)
         self.ingestor = InMemoryIngestor(self.storage,
             framework_recovery_journal_path=self.root / "framework.jsonl")
         self.intake = NatsIngestorCommunication(_Boundary("ingestor", "ingestor", self.broker), self.ingestor)

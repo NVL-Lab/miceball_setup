@@ -9,10 +9,7 @@ import tempfile
 import unittest
 from unittest.mock import AsyncMock, patch
 
-from lab_sync_acquisition import (
-    AcquisitionRecordEnvelope, Controller, InMemoryIngestor, PersistentStorageManager, RuntimeCommandMessage,
-    RuntimeEvidenceMessage, RuntimeParticipant, ServiceMaintenanceInterface, SshRetrievalEndpoint,
-)
+from lab_sync_acquisition import Controller, InMemoryIngestor, PersistentStorageManager, RuntimeCommandMessage, RuntimeEvidenceMessage, RuntimeParticipant, ServiceMaintenanceInterface, SshRetrievalEndpoint
 from tests import test_artifact_retrieval as retrieval
 from tests import test_local_storage_hdf5 as hdf5
 from tests import test_storage as records
@@ -31,7 +28,7 @@ class StageBCollectionTests(unittest.IsolatedAsyncioTestCase):
         self.baseline("session")
 
     def new_storage(self):
-        return PersistentStorageManager(self.root / "records.jsonl", global_artifact_root=self.root / "global",
+        return PersistentStorageManager(self.root, global_artifact_root=self.root / "global",
             retrieval_endpoints={"node": SshRetrievalEndpoint("fake", "reader")})
 
     def baseline(self, session_id):
@@ -473,7 +470,7 @@ class StageBCollectionTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result.succeeded, result.error)
         saved = stage.fixture.controller.preserve_artifact_collection_handoff()
         self.assertTrue(saved.succeeded, saved.error)
-        restored = PersistentStorageManager(stage.storage._records_path, global_artifact_root=self.root / "w043-global",
+        restored = PersistentStorageManager(stage.storage._storage_root, global_artifact_root=self.root / "w043-global",
             retrieval_endpoints={"node-a": SshRetrievalEndpoint("fake", "reader")})
         handoff = restored.read_artifact_collection_handoff(stage.session_id)
         files = {entry["artifact_manifest"]["local_storage_path"]: b"" for entry in handoff["artifacts"]}
@@ -533,11 +530,14 @@ class StageBCollectionTests(unittest.IsolatedAsyncioTestCase):
                 path.write_bytes(original)
         self.assertEqual(len(self.sftp.opened), 1)
 
-    async def test_cross_session_envelope_in_final_record_cannot_confirm_baseline(self):
+    async def test_cross_session_historical_intake_cannot_confirm_baseline(self):
         evidence = records.PersistentStorageManagerTests._minimal_session_record_evidence("session")
-        evidence["accepted_acquisition_envelopes"] = (AcquisitionRecordEnvelope(
-            "session", "device", "events", [], "node"),)
         path = self.storage.write_final_session_record("session", **evidence)
+        record = json.loads(path.read_bytes())
+        record["accepted_acquisition_envelopes"] = [{"session_id": "session",
+            "source_device_id": "device", "source_node_id": "node", "record_kind": "events", "records": []}]
+        record["ingest_audit_records"] = []
+        path.write_text(json.dumps(record), encoding="utf-8")
         original = path.read_bytes()
         self.assertIsNotNone(self.new_storage().get_persisted_session_preservation_confirmation("session"))
         record = json.loads(original)
@@ -580,6 +580,30 @@ class StageBCollectionTests(unittest.IsolatedAsyncioTestCase):
                 self.assertFalse((path.parent.parent / "artifact_collection_outcome.json").exists())
         path.write_bytes(original)
         self.assertTrue(self.collect(self.new_storage())["archival_confirmed"])
+
+    async def test_incomplete_historical_intake_cannot_confirm_preservation(self):
+        path = self.root / "session_session/session_record_final.json"
+        original = path.read_bytes()
+        for missing in ("ingest_audit_records", "ingest_received_at", "reason"):
+            with self.subTest(missing=missing):
+                record = json.loads(original)
+                record["accepted_acquisition_envelopes"] = []
+                record["ingest_audit_records"] = [{"ingest_order": 1, "ingest_received_at": 1.0,
+                                                  "accepted": True, "reason": "accepted"}]
+                if missing == "ingest_audit_records":
+                    del record[missing]
+                else:
+                    del record["ingest_audit_records"][0][missing]
+                path.write_text(json.dumps(record), encoding="utf-8")
+                corrupted = path.read_bytes()
+                restored = self.new_storage()
+                self.assertIsNone(restored.get_persisted_session_preservation_confirmation("session"))
+                with self.assertRaises(ValueError):
+                    self.collect(restored)
+                self.assertEqual(path.read_bytes(), corrupted)
+                self.assertEqual(self.sftp.opened, [])
+        path.write_bytes(original)
+        self.assertIsNotNone(self.new_storage().get_persisted_session_preservation_confirmation("session"))
 
     async def test_partial_acquisition_archive_still_requires_and_allows_authorized_repair(self):
         fixture = recovery.AuthorizedRecoveryTests()

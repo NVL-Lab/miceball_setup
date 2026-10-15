@@ -17,8 +17,9 @@ communicate through local Python calls. Controller, SynchronizationManager, and
 each AcquisitionNode remain independently deployed; every process-crossing
 interaction uses NATS. Controller accesses both combined-process components only
 through NATS. No new registry, database, or scientific ownership is introduced.
-The explicit local correlated persistence path is complete with independent
-validation and audit PASS (W052). Shared-lifetime
+W051/W052 record historical correlated scientific-envelope persistence validation.
+Slice 3B removes those obsolete APIs under Decisions 377-378; operational
+evidence journaling and owner-side preservation remain authoritative. Shared-lifetime
 bootstrap/launch composition is not implemented in this bounded persistence slice.
 
 ## Scientific Data And Operational Evidence Boundary
@@ -44,8 +45,11 @@ Product-based node acquisition is complete with independent manual validation
 and final re-audit PASS after correction (W053). All completed scientific
 collections receive local preservation attempts before operational-evidence
 handling; independent failures remain visible without false success or automatic
-replay. Owner-level envelope cleanup remains for Slice 3B, and Decision 378's
-full replacement/final integration audit remains pending.
+replay. Slice 3B removes obsolete owner-level envelope intake, persistence and
+transport, with closeout reconciled against current operational evidence/audit
+and manifests. Developer regression verification passed: 848 run, 841 passed,
+seven optional skips and zero failures/errors. Independent validation and the
+final replacement integration audit remain pending.
 W051/W052 are historical validated envelope
 paths, no longer required for routine scientific acquisition; active durability,
 identity, corruption/readback and Q019 preservation/recovery/closure protections
@@ -68,8 +72,9 @@ only interfaces and records serving accepted operational, historical-readback or
 other authoritative responsibilities; W051/W052 history is not a compatibility
 mandate. Preserve local scientific identity/order/timing/provenance, manifests,
 operational events/health/synchronization, and all Q019 preservation/recovery guards.
-Remaining Ingestor/StorageManager envelope APIs and historical reader/closeout
-contracts are not removed in this bounded slice. Final independent integration
+Obsolete Ingestor/StorageManager envelope APIs are removed in Slice 3B.
+New Session Records omit envelope/audit fields; historical fields, when present,
+are validated as plain saved data without an active legacy writer. Final independent integration
 audit must assess both functional preservation and
 absence of obsolete scientific-envelope architecture before closure.
 
@@ -160,82 +165,42 @@ StorageManager-to-Ingestor readback, release guards, compilation, and recovery
 inputs may remain local under Decision 376. Only external callers require NATS
 adaptation; do not replace permitted local synchronization with remote requests.
 
-### Implemented Owner Persistence Foundation
+### Operational Evidence And Owner Readback
 
-The first bounded slice uses the existing command/result streams and owners:
+Slice 3B removes the W051/W052 scientific-envelope writers, correlated-write
+APIs and NATS dispatch. Their historical validation and audit outcomes remain
+unchanged in the validated-workflow records; they do not require obsolete code.
+Construct `PersistentStorageManager(storage_root, ...)` with a directory, not
+an envelope-record filename. Ingestor may hold that existing owner locally under
+Decision 376; it does not instantiate a second StorageManager.
 
-W051 is historical validation of this NATS boundary, not a requirement to retain
-internal NATS under Decision 376. Reuse local interfaces while preserving its
-durability, stable identity, retry/conflict, restart, readback, corruption/legacy,
-and archive/recovery guarantees. Do not duplicate owners or separate the pair's
-process lifetimes. Local persistence is now supported by constructing the existing
-Ingestor with its PersistentStorageManager owner and `correlated_persistence=True`.
-`receive_envelope()` retains validated intake without an uncorrelated append;
-`await persist_accepted_envelope(envelope, command_id=...)` performs the existing
-owner's durable correlated write/readback locally. Keep command identity stable
-on retry. Exceptions retain intake and do not establish confirmation. Legacy
-constructor behavior and W051 NATS adapters remain compatible; no second owner
-or internal NATS request is created by this mode. Both owners can be constructed
-and restarted together by the same process; general lifecycle bootstrap is deferred.
-Historical scientific-envelope intake reconstruction is not supplied by W052;
-the bounded operational RuntimeEvidenceMessage intake/reconstruction path is
-validated separately in W053.
-This describes current W052 code, not a requirement to preserve superseded
-scientific-envelope APIs under Decision 378; retain only accepted responsibilities.
-This local adaptation is independently validated and audited PASS in W052:
-17 targeted developer tests, 16/16 independent IPython checks, eight focused audit
-tests and two probes passed. The permanent binding-abort regression and three
-directly relevant controls passed (four tests); it was committed before closure.
-Local disk I/O may block the event loop. No independently validated live NATS,
-multi-host, hardware, or power-loss guarantees are claimed.
+- `InMemoryIngestor.receive_runtime_evidence()` retains operational messages and
+  manifests with existing journal-before-ACK, identity/deduplication and restart
+  semantics. `compile_durable_session_evidence(session_id)` returns journal-verified
+  persistent evidence, complete operational intake audit and the manifest handoff,
+  not scientific observations or an archival-completion claim.
+- `NatsIngestorCommunication` retains `compile_session_evidence` and
+  `verify_acquisition_receipt` requests; the latter delegates to W041 owner proof.
+- `NatsStorageManagerCommunication` retains readiness and
+  `read_session_preservation`; no envelope persistence/readback command remains.
+  Maintenance/recovery still requires the existing authorized owner interface.
+- `NatsControllerCommunication.request_persistence_command(...)` retains scoped
+  readback, fresh-only replies and per-attempt nonce correlation. Missing replies
+  and failed readback never establish preservation or authorize release.
 
-- `NatsIngestorCommunication.persist_accepted_envelope(envelope, *,
-  storage_participant, command_id, result_window_s)` sends already accepted
-  current-Session intake to StorageManager, with no local StorageManager reference.
-- `NatsStorageManagerCommunication(boundary, storage_manager).subscribe_commands()`
-  receives `persist_envelope`, `read_envelopes`, and `read_session_preservation`.
-  StorageManager executes its own methods and returns actual failure or current
-  durability/readback results; missing products do not establish archival.
-- Ingestor's existing command handler receives `compile_session_evidence` and
-  `verify_acquisition_receipt`. Compilation requires current journal coverage and
-  includes existing persistent evidence, complete intake audit, acquisition
-  records/audit, and handoff. Receipt invokes the existing W041 owner proof.
-- `NatsControllerCommunication(boundary).request_persistence_command(participant,
-  command_type, session_id, payload, result_window_s, *, command_id)` handles these
-  Session-scoped operations. It automatically adds an echoed transient
-  `request_nonce` and uses fresh-only results, rejecting retained history and
-  delayed replies from earlier attempts. A timed-out result is `None`, not success.
+Controller's Session Records retain configuration/lifecycle/Experiment outcomes,
+not copies of the operational Evidence Archive. Completion and release compare
+current persistent operational evidence and the complete intake audit with exact
+owner-side archival readback under existing guards. Kill obligations apply even
+with no intake or unavailable archival confirmation; manifest handoff coverage
+and terminal-state checks remain mandatory. Stage A/B, authorized recovery and
+permanent immutability are not replaced by transport acknowledgments.
 
-Keep the write `command_id` stable for identical retries. StorageManager retains
-the command/requester/target correlation as `persistence_command` alongside that
-envelope in its existing records JSONL. No new record file, evidence transport,
-registry, or service owner is created. Distinct commands may preserve distinct
-observations with identical values; conflicting reuse is rejected. Existing
-envelope readback and final Session Records retain their ordinary envelope shape.
-File flush/fsync, supported directory synchronization, and exact current readback
-precede durability confirmation, including retries after StorageManager restart.
-Corrupt/incomplete history is refused without rewriting or automatic repair.
-
-The original in-process interfaces remain available. Network failure,
-cancellation, missing replies, or a changed Ingestor binding cannot clear accepted
-intake or establish false current persistence. This slice does not migrate
-acquisition-side intake, Controller Stage A/Normal Stop/Kill orchestration,
-framework evidence/maintenance, authorized recovery, or cross-owner release
-commitment. Compilation/readback results are point-in-time owner observations,
-not a distributed lock or permission to complete/release a Session.
-
-Developer testing: 25 new owner-boundary tests and 7 directly impacted existing
-regressions passed (32 total), using real framework adapters with broker doubles.
-Independent manual validation passed initially (11/11) and after correction
-(14/14). The initial audit failed for malformed persisted correlation allowing
-duplicate writes; the correction passed 13 developer tests and final independent
-re-audit PASS with no remaining confirmed P0-P3 findings (W051). Present correlation
-must contain valid command/requester/target metadata; invalid history is refused
-unchanged, and legacy records without metadata remain supported. Complete removal
-of metadata cannot be distinguished from genuine legacy history.
-Live NATS, multi-host, hardware, and independently tested power-loss guarantees
-are not established. Configuration and role launching remain
-unimplemented; Q022, Q024, Phase 16, and M015 remain OPEN and Q019 remains CLOSED.
+This cleanup is not independent validation or closure. Cross-process Controller
+closeout, maintenance/recovery and release adaptation, shared-process bootstrap,
+role launching and installation checks remain pending. No live deployment,
+hardware or independent power-loss guarantee is established here. Q019 remains
+CLOSED; Q022, Q024, Phase 16 and M015 remain OPEN.
 
 ### Acquisition Commands And Experiment Context
 
@@ -294,32 +259,22 @@ Publication confirmation, Ingestor acceptance, and complete receipt remain disti
 Depends on owner runtime-evidence validation and local scientific persistence;
 do not turn Ingestor's internal framework partition into another service owner.
 
-### Historical Acquisition Envelope Persistence (Reconciliation Required)
+### Historical Session Record Interpretation
 
-Decision 378 requires removal of these paths where they no longer serve an
-accepted responsibility, not an additional scientific-intake adapter. The existing
-interfaces below describe current code; only necessary historical record
-interpretation and active authoritative responsibilities justify retention.
-
-**Ingestor -> StorageManager (local under Decision 376):** `receive_envelope()` directly invokes
-`store_envelopes()`, and Controller later reads stored Session envelopes for the
-Session Record. Ingestor owns acceptance and audit; StorageManager owns record
-writing/readback. Reuse envelope serialization, existing persistent record APIs,
-and local calls with authoritative results. Adapted local interfaces must report actual storage
-outcomes and preserve Session/source association and existing failure semantics;
-neither a transport ACK nor a missing result is durable storage confirmation.
-W051/W052 validate this existing path, but Decision 377 no longer requires it for
-routine scientific observations. Route those observations and metadata to existing
-LocalStorageManager products; preserve operational evidence/audit and applicable
-durability safeguards rather than extending scientific-envelope intake journaling.
+Existing historical Session Records may contain scientific envelopes and their
+intake audit. StorageManager validates those fields when present, rejecting
+incomplete or cross-Session information before preservation/collection confirmation.
+It does not rewrite them, reconstruct envelope objects, or provide legacy intake,
+transport or append APIs. New records use the retained Session/Experiment and
+operational archive contracts, without obsolete scientific-envelope fields.
 
 ### Receipt, Compilation, And Kill Obligations
 
 **Controller -> Ingestor:** `normal_stop_session()` and
 `archive_acquisition_evidence()` require a local `NatsIngestorCommunication`
 instance and matching Ingestor object. `_preserve_kill_closeout()` admits Kill
-handoff obligations and reads current journal-backed evidence, acquisition
-envelopes, and both intake audits. Reuse Ingestor's existing W041
+handoff obligations and reads current journal-backed operational evidence and
+its complete intake audit. Reuse Ingestor's existing W041
 `verify_acquisition_evidence_receipt()`, journal verification, persistent
 compilation, and handoff compiler inside the receiving service. Missing NATS
 operations expose their owner-confirmed results and admit obligations before
@@ -337,7 +292,7 @@ reads preservation confirmations; completion/release compare current Ingestor
 contents with durable products under shared guards. Ingestor `release_session()`
 likewise uses `session_preservation_guard()` and handoff readback directly.
 Reuse StorageManager writers, persisted-product validation/readback, and NATS
-request/results. Missing handlers must preserve exact compilation/audit/envelope
+request/results. Missing handlers must preserve exact operational compilation/audit
 coverage, final-record Session identity, marker provenance, fsync/readback,
 non-overwriting handoff semantics, and immutable historical/closed contents.
 Adapt completion and release to trustworthy current owner confirmations, not
@@ -408,8 +363,9 @@ architecture or claims of implementation/validation:
 
 1. The bounded routine observation/metadata routing and node lifecycle/health
    preservation prerequisite is complete with correction, independent validation
-   and final re-audit PASS (W053). Complete Slice 3B owner-level envelope cleanup
-   and closeout reconciliation, retaining only required historical interpretation.
+   and final re-audit PASS (W053). Slice 3B implements owner-level envelope removal
+   and closeout reconciliation, retaining required historical interpretation;
+   its independent validation and final integration audit remain pending.
    Reconcile the combined process's active local persistence/readback guarantees,
    and owner-side NATS operational-evidence intake, acceptance,
    receipt/compilation and external readback operations using existing

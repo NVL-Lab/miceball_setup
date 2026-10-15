@@ -32,7 +32,6 @@ class SessionPreservationIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.fixture.broker = producers.PublicationBroker()
         self.fixture.communication = NatsControllerCommunication(
             launch._Boundary("controller", "controller", self.fixture.broker))
-        self.records = self.fixture.root / "accepted_records.jsonl"
         self.storage = self.restored_storage()
         self.stop = normal.NormalStopTests()
         self.stop.fixture = self.fixture
@@ -46,7 +45,7 @@ class SessionPreservationIntegrationTests(unittest.IsolatedAsyncioTestCase):
                 node.local_storage_manager.cleanup()
 
     def restored_storage(self):
-        return PersistentStorageManager(self.records,
+        return PersistentStorageManager(self.fixture.root,
             global_artifact_root=self.fixture.root / "global",
             retrieval_endpoints={"node-a": SshRetrievalEndpoint("fake", "reader")})
 

@@ -115,7 +115,6 @@ class ControllerWorkflowTests(unittest.TestCase):
     def test_controller_completes_one_bounded_session_and_session_record(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            records_path = root / "accepted_records.jsonl"
             session_record_path = root / "session_record.json"
             config = SessionConfig(
                 session_id="controller-session-001",
@@ -128,13 +127,13 @@ class ControllerWorkflowTests(unittest.TestCase):
                         declared_capabilities=("stream",),
                     )
                 ],
-                storage_location=str(records_path),
+                storage_location=str(root),
                 protocol_plan={"name": "controller-v1"},
                 error_evidence_location=str(root / "errors"),
             )
             adapter = ControllerFakeAdapter()
             manager = DeviceManager((adapter,))
-            storage = PersistentStorageManager(records_path=records_path)
+            storage = PersistentStorageManager(storage_root=root)
             ingestor = InMemoryIngestor(storage_manager=storage)
             node = AcquisitionNode(
                 session_id=config.session_id,
@@ -224,18 +223,10 @@ class ControllerWorkflowTests(unittest.TestCase):
                 ],
                 ["initialized", "running", "stopping"],
             )
-            self.assertEqual(
-                len(session_record["accepted_acquisition_envelopes"]),
-                0,
-            )
             for record in (initial_record, session_record):
                 self.assertEqual(record["runtime_evidence"], [])
                 self.assertEqual(record["runtime_evidence_audit"], [])
-            self.assertEqual(
-                session_record["ingest_audit_records"],
-                [audit.to_dict() for audit in ingestor.ingest_audit],
-            )
-            self.assertEqual(len(session_record["ingest_audit_records"]), 0)
+            self.assertEqual(session_record["runtime_evidence_audit"], [])
             self.assertNotIn(
                 "artifact_bytes",
                 archived_runtime_evidence[0]["payload"],
@@ -254,14 +245,6 @@ class ControllerWorkflowTests(unittest.TestCase):
                     "ingest_audit_evidence_ids": [item["evidence_id"] for item in expected_audits],
                 },
             )
-            self.assertTrue(
-                all(
-                    envelope["record_kind"] != ARTIFACT_MANIFEST_EVIDENCE_TYPE
-                    for envelope in session_record[
-                        "accepted_acquisition_envelopes"
-                    ]
-                )
-            )
             self.assertFalse(session_record["cleanup_evidence"]["cleanup_occurred"])
             self.assertIsNone(session_record["final_session_status"])
 
@@ -269,7 +252,7 @@ class ControllerWorkflowTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             _, manager, node, config = self._controller_fixture(root)
-            storage = PersistentStorageManager(root / "accepted_records.jsonl")
+            storage = PersistentStorageManager(root)
             controller = Controller(acquisition_node=node, storage_manager=storage)
             manager.initialize_all(config={"mode": "missing-controller-ingestor"})
             readiness = node.check_ready()
@@ -457,7 +440,7 @@ class ControllerWorkflowTests(unittest.TestCase):
             controller.stop_session(reason="experiment lifecycle complete")
             controller.finalize_session()
             session_record = PersistentStorageManager(
-                root / "accepted_records.jsonl"
+                root
             ).read_session_record(
                 root
                 / "session_controller-failure-session-001"
@@ -548,7 +531,7 @@ class ControllerWorkflowTests(unittest.TestCase):
             )
             adapter = ControllerFakeAdapter()
             manager = DeviceManager((adapter,))
-            storage = PersistentStorageManager(root / "accepted_records.jsonl")
+            storage = PersistentStorageManager(root)
             ingestor = InMemoryIngestor(storage_manager=storage)
             node = AcquisitionNode(
                 session_id=config.session_id,
@@ -604,7 +587,7 @@ class ControllerWorkflowTests(unittest.TestCase):
             adapter = ControllerFakeAdapter()
             manager = DeviceManager((adapter,))
             storage = EvidenceArchiveWriteFailingStorage(
-                root / "accepted_records.jsonl"
+                root
             )
             ingestor = InMemoryIngestor(storage_manager=storage)
             node = AcquisitionNode(
@@ -639,7 +622,7 @@ class ControllerWorkflowTests(unittest.TestCase):
             adapter = ControllerFakeAdapter()
             manager = DeviceManager((adapter,))
             storage = FinalSessionRecordWriteFailingStorage(
-                root / "accepted_records.jsonl"
+                root
             )
             ingestor = InMemoryIngestor(storage_manager=storage)
             node = AcquisitionNode(
@@ -681,7 +664,7 @@ class ControllerWorkflowTests(unittest.TestCase):
         )
         adapter = ControllerFakeAdapter()
         manager = DeviceManager((adapter,))
-        storage = PersistentStorageManager(root / "accepted_records.jsonl")
+        storage = PersistentStorageManager(root)
         ingestor = InMemoryIngestor(storage_manager=storage)
         synchronization = synchronization_manager or SynchronizationManager()
         node = AcquisitionNode(

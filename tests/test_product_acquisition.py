@@ -132,7 +132,6 @@ class ProductAcquisitionTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(values[0]["metadata"], {"unit": "arbitrary"})
             self.assertEqual(values[0]["experiment_id"], "experiment")
             self.assertIn("session_time_s", values[0])
-        self.assertEqual(intake.accepted_envelopes, ())
         self.assertEqual([item for item in node.runtime_evidence if item.evidence_id == message.evidence_id],
                          [message])
         self.assertTrue(any(item.payload.get("event_type") == "acquisition_failure"
@@ -166,7 +165,6 @@ class ProductAcquisitionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(rows[("first", "events")], [])
         self.assertEqual(len(rows[("second", "events")]), 1)
         self.assertTrue(intake.has_durable_runtime_evidence(message))
-        self.assertEqual(intake.accepted_envelopes, ())
 
     async def test_independent_write_and_intake_failures_remain_visible(self):
         node, adapters, intake = self.two_device_node()
@@ -228,7 +226,6 @@ class ProductAcquisitionTests(unittest.IsolatedAsyncioTestCase):
         rows = self.finalized_rows(node)
         self.assertEqual({key: len(value) for key, value in rows.items()},
                          {("first", "events"): 1, ("second", "events"): 1})
-        self.assertEqual(intake.accepted_envelopes, ())
 
     async def test_failed_product_write_does_not_skip_other_products(self):
         node, _, _ = self.two_device_node(extra_product=True)
@@ -265,7 +262,6 @@ class ProductAcquisitionTests(unittest.IsolatedAsyncioTestCase):
         rows = self.finalized_rows(node)
         self.assertEqual(len(rows[("first", "events")]), 1)
         self.assertEqual(len(rows[("second", "events")]), 1)
-        self.assertEqual(intake.accepted_envelopes, ())
 
     async def test_failure_evidence_error_does_not_mask_original_failure(self):
         node, adapters, intake = self.two_device_node()
@@ -297,7 +293,6 @@ class ProductAcquisitionTests(unittest.IsolatedAsyncioTestCase):
         result = node.run_one_iteration()
         self.assertEqual(result.scientific_observations, 1)
         self.assertEqual(adapter.selected, [("events",)])
-        self.assertEqual(intake.accepted_envelopes, ())
         node.stop_runtime()
         manifest, = node.local_storage_manager.manifests
         self.assertEqual(manifest.lifecycle_state, "finalized")
@@ -378,11 +373,9 @@ class ProductAcquisitionTests(unittest.IsolatedAsyncioTestCase):
         before = intake.recovery_journal_path.read_bytes()
         await handler.publish_new_runtime_evidence()
         self.assertEqual(intake.recovery_journal_path.read_bytes(), before)
-        self.assertEqual(intake.accepted_envelopes, ())
         for message in node.runtime_evidence:
             self.assertTrue(intake.has_durable_runtime_evidence(message))
         restored = InMemoryIngestor(session_id="session", recovery_journal_path=self.root / "journal")
-        self.assertEqual(restored.accepted_envelopes, ())
         for message in node.runtime_evidence:
             self.assertTrue(restored.has_durable_runtime_evidence(message))
 

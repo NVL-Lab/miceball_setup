@@ -154,6 +154,5 @@ class ScientificCollectionFailureTests(unittest.TestCase):
             self.assertEqual(node.local_storage_manager.manifests[0].details["row_count"], 0)
 
 
-
 if __name__ == "__main__":
     unittest.main()

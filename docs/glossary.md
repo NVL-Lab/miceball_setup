@@ -377,8 +377,10 @@ products selected by Experiments, with scientific observations/metadata separate
 from operational evidence. Legacy `collect_records()` / `collect_scientific_records()`
 have been replaced by `collect_products()` in the active node pathway (W053),
 not retained as compatibility fallbacks. AcquisitionNode must not guess meaning
-from content, size or naming. Owner-level scientific-envelope cleanup remains
-for Slice 3B; the full Decision 378 replacement is not complete.
+from content, size or naming. Slice 3B removes owner-level scientific-envelope
+intake, persistence and transport; necessary historical Session Record validation
+remains read-only. Independent validation and the final integration audit of the
+complete replacement remain pending.
 
 The component responsible for communicating with a specific device type.
 
@@ -1395,9 +1397,7 @@ Examples include:
 * Session lifecycle evidence
 * device readiness evidence
 * service readiness evidence
-* session_start and session_stop acquisition events
-* accepted acquisition envelopes
-* ingest audit records
+* lifecycle context for session_start and session_stop (operational messages live in the Evidence Archive)
 * final session status
 * warnings, recoverable failures, and fatal failures
 * cleanup evidence
@@ -1413,8 +1413,9 @@ does not expand Session Record responsibilities.
 Persistent RuntimeEvidenceMessages and their runtime-evidence intake audit belong
 in the Evidence Archive (Decisions 226-227). Controller evidence gathering excludes
 these raw runtime records from initial and final Session Records. The existing
-`ingest_audit_records` field instead preserves acquisition-envelope intake audit
-required by Decision 073; it is distinct from runtime-evidence intake audit.
+historical `ingest_audit_records` field describes superseded scientific-envelope
+intake under Decision 073; new Session Records no longer write it. Historical
+fields remain readable and are validated before preservation confirmation.
 
 The accepted v1 conceptual persistence layout includes `session_record_initial.json`, `session_record_final.json`, and an `evidence/` directory containing `runtime_evidence.jsonl`, `ingest_audit.jsonl`, and `compilation_summary.json`. Category-specific evidence folders are not part of the v1 concept.
 
@@ -1937,8 +1938,9 @@ The Phase 1-9 unit of acquisition data exchanged between the acquisition side an
 Decision 377 removes this as a mandatory pathway for routine scientific
 observations, including small observations and their metadata. Existing code and
 W051/W052 remain historically validated; revised node-local scientific routing
-and operational evidence are complete in W053. Owner-level envelope cleanup and
-closeout reconciliation remain for Slice 3B. This term does not define future
+and operational evidence are complete in W053. Slice 3B removes owner-level
+envelope machinery and reconciles closeout, pending independent validation/audit.
+This historical term does not define future
 real-time streaming.
 
 An Acquisition Record Envelope contains session identity, source device
@@ -2060,8 +2062,8 @@ implemented: missing compiled messages, unsuccessful archive writes, and stale
 decision snapshots block release. Evidence-bearing Ingestor release now checks
 StorageManager's exact successful archive input against all currently accepted
 persistent messages and all runtime-evidence intake audit, including audit of
-nonpersistent messages. Existing terminal Session Record evidence and the separate
-acquisition-envelope persistence obligations must also be confirmed. Intake and
+nonpersistent messages. Existing terminal Session Record and applicable manifest
+handoff obligations must also be confirmed. Intake and
 release commitment are serialized; stale coverage cannot discard additional intake.
 Nonpersistent messages are not added to the archive to permit release.
 SynchronizationManager releases after Session Time stops, active mappings retire,
@@ -2363,7 +2365,8 @@ Archive from Ingestor's compiled persistent evidence and separately writes Sessi
 Records. JetStream durable publication acceptance is a transport boundary, not
 completion of any of these storage responsibilities.
 
-For v1, accepted Acquisition Record Envelopes may be stored as JSONL, with one envelope dictionary per line.
+Historical versions stored accepted Acquisition Record Envelopes as JSONL.
+Decision 378 removes those active writers; existing saved data is not rewritten.
 
 JSONL is a storage backend detail, not a replacement for the Storage Manager architectural boundary.
 

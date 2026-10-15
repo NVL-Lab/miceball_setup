@@ -12,11 +12,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from lab_sync_acquisition import (
-    Controller, HealthInterpretationEvidence, InMemoryIngestor, PersistentStorageManager,
-    AcquisitionRecordEnvelope, RuntimeEvidenceMessage, RuntimeParticipant, Session, SessionConfig,
-    SynchronizationManager,
-)
+from lab_sync_acquisition import Controller, HealthInterpretationEvidence, InMemoryIngestor, PersistentStorageManager, RuntimeEvidenceMessage, RuntimeParticipant, Session, SessionConfig, SynchronizationManager
 from tests import test_session_launch as launch_fixtures
 
 
@@ -25,7 +21,7 @@ class SessionBindingReleaseTests(unittest.IsolatedAsyncioTestCase):
         self.launch = launch_fixtures.SessionLaunchTests()
         self.launch.setUp()
         self.addCleanup(self.launch.temporary.cleanup)
-        self.storage = PersistentStorageManager(self.launch.root / "records.jsonl")
+        self.storage = PersistentStorageManager(self.launch.root)
         self.launch.controller = Controller(
             ingestor=self.launch.ingestor, storage_manager=self.storage,
             synchronization_manager=self.launch.sync)
@@ -53,7 +49,8 @@ class SessionBindingReleaseTests(unittest.IsolatedAsyncioTestCase):
 
     def archived_decisions(self, session_id):
         path = self.launch.root / f"session_{session_id}" / "evidence/runtime_evidence.jsonl"
-        return [json.loads(line) for line in path.read_text().splitlines()]
+        return [message for line in path.read_text().splitlines()
+                if (message := json.loads(line))["evidence_type"] == "controller_action_decision"]
 
     def assert_separate_persistence_products(self, session_id, messages):
         directory = self.launch.root / f"session_{session_id}"
@@ -62,16 +59,14 @@ class SessionBindingReleaseTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(record["accepted_session_config"]["session_id"], session_id)
             self.assertEqual(record["runtime_evidence"], [])
             self.assertEqual(record["runtime_evidence_audit"], [])
-        self.assertEqual(record["ingest_audit_records"], [
-            audit.to_dict() for audit in self.launch.ingestor.ingest_audit
-        ])
         self.assertEqual(self.archived_decisions(session_id), [message.to_dict() for message in messages])
         audits = [json.loads(line) for line in
                   (directory / "evidence/ingest_audit.jsonl").read_text().splitlines()]
         self.assertEqual(audits, [audit.to_dict() for audit in self.launch.ingestor.runtime_evidence_audit])
         summary = json.loads((directory / "evidence/compilation_summary.json").read_text())
-        self.assertEqual(summary["runtime_evidence_ids"], [message.evidence_id for message in messages])
-        self.assertEqual(summary["runtime_evidence_count"], len(messages))
+        persistent = self.launch.ingestor.compile_persistent_runtime_evidence()["runtime_evidence"]
+        self.assertEqual(summary["runtime_evidence_ids"], [message.evidence_id for message in persistent])
+        self.assertEqual(summary["runtime_evidence_count"], len(persistent))
         self.assertEqual(summary["ingest_audit_count"], len(audits))
 
     async def test_successive_sessions_reuse_services_and_node_preserving_records(self):
@@ -91,10 +86,10 @@ class SessionBindingReleaseTests(unittest.IsolatedAsyncioTestCase):
                 "session_record_initial.json", "session_record_final.json",
                 "evidence/runtime_evidence.jsonl", "evidence/ingest_audit.jsonl",
                 "evidence/compilation_summary.json")]
-            self.assertTrue(ingestor.release_session(sid))
-            self.assertTrue(sync.release_session(sid))
             released = await controller.release_session()
             self.assertTrue(released.succeeded, released.error)
+            self.assertTrue(ingestor.release_session(sid, storage_manager=self.storage))
+            self.assertTrue(sync.release_session(sid))
             self.assertEqual(released.details["session_state"], "completed")
             self.assertEqual(released.details["final_session_status"]["state"], "completed")
             self.assertIsNone(controller.get_status()["session_id"])
@@ -135,8 +130,8 @@ class SessionBindingReleaseTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue((await controller.release_session()).succeeded)
             journal = ingestor.recovery_journal_path
             confirmation = self.storage.get_session_preservation_confirmation(sid)
-            self.assertEqual(len(confirmation["runtime_evidence"]), 3)
-            self.assertEqual(len(confirmation["ingest_audit"]), 4)
+            self.assertEqual(len(confirmation["runtime_evidence"]), 5)
+            self.assertEqual(len(confirmation["ingest_audit"]), 6)
             self.assertEqual(confirmation["session_record"]["runtime_evidence"], [])
             self.assertEqual(confirmation["session_record"]["runtime_evidence_audit"], [])
             self.assertTrue(ingestor.release_session(sid, storage_manager=self.storage))
@@ -223,7 +218,7 @@ class SessionBindingReleaseTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(self.launch.controller.finalize_session().succeeded)
         self.assertTrue((await self.launch.controller.release_session()).succeeded)
         evidence_path = self.launch.root / f"session_{sid}" / "evidence/runtime_evidence.jsonl"
-        self.assertEqual(json.loads(evidence_path.read_text())["evidence_id"], "late")
+        self.assertIn("late", [json.loads(line)["evidence_id"] for line in evidence_path.read_text().splitlines()])
 
     async def test_all_controller_decisions_are_archived_before_release_and_retained_on_disk(self):
         sid = await self.start_session()
@@ -231,8 +226,10 @@ class SessionBindingReleaseTests(unittest.IsolatedAsyncioTestCase):
         for index in (1, 2):
             self.record_decision(index)
         messages = controller.controller_action_decision_evidence
-        self.assertEqual(self.launch.ingestor.accepted_runtime_evidence, messages)
-        self.assertEqual(len(self.launch.ingestor.runtime_evidence_audit), 2)
+        self.assertEqual(tuple(m for m in self.launch.ingestor.accepted_runtime_evidence
+                               if m.evidence_type == "controller_action_decision"), messages)
+        self.assertEqual(sum(a.evidence_id in {m.evidence_id for m in messages}
+                             for a in self.launch.ingestor.runtime_evidence_audit), 2)
         await self.stop_session()
         result = controller.finalize_session()
         self.assertTrue(result.succeeded, result.error)
@@ -247,7 +244,7 @@ class SessionBindingReleaseTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(controller.controller_action_decision_evidence, ())
         for path, content in snapshots:
             self.assertEqual(path.read_bytes(), content)
-        self.assertEqual(len(self.launch.ingestor.accepted_runtime_evidence), 2)
+        self.assertEqual(self.archived_decisions(sid), [message.to_dict() for message in messages])
         self.assert_separate_persistence_products(sid, messages)
         record = self.storage.read_session_record(self.launch.root / f"session_{sid}/session_record_final.json")
         self.assertEqual(record["final_session_status"]["state"], "completed")
@@ -272,7 +269,7 @@ class SessionBindingReleaseTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(controller.get_status()["session_id"], sid)
         self.assertEqual(controller.get_status()["session_state"], "completed")
         self.assertEqual(controller.controller_action_decision_evidence, messages)
-        self.assertEqual(journal.read_bytes(), journal_contents)
+        self.assertTrue(journal.read_bytes().startswith(journal_contents))
         self.assertTrue(controller.finalize_session().succeeded)
         self.assertTrue((await controller.release_session()).succeeded)
 
@@ -459,8 +456,8 @@ class SessionBindingReleaseTests(unittest.IsolatedAsyncioTestCase):
                 self.record_decision()
                 messages = controller.controller_action_decision_evidence
                 journal = self.launch.ingestor.recovery_journal_path
-                journal_bytes = journal.read_bytes()
                 await self.stop_session()
+                journal_bytes = journal.read_bytes()
                 self.assertTrue(controller.finalize_session().succeeded)
                 paused, resume = asyncio.Event(), asyncio.Event()
                 delayed = None
@@ -510,8 +507,8 @@ class SessionBindingReleaseTests(unittest.IsolatedAsyncioTestCase):
                 decisions = controller.controller_action_decisions
                 messages = controller.controller_action_decision_evidence
                 journal = self.launch.ingestor.recovery_journal_path
-                journal_bytes = journal.read_bytes()
                 await self.stop_session()
+                journal_bytes = journal.read_bytes()
                 self.assertTrue(controller.finalize_session().succeeded)
                 status = controller.get_status()
                 paused, resume = asyncio.Event(), asyncio.Event()
@@ -540,7 +537,8 @@ class SessionBindingReleaseTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(controller.controller_action_decisions, decisions)
                 self.assertEqual(controller.controller_action_decision_evidence, messages)
                 self.assertEqual(self.launch.ingestor.session_id, sid)
-                self.assertEqual(self.launch.ingestor.accepted_runtime_evidence, messages)
+                self.assertEqual(tuple(m for m in self.launch.ingestor.accepted_runtime_evidence
+                                       if m.evidence_type == "controller_action_decision"), messages)
                 self.assertEqual(journal.read_bytes(), journal_bytes)
                 self.assertTrue((await controller.release_session()).succeeded)
                 self.assertTrue(self.launch.ingestor.release_session(sid, storage_manager=self.storage))
@@ -556,8 +554,8 @@ class SessionBindingReleaseTests(unittest.IsolatedAsyncioTestCase):
                 decisions = controller.controller_action_decisions
                 messages = controller.controller_action_decision_evidence
                 journal = self.launch.ingestor.recovery_journal_path
-                journal_bytes = journal.read_bytes()
                 await self.stop_session()
+                journal_bytes = journal.read_bytes()
                 self.assertTrue(controller.finalize_session().succeeded)
                 calls = 0
 
@@ -577,7 +575,8 @@ class SessionBindingReleaseTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(controller.get_status()["session_state"], "completed")
                 self.assertEqual(controller.controller_action_decisions, decisions)
                 self.assertEqual(controller.controller_action_decision_evidence, messages)
-                self.assertEqual(self.launch.ingestor.accepted_runtime_evidence, messages)
+                self.assertEqual(tuple(m for m in self.launch.ingestor.accepted_runtime_evidence
+                                       if m.evidence_type == "controller_action_decision"), messages)
                 self.assertEqual(journal.read_bytes(), journal_bytes)
                 self.assertTrue((await controller.release_session()).succeeded)
                 self.assertTrue(self.launch.ingestor.release_session(sid, storage_manager=self.storage))
@@ -607,7 +606,8 @@ class SessionBindingReleaseTests(unittest.IsolatedAsyncioTestCase):
         messages = controller.controller_action_decision_evidence
         self.assertEqual(len(messages), 2)
         self.assertEqual(len({message.evidence_id for message in messages}), 2)
-        self.assertEqual(len(self.launch.ingestor.runtime_evidence_audit), 2)
+        self.assertEqual(sum(a.evidence_id in {m.evidence_id for m in messages}
+                             for a in self.launch.ingestor.runtime_evidence_audit), 2)
         await self.stop_session()
         self.assertTrue(controller.finalize_session().succeeded)
         self.assertEqual(self.archived_decisions(sid), [message.to_dict() for message in messages])
@@ -619,7 +619,7 @@ class SessionBindingReleaseTests(unittest.IsolatedAsyncioTestCase):
         self.record_decision(1)
         self.record_decision(2)
         compiled = self.launch.ingestor.compile_persistent_runtime_evidence()
-        partial = {**compiled, "runtime_evidence": compiled["runtime_evidence"][:1]}
+        partial = {**compiled, "runtime_evidence": controller.controller_action_decision_evidence[:1]}
         await self.stop_session()
         # A real archive write of a subset is not confirmation of all owned decisions.
         self.storage.write_evidence_archive(sid, partial)
@@ -639,7 +639,7 @@ class SessionBindingReleaseTests(unittest.IsolatedAsyncioTestCase):
         controller = self.launch.controller
         self.record_decision()
         compiled = self.launch.ingestor.compile_persistent_runtime_evidence()
-        original = compiled["runtime_evidence"][0]
+        original = controller.controller_action_decision_evidence[0]
         changed = RuntimeEvidenceMessage.from_dict({
             **original.to_dict(), "payload": {**original.payload, "controller_decision": "record_warning"},
         })
@@ -730,7 +730,7 @@ class SessionBindingReleaseTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse((await controller.release_session()).succeeded)
         self.assertEqual(controller.get_status()["session_id"], sid)
         self.assertEqual(controller.controller_action_decision_evidence, messages)
-        self.assertEqual(self.launch.ingestor.accepted_runtime_evidence, ())
+        self.assertTrue(self.launch.ingestor.accepted_runtime_evidence)
         self.assertFalse((self.launch.root / f"session_{sid}/evidence/runtime_evidence.jsonl").exists())
 
     async def test_failed_decision_intake_retains_evidence_and_blocks_archival_release(self):
@@ -741,7 +741,8 @@ class SessionBindingReleaseTests(unittest.IsolatedAsyncioTestCase):
                 self.record_decision()
         message = controller.controller_action_decision_evidence[0]
         self.assertTrue(message.is_persistent)
-        self.assertEqual(self.launch.ingestor.accepted_runtime_evidence, ())
+        self.assertFalse(any(m.evidence_type == "controller_action_decision"
+                             for m in self.launch.ingestor.accepted_runtime_evidence))
         await self.stop_session()
         self.assertFalse(controller.finalize_session().succeeded)
         self.assertFalse((await controller.release_session()).succeeded)
@@ -841,7 +842,7 @@ class EvidenceBearingReleaseTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
-        self.storage = PersistentStorageManager(self.root / "records.jsonl")
+        self.storage = PersistentStorageManager(self.root)
         self.ingestor = InMemoryIngestor(self.storage, recovery_journal_root=self.root / "journals")
         self.ingestor.prepare_session("session-a")
         self.session = self.make_session("session-a")
@@ -865,8 +866,6 @@ class EvidenceBearingReleaseTests(unittest.TestCase):
             lifecycle_evidence=self.session.transition_history,
             readiness_evidence=self.session.readiness_checks,
             device_readiness_evidence=(), service_readiness_evidence=(),
-            accepted_acquisition_envelopes=self.storage.get_envelopes_for_session(self.session.session_id),
-            ingest_audit_records=self.ingestor.ingest_audit,
             final_session_status=self.session.final_status,
             cleanup_evidence={"cleanup_occurred": self.session.cleanup_occurred},
         )
@@ -1098,28 +1097,6 @@ class EvidenceBearingReleaseTests(unittest.TestCase):
         self.assertFalse(audits[-1]["accepted"])
         self.assertTrue(self.ingestor.release_session("session-a"))
 
-    def test_acquisition_envelopes_and_audit_stay_on_existing_persistence_path(self):
-        envelope = AcquisitionRecordEnvelope("session-a", "device", "stream",
-                                            ({"session_time_s": 1.0},), source_node_id="node")
-        self.assertTrue(self.ingestor.receive_envelope(envelope).accepted)
-        self.archive()
-        self.finish()
-        stored = self.storage.get_envelopes_for_session("session-a")
-        self.assertTrue(self.ingestor.release_session("session-a"))
-        self.assertEqual(self.storage.get_envelopes_for_session("session-a"), stored)
-        self.assertEqual(self.ingestor.accepted_envelopes, ())
-        self.assertEqual(self.ingestor.ingest_audit, ())
-
-    def test_late_acquisition_intake_requires_existing_session_record_refresh(self):
-        self.ingestor.receive_runtime_evidence(self.message())
-        self.archive()
-        self.finish()
-        envelope = AcquisitionRecordEnvelope("session-a", "device", "stream", ({"session_time_s": 1.0},))
-        self.assertTrue(self.ingestor.receive_envelope(envelope).accepted)
-        with self.assertRaisesRegex(RuntimeError, "Acquisition-envelope preservation"):
-            self.ingestor.release_session("session-a")
-        self.write_terminal_record()
-        self.assertTrue(self.ingestor.release_session("session-a"))
 
     def test_concurrent_accepted_intake_cannot_be_omitted_by_release(self):
         self.ingestor.receive_runtime_evidence(self.message())

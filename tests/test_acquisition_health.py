@@ -8,17 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 sys.path.insert(0, str(SRC))
 
-from lab_sync_acquisition import (
-    AcquisitionHealthPolicy,
-    AcquisitionNode,
-    DeviceManager,
-    ExperimentRuntimeHealthMapping,
-    InMemoryIngestor,
-    InMemoryStorageManager,
-    ServiceReadiness,
-    ActiveExperimentRuntimeContext, DeviceDeclaration,
-    ScientificProductDeclaration, ScientificOutputSelection,
-)
+from lab_sync_acquisition import AcquisitionHealthPolicy, AcquisitionNode, DeviceManager, ExperimentRuntimeHealthMapping, InMemoryIngestor, ServiceReadiness, ActiveExperimentRuntimeContext, DeviceDeclaration, ScientificProductDeclaration, ScientificOutputSelection
 from tests.fakes import ReadyFakeAdapter
 
 

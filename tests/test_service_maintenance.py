@@ -23,7 +23,7 @@ class ServiceMaintenanceTests(unittest.IsolatedAsyncioTestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
-        self.storage = PersistentStorageManager(self.root / "records.jsonl")
+        self.storage = PersistentStorageManager(self.root)
         self.ingestor = InMemoryIngestor(self.storage, framework_recovery_journal_path=self.root / "journal" / "framework.jsonl")
         self.sync = SynchronizationManager()
         self.adapter = ReadyFakeAdapter(device_id="device", device_type="fake", required=True, declared_capabilities=())
@@ -257,7 +257,7 @@ class ServiceMaintenanceTests(unittest.IsolatedAsyncioTestCase):
         async def publish(message):
             entered.set()
             await proceed.wait()
-        storage = PersistentStorageManager(self.root / "other-records.jsonl", evidence_publisher=publish)
+        storage = PersistentStorageManager(self.root, evidence_publisher=publish)
         interface = ServiceMaintenanceInterface(storage, RuntimeParticipant("storage_manager", "storage"),
                     ingestor=self.ingestor, storage_manager=storage, preservation_window_s=0.1, close_resources=AsyncMock(return_value=True))
         collection = asyncio.create_task(storage.collect_artifacts_with_evidence({"session_id": "session-a", "artifacts": []}))
@@ -510,7 +510,7 @@ class ServiceMaintenanceTests(unittest.IsolatedAsyncioTestCase):
                 nested_results.append(await storage.collect_artifacts_with_evidence(
                     {"session_id": "session-a", "artifacts": []}))
 
-        storage = PersistentStorageManager(self.root / "child-records.jsonl", evidence_publisher=publish)
+        storage = PersistentStorageManager(self.root, evidence_publisher=publish)
         interface = ServiceMaintenanceInterface(storage, RuntimeParticipant("storage_manager", "storage"),
                     ingestor=self.ingestor, storage_manager=storage, preservation_window_s=0.1,
                     close_resources=AsyncMock(return_value=True))
@@ -633,7 +633,7 @@ class ServiceMaintenanceTests(unittest.IsolatedAsyncioTestCase):
             entered.set()
             await finish.wait()
 
-        storage = PersistentStorageManager(self.root / "active-records.jsonl", evidence_publisher=publish)
+        storage = PersistentStorageManager(self.root, evidence_publisher=publish)
         cleanup, retire = AsyncMock(return_value=True), AsyncMock(return_value=True)
         interface = ServiceMaintenanceInterface(storage, RuntimeParticipant("storage_manager", "storage"),
                     ingestor=self.ingestor, storage_manager=storage, preservation_window_s=0.1,

@@ -25,7 +25,7 @@ class FrameworkShutdownTests(unittest.IsolatedAsyncioTestCase):
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
         self.broker = _Broker()
-        self.storage = PersistentStorageManager(self.root / "records.jsonl")
+        self.storage = PersistentStorageManager(self.root)
         self.ingestor = InMemoryIngestor(self.storage,
             framework_recovery_journal_path=self.root / "framework-journal.jsonl")
         self.sync = SynchronizationManager()

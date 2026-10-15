@@ -1,4 +1,4 @@
-"""Storage boundaries for retained acquisition envelopes."""
+"""Durable Session records, Evidence Archives, and scientific-artifact collection."""
 
 from __future__ import annotations
 
@@ -17,7 +17,6 @@ from time import time
 from typing import Any, Iterable, Iterator, Mapping
 from uuid import uuid4
 
-from lab_sync_acquisition.acquisition_record import AcquisitionRecordEnvelope
 from lab_sync_acquisition.service_readiness import ServiceReadiness, apply_dependency_readiness
 from lab_sync_acquisition.local_storage import ArtifactManifest
 from lab_sync_acquisition.communication import RuntimeEvidenceMessage
@@ -110,67 +109,11 @@ class _VerificationReader:
         self._call("flush", None)
 
 
-class InMemoryStorageManager:
-    """Stores accepted acquisition envelopes in memory for read-back."""
-
-    def __init__(self) -> None:
-        self._stored_envelopes: tuple[AcquisitionRecordEnvelope, ...] = ()
-
-    @property
-    def stored_envelopes(self) -> tuple[AcquisitionRecordEnvelope, ...]:
-        """Stored acquisition envelopes for verification."""
-
-        return self._stored_envelopes
-
-    def check_ready(self) -> ServiceReadiness:
-        """Return readiness for the in-memory storage service."""
-
-        return ServiceReadiness(
-            component_id="storage",
-            component_type="storage_manager",
-            required=True,
-            ready=True,
-            reason="ready",
-        )
-
-    def store_envelopes(
-        self,
-        envelopes: Iterable[AcquisitionRecordEnvelope],
-    ) -> None:
-        """Store accepted acquisition envelopes without transforming them."""
-
-        self._stored_envelopes = self._stored_envelopes + tuple(envelopes)
-
-    def get_envelopes_for_session(
-        self,
-        session_id: str,
-    ) -> tuple[AcquisitionRecordEnvelope, ...]:
-        """Return stored envelopes for one session."""
-
-        return tuple(
-            envelope
-            for envelope in self._stored_envelopes
-            if envelope.session_id == session_id
-        )
-
-    def get_envelopes_for_source(
-        self,
-        source_device_id: str,
-    ) -> tuple[AcquisitionRecordEnvelope, ...]:
-        """Return stored envelopes for one source device."""
-
-        return tuple(
-            envelope
-            for envelope in self._stored_envelopes
-            if envelope.source_device_id == source_device_id
-        )
-
-
 class PersistentStorageManager:
-    """Stores accepted acquisition envelopes as JSONL for v1 persistence."""
+    """Owns Session records, Evidence Archives, and global artifact collection."""
 
     def __init__(
-        self, records_path: str | Path, *,
+        self, storage_root: str | Path, *,
         global_artifact_root: str | Path | None = None,
         retrieval_endpoints: Mapping[str, SshRetrievalEndpoint] | None = None,
         evidence_publisher: Callable[[RuntimeEvidenceMessage], Awaitable[None]] | None = None,
@@ -178,7 +121,7 @@ class PersistentStorageManager:
     ) -> None:
         if not isinstance(component_id, str) or not component_id:
             raise ValueError("StorageManager component_id must be a nonempty string")
-        self._records_path = Path(records_path)
+        self._storage_root = Path(storage_root)
         self._service_operation_lock = RLock()
         self._active_service_operations = 0
         self._preservation_lock = RLock()
@@ -362,21 +305,14 @@ class PersistentStorageManager:
                 or record["accepted_session_config"].get("session_id") != session_id
                 or any(not isinstance(record.get(name), list) for name in (
                     "session_lifecycle_evidence", "readiness_evidence", "device_readiness_evidence",
-                    "service_readiness_evidence", "accepted_acquisition_envelopes", "ingest_audit_records",
+                    "service_readiness_evidence",
                     "runtime_evidence", "runtime_evidence_audit", "warnings_or_failures",
                     "experiment_lifecycle_evidence", "experiment_descriptors"))
                 or not isinstance(record.get("cleanup_evidence"), dict)
                 or (record.get("final_session_status") is not None
                     and not isinstance(record["final_session_status"], dict))):
             raise ValueError("Final Session Record identity is inconsistent")
-        for data in record["accepted_acquisition_envelopes"]:
-            if (not isinstance(data, dict) or data.get("session_id") != session_id
-                    or not isinstance(data.get("source_device_id"), str) or not data["source_device_id"]
-                    or not isinstance(data.get("record_kind"), str) or not data["record_kind"]
-                    or not isinstance(data.get("records"), list)
-                    or (data.get("source_node_id") is not None and not isinstance(data["source_node_id"], str))):
-                raise ValueError("Final Session Record contains incomplete or conflicting acquisition envelopes")
-            AcquisitionRecordEnvelope.from_dict(data)
+        self._require_historical_session_intake(record, session_id)
         handoff = self._validate_artifact_collection_handoff(
             session_id, self._read_preservation_json(raw["artifact_collection_handoff"]))
         # Readback verifies the saved compiler output against the accepted manifest evidence.
@@ -428,6 +364,28 @@ class PersistentStorageManager:
                 "compilation_summary": summary, "session_record": record,
                 "artifact_collection_handoff": handoff, "raw": raw, "paths": files,
                 "prefix": prefix, "suffix": suffix}
+
+    @staticmethod
+    def _require_historical_session_intake(record: dict, session_id: str) -> None:
+        """Validate historical intake fields when present, without reviving their writers."""
+        names = ("accepted_acquisition_envelopes", "ingest_audit_records")
+        if not any(name in record for name in names):
+            return
+        if any(not isinstance(record.get(name), list) for name in names):
+            raise ValueError("Historical Session intake is incomplete")
+        for data in record[names[0]]:
+            if (not isinstance(data, dict) or data.get("session_id") != session_id
+                    or not isinstance(data.get("source_device_id"), str) or not data["source_device_id"]
+                    or not isinstance(data.get("record_kind"), str) or not data["record_kind"]
+                    or not isinstance(data.get("records"), list)
+                    or (data.get("source_node_id") is not None and not isinstance(data["source_node_id"], str))):
+                raise ValueError("Historical Session Record contains incomplete or conflicting acquisition envelopes")
+        for audit in record[names[1]]:
+            if (not isinstance(audit, dict) or type(audit.get("ingest_order")) is not int
+                    or type(audit.get("accepted")) is not bool
+                    or type(audit.get("ingest_received_at")) not in (int, float)
+                    or not isinstance(audit.get("reason"), str)):
+                raise ValueError("Historical Session intake audit is incomplete")
 
     def get_persisted_session_preservation_confirmation(self, session_id: str) -> dict | None:
         """Validate a known Session's persisted Stage A/B products without cached bindings."""
@@ -501,7 +459,7 @@ class PersistentStorageManager:
     def _require_session_record_writable(self, path: Path) -> None:
         """Protect the managed final Session Record even through generic record writing."""
         path = path.resolve()
-        storage_root = self._records_path.parent.resolve()
+        storage_root = self._storage_root.resolve()
         if (path.name == "session_record_final.json" and path.parent.name.startswith("session_")
                 and path.parent.parent == storage_root):
             self._require_open_session_archive(path.parent.name[len("session_"):])
@@ -692,7 +650,7 @@ class PersistentStorageManager:
     @service_operation()
     def list_saved_sessions(self) -> list[dict]:
         """Enumerate existing Session directories, retaining unavailable candidates in readback."""
-        root = self._records_path.parent
+        root = self._storage_root
         if not root.exists():
             return []
         return [self.get_saved_session_collection_status(path.name[len("session_"):])
@@ -944,16 +902,11 @@ class PersistentStorageManager:
                     shutil.copyfileobj(remote, output, length=1024 * 1024)
 
     @property
-    def records_path(self) -> Path:
-        """JSONL file path used for accepted acquisition records."""
+    def storage_root(self) -> Path:
+        """Configured root for Session records and Evidence Archives."""
 
-        return self._records_path
+        return self._storage_root
 
-    @property
-    def stored_envelopes(self) -> tuple[AcquisitionRecordEnvelope, ...]:
-        """Read stored acquisition envelopes from JSONL."""
-
-        return self.read_envelopes()
 
     def check_ready(self) -> ServiceReadiness:
         """Return readiness for the persistent storage service."""
@@ -966,155 +919,6 @@ class PersistentStorageManager:
             reason="ready",
         ))
 
-    @service_operation()
-    def store_envelopes(
-        self,
-        envelopes: Iterable[AcquisitionRecordEnvelope],
-    ) -> None:
-        """Append accepted acquisition envelopes to the JSONL records file."""
-
-        with self._preservation_lock:
-            self._append_envelope_records([envelope.to_dict() for envelope in envelopes])
-
-    def _append_envelope_records(self, records: list[dict]) -> None:
-        serialized = [json.dumps(record) + "\n" for record in records]
-        self._records_path.parent.mkdir(parents=True, exist_ok=True)
-        if self._records_path.exists() and self._records_path.stat().st_size:
-            with self._records_path.open("rb") as source:
-                source.seek(-1, os.SEEK_END)
-                if source.read(1) != b"\n":
-                    raise RuntimeError("Acquisition record tail is incomplete; append is unsafe")
-        with self._records_path.open("a", encoding="utf-8") as output:
-            output.writelines(serialized)
-            output.flush()
-            os.fsync(output.fileno())
-        self._sync_artifact_handoff_directory(self._records_path)
-
-    def _read_envelope_records(self) -> list[dict]:
-        def unique_fields(pairs):
-            fields = {}
-            for key, value in pairs:
-                if key in fields:
-                    raise ValueError("Duplicate acquisition record fields")
-                fields[key] = value
-            return fields
-        if not self._records_path.exists():
-            return []
-        records = []
-        with self._records_path.open("r", encoding="utf-8") as source:
-            for line in source:
-                if line.strip():
-                    record = json.loads(line, object_pairs_hook=unique_fields)
-                    if not isinstance(record, dict):
-                        raise ValueError("Acquisition record is not an envelope")
-                    if "persistence_command" in record:
-                        correlation = record["persistence_command"]
-                        if (not isinstance(correlation, dict)
-                                or set(correlation) != {"command_id", "source_id", "target_id"}
-                                or any(not isinstance(value, str) or not value.strip()
-                                       for value in correlation.values())):
-                            raise ValueError(
-                                "Invalid persisted persistence_command correlation: expected "
-                                "nonempty command_id, source_id, and target_id; "
-                                "existing history requires investigation before retry")
-                    records.append(record)
-        return records
-
-    @service_operation()
-    def persist_envelope(
-        self, envelope: AcquisitionRecordEnvelope, *, command_id: str, requester_id: str,
-    ) -> dict[str, Any]:
-        """Durably append one command-correlated envelope, or reconfirm its identical retry."""
-        if any(not isinstance(value, str) or not value for value in (command_id, requester_id)):
-            raise ValueError("Persistence requires command and requester identities")
-        if (not isinstance(envelope, AcquisitionRecordEnvelope)
-                or any(not isinstance(value, str) or not value for value in
-                       (envelope.session_id, envelope.source_device_id, envelope.record_kind))
-                or envelope.records is None
-                or (envelope.source_node_id is not None and (
-                    not isinstance(envelope.source_node_id, str) or not envelope.source_node_id))):
-            raise ValueError("Persistence requires a complete Session-associated envelope")
-        record = deepcopy(envelope.to_dict())
-        record["persistence_command"] = {"command_id": command_id,
-            "source_id": requester_id, "target_id": self._component_id}
-        expected = json.dumps(record, sort_keys=True)
-        with self._preservation_lock:
-            records = self._read_envelope_records()
-            matches = [item for item in records if isinstance(item.get("persistence_command"), dict)
-                       and item["persistence_command"].get("command_id") == command_id]
-            if matches:
-                if len(matches) != 1 or json.dumps(matches[0], sort_keys=True) != expected:
-                    raise ValueError("Conflicting persistence command identity or contents")
-            else:
-                self._require_open_session_archive(envelope.session_id)
-                self._append_envelope_records([record])
-            confirmation = self.get_envelope_persistence_confirmation(command_id, requester_id=requester_id)
-            if confirmation is None or json.dumps(confirmation["envelope"], sort_keys=True) != json.dumps(
-                    envelope.to_dict(), sort_keys=True):
-                raise RuntimeError("Current envelope persistence readback is unconfirmed")
-            return {**confirmation, "already_persisted": bool(matches)}
-
-    def get_envelope_persistence_confirmation(
-        self, command_id: str, *, requester_id: str,
-    ) -> dict[str, Any] | None:
-        """Reconfirm exact command-owned contents and file durability from current records."""
-        if any(not isinstance(value, str) or not value for value in (command_id, requester_id)):
-            raise ValueError("Persistence readback requires command and requester identities")
-        with self._preservation_lock:
-            records = self._read_envelope_records()
-            matches = [item for item in records
-                       if isinstance(item.get("persistence_command"), dict)
-                       and item["persistence_command"].get("command_id") == command_id]
-            if not matches:
-                return None
-            if (len(matches) != 1 or matches[0]["persistence_command"] != {
-                    "command_id": command_id, "source_id": requester_id, "target_id": self._component_id}):
-                raise ValueError("Persistence readback has conflicting owner or command identity")
-            with self._records_path.open("r+b") as source:
-                os.fsync(source.fileno())
-            self._sync_artifact_handoff_directory(self._records_path)
-            if json.dumps(records, sort_keys=True) != json.dumps(
-                    self._read_envelope_records(), sort_keys=True):
-                raise RuntimeError("Persistence contents changed during readback")
-            envelope = AcquisitionRecordEnvelope.from_dict(matches[0])
-            if (any(not isinstance(value, str) or not value for value in
-                    (envelope.session_id, envelope.source_device_id, envelope.record_kind))
-                    or envelope.records is None):
-                raise ValueError("Persisted envelope contents are incomplete")
-            return {"command_id": command_id, "requester_id": requester_id,
-                "storage_manager_id": self._component_id, "session_id": envelope.session_id,
-                "durable_persistence_confirmed": True, "envelope": envelope.to_dict()}
-
-    def read_envelopes(self) -> tuple[AcquisitionRecordEnvelope, ...]:
-        """Read all stored acquisition envelopes from JSONL."""
-
-        with self._preservation_lock:
-            return tuple(AcquisitionRecordEnvelope.from_dict(record)
-                         for record in self._read_envelope_records())
-
-    def get_envelopes_for_session(
-        self,
-        session_id: str,
-    ) -> tuple[AcquisitionRecordEnvelope, ...]:
-        """Return stored envelopes for one session."""
-
-        return tuple(
-            envelope
-            for envelope in self.read_envelopes()
-            if envelope.session_id == session_id
-        )
-
-    def get_envelopes_for_source(
-        self,
-        source_device_id: str,
-    ) -> tuple[AcquisitionRecordEnvelope, ...]:
-        """Return stored envelopes for one source device."""
-
-        return tuple(
-            envelope
-            for envelope in self.read_envelopes()
-            if envelope.source_device_id == source_device_id
-        )
 
     @service_operation()
     def write_session_record(
@@ -1126,8 +930,6 @@ class PersistentStorageManager:
         readiness_evidence: Iterable[Any],
         device_readiness_evidence: Iterable[Any],
         service_readiness_evidence: Iterable[Any],
-        accepted_acquisition_envelopes: Iterable[AcquisitionRecordEnvelope],
-        ingest_audit_records: Iterable[Any],
         final_session_status: dict[str, Any] | None,
         cleanup_evidence: dict[str, Any],
         warnings_or_failures: Iterable[Any] = (),
@@ -1150,8 +952,6 @@ class PersistentStorageManager:
                 readiness_evidence=readiness_evidence,
                 device_readiness_evidence=device_readiness_evidence,
                 service_readiness_evidence=service_readiness_evidence,
-                accepted_acquisition_envelopes=accepted_acquisition_envelopes,
-                ingest_audit_records=ingest_audit_records,
                 final_session_status=final_session_status,
                 cleanup_evidence=cleanup_evidence,
                 warnings_or_failures=warnings_or_failures,
@@ -1257,7 +1057,7 @@ class PersistentStorageManager:
                 summary_file.flush()
                 os.fsync(summary_file.fileno())
             if os.name == "posix":
-                for directory in (archive_directory, archive_directory.parent, self._records_path.parent):
+                for directory in (archive_directory, archive_directory.parent, self._storage_root):
                     descriptor = os.open(directory, os.O_RDONLY)
                     try:
                         os.fsync(descriptor)
@@ -1723,7 +1523,7 @@ class PersistentStorageManager:
             audit = deepcopy([_to_plain_data(item) for item in compiled_runtime_evidence.get("ingest_audit", ())])
             if any(item.get("session_id") is not None for item in evidence):
                 raise ValueError("Framework archive cannot contain Session-scoped evidence")
-            directory = self._records_path.parent / "framework" / "evidence"
+            directory = self._storage_root / "framework" / "evidence"
             directory.mkdir(parents=True, exist_ok=True)
             summary = {
                 "session_id": None, "runtime_evidence_count": len(evidence), "ingest_audit_count": len(audit),
@@ -1744,7 +1544,7 @@ class PersistentStorageManager:
                     os.fsync(output.fileno())
                 paths[name] = path
             if os.name == "posix":
-                for parent in (directory, directory.parent, self._records_path.parent):
+                for parent in (directory, directory.parent, self._storage_root):
                     descriptor = os.open(parent, os.O_RDONLY)
                     try:
                         os.fsync(descriptor)
@@ -1760,7 +1560,7 @@ class PersistentStorageManager:
             expected = self._framework_archive_confirmation
             if expected is None:
                 return None
-            directory = self._records_path.parent / "framework" / "evidence"
+            directory = self._storage_root / "framework" / "evidence"
             try:
                 actual = self._read_archive_products(directory)
             except (OSError, ValueError):
@@ -1796,7 +1596,7 @@ class PersistentStorageManager:
                 return False
             if self._framework_archive_confirmation is not None:
                 return self.get_framework_preservation_confirmation() is not None
-            directory = self._records_path.parent / "framework" / "evidence"
+            directory = self._storage_root / "framework" / "evidence"
             return not any((directory / name).exists() for name in (
                 "runtime_evidence.jsonl", "ingest_audit.jsonl", "compilation_summary.json"))
 
@@ -2023,7 +1823,7 @@ class PersistentStorageManager:
         pass
 
     def _session_directory(self, session_id: str) -> Path:
-        return self._records_path.parent / f"session_{session_id}"
+        return self._storage_root / f"session_{session_id}"
 
 
 def _to_plain_data(value: Any) -> Any:
@@ -2049,8 +1849,6 @@ def _session_record_from_evidence(
     readiness_evidence: Iterable[Any],
     device_readiness_evidence: Iterable[Any],
     service_readiness_evidence: Iterable[Any],
-    accepted_acquisition_envelopes: Iterable[AcquisitionRecordEnvelope],
-    ingest_audit_records: Iterable[Any],
     final_session_status: dict[str, Any] | None,
     cleanup_evidence: dict[str, Any],
     warnings_or_failures: Iterable[Any] = (),
@@ -2069,10 +1867,6 @@ def _session_record_from_evidence(
         "service_readiness_evidence": _to_plain_data(
             service_readiness_evidence
         ),
-        "accepted_acquisition_envelopes": _to_plain_data(
-            accepted_acquisition_envelopes
-        ),
-        "ingest_audit_records": _to_plain_data(ingest_audit_records),
         "runtime_evidence": _to_plain_data(runtime_evidence),
         "runtime_evidence_audit": _to_plain_data(runtime_evidence_audit),
         "final_session_status": _to_plain_data(final_session_status),

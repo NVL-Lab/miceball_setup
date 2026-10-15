@@ -4,7 +4,8 @@ Historical demonstration of the superseded scientific-envelope boundary, not
 current installation or acquisition instructions. Decisions 377-378 replace
 routine node scientific transport with explicitly selected local products and
 operational NATS evidence. The batched-stream, remote-node sender and socket-camera
-sender demos have been removed with that node path. Their recorded validations
+sender demos and the remaining file/socket envelope writer/readers have been
+removed. Their recorded validations
 below remain historical evidence; the old sender commands are not runnable.
 Use `scripts/manual_opencv_camera_smoke.py --scientific` for explicitly selected
 local frame acquisition; without scientific selection it checks readiness only.

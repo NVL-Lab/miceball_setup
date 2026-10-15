@@ -20,7 +20,7 @@ class DurableArtifactHandoffTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
-        self.storage = PersistentStorageManager(self.root / "records.jsonl")
+        self.storage = PersistentStorageManager(self.root)
         self.ingestor = InMemoryIngestor(session_id="session", recovery_journal_path=self.root / "journal.jsonl")
         self.local = LocalStorageManager(self.root / "local", "session", "node")
         self.addCleanup(self.local.finalize_all)
@@ -46,7 +46,7 @@ class DurableArtifactHandoffTests(unittest.TestCase):
         self.assertEqual(json.loads(path.read_text()), expected)
         self.assertEqual(expected["artifacts"], [{"artifact_manifest": finalized.to_dict(),
                                                 "missing_finalization_evidence": False}])
-        restored = PersistentStorageManager(self.root / "records.jsonl")
+        restored = PersistentStorageManager(self.root)
         self.assertEqual(restored.read_artifact_collection_handoff("session"), expected)
         self.assertEqual(self.ingestor.recovery_journal_path.read_bytes(), journal)
         self.assertFalse((path.parent / "evidence").exists())
@@ -95,7 +95,7 @@ class DurableArtifactHandoffTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.storage.write_artifact_collection_handoff("session", self.handoff())
         self.assertEqual(path.read_text(), "{interrupted")
-        restored = PersistentStorageManager(self.root / "records.jsonl")
+        restored = PersistentStorageManager(self.root)
         with self.assertRaises(ValueError):
             restored.read_artifact_collection_handoff("session")
 
@@ -155,7 +155,7 @@ class DurableArtifactHandoffTests(unittest.TestCase):
             if not resume.wait(5):
                 raise TimeoutError("test publication was not released")
 
-        other = PersistentStorageManager(self.root / "records.jsonl")
+        other = PersistentStorageManager(self.root)
         competing = deepcopy(self.handoff())
         competing["artifacts"][0]["artifact_manifest"]["details"]["diagnostic"] = "competing input"
         with ThreadPoolExecutor(max_workers=1) as pool, patch.object(self.storage, "_write_record_contents", side_effect=pause):
@@ -268,7 +268,7 @@ class CloseoutArtifactHandoffTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.fixture.ingestor.session_id, sid)
         path.write_bytes(good)
         self.assertTrue(self.fixture.ingestor.release_session(sid, storage_manager=self.storage))
-        restored = PersistentStorageManager(self.fixture.root / "accepted_records.jsonl")
+        restored = PersistentStorageManager(self.fixture.root)
         self.assertIsNone(self.fixture.controller.get_status()["session_id"])
         self.assertIsNone(self.fixture.ingestor.session_id)
         self.assertEqual(restored.read_artifact_collection_handoff(sid), expected)

@@ -180,7 +180,6 @@ class Phase11SynchronizationMappingTests(unittest.TestCase):
         node.run_one_iteration()
         node.finalize_experiment_scientific_outputs("experiment")
         row = json.loads(Path(local.manifests[0].local_storage_path).read_text())
-        self.assertEqual(ingestor.accepted_envelopes, ())
 
         self.assertNotIn("mapping_id", row)
         self.assertNotIn("synchronization_mapping", row)

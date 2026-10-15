@@ -210,7 +210,7 @@ class ControllerActionDecisionTests(unittest.TestCase):
         manager = DeviceManager(
             (ReadyFakeAdapter("source-001", "fake", ("stream",), True),)
         )
-        storage = PersistentStorageManager(root / "accepted.jsonl")
+        storage = PersistentStorageManager(root)
         ingestor = InMemoryIngestor(storage_manager=storage)
         node = AcquisitionNode(
             session_id="controller-action-session",
@@ -248,7 +248,7 @@ class ControllerActionDecisionTests(unittest.TestCase):
         manager = DeviceManager(
             (ReadyFakeAdapter("source-001", "fake", ("stream",), True),)
         )
-        storage = PersistentStorageManager(root / "accepted.jsonl")
+        storage = PersistentStorageManager(root)
         ingestor = InMemoryIngestor(storage_manager=storage)
         synchronization = SynchronizationManager()
         node = AcquisitionNode(

@@ -126,7 +126,6 @@ class NatsCommunicationUnitTests(unittest.TestCase):
         self.assertTrue(jetstream.data["is_persistent"])
         self.assertTrue(audit.accepted)
         self.assertEqual(ingestor.accepted_runtime_evidence, (manifest,))
-        self.assertEqual(ingestor.accepted_envelopes, ())
     def test_ingestor_and_controller_consume_evidence_independently(self):
         jetstream = _EvidenceConsumerJetStream()
         controller_boundary = _ConsumerBoundary(
@@ -387,7 +386,6 @@ class NatsCommunicationUnitTests(unittest.TestCase):
         self.assertTrue(audit.accepted)
         self.assertEqual(ingestor.accepted_runtime_evidence, (evidence,))
         self.assertEqual(ingestor.runtime_evidence_audit, (audit,))
-        self.assertEqual(ingestor.accepted_envelopes, ())
         self.assertEqual(
             ingestor.compile_persistent_runtime_evidence(),
             {

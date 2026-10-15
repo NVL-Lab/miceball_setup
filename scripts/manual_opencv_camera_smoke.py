@@ -242,7 +242,7 @@ def _run_scientific(args, adapter, manager, config) -> int:
                            ("camera_frame_metadata",), (product,))],
         str(root / "runtime.jsonl"), {}, args.error_evidence_location,
         session_id=session_id)
-    storage = PersistentStorageManager(root / "runtime.jsonl")
+    storage = PersistentStorageManager(root)
     ingestor = InMemoryIngestor(storage)
     sync = SynchronizationManager()
     node = AcquisitionNode(session_id, manager, sync, ingestor, node_id="camera-node",

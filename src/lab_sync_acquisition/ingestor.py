@@ -1,9 +1,9 @@
-"""Envelope intake and optionally journal-backed runtime evidence acceptance."""
+"""Operational runtime evidence intake and known-Session journal recovery."""
 
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable, Iterable, Iterator
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from contextlib import ExitStack, contextmanager
 from copy import deepcopy
@@ -16,35 +16,13 @@ from time import time
 from typing import Any
 from uuid import uuid4
 
-from lab_sync_acquisition.acquisition_record import AcquisitionRecordEnvelope
 from lab_sync_acquisition.communication import ARTIFACT_MANIFEST_EVIDENCE_TYPE, RuntimeEvidenceMessage
 from lab_sync_acquisition.local_storage import ArtifactManifest
 from lab_sync_acquisition.service_readiness import ServiceReadiness, apply_dependency_readiness
 from lab_sync_acquisition.service_maintenance import service_operation
 from lab_sync_acquisition.storage import (
-    InMemoryStorageManager,
     PersistentStorageManager,
 )
-
-
-@dataclass(frozen=True)
-class IngestAuditRecord:
-    """Audit evidence for one received acquisition envelope."""
-
-    ingest_order: int
-    ingest_received_at: float
-    accepted: bool
-    reason: str
-
-    def to_dict(self) -> dict[str, Any]:
-        """Return a JSON-like plain-data representation."""
-
-        return {
-            "ingest_order": self.ingest_order,
-            "ingest_received_at": self.ingest_received_at,
-            "accepted": self.accepted,
-            "reason": self.reason,
-        }
 
 
 @dataclass(frozen=True)
@@ -70,13 +48,11 @@ class RuntimeEvidenceAuditRecord:
 
 
 class InMemoryIngestor:
-    """Receives envelopes and evidence, with explicit known-Session recovery."""
+    """Receives operational evidence, with explicit known-Session recovery."""
 
     def __init__(
         self,
-        storage_manager: InMemoryStorageManager
-        | PersistentStorageManager
-        | None = None,
+        storage_manager: PersistentStorageManager | None = None,
         *,
         session_id: str | None = None,
         recovery_journal_path: str | Path | None = None,
@@ -84,12 +60,7 @@ class InMemoryIngestor:
         recovery_journal_root: str | Path | None = None,
         framework_recovery_journal_path: str | Path | None = None,
         evidence_scope: str = "session",
-        correlated_persistence: bool = False,
     ) -> None:
-        if not isinstance(correlated_persistence, bool):
-            raise ValueError("correlated_persistence must be a boolean")
-        if correlated_persistence and not isinstance(storage_manager, PersistentStorageManager):
-            raise ValueError("Correlated local persistence requires a PersistentStorageManager owner")
         if evidence_scope not in {"session", "framework"}:
             raise ValueError("Unknown runtime evidence scope")
         if evidence_scope == "framework" and session_id is not None:
@@ -101,7 +72,6 @@ class InMemoryIngestor:
         if session_id is not None and (not isinstance(session_id, str) or not session_id):
             raise ValueError("Recovery requires a nonempty known Session identity")
         self._storage_manager = storage_manager
-        self._correlated_persistence = correlated_persistence
         self._service_operation_lock = RLock()
         self._active_service_operations = 0
         self._evidence_scope = evidence_scope
@@ -119,8 +89,6 @@ class InMemoryIngestor:
         self._journal_failed = False
         self._accepted_evidence_content: dict[str, str] = {}
         self._durable_evidence_waiters = {}
-        self._accepted_envelopes: tuple[AcquisitionRecordEnvelope, ...] = ()
-        self._ingest_audit: tuple[IngestAuditRecord, ...] = ()
         self._accepted_runtime_evidence: tuple[RuntimeEvidenceMessage, ...] = ()
         self._runtime_evidence_audit: tuple[RuntimeEvidenceAuditRecord, ...] = ()
         if evidence_scope == "framework" and self._recovery_journal_path is not None:
@@ -292,8 +260,7 @@ class InMemoryIngestor:
                             if isinstance(storage, PersistentStorageManager) else None)
             partial_kill = (self._kill_handoff_required or (confirmation is not None
                             and confirmation["compilation_summary"].get("kill_preservation") is not None))
-            if (self._accepted_runtime_evidence or self._runtime_evidence_audit
-                    or self._accepted_envelopes or self._ingest_audit or partial_kill):
+            if self._accepted_runtime_evidence or self._runtime_evidence_audit or partial_kill:
                 if not isinstance(storage, PersistentStorageManager):
                     raise RuntimeError("Evidence preservation confirmation is required before release")
                 # Lock order is intake -> storage; retain both through state retirement.
@@ -317,12 +284,6 @@ class InMemoryIngestor:
                     if json.dumps(storage.read_artifact_collection_handoff(session_id), sort_keys=True) != json.dumps(
                             self.compile_artifact_collection_handoff(session_id), sort_keys=True):
                         raise RuntimeError("Durable artifact handoff does not cover current Session manifests")
-                # Acquisition envelopes and their audit stay on the existing Session Record path.
-                if (record.get("accepted_acquisition_envelopes") != [
-                        envelope.to_dict() for envelope in self._accepted_envelopes]
-                        or record.get("ingest_audit_records") != [
-                            audit.to_dict() for audit in self._ingest_audit]):
-                    raise RuntimeError("Acquisition-envelope preservation is unconfirmed")
             self._session_prepared = False
             self._session_id = None
             self._kill_handoff_required = False
@@ -330,8 +291,6 @@ class InMemoryIngestor:
             self._accepted_evidence_content.clear()
             self._accepted_runtime_evidence = ()
             self._runtime_evidence_audit = ()
-            self._accepted_envelopes = ()
-            self._ingest_audit = ()
             return True
 
     def has_durable_runtime_evidence(self, evidence: RuntimeEvidenceMessage) -> bool:
@@ -520,17 +479,6 @@ class InMemoryIngestor:
             ) is not None
         return False
 
-    @property
-    def accepted_envelopes(self) -> tuple[AcquisitionRecordEnvelope, ...]:
-        """Accepted acquisition envelopes for inspection."""
-
-        return self._accepted_envelopes
-
-    @property
-    def ingest_audit(self) -> tuple[IngestAuditRecord, ...]:
-        """Audit records for received acquisition envelopes."""
-
-        return self._ingest_audit
 
     @property
     def accepted_runtime_evidence(self) -> tuple[RuntimeEvidenceMessage, ...]:
@@ -640,18 +588,14 @@ class InMemoryIngestor:
                 return ["Recovery journal integrity is unresolved"]
             if self._framework_ingestor is not None and self._framework_ingestor._journal_failed:
                 return ["Framework recovery journal integrity is unresolved"]
-            if not (self._accepted_runtime_evidence or self._runtime_evidence_audit
-                    or self._accepted_envelopes or self._ingest_audit):
+            if not (self._accepted_runtime_evidence or self._runtime_evidence_audit):
                 return []
             with storage_manager.session_preservation_guard(self._session_id) as confirmation:
                 if confirmation is None:
                     return ["Session evidence archival is unconfirmed"]
                 compiled = self.compile_persistent_runtime_evidence()
-                record = confirmation["session_record"]
                 if (any(confirmation[name] != [item.to_dict() for item in compiled[name]]
-                        for name in ("runtime_evidence", "ingest_audit"))
-                        or record.get("accepted_acquisition_envelopes") != [item.to_dict() for item in self._accepted_envelopes]
-                        or record.get("ingest_audit_records") != [item.to_dict() for item in self._ingest_audit]):
+                        for name in ("runtime_evidence", "ingest_audit"))):
                     return ["Session intake is not completely preserved"]
             return []
 
@@ -704,80 +648,15 @@ class InMemoryIngestor:
             reason="service_terminated" if terminated else "recovery_journal_failed" if journal_failed else "ready",
         ))
 
-    @service_operation()
-    def receive_envelope(
-        self,
-        envelope: AcquisitionRecordEnvelope,
-    ) -> IngestAuditRecord:
-        """Receive one acquisition envelope and forward it if accepted."""
-
-        with self._intake_lock:
-            if self._requires_prepared_session and not self._session_prepared:
-                raise RuntimeError("Session envelope intake is not prepared or has been aborted/released")
-
-            accepted, reason = self._validate_envelope(envelope)
-            audit = IngestAuditRecord(
-                ingest_order=len(self._ingest_audit) + 1,
-                ingest_received_at=time(), accepted=accepted, reason=reason,
-            )
-            self._ingest_audit += (audit,)
-            if accepted:
-                self._accepted_envelopes += (envelope,)
-                if self._storage_manager is not None and not self._correlated_persistence:
-                    self._storage_manager.store_envelopes((envelope,))
-            return audit
-
-    @service_operation()
-    async def persist_accepted_envelope(
-        self, envelope: AcquisitionRecordEnvelope, *,
-        persist: Callable[[AcquisitionRecordEnvelope], Awaitable[dict[str, Any] | None]] | None = None,
-        command_id: str | None = None,
-    ) -> dict[str, Any]:
-        """Send retained accepted intake to its storage owner without reaccepting or holding intake locks."""
-        with self._intake_lock:
-            if self._storage_manager is not None and not self._correlated_persistence:
-                raise RuntimeError("Independent persistence must not also use a local StorageManager")
-            if self._correlated_persistence:
-                if persist is not None or not isinstance(command_id, str) or not command_id.strip():
-                    raise ValueError("Local correlated persistence requires command_id and no transport callback")
-            elif persist is None or command_id is not None:
-                raise ValueError("Transport persistence requires a callback and callback-owned command identity")
-            if (not isinstance(envelope, AcquisitionRecordEnvelope) or not self._session_prepared
-                    or envelope.session_id != self._session_id or self._journal_failed):
-                raise RuntimeError("Persistence requires the current prepared Ingestor Session")
-            content = json.dumps(envelope.to_dict(), sort_keys=True)
-            if not any(json.dumps(item.to_dict(), sort_keys=True) == content
-                       for item in self._accepted_envelopes):
-                raise ValueError("Envelope has not been accepted by this Ingestor")
-            session_id, journal = self._session_id, self._recovery_journal_path
-            snapshot = AcquisitionRecordEnvelope.from_dict(json.loads(content))
-            if self._correlated_persistence:
-                # Local writes cannot suspend: retain the binding lock through owner readback.
-                return self._storage_manager.persist_envelope(
-                    snapshot, command_id=command_id, requester_id=self._component_id)
-        confirmation = await persist(snapshot)
-        with self._intake_lock:
-            if (self._session_id != session_id or self._recovery_journal_path != journal
-                    or not self._session_prepared or self._journal_failed):
-                raise RuntimeError("Ingestor binding changed during envelope persistence")
-            if confirmation is None:
-                return {"session_id": session_id, "durable_persistence_confirmed": False,
-                        "reason": "StorageManager persistence response is missing or timed out"}
-            if (confirmation.get("durable_persistence_confirmed") is True
-                    and json.dumps(confirmation.get("envelope"), sort_keys=True) != content):
-                raise ValueError("Persistence confirmation does not match accepted envelope contents")
-            return deepcopy(confirmation)
 
     @service_operation()
     def compile_durable_session_evidence(self, session_id: str) -> dict[str, Any]:
-        """Return current journal-verified compilation and acquisition intake, not archival confirmation."""
+        """Return current journal-verified operational compilation, not archival confirmation."""
         with self._intake_lock:
             if not isinstance(session_id, str) or not session_id or session_id != self._session_id:
                 raise ValueError("Compilation requires the current Ingestor Session")
             if self._recovery_journal_path is None:
                 raise RuntimeError("Compilation requires a durable recovery journal")
-            if any(envelope.session_id != session_id for envelope in self._accepted_envelopes):
-                raise RuntimeError("Acquisition intake has conflicting Session association")
             with self.durable_runtime_evidence_history_guard(
                     session_id, self._recovery_journal_path, self._accepted_runtime_evidence) as confirmed:
                 if not confirmed:
@@ -785,26 +664,4 @@ class InMemoryIngestor:
                 compiled = self.compile_persistent_runtime_evidence()
                 return deepcopy({"session_id": session_id, "journal_coverage_confirmed": True,
                     **{name: [item.to_dict() for item in values] for name, values in compiled.items()},
-                    "accepted_acquisition_envelopes": [item.to_dict() for item in self._accepted_envelopes],
-                    "ingest_audit_records": [item.to_dict() for item in self._ingest_audit],
                     "artifact_collection_handoff": self.compile_artifact_collection_handoff(session_id)})
-
-    def _validate_envelope(self, envelope: AcquisitionRecordEnvelope) -> tuple[bool, str]:
-        if not envelope.session_id:
-            return False, "missing_session_id"
-        if not envelope.source_device_id:
-            return False, "missing_source_device_id"
-        if not envelope.record_kind:
-            return False, "missing_record_kind"
-        if envelope.records is None:
-            return False, "missing_records"
-        for row in envelope.records:
-            if not self._row_has_session_time(row):
-                return False, "missing_session_time"
-        return True, "accepted"
-
-    def _row_has_session_time(self, row: Any) -> bool:
-        try:
-            return "session_time_s" in row or "session_time" in row
-        except TypeError:
-            return False

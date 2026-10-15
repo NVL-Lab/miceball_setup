@@ -31,33 +31,16 @@ recommended implementation order in
 alone is not acceptance, complete receipt, or archival. Historical Q019 validation
 remains intact.
 
-The first bounded Decision 375 implementation adds Session-scoped Ingestor-to-
-StorageManager envelope persistence, current storage/preservation readback, and
-Ingestor-owned receipt/compilation requests through existing NATS command/results.
-Stable write command/requester identity is retained alongside envelopes in the
-existing records JSONL, not another store; fsync and exact readback precede
-confirmation. Fresh-only result subscriptions and an echoed transient request
-nonce reject historical or late retry replies without changing durable operation
-identity. Accepted intake remains retained on failure, timeout, or cancellation.
-This bounded slice is complete, independently validated and re-audited PASS after
-the malformed-correlation correction (W051); invalid present metadata is refused
-without changing history, while legacy uncorrelated records remain supported.
-Existing Controller closeout, framework/recovery adaptation, timing,
-configuration, and role launch work remain outstanding.
-
-W051 remains historically validated; internal NATS between the combined pair is
-no longer required. Local-interface reconciliation must preserve all W051 identity,
-durability, correlation, retry, readback, corruption/legacy and archival protections
-without duplicate state or separate lifetimes. AcquisitionNode intake requires
-operational RuntimeEvidenceMessage identity, journal-before-ACK and restart-safe
-deduplication distinct from persistence/archival confirmation. Decision 377 removes
-routine scientific-envelope intake: observations and per-observation metadata
-belong in LocalStorageManager products regardless of size. This reconciliation
-has a complete explicit local correlated persistence path, independently validated
-and audited PASS (W052), including permanent binding-abort ordering coverage.
-Lifecycle bootstrap and remaining cross-process owner adaptation remain pending;
-bounded node operational-evidence preservation is complete in W053.
-No general launcher or additional owner is introduced.
+W051/W052 remain historical validation of superseded NATS/local scientific-envelope
+persistence. Slice 3B removes that intake, correlated persistence and dispatch,
+without replacing scientific transport. Operational RuntimeEvidenceMessage
+identity, journal-before-ACK, deduplication/reconstruction, receipt, compilation
+and preservation readback remain active. Fresh-only results and per-attempt
+nonce correlation protect the retained NATS readback operations. StorageManager
+now takes an explicit directory `storage_root`; it owns Session Records,
+Evidence Archives and scientific-artifact collection, not observation appends.
+Lifecycle bootstrap, remaining cross-process Controller/maintenance adaptation,
+timing, configuration and role launching remain outstanding.
 
 The bounded product-acquisition replacement is complete with independent manual
 validation and final re-audit PASS after the scientific-observation-loss correction
@@ -67,10 +50,10 @@ operational intake; independent errors remain failures without automatic replay.
 declarations and Experiment selections; node scientific observations and their
 metadata go only to LocalStorageManager. Node envelope forwarding/batching is
 removed; lifecycle, health and failure RuntimeEvidenceMessages use retained,
-serialized durable publication before command responses. Ingestor/StorageManager
-envelope APIs, W051/W052 machinery, historical readers and owner-level closeout
-envelope/audit checks remain for subsequent Slice 3B reconciliation, not as a node
-collection compatibility fallback. No future streaming or deployment validation
+serialized durable publication before command responses. Slice 3B reconciles owner
+closeout against current operational evidence/audit and manifest coverage, retaining
+plain historical Session Record validation without legacy writers. Independent
+validation and the final replacement integration audit remain pending. No future streaming or deployment validation
 is claimed.
 
 Decision 378 now requires clean replacement: installation declarations and
@@ -82,7 +65,12 @@ removed when no accepted responsibility remains. Entries below map existing code
 not approved target APIs. Retain operational evidence and historical-readback
 responsibilities; preserve Q019 guarantees. Final independent integration audit
 must verify functionality and absence of obsolete architecture; the complete
-replacement is not yet implemented or independently validated.
+replacement is not yet independently validated or closed.
+
+Slice 3B developer verification passed: 848 tests run, 841 passed and seven
+optional skips, with zero failures/errors. The full check was selected for the
+shared package/API removal and repository-wide constructor/fixture migration;
+it is not independent validation, audit or milestone closure.
 
 Q019 is CLOSED following W041-W049 slice completion and W050 overall software
 integration validation/audit PASS. The permanent sequential Normal Stop regression
@@ -154,8 +142,9 @@ automatic collection, or implicit archive closure is specified.
 Admitted Kill obligations are retained before asynchronous shutdown, independently
 of archive success. Ingestor release requires matching durable handoff and evidence
 coverage even with empty intake or unavailable confirmation. Kill retry and
-Controller release reject acquisition-envelope/audit changes absent from the
-immutable final record; repeated Kill reports verified durable closure state.
+Controller release reject current operational evidence/audit not represented in
+durable preservation; final Session identity/lifecycle and historical contents
+remain protected. Repeated Kill reports verified durable closure state.
 W048 records both failed audit rounds, their corrections, and the final PASS.
 
 Decision 366's supported publication prerequisite is complete with automated
@@ -490,8 +479,8 @@ written archive, held stable through binding-release commitment. Without an atta
 caller-managed publication through the existing boundary; publication alone
 cannot confirm archival. Local Session start and finalization require an explicit
 Ingestor reference and report its absence without using a node-owned fallback.
-Controller Session Records retain acquisition-envelope audit and Session context,
-but do not include raw runtime evidence or runtime-evidence intake audit; those
+Controller Session Records retain Session context without scientific envelopes
+or their obsolete audit; raw runtime evidence and runtime-evidence intake audit
 are written through the Evidence Archive. The narrow Controller/Ingestor/
 SynchronizationManager release slice is complete, manually software-validated,
 and independently audited PASS (W035); Phase 16 remains incomplete and Q019/Q024
@@ -542,8 +531,8 @@ a bounded last-release outcome and leaving durable files untouched. Ingestor and
 SynchronizationManager can release empty bindings (synchronization also requires
 stopped Session Time). Evidence-bearing Ingestor release now requires the exact
 persistent-message and complete runtime-audit snapshot confirmed by StorageManager,
-plus terminal lifecycle evidence in the existing final Session Record. Acquisition
-envelopes and their audit retain their existing persistence path. Intake and release
+plus terminal lifecycle evidence in the existing final Session Record. Historical
+scientific-envelope fields remain read-only saved data. Intake and release
 commit share a lock; additional intake invalidates earlier archive coverage.
 Ingestor also holds StorageManager's preservation guard through commitment,
 with intake locked before storage. Archive/final-record writers never acquire
@@ -589,7 +578,6 @@ guarantee remain deferred. M014/W034 retain completed Slice 27 scope and status.
 - AcquisitionIterationSummary: Public import for the result of one bounded AcquisitionNode iteration.
 - AcquisitionNode: Public import for bounded acquisition runtime execution, AcquisitionNode-owned runtime timestamping, separate active Experiment timing and health context, linked observation/interpretation evidence, configured batching, writable failure-evidence readiness, and sender-side failure handling.
 - AcquisitionNodeReadiness: Public import for node-scoped required-service readiness, independent per-device reports, and Session-keyed reservation status.
-- AcquisitionRecordEnvelope: Public import for the transferable acquisition record envelope shared across the acquisition-to-ingestion boundary.
 - ARTIFACT_MANIFEST_EVIDENCE_TYPE: Public evidence-type vocabulary for artifact lifecycle manifests carried through RuntimeEvidenceMessage and LAB_EVIDENCE.
 - Controller: Public import for local single-session orchestration or pre-Session distributed resource resolution, reservation, launch, and cleanup orchestration.
 - ControllerActionDecision: Public import for one immutable Controller decision using the normalized local execution vocabulary and derived from explicitly presented HealthInterpretationEvidence.
@@ -628,19 +616,17 @@ guarantee remain deferred. M014/W034 retain completed Slice 27 scope and status.
 - RuntimeTelemetryMessage: Public immutable plain-data transient telemetry message.
 - DeviceStatus: Public import for live adapter status snapshots.
 - DurablePublicationError: Public import for explicit durable publication failure context without buffering or retry behavior.
-- IngestAuditRecord: Public import for ingest audit evidence recorded for each received acquisition envelope.
-- InMemoryIngestor: Public import for envelope intake and runtime evidence intake with optional explicit known-Session recovery journaling.
+- InMemoryIngestor: Public import for operational evidence and manifest intake with optional explicit known-Session recovery journaling.
 - RuntimeEvidenceAuditRecord: Public import for one Ingestor audit record associated with durable runtime evidence intake.
 - NatsCommunicationBoundary: Public import for real NATS connection, JetStream stream setup, message serialization, publication, subscription, and transport acknowledgement mechanics.
 - NatsControllerCommunication: Public import for Controller-side durable command publication and command-result consumption.
 - NatsAcquisitionNodeCommunication: Public import for targeted AcquisitionNode command consumption, local duplicate detection, explicit command execution, command-result publication, and runtime evidence publication.
 - NatsIngestorCommunication: Public import for durable runtime evidence consumption into the existing Ingestor ownership boundary.
-- NatsStorageManagerCommunication: Public import for scoped owner-side envelope persistence and current readback over existing NATS command/results.
+- NatsStorageManagerCommunication: Public import for current owner preservation readback over existing NATS command/results.
 - NatsSynchronizationManagerCommunication: Public import for participant-scoped readiness and Session preparation/abort command handling without transport-owned timing semantics.
 - NatsServiceMaintenanceCommunication: Public import for service-owned startup/readiness announcements and participant-scoped administrative commands using existing NATS pathways.
 - ServiceMaintenanceInterface: Public import for service-owned dependency readiness, framework evidence, correlated stop/kill/cancel, and evidence-confirmed operational retirement.
-- InMemoryStorageManager: Public import for the minimal in-memory acquisition envelope storage boundary.
-- PersistentStorageManager: Public import for the v1 persistent StorageManager implementation that stores accepted envelopes as JSONL and writes caller-supplied Session Record and Evidence Archive products.
+- PersistentStorageManager: Public import for durable Session Records, Evidence Archives and scientific-artifact collection.
 - SshRetrievalEndpoint, ArtifactRetrievalResult, ArtifactCollectionResult: Public imports for deployment-local SSH configuration and StorageManager artifact collection results.
 - LifecycleTransition: Public import for recorded lifecycle transitions.
 - OpenCVCameraConfig: Public import for explicit OpenCV camera initialization and polling configuration.
@@ -689,10 +675,6 @@ guarantee remain deferred. M014/W034 retain completed Slice 27 scope and status.
 
 - AcquisitionHealthPolicy: Stores named rule-specific evaluation substructures and observation-to-interpretation vocabulary, supports plain-data round trips, and validates interpretation keys against supplied supported observations.
 - HealthInterpretationEvidence: Records the assigned policy's interpretation of one explicitly referenced Experiment-scoped Health Observation as immutable plain data without executing framework action.
-
-## src/lab_sync_acquisition/acquisition_record.py
-
-- AcquisitionRecordEnvelope: Holds the minimal transferable acquisition record message fields, including optional source node identity, and supports JSON-like plain-data round trips.
 
 ## src/lab_sync_acquisition/acquisition_node.py
 
@@ -772,8 +754,7 @@ is complete; W030 records manual validation, focused tests, and audit reassessme
 - Controller.normal_stop_session(*, communication, receiving, result_window_s, reason=None): Associates the Session with Q019 before asynchronous shutdown and retains that requirement through failure/cancellation, then coordinates cleanup, producer/marker publication, independently verified receipt, Stage A archival, durable handoff, and completion without automatic collection, binding release, or archive closure.
 - Controller.kill_session(*, communication, result_window_s, operator_authorized, reason=None): Explicitly aborts the active Experiment and Session, preserves partial acquisition evidence and handoff, retains correlated cleanup uncertainty and reservations, and never initiates collection or permanent closure.
 - Controller._preserve_kill_closeout(session): Confirms current journal-backed partial archive and handoff under intake, persistence, and admission guards without claiming complete receipt.
-- Controller._require_kill_acquisition_record_coverage(session_id, record): Requires current acquisition envelopes and intake audit to match the immutable Kill record before reconfirmation or binding release under caller-held intake/preservation guards.
-- Controller._complete_preserved_acquisition(session): Rechecks current journal, Stage A runtime evidence/audit, current acquisition envelopes/audit against the durable final Session Record, owned evidence, marker identity, and handoff under intake/storage/admission locks before completion, rejecting changed coverage without replacing the preserved baseline.
+- Controller._complete_preserved_acquisition(session): Rechecks current journal, Stage A operational evidence/all-audit coverage, final Session Record, owned evidence, marker and handoff under intake/storage/admission locks before completion without replacing an unconfirmed baseline.
 - Controller.get_status(): Returns Session/command status, the bounded last released terminal outcome, and the local AcquisitionNode snapshot or None, without fabricating remote runtime status.
 - Controller.reconcile_outcomes(*, session_id=None, participants=None, communication=None, result_window_s=None): Reads existing scoped outcomes or bounded current observations of explicit remote participants, retaining unassociated uncertainty and changed informational evidence without operational replay or lifecycle mutation.
 - Controller._validate_participant_reconciliation(participants, result_window_s): Checks explicit unique remote principal-service identities and the issuer-defined bounded observation window without discovering participants.
@@ -790,7 +771,9 @@ is complete; W030 records manual validation, focused tests, and audit reassessme
 - Controller.stop_session: Stops runtime and scientific persistence, records normal-stop evidence for any active Experiment, and then stops the Session through its existing lifecycle.
 - Controller.initialize_session: Retains the historical direct-object workflow, with Session-authorized local storage now physically created by AcquisitionNode and criticality evaluated from selected DeviceDeclarations.
 - Controller.start_session(): Requires an explicit Ingestor reference before local runtime startup, then starts acquisition, starts the Session, and writes the initial Session Record through existing persistence.
-- Controller._session_record_evidence(): Gathers Session configuration, lifecycle, readiness, cleanup, command failures, Experiment evidence, accepted acquisition envelopes, and their audit without copying runtime evidence or runtime-evidence audit into the Session Record.
+- Controller._session_record_evidence(): Gathers Session configuration, lifecycle, readiness, cleanup, command failures and Experiment evidence without duplicating the operational Evidence Archive or scientific observations in the Session Record.
+- Controller._require_kill_runtime_coverage(session_id, record): Requires matching Session identity and exact current operational evidence/all-audit archival coverage under existing intake/preservation guards before Kill reconfirmation or release.
+- Controller._session_ingest_state(): Captures current operational messages and the complete intake audit for finalization/release race detection without obsolete scientific-envelope counters.
 
 ## src/lab_sync_acquisition/device_adapter.py
 
@@ -826,9 +809,7 @@ is complete; W030 records manual validation, focused tests, and audit reassessme
 
 ## src/lab_sync_acquisition/ingestor.py
 
-- IngestAuditRecord: Records ingest order, receive time, accepted status, and reason for one received acquisition envelope and exposes audit evidence as plain data.
-- InMemoryIngestor: Receives envelopes and runtime evidence, optionally journals/reconstructs the normal evidence view for a known Session, deduplicates evidence_id content, and compiles persistent evidence without interpreting meaning.
-- InMemoryIngestor constructor correlated_persistence=False: Explicit True with a supplied PersistentStorageManager retains accepted envelopes for command-correlated local persistence instead of legacy immediate uncorrelated forwarding.
+- InMemoryIngestor: Receives operational runtime evidence and manifests, journals/reconstructs the evidence view for a known Session, deduplicates evidence_id content, and compiles persistent evidence without scientific-observation intake.
 - InMemoryIngestor.__init__(storage_manager=None, *, session_id=None, recovery_journal_path=None, component_id="ingestor", recovery_journal_root=None, framework_recovery_journal_path=None, evidence_scope="session"): Preserves known-Session intake and optionally creates a deployment-scoped framework partition using the same Ingestor implementation without a Session binding.
 - InMemoryIngestor.prepare_framework_evidence(recovery_journal_path): Configures framework journal-backed intake once, retaining accepted messages and original duplicate/rejected intake audit across recovery independently of Session release.
 - InMemoryIngestor.compile_framework_runtime_evidence(): Returns only producer-marked persistent framework messages and all framework intake audit records through the existing compilation mechanism.
@@ -852,8 +833,7 @@ is complete; W030 records manual validation, focused tests, and audit reassessme
 - InMemoryIngestor._restore_runtime_evidence: Stages valid journal entries before restoring the normal evidence view, repairs only an interrupted final append, and rejects completed corruption or conflicting identities.
 - InMemoryIngestor._is_interrupted_json: Recognizes incomplete final JSON tokens without treating completed malformed lines as interrupted writes.
 - InMemoryIngestor.compile_persistent_runtime_evidence: Returns a detached, consistent snapshot of accepted persistent runtime messages and all runtime-evidence audit records under the intake lock without inferring persistence from evidence meaning.
-- InMemoryIngestor.persist_accepted_envelope(envelope, *, persist=None, command_id=None): Persists retained accepted intake through the configured local owner in explicit correlated mode, or the compatible transport callback with binding rechecks after network waits.
-- InMemoryIngestor.compile_durable_session_evidence(session_id): Returns a detached journal-verified persistent compilation, complete runtime/acquisition intake audits, accepted envelopes, and existing artifact handoff without claiming receipt completeness or archival.
+- InMemoryIngestor.compile_durable_session_evidence(session_id): Returns detached journal-verified operational evidence, its complete intake audit and the existing artifact handoff without claiming receipt completeness or archival.
 
 Slice 27 (Decisions 276-280) is complete (M014, W034) after independent manual
 software validation and corrected targeted re-audit PASS. W034 preserves the
@@ -891,11 +871,10 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 - NatsAcquisitionNodeCommunication.execute_command: Executes existing node commands and includes available owner diagnostics in readiness results while preserving readiness-only compatibility and scientific-output preparation behavior.
 - NatsIngestorCommunication: Consumes durable RuntimeEvidenceMessage records and passes them to InMemoryIngestor for separate evidence intake and audit.
 - NatsIngestorCommunication.subscribe_commands(): Routes readiness/preparation/abort and scoped current compilation/receipt requests to the existing Ingestor owner, publishing results before command ACK.
-- NatsIngestorCommunication.persist_accepted_envelope(envelope, *, storage_participant, command_id, result_window_s): Forwards only owner-accepted envelopes over NATS, requiring matching current StorageManager identity/content/durability confirmation and never sharing a StorageManager object.
 - NatsIngestorCommunication._execute_evidence_readback(command): Delegates scoped compilation and W041 marker-receipt verification to the Ingestor owner with current-request reply correlation and explicit failed/unconfirmed results.
 - NatsStorageManagerCommunication(boundary, storage_manager): Binds one existing authoritative StorageManager to matching NATS participant identity without constructing another owner.
-- NatsStorageManagerCommunication.subscribe_commands(): Publishes authoritative persistence/readback results before delivery ACK and routes existing administrative commands only through the configured owner maintenance interface.
-- NatsStorageManagerCommunication.execute_command(command): Validates scoped persistence/readback requests and existing readiness without providing arbitrary remote methods, unrestricted recovery, collection, or closure.
+- NatsStorageManagerCommunication.subscribe_commands(): Publishes current preservation-readback results before command ACK and routes existing administrative commands only through the configured owner maintenance interface.
+- NatsStorageManagerCommunication.execute_command(command): Validates scoped preservation readback and readiness without scientific-envelope writers, arbitrary remote methods, unrestricted recovery, collection, or closure.
 - _validate_owner_request(boundary, command): Validates target, requester, command, Session, connectivity, and transient reply correlation for the bounded owner operations.
 - NatsControllerCommunication.request_persistence_command(participant, command_type, session_id, payload, result_window_s, *, command_id): Makes one bounded scoped owner request with fresh-only results and an echoed per-attempt nonce, preserving the stable command ID while rejecting historical and late retry confirmations.
 - NatsSynchronizationManagerCommunication(boundary, synchronization_manager): Routes readiness, Session prepare/abort, and Session stop_runtime publication closeout to the timing owner over existing command/result streams, deduplicating completed requests.
@@ -1022,14 +1001,10 @@ recovery is introduced. Phase 16 and M015 remain open.
 
 ## src/lab_sync_acquisition/storage.py
 
-- InMemoryStorageManager: Reports service readiness, stores accepted AcquisitionRecordEnvelope objects in memory, and exposes all, session-filtered, and source-filtered readback without file writing or transformation.
-- PersistentStorageManager: Reports service readiness, stores accepted envelopes, and writes/reads v1 Session Record and Phase 13 Evidence Archive products from caller-supplied evidence.
-- PersistentStorageManager constructor: Accepts `records_path` and keyword-only `global_artifact_root=None`, `retrieval_endpoints=None`, `evidence_publisher=None`, and `component_id="storage"`; the publisher is an existing async runtime-evidence publication callable and component_id supplies the evidence source identity.
-- PersistentStorageManager.store_envelopes(envelopes): Preserves the existing in-process append API while serializing record writes under the owner preservation lock and flushing/fsyncing them.
-- PersistentStorageManager._append_envelope_records(records): Appends complete serialized records with fsync and supported directory synchronization, refusing an unfinished tail rather than repairing history.
-- PersistentStorageManager._read_envelope_records(): Rejects malformed JSONL and invalid present command correlation while preserving legacy uncorrelated records, scientific non-finite values, and correlation-free scientific readback.
-- PersistentStorageManager.persist_envelope(envelope, *, command_id, requester_id): Durably appends one command-correlated envelope or reconfirms an identical retry, rejecting conflicts, unsafe history, and new writes for closed archives.
-- PersistentStorageManager.get_envelope_persistence_confirmation(command_id, *, requester_id): Reconfirms exact current command-owned record contents and file durability without cached success, another journal, or record rewriting.
+- PersistentStorageManager: Owns durable Session Records, Evidence Archives, saved-Session selection, recovery and global scientific-artifact collection without scientific-envelope persistence.
+- PersistentStorageManager(storage_root, *, global_artifact_root=None, retrieval_endpoints=None, evidence_publisher=None, component_id="storage"): Uses an explicit directory root for existing Session/framework products, retaining node-keyed retrieval settings and collection-evidence publication.
+- PersistentStorageManager.storage_root: Returns the configured directory root, not a scientific-envelope record file.
+- PersistentStorageManager._require_historical_session_intake(record, session_id): Validates any historical envelope/audit fields as plain saved data without recreating legacy writers or accepting incomplete/cross-Session history.
 - PersistentStorageManager.write_session_record: Serializes and durably writes caller-supplied Session Record evidence under the preservation lock, refusing managed final-record mutation after archive closure.
 - SshRetrievalEndpoint(host, username, port=22, key_filename=None, known_hosts_path=None): Immutable deployment-local SSH configuration keyed by logical AcquisitionNode ID, using trusted host keys and optional explicit private-key/known-hosts files.
 - ArtifactRetrievalResult(artifact_manifest_id, outcome, global_destination=None, failure_information=None, verification_outcome=None, verification_information=None): Immutable per-artifact result whose `to_dict()` preserves retrieval success/failure separately from verification information, absent when retrieval failed.
@@ -1086,7 +1061,7 @@ recovery is introduced. Phase 16 and M015 remain open.
 - PersistentStorageManager._recover_session_record_write: Repeats an interrupted initial/final record write only from complete retained original inputs, confirming actual contents without advancing Session lifecycle.
 - PersistentStorageManager._recover_artifact_transfer: Makes one authorized fresh complete transfer from the original failed collection and authoritative handoff through existing destination/source/verification mechanisms, retaining normal global collection evidence.
 - PersistentStorageManager.session_preservation_guard(session_id): Synchronous context manager yielding current confirmation while holding the archive/final-record write lock through the caller's release commit; callers must not await or acquire a new Ingestor intake lock while holding it.
-- PersistentStorageManager.write_framework_evidence_archive(compiled_runtime_evidence): Writes and flushes/fsyncs the existing evidence/audit/summary products under the records_path parent framework/evidence partition, invalidating previous confirmation before a rewrite.
+- PersistentStorageManager.write_framework_evidence_archive(compiled_runtime_evidence): Writes and flushes/fsyncs existing evidence/audit/summary products under storage_root/framework/evidence, invalidating previous confirmation before a rewrite.
 - PersistentStorageManager.get_framework_preservation_confirmation(): Compares all three current durable framework products with the exact successful compilation, without requiring a Session Record or accepting stale/partial writes.
 - PersistentStorageManager.framework_preservation_guard(*, require_closeout=False): Holds the existing storage lock through a synchronous preservation check and retirement commit, optionally requiring exact final Ingestor evidence/all-audit coverage retained before its retirement; archive rewrites do not replace that requirement.
 - PersistentStorageManager._retain_framework_closeout_compilation(compilation): Retains detached final Ingestor coverage within the existing confirmation mechanism without writing new archive products or interpreting evidence.
@@ -1152,22 +1127,6 @@ recovery is introduced. Phase 16 and M015 remain open.
 - LocalStorageManager.finalize_all: Finalizes all created streams and returns a local-only completion summary.
 - LocalStorageManager.cleanup: Flushes and closes open local stream resources without deletion and records cleanup completion or failure evidence.
 - LocalStorageManager._jsonl_completion_details: Reports JSONL row accounting and write status for failure evidence, manifests, and summaries, leaving `row_count` unknown when a write or file flush leaves an uncertain tail.
-
-## scripts/demo_cross_process_acquisition_writer.py
-
-- main: Writes demo plain-data AcquisitionRecordEnvelope dictionaries to a local JSONL handoff file.
-
-## scripts/demo_cross_process_ingestor_reader.py
-
-- main: Reads demo handoff envelope dictionaries, reconstructs AcquisitionRecordEnvelope objects, sends them to InMemoryIngestor, and persists accepted envelopes through PersistentStorageManager.
-
-## scripts/demo_socket_acquisition_sender.py
-
-- main: Sends demo newline-delimited AcquisitionRecordEnvelope dictionaries to a localhost receiver over a disposable socket demo boundary.
-
-## scripts/demo_socket_ingestor_receiver.py
-
-- main: Receives demo newline-delimited envelope dictionaries over localhost, reconstructs AcquisitionRecordEnvelope objects, sends them to InMemoryIngestor, and persists accepted envelopes through PersistentStorageManager.
 
 ## scripts/manual_opencv_camera_smoke.py
 
@@ -1307,7 +1266,7 @@ automatic. Kill integration and overall closeout validation remain deferred.
 
 - NormalStopTests: Exercises public brokered Normal Stop ordering, multiple/optional nodes, active Experiment termination, independently verified receipt, persistence and handoff failures, current-archive corruption, cancellation/overlap, explicit retries, Q019-aware finalization, and unchanged scientific files using existing transport doubles.
 - NormalStopTests.connect_receipt(): Connects the existing broker-double durable receipt callback and controlled marker-time delivery without substituting framework owners or receipt verification.
-- NormalStopTests._exercise_late_acquisition_intake(accepted): Exercises real cross-thread accepted or rejected envelope intake after handoff preservation, completion refusal with unchanged products, and explicit retry before safe completion and binding release.
+- NormalStopTests._exercise_late_operational_intake(accepted): Exercises cross-thread accepted operational evidence or rejected-intake audit after handoff preservation, completion refusal, unchanged historical products and explicit retry before safe release.
 
 ## tests/test_acquisition_stage_archival.py
 
@@ -1321,6 +1280,20 @@ automatic. Kill integration and overall closeout validation remain deferred.
 ## tests/test_stage_b_collection.py
 
 - StageBCollectionTests: Exercises known-Session Stage B using real persistence and SSH-only doubles, including W043/W044 integration, restart/other-Session baselines, independent failure/unknown outcomes, direct evidence provenance, concurrent idempotency, corruption, interruption, authorized evidence-only recovery, and unchanged historical products.
+- StageBCollectionTests.test_cross_session_historical_intake_cannot_confirm_baseline(): Checks historical saved-record validation without legacy writers, retaining conflicting bytes and blocking collection.
+- StageBCollectionTests.test_incomplete_historical_intake_cannot_confirm_preservation(): Checks missing historical audit fields block confirmation and collection without modifying saved data.
+
+## tests/test_nats_evidence_readback.py
+
+- EvidenceReadbackBroker: Reuses controlled command/result and evidence delivery for authoritative operational readback without scientific-envelope transport.
+- NatsEvidenceReadbackTests: Exercises current journal-verified compilation, W041 receipt, restart/corruption readback, authorization boundaries and missing/stale/mismatched replies through public NATS adapters.
+- NatsEvidenceReadbackTests.request(peer, operation, payload=None, *, session="session", identity="read"): Issues a current scoped owner request with the existing per-attempt correlation mechanism.
+- NatsEvidenceReadbackTests.preserve_session(): Creates real Stage A and handoff products for current owner-readback tests without scientific observation intake.
+
+## tests/test_kill_session.py
+
+- KillSessionTests._exercise_late_kill_operational_intake(accepted): Checks late accepted evidence or rejected audit blocks Kill reconfirmation/release while preserving the immutable historical products and retained journal.
+- KillSessionTests.test_empty_kill_retains_binding_when_summary_write_fails(): Exercises admitted Kill with broker evidence delivery unavailable, proving empty intake cannot bypass a failed preservation obligation.
 
 ## tests/test_permanent_archive_closure.py
 

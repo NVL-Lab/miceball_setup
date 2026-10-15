@@ -60,9 +60,9 @@ class GlobalArtifactCollectionEvidenceTests(unittest.IsolatedAsyncioTestCase):
         self.ingestor = InMemoryIngestor(session_id="session", recovery_journal_path=self.root / "session-recovery.jsonl")
         await NatsIngestorCommunication(self.boundary, self.ingestor).subscribe_evidence("session")
 
-    def storage(self, records_path=None, node="node"):
+    def storage(self, storage_root=None, node="node"):
         return PersistentStorageManager(
-            records_path or self.root / "records.jsonl",
+            storage_root or self.root,
             global_artifact_root=self.root / "global",
             retrieval_endpoints={node: SshRetrievalEndpoint("lab-host", "scientist")},
             evidence_publisher=self.boundary.publish_evidence,

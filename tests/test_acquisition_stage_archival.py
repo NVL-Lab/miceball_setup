@@ -22,7 +22,7 @@ class AcquisitionStageArchivalTests(unittest.IsolatedAsyncioTestCase):
         self.producer.setUp()
         self.addCleanup(self.producer.doCleanups)
         self.fixture = self.producer.fixture
-        self.storage = PersistentStorageManager(self.fixture.root / "accepted_records.jsonl")
+        self.storage = PersistentStorageManager(self.fixture.root)
         self.fixture.controller = Controller(ingestor=self.fixture.ingestor,
             storage_manager=self.storage, synchronization_manager=self.fixture.sync)
 

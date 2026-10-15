@@ -21,7 +21,7 @@ class ControllerStartupReconciliationTests(unittest.IsolatedAsyncioTestCase):
         self.addCleanup(self.original.temporary.cleanup)
         self.root = self.original.root
         self.broker = self.original.broker
-        self.storage = PersistentStorageManager(self.root / "global/records.jsonl")
+        self.storage = PersistentStorageManager(self.root / "global")
         self.ingestor = InMemoryIngestor(self.storage,
             framework_recovery_journal_path=self.root / "framework.jsonl")
         intake = NatsIngestorCommunication(
@@ -467,7 +467,7 @@ class ControllerStartupReconciliationTests(unittest.IsolatedAsyncioTestCase):
         await original.close()
         directory = self.root / "global/framework/evidence"
         before = {path: path.read_bytes() for path in directory.iterdir()}
-        storage = PersistentStorageManager(self.root / "global/records.jsonl")
+        storage = PersistentStorageManager(self.root / "global")
         self.assertIsNone(storage.get_framework_preservation_confirmation())
         controller = Controller(component_id="fresh", ingestor=self.ingestor, storage_manager=storage)
         interface = ServiceMaintenanceInterface(controller, RuntimeParticipant("controller", "fresh"),

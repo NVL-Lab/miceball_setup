@@ -1,4 +1,4 @@
-﻿import tempfile
+import tempfile
 import unittest
 from pathlib import Path
 import sys
@@ -8,20 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 sys.path.insert(0, str(SRC))
 
-from lab_sync_acquisition import (
-    AcquisitionNode,
-    AcquisitionRecordEnvelope,
-    DeviceAdapterState,
-    DeviceDeclaration,
-    DeviceManager,
-    InMemoryIngestor,
-    PersistentStorageManager,
-    RuntimeEvidenceMessage,
-    Session,
-    SessionConfig,
-    SessionState,
-    SynchronizationManager,
-)
+from lab_sync_acquisition import AcquisitionNode, DeviceAdapterState, DeviceDeclaration, DeviceManager, InMemoryIngestor, PersistentStorageManager, RuntimeEvidenceMessage, Session, SessionConfig, SessionState, SynchronizationManager
 from tests.fakes import ReadyFakeAdapter
 
 import json
@@ -49,7 +36,7 @@ class PersistentStorageManagerTests(unittest.TestCase):
     def test_phase13_initial_session_record_writes_accepted_path(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
-            storage = PersistentStorageManager(root / "accepted_records.jsonl")
+            storage = PersistentStorageManager(root)
 
             path = storage.write_initial_session_record(
                 "session-001",
@@ -71,7 +58,7 @@ class PersistentStorageManagerTests(unittest.TestCase):
     def test_phase13_final_session_record_writes_accepted_path(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
-            storage = PersistentStorageManager(root / "accepted_records.jsonl")
+            storage = PersistentStorageManager(root)
 
             evidence = self._minimal_session_record_evidence("session-001")
             evidence["final_session_status"] = {"state": "completed"}
@@ -88,7 +75,7 @@ class PersistentStorageManagerTests(unittest.TestCase):
     def test_phase13_evidence_archive_writes_accepted_files(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
-            storage = PersistentStorageManager(root / "accepted_records.jsonl")
+            storage = PersistentStorageManager(root)
             ingestor = InMemoryIngestor()
             nonpersistent = RuntimeEvidenceMessage(
                 evidence_id="evidence-nonpersistent",
@@ -154,7 +141,7 @@ class PersistentStorageManagerTests(unittest.TestCase):
     def test_phase13_archive_does_not_inspect_evidence_type(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
-            storage = PersistentStorageManager(root / "accepted_records.jsonl")
+            storage = PersistentStorageManager(root)
             surprising_persistent = RuntimeEvidenceMessage(
                 evidence_id="evidence-surprising",
                 session_id="session-001",
@@ -177,69 +164,10 @@ class PersistentStorageManagerTests(unittest.TestCase):
                 [surprising_persistent.to_dict()],
             )
 
-    def test_persistent_storage_writes_and_reads_accepted_envelopes(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            records_path = Path(temporary_directory) / "accepted_records.jsonl"
-            storage = PersistentStorageManager(records_path=records_path)
-            ingestor = InMemoryIngestor(storage_manager=storage)
-            envelope = AcquisitionRecordEnvelope(
-                session_id="session-001",
-                source_device_id="adapter-camera-001",
-                record_kind="tiny_stream",
-                records=[
-                    {
-                        "device_time_s": 100.0,
-                        "session_time_s": 0.5,
-                        "value": 10,
-                    }
-                ],
-            )
-
-            readiness = storage.check_ready()
-            audit = ingestor.receive_envelope(envelope)
-            read_back = storage.read_envelopes()
-
-            self.assertEqual(storage.records_path, records_path)
-            self.assertEqual(readiness.component_id, "storage")
-            self.assertEqual(readiness.component_type, "storage_manager")
-            self.assertTrue(readiness.required)
-            self.assertTrue(readiness.ready)
-            self.assertTrue(audit.accepted)
-            self.assertEqual(len(ingestor.ingest_audit), 1)
-            self.assertEqual(ingestor.accepted_envelopes, (envelope,))
-            self.assertEqual(len(read_back), 1)
-            self.assertEqual(read_back[0].session_id, "session-001")
-            self.assertEqual(read_back[0].source_device_id, "adapter-camera-001")
-            self.assertEqual(read_back[0].record_kind, "tiny_stream")
-            self.assertEqual(
-                read_back[0].records,
-                (
-                    {
-                        "device_time_s": 100.0,
-                        "session_time_s": 0.5,
-                        "value": 10,
-                    },
-                ),
-            )
-            self.assertEqual(storage.stored_envelopes, read_back)
-            self.assertEqual(
-                storage.get_envelopes_for_session("session-001"),
-                read_back,
-            )
-            self.assertEqual(
-                storage.get_envelopes_for_source("adapter-camera-001"),
-                read_back,
-            )
-
-            lines = records_path.read_text(encoding="utf-8").splitlines()
-            self.assertEqual(len(lines), 1)
-            self.assertNotIn("ingest_order", lines[0])
-            self.assertNotIn("ingest_received_at", lines[0])
 
     def test_completed_session_can_write_and_read_v1_session_record(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
-            records_path = root / "accepted_records.jsonl"
             session_record_path = root / "session_record.json"
             declaration = DeviceDeclaration(
                 device_id="declared-camera-001",
@@ -281,7 +209,7 @@ class PersistentStorageManagerTests(unittest.TestCase):
             )
             manager = DeviceManager(adapters=[adapter])
             synchronization = SynchronizationManager()
-            storage = PersistentStorageManager(records_path=records_path)
+            storage = PersistentStorageManager(storage_root=root)
             ingestor = InMemoryIngestor(storage_manager=storage)
             acquisition_node = AcquisitionNode(
                 session_id=session.session_id,
@@ -309,7 +237,6 @@ class PersistentStorageManagerTests(unittest.TestCase):
             session.stop(reason="session record v1 complete")
             session.complete(reason="session record v1 complete")
 
-            accepted_envelopes = storage.read_envelopes()
             storage.write_session_record(
                 session_record_path,
                 accepted_session_config=session.configuration,
@@ -317,8 +244,6 @@ class PersistentStorageManagerTests(unittest.TestCase):
                 readiness_evidence=session.readiness_checks,
                 device_readiness_evidence=session.device_readiness_summary,
                 service_readiness_evidence=session.service_readiness_checks,
-                accepted_acquisition_envelopes=accepted_envelopes,
-                ingest_audit_records=ingestor.ingest_audit,
                 final_session_status=session.final_status,
                 cleanup_evidence={
                     "cleanup_occurred": session.cleanup_occurred,
@@ -386,25 +311,12 @@ class PersistentStorageManagerTests(unittest.TestCase):
                 ],
                 ["synchronization", "ingestor", "failure_evidence", "storage"],
             )
-            self.assertEqual(
-                len(session_record["accepted_acquisition_envelopes"]),
-                0,
-            )
             self.assertEqual([message.payload["event_type"] for message in ingestor.accepted_runtime_evidence],
                              ["session_start", "session_stop"])
             storage.write_evidence_archive(session.session_id, ingestor.compile_persistent_runtime_evidence())
             archived = self._read_jsonl(root / "session_session-001" / "evidence" / "runtime_evidence.jsonl")
             self.assertEqual(archived, [message.to_dict() for message in ingestor.accepted_runtime_evidence])
-            self.assertEqual(
-                len(session_record["ingest_audit_records"]),
-                len(session_record["accepted_acquisition_envelopes"]),
-            )
-            self.assertTrue(
-                all(
-                    audit["accepted"]
-                    for audit in session_record["ingest_audit_records"]
-                )
-            )
+            self.assertEqual(session_record["runtime_evidence_audit"], [])
             self.assertEqual(
                 session_record["final_session_status"]["state"],
                 "completed",
@@ -429,8 +341,6 @@ class PersistentStorageManagerTests(unittest.TestCase):
             "readiness_evidence": (),
             "device_readiness_evidence": (),
             "service_readiness_evidence": (),
-            "accepted_acquisition_envelopes": (),
-            "ingest_audit_records": (),
             "final_session_status": None,
             "cleanup_evidence": {},
         }

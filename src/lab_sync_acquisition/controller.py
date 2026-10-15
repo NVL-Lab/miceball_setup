@@ -306,7 +306,7 @@ class Controller:
                 if any(current[name] != [item.to_dict() for item in compiled[name]]
                        for name in ("runtime_evidence", "ingest_audit")):
                     raise RuntimeError("Additional Kill intake requires preserved append-only recovery evidence")
-                self._require_kill_acquisition_record_coverage(session.session_id, current["session_record"])
+                self._require_kill_runtime_coverage(session.session_id, current["session_record"])
                 self._archived_controller_action_decisions = self._controller_decision_evidence_snapshot(session.session_id)
                 self._finalization_confirmation = (self._session_ingest_state(), str(
                     self._storage_manager._session_directory(session.session_id) / "session_record_final.json"))
@@ -318,16 +318,17 @@ class Controller:
                     "uncertainties": uncertainties,
                     "artifact_collection_handoff": current["artifact_collection_handoff"]}
 
-    def _require_kill_acquisition_record_coverage(self, session_id: str, record: dict[str, Any]) -> None:
-        """Require current acquisition intake in the immutable Kill record under caller-held guards."""
+    def _require_kill_runtime_coverage(self, session_id: str, record: dict[str, Any]) -> None:
+        """Require current operational intake under the caller's intake/preservation guards."""
         intake = self._ingestor
         if (intake is None or intake.session_id != session_id
-                or record.get("accepted_session_config", {}).get("session_id") != session_id
-                or json.dumps(record.get("accepted_acquisition_envelopes"), sort_keys=True) != json.dumps(
-                    [item.to_dict() for item in intake.accepted_envelopes], sort_keys=True)
-                or json.dumps(record.get("ingest_audit_records"), sort_keys=True) != json.dumps(
-                    [item.to_dict() for item in intake.ingest_audit], sort_keys=True)):
-            raise RuntimeError("Current acquisition-envelope and audit preservation is unconfirmed")
+                or record.get("accepted_session_config", {}).get("session_id") != session_id):
+            raise RuntimeError("Current operational intake Session association is unconfirmed")
+        compiled = intake.compile_persistent_runtime_evidence()
+        archived = self._storage_manager.get_persisted_session_preservation_confirmation(session_id)
+        if archived is None or any(archived[name] != [item.to_dict() for item in compiled[name]]
+                                   for name in ("runtime_evidence", "ingest_audit")):
+            raise RuntimeError("Current operational evidence and audit preservation is unconfirmed")
 
     @service_operation()
     async def normal_stop_session(
@@ -414,11 +415,6 @@ class Controller:
                         for name in ("runtime_evidence", "ingest_audit")):
                     raise RuntimeError("Current complete Stage A preservation is unconfirmed")
                 record = archived["session_record"]
-                if (json.dumps(record.get("accepted_acquisition_envelopes"), sort_keys=True) != json.dumps(
-                        [item.to_dict() for item in intake.accepted_envelopes], sort_keys=True)
-                        or json.dumps(record.get("ingest_audit_records"), sort_keys=True) != json.dumps(
-                            [item.to_dict() for item in intake.ingest_audit], sort_keys=True)):
-                    raise RuntimeError("Current acquisition-envelope and audit preservation is unconfirmed")
                 actual = {message["evidence_id"]: message for message in archived["runtime_evidence"]}
                 required = self._controller_owned_session_evidence_snapshot(session.session_id)
                 if any(json.dumps(actual.get(identity), sort_keys=True) != json.dumps(contents, sort_keys=True)
@@ -1682,7 +1678,7 @@ class Controller:
                 if self._kill_closeout_session is not session:
                     record_path = str(self._write_final_session_record())
                 else:
-                    self._require_kill_acquisition_record_coverage(session.session_id, confirmation["session_record"])
+                    self._require_kill_runtime_coverage(session.session_id, confirmation["session_record"])
             subscriptions = self._launch_subscriptions
             for subscription in subscriptions:
                 await subscription.unsubscribe()
@@ -1696,7 +1692,7 @@ class Controller:
                 self._require_controller_decision_archival(session.session_id, confirmation)
                 record = confirmation["session_record"]
                 if self._kill_closeout_session is session:
-                    self._require_kill_acquisition_record_coverage(session.session_id, record)
+                    self._require_kill_runtime_coverage(session.session_id, record)
                 lifecycle = record.get("session_lifecycle_evidence", [])
                 if (record.get("accepted_session_config", {}).get("session_id") != session.session_id
                         or record.get("final_session_status") != session.final_status
@@ -2259,10 +2255,6 @@ class Controller:
             "readiness_evidence": session.readiness_checks,
             "device_readiness_evidence": session.device_readiness_summary,
             "service_readiness_evidence": session.service_readiness_checks,
-            "accepted_acquisition_envelopes": (
-                self._storage_manager.get_envelopes_for_session(session.session_id)
-            ),
-            "ingest_audit_records": self._ingestor.ingest_audit if self._ingestor is not None else (),
             "final_session_status": session.final_status,
             "cleanup_evidence": {
                 "cleanup_occurred": session.cleanup_occurred,
@@ -2276,8 +2268,7 @@ class Controller:
         }
 
     def _session_ingest_state(self) -> tuple[Any, ...]:
-        return (self._ingestor.accepted_envelopes, self._ingestor.ingest_audit,
-                self._ingestor.accepted_runtime_evidence, self._ingestor.runtime_evidence_audit)
+        return (self._ingestor.accepted_runtime_evidence, self._ingestor.runtime_evidence_audit)
 
     def _write_initial_session_record(self) -> Path:
         session = self._require_session()
