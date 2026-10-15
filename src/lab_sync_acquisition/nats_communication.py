@@ -1298,6 +1298,8 @@ class NatsStorageManagerCommunication:
             raise ValueError("Storage communication must match its authoritative owner")
         self._boundary = boundary
         self._storage_manager = storage_manager
+        self._collection_command_lock = asyncio.Lock()
+        self._pending_collection_results = {}
 
     async def subscribe_commands(self) -> tuple[Subscription, Subscription]:
         """Receive existing command envelopes; publish owner results before acknowledging delivery."""
@@ -1306,13 +1308,71 @@ class NatsStorageManagerCommunication:
             if command.target_id != self._boundary.component_id:
                 await message.ack()
                 return
-            result = (await _execute_maintenance_command(self._boundary, self._storage_manager, command)
-                      if command.command_type in ({"stop", "kill", "cancel", "prepare_stop", "check_stop_readiness"}
-                                                 | SERVICE_RECOVERY_COMMAND_TYPES)
-                      else self.execute_command(command))
-            await self._boundary.publish_command_result(result, command.command_type)
+            if command.command_type == "collect_saved_artifacts":
+                async with self._collection_command_lock:
+                    identity = json.dumps(command.to_dict(), sort_keys=True)
+                    result = self._pending_collection_results.get(identity)
+                    if result is None:
+                        result = await self._execute_collection_attempt(command)
+                        self._pending_collection_results[identity] = deepcopy(result)
+                    await self._boundary.publish_command_result(result, command.command_type)
+                    self._pending_collection_results.pop(identity, None)
+            else:
+                result = (await _execute_maintenance_command(self._boundary, self._storage_manager, command)
+                          if command.command_type in ({"stop", "kill", "cancel", "prepare_stop", "check_stop_readiness"}
+                                                     | SERVICE_RECOVERY_COMMAND_TYPES)
+                          else self.execute_command(command))
+                await self._boundary.publish_command_result(result, command.command_type)
             await message.ack()
-        return await _subscribe_participant_commands(self._boundary, receive)
+        return await _subscribe_participant_commands(self._boundary, receive, new_only=True)
+
+    def _validate_collection_request(self, command):
+        _validate_owner_request(self._boundary, command)
+        if (set(command.payload) != {"request_nonce", "evidence_id"}
+                or not isinstance(command.payload["evidence_id"], str) or not command.payload["evidence_id"]):
+            raise ValueError("Saved collection requires only a stable evidence identity and reply correlation")
+        if command.command_id != json.dumps(
+                [command.session_id, command.payload["evidence_id"]], separators=(",", ":")):
+            raise ValueError("Collection command identity must match its Session and evidence identity")
+
+    async def _execute_collection_attempt(self, command):
+        # No storage lock is borrowed across broker readback. The caller keeps
+        # attempt resolution and result publication serialized together.
+        try:
+            self._validate_collection_request(command)
+            jetstream = self._boundary._require_jetstream()
+            history = await jetstream.stream_info("LAB_COMMAND_RESULTS")
+            if not NatsIngestorCommunication._receiving_history_intact(history):
+                raise RuntimeError("Collection command-result history is unconfirmed")
+            subject = build_runtime_subject(command.session_id, "command_result",
+                self._boundary.component_type, self._boundary.component_id, command.command_type)
+            sequence = 1
+            while sequence <= history.state.last_seq:
+                try:
+                    record = await jetstream.get_msg("LAB_COMMAND_RESULTS", seq=sequence,
+                        subject=subject, next=True)
+                except NotFoundError:
+                    break
+                if record.seq > history.state.last_seq:
+                    break
+                if record.subject != subject or record.seq < sequence:
+                    raise ValueError("Collection result history is inconsistent")
+                previous = RuntimeCommandResultMessage.from_dict(json.loads(record.data))
+                if (previous.command_id == command.command_id
+                        and previous.session_id == command.session_id
+                        and previous.source_id == self._boundary.component_id
+                        and previous.target_id == command.source_id
+                        and previous.payload.get("request_nonce") == command.payload["request_nonce"]):
+                    return previous
+                sequence = record.seq + 1
+            current = await jetstream.stream_info("LAB_COMMAND_RESULTS")
+            if (current.created != history.created or current.state.last_seq < history.state.last_seq
+                    or not NatsIngestorCommunication._receiving_history_intact(current)):
+                raise RuntimeError("Collection command-result history changed during admission")
+            return self.execute_command(command)
+        except Exception as error:
+            return _participant_result(self._boundary, command, False, str(error),
+                {"request_nonce": command.payload.get("request_nonce")})
 
     def execute_command(self, command: RuntimeCommandMessage) -> RuntimeCommandResultMessage:
         """Execute scoped owner persistence/readback, never recovery or arbitrary remote method calls."""
@@ -1326,12 +1386,8 @@ class NatsStorageManagerCommunication:
                 expected = {"request_nonce", "evidence_id"} if collecting else {"request_nonce"}
                 if set(command.payload) != expected:
                     raise ValueError("Saved collection accepts only Session and stable evidence identity")
-                if collecting and (not isinstance(command.payload["evidence_id"], str)
-                                   or not command.payload["evidence_id"]):
-                    raise ValueError("Saved collection requires a stable evidence identity")
-                if collecting and command.command_id != json.dumps(
-                        [command.session_id, command.payload["evidence_id"]], separators=(",", ":")):
-                    raise ValueError("Collection command identity must match its Session and evidence identity")
+                if collecting:
+                    self._validate_collection_request(command)
                 status = self._storage_manager.get_saved_session_collection_status(command.session_id)
                 payload = {"session_id": command.session_id, "collection_status": status}
                 if collecting:
@@ -1410,11 +1466,13 @@ def _execute_service_command(boundary: NatsCommunicationBoundary, service: Any,
     return result
 
 
-async def _subscribe_participant_commands(boundary: NatsCommunicationBoundary, receive: Callable) -> tuple[Subscription, Subscription]:
+async def _subscribe_participant_commands(boundary: NatsCommunicationBoundary, receive: Callable,
+                                         *, new_only: bool = False) -> tuple[Subscription, Subscription]:
     subscriptions = []
     for subject in (f"messages.*.command.{boundary.component_type}.{boundary.component_id}.*",
                     f"messages.command.{boundary.component_type}.{boundary.component_id}.*"):
-        subscriptions.append(await boundary._require_jetstream().subscribe(subject, cb=receive, manual_ack=True))
+        options = {"config": ConsumerConfig(deliver_policy=DeliverPolicy.NEW)} if new_only else {}
+        subscriptions.append(await boundary._require_jetstream().subscribe(subject, cb=receive, manual_ack=True, **options))
     return tuple(subscriptions)
 
 

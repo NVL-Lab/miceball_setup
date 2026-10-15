@@ -1,6 +1,7 @@
 """Controller requests saved scientific-artifact collection from a NATS owner."""
 
 import asyncio
+import json
 import multiprocessing
 from pathlib import Path
 import unittest
@@ -8,11 +9,34 @@ from unittest.mock import patch
 
 from lab_sync_acquisition import (Controller, InMemoryIngestor, NatsCommunicationBoundary,
     NatsControllerCommunication, NatsStorageManagerCommunication, PersistentStorageManager,
-    RuntimeParticipant, SshRetrievalEndpoint)
+    RuntimeCommandMessage, RuntimeParticipant, SshRetrievalEndpoint)
 from tests import test_saved_session_selection as selection_fixtures
 from tests.test_session_launch import _Boundary, _Broker
 from tests import test_artifact_retrieval as retrieval_fixtures
 from tests.nats_server_fixture import NATS_SERVER, temporary_jetstream_server
+from tests.evidence_receipt_fixtures import EvidenceReceiptBroker
+
+
+class CollectionBroker(_Broker):
+    """Retain authoritative result publications independently of dropped replies."""
+    def __init__(self):
+        super().__init__()
+        self.result_history = EvidenceReceiptBroker()
+
+    async def stream_info(self, name):
+        if name == "LAB_COMMAND_RESULTS":
+            return await self.result_history.stream_info(name)
+        return await super().stream_info(name)
+
+    async def get_msg(self, stream, **options):
+        if stream == "LAB_COMMAND_RESULTS":
+            return await self.result_history.get_msg(stream, **options)
+        return await super().get_msg(stream, **options)
+
+    async def publish(self, subject, data, stream):
+        if stream == "LAB_COMMAND_RESULTS":
+            await self.result_history.publish(subject, data, stream)
+        return await super().publish(subject, data, stream)
 
 
 def run_storage_owner(url, root, files, ready, stop):
@@ -47,7 +71,7 @@ class RemoteSavedCollectionTests(unittest.IsolatedAsyncioTestCase):
         self.selection.setUp()
         self.fixture = self.selection.fixture
         self.storage = self.selection.storage
-        self.broker = _Broker()
+        self.broker = CollectionBroker()
         self.controller = Controller()
         self.peer = RuntimeParticipant("storage_manager", "storage")
         self.communication = NatsControllerCommunication(_Boundary("controller", "controller", self.broker))
@@ -156,8 +180,54 @@ class RemoteSavedCollectionTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result.succeeded)
         self.assertEqual(self.fixture.sftp.opened, [])
 
+    async def test_rejected_attempt_stays_rejected_but_explicit_retry_can_collect(self):
+        self.selection.terminal("session", "stopping")
+        rejected = await self.collect("denied")
+        self.assertFalse(rejected.succeeded)
+        old = RuntimeCommandMessage.from_dict(self.broker.commands[-1])
+        self.selection.terminal("session", "completed")
+        await self.subscribe(self.fixture.new_storage())
+        await self.communication.publish_command(old, "storage_manager")
+        self.assertFalse(self.broker.results[-1]["success"])
+        self.assertEqual(self.fixture.sftp.opened, [])
+        transport, _ = self.fixture.retrieval.ssh(self.fixture.sftp)
+        with transport:
+            self.assertTrue((await self.collect("denied")).succeeded)
+            await self.communication.publish_command(old, "storage_manager")
+        self.assertFalse(self.broker.results[-1]["success"])
+        self.assertEqual(len(self.fixture.sftp.opened), 1)
+
+    async def test_unconfirmed_result_history_blocks_new_collection(self):
+        self.broker.result_history.unavailable = True
+        result = await self.collect()
+        self.assertFalse(result.succeeded)
+        self.assertEqual(self.fixture.sftp.opened, [])
+        self.broker.result_history.unavailable = False
+        self.broker.result_history.records.clear()
+        self.assertFalse((await self.collect()).succeeded)
+        self.assertEqual(self.fixture.sftp.opened, [])
+
+    async def test_rejected_attempt_survives_failed_reply_publication(self):
+        self.selection.terminal("session", "stopping")
+        # Fail publication before the result reaches the result stream.
+        with patch("tests.test_session_launch._Boundary.publish_command_result",
+                   side_effect=ConnectionError("injected reply publication failure")):
+            self.assertFalse((await self.collect("unpublished-rejection")).succeeded)
+        old = RuntimeCommandMessage.from_dict(self.broker.commands[-1])
+        self.selection.terminal("session", "completed")
+        await self.communication.publish_command(old, "storage_manager")
+        self.assertFalse(self.broker.results[-1]["success"])
+        self.assertEqual(self.fixture.sftp.opened, [])
+
     @unittest.skipUnless(NATS_SERVER, "optional local nats-server unavailable")
     async def test_separate_storage_process_collects_and_retries_after_restart(self):
+        await self._separate_process_collection(reject_first=False)
+
+    @unittest.skipUnless(NATS_SERVER, "optional local nats-server unavailable")
+    async def test_rejected_collection_is_not_replayed_after_process_restart(self):
+        await self._separate_process_collection(reject_first=True)
+
+    async def _separate_process_collection(self, *, reject_first):
         async with temporary_jetstream_server() as url:
             boundary = NatsCommunicationBoundary("controller", "controller", servers=[url])
             await boundary.connect()
@@ -185,16 +255,43 @@ class RemoteSavedCollectionTests(unittest.IsolatedAsyncioTestCase):
                         evidence_id="remote", communication=self.communication,
                         storage_participant=self.peer, result_window_s=3)
                 worker, stop = await start_owner()
-                result, duplicate = await asyncio.gather(collect_remote(), collect_remote())
-                self.assertTrue(result.succeeded, result.error)
-                self.assertTrue(duplicate.succeeded, duplicate.error)
+                if reject_first:
+                    self.selection.terminal("session", "stopping")
+                    rejected = await collect_remote()
+                    self.assertFalse(rejected.succeeded)
+                    self.assertFalse((self.fixture.root / "global").exists())
+                else:
+                    result, duplicate = await asyncio.gather(collect_remote(), collect_remote())
+                    self.assertTrue(result.succeeded, result.error)
+                    self.assertTrue(duplicate.succeeded, duplicate.error)
                 saved = self.fixture.products()
                 stop.set()
                 await asyncio.to_thread(worker.join, 10)
                 self.assertEqual(worker.exitcode, 0)
+                if reject_first:
+                    self.selection.terminal("session", "completed")
+                    saved = self.fixture.products()
                 await start_owner()
+                if reject_first:
+                    # A fresh readback is an ordered processing barrier, not a
+                    # new collection request or a timing-dependent sleep.
+                    status = await self.communication.request_persistence_command(self.peer,
+                        "get_saved_session_collection_status", "session", {}, 3, command_id="status-after-restart")
+                    self.assertTrue(status.success, status.reason)
+                    self.assertEqual(self.fixture.products(), saved)
+                    self.assertFalse((self.fixture.root / "global").exists())
+                    old = RuntimeCommandMessage(json.dumps(["session", "remote"], separators=(",", ":")),
+                        "session", "collect_saved_artifacts", "controller", "storage",
+                        {"evidence_id": "remote", "request_nonce": rejected.details["request_nonce"]})
+                    await self.communication.publish_command(old, "storage_manager")
+                    barrier = await self.communication.request_persistence_command(self.peer,
+                        "get_saved_session_collection_status", "session", {}, 3, command_id="after-redelivery")
+                    self.assertTrue(barrier.success, barrier.reason)
+                    self.assertEqual(self.fixture.products(), saved)
+                    self.assertFalse((self.fixture.root / "global").exists())
                 self.assertTrue((await collect_remote()).succeeded)
-                self.assertEqual(self.fixture.products(), saved)
+                if not reject_first:
+                    self.assertEqual(self.fixture.products(), saved)
             finally:
                 for worker, stop in workers:
                     stop.set()

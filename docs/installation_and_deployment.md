@@ -468,6 +468,27 @@ collection flag: StorageManager revalidates eligibility, preservation, closure
 and handoff under existing collection guards, and exact durable collection
 evidence supports retries after lost replies and restart without refetching.
 
+The rejected-command replay correction admits only fresh StorageManager commands
+at subscription startup, rather than replaying retained command history. Commands
+published while this owner is offline remain unconfirmed and require an explicit
+retry. Other participant adapters retain their existing delivery policy.
+For collection, the existing `request_nonce` distinguishes each explicit attempt
+from delivery of an older attempt with the same Session/evidence command identity.
+The adapter serializes collection attempt resolution through result publication,
+reuses exact matching results from durable `LAB_COMMAND_RESULTS`, and retains an
+unpublished result in memory until publication succeeds. Thus a rejected attempt
+does not become executable when eligibility changes. An explicit API retry has
+a fresh nonce, revalidates current owner guards, and can reuse the already durable
+collection outcome. No operator API, new persistence store or recovery workflow
+is introduced.
+
+Result-history readback requires intact file-backed retained history and rejects
+unavailable, malformed or detectably incomplete history before collection; the
+scan rechecks stream continuity before admitting work. This conservative check
+and linear result-history scan are operational limitations, not new power-loss or
+broker-history restoration guarantees. Existing storage locks are never held
+across NATS readback. Independent correction validation and re-audit remain pending.
+
 Results retain eligibility/availability information and actual collection outcomes,
 including scientific retrieval failures whose evidence was durably preserved.
 Controller reports success only for the matching Session/evidence identity with
