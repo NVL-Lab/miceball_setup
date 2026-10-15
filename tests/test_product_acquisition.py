@@ -23,16 +23,17 @@ from tests.test_session_launch import _Boundary, _Broker
 
 
 class ProductAdapter(ReadyFakeAdapter):
-    def __init__(self, *args, fail=False, **kwargs):
+    def __init__(self, *args, fail=False, operational_evidence=(), **kwargs):
         super().__init__(*args, **kwargs)
         self.selected = []
         self.fail = fail
+        self.operational_evidence = tuple(operational_evidence)
 
     def collect_products(self, products, *, session_id, experiment_id, acquisition_node_id):
         self.selected.append(tuple(product.data_product_id for product in products))
         rows = {product.data_product_id: [{"observation_index": 0, "value": 7,
                 "device_local_time": 12.5, "metadata": {"unit": "arbitrary"}}] for product in products}
-        result = {"scientific_products": rows, "operational_evidence": ()}
+        result = {"scientific_products": rows, "operational_evidence": self.operational_evidence}
         if self.fail and products:
             raise _PartialScientificCollectionError(OSError("later read failed"), result)
         return result
@@ -64,6 +65,231 @@ class ProductAcquisitionTests(unittest.IsolatedAsyncioTestCase):
         node.start_runtime()
         node.activate_experiment_runtime_context(ActiveExperimentRuntimeContext("experiment", 0.0))
         return node, adapter
+
+    def two_device_node(self, *, partial=False, extra_product=False):
+        product = ScientificProductDeclaration("events", "event", {"value": "int"}, "jsonl")
+        other = ScientificProductDeclaration("other", "event", {"value": "int"}, "jsonl")
+        declarations = (
+            DeviceDeclaration("first", "fake", True, True, ("event",),
+                              (product, other) if extra_product else (product,)),
+            DeviceDeclaration("second", "fake", True, True, ("event",), (product,)),
+        )
+        adapters = (ProductAdapter("first", "fake", ("event",), True),
+                    ProductAdapter("second", "fake", ("event",), True, fail=partial))
+        devices = DeviceManager(adapters)
+        self.assertTrue(all(result.succeeded for result in devices.initialize_all({})))
+        self.assertTrue(devices.check_readiness().all_ready)
+        intake = InMemoryIngestor(session_id="session", recovery_journal_path=self.root / "journal")
+        node = AcquisitionNode("session", devices, SynchronizationManager(), intake,
+            node_id="node", error_evidence_location=str(self.root / "errors"),
+            device_declarations=declarations)
+        manager = node.prepare_local_storage("session", declarations, self.root / "local")
+        self.addCleanup(manager.cleanup)
+        self.addCleanup(lambda: node.stop_runtime() if node.status()["is_running"] else None)
+        outputs = tuple(ScientificOutputSelection(device.device_id, "node", selected.data_product_id)
+                        for device in declarations for selected in device.scientific_products)
+        self.assertTrue(node.prepare_experiment_scientific_outputs("experiment", outputs).ready)
+        node.start_runtime()
+        node.activate_experiment_runtime_context(ActiveExperimentRuntimeContext("experiment", 0.0))
+        return node, adapters, intake
+
+    def finalized_rows(self, node):
+        node.stop_runtime()
+        self.assertTrue(all(manifest.lifecycle_state == "finalized"
+                            for manifest in node.local_storage_manager.manifests))
+        identities = {storage_id: (device_id, product_id)
+                      for (_, device_id, product_id), storage_id in node.scientific_output_storage_ids.items()}
+        return {identities[manifest.storage_id]:
+                [json.loads(line) for line in Path(manifest.local_storage_path).read_text().splitlines()]
+                for manifest in node.local_storage_manager.manifests}
+
+    async def test_operational_intake_failure_preserves_both_device_observations(self):
+        node, adapters, intake = self.two_device_node()
+        message = RuntimeEvidenceMessage("device-status", "session", "event", "node",
+                                        {"event_type": "device_status"}, True)
+        adapters[0].operational_evidence = (message,)
+        receive = intake.receive_runtime_evidence
+        failure = OSError("operational journal unavailable")
+
+        def unavailable(evidence):
+            if evidence.evidence_id == message.evidence_id:
+                raise failure
+            return receive(evidence)
+
+        with patch.object(intake, "receive_runtime_evidence", side_effect=unavailable):
+            with self.assertRaises(OSError) as caught:
+                node.run_one_iteration()
+        self.assertIs(caught.exception, failure)
+        self.assertTrue(node.status()["failed"])
+        self.assertEqual([adapter.selected for adapter in adapters], [[("events",)], [("events",)]])
+        with self.assertRaisesRegex(RuntimeError, "healthy node"):
+            node.run_one_iteration()
+        rows = self.finalized_rows(node)
+        self.assertEqual({key: len(value) for key, value in rows.items()},
+                         {("first", "events"): 1, ("second", "events"): 1})
+        for values in rows.values():
+            self.assertEqual(values[0]["value"], 7)
+            self.assertEqual(values[0]["metadata"], {"unit": "arbitrary"})
+            self.assertEqual(values[0]["experiment_id"], "experiment")
+            self.assertIn("session_time_s", values[0])
+        self.assertEqual(intake.accepted_envelopes, ())
+        self.assertEqual([item for item in node.runtime_evidence if item.evidence_id == message.evidence_id],
+                         [message])
+        self.assertTrue(any(item.payload.get("event_type") == "acquisition_failure"
+                            for item in node.runtime_evidence))
+        node.finalize_experiment_scientific_outputs("experiment")
+        self.assertEqual([manifest.details["row_count"] for manifest in node.local_storage_manager.manifests],
+                         [1, 1])
+        self.assertEqual(sum(item.evidence_id == message.evidence_id for item in node.runtime_evidence), 1)
+
+    async def test_scientific_write_failure_does_not_skip_other_device_or_evidence(self):
+        node, adapters, intake = self.two_device_node()
+        message = RuntimeEvidenceMessage("device-status", "session", "event", "node",
+                                        {"event_type": "device_status"}, True)
+        adapters[0].operational_evidence = (message,)
+        storage = node.local_storage_manager
+        first = node.scientific_output_storage_ids[("experiment", "first", "events")]
+        append = storage.append_rows
+        failure = OSError("first stream unavailable")
+
+        def unavailable(storage_id, rows):
+            if storage_id == first:
+                raise failure
+            return append(storage_id, rows)
+
+        with patch.object(storage, "append_rows", side_effect=unavailable) as writes:
+            with self.assertRaises(OSError) as caught:
+                node.run_one_iteration()
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(writes.call_count, 2)
+        rows = self.finalized_rows(node)
+        self.assertEqual(rows[("first", "events")], [])
+        self.assertEqual(len(rows[("second", "events")]), 1)
+        self.assertTrue(intake.has_durable_runtime_evidence(message))
+        self.assertEqual(intake.accepted_envelopes, ())
+
+    async def test_independent_write_and_intake_failures_remain_visible(self):
+        node, adapters, intake = self.two_device_node()
+        messages = tuple(RuntimeEvidenceMessage(f"status-{identity}", "session", "event", "node",
+                                               {"event_type": "device_status"}, True)
+                         for identity in ("first", "second"))
+        for adapter, message in zip(adapters, messages):
+            adapter.operational_evidence = (message,)
+        storage = node.local_storage_manager
+        first = node.scientific_output_storage_ids[("experiment", "first", "events")]
+        append, receive = storage.append_rows, intake.receive_runtime_evidence
+        failures = (OSError("first scientific write failed"),
+                    ValueError("first operational intake failed"), OSError("second operational intake failed"))
+
+        def unavailable_stream(storage_id, rows):
+            if storage_id == first:
+                raise failures[0]
+            return append(storage_id, rows)
+
+        def unavailable_intake(evidence):
+            for message, failure in zip(messages, failures[1:]):
+                if evidence.evidence_id == message.evidence_id:
+                    raise failure
+            return receive(evidence)
+
+        with patch.object(storage, "append_rows", side_effect=unavailable_stream), \
+                patch.object(intake, "receive_runtime_evidence", side_effect=unavailable_intake):
+            with self.assertRaises(ExceptionGroup) as caught:
+                node.run_one_iteration()
+        self.assertEqual(caught.exception.exceptions, failures)
+        failure_evidence, = [item for item in node.runtime_evidence
+                            if item.payload.get("event_type") == "acquisition_failure"]
+        for failure in failures:
+            self.assertIn(str(failure), failure_evidence.payload["error"])
+        rows = self.finalized_rows(node)
+        self.assertEqual(rows[("first", "events")], [])
+        self.assertEqual(len(rows[("second", "events")]), 1)
+        self.assertEqual([item for item in node.runtime_evidence if item.evidence_id in {m.evidence_id for m in messages}],
+                         list(messages))
+
+    async def test_partial_collection_and_intake_failure_preserve_completed_rows(self):
+        node, adapters, intake = self.two_device_node(partial=True)
+        message = RuntimeEvidenceMessage("device-status", "session", "event", "node",
+                                        {"event_type": "device_status"}, True)
+        adapters[0].operational_evidence = (message,)
+        receive = intake.receive_runtime_evidence
+        failure = OSError("operational intake failed")
+
+        def unavailable(evidence):
+            if evidence.evidence_id == message.evidence_id:
+                raise failure
+            return receive(evidence)
+
+        with patch.object(intake, "receive_runtime_evidence", side_effect=unavailable):
+            with self.assertRaises(ExceptionGroup) as caught:
+                node.run_one_iteration()
+        self.assertIn("later read failed", str(caught.exception))
+        self.assertIn(failure, caught.exception.exceptions)
+        rows = self.finalized_rows(node)
+        self.assertEqual({key: len(value) for key, value in rows.items()},
+                         {("first", "events"): 1, ("second", "events"): 1})
+        self.assertEqual(intake.accepted_envelopes, ())
+
+    async def test_failed_product_write_does_not_skip_other_products(self):
+        node, _, _ = self.two_device_node(extra_product=True)
+        storage = node.local_storage_manager
+        first = node.scientific_output_storage_ids[("experiment", "first", "events")]
+        append = storage.append_rows
+
+        def unavailable(storage_id, rows):
+            if storage_id == first:
+                raise OSError("first product write failed")
+            return append(storage_id, rows)
+
+        with patch.object(storage, "append_rows", side_effect=unavailable) as writes:
+            with self.assertRaisesRegex(OSError, "first product write failed"):
+                node.run_one_iteration()
+        self.assertEqual(writes.call_count, 3)
+        rows = self.finalized_rows(node)
+        self.assertEqual(rows[("first", "events")], [])
+        self.assertEqual(len(rows[("first", "other")]), 1)
+        self.assertEqual(len(rows[("second", "events")]), 1)
+
+    async def test_unwritable_observation_does_not_skip_later_rows(self):
+        node, adapters, intake = self.two_device_node()
+        collect = adapters[0].collect_products
+
+        def produce(products, **context):
+            result = collect(products, **context)
+            result["scientific_products"]["events"].insert(0, {"value": object()})
+            return result
+
+        with patch.object(adapters[0], "collect_products", side_effect=produce):
+            with self.assertRaisesRegex(TypeError, "not JSON serializable"):
+                node.run_one_iteration()
+        rows = self.finalized_rows(node)
+        self.assertEqual(len(rows[("first", "events")]), 1)
+        self.assertEqual(len(rows[("second", "events")]), 1)
+        self.assertEqual(intake.accepted_envelopes, ())
+
+    async def test_failure_evidence_error_does_not_mask_original_failure(self):
+        node, adapters, intake = self.two_device_node()
+        message = RuntimeEvidenceMessage("device-status", "session", "event", "node",
+                                        {"event_type": "device_status"}, True)
+        adapters[0].operational_evidence = (message,)
+        receive = intake.receive_runtime_evidence
+        original, recording = OSError("operational intake failed"), OSError("failure intake failed")
+
+        def unavailable(evidence):
+            if evidence.evidence_id == message.evidence_id:
+                raise original
+            if evidence.payload.get("event_type") == "acquisition_failure":
+                raise recording
+            return receive(evidence)
+
+        with patch.object(intake, "receive_runtime_evidence", side_effect=unavailable):
+            with self.assertRaises(ExceptionGroup) as caught:
+                node.run_one_iteration()
+        self.assertEqual(caught.exception.exceptions, (original, recording))
+        rows = self.finalized_rows(node)
+        self.assertTrue(all(len(values) == 1 for values in rows.values()))
+        self.assertEqual(sum(item.payload.get("event_type") == "acquisition_failure"
+                             for item in node.runtime_evidence), 1)
 
     async def test_selected_observations_and_metadata_stay_local(self):
         intake = InMemoryIngestor(session_id="session", recovery_journal_path=self.root / "journal")

@@ -670,34 +670,49 @@ class AcquisitionNode:
             device = next(d for d in self._device_declarations if d.device_id == output.source_device_id)
             product = next(p for p in device.scientific_products if p.data_product_id == output.data_product_id)
             products_by_device.setdefault(device.device_id, []).append(product)
+        collection_error = None
         try:
             results = self._runtime_device_manager.collect_products(products_by_device,
                 session_id=self._session_id, experiment_id=context.experiment_id if context else None,
                 acquisition_node_id=self._node_id or "acquisition_node")
         except _PartialDeviceCollectionError as error:
-            failures = []
-            for result in error.partial_results:
-                try:
-                    self._persist_product_collection(result, outputs)
-                except Exception as failure:
-                    failures.append(failure)
-            if failures:
-                details = "; ".join(f"{type(failure).__name__}: {failure}" for failure in failures)
-                combined = ExceptionGroup(
-                    f"Collection failed: {error}; partial scientific preservation failed: {details}",
-                    [error.original_error, *failures])
-                self._record_acquisition_failure(combined)
-                raise combined from error
-            self._record_acquisition_failure(error)
-            raise
+            collection_error = error
+            results = error.partial_results
+        failures = [collection_error.original_error] if collection_error is not None else []
         count = 0
-        try:
-            for result in results:
+        # Attempt all completed scientific collections before handling operational intake.
+        for result in results:
+            try:
                 count += self._persist_product_collection(result, outputs)
-            self._evaluate_acquisition_health()
-        except Exception as error:
-            self._record_acquisition_failure(error)
-            raise
+            except Exception as error:
+                failures.append(error)
+        for result in results:
+            for message in result.operational_evidence:
+                try:
+                    if (not isinstance(message, RuntimeEvidenceMessage)
+                            or message.session_id != self._session_id or message.source_id != self._node_id):
+                        raise ValueError("Operational evidence has a mismatched Session or producer")
+                    self._retain_runtime_evidence(message)
+                except Exception as error:
+                    failures.append(error)
+        if not failures:
+            try:
+                self._evaluate_acquisition_health()
+            except Exception as error:
+                failures.append(error)
+        if failures:
+            if len(failures) == 1:
+                error = collection_error if collection_error is not None else failures[0]
+            else:
+                details = "; ".join(f"{type(failure).__name__}: {failure}" for failure in failures)
+                error = ExceptionGroup(f"Acquisition failed: {details}", failures)
+            try:
+                self._record_acquisition_failure(error)
+            except Exception as evidence_error:
+                raise ExceptionGroup(
+                    f"{error}; failure evidence handling failed: {evidence_error}",
+                    [error, evidence_error]) from evidence_error
+            raise error
         self._iteration_index += 1
         return AcquisitionIterationSummary(self._iteration_index, len(results), count)
 
@@ -705,42 +720,44 @@ class AcquisitionNode:
         self, result: DeviceCollectionResult, outputs: tuple[ScientificOutputSelection, ...],
     ) -> int:
         context = self._active_experiment_runtime_context
-        pending = []
-        for product_id, rows in result.scientific_products.items():
-            if context is None or not any(output.source_device_id == result.source_device_id
-                                         and output.data_product_id == product_id for output in outputs):
-                raise ValueError("Scientific product is not selected for the active Experiment")
-            storage_id = self._scientific_output_storage_ids.get(
-                (context.experiment_id, result.source_device_id, product_id))
-            if storage_id is None or self._local_storage_manager is None:
-                raise ValueError("Scientific product has no prepared local storage")
-            product = next(product for device in self._device_declarations
-                           if device.device_id == result.source_device_id
-                           for product in device.scientific_products if product.data_product_id == product_id)
-            timed_rows = []
-            for row in rows:
-                if (row.get("session_id", self._session_id) != self._session_id
-                        or row.get("experiment_id", context.experiment_id) != context.experiment_id
-                        or row.get("data_product_id", product_id) != product_id
-                        or row.get("source_device_id", result.source_device_id) != result.source_device_id
-                        or row.get("acquisition_node_id", self._node_id) != self._node_id):
-                    raise ValueError("Scientific observation identity differs from its selected product")
-                timed = self._with_session_time(row)
-                timed["session_id"] = self._session_id
-                timed["experiment_id"] = context.experiment_id
-                timed_rows.append(timed)
-            pending.append((storage_id, product.product_type, timed_rows))
-        for message in result.operational_evidence:
-            if (not isinstance(message, RuntimeEvidenceMessage)
-                    or message.session_id != self._session_id or message.source_id != self._node_id):
-                raise ValueError("Operational evidence has a mismatched Session or producer")
+        failures = []
         count = 0
-        for storage_id, product_type, rows in pending:
-            self._local_storage_manager.append_rows(storage_id, rows)
-            count += len(rows)
-            self._observe_acquisition_health_records(result.source_device_id, product_type, tuple(rows))
-        for message in result.operational_evidence:
-            self._retain_runtime_evidence(message)
+        for product_id, rows in result.scientific_products.items():
+            try:
+                if context is None or not any(output.source_device_id == result.source_device_id
+                                             and output.data_product_id == product_id for output in outputs):
+                    raise ValueError("Scientific product is not selected for the active Experiment")
+                storage_id = self._scientific_output_storage_ids.get(
+                    (context.experiment_id, result.source_device_id, product_id))
+                if storage_id is None or self._local_storage_manager is None:
+                    raise ValueError("Scientific product has no prepared local storage")
+                product = next(product for device in self._device_declarations
+                               if device.device_id == result.source_device_id
+                               for product in device.scientific_products if product.data_product_id == product_id)
+            except Exception as error:
+                failures.append(error)
+                continue
+            for row in rows:
+                try:
+                    if (row.get("session_id", self._session_id) != self._session_id
+                            or row.get("experiment_id", context.experiment_id) != context.experiment_id
+                            or row.get("data_product_id", product_id) != product_id
+                            or row.get("source_device_id", result.source_device_id) != result.source_device_id
+                            or row.get("acquisition_node_id", self._node_id) != self._node_id):
+                        raise ValueError("Scientific observation identity differs from its selected product")
+                    timed = self._with_session_time(row)
+                    timed["session_id"] = self._session_id
+                    timed["experiment_id"] = context.experiment_id
+                    self._local_storage_manager.append_rows(storage_id, (timed,))
+                    count += 1
+                    self._observe_acquisition_health_records(result.source_device_id, product.product_type, (timed,))
+                except Exception as error:
+                    failures.append(error)
+        if len(failures) == 1:
+            raise failures[0]
+        if failures:
+            details = "; ".join(f"{type(failure).__name__}: {failure}" for failure in failures)
+            raise ExceptionGroup(f"Scientific preservation failed: {details}", failures)
         return count
 
     @property

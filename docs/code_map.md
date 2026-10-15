@@ -717,8 +717,8 @@ guarantee remain deferred. M014/W034 retain completed Slice 27 scope and status.
 - AcquisitionNode.finalize_experiment_scientific_outputs: Retires the Experiment's runtime identity and attempts LocalStorageManager finalization of every associated stream, returning finalized manifests or raising an error containing all failures without affecting other Experiments.
 - AcquisitionNode.start_runtime(): Requires active binding and successful preparation, retains persistent node Session-start evidence, and starts the acquisition clock and devices.
 - AcquisitionNode.stop_runtime: Stops devices and finalizes selected artifacts, retaining persistent Session-stop evidence and explicit uncertainty before propagating finalization failures.
-- AcquisitionNode.run_one_iteration(): Collects explicit product selections, preserves completed partial observations locally, and retains operational health/failure evidence without scientific-envelope intake.
-- AcquisitionNode._persist_product_collection: Validates selected product and observation provenance, associates complete row metadata/timing without frame inference, and appends through LocalStorageManager while separately retaining operational messages.
+- AcquisitionNode.run_one_iteration(): Attempts local preservation of all completed scientific collections before operational intake, aggregating collection, persistence and evidence failures without replay or scientific-envelope intake.
+- AcquisitionNode._persist_product_collection: Validates selected product and observation provenance and attempts each scientific row through LocalStorageManager with its complete metadata/timing, retaining errors while continuing other writable rows and products.
 - AcquisitionNode.runtime_evidence: Returns the retained append-order operational messages for durable publication and retry.
 - AcquisitionNode._retain_runtime_evidence: Retains an immutable producer snapshot with identity/conflict checks before optional local operational-evidence acceptance.
 - AcquisitionNode._record_acquisition_failure: Records the actual acquisition error as persistent operational evidence and prevents further iterations until existing recovery/preparation permits reuse.
@@ -1342,8 +1342,10 @@ automatic. Kill integration and overall closeout validation remain deferred.
 ## tests/test_product_acquisition.py
 
 - ProductAdapter: Supplies explicit selected non-frame observations and separately identified operational messages for public workflow tests.
-- ProductAcquisitionTests: Covers installed-product authority, no-selection behavior, local scientific metadata, lifecycle/health evidence, publication retry, journal reconstruction and failed-finalization reporting.
+- ProductAcquisitionTests: Covers installed-product authority, local scientific preservation despite independent write/intake failures, aggregated errors, lifecycle/health evidence, publication retry and journal reconstruction.
 - ProductAcquisitionTests.node: Prepares installed declarations, selected Experiment outputs and owner-cleaned local storage through public interfaces.
+- ProductAcquisitionTests.two_device_node: Prepares two selected device/product collections with real local storage and Ingestor intake for independent failure-preservation workflows.
+- ProductAcquisitionTests.finalized_rows: Finalizes scientific artifacts and reads their rows using the node's public product-to-storage associations.
 
 ## tests/test_scientific_acquisition_persistence.py
 
