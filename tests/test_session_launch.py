@@ -107,8 +107,9 @@ class _Boundary(NatsCommunicationBoundary):
 
 
 class _CollectingAdapter(ReadyFakeAdapter):
-    def collect_records(self):
-        return {"record_kind": "event", "records": [{"value": 1}]}
+    def collect_products(self, products, **context):
+        return {"scientific_products": {product.data_product_id: [{"value": 1}]
+                                       for product in products}, "operational_evidence": ()}
 
 
 class _UnreadyAdapter(ReadyFakeAdapter):
@@ -949,7 +950,7 @@ class SessionLaunchTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("storage unavailable", initialized.reason)
         self.assertEqual(node.status()["session_id"], sid)
         self.assertIsNone(node.local_storage_manager)
-        with patch.object(adapter, "start", wraps=adapter.start) as start, patch.object(adapter, "collect_records", wraps=adapter.collect_records) as collect:
+        with patch.object(adapter, "start", wraps=adapter.start) as start, patch.object(adapter, "collect_products", wraps=adapter.collect_products) as collect:
             for operation in ("start_runtime", "run_one_iteration"):
                 result = await self.communication.request_command(participant, operation, sid, {}, 0.01)
                 self.assertFalse(result.success)

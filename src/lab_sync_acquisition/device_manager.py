@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from collections.abc import Mapping
 from typing import Any, Iterable, Iterator
+
+from lab_sync_acquisition.device import ScientificProductDeclaration
 
 from lab_sync_acquisition.device_adapter import (
     DeviceAdapter,
@@ -35,20 +38,12 @@ class DeviceReadinessSummary:
 
 
 @dataclass(frozen=True)
-class DeviceRecordCollection:
-    """Records collected from one already-created adapter."""
+class DeviceCollectionResult:
+    """Product-keyed scientific rows and separately identified operational evidence."""
 
     source_device_id: str
-    record_kind: str
-    records: tuple[Any, ...]
-
-
-@dataclass(frozen=True)
-class DeviceCollectionResult:
-    """Separate lightweight runtime records from local-only scientific data."""
-
-    runtime_records: DeviceRecordCollection
-    scientific_records: DeviceRecordCollection | None
+    scientific_products: dict[str, tuple[dict[str, Any], ...]]
+    operational_evidence: tuple[Any, ...]
 
 
 class _PartialDeviceCollectionError(RuntimeError):
@@ -132,59 +127,47 @@ class DeviceManager:
 
         return tuple(adapter.get_status() for adapter in self._adapters)
 
-    def collect_records(self) -> tuple[DeviceRecordCollection, ...]:
-        """Collect acquisition records exposed by each already-created adapter."""
-
-        collections = []
-        for adapter in self._adapters:
-            adapter_records = adapter.collect_records()
-            collections.append(
-                DeviceRecordCollection(
-                    source_device_id=adapter.device_id,
-                    record_kind=adapter_records["record_kind"],
-                    records=tuple(adapter_records["records"]),
-                )
-            )
-        return tuple(collections)
-
-    def collect_scientific_records(
-        self, *, scientific_source_device_ids: Iterable[str] | None = None,
+    def collect_products(
+        self, products_by_device: Mapping[str, Iterable[ScientificProductDeclaration]], *,
+        session_id: str, experiment_id: str | None,
+        acquisition_node_id: str,
     ) -> tuple[DeviceCollectionResult, ...]:
-        """Explicitly request local scientific data and its lightweight records.
-
-        Each adapter is collected once. Scientific collections are local data,
-        not acquisition envelopes or messages for ingestion.
-        """
-
-        selected = set(scientific_source_device_ids) if scientific_source_device_ids is not None else None
+        """Collect selected products once per device, retaining completed partial results."""
+        if set(products_by_device) - {adapter.device_id for adapter in self._adapters}:
+            raise ValueError("Selected product source has no adapter")
         results = []
         for adapter in self._adapters:
+            products = tuple(products_by_device.get(adapter.device_id, ()))
             try:
-                collected = (
-                    adapter.collect_scientific_records()
-                    if selected is None or adapter.device_id in selected
-                    else {"runtime_records": adapter.collect_records(), "scientific_records": None}
-                )
-                results.append(self._scientific_collection_result(adapter, collected))
+                collected = adapter.collect_products(products, session_id=session_id,
+                    experiment_id=experiment_id, acquisition_node_id=acquisition_node_id)
+                results.append(self._product_collection_result(adapter, products, collected))
             except _PartialScientificCollectionError as error:
-                results.append(self._scientific_collection_result(adapter, error.partial_collection))
+                try:
+                    partial = self._product_collection_result(adapter, products, error.partial_collection)
+                except Exception as invalid:
+                    combined = ExceptionGroup(
+                        f"{error.original_error}; invalid partial product result: {invalid}",
+                        [error.original_error, invalid])
+                    raise _PartialDeviceCollectionError(combined, tuple(results)) from error
+                results.append(partial)
                 raise _PartialDeviceCollectionError(error.original_error, tuple(results)) from error
             except Exception as error:
                 raise _PartialDeviceCollectionError(error, tuple(results)) from error
         return tuple(results)
 
-    def _scientific_collection_result(
-        self, adapter: DeviceAdapter, collected: dict[str, Any],
-    ) -> DeviceCollectionResult:
-        runtime = collected["runtime_records"]
-        scientific = collected["scientific_records"]
-        return DeviceCollectionResult(
-            runtime_records=DeviceRecordCollection(adapter.device_id, runtime["record_kind"], tuple(runtime["records"])),
-            scientific_records=(
-                DeviceRecordCollection(adapter.device_id, scientific["record_kind"], tuple(scientific["records"]))
-                if scientific is not None else None
-            ),
-        )
+    def _product_collection_result(self, adapter, products, collected) -> DeviceCollectionResult:
+        if not isinstance(collected, dict) or set(collected) != {"scientific_products", "operational_evidence"}:
+            raise ValueError("Adapter must separate product rows from operational evidence")
+        rows = collected["scientific_products"]
+        selected_ids = {product.data_product_id for product in products}
+        if not isinstance(rows, dict) or not set(rows).issubset(selected_ids):
+            raise ValueError("Adapter produced an unselected scientific product")
+        rows = {identity: tuple(values) for identity, values in rows.items()}
+        if any(not isinstance(row, dict) for values in rows.values() for row in values):
+            raise ValueError("Scientific observations must be plain row dictionaries")
+        return DeviceCollectionResult(adapter.device_id, rows,
+            tuple(collected["operational_evidence"]))
 
     def _call_lifecycle(
         self,

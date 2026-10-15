@@ -1,4 +1,6 @@
 import tempfile
+import json
+from pathlib import Path
 import unittest
 from dataclasses import FrozenInstanceError
 
@@ -11,6 +13,8 @@ from lab_sync_acquisition import (
     MappingUpdateEvidence,
     SynchronizationManager,
     SynchronizationMapping,
+    ActiveExperimentRuntimeContext, DeviceDeclaration,
+    ScientificProductDeclaration, ScientificOutputSelection,
 )
 from tests.fakes import ReadyFakeAdapter
 
@@ -20,9 +24,12 @@ class MappingSliceAdapter(ReadyFakeAdapter):
         super().__init__("source-001", "fake", ("stream",), True)
         self._records = ({"sample_index": 1},)
 
-    def collect_records(self):
-        records, self._records = self._records, ()
-        return {"record_kind": "stream", "records": records}
+    def collect_products(self, products, **context):
+        records = self._records if products else ()
+        if products:
+            self._records = ()
+        return {"scientific_products": {product.data_product_id: records for product in products},
+                "operational_evidence": ()}
 
 
 class Phase11SynchronizationMappingTests(unittest.TestCase):
@@ -130,6 +137,10 @@ class Phase11SynchronizationMappingTests(unittest.TestCase):
 
     def test_acquisition_node_passively_replaces_mapping_without_row_identifier(self):
         adapter = MappingSliceAdapter()
+        declaration = DeviceDeclaration(adapter.device_id, "fake", True, True, ("stream",), (
+            ScientificProductDeclaration("samples", "stream", {"sample_index": "int"}, "jsonl"),))
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
         device_manager = DeviceManager((adapter,))
         synchronization = SynchronizationManager()
         ingestor = InMemoryIngestor()
@@ -140,6 +151,7 @@ class Phase11SynchronizationMappingTests(unittest.TestCase):
             synchronization_manager=synchronization,
             ingestor=ingestor,
             error_evidence_location=tempfile.gettempdir(),
+            device_declarations=(declaration,),
         )
         initial = synchronization.create_and_activate_mapping(
             "session-001", "node-001", 10.0, 10.5, 1.0, "initial"
@@ -157,14 +169,18 @@ class Phase11SynchronizationMappingTests(unittest.TestCase):
         )
 
         device_manager.initialize_all(config={})
+        device_manager.check_readiness()
+        local = node.prepare_local_storage("session-001", (declaration,), Path(temporary.name) / "local")
+        self.addCleanup(local.cleanup)
+        self.assertTrue(node.prepare_experiment_scientific_outputs("experiment", (
+            ScientificOutputSelection(adapter.device_id, "node-001", "samples"),)).ready)
         node.start_runtime()
+        self.addCleanup(lambda: node.stop_runtime() if node.status()["is_running"] else None)
+        node.activate_experiment_runtime_context(ActiveExperimentRuntimeContext("experiment", 0.0))
         node.run_one_iteration()
-        row = next(
-            row
-            for envelope in ingestor.accepted_envelopes
-            if envelope.record_kind == "stream"
-            for row in envelope.records
-        )
+        node.finalize_experiment_scientific_outputs("experiment")
+        row = json.loads(Path(local.manifests[0].local_storage_path).read_text())
+        self.assertEqual(ingestor.accepted_envelopes, ())
 
         self.assertNotIn("mapping_id", row)
         self.assertNotIn("synchronization_mapping", row)

@@ -34,12 +34,15 @@ artifacts without changing original scientific ownership or bytes.
 
 Ingestor still owns runtime-evidence intake/audit, journal-before-ACK,
 evidence_id deduplication, known-Session reconstruction and compilation. Existing
-health/failure, lifecycle/terminal and manifest obligations remain. The current
-envelope-based node start/stop events and health observations must migrate to
-existing lifecycle/runtime-evidence mechanisms, not disappear. No new formats,
+health/failure, lifecycle/terminal and manifest obligations remain. The bounded
+node acquisition implementation now retains start/stop, health and failure
+RuntimeEvidenceMessages for durable publication, separately from scientific rows.
+No new formats,
 evidence categories, or transport for future scientific streaming are defined.
 
-This revision is not implemented. W051/W052 are historical validated envelope
+Product-based node acquisition is implemented with focused developer coverage,
+pending independent validation and audit; owner-level envelope cleanup remains
+for Slice 3B. W051/W052 are historical validated envelope
 paths, no longer required for routine scientific acquisition; active durability,
 identity, corruption/readback and Q019 preservation/recovery/closure protections
 remain. Existing saved products and validation results must not be rewritten.
@@ -48,7 +51,12 @@ Decision 378 makes installation-declared scientific products and explicit
 Experiment selections authoritative: DeviceAdapters produce their declared and
 selected observations/metadata for LocalStorageManager, separately from operational
 evidence. AcquisitionNode must not guess meaning from payload size/content or
-legacy `runtime_records` labels. This target contract is not yet implemented.
+legacy `runtime_records` labels. The bounded adapter/manager/node path uses
+`collect_products(products, *, session_id, experiment_id, acquisition_node_id)`:
+`scientific_products` maps selected product IDs to complete observation rows,
+and `operational_evidence` contains separate RuntimeEvidenceMessages. Empty
+selection performs no scientific reads. Local JSONL/HDF5 persistence retains
+the row's metadata and timing; it does not forward observations to Ingestor.
 Cleanly replace `collect_records()` / `collect_scientific_records()` and obsolete
 scientific-envelope transport, persistence, audit/recovery and compatibility paths,
 including dead functions/types, redundant tests and obsolete descriptions. Retain
@@ -56,7 +64,9 @@ only interfaces and records serving accepted operational, historical-readback or
 other authoritative responsibilities; W051/W052 history is not a compatibility
 mandate. Preserve local scientific identity/order/timing/provenance, manifests,
 operational events/health/synchronization, and all Q019 preservation/recovery guards.
-Final independent integration audit must assess both functional preservation and
+Remaining Ingestor/StorageManager envelope APIs and historical reader/closeout
+contracts are not removed in this bounded slice. Final independent integration
+audit must assess both functional preservation and
 absence of obsolete scientific-envelope architecture before closure.
 
 ## Accepted Manual Procedure

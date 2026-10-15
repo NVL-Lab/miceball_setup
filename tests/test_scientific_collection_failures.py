@@ -1,55 +1,53 @@
 import json
+from pathlib import Path
+import sys
 import unittest
 from unittest.mock import patch
 
 import h5py
 import numpy as np
 
-from lab_sync_acquisition import ScientificProductDeclaration
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+
 from tests import test_scientific_acquisition_persistence as persistence_tests
 from tests.fakes import ReadyFakeAdapter
 from tests.test_scientific_camera_collection import FakeCV2
+from lab_sync_acquisition.device_adapter import _PartialScientificCollectionError
 
 
 class FailingCollectionAdapter(ReadyFakeAdapter):
     def __init__(self, required=True):
         super().__init__("other", "fake", (), required)
 
-    def collect_records(self):
+    def collect_products(self, products, **context):
         raise OSError("later device collection failed")
-
-
-class IndexedFramesAdapter(ReadyFakeAdapter):
-    def __init__(self, scientific_rows, runtime_rows):
-        super().__init__("camera", "fake", ("camera_frames",), True)
-        self.scientific_rows = scientific_rows
-        self.runtime_rows = runtime_rows
-
-    def collect_scientific_records(self):
-        return {
-            "runtime_records": {"record_kind": "camera_frame_metadata", "records": self.runtime_rows},
-            "scientific_records": {"record_kind": "camera_frames", "records": self.scientific_rows},
-        }
 
 
 class ScientificCollectionFailureTests(unittest.TestCase):
     workflow = persistence_tests.ScientificAcquisitionPersistenceTests.workflow
+    saved_metadata = persistence_tests.ScientificAcquisitionPersistenceTests.saved_metadata
 
-    def frame(self, value, index=0, product=None):
-        row = {"frame_index": index, "frame": np.full((2, 4, 3), value, dtype=np.uint16)}
-        if product is not None:
-            row["data_product_id"] = product
-        return row
+    def test_invalid_later_partial_result_preserves_earlier_device_observations(self):
+        other = FailingCollectionAdapter()
+        expected = np.ones((2, 4, 3), dtype=np.uint16)
 
-    def runtime_rows(self, ingestor):
-        return [row for envelope in ingestor.accepted_envelopes
-                if envelope.record_kind == "camera_frame_metadata" for row in envelope.records]
+        def fail(products, **context):
+            raise _PartialScientificCollectionError(OSError("later device read failed"), {
+                "scientific_products": {"unselected": ({"value": 1},)}, "operational_evidence": ()})
+
+        with self.workflow(frames=[expected], additional_adapters=(other,)) as (controller, node, ingestor, _):
+            with patch.object(other, "collect_products", side_effect=fail):
+                result = controller.run_one_iteration()
+            self.assertFalse(result.succeeded)
+            self.assertIn("later device read failed", result.error)
+            self.assertIn("unselected scientific product", result.error)
+            self.assert_preserved_frame(node, ingestor, expected)
 
     def assert_preserved_frame(self, node, ingestor, expected):
         manifest, = node.local_storage_manager.manifests
         self.assertEqual(manifest.lifecycle_state, "finalized")
         self.assertEqual(manifest.details["persisted_frame_count"], 1)
-        metadata, = self.runtime_rows(ingestor)
+        metadata, = self.saved_metadata(node)
         with h5py.File(manifest.local_storage_path, "r") as artifact:
             np.testing.assert_array_equal(artifact["frames"][:], expected[None, ...])
             self.assertEqual(list(artifact["frame_index"][:]), [0])
@@ -102,7 +100,7 @@ class ScientificCollectionFailureTests(unittest.TestCase):
             self.assertEqual(read_mock.call_count, 2)
             self.assertEqual(controller.get_status()["session_state"], "failed")
             self.assert_preserved_frame(node, ingestor, expected)
-            self.assertNotIn("device_local_time", self.runtime_rows(ingestor)[0])
+            self.assertNotIn("device_local_time", self.saved_metadata(node)[0])
 
     def test_later_device_failure_preserves_prior_camera_collection(self):
         expected = np.full((2, 4, 3), 150, dtype=np.uint16)
@@ -136,7 +134,7 @@ class ScientificCollectionFailureTests(unittest.TestCase):
             self.assertFalse(result.succeeded)
             self.assertIn("seventh read failed", result.error)
             self.assertEqual(len(attempts), 7)
-            metadata = self.runtime_rows(ingestor)
+            metadata = self.saved_metadata(node)
             self.assertEqual([row["frame_index"] for row in metadata], list(range(6)))
             manifest, = node.local_storage_manager.manifests
             self.assertEqual(manifest.details["persisted_frame_count"], 6)
@@ -155,61 +153,6 @@ class ScientificCollectionFailureTests(unittest.TestCase):
             self.assertIn("partial disk failure", result.error)
             self.assertEqual(node.local_storage_manager.manifests[0].details["row_count"], 0)
 
-    def test_duplicate_scientific_indices_are_rejected_before_any_frame_write(self):
-        adapter = IndexedFramesAdapter(
-            (self.frame(50), self.frame(150)), ({"frame_index": 0, "read_success": True},),
-        )
-        with self.workflow(adapter=adapter) as (controller, node, ingestor, _):
-            result = controller.run_one_iteration()
-            self.assertFalse(result.succeeded)
-            self.assertIn("Ambiguous", result.error)
-            manifest, = node.local_storage_manager.manifests
-            with h5py.File(manifest.local_storage_path, "r") as artifact:
-                self.assertEqual(len(artifact["frames"]), 0)
-            self.assertEqual(self.runtime_rows(ingestor), [])
-
-    def test_duplicate_runtime_metadata_is_rejected_before_frame_write(self):
-        adapter = IndexedFramesAdapter(
-            (self.frame(50),), ({"frame_index": 0, "read_success": True},) * 2,
-        )
-        with self.workflow(adapter=adapter) as (controller, node, _, _):
-            result = controller.run_one_iteration()
-            self.assertFalse(result.succeeded)
-            self.assertIn("Ambiguous", result.error)
-            with h5py.File(node.local_storage_manager.manifests[0].local_storage_path, "r") as artifact:
-                self.assertEqual(len(artifact["frames"]), 0)
-
-    def test_later_ambiguous_collection_preserves_earlier_completed_frame(self):
-        expected = self.frame(50)
-        adapter = IndexedFramesAdapter((expected,), ({"frame_index": 0, "read_success": True},))
-        with self.workflow(adapter=adapter, max_buffered_rows=20) as (controller, node, ingestor, _):
-            self.assertTrue(controller.run_one_iteration().succeeded)
-            adapter.scientific_rows = (self.frame(100, index=1), self.frame(150, index=1))
-            adapter.runtime_rows = ({"frame_index": 1, "read_success": True},)
-            result = controller.run_one_iteration()
-            self.assertFalse(result.succeeded)
-            self.assertIn("Ambiguous", result.error)
-            self.assert_preserved_frame(node, ingestor, expected["frame"])
-
-    def test_same_index_in_distinct_products_uses_product_specific_metadata(self):
-        products = tuple(ScientificProductDeclaration(
-            name, "camera_frames", {"frame_shape": [2, 4, 3], "frame_dtype": "uint16"}, "hdf5",
-        ) for name in ("first", "second"))
-        adapter = IndexedFramesAdapter(
-            (self.frame(50, product="first"), self.frame(150, product="second")),
-            tuple({"frame_index": 0, "read_success": True, "data_product_id": name} for name in ("first", "second")),
-        )
-        with self.workflow(adapter=adapter, products=products, select_all=True) as (controller, node, ingestor, _):
-            result = controller.run_one_iteration()
-            self.assertTrue(result.succeeded, result.error)
-            self.assertTrue(controller.stop_experiment("experiment").succeeded)
-            metadata = self.runtime_rows(ingestor)
-            self.assertEqual(len(metadata), 2)
-            for index, manifest in enumerate(node.local_storage_manager.manifests):
-                with h5py.File(manifest.local_storage_path, "r") as artifact:
-                    self.assertEqual(list(artifact["frame_index"][:]), [0])
-                    self.assertEqual(artifact["frames"][0, 0, 0, 0], (50, 150)[index])
-                    self.assertEqual(artifact["session_time_s"][0], metadata[index]["session_time_s"])
 
 
 if __name__ == "__main__":

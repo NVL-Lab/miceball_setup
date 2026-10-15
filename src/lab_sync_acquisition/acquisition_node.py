@@ -17,13 +17,12 @@ from lab_sync_acquisition.acquisition_health import (
     AcquisitionHealthPolicy,
     HealthInterpretationEvidence,
 )
-from lab_sync_acquisition.acquisition_record import AcquisitionRecordEnvelope
 from lab_sync_acquisition.communication import (
     ARTIFACT_MANIFEST_EVIDENCE_TYPE, RuntimeEvidenceMessage,
 )
 from lab_sync_acquisition.acquisition_node_readiness import AcquisitionNodeReadiness
 from lab_sync_acquisition.device_manager import (
-    DeviceManager, DeviceReadinessSummary, DeviceRecordCollection,
+    DeviceManager, DeviceReadinessSummary, DeviceCollectionResult,
     _PartialDeviceCollectionError,
 )
 from lab_sync_acquisition.device import DeviceDeclaration
@@ -50,9 +49,7 @@ class AcquisitionIterationSummary:
 
     iteration_index: int
     collections_seen: int
-    envelopes_sent: int
-    accepted_count: int
-    rejected_count: int
+    scientific_observations: int
 
 
 class AcquisitionNode:
@@ -66,7 +63,6 @@ class AcquisitionNode:
         ingestor: InMemoryIngestor | None = None,
         node_id: str | None = None,
         role: str | None = None,
-        acquisition_configuration: Mapping[str, Any] | None = None,
         acquisition_health_policies: Iterable[AcquisitionHealthPolicy] = (),
         error_evidence_location: str | None = None,
         *,
@@ -78,7 +74,7 @@ class AcquisitionNode:
         self._active_service_operations = 0
         # Explicitly pre-bound nodes retain the historical caller-prepared workflow.
         self._session_prepared = session_id is not None
-        if device_manager is None or synchronization_manager is None or ingestor is None:
+        if device_manager is None or synchronization_manager is None:
             raise ValueError("AcquisitionNode requires deployment runtime collaborators")
         self._device_manager = device_manager
         self._deployment_device_configurations = {
@@ -116,24 +112,8 @@ class AcquisitionNode:
         self._acquisition_health_observed_counts: dict[str, int] = {}
         self._acquisition_health_observations_recorded: set[str] = set()
         self._acquisition_start_session_time_s: float | None = None
-        self._handoff_failure_policy = self._read_handoff_failure_policy(
-            acquisition_configuration
-        )
-        self._must_preserve_failure_threshold = (
-            self._read_must_preserve_failure_threshold(acquisition_configuration)
-        )
-        self._consecutive_must_preserve_handoff_failures = 0
         self._failed = False
-        (
-            self._stream_batch_max_records,
-            self._stream_batch_max_age_s,
-        ) = self._read_stream_batch_configuration(acquisition_configuration)
-        self._pending_stream_batches: dict[
-            tuple[str | None, str, str], list[dict[str, Any]]
-        ] = {}
-        self._pending_stream_batch_started_session_times: dict[
-            tuple[str | None, str, str], float
-        ] = {}
+        self._runtime_evidence: list[RuntimeEvidenceMessage] = []
         self._running = False
         self._iteration_index = 0
         self._last_error: str | None = None
@@ -273,7 +253,6 @@ class AcquisitionNode:
             self._acquisition_health_observed_counts.clear()
             self._acquisition_health_observations_recorded.clear()
             self._acquisition_start_session_time_s = None
-            self._consecutive_must_preserve_handoff_failures = 0
             self._iteration_index = 0
             self._failed = False
             self._last_error = None
@@ -359,7 +338,8 @@ class AcquisitionNode:
         evidence_id = f"artifact-manifest-{manifest.artifact_manifest_id}-{manifest.lifecycle_state}"
         message = next((retained for retained in self._artifact_manifest_evidence
                         if retained.evidence_id == evidence_id), None)
-        if message is not None and (not resubmit_unconfirmed or self._ingestor.has_durable_runtime_evidence(message)):
+        if message is not None and (not resubmit_unconfirmed or (
+                self._ingestor is not None and self._ingestor.has_durable_runtime_evidence(message))):
             return
         if message is None:
             message = RuntimeEvidenceMessage(
@@ -369,7 +349,8 @@ class AcquisitionNode:
                 is_persistent=True,
             )
             self._artifact_manifest_evidence.append(message)
-        self._ingestor.receive_runtime_evidence(message)
+        if self._ingestor is not None:
+            self._ingestor.receive_runtime_evidence(message)
 
     @service_operation(new_work=True)
     def attach_local_storage_manager(
@@ -382,8 +363,14 @@ class AcquisitionNode:
             raise ValueError("Local storage Session/node identity does not match AcquisitionNode")
         if self._local_storage_manager is not None and self._local_storage_manager is not manager:
             raise ValueError("LocalStorageManager is already attached for this Session/node")
+        declarations = tuple(device_declarations)
+        for declaration in declarations:
+            installed = next((device for device in self._declared_devices
+                              if device.device_id == declaration.device_id), None)
+            if installed is None or installed.scientific_products != declaration.scientific_products:
+                raise ValueError("Scientific products differ from installed device declarations")
         self._local_storage_manager = manager
-        self._device_declarations = tuple(device_declarations)
+        self._device_declarations = declarations
 
     @service_operation(new_work=True)
     def prepare_experiment_scientific_outputs(
@@ -582,7 +569,7 @@ class AcquisitionNode:
         device_readiness = self._inventory_readiness()
         service_readiness = (
             self._synchronization_manager.check_ready(),
-            self._ingestor.check_ready(),
+            *((self._ingestor.check_ready(),) if self._ingestor is not None else ()),
             self._failure_evidence_readiness(),
             *dependency_readiness_reports(self),
         )
@@ -606,7 +593,7 @@ class AcquisitionNode:
         device_readiness = self._inventory_readiness()
         service_readiness = (
             self._synchronization_manager.check_ready(),
-            self._ingestor.check_ready(),
+            *((self._ingestor.check_ready(),) if self._ingestor is not None else ()),
             self._failure_evidence_readiness(),
             *dependency_readiness_reports(self),
             *additional_service_readiness,
@@ -650,22 +637,17 @@ class AcquisitionNode:
         self._initialization_cleanup_confirmed = False
         session_time_s = self._synchronization_manager.start()
         self._acquisition_start_session_time_s = session_time_s
-        session_start_audit = self._send_envelope(
-            source_device_id="acquisition_node",
-            record_kind="event",
-            records=[
-                {
-                    "event_category": "session_lifecycle",
-                    "event_type": "session_start",
-                    "session_time_s": session_time_s,
-                }
-            ],
-        )
+        start_evidence = RuntimeEvidenceMessage(
+            f"session-start-{self._session_id}-{self._node_id}", self._session_id,
+            "event", self._node_id or "acquisition_node",
+            {"event_category": "session_lifecycle", "event_type": "session_start",
+             "session_time_s": session_time_s}, True)
+        self._retain_runtime_evidence(start_evidence)
         device_start_results = self._runtime_device_manager.start_all()
         self._running = True
         return {
             "session_time_s": session_time_s,
-            "session_start_audit": session_start_audit,
+            "session_start_evidence": start_evidence,
             "device_start_results": device_start_results,
         }
 
@@ -676,203 +658,158 @@ class AcquisitionNode:
 
     @service_operation()
     def run_one_iteration(self) -> AcquisitionIterationSummary:
-        """Collect one bounded batch of records and send envelopes to ingestion."""
-
-        if self._failed:
-            raise RuntimeError("AcquisitionNode has failed and cannot run new iterations")
+        """Collect explicitly selected products and persist their observations locally."""
         if not self._session_prepared:
             raise RuntimeError("Acquisition requires successful Session preparation")
-        if not self._running:
-            raise RuntimeError("AcquisitionNode must be running before iteration")
-
+        if self._failed or not self._running:
+            raise RuntimeError("Acquisition requires a running, prepared, healthy node")
         context = self._active_experiment_runtime_context
         outputs = self._prepared_scientific_outputs.get(context.experiment_id, ()) if context else ()
+        products_by_device = {}
+        for output in outputs:
+            device = next(d for d in self._device_declarations if d.device_id == output.source_device_id)
+            product = next(p for p in device.scientific_products if p.data_product_id == output.data_product_id)
+            products_by_device.setdefault(device.device_id, []).append(product)
         try:
-            if outputs:
-                collected = self._runtime_device_manager.collect_scientific_records(
-                    scientific_source_device_ids={output.source_device_id for output in outputs}
-                )
-                record_collections = collected
-            else:
-                record_collections = self._runtime_device_manager.collect_records()
+            results = self._runtime_device_manager.collect_products(products_by_device,
+                session_id=self._session_id, experiment_id=context.experiment_id if context else None,
+                acquisition_node_id=self._node_id or "acquisition_node")
         except _PartialDeviceCollectionError as error:
-            try:
-                self._preserve_partial_scientific_collections(error, outputs)
-            except Exception as preservation_error:
-                self._last_error = str(preservation_error)
-                raise
-            self._last_error = str(error)
+            failures = []
+            for result in error.partial_results:
+                try:
+                    self._persist_product_collection(result, outputs)
+                except Exception as failure:
+                    failures.append(failure)
+            if failures:
+                details = "; ".join(f"{type(failure).__name__}: {failure}" for failure in failures)
+                combined = ExceptionGroup(
+                    f"Collection failed: {error}; partial scientific preservation failed: {details}",
+                    [error.original_error, *failures])
+                self._record_acquisition_failure(combined)
+                raise combined from error
+            self._record_acquisition_failure(error)
             raise
+        count = 0
+        try:
+            for result in results:
+                count += self._persist_product_collection(result, outputs)
+            self._evaluate_acquisition_health()
         except Exception as error:
-            self._last_error = f"{type(error).__name__}: {error}"
+            self._record_acquisition_failure(error)
             raise
         self._iteration_index += 1
-        envelopes_sent = 0
-        accepted_count = 0
-        rejected_count = 0
+        return AcquisitionIterationSummary(self._iteration_index, len(results), count)
 
-        for collection in record_collections:
-            try:
-                if outputs:
-                    collection = self._persist_scientific_collection(collection, outputs)
-                audits = self._send_runtime_collection(collection)
-            except Exception as error:
-                self._last_error = f"{type(error).__name__}: {error}"
-                raise
-            envelopes_sent += len(audits)
-            accepted_count += sum(audit.accepted for audit in audits)
-            rejected_count += sum(not audit.accepted for audit in audits)
+    def _persist_product_collection(
+        self, result: DeviceCollectionResult, outputs: tuple[ScientificOutputSelection, ...],
+    ) -> int:
+        context = self._active_experiment_runtime_context
+        pending = []
+        for product_id, rows in result.scientific_products.items():
+            if context is None or not any(output.source_device_id == result.source_device_id
+                                         and output.data_product_id == product_id for output in outputs):
+                raise ValueError("Scientific product is not selected for the active Experiment")
+            storage_id = self._scientific_output_storage_ids.get(
+                (context.experiment_id, result.source_device_id, product_id))
+            if storage_id is None or self._local_storage_manager is None:
+                raise ValueError("Scientific product has no prepared local storage")
+            product = next(product for device in self._device_declarations
+                           if device.device_id == result.source_device_id
+                           for product in device.scientific_products if product.data_product_id == product_id)
+            timed_rows = []
+            for row in rows:
+                if (row.get("session_id", self._session_id) != self._session_id
+                        or row.get("experiment_id", context.experiment_id) != context.experiment_id
+                        or row.get("data_product_id", product_id) != product_id
+                        or row.get("source_device_id", result.source_device_id) != result.source_device_id
+                        or row.get("acquisition_node_id", self._node_id) != self._node_id):
+                    raise ValueError("Scientific observation identity differs from its selected product")
+                timed = self._with_session_time(row)
+                timed["session_id"] = self._session_id
+                timed["experiment_id"] = context.experiment_id
+                timed_rows.append(timed)
+            pending.append((storage_id, product.product_type, timed_rows))
+        for message in result.operational_evidence:
+            if (not isinstance(message, RuntimeEvidenceMessage)
+                    or message.session_id != self._session_id or message.source_id != self._node_id):
+                raise ValueError("Operational evidence has a mismatched Session or producer")
+        count = 0
+        for storage_id, product_type, rows in pending:
+            self._local_storage_manager.append_rows(storage_id, rows)
+            count += len(rows)
+            self._observe_acquisition_health_records(result.source_device_id, product_type, tuple(rows))
+        for message in result.operational_evidence:
+            self._retain_runtime_evidence(message)
+        return count
 
-        health_audits = self._evaluate_acquisition_health()
-        envelopes_sent += len(health_audits)
-        accepted_count += sum(audit.accepted for audit in health_audits)
-        rejected_count += sum(not audit.accepted for audit in health_audits)
+    @property
+    def runtime_evidence(self) -> tuple[RuntimeEvidenceMessage, ...]:
+        """Retain produced operational messages for durable NATS publication."""
+        return tuple(deepcopy(message) for message in self._runtime_evidence)
 
-        return AcquisitionIterationSummary(
-            iteration_index=self._iteration_index,
-            collections_seen=len(record_collections),
-            envelopes_sent=envelopes_sent,
-            accepted_count=accepted_count,
-            rejected_count=rejected_count,
-        )
+    def _retain_runtime_evidence(self, message: RuntimeEvidenceMessage) -> None:
+        previous = next((item for item in self._runtime_evidence if item.evidence_id == message.evidence_id), None)
+        if previous is not None:
+            if previous.to_dict() != message.to_dict():
+                raise ValueError("Conflicting retained operational evidence identity")
+        else:
+            self._runtime_evidence.append(deepcopy(message))
+        if self._ingestor is not None:
+            audit = self._ingestor.receive_runtime_evidence(message)
+            if not audit.accepted:
+                raise RuntimeError("Operational evidence acceptance is unconfirmed")
 
-    def _send_runtime_collection(self, collection: DeviceRecordCollection) -> tuple[Any, ...]:
-        records = tuple(self._with_session_time(row) for row in collection.records)
-        self._observe_acquisition_health_records(
-            source_device_id=collection.source_device_id, record_kind=collection.record_kind, records=records,
-        )
-        if collection.record_kind == "stream" and self._stream_batching_enabled():
-            return self._append_stream_records(
-                source_device_id=collection.source_device_id, record_kind=collection.record_kind, records=records,
-            )
-        return (self._send_envelope(
-            source_device_id=collection.source_device_id, record_kind=collection.record_kind, records=records,
-        ),)
-
-    def _preserve_partial_scientific_collections(
-        self, error: _PartialDeviceCollectionError, outputs: tuple[ScientificOutputSelection, ...],
-    ) -> None:
-        preservation_errors = []
-        for result in error.partial_results:
-            try:
-                collection = self._persist_scientific_collection(result, outputs)
-                self._send_runtime_collection(collection)
-            except Exception as preservation_error:
-                preservation_errors.append(preservation_error)
-        if preservation_errors:
-            reason = "; ".join(f"{type(failure).__name__}: {failure}" for failure in preservation_errors)
-            raise ExceptionGroup(
-                f"Collection failed: {error}; partial-data preservation failed: {reason}",
-                [error.original_error, *preservation_errors],
-            ) from error
-
-    def _persist_scientific_collection(self, result: Any, outputs: tuple[ScientificOutputSelection, ...]) -> DeviceRecordCollection:
-        runtime = result.runtime_records
-        runtime_rows = [dict(row) for row in runtime.records]
-        # Validate the lightweight half before any raw data can enter an envelope.
-        json.dumps(runtime_rows, allow_nan=False)
-        scientific = result.scientific_records
-        if scientific is not None:
-            context = self._active_experiment_runtime_context
-            if context is None or scientific.source_device_id != runtime.source_device_id:
-                raise ValueError("Scientific collection requires matching active Experiment/source context")
-            device = next((device for device in self._device_declarations
-                           if device.device_id == scientific.source_device_id), None)
-            if device is None:
-                raise ValueError("Scientific collection source has no device declaration")
-            selected_ids = {output.data_product_id for output in outputs
-                            if output.source_device_id == scientific.source_device_id}
-            pending_rows = []
-            used_metadata = set()
-            for row in scientific.records:
-                product_id = row.get("data_product_id")
-                candidates = [product for product in device.scientific_products
-                              if (product.data_product_id == product_id if product_id is not None
-                                  else product.product_type == scientific.record_kind)]
-                if len(candidates) != 1:
-                    raise ValueError("Scientific record product identity is unknown or ambiguous")
-                product = candidates[0]
-                if product.data_product_id not in selected_ids:
-                    continue
-                if row.get("experiment_id", context.experiment_id) != context.experiment_id:
-                    raise ValueError("Scientific record belongs to a different Experiment")
-                if row.get("session_id", self._session_id) != self._session_id:
-                    raise ValueError("Scientific record belongs to a different Session")
-                storage_id = self._scientific_output_storage_ids.get((
-                    context.experiment_id, scientific.source_device_id, product.data_product_id))
-                if storage_id is None or self._local_storage_manager is None:
-                    raise ValueError("Scientific product has no prepared storage mapping")
-                matches = [index for index, metadata in enumerate(runtime_rows)
-                           if "frame_index" in row and metadata.get("frame_index") == row["frame_index"]
-                           and metadata.get("data_product_id", product.data_product_id) == product.data_product_id
-                           and metadata.get("read_success", True)]
-                if len(matches) > 1:
-                    raise ValueError("Ambiguous runtime metadata for scientific frame")
-                if "frame" in row and not matches:
-                    raise ValueError("Scientific frame has no matching lightweight runtime metadata")
-                metadata_index = matches[0] if matches else None
-                if "frame" in row:
-                    association = (product.data_product_id, metadata_index)
-                    if association in used_metadata:
-                        raise ValueError("Ambiguous scientific frames reuse one runtime metadata record")
-                    used_metadata.add(association)
-                metadata = runtime_rows[metadata_index] if metadata_index is not None else None
-                timing_source = row if "session_time_s" in row else (metadata if metadata is not None else row)
-                timed = self._with_session_time(timing_source)
-                timing_fields = ("session_time_s", "experiment_time_s", "acquisition_node_local_time_s", "timestamp_status")
-                timing = {name: timed[name] for name in timing_fields if name in timed}
-                for original in (row, metadata):
-                    if original is not None and "session_time_s" in original:
-                        if any(name in original and original[name] != value for name, value in timing.items()):
-                            raise ValueError("Pre-existing scientific/runtime timing does not agree")
-                scientific_row = {**row, **timing, "experiment_id": context.experiment_id,
-                                  "session_id": self._session_id}
-                if metadata_index is not None:
-                    runtime_rows[metadata_index] = {**metadata, **timing}
-                pending_rows.append((storage_id, scientific_row))
-            # Validate associations for the entire bounded collection before writing.
-            for storage_id, scientific_row in pending_rows:
-                self._local_storage_manager.append_rows(storage_id, (scientific_row,))
-        return DeviceRecordCollection(runtime.source_device_id, runtime.record_kind, tuple(runtime_rows))
+    def _record_acquisition_failure(self, error) -> None:
+        self._failed = True
+        self._last_error = f"{type(error).__name__}: {error}"
+        message = RuntimeEvidenceMessage(
+            f"acquisition-failure-{self._session_id}-{self._node_id}-{len(self._runtime_evidence)}",
+            self._session_id, "event", self._node_id or "acquisition_node",
+            {"event_category": "acquisition_health", "event_type": "acquisition_failure",
+             "error": self._last_error, "experiment_id": self._active_experiment_id,
+             "session_time_s": self._synchronization_manager.current_session_time_s}, True)
+        self._retain_runtime_evidence(message)
 
     @service_operation()
     def stop_runtime(self) -> dict[str, Any]:
-        """Stop the Session acquisition runtime and perform existing cleanup."""
-
+        """Stop acquisition, finalize scientific products, and retain operational evidence."""
         self._session_prepared = False
         self._initialization_cleanup_confirmed = False
+        failures = []
+        final_session_time_s = None
         try:
-            self._flush_pending_stream_batches()
+            final_session_time_s = self._synchronization_manager.stop()
+        except Exception as error:
+            failures.append(error)
+        device_stop_results = self._runtime_device_manager.stop_all()
+        device_shutdown_results = self._runtime_device_manager.shutdown_all()
+        self._running = False
+        try:
+            self._finalize_prepared_scientific_outputs()
+        except Exception as error:
+            failures.append(error)
         finally:
-            try:
-                final_session_time_s = self._synchronization_manager.stop()
-                session_stop_audit = self._send_envelope(
-                    source_device_id="acquisition_node",
-                    record_kind="event",
-                    records=[
-                        {
-                            "event_category": "session_lifecycle",
-                            "event_type": "session_stop",
-                            "session_time_s": final_session_time_s,
-                        }
-                    ],
-                )
-            finally:
-                device_stop_results = self._runtime_device_manager.stop_all()
-                device_shutdown_results = self._runtime_device_manager.shutdown_all()
-                self._running = False
-                try:
-                    self._finalize_prepared_scientific_outputs()
-                finally:
-                    self.clear_experiment_runtime_context()
-                    self.clear_experiment_runtime_health_mapping()
-        self._initialization_cleanup_confirmed = all(r.succeeded for r in (*device_stop_results, *device_shutdown_results))
-        return {
-            "final_session_time_s": final_session_time_s,
-            "session_stop_audit": session_stop_audit,
-            "device_stop_results": device_stop_results,
-            "device_shutdown_results": device_shutdown_results,
-        }
+            self.clear_experiment_runtime_context()
+            self.clear_experiment_runtime_health_mapping()
+        self._initialization_cleanup_confirmed = not failures and all(
+            result.succeeded for result in (*device_stop_results, *device_shutdown_results))
+        stop_evidence = RuntimeEvidenceMessage(
+            f"session-stop-{self._session_id}-{self._node_id}-{len(self._runtime_evidence)}", self._session_id,
+            "event", self._node_id or "acquisition_node",
+            {"event_category": "session_lifecycle", "event_type": "session_stop",
+             "session_time_s": final_session_time_s,
+             "participant_cleanup_confirmed": self._initialization_cleanup_confirmed,
+             "errors": [f"{type(error).__name__}: {error}" for error in failures]}, True)
+        self._retain_runtime_evidence(stop_evidence)
+        if failures:
+            if len(failures) == 1:
+                raise failures[0]
+            raise ExceptionGroup("Acquisition shutdown failed", failures)
+        return {"final_session_time_s": final_session_time_s,
+                "session_stop_evidence": stop_evidence,
+                "device_stop_results": device_stop_results,
+                "device_shutdown_results": device_shutdown_results}
 
     def stop_acquisition(self) -> dict[str, Any]:
         """Compatibility wrapper for stop_runtime()."""
@@ -895,7 +832,7 @@ class AcquisitionNode:
             blockers.append("Active Session participation")
         if self.reserved_for_session_id is not None:
             blockers.append("Outstanding Session reservation")
-        if self._running or self._pending_stream_batches:
+        if self._running:
             blockers.append("Unfinished acquisition")
         if not self._initialization_cleanup_confirmed:
             blockers.append("Unconfirmed device cleanup")
@@ -1044,9 +981,6 @@ class AcquisitionNode:
             "iteration_count": self._iteration_index,
             "last_error": self._last_error,
             "failed": self._failed,
-            "consecutive_must_preserve_handoff_failures": (
-                self._consecutive_must_preserve_handoff_failures
-            ),
             "active_experiment_runtime_health_mapping": (
                 self._active_experiment_runtime_health_mapping
             ),
@@ -1058,239 +992,22 @@ class AcquisitionNode:
             ),
         }
 
-    def _send_envelope(
-        self,
-        source_device_id: str,
-        record_kind: str,
-        records: list[dict[str, Any]] | tuple[dict[str, Any], ...],
-    ) -> Any:
-        envelope = AcquisitionRecordEnvelope(
-            session_id=self._session_id,
-            source_device_id=source_device_id,
-            record_kind=record_kind,
-            records=records,
-            source_node_id=self._node_id,
-        )
-        envelope_data = envelope.to_dict()
-        reconstructed_envelope = AcquisitionRecordEnvelope.from_dict(envelope_data)
-        try:
-            audit = self._ingestor.receive_envelope(reconstructed_envelope)
-            self._consecutive_must_preserve_handoff_failures = 0
-            return audit
-        except Exception as error:
-            return self._record_handoff_failure(reconstructed_envelope, error)
-
-    def _record_handoff_failure(
-        self,
-        envelope: AcquisitionRecordEnvelope,
-        error: Exception,
-    ) -> Any:
-        if not self._error_evidence_location:
-            raise RuntimeError(
-                "Sender handoff failed but error_evidence_location is not configured"
-            ) from error
-
-        preserve = self._handoff_failure_policy == "must_preserve"
-        evidence = {
-            "session_id": envelope.session_id,
-            "source_node_id": envelope.source_node_id,
-            "source_device_id": envelope.source_device_id,
-            "record_kind": envelope.record_kind,
-            "record_count": len(envelope.records),
-            "failure_type": type(error).__name__,
-            "error_message": str(error),
-            "policy_name": self._handoff_failure_policy,
-            "action_taken": (
-                "preserved_failed_envelope"
-                if preserve
-                else "recorded_drop_and_continued"
-            ),
-            "failure_session_time_s": (
-                self._synchronization_manager.current_session_time_s
-            ),
-            "preserved_envelope": preserve,
-        }
-        if preserve:
-            evidence["envelope"] = envelope.to_dict()
-
-        evidence_directory = Path(self._error_evidence_location)
-        evidence_directory.mkdir(parents=True, exist_ok=True)
-        evidence_path = evidence_directory / "sender_handoff_failures.jsonl"
-        with evidence_path.open("a", encoding="utf-8") as evidence_file:
-            evidence_file.write(json.dumps(evidence))
-            evidence_file.write("\n")
-
-        if preserve:
-            self._consecutive_must_preserve_handoff_failures += 1
-            if (
-                self._must_preserve_failure_threshold is not None
-                and self._consecutive_must_preserve_handoff_failures
-                >= self._must_preserve_failure_threshold
-            ):
-                self._failed = True
-                self._running = False
-                self._last_error = f"{type(error).__name__}: {error}"
-
-        return _FailedHandoffAudit()
 
     def _with_session_time(self, row: dict[str, Any]) -> dict[str, Any]:
-        if "session_time_s" in row:
-            return dict(row)
-        session_time_s = self._synchronization_manager.current_session_time_s
-        timestamped_row = {
-            **row,
-            "session_time_s": session_time_s,
-            "acquisition_node_local_time_s": monotonic(),
-            "timestamp_status": "runtime_timestamped",
-        }
-        if self._active_experiment_runtime_context is not None:
+        timestamped_row = dict(row)
+        if "session_time_s" not in row:
+            timestamped_row.update(
+                session_time_s=self._synchronization_manager.current_session_time_s,
+                acquisition_node_local_time_s=monotonic(),
+                timestamp_status="runtime_timestamped")
+        if (self._active_experiment_runtime_context is not None
+                and "experiment_time_s" not in timestamped_row):
             timestamped_row["experiment_time_s"] = (
-                session_time_s
+                timestamped_row["session_time_s"]
                 - self._active_experiment_runtime_context.experiment_start_session_time_s
             )
         return timestamped_row
 
-    def _append_stream_records(
-        self,
-        source_device_id: str,
-        record_kind: str,
-        records: tuple[dict[str, Any], ...],
-    ) -> tuple[Any, ...]:
-        key = (self._node_id, source_device_id, record_kind)
-        pending = self._pending_stream_batches.get(key)
-        if records:
-            if pending is None:
-                pending = []
-                self._pending_stream_batches[key] = pending
-                self._pending_stream_batch_started_session_times[key] = (
-                    self._synchronization_manager.current_session_time_s
-                )
-            pending.extend(records)
-        elif pending is None:
-            return ()
-
-        audits = []
-        while (
-            self._stream_batch_max_records is not None
-            and len(pending) >= self._stream_batch_max_records
-        ):
-            batch = pending[: self._stream_batch_max_records]
-            audit = self._send_envelope(
-                source_device_id=source_device_id,
-                record_kind=record_kind,
-                records=tuple(batch),
-            )
-            del pending[: self._stream_batch_max_records]
-            audits.append(audit)
-            if pending:
-                self._pending_stream_batch_started_session_times[key] = (
-                    self._synchronization_manager.current_session_time_s
-                )
-
-        if pending and self._stream_batch_max_age_s is not None:
-            batch_started = self._pending_stream_batch_started_session_times[key]
-            batch_age = (
-                self._synchronization_manager.current_session_time_s
-                - batch_started
-            )
-            if batch_age >= self._stream_batch_max_age_s:
-                audit = self._send_envelope(
-                    source_device_id=source_device_id,
-                    record_kind=record_kind,
-                    records=tuple(pending),
-                )
-                pending.clear()
-                audits.append(audit)
-
-        if not pending:
-            self._pending_stream_batches.pop(key, None)
-            self._pending_stream_batch_started_session_times.pop(key, None)
-        return tuple(audits)
-
-    def _flush_pending_stream_batches(self) -> None:
-        for key, records in tuple(self._pending_stream_batches.items()):
-            source_node_id, source_device_id, record_kind = key
-            if source_node_id != self._node_id:
-                continue
-            if records:
-                self._send_envelope(
-                    source_device_id=source_device_id,
-                    record_kind=record_kind,
-                    records=tuple(records),
-                )
-            self._pending_stream_batches.pop(key, None)
-            self._pending_stream_batch_started_session_times.pop(key, None)
-
-    def _read_stream_batch_configuration(
-        self,
-        acquisition_configuration: Mapping[str, Any] | None,
-    ) -> tuple[int | None, float | None]:
-        if not isinstance(acquisition_configuration, Mapping):
-            return None, None
-        policy_name = acquisition_configuration.get("batch_policy")
-        policies = acquisition_configuration.get("batch_policies")
-        if policy_name != "type_1" or not isinstance(policies, Mapping):
-            return None, None
-        policy = policies.get(policy_name)
-        if not isinstance(policy, Mapping):
-            return None, None
-        max_records = policy.get("max_records")
-        if (
-            isinstance(max_records, bool)
-            or not isinstance(max_records, int)
-            or max_records <= 1
-        ):
-            max_records = None
-        max_batch_age_s = policy.get("max_batch_age_s")
-        if (
-            isinstance(max_batch_age_s, bool)
-            or not isinstance(max_batch_age_s, (int, float))
-            or not isfinite(max_batch_age_s)
-            or max_batch_age_s <= 0
-        ):
-            max_batch_age_s = None
-        return max_records, (
-            float(max_batch_age_s) if max_batch_age_s is not None else None
-        )
-
-    def _read_handoff_failure_policy(
-        self,
-        acquisition_configuration: Mapping[str, Any] | None,
-    ) -> str:
-        if not isinstance(acquisition_configuration, Mapping):
-            return "must_preserve"
-        policy_name = acquisition_configuration.get("handoff_failure_policy")
-        policies = acquisition_configuration.get("handoff_failure_policies")
-        if policy_name not in {"must_preserve", "best_effort"}:
-            return "must_preserve"
-        if not isinstance(policies, Mapping):
-            return "must_preserve"
-        policy = policies.get(policy_name)
-        if not isinstance(policy, Mapping):
-            return "must_preserve"
-        expected_preserve = policy_name == "must_preserve"
-        if policy.get("preserve_failed_envelope") is not expected_preserve:
-            return "must_preserve"
-        return policy_name
-
-    def _read_must_preserve_failure_threshold(
-        self,
-        acquisition_configuration: Mapping[str, Any] | None,
-    ) -> int | None:
-        if not isinstance(acquisition_configuration, Mapping):
-            return None
-        policies = acquisition_configuration.get("handoff_failure_policies")
-        if not isinstance(policies, Mapping):
-            return None
-        policy = policies.get("must_preserve")
-        if not isinstance(policy, Mapping):
-            return None
-        threshold = policy.get("consecutive_failure_threshold")
-        if isinstance(threshold, bool) or not isinstance(threshold, int):
-            return None
-        if threshold < 1:
-            return None
-        return threshold
 
     def _failure_evidence_readiness(self) -> ServiceReadiness:
         if not self._error_evidence_location:
@@ -1364,16 +1081,15 @@ class AcquisitionNode:
             for row in records
         )
 
-    def _evaluate_acquisition_health(self) -> tuple[Any, ...]:
+    def _evaluate_acquisition_health(self) -> None:
         if (
             self._acquisition_start_session_time_s is None
             or not self._active_experiment_runtime_health_mapping
         ):
-            return ()
+            return
         current_session_time_s = (
             self._synchronization_manager.current_session_time_s
         )
-        audits = []
         for mapping in self._active_experiment_runtime_health_mapping:
             source_device_id = mapping.live_source_id
             policy_name = mapping.acquisition_health_policy
@@ -1407,13 +1123,11 @@ class AcquisitionNode:
             )
             self._next_health_observation_id += 1
             self._experiment_scoped_health_observations.append(observation)
-            audits.append(
-                self._send_envelope(
-                    source_device_id="acquisition_node",
-                    record_kind="event",
-                    records=(observation.to_dict(),),
-                )
-            )
+            observation_message = RuntimeEvidenceMessage(
+                f"health-observation-{self._session_id}-{self._node_id}-{observation.observation_id}",
+                self._session_id, "event", self._node_id or "acquisition_node",
+                {"event_category": "acquisition_health", **observation.to_dict()}, True)
+            self._retain_runtime_evidence(observation_message)
             interpretation = HealthInterpretationEvidence(
                 originating_observation_id=observation.observation_id,
                 experiment_id=observation.experiment_id,
@@ -1430,19 +1144,13 @@ class AcquisitionNode:
                 details={"expected_contribution": mapping.expected_contribution},
             )
             self._health_interpretation_evidence.append(interpretation)
-            self._health_runtime_evidence.append(RuntimeEvidenceMessage(
+            message = RuntimeEvidenceMessage(
                 evidence_id=f"health-interpretation-{self._session_id}-{self._node_id}-{interpretation.originating_observation_id}",
                 session_id=self._session_id, evidence_type="health_interpretation",
-                source_id=self._node_id, payload=interpretation.to_dict(), is_persistent=True))
-            audits.append(
-                self._send_envelope(
-                    source_device_id="acquisition_node",
-                    record_kind="event",
-                    records=(interpretation.to_dict(),),
-                )
-            )
+                source_id=self._node_id or "acquisition_node", payload=interpretation.to_dict(), is_persistent=True)
+            self._health_runtime_evidence.append(message)
+            self._retain_runtime_evidence(message)
             self._acquisition_health_observations_recorded.add(source_device_id)
-        return tuple(audits)
 
     def _first_evidence_rule(
         self,
@@ -1463,14 +1171,3 @@ class AcquisitionNode:
         ):
             return rule
         return None
-
-    def _stream_batching_enabled(self) -> bool:
-        return (
-            self._stream_batch_max_records is not None
-            or self._stream_batch_max_age_s is not None
-        )
-
-
-@dataclass(frozen=True)
-class _FailedHandoffAudit:
-    accepted: bool = False

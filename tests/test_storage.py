@@ -35,19 +35,14 @@ class SessionRecordFakeAdapter(ReadyFakeAdapter):
         self._records = tuple(records)
         self._collected = False
 
-    def collect_records(self):
+    def collect_products(self, products, **context):
         if self.state is not DeviceAdapterState.RUNNING:
             raise RuntimeError("Session record fake requires a running adapter")
-        if self._collected:
-            return {
-                "record_kind": "tiny_stream",
-                "records": (),
-            }
+        if not products or self._collected:
+            return {"scientific_products": {}, "operational_evidence": ()}
         self._collected = True
-        return {
-            "record_kind": "tiny_stream",
-            "records": self._records,
-        }
+        return {"scientific_products": {product.data_product_id: self._records for product in products},
+                "operational_evidence": ()}
 
 
 class PersistentStorageManagerTests(unittest.TestCase):
@@ -393,60 +388,13 @@ class PersistentStorageManagerTests(unittest.TestCase):
             )
             self.assertEqual(
                 len(session_record["accepted_acquisition_envelopes"]),
-                3,
+                0,
             )
-            event_envelopes = [
-                envelope
-                for envelope in session_record[
-                    "accepted_acquisition_envelopes"
-                ]
-                if envelope["record_kind"] == "event"
-            ]
-            stream_envelopes = [
-                envelope
-                for envelope in session_record[
-                    "accepted_acquisition_envelopes"
-                ]
-                if envelope["record_kind"] == "tiny_stream"
-            ]
-            self.assertEqual(
-                event_envelopes[0]["records"][0],
-                {
-                    "event_category": "session_lifecycle",
-                    "event_type": "session_start",
-                    "session_time_s": 0.0,
-                },
-            )
-            self.assertEqual(
-                event_envelopes[1]["records"][0]["event_type"],
-                "session_stop",
-            )
-            stored_stream_rows = stream_envelopes[0]["records"]
-            self.assertEqual(
-                [
-                    {
-                        key: value
-                        for key, value in row.items()
-                        if key not in {
-                            "session_time_s",
-                            "acquisition_node_local_time_s",
-                            "timestamp_status",
-                        }
-                    }
-                    for row in stored_stream_rows
-                ],
-                list(payload_rows),
-            )
-            self.assertTrue(
-                all("session_time_s" in row for row in stored_stream_rows)
-            )
-            self.assertTrue(
-                all(
-                    isinstance(row["acquisition_node_local_time_s"], float)
-                    and row["timestamp_status"] == "runtime_timestamped"
-                    for row in stored_stream_rows
-                )
-            )
+            self.assertEqual([message.payload["event_type"] for message in ingestor.accepted_runtime_evidence],
+                             ["session_start", "session_stop"])
+            storage.write_evidence_archive(session.session_id, ingestor.compile_persistent_runtime_evidence())
+            archived = self._read_jsonl(root / "session_session-001" / "evidence" / "runtime_evidence.jsonl")
+            self.assertEqual(archived, [message.to_dict() for message in ingestor.accepted_runtime_evidence])
             self.assertEqual(
                 len(session_record["ingest_audit_records"]),
                 len(session_record["accepted_acquisition_envelopes"]),

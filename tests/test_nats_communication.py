@@ -683,15 +683,13 @@ class _CapturingJetStream:
 class _Summary:
     iteration_index = 1
     collections_seen = 0
-    envelopes_sent = 0
-    accepted_count = 0
-    rejected_count = 0
+    scientific_observations = 0
 
 
 class _CountingAcquisitionNode:
     def __init__(self):
         self.start_count = 0
-        self.health_interpretation_evidence = ()
+        self.runtime_evidence = ()
 
     def status(self):
         return {"session_id": "session-001"}

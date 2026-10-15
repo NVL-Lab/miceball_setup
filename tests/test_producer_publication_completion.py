@@ -58,8 +58,9 @@ class HealthNode(AcquisitionNode):
 class ProducerPublicationCompletionTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.fixture = launch_fixture.SessionLaunchTests()
+        self.fixture.addCleanup = self.addCleanup
+        self.fixture.addAsyncCleanup = self.addAsyncCleanup
         self.fixture.setUp()
-        self.addCleanup(self.fixture.doCleanups)
         self.fixture.broker = PublicationBroker()
         self.fixture.controller = Controller(ingestor=self.fixture.ingestor,
                                              synchronization_manager=self.fixture.sync)
@@ -294,12 +295,12 @@ class ProducerPublicationCompletionTests(unittest.IsolatedAsyncioTestCase):
         mapping = (ExperimentRuntimeHealthMapping(declaration.device_id, "node-a", "frames", True, "frames"),)
         node.activate_experiment_runtime_health_mapping("first-experiment", mapping)
         entered, resume, overlapping_entered = asyncio.Event(), asyncio.Event(), asyncio.Event()
-        original_publish = handler.publish_new_health_interpretation_evidence
+        original_publish = handler.publish_new_runtime_evidence
 
-        async def observe_publish(session_id):
+        async def observe_publish():
             if entered.is_set():
                 overlapping_entered.set()
-            await original_publish(session_id)
+            await original_publish()
 
         async def pause(subject, data):
             if data.get("evidence_type") == "health_interpretation" and not entered.is_set():
@@ -309,12 +310,12 @@ class ProducerPublicationCompletionTests(unittest.IsolatedAsyncioTestCase):
         f.broker.before_publication = pause
         tasks = []
         try:
-            with patch.object(handler, "publish_new_health_interpretation_evidence", new=observe_publish):
+            with patch.object(handler, "publish_new_runtime_evidence", new=observe_publish):
                 iteration = asyncio.create_task(f.communication.request_command(
                     RuntimeParticipant("acquisition_node", "node-a"), "run_one_iteration", sid, {}, 3))
                 tasks.append(iteration)
                 await asyncio.wait_for(entered.wait(), 2)
-                publication = asyncio.create_task(handler.publish_new_health_interpretation_evidence(sid))
+                publication = asyncio.create_task(handler.publish_new_runtime_evidence())
                 tasks.append(publication)
                 await asyncio.wait_for(overlapping_entered.wait(), 2)
                 resume.set()
@@ -618,7 +619,7 @@ class ProducerPublicationCompletionTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(node.initialize_session("next-session", (declaration,), {}).ready)
         f.broker.before_publication = None
         handler = NatsAcquisitionNodeCommunication(_Boundary("acquisition_node", "node-a", f.broker), node)
-        await handler.publish_new_health_interpretation_evidence("next-session")
+        await handler.publish_new_runtime_evidence()
         self.assertEqual(self.published("health_interpretation"), [m.to_dict() for m in retained])
         self.assertTrue(all(m.session_id == sid for m in retained))
         self.assertTrue(node.abort_session_initialization("next-session"))

@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from math import isfinite
 from typing import Any, Iterable
 
+from lab_sync_acquisition.device import ScientificProductDeclaration
+
 from lab_sync_acquisition.device_adapter import (
     DeviceAdapter,
     DeviceAdapterLifecycleError,
@@ -29,7 +31,7 @@ class OpenCVCameraConfig:
 
 
 class SeeedIMX219OpenCVCameraAdapter(DeviceAdapter):
-    """OpenCV-backed adapter that emits lightweight frame metadata records."""
+    """OpenCV-backed adapter producing selected frames with their scientific metadata."""
 
     def __init__(
         self,
@@ -101,65 +103,38 @@ class SeeedIMX219OpenCVCameraAdapter(DeviceAdapter):
             )
         return self._mark_ready()
 
-    def collect_records(self) -> dict[str, Any]:
-        """Poll configured frame count and return metadata-only records."""
-
-        return self._collect_camera_records(include_frames=False)["runtime_records"]
-
-    def collect_scientific_records(self) -> dict[str, Any]:
-        """Return local NumPy frames and separate metadata from the same reads."""
-
-        return self._collect_camera_records(include_frames=True)
-
-    def _collect_camera_records(self, *, include_frames: bool) -> dict[str, Any]:
-
-        if self.state is not DeviceAdapterState.RUNNING:
-            raise RuntimeError("OpenCV camera records require a running adapter")
-        if self._capture is None or self._camera_config is None:
-            raise RuntimeError("OpenCV camera capture is not initialized")
-
-        records = []
-        scientific_records = []
-        result = {
-            "runtime_records": {
-                "record_kind": "camera_frame_metadata",
-                "records": records,
-            },
-            "scientific_records": (
-                {"record_kind": "camera_frames", "records": scientific_records}
-                if include_frames else None
-            ),
-        }
+    def collect_products(
+        self, products: Iterable[ScientificProductDeclaration], *, session_id: str,
+        experiment_id: str | None, acquisition_node_id: str,
+    ) -> dict[str, Any]:
+        """Acquire only selected camera products with all per-frame metadata kept locally."""
+        products = tuple(products)
+        if any(product.product_type != "camera_frames" for product in products):
+            raise ValueError("Camera does not support the selected product type")
+        result = {"scientific_products": {product.data_product_id: [] for product in products},
+                  "operational_evidence": []}
+        if not products:
+            return result
+        if self.state is not DeviceAdapterState.RUNNING or self._capture is None or self._camera_config is None:
+            raise RuntimeError("Camera acquisition requires a running initialized adapter")
+        if not experiment_id:
+            raise ValueError("Scientific acquisition requires an Experiment")
         try:
             for _ in range(self._camera_config.frames_per_collect):
-                read_success, frame = self._capture.read()
-                if not read_success:
-                    records.append(
-                        {"frame_index": self._frame_index, "read_success": False, "backend": self._backend_name}
-                    )
-                    continue
-
-                metadata = self._metadata_from_frame(frame)
-                metadata.update(
-                    {"frame_index": self._frame_index, "read_success": True, "backend": self._backend_name}
-                )
-                records.append(metadata)
-                if include_frames:
-                    import numpy as np
-
-                    if not isinstance(frame, np.ndarray):
-                        raise TypeError("Scientific camera frames must be NumPy arrays")
-                    scientific_records.append(
-                        {**metadata, **self._available_camera_metadata(), "frame": frame}
-                    )
+                succeeded, frame = self._capture.read()
+                if not succeeded:
+                    raise RuntimeError("Camera read did not produce a scientific observation")
+                import numpy as np
+                if not isinstance(frame, np.ndarray):
+                    raise TypeError("Scientific camera frames must be NumPy arrays")
+                row = {**self._metadata_from_frame(frame), **self._available_camera_metadata(),
+                       "frame_index": self._frame_index, "read_success": True,
+                       "backend": self._backend_name, "frame": frame}
+                for product in products:
+                    result["scientific_products"][product.data_product_id].append(dict(row))
                 self._frame_index += 1
         except Exception as error:
-            if include_frames:
-                raise _PartialScientificCollectionError(error, result) from error
-            raise
-        result["runtime_records"]["records"] = tuple(records)
-        if include_frames:
-            result["scientific_records"]["records"] = tuple(scientific_records)
+            raise _PartialScientificCollectionError(error, result) from error
         return result
 
     def _available_camera_metadata(self) -> dict[str, Any]:

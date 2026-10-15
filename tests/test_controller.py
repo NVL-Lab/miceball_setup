@@ -1,6 +1,7 @@
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 import json
 from pathlib import Path
 
@@ -31,18 +32,9 @@ from tests.fakes import ReadyFakeAdapter
 class ControllerFakeAdapter(ReadyFakeAdapter):
     def __init__(self):
         super().__init__("live-source-001", "fake_stream", ("stream",), True)
-        self._records = ({"sample_index": 1, "value": 42},)
 
-    def collect_records(self):
-        records, self._records = self._records, ()
-        return {"record_kind": "stream", "records": records}
-
-
-class DeviceHandoffFailingIngestor(InMemoryIngestor):
-    def receive_envelope(self, envelope):
-        if envelope.source_device_id != "acquisition_node":
-            raise ConnectionError("device handoff unavailable")
-        return super().receive_envelope(envelope)
+    def collect_products(self, products, **context):
+        return {"scientific_products": {}, "operational_evidence": ()}
 
 
 class FirstSessionRecordWriteFailingStorage(PersistentStorageManager):
@@ -234,7 +226,7 @@ class ControllerWorkflowTests(unittest.TestCase):
             )
             self.assertEqual(
                 len(session_record["accepted_acquisition_envelopes"]),
-                3,
+                0,
             )
             for record in (initial_record, session_record):
                 self.assertEqual(record["runtime_evidence"], [])
@@ -243,21 +235,23 @@ class ControllerWorkflowTests(unittest.TestCase):
                 session_record["ingest_audit_records"],
                 [audit.to_dict() for audit in ingestor.ingest_audit],
             )
-            self.assertEqual(len(session_record["ingest_audit_records"]), 3)
+            self.assertEqual(len(session_record["ingest_audit_records"]), 0)
             self.assertNotIn(
                 "artifact_bytes",
                 archived_runtime_evidence[0]["payload"],
             )
-            self.assertEqual(archived_runtime_evidence, [artifact_manifest.to_dict()])
-            self.assertEqual(archived_ingest_audit, [runtime_audit.to_dict()])
+            expected_messages = [message.to_dict() for message in ingestor.accepted_runtime_evidence]
+            expected_audits = [audit.to_dict() for audit in ingestor.runtime_evidence_audit]
+            self.assertEqual(archived_runtime_evidence, expected_messages)
+            self.assertEqual(archived_ingest_audit, expected_audits)
             self.assertEqual(
                 compilation_summary,
                 {
                     "session_id": "controller-session-001",
-                    "runtime_evidence_count": 1,
-                    "ingest_audit_count": 1,
-                    "runtime_evidence_ids": ["artifact-manifest-001"],
-                    "ingest_audit_evidence_ids": ["artifact-manifest-001"],
+                    "runtime_evidence_count": len(expected_messages),
+                    "ingest_audit_count": len(expected_audits),
+                    "runtime_evidence_ids": [item["evidence_id"] for item in expected_messages],
+                    "ingest_audit_evidence_ids": [item["evidence_id"] for item in expected_audits],
                 },
             )
             self.assertTrue(
@@ -555,13 +549,12 @@ class ControllerWorkflowTests(unittest.TestCase):
             adapter = ControllerFakeAdapter()
             manager = DeviceManager((adapter,))
             storage = PersistentStorageManager(root / "accepted_records.jsonl")
-            ingestor = DeviceHandoffFailingIngestor(storage_manager=storage)
+            ingestor = InMemoryIngestor(storage_manager=storage)
             node = AcquisitionNode(
                 session_id=config.session_id,
                 device_manager=manager,
                 synchronization_manager=SynchronizationManager(),
                 ingestor=ingestor,
-                acquisition_configuration=config.acquisition_configuration,
                 error_evidence_location=config.error_evidence_location,
             )
             controller = Controller(
@@ -575,7 +568,8 @@ class ControllerWorkflowTests(unittest.TestCase):
             )
             controller.start_session()
 
-            result = controller.run_one_iteration()
+            with patch.object(adapter, "collect_products", side_effect=OSError("device acquisition failed")):
+                result = controller.run_one_iteration()
 
             self.assertFalse(result.succeeded)
             self.assertEqual(controller.get_status()["session_state"], "failed")
@@ -695,7 +689,6 @@ class ControllerWorkflowTests(unittest.TestCase):
             device_manager=manager,
             synchronization_manager=synchronization,
             ingestor=ingestor,
-            acquisition_configuration=config.acquisition_configuration,
             acquisition_health_policies=config.acquisition_health_policies,
             error_evidence_location=config.error_evidence_location,
         )

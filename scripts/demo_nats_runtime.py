@@ -21,7 +21,6 @@ if str(REPOSITORY_ROOT) not in sys.path:
 from lab_sync_acquisition import (  # noqa: E402
     AcquisitionNode,
     DeviceAdapter,
-    DeviceAdapterState,
     DeviceManager,
     InMemoryIngestor,
     NatsAcquisitionNodeCommunication,
@@ -35,8 +34,8 @@ from lab_sync_acquisition import (  # noqa: E402
 )
 
 
-class DemoRecordAdapter(DeviceAdapter):
-    """Demo-local adapter that emits one bounded fake stream batch."""
+class DemoOperationalAdapter(DeviceAdapter):
+    """Demo-local adapter with no selected scientific products."""
 
     def __init__(self) -> None:
         super().__init__(
@@ -45,33 +44,9 @@ class DemoRecordAdapter(DeviceAdapter):
             declared_capabilities=("stream",),
             required=True,
         )
-        self._collected = False
 
     def check_ready(self):
         return self._mark_ready()
-
-    def collect_records(self):
-        if self.state is not DeviceAdapterState.RUNNING:
-            raise RuntimeError("Demo record collection requires a running adapter")
-        if self._collected:
-            return {"record_kind": "stream", "records": ()}
-        self._collected = True
-        return {
-            "record_kind": "stream",
-            "records": (
-                {
-                    "sample_index": 0,
-                    "device_local_time": 100.0,
-                    "value": 1.0,
-                },
-                {
-                    "sample_index": 1,
-                    "device_local_time": 100.1,
-                    "value": 2.0,
-                },
-            ),
-        }
-
 
 async def run_demo(server_url: str) -> None:
     session_id = f"phase-10b-demo-{uuid4().hex}"
@@ -95,16 +70,14 @@ async def run_demo(server_url: str) -> None:
     )
 
     with tempfile.TemporaryDirectory() as directory:
-        manager = DeviceManager((DemoRecordAdapter(),))
+        manager = DeviceManager((DemoOperationalAdapter(),))
         manager.initialize_all({"mode": "phase-10b-demo"})
         readiness = manager.check_readiness()
         assert readiness.all_ready
-        local_ingestor = InMemoryIngestor()
         node = AcquisitionNode(
             session_id=session_id,
             device_manager=manager,
             synchronization_manager=SynchronizationManager(),
-            ingestor=local_ingestor,
             node_id="node-001",
             role="acquisition_node",
             error_evidence_location=str(Path(directory) / "errors"),
@@ -206,8 +179,9 @@ async def run_demo(server_url: str) -> None:
             for result in controller.command_results:
                 print("COMMAND_RESULT:", result.to_dict())
             assert all(result.success for result in controller.command_results)
-            assert len(evidence_ingestor.accepted_runtime_evidence) == 1
-            assert len(evidence_ingestor.runtime_evidence_audit) == 1
+            expected_ids = {message.evidence_id for message in node.runtime_evidence} | {"evidence-001"}
+            assert {message.evidence_id for message in evidence_ingestor.accepted_runtime_evidence} == expected_ids
+            assert len(evidence_ingestor.runtime_evidence_audit) == len(expected_ids)
             assert len(telemetry_received) == 1
 
             print(f"server={server_url}")
@@ -220,6 +194,8 @@ async def run_demo(server_url: str) -> None:
             print(f"telemetry_received={len(telemetry_received)}")
             print("validation=passed")
         finally:
+            if node.status()["is_running"]:
+                node.stop_runtime()
             for boundary in reversed(boundaries):
                 await boundary.close()
 

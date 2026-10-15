@@ -27,19 +27,15 @@ class ScientificEventAdapter(ReadyFakeAdapter):
         self.product_id = product_id
         self.experiment_id = experiment_id
         self.scientific_calls = 0
-        self.runtime_calls = 0
 
-    def collect_records(self):
-        self.runtime_calls += 1
-        return {"record_kind": "events", "records": ({"value": 7},)}
-
-    def collect_scientific_records(self):
+    def collect_products(self, products, **context):
+        if not products:
+            return {"scientific_products": {}, "operational_evidence": ()}
         self.scientific_calls += 1
         row = {"value": 7, "data_product_id": self.product_id}
         if self.experiment_id is not None:
             row["experiment_id"] = self.experiment_id
-        return {"runtime_records": {"record_kind": "events", "records": ({"value": 7},)},
-                "scientific_records": {"record_kind": "events", "records": (row,)}}
+        return {"scientific_products": {self.product_id: (row,)}, "operational_evidence": ()}
 
 
 class ScientificAcquisitionPersistenceTests(unittest.TestCase):
@@ -72,7 +68,7 @@ class ScientificAcquisitionPersistenceTests(unittest.TestCase):
             sync = SynchronizationManager()
             node = AcquisitionNode("session", manager, sync, ingestor, node_id="node",
                                    error_evidence_location=config.error_evidence_location,
-                                   default_local_storage_root=root / "local")
+                                   default_local_storage_root=root / "local", device_declarations=config.selected_devices)
             controller = Controller(node, ingestor, storage, root / "session.json", synchronization_manager=sync)
             if max_buffered_rows is not None:
                 node.attach_local_storage_manager(LocalStorageManager(
@@ -94,7 +90,12 @@ class ScientificAcquisitionPersistenceTests(unittest.TestCase):
                     node.stop_runtime()
                 node.local_storage_manager.cleanup()
 
-    def test_frames_and_runtime_metadata_share_timing_without_duplicate_reads(self):
+    def saved_metadata(self, node):
+        manifest, = node.local_storage_manager.manifests
+        with h5py.File(manifest.local_storage_path, "r") as artifact:
+            return [json.loads(value) for value in artifact["record_metadata_json"][:]]
+
+    def test_frames_and_metadata_share_timing_without_duplicate_reads(self):
         frames = [np.arange(24, dtype=np.uint16).reshape(2, 4, 3),
                   np.full((2, 4, 3), 60000, dtype=np.uint16)]
         with self.workflow(frames=frames, count=2, properties={0: 123.4}) as (controller, node, ingestor, capture):
@@ -104,8 +105,7 @@ class ScientificAcquisitionPersistenceTests(unittest.TestCase):
             self.assertEqual(capture.read_count, 2)
             manifest, = node.local_storage_manager.manifests
             node.local_storage_manager.flush(manifest.storage_id)
-            runtime = [row for envelope in ingestor.accepted_envelopes
-                       if envelope.record_kind == "camera_frame_metadata" for row in envelope.records]
+            runtime = self.saved_metadata(node)
             with h5py.File(manifest.local_storage_path, "r") as artifact:
                 np.testing.assert_array_equal(artifact["frames"][:], np.stack(frames))
                 self.assertEqual(artifact["frames"].dtype, np.dtype("uint16"))
@@ -150,8 +150,7 @@ class ScientificAcquisitionPersistenceTests(unittest.TestCase):
                     self.assertTrue(node.status()["is_running"])
             manifest, = node.local_storage_manager.manifests
             node.local_storage_manager.flush(manifest.storage_id)
-            metadata = [row for envelope in ingestor.accepted_envelopes
-                        if envelope.record_kind == "camera_frame_metadata" for row in envelope.records]
+            metadata = self.saved_metadata(node)
             self.assertEqual(capture.read_count, 2)
             self.assertEqual(len(metadata), 2)
             with h5py.File(manifest.local_storage_path, "r") as artifact:
@@ -214,12 +213,12 @@ class ScientificAcquisitionPersistenceTests(unittest.TestCase):
                 np.testing.assert_array_equal(artifact["frames"][:], np.stack(frames))
                 self.assertEqual(list(artifact["frame_index"][:]), [0, 1, 2])
 
-    def test_metadata_only_camera_experiment_creates_no_scientific_artifact(self):
+    def test_unselected_camera_does_not_acquire_or_create_artifacts(self):
         with self.workflow(selected=False) as (controller, node, ingestor, capture):
             self.assertTrue(controller.run_one_iteration().succeeded)
-            self.assertEqual(capture.read_count, 1)
+            self.assertEqual(capture.read_count, 0)
             self.assertEqual(node.local_storage_manager.manifests, ())
-            self.assertTrue(any(e.record_kind == "camera_frame_metadata" for e in ingestor.accepted_envelopes))
+            self.assertEqual(ingestor.accepted_envelopes, ())
 
     def test_jsonl_scientific_product_persists_with_framework_timing(self):
         product = ScientificProductDeclaration("events", "events", {"value": "number"}, "jsonl")
@@ -233,12 +232,11 @@ class ScientificAcquisitionPersistenceTests(unittest.TestCase):
             for field in ("session_time_s", "experiment_time_s", "acquisition_node_local_time_s", "timestamp_status"):
                 self.assertIn(field, row)
 
-    def test_known_unselected_product_is_not_persisted(self):
+    def test_unselected_product_production_is_rejected(self):
         products = tuple(ScientificProductDeclaration(name, "events", {}, "jsonl") for name in ("selected", "unselected"))
         with self.workflow(adapter=ScientificEventAdapter("unselected"), products=products) as (controller, node, _, _):
-            self.assertTrue(controller.run_one_iteration().succeeded)
+            self.assertFalse(controller.run_one_iteration().succeeded)
             manifest, = node.local_storage_manager.manifests
-            node.local_storage_manager.flush(manifest.storage_id)
             self.assertEqual(Path(manifest.local_storage_path).read_text(), "")
 
     def test_unknown_product_and_wrong_experiment_are_rejected(self):
@@ -255,7 +253,7 @@ class ScientificAcquisitionPersistenceTests(unittest.TestCase):
             with patch.object(node, "_scientific_output_storage_ids", {}):
                 result = controller.run_one_iteration()
             self.assertFalse(result.succeeded)
-            self.assertIn("no prepared storage mapping", result.error)
+            self.assertIn("no prepared local storage", result.error)
             self.assertEqual(len(node.local_storage_manager.manifests), 1)
 
     def test_scientific_write_failure_is_not_successful_acquisition(self):
@@ -265,39 +263,13 @@ class ScientificAcquisitionPersistenceTests(unittest.TestCase):
             self.assertFalse(result.succeeded)
             self.assertIn("disk failed", result.error)
 
-    def test_unselected_device_uses_only_existing_runtime_collection(self):
+    def test_unselected_device_does_not_collect_scientific_observations(self):
         adapter = ScientificEventAdapter()
         product = ScientificProductDeclaration("events", "events", {}, "jsonl")
         with self.workflow(adapter=adapter, products=(product,), selected=False) as (controller, _, _, _):
             self.assertTrue(controller.run_one_iteration().succeeded)
-            self.assertEqual(adapter.runtime_calls, 1)
             self.assertEqual(adapter.scientific_calls, 0)
 
-    def test_selected_and_unselected_devices_are_each_collected_once(self):
-        selected = ScientificEventAdapter()
-        unselected = ScientificEventAdapter(device_id="other")
-        manager = DeviceManager((selected, unselected))
-        manager.initialize_all({})
-        manager.check_readiness()
-        manager.start_all()
-        try:
-            results = manager.collect_scientific_records(scientific_source_device_ids=("camera",))
-            self.assertIsNotNone(results[0].scientific_records)
-            self.assertIsNone(results[1].scientific_records)
-            self.assertEqual((selected.scientific_calls, selected.runtime_calls), (1, 0))
-            self.assertEqual((unselected.scientific_calls, unselected.runtime_calls), (0, 1))
-        finally:
-            manager.stop_all()
-            manager.shutdown_all()
-
-    def test_ambiguous_product_kind_requires_explicit_product_id(self):
-        products = tuple(ScientificProductDeclaration(
-            name, "camera_frames", {"frame_shape": [2, 4, 3], "frame_dtype": "uint16"}, "hdf5")
-            for name in ("frames", "other-frames"))
-        with self.workflow(products=products) as (controller, _, _, _):
-            result = controller.run_one_iteration()
-            self.assertFalse(result.succeeded)
-            self.assertIn("ambiguous", result.error)
 
 
 if __name__ == "__main__":

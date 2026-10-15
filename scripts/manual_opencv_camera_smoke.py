@@ -1,4 +1,4 @@
-"""Run metadata smoke checks or opt-in scientific HDF5 camera validation."""
+"""Check camera readiness or explicitly select scientific HDF5 frame acquisition."""
 
 from __future__ import annotations
 
@@ -23,7 +23,6 @@ from lab_sync_acquisition import (
     DeviceAdapterState,
     DeviceManager,
     InMemoryIngestor,
-    InMemoryStorageManager,
     LocalStorageManager,
     OpenCVCameraConfig,
     SeeedIMX219OpenCVCameraAdapter,
@@ -248,7 +247,7 @@ def _run_scientific(args, adapter, manager, config) -> int:
     sync = SynchronizationManager()
     node = AcquisitionNode(session_id, manager, sync, ingestor, node_id="camera-node",
         error_evidence_location=args.error_evidence_location,
-        default_local_storage_root=root / "scientific")
+        default_local_storage_root=root / "scientific", device_declarations=session_config.selected_devices)
     controller = Controller(node, ingestor, storage, root / "session.json",
                             synchronization_manager=sync)
     primary_error = None
@@ -303,7 +302,7 @@ def _run_scientific(args, adapter, manager, config) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Poll one metadata batch, or acquire and verify scientific HDF5 frames."
+            "Check readiness without scientific reads, or select --scientific for HDF5 acquisition."
         )
     )
     parser.add_argument(
@@ -382,13 +381,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.scientific:
         return _run_scientific(args, adapter, manager, config)
 
-    storage = InMemoryStorageManager()
-    ingestor = InMemoryIngestor(storage_manager=storage)
     acquisition_node = AcquisitionNode(
         session_id="manual-opencv-camera-smoke",
         device_manager=manager,
         synchronization_manager=SynchronizationManager(),
-        ingestor=ingestor,
         error_evidence_location=args.error_evidence_location,
     )
     exit_code = 0
@@ -401,24 +397,8 @@ def main(argv: list[str] | None = None) -> int:
         if not readiness["ready"]:
             raise RuntimeError(f"Camera readiness failed: {readiness}")
 
-        start_result = acquisition_node.start_runtime()
-        if not all(
-            result.succeeded for result in start_result["device_start_results"]
-        ):
-            raise RuntimeError(
-                f"Camera start failed: {start_result['device_start_results']}"
-            )
-        summary = acquisition_node.run_one_iteration()
-        camera_envelopes = tuple(
-            envelope
-            for envelope in storage.stored_envelopes
-            if envelope.record_kind == "camera_frame_metadata"
-        )
-        for envelope in camera_envelopes:
-            for record in envelope.records:
-                print(record)
-        print(f"metadata_records={sum(len(item.records) for item in camera_envelopes)}")
-        print(f"iteration={summary.iteration_index}")
+        print("device_ready=true")
+        print("scientific_observations=0")
     except (Exception, KeyboardInterrupt) as error:
         print(f"acquisition_error={type(error).__name__}: {error}", file=sys.stderr)
         exit_code = 130 if isinstance(error, KeyboardInterrupt) else 1

@@ -136,16 +136,15 @@ class ControllerStartupReconciliationTests(unittest.IsolatedAsyncioTestCase):
         intake = InMemoryIngestor()
         def configured_node(**kwargs):
             kwargs["ingestor"] = intake
-            return AcquisitionNode(acquisition_configuration={"handoff_failure_policy": "must_preserve",
-                "handoff_failure_policies": {"must_preserve": {
-                    "preserve_failed_envelope": True, "consecutive_failure_threshold": 1}}}, **kwargs)
-        node, declaration, _ = await self.original.node(node_class=configured_node)
+            return AcquisitionNode(**kwargs)
+        node, declaration, adapter = await self.original.node(node_class=configured_node)
         launched = await self.original.launch({"node-a": (declaration,)})
         self.assertTrue(launched.succeeded, launched.error)
         self.assertTrue((await self.original.controller.start_launched_session()).succeeded)
         self.addAsyncCleanup(self.original.controller.stop_launched_session)
-        with patch.object(intake, "receive_envelope", side_effect=ConnectionError("intake unavailable")):
-            node.run_one_iteration()
+        with patch.object(adapter, "collect_products", side_effect=OSError("device acquisition failed")):
+            with self.assertRaisesRegex(RuntimeError, "device acquisition failed"):
+                node.run_one_iteration()
         self.assertTrue(node.status()["failed"])
         before = node.status()
         result = await self.startup((RuntimeParticipant("acquisition_node", "node-a"),)).start()

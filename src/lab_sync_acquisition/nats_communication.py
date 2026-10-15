@@ -717,9 +717,9 @@ class NatsAcquisitionNodeCommunication:
         self._boundary = boundary
         self._acquisition_node = acquisition_node
         self._results_by_command_id: dict[str, RuntimeCommandResultMessage] = {}
-        self._published_health_interpretation_count = 0
+        self._published_runtime_evidence_count = 0
         self._published_artifact_manifest_count = 0
-        self._health_publication_lock = asyncio.Lock()
+        self._runtime_publication_lock = asyncio.Lock()
         self._artifact_manifest_publication_lock = asyncio.Lock()
         self._unpublished_evidence: dict[str, RuntimeEvidenceMessage] = {}
 
@@ -746,7 +746,7 @@ class NatsAcquisitionNodeCommunication:
                           if command.command_type in ({"stop", "kill", "cancel", "prepare_stop", "check_stop_readiness"} | SERVICE_RECOVERY_COMMAND_TYPES) else self.execute_command(command))
                 await self.publish_new_artifact_manifest_evidence()
                 if command.session_id is not None:
-                    await self.publish_new_health_interpretation_evidence(command.session_id)
+                    await self.publish_new_runtime_evidence()
                     for pending in tuple(self._unpublished_evidence.values()):
                         if pending.session_id == command.session_id:
                             await self.publish_evidence(pending)
@@ -833,9 +833,7 @@ class NatsAcquisitionNodeCommunication:
                 payload = {
                     "iteration_index": summary.iteration_index,
                     "collections_seen": summary.collections_seen,
-                    "envelopes_sent": summary.envelopes_sent,
-                    "accepted_count": summary.accepted_count,
-                    "rejected_count": summary.rejected_count,
+                    "scientific_observations": summary.scientific_observations,
                 }
             elif command.command_type == "stop_runtime":
                 outcome = self._acquisition_node.stop_runtime()
@@ -862,22 +860,13 @@ class NatsAcquisitionNodeCommunication:
                 await self.publish_evidence(message)
                 self._published_artifact_manifest_count += 1
 
-    async def publish_new_health_interpretation_evidence(
-        self,
-        session_id: str,
-    ) -> None:
-        """Publish newly produced interpretation evidence without changing semantics."""
-
-        async with self._health_publication_lock:
-            all_evidence = getattr(self._acquisition_node, "health_runtime_evidence", None)
-            if all_evidence is None:
-                all_evidence = tuple(RuntimeEvidenceMessage(
-                    f"health-interpretation-{evidence.originating_observation_id}", session_id,
-                    "health_interpretation", self._boundary.component_id, evidence.to_dict(), True)
-                    for evidence in self._acquisition_node.health_interpretation_evidence)
-            for message in all_evidence[self._published_health_interpretation_count:]:
-                await self._boundary.publish_evidence(message)
-                self._published_health_interpretation_count += 1
+    async def publish_new_runtime_evidence(self) -> None:
+        """Publish retained operational evidence once per confirmed cursor entry."""
+        async with self._runtime_publication_lock:
+            messages = self._acquisition_node.runtime_evidence
+            for message in messages[self._published_runtime_evidence_count:]:
+                await self.publish_evidence(message)
+                self._published_runtime_evidence_count += 1
 
     async def publish_evidence(self, message: RuntimeEvidenceMessage) -> None:
         """Publish AcquisitionNode-owned durable runtime evidence."""

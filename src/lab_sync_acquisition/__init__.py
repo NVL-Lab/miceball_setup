@@ -49,7 +49,6 @@ from lab_sync_acquisition.device_manager import (
     DeviceCollectionResult,
     DeviceLifecycleResult,
     DeviceManager,
-    DeviceRecordCollection,
     DeviceReadinessSummary,
 )
 from lab_sync_acquisition.experiment_runtime import (
@@ -145,7 +144,6 @@ __all__ = [
     "DeviceLifecycleResult",
     "DeviceCollectionResult",
     "DeviceManager",
-    "DeviceRecordCollection",
     "DeviceReadinessSummary",
     "ExpectedParticipant",
     "ExperimentDescriptor",

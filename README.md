@@ -24,14 +24,15 @@ validation and audit PASS (W052). Decision 377 now requires routine scientific
 observations and per-observation metadata to remain in node-local scientific
 products regardless of size; Ingestor receives operational evidence and manifests.
 W051/W052 remain historically validated, but routine scientific-envelope transport
-and persistence are no longer required. Revised scientific routing and operational
-event preservation are not yet implemented. Shared-lifetime bootstrap remains
+and persistence are no longer required. Bounded product-based adapter/manager/node
+acquisition and operational evidence preservation are implemented with focused
+developer tests, pending independent validation and audit. Shared-lifetime bootstrap remains
 deferred; future real-time scientific streaming is architecturally open.
 Decision 378 requires clean replacement of legacy collection/scientific-envelope
 paths: installation declares supported products, Experiments explicitly select
 them, and adapters produce scientific observations/metadata for local storage
 separately from operational evidence. W051/W052 history does not mandate obsolete
-API compatibility. Replacement is not implemented; final independent integration
+API compatibility. Owner-level envelope cleanup remains for Slice 3B; final independent integration
 audit must verify both preserved guarantees and absence of obsolete architecture.
 Remaining process-crossing direct-owner dependencies still need adaptation before
 fully functional independent-role deployment. Historical Q019 validation remains

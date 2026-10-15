@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Iterable
 
+from lab_sync_acquisition.device import ScientificProductDeclaration
+
 
 class DeviceAdapterState(str, Enum):
     """Minimum lifecycle states for a live device adapter."""
@@ -219,25 +221,14 @@ class DeviceAdapter:
             ),
         )
 
-    def collect_records(self) -> Any:
-        """Expose adapter-produced acquisition records for DeviceManager collection."""
-
-        raise NotImplementedError(
-            "DeviceAdapter.collect_records requires a concrete acquisition "
-            "record implementation"
-        )
-
-    def collect_scientific_records(self) -> dict[str, Any]:
-        """Collect once, keeping local scientific data separate from runtime records.
-
-        Adapters without a scientific collection implementation retain their
-        existing lightweight collection behavior and return no scientific data.
-        """
-
-        return {
-            "runtime_records": self.collect_records(),
-            "scientific_records": None,
-        }
+    def collect_products(
+        self, products: Iterable[ScientificProductDeclaration], *, session_id: str,
+        experiment_id: str | None, acquisition_node_id: str,
+    ) -> dict[str, Any]:
+        """Produce explicitly selected scientific products, separately from operational evidence."""
+        if tuple(products):
+            raise NotImplementedError("Adapter does not support the selected scientific products")
+        return {"scientific_products": {}, "operational_evidence": ()}
 
     def _require_state(self, expected_state: DeviceAdapterState) -> None:
         if self._state is not expected_state:

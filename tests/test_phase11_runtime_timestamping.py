@@ -1,4 +1,5 @@
 import tempfile
+import json
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -13,6 +14,7 @@ from lab_sync_acquisition import (
     PersistentStorageManager,
     ServiceReadiness,
     SessionConfig,
+    DeviceDeclaration, ScientificProductDeclaration, ScientificOutputSelection,
 )
 from tests.fakes import ReadyFakeAdapter
 
@@ -27,12 +29,10 @@ class RuntimeTimestampAdapter(ReadyFakeAdapter):
         ]
         self._remaining_rows = list(self.original_rows)
 
-    def collect_records(self):
-        row = self._remaining_rows.pop(0) if self._remaining_rows else None
-        return {
-            "record_kind": "stream",
-            "records": () if row is None else (row,),
-        }
+    def collect_products(self, products, **context):
+        row = self._remaining_rows.pop(0) if products and self._remaining_rows else None
+        return {"scientific_products": {product.data_product_id: (() if row is None else (row,))
+                                       for product in products}, "operational_evidence": ()}
 
 
 class ControlledSynchronizationManager:
@@ -79,6 +79,8 @@ class Phase11RuntimeTimestampingTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             adapter = RuntimeTimestampAdapter()
+            declaration = DeviceDeclaration(adapter.device_id, "fake", True, True, ("stream",), (
+                ScientificProductDeclaration("samples", "stream", {"sample_index": "int"}, "jsonl"),))
             manager = DeviceManager((adapter,))
             synchronization = ControlledSynchronizationManager()
             storage = PersistentStorageManager(root / "records.jsonl")
@@ -88,6 +90,8 @@ class Phase11RuntimeTimestampingTests(unittest.TestCase):
                 device_manager=manager,
                 synchronization_manager=synchronization,
                 ingestor=ingestor,
+                node_id="node", device_declarations=(declaration,),
+                default_local_storage_root=root / "local",
                 error_evidence_location=str(root / "errors"),
             )
             controller = Controller(
@@ -111,7 +115,7 @@ class Phase11RuntimeTimestampingTests(unittest.TestCase):
             controller.create_session(
                 SessionConfig(
                     session_id="phase11-session",
-                    selected_devices=[],
+                    selected_devices=[declaration],
                     storage_location=str(root / "records.jsonl"),
                     protocol_plan={"name": "phase11-runtime-timing"},
                     error_evidence_location=str(root / "errors"),
@@ -134,6 +138,7 @@ class Phase11RuntimeTimestampingTests(unittest.TestCase):
                 started = controller.start_experiment(
                     "experiment-001",
                     runtime_health_mapping=health_mapping,
+                    scientific_outputs=(ScientificOutputSelection("source-001", "node", "samples"),),
                 )
                 active_status = node.status()
 
@@ -147,12 +152,10 @@ class Phase11RuntimeTimestampingTests(unittest.TestCase):
                 synchronization.set_time(3.5)
                 controller.run_one_iteration()
 
-            rows = [
-                row
-                for envelope in storage.read_envelopes()
-                if envelope.record_kind == "stream"
-                for row in envelope.records
-            ]
+            manifest, = node.local_storage_manager.manifests
+            rows = [json.loads(line) for line in Path(manifest.local_storage_path).read_text().splitlines()]
+            self.assertEqual(ingestor.accepted_envelopes, ())
+            controller.stop_session()
 
             self.assertTrue(started.succeeded, started.error)
             self.assertEqual(
@@ -172,18 +175,16 @@ class Phase11RuntimeTimestampingTests(unittest.TestCase):
             )
             self.assertEqual(
                 [row["session_time_s"] for row in rows],
-                [1.0, 2.5, 3.5],
+                [2.5],
             )
             self.assertEqual(
                 [row["acquisition_node_local_time_s"] for row in rows],
-                [10.0, 11.0, 12.0],
+                [10.0],
             )
             self.assertTrue(
                 all(row["timestamp_status"] == "runtime_timestamped" for row in rows)
             )
-            self.assertNotIn("experiment_time_s", rows[0])
-            self.assertEqual(rows[1]["experiment_time_s"], 0.5)
-            self.assertNotIn("experiment_time_s", rows[2])
+            self.assertEqual(rows[0]["experiment_time_s"], 0.5)
             self.assertTrue(
                 all("session_time_s" not in row for row in adapter.original_rows)
             )

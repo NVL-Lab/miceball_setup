@@ -39,13 +39,13 @@ class ManualOpenCVCameraSmokeTests(unittest.TestCase):
         path, = Path(root).rglob("artifact_manifest.json")
         return ArtifactManifest.from_dict(json.loads(path.read_text()))
 
-    def test_default_metadata_smoke_remains_one_iteration_without_images(self):
+    def test_no_product_selection_checks_readiness_without_scientific_reads(self):
         with tempfile.TemporaryDirectory() as root:
             result, output, errors, capture = self.run_smoke(root, self.frames(), scientific=False)
             self.assertEqual(result, 0, errors)
-            self.assertIn("metadata_records=1", output)
-            self.assertIn("iteration=1", output)
-            self.assertEqual(capture.read_count, 1)
+            self.assertIn("device_ready=true", output)
+            self.assertIn("scientific_observations=0", output)
+            self.assertEqual(capture.read_count, 0)
             self.assertTrue(capture.released)
             self.assertEqual(list(Path(root).rglob("*.h5")), [])
 
@@ -65,7 +65,7 @@ class ManualOpenCVCameraSmokeTests(unittest.TestCase):
                 for metadata in artifact["record_metadata_json"]:
                     self.assertNotIn("device_local_time", json.loads(metadata))
             self.assertEqual(len(list(Path(root).rglob("session_record_final.json"))), 1)
-            runtime, = Path(root).rglob("runtime.jsonl")
+            runtime, = Path(root).rglob("runtime_evidence.jsonl")
             self.assertNotIn('"frame":', runtime.read_text())
 
     def test_verification_rejects_missing_and_inconsistent_datasets(self):

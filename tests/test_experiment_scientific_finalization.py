@@ -187,7 +187,7 @@ class ExperimentScientificFinalizationTests(unittest.TestCase):
 
     def test_handled_collection_failure_preserves_prepared_artifact(self):
         with self.workflow() as (controller, node, _, _):
-            with patch("lab_sync_acquisition.device_manager.DeviceManager.collect_scientific_records",
+            with patch("lab_sync_acquisition.device_manager.DeviceManager.collect_products",
                        side_effect=OSError("camera unavailable")):
                 result = controller.run_one_iteration()
             self.assertFalse(result.succeeded)

@@ -19,10 +19,9 @@ from tests import test_artifact_retrieval as retrieval
 
 
 class _ScientificEventAdapter(launch._CollectingAdapter):
-    def collect_scientific_records(self):
-        return {"runtime_records": self.collect_records(),
-                "scientific_records": {"record_kind": "event",
-                    "records": [{"data_product_id": "events", "value": 1}]}}
+    def collect_products(self, products, **context):
+        return {"scientific_products": {product.data_product_id: [{"value": 1}]
+                                       for product in products}, "operational_evidence": ()}
 
 
 class SessionPreservationIntegrationTests(unittest.IsolatedAsyncioTestCase):

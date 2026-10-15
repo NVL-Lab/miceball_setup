@@ -58,13 +58,16 @@ and audited PASS (W052), including permanent binding-abort ordering coverage.
 Lifecycle bootstrap and acquisition-intake adaptation remain pending.
 No general launcher or additional owner is introduced.
 
-Decision 377 scientific-boundary adaptation is not implemented. Current
-AcquisitionNode `_send_envelope()`, collection/batching and start/stop/health event
-paths, Ingestor `receive_envelope()`, W051/W052 envelope persistence, and Controller/
-StorageManager Session Record and closeout envelope/audit checks remain legacy
-implementation. Reconcile scientific routing locally while retaining operational
-lifecycle/health/timing evidence, manifests and Q019 coverage/immutability guards.
-No obsolete code removal, new fields/formats, or future streaming is claimed.
+The bounded product-acquisition replacement is implemented with developer tests,
+pending independent validation and audit. `collect_products()` follows installed
+declarations and Experiment selections; node scientific observations and their
+metadata go only to LocalStorageManager. Node envelope forwarding/batching is
+removed; lifecycle, health and failure RuntimeEvidenceMessages use retained,
+serialized durable publication before command responses. Ingestor/StorageManager
+envelope APIs, W051/W052 machinery, historical readers and owner-level closeout
+envelope/audit checks remain for subsequent Slice 3B reconciliation, not as a node
+collection compatibility fallback. No future streaming or deployment validation
+is claimed.
 
 Decision 378 now requires clean replacement: installation declarations and
 Experiment selections govern supported adapter scientific production and local
@@ -74,7 +77,8 @@ audit/recovery/compatibility machinery, and dead functions/types/tests must be
 removed when no accepted responsibility remains. Entries below map existing code,
 not approved target APIs. Retain operational evidence and historical-readback
 responsibilities; preserve Q019 guarantees. Final independent integration audit
-must verify functionality and absence of obsolete architecture. Not implemented.
+must verify functionality and absence of obsolete architecture; the complete
+replacement is not yet implemented or independently validated.
 
 Q019 is CLOSED following W041-W049 slice completion and W050 overall software
 integration validation/audit PASS. The permanent sequential Normal Stop regression
@@ -595,7 +599,6 @@ guarantee remain deferred. M014/W034 retain completed Slice 27 scope and status.
 - ScientificOutputSelection: Public import for immutable Experiment selections referencing source device, AcquisitionNode, and declared product identities without format overrides.
 - DeviceLifecycleResult: Public import for per-adapter Device Manager lifecycle call results.
 - DeviceManager: Public import for coordinating already-created live Device Adapters.
-- DeviceRecordCollection: Public import for records collected by DeviceManager from one already-created adapter.
 - DeviceReadiness: Public import for the shared readiness record produced by DeviceManager and consumed by Session.
 - DeviceReadinessNotImplementedError: Public import for base adapters without concrete readiness behavior.
 - DeviceReadinessSummary: Public import for aggregated Device Manager readiness results.
@@ -640,7 +643,7 @@ guarantee remain deferred. M014/W034 retain completed Slice 27 scope and status.
 - ReadinessCheck: Public import for recorded readiness checks.
 - Session: Public import for the runtime session lifecycle model.
 - SessionConfig: Public import for the immutable accepted run configuration, including Session-scoped AcquisitionHealthPolicy definitions and its explicit error evidence location, owned by a Session and preserved as part of the Session Record.
-- SeeedIMX219OpenCVCameraAdapter: Public import for the concrete OpenCV-backed Seeed IMX219 adapter with metadata-only default collection and explicit local scientific-frame collection.
+- SeeedIMX219OpenCVCameraAdapter: Public import for the OpenCV-backed adapter producing explicitly selected frames with their local scientific metadata.
 - SessionLifecycleError: Public import for lifecycle operation failures.
 - SessionState: Public import for accepted Phase 1 session lifecycle states.
 - ServiceReadiness: Public import for readiness records produced by framework services and consumed by Session initialization.
@@ -689,10 +692,10 @@ guarantee remain deferred. M014/W034 retain completed Slice 27 scope and status.
 
 ## src/lab_sync_acquisition/acquisition_node.py
 
-- AcquisitionIterationSummary: Records the small inspectable summary returned by one bounded acquisition iteration.
+- AcquisitionIterationSummary(iteration_index, collections_seen, scientific_observations): Reports device collections and scientific observations accepted by LocalStorageManager, without envelope counters or per-iteration durability claims.
 - AcquisitionNode: Owns bounded acquisition runtime execution and timestamping, stores separate active Experiment timing and health context, and emits explicitly linked ExperimentScopedHealthObservation and HealthInterpretationEvidence records without executing framework actions.
 - AcquisitionNode.status(): Includes existing local cleanup confirmation as `cleanup_confirmed` for safe Session-binding release, alongside runtime, reservation, and active-context status.
-- AcquisitionNode.__init__(session_id=None, device_manager=None, synchronization_manager=None, ingestor=None, node_id=None, role=None, acquisition_configuration=None, acquisition_health_policies=(), error_evidence_location=None, *, default_local_storage_root=None, device_declarations=None): Allows pre-Session construction with deployment-local collaborators and inventory, capturing adapter deployment configuration independently of subsequent Session-specific overrides while preserving the historical bound local path.
+- AcquisitionNode.__init__(session_id=None, device_manager=None, synchronization_manager=None, ingestor=None, node_id=None, role=None, acquisition_health_policies=(), error_evidence_location=None, *, default_local_storage_root=None, device_declarations=None): Configures node-owned runtime and installed product inventory, with an optional local-development Ingestor for operational evidence only and no legacy scientific-envelope configuration.
 - AcquisitionNode.declared_devices: Returns the node's declared DeviceDeclaration/ScientificProductDeclaration inventory independently of Session selection and device availability.
 - AcquisitionNode.reserved_for_session_id: Returns the current exclusive Session reservation or None under the node-owned lock.
 - AcquisitionNode.reserve(session_id): Atomically acquires an unreserved node, confirms the same owner's reservation idempotently, or rejects another owner without changing state.
@@ -708,16 +711,19 @@ guarantee remain deferred. M014/W034 retain completed Slice 27 scope and status.
 - AcquisitionNode.default_local_storage_root: Exposes the explicitly configured persistent root without mutation by Session overrides.
 - AcquisitionNode.node_id: Exposes the configured AcquisitionNode identity used by scientific output selections.
 - AcquisitionNode.local_storage_manager: Exposes the Session-attached local persistence collaborator without transferring persistence ownership.
-- AcquisitionNode.attach_local_storage_manager: Attaches one Session-authorized LocalStorageManager and device declarations after checking Session/node identity and preventing manager replacement.
+- AcquisitionNode.attach_local_storage_manager: Attaches one Session-authorized LocalStorageManager after checking Session/node and installed product identities and preventing manager replacement.
 - AcquisitionNode.prepare_experiment_scientific_outputs: Returns existing ServiceReadiness evidence after resolving explicit products and requesting one empty local stream per Experiment/device/product, reusing open preparations and preserving/finalizing newly created partial artifacts on failure.
 - AcquisitionNode.scientific_output_storage_ids: Returns a readback copy of Experiment/device/product associations with LocalStorageManager runtime write handles.
 - AcquisitionNode.finalize_experiment_scientific_outputs: Retires the Experiment's runtime identity and attempts LocalStorageManager finalization of every associated stream, returning finalized manifests or raising an error containing all failures without affecting other Experiments.
-- AcquisitionNode.start_runtime(): Requires active binding and successful Session preparation before starting acquisition, retaining compatibility with historical explicitly pre-bound caller-prepared nodes.
-- AcquisitionNode.stop_runtime: Clears acquisition eligibility, stops devices, and finalizes prepared scientific artifacts, confirming cleanup only after successful completion while retaining existing failure reporting and Experiment context clearance.
-- AcquisitionNode.run_one_iteration: Requires successful preparation and running acquisition, collects selected scientific devices once, timestamps and persists scientific records, and preserves completed partial collections before propagating failure through existing cleanup.
-- AcquisitionNode._persist_scientific_collection: Resolves product and active context, validates product-scoped one-to-one frame/metadata associations for a whole collection before appending, and shares framework timing without transporting frames.
-- AcquisitionNode._send_runtime_collection: Applies existing runtime timestamping, health observation, batching, and envelope handoff to one completed lightweight collection.
-- AcquisitionNode._preserve_partial_scientific_collections: Attempts local persistence and metadata handoff for completed partial collections, retaining both acquisition and preservation errors when preservation fails.
+- AcquisitionNode.start_runtime(): Requires active binding and successful preparation, retains persistent node Session-start evidence, and starts the acquisition clock and devices.
+- AcquisitionNode.stop_runtime: Stops devices and finalizes selected artifacts, retaining persistent Session-stop evidence and explicit uncertainty before propagating finalization failures.
+- AcquisitionNode.run_one_iteration(): Collects explicit product selections, preserves completed partial observations locally, and retains operational health/failure evidence without scientific-envelope intake.
+- AcquisitionNode._persist_product_collection: Validates selected product and observation provenance, associates complete row metadata/timing without frame inference, and appends through LocalStorageManager while separately retaining operational messages.
+- AcquisitionNode.runtime_evidence: Returns the retained append-order operational messages for durable publication and retry.
+- AcquisitionNode._retain_runtime_evidence: Retains an immutable producer snapshot with identity/conflict checks before optional local operational-evidence acceptance.
+- AcquisitionNode._record_acquisition_failure: Records the actual acquisition error as persistent operational evidence and prevents further iterations until existing recovery/preparation permits reuse.
+- AcquisitionNode._with_session_time: Preserves supplied scientific timing and derives missing Experiment Time from that Session Time and the active Experiment origin, adding runtime timing only when Session Time is absent.
+- AcquisitionNode._evaluate_acquisition_health: Retains linked operational observations and interpretations once per active source without creating scientific envelopes.
 - AcquisitionNode._preserve_scientific_artifact: Finalizes one identified supported unfinished local artifact or reuses its finalized manifest, permitting success only after durable manifest acceptance while preserving local success separately and never reopening acquisition.
 - AcquisitionNode._cleanup_device_resources: Attempts shutdown only for identified devices in the original retained Session participation, recording partial confirmations without releasing reservations or finalizing scientific artifacts implicitly.
 - AcquisitionNode._confirm_recovered_cleanup: Confirms existing local cleanup only when all relevant adapters are safely declared and all local artifacts are finalized, without releasing the Session binding.
@@ -789,25 +795,24 @@ is complete; W030 records manual validation, focused tests, and audit reassessme
 - DeviceStatus: Reports the current live adapter lifecycle status without scientific data.
 - DeviceAdapterLifecycleError: Signals invalid live adapter lifecycle operations.
 - DeviceReadinessNotImplementedError: Signals that a live adapter has no concrete readiness implementation.
-- DeviceAdapter: Provides the minimum live runtime control interface for one device adapter with externally read-only lifecycle state, explicit required participation metadata, and a concrete-adapter record exposure hook for DeviceManager collection.
-- DeviceAdapter.collect_scientific_records: Explicitly collects separate local scientific and lightweight runtime records, defaulting to one existing `collect_records()` call with no scientific data for unchanged adapters.
+- DeviceAdapter: Provides device-owned lifecycle/readiness and explicit product collection, keeping scientific rows separate from operational messages.
+- DeviceAdapter.collect_products(products, *, session_id, experiment_id, acquisition_node_id): Produces selected declaration-keyed scientific row collections separately from operational RuntimeEvidenceMessages, rejecting unsupported selections and doing no scientific work for an empty selection.
 - DeviceAdapter.shutdown: Completes adapter-specific cleanup after initialization/readiness/failure or normal stop, then returns to DECLARED; failed cleanup retains FAILED and completed shutdown is idempotent.
 - DeviceAdapter._shutdown_resources: Adapter-specific resource-release hook executed before the generic successful-cleanup transition.
 - DeviceAdapter.initialize(config): Requires DECLARED and applies fresh configuration for the next initialization without a reset operation.
 - DeviceAdapter.check_ready: Reports declared eligibility without opening hardware or changing state, while initialized acquisition readiness remains concrete-adapter-owned.
 - DeviceStatus.shutdown: Reports completed device cleanup even when the reusable adapter state is DECLARED, resetting on subsequent initialization.
-- _PartialScientificCollectionError: Internal failure carrier retaining a camera's completed scientific/runtime records alongside its original collection exception.
+- _PartialScientificCollectionError: Retains completed product rows and separate operational messages alongside the original acquisition exception.
 
 ## src/lab_sync_acquisition/device_manager.py
 
 - DeviceLifecycleResult: Records the result of one Device Manager lifecycle call against one adapter.
-- DeviceRecordCollection: Records the source device identity, record kind, and unmodified records collected from one already-created adapter.
-- DeviceCollectionResult: Holds separate `runtime_records` and optional local-only `scientific_records` DeviceRecordCollections without creating envelopes or transport messages.
+- DeviceCollectionResult(source_device_id, scientific_products, operational_evidence): Carries source-identified product-keyed row tuples separately from operational messages, without envelopes.
 - DeviceReadinessSummary: Aggregates shared readiness records across already-created adapters and can be passed to Session initialization.
-- DeviceManager: Holds at least one already-created Device Adapter and coordinates lifecycle, readiness, status, and minimal acquisition record collection without creating adapters or envelopes.
-- DeviceManager.collect_scientific_records: Collects each adapter once with optional keyword-only `scientific_source_device_ids=None`, keeping unselected adapters metadata-only and retaining completed results in an internal failure carrier if a later collection raises.
-- _PartialDeviceCollectionError: Internal failure carrier retaining completed source-identified device collections and the original collection exception for AcquisitionNode preservation.
-- DeviceManager._scientific_collection_result: Converts one adapter's separate scientific/runtime collections into source-identified DeviceCollectionResults without assigning framework timing.
+- DeviceManager: Coordinates already-created adapters and their lifecycle, readiness, status and explicit product selections without creating adapters or envelopes.
+- DeviceManager.collect_products(products_by_device, *, session_id, experiment_id, acquisition_node_id): Calls each adapter once with explicit declarations or an empty selection and retains completed partial results when a later device fails.
+- _PartialDeviceCollectionError: Retains earlier valid source-identified collections even when a later adapter's partial result is invalid, preserving original and validation errors for node-local persistence/reporting.
+- DeviceManager._product_collection_result: Checks the explicit product/operational result structure and rejects unselected products before source-identified collection results reach the node.
 
 ## src/lab_sync_acquisition/experiment_runtime.py
 
@@ -1005,11 +1010,11 @@ recovery is introduced. Phase 16 and M015 remain open.
 ## src/lab_sync_acquisition/opencv_camera.py
 
 - OpenCVCameraConfig: Holds explicit OpenCV camera source, backend, frame polling count, and optional requested capture properties.
-- SeeedIMX219OpenCVCameraAdapter: Opens an OpenCV camera, reports readiness, provides metadata-only default collection or explicit local frame-preserving collection, and releases the capture during shutdown.
+- SeeedIMX219OpenCVCameraAdapter: Opens a camera, reports readiness, acquires selected scientific frame products only, and releases the capture during shutdown.
 - SeeedIMX219OpenCVCameraAdapter.shutdown(): Uses generic shutdown to report FAILED and retain the capture after release failure, returning to DECLARED only after successful release with idempotent subsequent shutdown.
 - SeeedIMX219OpenCVCameraAdapter.initialize(config): Accepts OpenCVCameraConfig or its plain-data mapping through the existing DECLARED lifecycle, owning each capture before fallible setup and retaining FAILED plus the capture if initialization cleanup cannot release it.
 - SeeedIMX219OpenCVCameraAdapter.check_ready(): Reports declared eligibility without opening capture, and checks initialized capture readiness separately.
-- SeeedIMX219OpenCVCameraAdapter.collect_scientific_records: Returns actual NumPy frames and separate metadata from the same reads, omits unavailable optional SDK metadata without failing acquisition, and preserves completed partial records if a later read raises without assigning framework timing or retrying reads.
+- SeeedIMX219OpenCVCameraAdapter.collect_products(products, *, session_id, experiment_id, acquisition_node_id): Reads selected camera products only, retaining ordered NumPy frames with their available per-frame metadata and completed partial rows without repeated reads or fabricated timestamps.
 
 ## src/lab_sync_acquisition/storage.py
 
@@ -1152,29 +1157,17 @@ recovery is introduced. Phase 16 and M015 remain open.
 
 - main: Reads demo handoff envelope dictionaries, reconstructs AcquisitionRecordEnvelope objects, sends them to InMemoryIngestor, and persists accepted envelopes through PersistentStorageManager.
 
-## scripts/demo_continuous_batched_stream.py
-
-- main: Runs deterministic count- and Session-Time-age-triggered continuous fake-stream scenarios through AcquisitionNode and persistent JSONL storage.
-
 ## scripts/demo_socket_acquisition_sender.py
 
 - main: Sends demo newline-delimited AcquisitionRecordEnvelope dictionaries to a localhost receiver over a disposable socket demo boundary.
-
-## scripts/demo_socket_opencv_camera_sender.py
-
-- main: Runs the OpenCV camera adapter with default fake input or explicit real cv2 through DeviceManager and AcquisitionNode, then sends metadata-only envelopes over the disposable localhost socket demo boundary.
 
 ## scripts/demo_socket_ingestor_receiver.py
 
 - main: Receives demo newline-delimited envelope dictionaries over localhost, reconstructs AcquisitionRecordEnvelope objects, sends them to InMemoryIngestor, and persists accepted envelopes through PersistentStorageManager.
 
-## scripts/demo_remote_acquisition_node_sender.py
-
-- main: Runs one identified simulated remote AcquisitionNode session over the provisional socket and writes demo-local JSONL failure evidence before a nonzero exit when connection or sending fails.
-
 ## scripts/manual_opencv_camera_smoke.py
 
-- main(argv=None): Runs a metadata-only camera iteration, an opt-in scientific acquisition with optional post-validation visualization, or read-only inspection of an existing HDF5 recording without camera/Session startup.
+- main(argv=None): Checks camera readiness without scientific reads, explicitly selects scientific acquisition with optional post-validation visualization, or inspects existing HDF5 recordings read-only.
 - view_hdf5_frames(path): Reads up to six evenly spaced camera frames read-only, labels recorded indices, converts BGR/BGRA for Matplotlib display, and returns a saved PNG path when graphical display is unavailable.
 - _inspect_frames: Reports visualization errors as nonzero CLI exits without changing the recording or acquisition behavior.
 - verify_scientific_artifact(manifest, experiment_start_session_time_s, frame_shape, frame_dtype): Reopens a finalized camera HDF5 artifact read-only and verifies manifest counts, declared shape/dtype, ordered indices, aligned runtime timing, and per-frame metadata.
@@ -1185,6 +1178,7 @@ recovery is introduced. Phase 16 and M015 remain open.
 
 ## scripts/demo_nats_runtime.py
 
+- DemoOperationalAdapter: Provides a ready demo adapter whose empty scientific selection performs no reads.
 - main: Manually validates Controller command, AcquisitionNode execution/result/evidence, Ingestor evidence intake, and Core NATS telemetry against a real JetStream-enabled NATS server.
 
 ## Phase 14 / Slice 22 Integration - Completed
@@ -1201,7 +1195,7 @@ deployment validation (M011), distinct from W032's software validation.
 - AcquisitionNode.health_runtime_evidence: Returns health messages retained at production with original Session/node-scoped identities, preventing interrupted publication or later reuse from relabeling them.
 - AcquisitionNode._record_artifact_manifest(manifest, *, resubmit_unconfirmed=False): Packages each manifest lifecycle state once and permits explicitly authorized recovery to resubmit its identical retained message only while durable Ingestor acceptance is unconfirmed, without changing normal finalization or local ownership.
 - NatsAcquisitionNodeCommunication.publish_new_artifact_manifest_evidence(): Serializes overlapping publication passes through an asynchronous lock and advances the manifest cursor only after each entry's durable acknowledgment, retaining failed/cancelled entries for later publication before command results.
-- NatsAcquisitionNodeCommunication.publish_new_health_interpretation_evidence(session_id): Serializes overlapping health-publication passes without changing original Session identities, advancing each entry's cursor only after durable acknowledgment.
+- NatsAcquisitionNodeCommunication.publish_new_runtime_evidence(): Serializes retained lifecycle/health/failure publication without changing original identities and advances progress only after durable acknowledgment.
 - NatsAcquisitionNodeCommunication.publish_evidence(message): Retains unconfirmed node-owned messages for explicit later publication and requires durable acknowledgment before removing the obligation.
 - InMemoryIngestor.compile_artifact_collection_handoff(session_id): Groups retained Session-scoped artifact_manifest messages by manifest identity, selects complete finalized or initial manifests, and returns session_id plus artifacts entries containing artifact_manifest and missing_finalization_evidence.
 - Controller.finalize_session(): Retains legacy finalization for Sessions without a Q019 marker; for a produced Q019 marker it refuses unconfirmed publication and requires current Stage A/handoff coverage before completion, without rewriting the acquisition archive or discarding its summary metadata.
@@ -1344,3 +1338,21 @@ automatic. Kill integration and overall closeout validation remain deferred.
 ## tests/nats_server_fixture.py
 
 - temporary_jetstream_server(): Starts an optional isolated local NATS test process on a temporary port/storage directory and always cleans it up; it is not framework service startup or deployment supervision.
+
+## tests/test_product_acquisition.py
+
+- ProductAdapter: Supplies explicit selected non-frame observations and separately identified operational messages for public workflow tests.
+- ProductAcquisitionTests: Covers installed-product authority, no-selection behavior, local scientific metadata, lifecycle/health evidence, publication retry, journal reconstruction and failed-finalization reporting.
+- ProductAcquisitionTests.node: Prepares installed declarations, selected Experiment outputs and owner-cleaned local storage through public interfaces.
+
+## tests/test_scientific_acquisition_persistence.py
+
+- ScientificEventAdapter: Supplies explicitly keyed non-frame products, including controlled invalid scope for rejection workflows.
+- ScientificAcquisitionPersistenceTests.workflow: Provides a scoped Controller/node/local-storage workflow with explicit installed declarations and Experiment selection, reused by collection-failure tests.
+- ScientificAcquisitionPersistenceTests.saved_metadata: Reads finalized per-observation HDF5 metadata for public preservation assertions.
+
+## tests/test_scientific_collection_failures.py
+
+- FailingCollectionAdapter: Injects a later device's acquisition failure without producing unselected scientific observations.
+- ScientificCollectionFailureTests: Verifies preservation of earlier complete observations through later reads, device failures, invalid partial results and combined persistence errors.
+- ScientificCollectionFailureTests.assert_preserved_frame: Checks finalized bytes, provenance, timing and absence of scientific-envelope intake through actual owner readback.

@@ -22,9 +22,9 @@ class CountingRecordAdapter(ReadyFakeAdapter):
         super().__init__("readiness-device-001", "fake_device", ("stream",), True)
         self.collect_count = 0
 
-    def collect_records(self):
+    def collect_products(self, products, **context):
         self.collect_count += 1
-        return {"record_kind": "stream", "records": ()}
+        return {"scientific_products": {}, "operational_evidence": ()}
 
 
 class AcquisitionNodeFailureEvidenceReadinessTests(unittest.TestCase):

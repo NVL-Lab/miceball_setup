@@ -1,4 +1,4 @@
-﻿import tempfile
+import numpy as np
 import unittest
 from unittest.mock import patch
 from pathlib import Path
@@ -10,19 +10,12 @@ SRC = ROOT / "src"
 sys.path.insert(0, str(SRC))
 
 from lab_sync_acquisition import (
-    AcquisitionNode,
-    DeviceDeclaration,
+    ScientificProductDeclaration,
     DeviceManager,
     DeviceAdapterState,
     DeviceAdapterLifecycleError,
-    InMemoryIngestor,
     OpenCVCameraConfig,
-    PersistentStorageManager,
     SeeedIMX219OpenCVCameraAdapter,
-    Session,
-    SessionConfig,
-    SessionState,
-    SynchronizationManager,
 )
 
 
@@ -91,7 +84,7 @@ class SeeedIMX219OpenCVCameraAdapterTests(unittest.TestCase):
     def test_camera_setup_failure_releases_partial_capture_before_reuse(self):
         for operation in ("set", "isOpened"):
             with self.subTest(operation=operation):
-                cv2 = FakeCV2([FakeFrame((3, 4, 3), "uint8")])
+                cv2 = FakeCV2([np.zeros((3, 4, 3), dtype=np.uint8)])
                 adapter = SeeedIMX219OpenCVCameraAdapter(
                     "camera", "opencv", ("camera_frame_metadata",), True, cv2_module=cv2)
                 with patch.object(FakeVideoCapture, "release", autospec=True,
@@ -113,7 +106,9 @@ class SeeedIMX219OpenCVCameraAdapterTests(unittest.TestCase):
                 adapter.initialize(OpenCVCameraConfig(1, 0, 1))
                 self.assertTrue(adapter.check_ready().ready)
                 adapter.start()
-                self.assertEqual(len(adapter.collect_records()["records"]), 1)
+                self.assertEqual(len(adapter.collect_products((ScientificProductDeclaration("frames", "camera_frames",
+                    {"frame_shape": [3, 4, 3], "frame_dtype": "uint8"}, "hdf5"),),
+                    session_id="session", experiment_id="experiment", acquisition_node_id="node")["scientific_products"]["frames"]), 1)
                 adapter.stop()
                 adapter.shutdown()
                 self.assertTrue(cv2.captures[1].released)
@@ -158,7 +153,7 @@ class SeeedIMX219OpenCVCameraAdapterTests(unittest.TestCase):
                 self.assertTrue(cv2.captures[1].released)
 
     def test_camera_reopens_same_adapter_with_new_session_configuration(self):
-        cv2 = FakeCV2([FakeFrame((3, 4, 3), "uint8")])
+        cv2 = FakeCV2([np.zeros((3, 4, 3), dtype=np.uint8)])
         adapter = SeeedIMX219OpenCVCameraAdapter("camera", "opencv", ("camera_frame_metadata",), True, cv2_module=cv2)
         for source in (0, 1):
             self.assertTrue(adapter.check_ready().ready)
@@ -167,7 +162,9 @@ class SeeedIMX219OpenCVCameraAdapterTests(unittest.TestCase):
             adapter.initialize({"camera_source": source, "api_preference": 0, "frames_per_collect": 1})
             self.assertTrue(adapter.check_ready().ready)
             adapter.start()
-            self.assertEqual(len(adapter.collect_records()["records"]), 1)
+            self.assertEqual(len(adapter.collect_products((ScientificProductDeclaration("frames", "camera_frames",
+                    {"frame_shape": [3, 4, 3], "frame_dtype": "uint8"}, "hdf5"),),
+                    session_id="session", experiment_id="experiment", acquisition_node_id="node")["scientific_products"]["frames"]), 1)
             adapter.stop()
             adapter.shutdown()
             self.assertEqual(adapter.state, DeviceAdapterState.DECLARED)
@@ -224,137 +221,6 @@ class SeeedIMX219OpenCVCameraAdapterTests(unittest.TestCase):
         adapter.shutdown()
         self.assertTrue(capture.released)
 
-    def test_camera_metadata_flows_through_acquisition_and_persistent_storage(
-        self,
-    ) -> None:
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            fake_cv2 = FakeCV2(
-                frames=[
-                    FakeFrame(shape=(480, 640, 3), dtype="uint8"),
-                    FakeFrame(shape=(480, 640, 3), dtype="uint8"),
-                ]
-            )
-            declaration = DeviceDeclaration(
-                device_id="seeed-imx219-001",
-                device_type="seeed_imx219_camera",
-                enabled=True,
-                required=True,
-                declared_capabilities=["camera_frame_metadata"],
-            )
-            configuration = SessionConfig(
-                session_id="session-camera-001",
-                selected_devices=[declaration],
-                storage_location=str(temporary_directory),
-                protocol_plan={"name": "camera-metadata-only"},
-                error_evidence_location="placeholder://errors",
-                device_configurations={
-                    "seeed-imx219-001": {
-                        "camera_source": 0,
-                        "api_preference": FakeCV2.CAP_V4L2,
-                        "frames_per_collect": 2,
-                    }
-                },
-            )
-            session = Session(
-                session_id="session-camera-001",
-                configuration=configuration,
-            )
-            camera_config = OpenCVCameraConfig(
-                camera_source=0,
-                api_preference=FakeCV2.CAP_V4L2,
-                frames_per_collect=2,
-                frame_width=640,
-                frame_height=480,
-                fps=30.0,
-            )
-            adapter = SeeedIMX219OpenCVCameraAdapter(
-                device_id="seeed-imx219-001",
-                device_type="seeed_imx219_camera",
-                declared_capabilities=["camera_frame_metadata"],
-                required=True,
-                cv2_module=fake_cv2,
-            )
-            manager = DeviceManager(adapters=[adapter])
-            synchronization = SynchronizationManager()
-            records_path = Path(temporary_directory) / "accepted_records.jsonl"
-            storage = PersistentStorageManager(records_path=records_path)
-            ingestor = InMemoryIngestor(storage_manager=storage)
-            acquisition_node = AcquisitionNode(
-                session_id=session.session_id,
-                device_manager=manager,
-                synchronization_manager=synchronization,
-                ingestor=ingestor,
-                error_evidence_location=str(temporary_directory),
-            )
-
-            manager.initialize_all(config=camera_config)
-            acquisition_readiness = acquisition_node.check_ready()
-            session.initialize(
-                device_readiness_summary=acquisition_readiness["device_readiness"],
-                service_readiness=(
-                    *acquisition_readiness["service_readiness"],
-                    storage.check_ready(),
-                ),
-            )
-            session.start()
-            acquisition_node.start_acquisition()
-            iteration = acquisition_node.run_one_iteration()
-            stop_result = acquisition_node.stop_acquisition()
-            session.stop(reason="camera metadata acquired")
-            session.complete(reason="camera metadata acquired")
-
-            stored_envelopes = storage.read_envelopes()
-            camera_envelopes = [
-                envelope
-                for envelope in stored_envelopes
-                if envelope.source_device_id == "seeed-imx219-001"
-            ]
-            camera_rows = [
-                row
-                for envelope in camera_envelopes
-                for row in envelope.records
-            ]
-            capture = fake_cv2.captures[0]
-            final_status = manager.collect_statuses()[0]
-
-            self.assertIs(session.current_state, SessionState.COMPLETED)
-            self.assertEqual(iteration.collections_seen, 1)
-            self.assertEqual(iteration.envelopes_sent, 1)
-            self.assertEqual(iteration.accepted_count, 1)
-            self.assertEqual(iteration.rejected_count, 0)
-            self.assertEqual(stop_result["device_shutdown_results"][0].succeeded, True)
-            self.assertEqual(len(camera_envelopes), 1)
-            self.assertEqual(camera_envelopes[0].record_kind, "camera_frame_metadata")
-            self.assertEqual(len(camera_rows), 2)
-            self.assertEqual([row["frame_index"] for row in camera_rows], [0, 1])
-            self.assertTrue(all(row["width"] == 640 for row in camera_rows))
-            self.assertTrue(all(row["height"] == 480 for row in camera_rows))
-            self.assertTrue(all(row["channels"] == 3 for row in camera_rows))
-            self.assertTrue(all(row["dtype"] == "uint8" for row in camera_rows))
-            self.assertTrue(all(row["read_success"] is True for row in camera_rows))
-            self.assertTrue(all(row["backend"] == "FAKE_OPENCV" for row in camera_rows))
-            self.assertTrue(
-                all(row["device_local_time"] == 123.456 for row in camera_rows)
-            )
-            self.assertTrue(all("session_time_s" in row for row in camera_rows))
-            self.assertTrue(all("image" not in row for row in camera_rows))
-            self.assertTrue(all("frame" not in row for row in camera_rows))
-            self.assertTrue(all("bytes" not in row for row in camera_rows))
-            self.assertEqual(
-                capture.properties_set,
-                [
-                    (FakeCV2.CAP_PROP_FRAME_WIDTH, 640),
-                    (FakeCV2.CAP_PROP_FRAME_HEIGHT, 480),
-                    (FakeCV2.CAP_PROP_FPS, 30.0),
-                ],
-            )
-            self.assertTrue(capture.released)
-            self.assertIs(final_status.state, DeviceAdapterState.DECLARED)
-            self.assertFalse(final_status.failed)
-            self.assertTrue(final_status.shutdown)
-
 
 if __name__ == "__main__":
     unittest.main()
-
-
