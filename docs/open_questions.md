@@ -892,9 +892,9 @@ Q022 as a whole is not closed. Q019 remains CLOSED in W050.
 
 Decisions 379-381 resolve Slice 2's distributed scientific synchronization
 architecture gate: measured cross-clock validity, local affine application and
-provenance, readiness and degraded timing. Implementation and independent
-verification remain pending; advanced Q006/Q018 scope stays OPEN without
-deferring the minimum demonstrably valid measurement method required now.
+provenance, readiness and degraded timing. This bounded implementation is complete
+with independent validation and final audit PASS (W056); advanced Q006/Q018 scope
+stays OPEN. Q022 remains OPEN for remaining deployment integration and verification.
 
 ### Q022-A accepted scope
 

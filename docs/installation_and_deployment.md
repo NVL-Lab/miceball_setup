@@ -264,7 +264,7 @@ offline refinement, except for the minimum demonstrably valid measurement method
 required for this implementation. No additional clock authority or service is
 introduced.
 
-**Slice 2 implementation (developer testing; independent validation/audit pending):**
+**Slice 2 implementation (complete; independent validation and audit PASS, W056):**
 
 Construct remote nodes with `synchronization_source_id` and no local
 SynchronizationManager. Set `SessionConfig.synchronization_configuration` to the
@@ -302,11 +302,18 @@ quality across later degradation, reassessment or remapping. Transient periodic
 assessment/publication failures retain evidence and resume at the configured
 cadence; explicit timing closeout and transport shutdown still cancel assessment.
 
+Command identity and Session scope are admitted before stop cancellation.
+Rejected commands cannot cancel monitoring; duplicate stops preserve identity.
+Cancellation is awaited outside the runtime lock, before closeout evidence
+publication. Failed publication remains unconfirmed and retained for retry.
+
 The optional cross-process developer test uses actual local JetStream with
 SynchronizationManager and AcquisitionNode in separate spawned processes. Other
-focused workflows use broker doubles and real domain owners. This is not
-independent manual validation, hardware/multi-host validation or power-loss
-validation. W001-W055 remain unchanged; Q019 remains CLOSED and Q022 OPEN.
+focused workflows use broker doubles and real domain owners. W056 separately
+records independent user-run IPython validation and final read-only audit PASS,
+including actual local JetStream verification. Neither establishes hardware timing,
+multi-host accuracy, power-loss recovery or advanced synchronization guarantees.
+W001-W055 remain unchanged; Q006/Q018 remain OPEN; Q019 remains CLOSED and Q022 OPEN.
 
 **Remaining adaptation outside this slice:**
 
@@ -461,10 +468,11 @@ architecture or claims of implementation/validation:
    receipt/compilation and external readback operations using existing
    envelopes/routing. Test exact identity, duplicates/conflicts, journal/ACK and
    write failure, missing/stale results, cancellation, and receiving-owner guards.
-2. Adapt acquisition/Experiment and synchronization interactions to those
-   interfaces and existing node commands. Test scientific timing, parameter/context
-   isolation, local finalization, sender failures, reservations, and producer
-   publication-before-completion without duplicate service owners.
+2. Acquisition/Experiment and distributed synchronization runtime integration is
+   complete in W056 after corrections, independent manual validation and final
+   audit PASS. It reuses existing node commands with local scientific timing,
+   context/finalization and publication-before-completion. This does not close
+   the separate operational-evidence transport or broader deployment obligations.
 3. Adapt Q019 Controller Normal Stop/Kill, Stage A/handoff, completion/release,
    saved collection, and explicit closure coordination. Test current coverage,
    network-wait races, late intake, partial Kill, restart readback, batch isolation,

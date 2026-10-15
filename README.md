@@ -65,8 +65,8 @@ finalization. Supply explicit `SynchronizationConfiguration` values through
 `SessionConfig.synchronization_configuration`; remote nodes name their timing
 authority with `synchronization_source_id`, without a shared clock object.
 Developer testing includes separate processes against local JetStream, not
-hardware or multi-host validation. Independent validation/audit remain pending;
-Q022 is not complete. See the implementation boundary and public entry points in
+hardware or multi-host validation. Independent validation and final audit PASS
+close this bounded slice in W056; Q022 remains OPEN. See the implementation boundary and public entry points in
 [Installation And Deployment](docs/installation_and_deployment.md#timing-and-synchronization).
 
 

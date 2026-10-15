@@ -10611,7 +10611,8 @@ readback, journal-verified compilation, and W041 receipt foundation is complete
 with independent manual validation and final independent re-audit PASS after the
 malformed-correlation correction (W051). Full independent-service deployment
 remains unimplemented and unvalidated. Existing NATS participant commands, evidence publication,
-and readiness integration are reusable, but preservation, intake, timing,
+and readiness integration are reusable. Acquisition/Experiment and distributed
+synchronization runtime integration is complete in W056; preservation, intake,
 collection, release, and maintenance/recovery still contain development-time
 direct-object dependencies. Establish the required service-owned NATS interfaces
 before enabling deployment launch paths that depend on them. Historical accepted
@@ -10843,10 +10844,12 @@ Q006/Q018 remain open for advanced drift estimation, measurement algorithms,
 hardware synchronization and offline refinement, except for the minimum
 demonstrably valid measurement method required by the current implementation.
 
-**Implementation status:** Accepted and synchronized to unblock Q022 Slice 2;
-distributed scientific synchronization is not implemented or validated by this
-documentation update. W001-W055 remain historical validated records. Q019 remains
-CLOSED; Q022, Q024, Phase 16 and M015 remain OPEN.
+**Implementation status:** Implemented in Q022 Slice 2, independently manually
+validated and finally audited PASS (W056, commit 3e573f5), including periodic
+publication recovery and command-admission corrections. This is bounded local
+JetStream/software validation, not multi-host accuracy, hardware timing or
+power-loss verification. W001-W055 remain historical records. Q019 remains CLOSED;
+Q006/Q018, Q022, Q024, Phase 16 and M015 remain OPEN.
 
 ---
 
@@ -10877,9 +10880,11 @@ observation. Reuse existing scientific-storage and evidence contracts; scientifi
 observations and their per-observation metadata remain AcquisitionNode-local
 under Decisions 377-378.
 
-**Implementation status:** Accepted and synchronized; local affine application
-and activation-boundary provenance are implementation requirements, not newly
-implemented or validated behavior. Existing W053-W055 outcomes are unchanged.
+**Implementation status:** Local affine application, activation provenance and
+acquisition-time quality history are implemented, independently validated and
+finally audited PASS in W056. Buffered observations retain historical quality
+through degradation, recovery, reassessment and mapping expiry/replacement;
+persisted scientific records are not rewritten. W053-W055 outcomes are unchanged.
 Q019 remains CLOSED; Q022, Q024, Phase 16 and M015 remain OPEN.
 
 ---
@@ -10910,9 +10915,12 @@ synchronization architecture gate for Q022 Slice 2. Q006/Q018 retain their
 advanced scope as qualified by Decision 379; these open questions do not defer
 the minimum demonstrably valid measurement method required for implementation.
 
-**Implementation status:** Accepted and synchronized, not implemented or
-independently validated by this documentation-only task. Q019 remains CLOSED;
-Q022, Q024, Phase 16 and M015 remain OPEN. W001-W055 are unchanged.
+**Implementation status:** Readiness, periodic assessment and degraded scientific
+timing are implemented and independently validated, with final audit PASS in
+W056 after all three P2 corrections. That record preserves earlier failed audits,
+overlapping verification runs and validation limitations. Advanced Q006/Q018
+scope remains OPEN. Q019 remains CLOSED; Q022, Q024, Phase 16 and M015 remain OPEN.
+W001-W055 are unchanged.
 
 ---
 

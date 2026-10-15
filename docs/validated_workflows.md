@@ -4148,6 +4148,95 @@ Decision 377-378 implementation replacement is accepted and closed here.
 
 ---
 
+# W056 - Distributed Synchronization and Experiment NATS Integration
+
+**Status:** Complete - Q022 Slice 2; independently validated and audited.
+
+## Implemented scope
+
+AcquisitionNode, Experiment operations and SynchronizationManager communicate
+through existing NATS commands and correlated results. SynchronizationManager
+owns measured cross-clock exchanges, conservative explicit rate bounds, mapping
+validity and configurable periodic quality assessment. AcquisitionNode applies
+authorized affine Session-Time mappings locally and prospectively, derives
+Experiment Time, and retains mapping activation and quality history. Session
+acquisition and each Experiment require acceptable synchronization; degradation
+retains explicit timing quality under existing policy and Controller authority.
+
+Launched Experiment context, health activation and finalization use NATS and
+preserve applicable evidence publication before successful responses. Scientific
+observations and native/local timing remain in AcquisitionNode-local storage;
+Ingestor receives operational evidence and manifests, not scientific observations.
+Existing Q019 preservation, release and archive protections remain unchanged.
+
+Public entry points include Controller.start_launched_session(),
+start_launched_experiment() and stop_launched_experiment(), explicit
+SessionConfig.synchronization_configuration, AcquisitionNode's
+synchronization_source_id, and NatsSynchronizationManagerCommunication.
+
+## Audit findings and corrections
+
+The initial independent audit of d9624adf07289e2e7135958a80078f7ab4b9c14f
+returned FAIL with two P2 findings:
+
+- Buffered observations used processing-time synchronization readiness. Retained
+  acquisition-time quality transitions, expiry and mapping boundaries now prevent
+  later recovery or degradation from relabeling earlier observations. Local and
+  available native timestamps remain intact; persisted records are not rewritten.
+- A transient timing-publication exception terminated periodic assessment.
+  Recoverable cycle failures now retain stable evidence identities and resume at
+  the configured cadence; cancellation and shutdown still terminate monitoring.
+
+Re-audit of b37ff381b9df395e19583758c24e486a73dfab25 confirmed those fixes but
+returned FAIL with another P2: a conflicting stop_runtime command cancelled
+monitoring before admission. Command identity and Session scope now precede
+stop-related effects. Serialized admission preserves duplicate-command identity;
+periodic cancellation is awaited outside the runtime lock to avoid deadlock.
+Rejected stops leave acquisition and monitoring running. Valid stops publish
+required retained evidence before success, and failed publication supports retry.
+
+Final independent read-only audit of **3e573f5: PASS**, with no confirmed P0-P3
+findings. All three P2 findings are resolved; no closure is inferred from an
+earlier failed audit.
+
+## Validation evidence
+
+- Developer corrective verification: 45 distinct targeted tests passed, including
+  seven historical-quality/publication-recovery regressions. Final rejected-stop
+  correction verification: 42 targeted tests passed, including local JetStream.
+- Independent user-run IPython validation passed for historical degraded quality
+  after recovery, preservation of local/native timestamps, transient publication
+  recovery and resumed evidence publication, and handler task cleanup.
+- Independent user-run IPython validation passed for conflicting stop rejection,
+  continued owner/node operation and subsequent periodic assessments, followed by
+  successful valid shutdown.
+- Final audit verification: 34 distributed synchronization tests passed, five
+  directly affected preservation/timing-publication tests passed, and one
+  additional read-only live JetStream probe passed. Coverage includes actual local
+  JetStream with separate participant processes. The additional probe covered
+  rejected/wrong-Session stops, overlapping stops, injected publication failure,
+  retained evidence, retry and stable duplicate results.
+
+These are overlapping verification runs, not an additive unique-test total.
+Earlier developer test failures caused by coarse local-clock ticks and assumed
+distinct activation times were corrected with explicit clock-boundary coordination;
+they were test assumptions, distinct from the three confirmed production P2s.
+Injected publication exceptions are expected negative-test evidence, not successful
+publication. No tests or independent audit were repeated for documentation closure.
+
+## Limitations and status
+
+Local JetStream, separate local processes, simulated devices and broker doubles
+do not establish multi-host clock accuracy, physical hardware timing, power-loss
+recovery or advanced synchronization guarantees. Q006/Q018 remain OPEN for their
+advanced scope. Full deployment bootstrap, remaining external-service integration
+and installation verification are not established by this record.
+
+Only Q022 Slice 2 is CLOSED here. Q019 remains CLOSED; Q022, Q024, Phase 16 and
+M015 remain OPEN. W001-W055 and accepted decision substance/numbering are unchanged.
+
+---
+
 # Future Workflows
 
 The following workflows are expected to be added as the framework evolves.
