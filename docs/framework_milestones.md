@@ -1157,9 +1157,11 @@ production/local persistence. Remove obsolete collection contracts, scientific
 envelope mechanisms and dead code/tests/docs only where no accepted responsibility
 remains. Preserve scientific provenance, operational evidence, historical readback
 and Q019 guarantees. The final independent integration audit must verify functional
-preservation and absence of obsolete scientific-envelope architecture. This
-overall replacement remains incomplete: W053 and W054 close bounded Slices 3A/3B,
-while the combined final integration and legacy-removal audit remains pending.
+preservation and absence of obsolete scientific-envelope architecture. W053 and
+W054 close bounded Slices 3A/3B; W055 records final combined implementation
+acceptance after functional audit PASS and targeted correction of the sole
+clean-replacement P3, without a further independent re-audit as explicitly
+determined by the user and ICC for the test-only cleanup.
 Project/milestone statuses are unchanged.
 
 **W051 - Complete, bounded Q022 Ingestor-StorageManager ownership boundary.**
@@ -1207,8 +1209,9 @@ failure semantics and full validation history.
 
 Temporary local storage and simulated devices/brokers do not establish live
 multi-host, hardware or power-loss guarantees. W054 now closes bounded Slice 3B
-owner-level envelope removal/closeout reconciliation; Decision 378's combined final
-integration and legacy-removal audit remains pending.
+owner-level envelope removal/closeout reconciliation; W055 now records combined
+Decision 377-378 implementation acceptance, preserving the initial audit failure
+and subsequent targeted P3 correction history.
 W051/W052 history and Q019 CLOSED are preserved; Q022, Q024, Phase 16,
 and M015 remain OPEN. These are recorded results, not new tests during closure.
 
@@ -1227,9 +1230,24 @@ manual validation and audit runs, including 25 corrective audit tests and ten
 independent probes. Late intake remains Ingestor-owned and blocks stale release;
 reconciliation does not authorize rewriting Stage B or closed archives.
 
-This does not close Decision 378's combined final integration/legacy-removal audit
-or remaining Q022 deployment work. Q019 remains CLOSED; Q022, Q024, Phase 16 and
+W055 separately closes the combined Decision 377-378 implementation; this does
+not close remaining Q022 deployment work. Q019 remains CLOSED; Q022, Q024, Phase 16 and
 M015 remain OPEN. Historical W041-W053 validation is unchanged.
+
+## Completed scientific-product replacement integration
+
+**W055 - Complete, final Decision 377-378 implementation acceptance.**
+The combined independent audit passed functional integration with 26 selected
+tests and four independent probes, and initially failed clean replacement for
+one P3: an unused HealthFakeAdapter record_kind argument/assignment. The test-only
+cleanup passed nine targeted tests and git diff --check. The user and ICC accepted
+that verification without another independent re-audit; no post-correction audit
+PASS is claimed. W001-W054 histories and accepted architectural substance remain
+unchanged. This does not establish live hardware, multi-host or power-loss
+guarantees, full deployment, or future scientific streaming. Remaining Q022 work
+includes owner-side NATS interfaces, cross-process orchestration/recovery,
+shared-process bootstrap, configuration and installation verification.
+Q019 remains CLOSED; Q022, Q024, Phase 16 and M015 remain OPEN.
 
 ## Completed Session-binding release slice validation
 

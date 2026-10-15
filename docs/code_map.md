@@ -54,8 +54,9 @@ serialized durable publication before command responses. Slice 3B reconciles own
 closeout against current operational evidence/audit and manifest coverage, retaining
 plain historical Session Record validation without legacy writers. This bounded
 replacement is complete after independent validation and corrective re-audit PASS
-(W054); the combined Decision 377-378 final integration and legacy-removal audit
-remains pending. No future streaming or deployment validation is claimed.
+(W054). The combined Decision 377-378 replacement is implemented and accepted in
+W055 after functional audit PASS and targeted correction of the sole residual P3.
+No future streaming or deployment validation is claimed.
 
 Decision 378 now requires clean replacement: installation declarations and
 Experiment selections govern supported adapter scientific production and local
@@ -64,16 +65,19 @@ heuristics. Legacy collection contracts, scientific-envelope transport/persisten
 audit/recovery/compatibility machinery, and dead functions/types/tests must be
 removed when no accepted responsibility remains. Entries below map existing code,
 not approved target APIs. Retain operational evidence and historical-readback
-responsibilities; preserve Q019 guarantees. Final independent integration audit
-must verify functionality and absence of obsolete architecture; the complete
-replacement is not yet independently validated or closed.
+responsibilities; preserve Q019 guarantees. W055 records the combined functional
+audit PASS, initial clean-replacement FAIL, and subsequent removal of the obsolete
+HealthFakeAdapter constructor setting with nine targeted tests PASS. The user and
+ICC determined that no further independent re-audit was needed for this test-only
+cleanup; the completed replacement is accepted, not a new post-correction audit PASS.
 
 W054 records initial developer verification (841 passed, seven optional skips),
 independent validation, initial audit FAIL for the P2 release race and P3 obsolete
 test configuration, both corrections, and final corrective re-audit PASS. Corrective
 developer checks passed 32 focused tests and 847 full-regression tests with seven
 optional skips; independent re-audit passed 25 tests and ten probes. These are
-separate overlapping runs, not complete deployment or Decision 378 acceptance.
+separate overlapping runs, not complete deployment; final Decision 377-378
+implementation acceptance is recorded separately in W055.
 
 Q019 is CLOSED following W041-W049 slice completion and W050 overall software
 integration validation/audit PASS. The permanent sequential Normal Stop regression

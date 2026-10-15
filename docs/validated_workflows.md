@@ -31,9 +31,11 @@ historical validations, not a reason to retain superseded code. Necessary
 operational/historical-readback responsibilities remain; the replacement's final
 independent integration audit must verify preserved functionality and absence of
 obsolete architecture. Owner-level Slice 3B replacement is complete after
-correction, independent validation and corrective re-audit PASS (W054). The combined
-Decision 377-378 final integration and legacy-removal audit remains pending;
-neither W053 nor W054 closes the complete replacement.
+correction, independent validation and corrective re-audit PASS (W054). W055 records
+final combined Decision 377-378 implementation acceptance after functional audit
+PASS and targeted correction of the sole clean-replacement P3. The initial failed
+clean-replacement verdict remains recorded; the user and ICC accepted targeted
+verification without another independent re-audit for that test-only cleanup.
 
 The socket and acquisition-envelope workflows below remain valid historical demonstrations of implemented boundaries. They are not the accepted Phase 10 runtime transport architecture: Phase 10 adopts brokered NATS communication, keeps large scientific artifacts local during acquisition, and has not yet been implemented or validated.
 
@@ -4031,6 +4033,118 @@ legacy-removal (zombie-code) auditing across AcquisitionNode, DeviceAdapter,
 DeviceManager, Ingestor, StorageManager, Controller and NATS boundaries. No final
 Decision 378 acceptance is claimed. Q019 remains CLOSED; Q022, Q024, Phase 16 and
 M015 remain OPEN.
+
+---
+
+# W055 - Scientific-Product Replacement Integration and Final Acceptance
+
+**Status:** Complete, final implementation acceptance of Decisions 377-378,
+following W053/W054 independent validation/audits, the combined integration audit,
+and targeted verification of its remaining test-only P3 correction.
+
+## Accepted implementation and integration scope
+
+Installation-declared ScientificProductDeclarations and explicit Experiment
+ScientificOutputSelections govern DeviceAdapter/DeviceManager collection.
+AcquisitionNode coordinates LocalStorageManager JSONL/HDF5 persistence of
+scientific observations and associated metadata regardless of size. Identity,
+ordering, available native timestamps, framework timing and provenance remain
+with local artifacts. Scientific observations and per-observation metadata do
+not enter Ingestor; manifests describe artifacts without embedding observations.
+
+Operational lifecycle/terminal, health/failure, timing and manifest evidence retain
+their authoritative owners and existing RuntimeEvidenceMessage mechanisms.
+Ingestor retains journal-before-ACK, identity/conflict checks, deduplication,
+known-Session reconstruction, intake auditing and durable compilation. Publication,
+durable receipt and archival confirmation remain distinct. Controller closeout
+and StorageManager preservation/collection use operational evidence and manifest
+coverage, not obsolete scientific-envelope counts or receipts.
+
+The combined independent audit traced declaration -> selection -> product
+collection -> local persistence/finalization -> manifest publication -> operational
+intake -> Controller closeout -> StorageManager preservation and global collection.
+It covered partial acquisition, scientific writes, operational validation/intake,
+journal and publication failures, missing producer completion, Normal Stop/Kill,
+Stage A/B, handoff/release guards, restart, saved-Session selection, authorized
+recovery, idempotency, permanent closure and successive service reuse.
+Completed scientific observations receive independent preservation attempts;
+failed attempts remain failures, not claims of recovered observations or replay.
+
+Repository-wide inspection covered source, tests, exports, demos/scripts and active
+documentation. Historical decisions/workflows and strict saved-record interpretation
+remain legitimate history; active operational messaging, health policies, local
+buffering and journal/publication identity mechanisms remain required. Superseded
+scientific-envelope collection, intake/persistence, transport, recovery and
+compatibility paths are removed rather than retained as shims. W051/W052 retain
+their historical results, not an active scientific-envelope requirement.
+
+## Combined audit result and P3 correction
+
+The final combined independent audit returned **functional integration PASS** and
+**clean replacement FAIL**, hence **overall FAIL** at that checkpoint. No confirmed
+production P0-P2 defects were found. The sole P3 was
+`HealthFakeAdapter.__init__()` in `tests/test_acquisition_health.py`: an obsolete
+`record_kind` argument and unused `self._record_kind` assignment remained from the
+removed `collect_records()` contract. The accepted-looking setting had no effect.
+
+Correction `aabc4a3774cb60c2e3f60b0a1c07a6201540d5bc` removes only that argument
+and assignment. No callers required changes; active health-policy `record_kind`
+fields remain intact. No production code, compatibility alias or replacement
+parameter was introduced. The correction is committed; the user reports it pushed.
+
+The user and ICC explicitly determined that another independent re-audit was
+unnecessary for this narrowly scoped test-only cleanup: the combined functional
+audit remains valid and targeted verification is sufficient to resolve the P3.
+Final implementation acceptance closes Decisions 377-378's replacement scope on
+that basis. This is not a post-correction independent clean-replacement audit PASS
+and does not erase the original failed audit or W053/W054 correction histories.
+
+## Validation and verification evidence
+
+- W053 records Slice 3A independent manual validation, initial P2 audit failure,
+  scientific-observation preservation correction, and successful final re-audit.
+- W054 records Slice 3B independent validation, initial P2/P3 audit failure,
+  corrections and successful final corrective re-audit. Both records are unchanged.
+- Combined independent audit: **26 selected tests PASS** across product acquisition,
+  scientific/operational failure preservation, producer publication, journal and
+  readback, Normal Stop/Kill, release, saved collection, recovery and immutability.
+- **Four independent negative/integration probes PASS:** large non-frame metadata
+  through local artifacts/collection/closure without scientific intake; invalid
+  operational identity with preserved scientific output and partial Kill;
+  actual journal fsync failure with retained obligations and no false closeout;
+  foreign scientific Session identity rejected while another device's valid
+  observation remains independently preserved.
+- P3 corrective verification: **9 targeted tests PASS** (six acquisition-health
+  tests and three adapter product-contract checks for selected, unselected and
+  invalid products); `git diff --check` PASS. Sandbox temporary-file permissions
+  required an approved rerun, not a production correction.
+
+These are previously executed checks, not new software tests, independent manual
+validation or another audit during documentation closure. Counts describe separate
+runs and are not an additive unique-test total.
+
+## Limitations and remaining Q022 work
+
+Verification used temporary local storage, simulated devices and broker/SFTP
+infrastructure. It establishes no live hardware, multi-host deployment or
+independently demonstrated power-loss guarantee. Injected fsync failure is not
+power-loss validation; preservation attempts are not proof of successful writes.
+Synchronous persistence can block the event loop. Physical synchronization and
+complete independent-service deployment are not established by this acceptance.
+
+Remaining Q022 work includes owner-side NATS operational-evidence acceptance and
+readback, acquisition/Experiment and synchronization adaptation, cross-process
+Controller closeout/collection/release, maintenance/authorized recovery,
+shared-process bootstrap/lifetime enforcement, configuration/explicit-role launch
+and installation verification. Use the existing dependency map in
+`installation_and_deployment.md` before enabling dependent launch paths; local
+owner locks cannot be replaced by assumed distributed locks or cached confirmation.
+Future online scientific streaming remains an unresolved, out-of-scope possibility,
+not a prerequisite or an implemented feature of Decisions 377-378.
+
+W001-W054 and accepted architectural substance/numbering remain unchanged.
+Q019 remains CLOSED; Q022, Q024, Phase 16 and M015 remain OPEN. Only the combined
+Decision 377-378 implementation replacement is accepted and closed here.
 
 ---
 

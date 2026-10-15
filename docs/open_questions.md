@@ -859,7 +859,10 @@ operational-evidence preservation are complete with independent manual validatio
 and final re-audit PASS after correction (W053, bounded Slice 3A). Owner-level
 replacement/closeout reconciliation is complete after independent validation and
 corrective re-audit PASS (W054, bounded Slice 3B). The combined Decision 377-378
-final integration/legacy-removal audit and remaining deployment work are pending.
+replacement is implemented and accepted in W055 after functional audit PASS and
+targeted correction of its sole clean-replacement P3. The user and ICC accepted
+verification without another independent re-audit for this test-only cleanup.
+Remaining deployment work is pending.
 Q022 as a whole is not closed. Q019 remains CLOSED in W050.
 
 ### Q022-A accepted scope
@@ -1007,10 +1010,11 @@ exact formats remain implementation choices. No lifecycle API is introduced.
   must support those products and distinguish scientific observations/metadata
   from operational evidence. Do not infer meaning from content, size or old names.
   Bounded product-based acquisition is complete in W053 and owner-level replacement
-  in W054, not the entire replacement. The combined final independent integration
-  and legacy-removal audit across AcquisitionNode, DeviceAdapter, DeviceManager,
-  Ingestor, StorageManager, Controller and NATS must assess both functional
-  preservation and absence of obsolete architecture.
+  in W054. W055 closes the combined implementation after independent functional
+  integration PASS and removal of its sole remaining obsolete fixture setting,
+  with nine targeted tests PASS. No further independent re-audit was required by
+  the user and ICC for that test-only correction. Cross-process deployment,
+  configuration/bootstrap and installation verification remain separate Q022 work.
 * AcquisitionNode duplicate-ID policy is accepted; do not infer a new general
   policy for all RuntimeParticipant kinds or a global identity registry.
 

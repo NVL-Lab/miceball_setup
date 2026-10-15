@@ -52,7 +52,10 @@ and manifests. This bounded owner replacement is complete after independent
 manual validation and corrective re-audit PASS (W054). The initial audit FAIL
 identified the P2 concurrent Normal Stop release/intake race and P3 unused envelope
 configuration in a product-failure test; both were corrected. The combined final
-Decision 377-378 functional integration and legacy-removal audit remains pending.
+Decision 377-378 implementation is accepted in W055 after functional audit PASS
+and targeted correction of the sole remaining clean-replacement P3. The user and
+ICC determined that no further independent re-audit was needed for that test-only
+cleanup; the initial clean-replacement FAIL remains historical.
 W051/W052 are historical validated envelope
 paths, no longer required for routine scientific acquisition; active durability,
 identity, corruption/readback and Q019 preservation/recovery/closure protections
@@ -77,9 +80,9 @@ mandate. Preserve local scientific identity/order/timing/provenance, manifests,
 operational events/health/synchronization, and all Q019 preservation/recovery guards.
 Obsolete Ingestor/StorageManager envelope APIs are removed in Slice 3B.
 New Session Records omit envelope/audit fields; historical fields, when present,
-are validated as plain saved data without an active legacy writer. Final independent integration
-audit must assess both functional preservation and
-absence of obsolete scientific-envelope architecture before closure.
+are validated as plain saved data without an active legacy writer. W055 records
+final combined implementation acceptance, including functional integration and
+the initial obsolete-fixture finding, correction and targeted verification.
 
 ## Accepted Manual Procedure
 
@@ -200,7 +203,8 @@ and terminal-state checks remain mandatory. Stage A/B, authorized recovery and
 permanent immutability are not replaced by transport acknowledgments.
 
 W054 records independent validation and corrective re-audit PASS for this bounded
-replacement, not final Decision 378 acceptance or deployment certification.
+replacement; W055 separately records final Decision 377-378 implementation
+acceptance, not deployment certification.
 Controller release holds intake -> preservation locks through final checks and
 binding retirement, never across unsubscription awaits. Later accepted intake
 remains Ingestor-owned and blocks release until current preservation is confirmed;
@@ -375,9 +379,10 @@ architecture or claims of implementation/validation:
    and final re-audit PASS (W053). Owner-level envelope removal and closeout
    reconciliation are complete after correction, independent validation and
    corrective re-audit PASS (W054), retaining required historical interpretation.
-   Complete the combined Decision 377-378 final independent integration and
-   legacy-removal audit across node, adapter, manager, Ingestor, StorageManager,
-   Controller and NATS boundaries before final replacement acceptance.
+   The combined Decision 377-378 replacement is now accepted in W055 after
+   functional audit PASS and targeted correction of its sole clean-replacement
+   P3; no further independent re-audit was required by the user and ICC for that
+   test-only cleanup. Next, complete the remaining owner-side evidence interfaces:
    Reconcile the combined process's active local persistence/readback guarantees,
    and owner-side NATS operational-evidence intake, acceptance,
    receipt/compilation and external readback operations using existing

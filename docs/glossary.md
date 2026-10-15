@@ -380,8 +380,10 @@ not retained as compatibility fallbacks. AcquisitionNode must not guess meaning
 from content, size or naming. Slice 3B removes owner-level scientific-envelope
 intake, persistence and transport; necessary historical Session Record validation
 remains read-only. Bounded Slice 3B is complete after correction, independent
-validation and corrective re-audit PASS (W054). The combined final integration
-and legacy-removal audit of the complete Decision 377-378 replacement remains pending.
+validation and corrective re-audit PASS (W054). W055 records final combined
+Decision 377-378 implementation acceptance after functional audit PASS and
+targeted verification of its sole test-only clean-replacement P3 correction;
+the user and ICC determined that no further independent re-audit was required.
 
 The component responsible for communicating with a specific device type.
 
@@ -1942,8 +1944,10 @@ observations, including small observations and their metadata. Earlier implement
 and W051/W052 remain historically validated; revised node-local scientific routing
 and operational evidence are complete in W053. Owner-level envelope removal and
 closeout reconciliation are complete after independent validation and corrective
-re-audit PASS (W054). The combined Decision 377-378 final integration and
-legacy-removal audit remains pending.
+re-audit PASS (W054). The combined Decision 377-378 implementation is accepted
+in W055 after functional audit PASS and targeted correction of the remaining
+obsolete fixture setting, without a further independent re-audit as explicitly
+determined by the user and ICC for this test-only cleanup.
 This historical term does not define future
 real-time streaming.
 

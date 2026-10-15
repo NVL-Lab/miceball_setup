@@ -10732,8 +10732,11 @@ handling and retains independent failure reporting without replay. Owner-level
 envelope removal and operational Session Record/closeout reconciliation are
 complete with independent manual validation and corrective re-audit PASS after
 the P2 release-race and P3 obsolete-fixture corrections (W054). The combined
-Decision 377-378 final integration and legacy-removal audit remains pending;
-the complete replacement is not closed.
+Decision 377-378 implementation is complete and accepted in W055: independent
+functional integration PASS (26 selected tests and four probes), followed by
+correction of the sole clean-replacement P3 and nine targeted tests PASS. The user
+and ICC explicitly determined that no further independent re-audit was required
+for that test-only cleanup; no post-correction re-audit PASS is claimed.
 Future real-time scientific streaming remains an open architectural question;
 no transport or infrastructure is selected.
 Q019 remains CLOSED; Q022, Q024, Phase 16 and M015 remain OPEN.
@@ -10799,10 +10802,13 @@ path, with local scientific persistence and separate operational evidence.
 Slice 3B owner-level scientific-envelope removal and closeout reconciliation are
 complete with independent manual validation and corrective re-audit PASS after
 the P2 release-race and P3 obsolete-fixture corrections (W054), retaining required
-historical interpretation and Q019 protections. Decision 378's full replacement
-is NOT complete: the combined final independent functional integration and
-legacy-removal audit across node, adapter, manager, Ingestor, StorageManager,
-Controller and NATS boundaries remains pending. Historical
+historical interpretation and Q019 protections. The combined Decision 377-378
+replacement is implemented and accepted in W055. The independent combined audit
+passed functional integration but initially failed clean replacement for one P3:
+unused HealthFakeAdapter record_kind configuration. Its removal passed nine
+targeted tests; the user and ICC accepted targeted verification without a further
+independent re-audit for this narrowly scoped test-only correction. The initial
+audit result is preserved, not restated as a post-correction audit PASS. Historical
 decision numbering and W051/W052 records remain unchanged. Future real-time
 scientific streaming remains architecturally open. Q019 remains CLOSED;
 Q022, Q024, Phase 16 and M015 remain OPEN.

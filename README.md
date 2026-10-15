@@ -41,8 +41,11 @@ correlated persistence, exports and demos, and reconciles closeout against
 operational evidence/audit and manifests. The initial audit FAIL identified a P2
 Normal Stop release/intake race and P3 obsolete test configuration; both were
 corrected and independently re-audited with no remaining confirmed P0-P3 findings.
-The combined Decision 377-378 final integration and legacy-removal audit remains
-pending; W054 does not close the complete replacement or Q022.
+The combined Decision 377-378 implementation is complete and accepted in W055.
+The final audit passed functional integration (26 tests and four probes), initially
+failed clean replacement for one unused test-fixture setting, and that P3 cleanup
+passed nine targeted tests. The user and ICC accepted targeted verification
+without another independent re-audit for this test-only correction. Q022 remains OPEN.
 Remaining process-crossing direct-owner dependencies still need adaptation before
 fully functional independent-role deployment. Historical Q019 validation remains
 complete and does not claim this deployment adaptation has been validated.
