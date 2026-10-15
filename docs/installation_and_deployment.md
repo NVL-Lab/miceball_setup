@@ -296,6 +296,12 @@ separate. New operational mapping activation and quality records use existing
 RuntimeEvidenceMessage retention/publication and archival pathways, not scientific
 payload forwarding or a new evidence transport.
 
+Node-local quality application boundaries and owner-issued expiry remain retained
+as timing-quality runtime evidence, so buffered observations keep acquisition-time
+quality across later degradation, reassessment or remapping. Transient periodic
+assessment/publication failures retain evidence and resume at the configured
+cadence; explicit timing closeout and transport shutdown still cancel assessment.
+
 The optional cross-process developer test uses actual local JetStream with
 SynchronizationManager and AcquisitionNode in separate spawned processes. Other
 focused workflows use broker doubles and real domain owners. This is not

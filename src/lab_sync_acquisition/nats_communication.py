@@ -1407,9 +1407,9 @@ class NatsSynchronizationManagerCommunication:
 
     async def _periodic_assessment(self, session_id, node_ids):
         owner = self._synchronization_manager
-        try:
-            while owner.is_running and owner._prepared_session_id == session_id:
-                await asyncio.sleep(owner.distributed_configuration.assessment_interval_s)
+        while owner.is_running and owner._prepared_session_id == session_id:
+            await asyncio.sleep(owner.distributed_configuration.assessment_interval_s)
+            try:
                 async with self._runtime_lock:
                     if not owner.is_running or owner._prepared_session_id != session_id:
                         return
@@ -1424,10 +1424,8 @@ class NatsSynchronizationManagerCommunication:
                             except Exception:
                                 logger.warning("Synchronization quality delivery unconfirmed for %s", node_id)
                     await self._publish_timing(session_id)
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            logger.exception("Periodic synchronization assessment failed; local validity bounds remain in force")
+            except Exception:
+                logger.exception("Periodic synchronization cycle failed; evidence retained for the next configured assessment")
 
     async def close(self) -> None:
         """Release transport subscriptions and assessment tasks without altering Session lifecycle."""
@@ -1483,7 +1481,8 @@ class NatsSynchronizationManagerCommunication:
                         result = _participant_result(self._boundary, command, all(q["acceptable"] for q in qualities),
                             None if all(q["acceptable"] for q in qualities) else "Synchronization quality is unacceptable",
                             {"qualities": qualities, "session_time_s": owner.current_session_time_s})
-                        if command.command_type == "start_runtime" and result.success and self._assessment_task is None:
+                        if (command.command_type == "start_runtime" and result.success
+                                and (self._assessment_task is None or self._assessment_task.done())):
                             self._assessment_task = asyncio.create_task(self._periodic_assessment(command.session_id, tuple(node_ids)))
                     elif command.command_type == "read_session_time":
                         if owner._prepared_session_id != command.session_id or not owner.is_running:

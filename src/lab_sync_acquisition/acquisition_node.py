@@ -84,6 +84,7 @@ class AcquisitionNode:
             raise ValueError("Distributed synchronization requires explicit authority and node identities")
         self._synchronization_source_id = synchronization_source_id
         self._synchronization_quality: dict[str, Any] | None = None
+        self._synchronization_quality_history: list[dict[str, Any]] = []
         self._mapping_activation_history: list[dict[str, Any]] = []
         self._timing_quality_reported = False
         self._device_manager = device_manager
@@ -610,9 +611,9 @@ class AcquisitionNode:
                 if (quality["assessment_sequence"] < previous["assessment_sequence"]
                         or quality["measured_local_time_s"] < previous["measured_local_time_s"]):
                     raise ValueError("Historical synchronization assessment cannot replace newer state")
+            boundary = monotonic()
             activation_message = None
             if mapping is not None and mapping != self._active_synchronization_mapping:
-                boundary = monotonic()
                 activation = {"session_id": session_id, "acquisition_node_id": self._node_id,
                     "mapping": mapping.to_dict(), "activated_local_time_s": boundary,
                     "measurement": deepcopy(quality)}
@@ -622,24 +623,34 @@ class AcquisitionNode:
                 self._mapping_activation_history.append(deepcopy(activation))
                 self._active_synchronization_mapping = mapping
             self._synchronization_quality = deepcopy(quality)
+            application = {"session_id": session_id, "acquisition_node_id": self._node_id,
+                           "applied_local_time_s": boundary, "quality": deepcopy(quality)}
+            self._synchronization_quality_history.append(application)
             self._timing_quality_reported = False
             if activation_message is not None:
                 self._retain_runtime_evidence(activation_message)
+            self._retain_runtime_evidence(RuntimeEvidenceMessage(
+                f"timing-quality-{session_id}-{self._node_id}-{quality['assessment_sequence']}",
+                session_id, "timing_quality_observation", self._node_id, deepcopy(application), True))
             if self._running and not self._synchronization_readiness().ready:
                 self._record_degraded_timing(monotonic())
 
-    def _synchronization_readiness(self) -> ServiceReadiness:
+    def _synchronization_readiness(self, local_time_s: float | None = None) -> ServiceReadiness:
         if self._synchronization_manager is not None:
             return self._synchronization_manager.check_ready()
-        if self._session_id is None:
-            return ServiceReadiness(self._synchronization_source_id, "synchronization_manager", False,
-                                    False, "Session synchronization is not established before Session preparation")
-        quality = self._synchronization_quality
-        ready = (quality is not None and quality["acceptable"]
-                 and self._active_synchronization_mapping is not None
-                 and monotonic() <= quality["valid_until_local_time_s"])
-        return ServiceReadiness(self._synchronization_source_id, "synchronization_manager", True,
-                                bool(ready), "ready" if ready else "synchronization_unconfirmed_or_degraded")
+        with self._reservation_lock:
+            if self._session_id is None:
+                return ServiceReadiness(self._synchronization_source_id, "synchronization_manager", False,
+                                        False, "Session synchronization is not established before Session preparation")
+            local = monotonic() if local_time_s is None else local_time_s
+            # Later reports cannot renew or improve an earlier observation's quality.
+            quality = next((item["quality"] for item in reversed(self._synchronization_quality_history)
+                            if item["session_id"] == self._session_id
+                            and item["applied_local_time_s"] <= local), None)
+            ready = (quality is not None and quality["acceptable"] and quality["mapping"] is not None
+                     and local <= quality["valid_until_local_time_s"])
+            return ServiceReadiness(self._synchronization_source_id, "synchronization_manager", True,
+                                    bool(ready), "ready" if ready else "synchronization_unconfirmed_or_degraded")
 
     def _session_time(self, local_time_s: float | None = None) -> float:
         if self._synchronization_manager is not None:
@@ -1160,10 +1171,10 @@ class AcquisitionNode:
             timestamped_row.update(
                 session_time_s=mapped,
                 acquisition_node_local_time_s=local,
-                timestamp_status=("runtime_timestamped" if self._synchronization_readiness().ready
+                timestamp_status=("runtime_timestamped" if self._synchronization_readiness(local).ready
                                   else "synchronization_degraded"))
             if self._synchronization_source_id is not None and not self._synchronization_readiness().ready:
-                self._record_degraded_timing(local)
+                self._record_degraded_timing(monotonic())
         if (self._active_experiment_runtime_context is not None
                 and (remote or "experiment_time_s" not in timestamped_row)):
             timestamped_row["experiment_time_s"] = (

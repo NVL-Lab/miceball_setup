@@ -316,6 +316,209 @@ class DistributedSynchronizationTests(unittest.IsolatedAsyncioTestCase):
         self.assertAlmostEqual(row["session_time_s"], original.session_time_anchor_s +
                                original.scale * (observed_at - original.local_time_anchor_s))
 
+    async def collect_buffered(self, rows):
+        def buffered(products, **context):
+            return {"scientific_products": {p.data_product_id: rows for p in products},
+                    "operational_evidence": ()}
+        with patch.object(self.node._device_manager.adapters[0], "collect_products", side_effect=buffered):
+            result = await self.request(self.participants[-1], "run_one_iteration")
+        self.assertTrue(result.success, result.reason)
+
+    async def test_buffered_degraded_observation_stays_degraded_after_recovery(self):
+        await self.start()
+        await self.experiment()
+        await self.request(self.participants[-1], "run_one_iteration")
+        local = self.node.local_storage_manager
+        manifest = local.manifests[0]
+        local.flush(manifest.storage_id)
+        original_bytes = Path(manifest.local_storage_path).read_bytes()
+        mapping = self.node.status()["active_synchronization_mapping"]
+        quality = self.sync.mark_synchronization_unavailable(self.sid, "node", "sync", "missed assessment")
+        requester = NatsControllerCommunication(self.sync_handler._boundary)
+        result = await requester.request_runtime_command(self.participants[-1], "accept_synchronization_quality",
+            self.sid, {"quality": quality}, 1)
+        self.assertTrue(result.success, result.reason)
+        observed_at = monotonic()
+        interpretation_ids = {m.evidence_id for m in self.node.runtime_evidence
+                              if m.evidence_type == "timing_quality_interpretation"}
+        result = await self.request(self.participants[1], "resynchronize", {"node_ids": ["node"]})
+        self.assertTrue(result.success, result.reason)
+        await self.collect_buffered([{"value": 2, "acquisition_node_local_time_s": observed_at,
+                                     "device_timestamp": 123.5}])
+        self.assertTrue((await self.controller.stop_launched_experiment("experiment")).succeeded)
+        content = Path(manifest.local_storage_path).read_bytes()
+        self.assertTrue(content.startswith(original_bytes))
+        first, buffered = [json.loads(line) for line in content.splitlines()]
+        self.assertEqual(first["timestamp_status"], "runtime_timestamped")
+        self.assertEqual(buffered["timestamp_status"], "synchronization_degraded")
+        self.assertEqual(buffered["acquisition_node_local_time_s"], observed_at)
+        self.assertEqual(buffered["device_timestamp"], 123.5)
+        self.assertAlmostEqual(buffered["session_time_s"], mapping.session_time_anchor_s +
+                               mapping.scale * (observed_at - mapping.local_time_anchor_s))
+        self.assertEqual(interpretation_ids, {m.evidence_id for m in self.node.runtime_evidence
+                                             if m.evidence_type == "timing_quality_interpretation"})
+
+    async def test_buffered_valid_observation_stays_valid_after_degradation(self):
+        await self.start()
+        await self.experiment()
+        observed_at = monotonic()
+        quality = self.sync.mark_synchronization_unavailable(self.sid, "node", "sync", "missed assessment")
+        requester = NatsControllerCommunication(self.sync_handler._boundary)
+        with patch("lab_sync_acquisition.acquisition_node.monotonic", return_value=observed_at + 1):
+            result = await requester.request_runtime_command(self.participants[-1], "accept_synchronization_quality",
+                self.sid, {"quality": quality}, 1)
+            self.assertTrue(result.success, result.reason)
+            await self.collect_buffered([{"value": 1, "acquisition_node_local_time_s": observed_at}])
+        self.assertTrue((await self.controller.stop_launched_experiment("experiment")).succeeded)
+        row = json.loads(Path(self.node.local_storage_manager.manifests[0].local_storage_path).read_text())
+        self.assertEqual(row["timestamp_status"], "runtime_timestamped")
+
+    async def test_buffered_observations_preserve_expiry_boundary_after_remapping(self):
+        await self.start()
+        await self.experiment()
+        expiry = self.sync._measured_mapping_quality["node"]["valid_until_local_time_s"]
+        mapping = self.node.status()["active_synchronization_mapping"]
+        observed_times = (expiry - .001, expiry, expiry + .001)
+        # Advance only the node clock; the measured exchange observes its new offset.
+        with patch("lab_sync_acquisition.acquisition_node.monotonic", return_value=expiry + 1), \
+                patch("lab_sync_acquisition.nats_communication.monotonic", return_value=expiry + 1):
+            result = await self.request(self.participants[1], "resynchronize", {"node_ids": ["node"]})
+            self.assertTrue(result.success, result.reason)
+            await self.collect_buffered([{"value": index, "acquisition_node_local_time_s": observed_at}
+                                         for index, observed_at in enumerate(observed_times)])
+        self.assertTrue((await self.controller.stop_launched_experiment("experiment")).succeeded)
+        rows = [json.loads(line) for line in Path(self.node.local_storage_manager.manifests[0].local_storage_path).read_text().splitlines()]
+        self.assertEqual([row["timestamp_status"] for row in rows],
+                         ["runtime_timestamped", "runtime_timestamped", "synchronization_degraded"])
+        for row, observed_at in zip(rows, observed_times):
+            self.assertAlmostEqual(row["session_time_s"], mapping.session_time_anchor_s +
+                                   mapping.scale * (observed_at - mapping.local_time_anchor_s))
+
+    async def test_buffered_degraded_observation_stays_degraded_after_reassessment(self):
+        await self.start()
+        await self.experiment()
+        mapping = self.node.status()["active_synchronization_mapping"]
+        quality = self.sync.mark_synchronization_unavailable(self.sid, "node", "sync", "missed assessment")
+        requester = NatsControllerCommunication(self.sync_handler._boundary)
+        self.assertTrue((await requester.request_runtime_command(self.participants[-1],
+            "accept_synchronization_quality", self.sid, {"quality": quality}, 1)).success)
+        observed_at = monotonic()
+        result = await self.request(self.participants[1], "assess_synchronization", {"node_ids": ["node"]})
+        self.assertTrue(result.success, result.reason)
+        self.assertEqual(self.node.status()["active_synchronization_mapping"], mapping)
+        retained = self.node.runtime_evidence
+        self.assertTrue((await requester.request_runtime_command(self.participants[-1],
+            "accept_synchronization_quality", self.sid, {"quality": result.payload["qualities"][0]}, 1)).success)
+        self.assertEqual(self.node.runtime_evidence, retained)
+        await self.collect_buffered([{"value": 1, "acquisition_node_local_time_s": observed_at}])
+        self.assertTrue((await self.controller.stop_launched_experiment("experiment")).succeeded)
+        row = json.loads(Path(self.node.local_storage_manager.manifests[0].local_storage_path).read_text())
+        self.assertEqual(row["timestamp_status"], "synchronization_degraded")
+        applications = [m for m in self.ingestor.accepted_runtime_evidence if
+                        m.source_id == "node" and m.evidence_type == "timing_quality_observation"]
+        self.assertTrue(all(self.ingestor.has_durable_runtime_evidence(m) for m in applications))
+        self.assertEqual([m.payload["quality"]["acceptable"] for m in applications], [True, True, False, True])
+
+    async def test_periodic_publication_recovers_retained_evidence(self):
+        self.config["synchronization_configuration"] = configuration(assessment_interval_s=.02)
+        await self.start()
+        baseline = {m.evidence_id for m in self.sync.session_timing_evidence(self.sid, "sync")}
+        publish = self.sync_handler._boundary.publish_evidence
+        failed, retrying, resume, recovered, subsequent = (asyncio.Event() for _ in range(5))
+        self.addCleanup(resume.set)
+        retained = []
+
+        async def fail_once(message):
+            if message.evidence_type == "timing_quality_observation" and message.evidence_id not in baseline:
+                if not retained:
+                    retained.append(deepcopy(message))
+                    failed.set()
+                    raise OSError("Injected periodic evidence publication failure")
+                if message.evidence_id == retained[0].evidence_id:
+                    self.assertEqual(message.to_dict(), retained[0].to_dict())
+                    retrying.set()
+                    await resume.wait()
+                    await publish(message)
+                    recovered.set()
+                    return
+                await publish(message)
+                subsequent.set()
+                return
+            await publish(message)
+
+        task = self.sync_handler._assessment_task
+        with patch.object(self.sync_handler._boundary, "publish_evidence", side_effect=fail_once):
+            await asyncio.wait_for(failed.wait(), 2)
+            self.assertFalse(self.ingestor.has_durable_runtime_evidence(retained[0]))
+            await asyncio.wait_for(retrying.wait(), 2)
+            self.assertFalse(task.done())
+            resume.set()
+            await asyncio.wait_for(recovered.wait(), 2)
+            await asyncio.wait_for(subsequent.wait(), 2)
+        self.assertTrue(self.ingestor.has_durable_runtime_evidence(retained[0]))
+        self.assertEqual(sum(m.evidence_id == retained[0].evidence_id
+                             for m in self.ingestor.accepted_runtime_evidence), 1)
+        result = await self.request(self.participants[1], "start_runtime", {"node_ids": ["node"]})
+        self.assertTrue(result.success, result.reason)
+        self.assertIs(self.sync_handler._assessment_task, task)
+        self.assertTrue(self.node.status()["is_running"])
+
+    async def test_close_cancels_periodic_publication_recovery(self):
+        self.config["synchronization_configuration"] = configuration(assessment_interval_s=.02)
+        await self.start()
+        baseline = {m.evidence_id for m in self.sync.session_timing_evidence(self.sid, "sync")}
+        publish = self.sync_handler._boundary.publish_evidence
+        failed, retrying, release = (asyncio.Event() for _ in range(3))
+        self.addCleanup(release.set)
+
+        async def fail_then_pause(message):
+            if message.evidence_type == "timing_quality_observation" and message.evidence_id not in baseline:
+                if not failed.is_set():
+                    failed.set()
+                    raise OSError("Injected periodic evidence publication failure")
+                retrying.set()
+                await release.wait()
+            await publish(message)
+
+        task = self.sync_handler._assessment_task
+        with patch.object(self.sync_handler._boundary, "publish_evidence", side_effect=fail_then_pause):
+            await asyncio.wait_for(retrying.wait(), 2)
+            await asyncio.wait_for(self.sync_handler.close(), 2)
+        self.assertTrue(task.cancelled())
+        self.assertIsNone(self.sync_handler._assessment_task)
+        self.assertTrue(self.sync.is_running)
+        self.assertTrue(self.node.status()["is_running"])
+
+    async def test_session_stop_publishes_retained_evidence_and_cancels_recovery(self):
+        self.config["synchronization_configuration"] = configuration(assessment_interval_s=.02)
+        await self.start()
+        baseline = {m.evidence_id for m in self.sync.session_timing_evidence(self.sid, "sync")}
+        publish = self.sync_handler._boundary.publish_evidence
+        retrying, release = asyncio.Event(), asyncio.Event()
+        self.addCleanup(release.set)
+        task = self.sync_handler._assessment_task
+        retained = []
+
+        async def fail_then_pause(message):
+            if (asyncio.current_task() is task and message.evidence_type == "timing_quality_observation"
+                    and message.evidence_id not in baseline):
+                if not retained:
+                    retained.append(deepcopy(message))
+                    raise OSError("Injected periodic evidence publication failure")
+                retrying.set()
+                await release.wait()
+            await publish(message)
+
+        with patch.object(self.sync_handler._boundary, "publish_evidence", side_effect=fail_then_pause):
+            await asyncio.wait_for(retrying.wait(), 2)
+            self.assertTrue((await self.controller.stop_launched_session()).succeeded)
+            result = await self.request(self.participants[1], "stop_runtime")
+            self.assertTrue(result.success, result.reason)
+        self.assertTrue(task.cancelled())
+        self.assertIsNone(self.sync_handler._assessment_task)
+        self.assertFalse(self.sync.is_running)
+        self.assertTrue(self.ingestor.has_durable_runtime_evidence(retained[0]))
+
     async def test_release_requires_quality_evidence_as_well_as_mapping_updates(self):
         await self.start()
         self.assertTrue((await self.controller.stop_launched_session()).succeeded)

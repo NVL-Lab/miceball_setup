@@ -732,9 +732,9 @@ guarantee remain deferred. M014/W034 retain completed Slice 27 scope and status.
 - AcquisitionNode.receive_active_synchronization_mapping: Passively replaces AcquisitionNode's stored reference to the SynchronizationManager-owned active mapping without applying mapping mathematics.
 - AcquisitionNode.synchronization_source_id: Exposes the configured remote synchronization identity, or None for a local development owner.
 - AcquisitionNode.mapping_activation_history: Returns detached snapshots of Session-scoped mappings and node-local activation boundaries.
-- AcquisitionNode.accept_synchronization_quality(session_id, source_id, quality): Checks transport/schema scope, rejects historical readback, and atomically applies the owner's mapping/quality while retaining activation evidence.
+- AcquisitionNode.accept_synchronization_quality(session_id, source_id, quality): Checks transport/schema scope, rejects historical readback, and atomically retains the owner's mapping/quality with local application boundaries through existing runtime evidence.
 - AcquisitionNode.activate_experiment_runtime(context, health_mapping): Applies prepared Experiment timing and health context idempotently after acceptable synchronization, rejecting conflicting active context without resetting health counts.
-- AcquisitionNode._synchronization_readiness: Reports current mapping validity/expiry through existing ServiceReadiness without owning mapping-quality decisions.
+- AcquisitionNode._synchronization_readiness: Reports current or acquisition-time validity using prospective quality application history and owner-issued expiry without owning mapping-quality decisions.
 - AcquisitionNode._session_time(local_time_s=None): Applies the active authorized affine mapping locally, or reads the explicit in-process development owner.
 - AcquisitionNode._collect_iteration: Holds the node reservation lock through collection/preservation so mapping activation is prospective and atomic.
 - AcquisitionNode._record_degraded_timing: Retains one supported degraded-condition policy interpretation per assessment without executing a stop policy.
@@ -935,7 +935,7 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 - NatsSynchronizationManagerCommunication._measure_node: Collects causal NATS exchanges and requests owner-side validity assessment before confirmed mapping delivery.
 - NatsSynchronizationManagerCommunication._deliver_quality: Requires correlated node acceptance of owner-issued mapping/quality state.
 - NatsSynchronizationManagerCommunication._publish_timing: Publishes stable owner-created timing evidence without closing Session Time.
-- NatsSynchronizationManagerCommunication._periodic_assessment: Performs configured serialized checks, reporting unavailability without automatically resynchronizing or stopping nodes.
+- NatsSynchronizationManagerCommunication._periodic_assessment: Performs configured serialized checks, retaining unconfirmed evidence across transient cycle failures until later publication or explicit closeout, without automatically resynchronizing or stopping nodes.
 - _participant_result: Builds an existing correlated final command-result message for one service-owned operation.
 - _execute_service_command: Delegates readiness/preparation/abort to the owner, includes configured maintenance identity and actual retirement confirmation in readiness replies, and retains command-ID deduplication.
 - _subscribe_participant_commands: Establishes the two addressed command subscriptions reused by mandatory service handlers.
@@ -1405,6 +1405,7 @@ automatic. Kill integration and overall closeout validation remain deferred.
 - configuration(**changes): Supplies explicit test synchronization bounds and a degraded-condition interpretation without production defaults.
 - declaration(): Supplies one registered non-frame scientific product for transport and local-preservation workflows.
 - DistributedSynchronizationTests: Exercises measured startup, Experiment lifecycle, affine mapping/provenance, scoped health context, degraded quality, cancellation, retries, publication failures and release safety through real owners and broker adapters.
+- DistributedSynchronizationTests.collect_buffered: Delivers controlled buffered scientific observations through the public iteration command for acquisition-time mapping/quality and local artifact checks.
 - MeasuredClockBoundsTests: Verifies causal offset bounds under asymmetric delay/variability, explicit configuration rejection and detached stable timing evidence readback.
 - run_participant(role, url, directory, ready, stop): Runs a test node or synchronization owner in a spawned process, with harness-only startup/shutdown signaling and NATS-only framework communication.
 - CrossProcessTimingTests: Exercises independent node/clock processes against optional real local JetStream, checking scientific timing and finalized local output without shared service owners.
