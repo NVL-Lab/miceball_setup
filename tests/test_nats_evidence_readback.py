@@ -1,5 +1,6 @@
 """Operational evidence compilation, receipt and preservation use owner-confirmed NATS readback."""
 
+import asyncio
 import json
 from pathlib import Path
 import sys
@@ -7,6 +8,8 @@ import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import AsyncMock
+from unittest.mock import patch
+from dataclasses import replace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
@@ -73,6 +76,104 @@ class NatsEvidenceReadbackTests(unittest.IsolatedAsyncioTestCase):
             await subscription.unsubscribe()
         self.assertTrue(result.success)
         self.assertEqual(result.payload["service_readiness"]["component_id"], "storage")
+
+    async def test_exact_acceptance_requires_journal_intake_not_publication(self):
+        message = RuntimeEvidenceMessage("health", "session", "acquisition_health", "node", {}, True)
+        await self.intake.subscribe_evidence("session")
+        producer = _Boundary("acquisition_node", "node", self.broker)
+        await producer.publish_evidence(message)
+        pending = await self.request(self.intake_peer, "read_runtime_evidence_acceptance", {"evidence": message.to_dict()})
+        self.assertFalse(pending.success)
+        consumer = next(iter(self.broker.consumers))
+        await self.broker.deliver(consumer, self.broker.last_sequence)
+        before = self.ingestor.recovery_journal_path.read_bytes()
+        await self.broker.deliver(consumer, self.broker.last_sequence)
+        confirmed = await self.request(self.intake_peer, "read_runtime_evidence_acceptance", {"evidence": message.to_dict()})
+        self.assertTrue(confirmed.success, confirmed.reason)
+        self.assertTrue(confirmed.payload["durable_acceptance_confirmed"])
+        self.assertNotIn("archival_confirmed", confirmed.payload)
+        self.assertEqual(self.ingestor.recovery_journal_path.read_bytes(), before)
+        self.assertEqual(len(self.ingestor.accepted_runtime_evidence), 1)
+        conflict = replace(message, payload={"changed": True})
+        rejected = await self.request(self.intake_peer, "read_runtime_evidence_acceptance", {"evidence": conflict.to_dict()})
+        self.assertFalse(rejected.success)
+        self.ingestor.recovery_journal_path.write_text("damaged", encoding="utf-8")
+        damaged = await self.request(self.intake_peer, "read_runtime_evidence_acceptance", {"evidence": message.to_dict()})
+        self.assertFalse(damaged.success)
+
+    async def test_misrouted_evidence_is_not_accepted_or_acknowledged(self):
+        await self.intake.subscribe_evidence("session")
+        consumer = next(iter(self.broker.consumers))
+        for change in ({"session_id": "other"}, {"source_id": "other"}, {"evidence_type": "other"}):
+            with self.subTest(change=change):
+                message = RuntimeEvidenceMessage("health", "session", "acquisition_health", "node", {}, True)
+                forged = replace(message, **change)
+                await self.broker.publish("messages.session.evidence.acquisition_node.node.acquisition_health",
+                    json.dumps(forged.to_dict()).encode(), "LAB_EVIDENCE")
+                with self.assertRaisesRegex(ValueError, "NATS subject"):
+                    await self.broker.deliver(consumer, self.broker.last_sequence)
+        self.assertEqual(self.ingestor.accepted_runtime_evidence, ())
+        self.assertEqual(self.broker.consumers[consumer].ack_floor.consumer_seq, 0)
+
+    async def test_failed_journal_delivery_recovers_after_restart_without_duplicate(self):
+        await self.intake.subscribe_evidence("session")
+        consumer = next(iter(self.broker.consumers))
+        message = RuntimeEvidenceMessage("health", "session", "acquisition_health", "node", {}, True)
+        await _Boundary("acquisition_node", "node", self.broker).publish_evidence(message)
+        sequence = self.broker.last_sequence
+        with patch("lab_sync_acquisition.ingestor.os.fsync", side_effect=OSError("injected journal failure")):
+            with self.assertRaises(OSError):
+                await self.broker.deliver(consumer, sequence)
+        self.assertEqual(self.broker.consumers[consumer].ack_floor.consumer_seq, 0)
+        restored = InMemoryIngestor(session_id="session", recovery_journal_path=self.ingestor.recovery_journal_path,
+                                    component_id="intake")
+        receiver = NatsIngestorCommunication(self.intake_boundary, restored)
+        await receiver.subscribe_evidence("session")
+        await self.broker.deliver(consumer, sequence)
+        await self.broker.deliver(consumer, sequence)
+        self.assertTrue(restored.has_durable_runtime_evidence(message))
+        self.assertEqual(sum(item.evidence_id == message.evidence_id
+                             for item in restored.accepted_runtime_evidence), 1)
+
+    async def test_acceptance_readback_rejects_wrong_session_and_stale_replies(self):
+        message = RuntimeEvidenceMessage("health", "session", "acquisition_health", "node", {}, True)
+        self.ingestor.receive_runtime_evidence(message)
+        payload = {"evidence": message.to_dict()}
+        self.assertFalse((await self.request(self.intake_peer, "read_runtime_evidence_acceptance", payload, session="other")).success)
+        good = await self.request(self.intake_peer, "read_runtime_evidence_acceptance", payload)
+        self.assertTrue(good.success)
+        old = self.broker.results[-1]
+        self.broker.change_result = lambda operation, current: old
+        self.assertIsNone(await self.request(self.intake_peer, "read_runtime_evidence_acceptance", payload))
+        self.broker.change_result = None
+        self.broker.drop_results.add(("intake", "read_runtime_evidence_acceptance"))
+        self.assertIsNone(await self.request(self.intake_peer, "read_runtime_evidence_acceptance", payload))
+
+    async def test_cancelled_intake_callback_redelivers_without_duplicate_acceptance(self):
+        message = RuntimeEvidenceMessage("health", "session", "acquisition_health", "node", {}, True)
+        entered, resume = asyncio.Event(), asyncio.Event()
+        calls = []
+
+        async def callback(evidence):
+            calls.append(evidence.evidence_id)
+            entered.set()
+            await resume.wait()
+
+        await self.intake.subscribe_evidence("session", callback)
+        consumer = next(iter(self.broker.consumers))
+        await _Boundary("acquisition_node", "node", self.broker).publish_evidence(message)
+        task = asyncio.create_task(self.broker.deliver(consumer, self.broker.last_sequence))
+        try:
+            await asyncio.wait_for(entered.wait(), 2)
+            self.assertTrue(self.ingestor.has_durable_runtime_evidence(message))
+            self.assertEqual(self.broker.consumers[consumer].ack_floor.consumer_seq, 0)
+        finally:
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+        await self.broker.deliver(consumer, self.broker.last_sequence)
+        self.assertEqual(calls, [message.evidence_id])
+        self.assertEqual(len(self.ingestor.accepted_runtime_evidence), 1)
 
     async def test_recovery_command_cannot_bypass_existing_administrator_interface(self):
         requests = NatsControllerCommunication(_Boundary("controller", "operator", self.broker))

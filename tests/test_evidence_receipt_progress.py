@@ -666,7 +666,7 @@ class LiveEvidenceReceiptTests(unittest.IsolatedAsyncioTestCase):
                                 async def unconfirmed_ack():
                                     raise ConnectionError("crash after journal before ACK")
                                 try:
-                                    await cb(SimpleNamespace(data=message.data, ack_sync=unconfirmed_ack))
+                                    await cb(SimpleNamespace(subject=message.subject, data=message.data, ack_sync=unconfirmed_ack))
                                 except ConnectionError:
                                     interrupted.append(message)
                                     failed.set()

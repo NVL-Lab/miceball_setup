@@ -599,7 +599,10 @@ class _EvidenceConsumerJetStream(EvidenceReceiptBroker):
 
     async def deliver(self, evidence):
         for callback in self.callbacks:
-            await callback(_DeliveredMessage(evidence.to_dict()))
+            message = _DeliveredMessage(evidence.to_dict())
+            message.subject = (f"messages.{evidence.session_id}.evidence.acquisition_node."
+                               f"{evidence.source_id}.{evidence.evidence_type}")
+            await callback(message)
         return len(self.callbacks)
 
 

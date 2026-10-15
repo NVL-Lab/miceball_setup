@@ -97,4 +97,4 @@ class EvidenceReceiptBroker:
             consumer.ack_floor = SequenceInfo(floor, self.deliveries[durable].get(floor, 0))
             consumer.num_ack_pending -= 1
 
-        await self.callbacks[durable](SimpleNamespace(data=record.data, ack_sync=ack_sync))
+        await self.callbacks[durable](SimpleNamespace(subject=record.subject, data=record.data, ack_sync=ack_sync))

@@ -383,7 +383,8 @@ class NatsControllerCommunication:
     ) -> RuntimeCommandResultMessage | None:
         """Request current owner readback without accepting history or an earlier attempt's reply."""
         supported = {"storage_manager": {"read_session_preservation"},
-                     "ingestor": {"compile_session_evidence", "verify_acquisition_receipt"}}
+                     "ingestor": {"compile_session_evidence", "verify_acquisition_receipt",
+                                  "read_runtime_evidence_acceptance"}}
         if (not isinstance(participant, RuntimeParticipant)
                 or command_type not in supported.get(participant.component_type, set())
                 or "request_nonce" in payload):
@@ -987,7 +988,8 @@ class NatsIngestorCommunication:
                 await message.ack()
                 return
             result = (await self._execute_evidence_readback(command)
-                      if command.command_type in {"compile_session_evidence", "verify_acquisition_receipt"} else
+                      if command.command_type in {"compile_session_evidence", "verify_acquisition_receipt",
+                                                 "read_runtime_evidence_acceptance"} else
                       await _execute_maintenance_command(self._boundary, self._ingestor, command)
                       if command.command_type in ({"stop", "kill", "cancel", "prepare_stop", "check_stop_readiness"} | SERVICE_RECOVERY_COMMAND_TYPES) else
                       _execute_service_command(self._boundary, self._ingestor, command, self._results_by_command_id))
@@ -1017,6 +1019,25 @@ class NatsIngestorCommunication:
             _validate_owner_request(self._boundary, command)
             if self._boundary.component_id != self._ingestor._component_id:
                 raise ValueError("Ingestor communication identity differs from its owner")
+            if command.command_type == "read_runtime_evidence_acceptance":
+                if set(command.payload) != {"evidence", "request_nonce"}:
+                    raise ValueError("Acceptance readback requires exactly one runtime evidence message")
+                evidence = RuntimeEvidenceMessage.from_dict(command.payload["evidence"])
+                if evidence.session_id != command.session_id:
+                    raise ValueError("Evidence does not match the requested Session")
+                journal = self._ingestor.recovery_journal_path
+                confirmed = False
+                if journal is not None:
+                    with self._ingestor.durable_runtime_evidence_history_guard(
+                            command.session_id, journal, (evidence,)) as confirmed:
+                        payload = {"evidence_id": evidence.evidence_id,
+                                   "durable_acceptance_confirmed": confirmed,
+                                   "request_nonce": nonce}
+                else:
+                    payload = {"evidence_id": evidence.evidence_id,
+                               "durable_acceptance_confirmed": False, "request_nonce": nonce}
+                return _participant_result(self._boundary, command, confirmed,
+                    None if confirmed else "Exact journal-backed evidence acceptance is unconfirmed", payload)
             if command.command_type == "compile_session_evidence":
                 if set(command.payload) != {"request_nonce"}:
                     raise ValueError("Compilation accepts only the requested Session identity")
@@ -1085,14 +1106,24 @@ class NatsIngestorCommunication:
             evidence = RuntimeEvidenceMessage.from_dict(
                 json.loads(message.data.decode("utf-8"))
             )
+            tokens = message.subject.split(".")
+            component_index = 2 if session_id is None else 3
+            if (len(tokens) != component_index + 3 or evidence.session_id != session_id
+                    or message.subject != build_runtime_subject(session_id, "evidence",
+                        tokens[component_index], evidence.source_id, evidence.evidence_type)):
+                raise ValueError("Runtime evidence Session/source/type identity does not match its NATS subject")
             audit = self._ingestor.receive_runtime_evidence(evidence)
-            if session_id is not None and not audit.accepted:
+            if session_id is not None and (not audit.accepted
+                    or not self._ingestor.has_durable_runtime_evidence(evidence)):
                 raise ValueError("Session evidence was not durably accepted")
             if callback is not None and audit.accepted and audit.reason != "already_accepted":
                 await callback(evidence)
             if session_id is None:
                 await message.ack()
             else:
+                if (self._ingestor.session_id != session_id
+                        or self._ingestor.recovery_journal_path != journal):
+                    raise RuntimeError("Session binding changed before evidence acknowledgment")
                 await message.ack_sync()
 
         subscription = await jetstream.subscribe(

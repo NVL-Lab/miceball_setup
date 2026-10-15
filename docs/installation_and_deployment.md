@@ -344,9 +344,31 @@ before applicable command results. Controller decision and
 Experiment-rejection evidence also use direct `receive_runtime_evidence()`.
 Manifest recovery calls `has_durable_runtime_evidence()` on the same object.
 Reuse existing evidence publication/subscription, producer retention and correlated
-commands/results. Missing functionality is external operational-evidence
-acceptance/readback for remaining cross-owner operations, not new NATS
-scientific-envelope delivery. Preserve applicable failure reporting, stable evidence identity,
+commands/results. The current Slice 3 implementation extends scoped readback with
+`read_runtime_evidence_acceptance`, using `request_persistence_command` and payload
+`{"evidence": message.to_dict()}`. Ingestor checks exact current journal coverage
+under its existing history guard and returns `durable_acceptance_confirmed` plus
+the evidence identity and per-attempt nonce. Missing, stale or timed-out replies
+are not confirmation. This is acceptance readback, not complete W041 receipt,
+StorageManager persistence or archival confirmation. It does not append evidence.
+
+Intake validates the delivered NATS subject against the evidence Session, source
+and type before acceptance, and confirms journal-backed acceptance before Session
+ACK. Optional callback cancellation leaves durable intake available for broker
+redelivery; identical redelivery does not append another accepted message or rerun
+the optional callback. Producers retain unconfirmed publication identities and
+reuse existing publication cursors and JetStream durability, not a second intake
+transport. Subject consistency is not cryptographic sender authentication; broker
+access control remains a deployment responsibility.
+
+Developer verification includes a local JetStream receiver in a separate process,
+offline publication, lost publication confirmation, restart and exact acceptance
+readback; focused doubles cover journal failure, misrouting, callback cancellation,
+duplicate/conflicting content and stale/missing replies. This implementation has
+not yet completed independent validation/audit or work-record closure.
+Remaining cross-owner recovery/Controller orchestration is not adapted by this
+bounded change, and scientific-envelope delivery is not reintroduced.
+Preserve applicable failure reporting, stable evidence identity,
 same-content deduplication, retained-manifest retry, and journal-before-ACK.
 Publication confirmation, Ingestor acceptance, and complete receipt remain distinct.
 Depends on owner runtime-evidence validation and local scientific persistence;

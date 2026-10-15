@@ -86,7 +86,7 @@ class _Broker(EvidenceReceiptBroker):
                 data = json.dumps(payload).encode()
         for subscription in tuple(self.subscriptions):
             if subscription.active and self.matches(subscription.subject, subject):
-                await subscription.callback(SimpleNamespace(data=data, ack=AsyncMock(), ack_sync=AsyncMock()))
+                await subscription.callback(SimpleNamespace(subject=subject, data=data, ack=AsyncMock(), ack_sync=AsyncMock()))
         return SimpleNamespace(stream=stream)
 
 

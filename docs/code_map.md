@@ -925,7 +925,7 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 - NatsAcquisitionNodeCommunication.execute_command: Executes existing node commands and includes available owner diagnostics in readiness results while preserving readiness-only compatibility and scientific-output preparation behavior.
 - NatsIngestorCommunication: Consumes durable RuntimeEvidenceMessage records and passes them to InMemoryIngestor for separate evidence intake and audit.
 - NatsIngestorCommunication.subscribe_commands(): Routes readiness/preparation/abort and scoped current compilation/receipt requests to the existing Ingestor owner, publishing results before command ACK.
-- NatsIngestorCommunication._execute_evidence_readback(command): Delegates scoped compilation and W041 marker-receipt verification to the Ingestor owner with current-request reply correlation and explicit failed/unconfirmed results.
+- NatsIngestorCommunication._execute_evidence_readback(command): Delegates scoped compilation, exact journal-backed runtime-evidence acceptance and W041 marker-receipt verification to the Ingestor owner with current-request reply correlation and explicit failed/unconfirmed results.
 - NatsStorageManagerCommunication(boundary, storage_manager): Binds one existing authoritative StorageManager to matching NATS participant identity without constructing another owner.
 - NatsStorageManagerCommunication.subscribe_commands(): Publishes current preservation-readback results before command ACK and routes existing administrative commands only through the configured owner maintenance interface.
 - NatsStorageManagerCommunication.execute_command(command): Validates scoped preservation readback and readiness without scientific-envelope writers, arbitrary remote methods, unrestricted recovery, collection, or closure.
@@ -941,7 +941,7 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 - _participant_result: Builds an existing correlated final command-result message for one service-owned operation.
 - _execute_service_command: Delegates readiness/preparation/abort to the owner, includes configured maintenance identity and actual retirement confirmation in readiness replies, and retains command-ID deduplication.
 - _subscribe_participant_commands: Establishes the two addressed command subscriptions reused by mandatory service handlers.
-- NatsIngestorCommunication.subscribe_evidence(session_id, callback=None): Uses a stable Session-specific durable explicit-ACK consumer and server-confirmed ACK after matching-journal acceptance, validates existing receiving configuration and binding identity across subscription setup, and preserves the existing framework intake path for None.
+- NatsIngestorCommunication.subscribe_evidence(session_id, callback=None): Validates delivered subject against Session/source/type identity before intake, uses a stable Session-specific durable explicit-ACK consumer with matching-journal acceptance before server-confirmed ACK, and rechecks binding after optional callbacks while preserving framework intake for None.
 - NatsIngestorCommunication.verify_acquisition_evidence_receipt(marker): Reconciles Session-filtered publications through the marker with exact retained journal evidence under the Ingestor guard, plus receiving-origin/history and contiguous ACK checks; returns receipt confirmation/reason and broker sequences without repair, Session completion, or archival confirmation.
 - NatsIngestorCommunication._session_consumer_name(session_id): Derives a stable broker-safe durable consumer name from the Session identity without changing evidence identities.
 - NatsIngestorCommunication._receiving_history_intact(stream): Checks retained stream-origin coverage and missing/lost history using broker metadata, not producer evidence-count expectations.
@@ -1355,6 +1355,17 @@ automatic. Kill integration and overall closeout validation remain deferred.
 - NatsEvidenceReadbackTests: Exercises current journal-verified compilation, W041 receipt, restart/corruption readback, authorization boundaries and missing/stale/mismatched replies through public NATS adapters.
 - NatsEvidenceReadbackTests.request(peer, operation, payload=None, *, session="session", identity="read"): Issues a current scoped owner request with the existing per-attempt correlation mechanism.
 - NatsEvidenceReadbackTests.preserve_session(): Creates real Stage A and handoff products for current owner-readback tests without scientific observation intake.
+- NatsEvidenceReadbackTests.test_exact_acceptance_requires_journal_intake_not_publication(): Separates publication from exact durable acceptance and rejects conflicting content or damaged journal readback.
+- NatsEvidenceReadbackTests.test_misrouted_evidence_is_not_accepted_or_acknowledged(): Rejects Session/source/type mismatches between evidence and its delivered subject before intake or ACK.
+- NatsEvidenceReadbackTests.test_failed_journal_delivery_recovers_after_restart_without_duplicate(): Leaves failed journal delivery unacknowledged and deduplicates stable evidence identity after restart.
+- NatsEvidenceReadbackTests.test_acceptance_readback_rejects_wrong_session_and_stale_replies(): Keeps wrong-Session, stale and missing confirmations unconfirmed through the public requester.
+- NatsEvidenceReadbackTests.test_cancelled_intake_callback_redelivers_without_duplicate_acceptance(): Preserves journal-before-ACK and avoids repeated callback side effects after cancellation and redelivery.
+
+## tests/test_operational_evidence_transport.py
+
+- run_evidence_receiver(url, journal, ready, stop): Runs the authoritative Ingestor and its NATS subscriptions in a spawned process with explicit test startup/shutdown coordination.
+- OperationalEvidenceTransportTests: Exercises operational evidence publication and exact intake readback across a real local JetStream process boundary.
+- OperationalEvidenceTransportTests.test_publication_retry_and_receiver_restart_preserve_exact_intake(): Checks offline publication, lost publication confirmation, stable retry and receiver restart without duplicate accepted evidence or scientific intake.
 
 ## tests/test_kill_session.py
 

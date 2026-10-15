@@ -47,7 +47,8 @@ class IngestorRecoveryTests(unittest.IsolatedAsyncioTestCase):
 
     def delivery(self, message, ack=None):
         acknowledgment = ack or AsyncMock()
-        return SimpleNamespace(data=json.dumps(message.to_dict()).encode(),
+        return SimpleNamespace(subject=f"messages.session.evidence.acquisition_node.{message.source_id}.{message.evidence_type}",
+                               data=json.dumps(message.to_dict()).encode(),
                                ack=acknowledgment, ack_sync=acknowledgment)
 
     def entries(self):
