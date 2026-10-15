@@ -856,8 +856,10 @@ complete with independent validation and final re-audit PASS after correction
 (W051). The local correlated persistence adaptation is also complete with
 independent validation and audit PASS (W052). Product-based node acquisition and
 operational-evidence preservation are complete with independent manual validation
-and final re-audit PASS after correction (W053, bounded Slice 3A); Slice 3B and
-remaining deployment implementation/verification are pending.
+and final re-audit PASS after correction (W053, bounded Slice 3A). Owner-level
+replacement/closeout reconciliation is complete after independent validation and
+corrective re-audit PASS (W054, bounded Slice 3B). The combined Decision 377-378
+final integration/legacy-removal audit and remaining deployment work are pending.
 Q022 as a whole is not closed. Q019 remains CLOSED in W050.
 
 ### Q022-A accepted scope
@@ -982,13 +984,14 @@ exact formats remain implementation choices. No lifecycle API is introduced.
   RuntimeEvidenceMessage journal-before-ACK/deduplication/reconstruction guarantees.
   W053 closes bounded node product acquisition/operational preservation after the
   P2 observation-loss correction, independent validation and final re-audit PASS.
-  Active node scientific-envelope production/forwarding is removed. Slice 3B
-  must reconcile remaining owner-level intake/audits, persistence/recovery,
-  transport/compatibility APIs, Session Records, Normal Stop/Kill, release
-  blockers, compilation and archival closeout, removing redundant exports,
-  tests, demos and active documentation without changing preserved historical
-  products or dropping required historical interpretation. Implement
-  service-owned NATS requests/results for currently direct receipt, compilation,
+  Active node scientific-envelope production/forwarding is removed. W054 closes
+  Slice 3B removal/reconciliation of obsolete owner-level intake/audits,
+  persistence/recovery, transport/compatibility APIs, Session Records, Normal Stop/Kill, release
+  blockers, compilation and archival closeout after correction, independent
+  validation and corrective re-audit PASS. Historical products and required
+  interpretation remain preserved; superseded APIs are removed, not retained as
+  compatibility shims. Implement service-owned NATS requests/results for currently
+  direct receipt, compilation,
   persistence, readback, timing, collection, release, and recovery interactions
   before enabling dependent role launch paths. Local owner guards cannot be
   replaced by cached confirmations or assumed shared/distributed locks. The
@@ -1003,11 +1006,11 @@ exact formats remain implementation choices. No lifecycle API is introduced.
   declares supported products, Experiments explicitly select them, and adapters
   must support those products and distinguish scientific observations/metadata
   from operational evidence. Do not infer meaning from content, size or old names.
-  Bounded product-based acquisition is complete in W053, not the entire replacement.
-  Finish Slice 3B removal/reconciliation of obsolete scientific-envelope machinery,
-  retaining only accepted active or historical-readback responsibilities.
-  Final independent integration audit must
-  assess both functional preservation and absence of obsolete architecture.
+  Bounded product-based acquisition is complete in W053 and owner-level replacement
+  in W054, not the entire replacement. The combined final independent integration
+  and legacy-removal audit across AcquisitionNode, DeviceAdapter, DeviceManager,
+  Ingestor, StorageManager, Controller and NATS must assess both functional
+  preservation and absence of obsolete architecture.
 * AcquisitionNode duplicate-ID policy is accepted; do not infer a new general
   policy for all RuntimeParticipant kinds or a global identity registry.
 

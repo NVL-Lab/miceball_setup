@@ -10728,9 +10728,12 @@ evidence preservation (Slice 3A) are complete, independently manually validated
 and re-audited PASS after correction (W053). The initial audit FAIL identified
 lost later-device scientific observations after operational intake failed; the
 correction attempts preservation across completed collections before operational
-handling and retains independent failure reporting without replay. Remaining
-owner-level envelope intake/audit, persistence/recovery and Session Record/closeout
-reconciliation belong to Slice 3B; the complete replacement is not closed.
+handling and retains independent failure reporting without replay. Owner-level
+envelope removal and operational Session Record/closeout reconciliation are
+complete with independent manual validation and corrective re-audit PASS after
+the P2 release-race and P3 obsolete-fixture corrections (W054). The combined
+Decision 377-378 final integration and legacy-removal audit remains pending;
+the complete replacement is not closed.
 Future real-time scientific streaming remains an open architectural question;
 no transport or infrastructure is selected.
 Q019 remains CLOSED; Q022, Q024, Phase 16 and M015 remain OPEN.
@@ -10793,10 +10796,13 @@ Passing replacement tests alone does not establish closure.
 and final re-audit PASS after correction (W053). Installed/selected product-based
 adapter/manager/node acquisition replaces legacy collection in the active node
 path, with local scientific persistence and separate operational evidence.
-Decision 378's full replacement is NOT complete: Slice 3B must remove/reconcile
-obsolete owner-level scientific-envelope mechanisms, exports, tests, demos and
-active documentation while retaining required historical interpretation and Q019
-protections. The required final integration audit remains pending. Historical
+Slice 3B owner-level scientific-envelope removal and closeout reconciliation are
+complete with independent manual validation and corrective re-audit PASS after
+the P2 release-race and P3 obsolete-fixture corrections (W054), retaining required
+historical interpretation and Q019 protections. Decision 378's full replacement
+is NOT complete: the combined final independent functional integration and
+legacy-removal audit across node, adapter, manager, Ingestor, StorageManager,
+Controller and NATS boundaries remains pending. Historical
 decision numbering and W051/W052 records remain unchanged. Future real-time
 scientific streaming remains architecturally open. Q019 remains CLOSED;
 Q022, Q024, Phase 16 and M015 remain OPEN.

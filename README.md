@@ -35,11 +35,14 @@ Decision 378 requires clean replacement of legacy collection/scientific-envelope
 paths: installation declares supported products, Experiments explicitly select
 them, and adapters produce scientific observations/metadata for local storage
 separately from operational evidence. W051/W052 history does not mandate obsolete
-API compatibility. Slice 3B removes owner-level scientific-envelope intake,
+API compatibility. Slice 3B is complete after independent validation and corrective
+re-audit PASS (W054). It removes owner-level scientific-envelope intake,
 correlated persistence, exports and demos, and reconciles closeout against
-operational evidence/audit and manifests. Developer regression verification passed
-(848 run, 841 passed, seven optional skips); independent validation and final integration
-audit must verify both preserved guarantees and absence of obsolete architecture.
+operational evidence/audit and manifests. The initial audit FAIL identified a P2
+Normal Stop release/intake race and P3 obsolete test configuration; both were
+corrected and independently re-audited with no remaining confirmed P0-P3 findings.
+The combined Decision 377-378 final integration and legacy-removal audit remains
+pending; W054 does not close the complete replacement or Q022.
 Remaining process-crossing direct-owner dependencies still need adaptation before
 fully functional independent-role deployment. Historical Q019 validation remains
 complete and does not claim this deployment adaptation has been validated.

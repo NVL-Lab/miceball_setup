@@ -379,8 +379,9 @@ have been replaced by `collect_products()` in the active node pathway (W053),
 not retained as compatibility fallbacks. AcquisitionNode must not guess meaning
 from content, size or naming. Slice 3B removes owner-level scientific-envelope
 intake, persistence and transport; necessary historical Session Record validation
-remains read-only. Independent validation and the final integration audit of the
-complete replacement remain pending.
+remains read-only. Bounded Slice 3B is complete after correction, independent
+validation and corrective re-audit PASS (W054). The combined final integration
+and legacy-removal audit of the complete Decision 377-378 replacement remains pending.
 
 The component responsible for communicating with a specific device type.
 
@@ -1921,13 +1922,14 @@ A Device Record Collection identifies the source device, the kind of records col
 
 It is not a transport message and is not sent directly to the Ingestor.
 
-Runtime Record Collections are converted into Acquisition Record Envelopes by
-AcquisitionNode for the existing ingestion path. Scientific Record Collections
-contain selected scientific products, including local NumPy camera frames;
-AcquisitionNode timestamps and submits them to LocalStorageManager rather than
-putting frame bytes into runtime envelopes or NATS. DeviceCollectionResult keeps
-`runtime_records` and `scientific_records` separate. Neither collection owns
-Experiment identity, framework timing authority, artifact paths, or manifests.
+Under Decisions 377-378, `DeviceCollectionResult` contains product-keyed
+`scientific_products` rows and separate `operational_evidence` messages.
+AcquisitionNode coordinates scientific timing/provenance and LocalStorageManager
+persistence of selected observations and metadata, including non-frame products.
+Only operational RuntimeEvidenceMessages and manifests reach Ingestor. Legacy
+runtime/scientific record collection and envelope-conversion paths are removed
+(W053-W054). The collection result does not own Experiment identity, framework
+timing authority, artifact paths, or manifests.
 
 ---
 
@@ -1936,10 +1938,12 @@ Experiment identity, framework timing authority, artifact paths, or manifests.
 The Phase 1-9 unit of acquisition data exchanged between the acquisition side and the Ingestor in the validated bounded-envelope workflows.
 
 Decision 377 removes this as a mandatory pathway for routine scientific
-observations, including small observations and their metadata. Existing code and
-W051/W052 remain historically validated; revised node-local scientific routing
-and operational evidence are complete in W053. Slice 3B removes owner-level
-envelope machinery and reconciles closeout, pending independent validation/audit.
+observations, including small observations and their metadata. Earlier implementations
+and W051/W052 remain historically validated; revised node-local scientific routing
+and operational evidence are complete in W053. Owner-level envelope removal and
+closeout reconciliation are complete after independent validation and corrective
+re-audit PASS (W054). The combined Decision 377-378 final integration and
+legacy-removal audit remains pending.
 This historical term does not define future
 real-time streaming.
 

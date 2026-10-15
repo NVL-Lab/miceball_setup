@@ -30,8 +30,10 @@ envelope mechanisms, not indefinite legacy API compatibility. W051/W052 remain
 historical validations, not a reason to retain superseded code. Necessary
 operational/historical-readback responsibilities remain; the replacement's final
 independent integration audit must verify preserved functionality and absence of
-obsolete architecture. Owner-level Slice 3B cleanup and that final integration
-audit remain pending; W053 does not close the complete Decision 378 replacement.
+obsolete architecture. Owner-level Slice 3B replacement is complete after
+correction, independent validation and corrective re-audit PASS (W054). The combined
+Decision 377-378 final integration and legacy-removal audit remains pending;
+neither W053 nor W054 closes the complete replacement.
 
 The socket and acquisition-envelope workflows below remain valid historical demonstrations of implemented boundaries. They are not the accepted Phase 10 runtime transport architecture: Phase 10 adopts brokered NATS communication, keeps large scientific artifacts local during acquisition, and has not yet been implemented or validated.
 
@@ -3902,6 +3904,133 @@ absence of obsolete scientific-envelope architecture after replacement.
 W051/W052 remain unchanged historical validations, not justification for keeping
 superseded code. Only Slice 3A is closed. Decision 378's overall replacement and
 Q022 remain OPEN; Q019 remains CLOSED. Q024, Phase 16, and M015 remain OPEN.
+
+---
+
+# W054 - Operational Evidence Closeout and Scientific-Envelope Removal
+
+**Status:** Complete, independently validated and audited after correction;
+bounded Q022 Slice 3B under Decisions 313 and 376-378.
+
+## Implemented boundary and interfaces
+
+Scientific observations and per-observation metadata remain AcquisitionNode-local
+in LocalStorageManager products under the installed/selected product contract
+validated in W053. Ingestor no longer accepts or persists routine scientific
+observations. Obsolete scientific-envelope intake, journaling, auditing,
+compilation, recovery, correlated persistence, NATS commands/dispatch, exports,
+compatibility paths and redundant tests/demos are removed, not retained as shims.
+The removed Ingestor APIs include `receive_envelope()`,
+`persist_accepted_envelope()`, `accepted_envelopes`, `ingest_audit`, and the
+scientific `correlated_persistence` constructor option.
+
+`InMemoryIngestor.receive_runtime_evidence()` retains operational evidence and
+ArtifactManifests, journal-before-ACK, evidence identity/conflict rejection,
+deduplication, complete runtime intake auditing and known-Session reconstruction.
+`compile_persistent_runtime_evidence()` and
+`compile_durable_session_evidence(session_id)` retain persistent compilation and
+journal-verified operational evidence, audit and manifest-handoff readback. W041
+receipt verification remains independent of publication and archival confirmation.
+
+`PersistentStorageManager(storage_root, *, global_artifact_root=None,
+retrieval_endpoints=None, evidence_publisher=None, component_id="storage")` takes
+an explicit directory root, not a scientific-envelope record filename. It retains
+Session Records, Evidence Archives, global scientific-artifact collection,
+authorized recovery and permanent closure, without observation appenders or
+correlated envelope writers. Ingestor and StorageManager remain distinct owners
+with permitted local calls under Decision 376; no second owner is instantiated.
+
+`NatsIngestorCommunication` retains operational compilation and verified-receipt
+requests. `NatsStorageManagerCommunication` retains readiness and preservation
+readback. Existing fresh-only replies and per-attempt correlation remain; no
+envelope persistence/readback command remains. This is not complete cross-process
+orchestration or shared-lifetime bootstrap.
+
+## Preserved closeout and release guarantees
+
+Normal Stop still requires producer publication confirmation, its completion
+marker, independently verified durable receipt, Stage A preservation and durable
+ArtifactManifest handoff before completion. Kill preserves available operational
+evidence with explicit uncertainty rather than claiming complete receipt or
+participant cleanup. Admitted Kill obligations block release even with empty
+intake or unavailable archival confirmation. Scientific-envelope counts or
+receipts are no longer completion requirements.
+
+New Session Records preserve configuration, lifecycle, Experiment outcomes and
+cleanup context separately from operational archive contents. Strict plain-data
+interpretation of historical Session Record envelope/audit fields remains where
+required; no legacy writers are restored and historical products are not rewritten.
+Current operational evidence, the complete intake audit and manifest coverage
+govern preservation and release. Stage A/B, saved-Session eligibility/collection,
+authorized interrupted-write recovery without refetch, immutable permanent
+closure, and successive service reuse retain their existing contracts.
+
+Controller release locks Ingestor intake before StorageManager preservation,
+retaining both through the final synchronous checks and binding retirement,
+never across asynchronous unsubscription. Intake completed before the final
+guard invalidates stale confirmation; intake attempted inside it waits.
+Evidence accepted after Controller retirement remains Ingestor-owned. Ingestor
+retains its binding/evidence and rejects release against stale archival coverage.
+Existing compilation and Stage A reconciliation can preserve additional coverage
+only within accepted lifecycle boundaries; Stage B history and closed archives
+are not rewritten, and no automatic recovery is introduced.
+
+## Audit findings and corrections
+
+The initial independent audit of `4f7ee65` returned **FAIL**:
+
+- **P2:** Normal Stop Controller release could miss concurrent accepted evidence,
+  rejected intake, or duplicate redelivery after its final intake snapshot. Release
+  succeeded with 11 current audit entries but only 10 archived; Ingestor's own
+  release guard retained the evidence. The correction extends existing intake ->
+  preservation locking across authoritative checks and Controller retirement.
+- **P3:** A product-acquisition failure test retained unused envelope-handoff
+  policy configuration. The obsolete fields were removed while preserving the
+  actual `collect_products()` failure regression.
+
+Three deterministic race regressions reproduced the P2 before correction. Six
+permanent regressions cover all three intake variants during unsubscription and
+final readback, retained evidence/audit, stale-archive rejection and serialized
+retirement. The final independent corrective re-audit of
+`7f500684e7288a20ead03400038ac9989f7064c1` returned **PASS**: both findings resolved,
+with no remaining confirmed P0-P3 findings in the corrective scope.
+
+## Verification history
+
+- Initial developer full regression: **848 run, 841 passed, 7 optional skips**.
+- Initial independent user-run IPython validation: **9/9 manual checks and 3/3
+  Session-preservation integration tests PASS**.
+- Initial independent audit: **FAIL**, the P2/P3 above; **21 focused tests PASS**
+  with independent negative probes, including the three release-race reproductions.
+- Corrective developer verification: **32 focused tests PASS**; full regression
+  **854 run, 847 passed, 7 optional skips, zero failures/errors**.
+- Independent user-run corrective IPython validation: **9/9 PASS**, comprising
+  the six race regressions and three preservation integration tests.
+- Final independent corrective re-audit: **PASS**, with **25 focused tests and
+  10 independent deterministic probes PASS**. Probes exercised the three intake
+  variants at unsubscription, final readback and immediately before retirement,
+  plus cancellation with waiting intake. They also checked accepted-boundary
+  reconciliation, release/reuse and cross-Session rejection.
+
+These are recorded prior results, not tests or a new audit during documentation
+closure. Runs overlap and must not be combined into a unique-test total.
+
+## Limitations and remaining scope
+
+Verification used simulated devices, broker/SFTP infrastructure and temporary local
+storage; it does not establish live hardware, multi-host deployment or power-loss
+guarantees. Synchronous storage I/O can block the calling event loop. Remaining
+cross-process Controller, acquisition/Experiment, synchronization,
+maintenance/recovery and release adaptation, shared-process bootstrap/lifetime
+enforcement, configuration, role launching and installation checks are not closed.
+
+W041-W053 retain their historical records, including superseded W051/W052
+scientific-envelope validation. W054 closes only Slice 3B. The combined Decision
+377-378 replacement still requires final independent functional integration and
+legacy-removal (zombie-code) auditing across AcquisitionNode, DeviceAdapter,
+DeviceManager, Ingestor, StorageManager, Controller and NATS boundaries. No final
+Decision 378 acceptance is claimed. Q019 remains CLOSED; Q022, Q024, Phase 16 and
+M015 remain OPEN.
 
 ---
 

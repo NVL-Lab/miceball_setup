@@ -18,7 +18,8 @@ each AcquisitionNode remain independently deployed; every process-crossing
 interaction uses NATS. Controller accesses both combined-process components only
 through NATS. No new registry, database, or scientific ownership is introduced.
 W051/W052 record historical correlated scientific-envelope persistence validation.
-Slice 3B removes those obsolete APIs under Decisions 377-378; operational
+Slice 3B removes those obsolete APIs under Decisions 377-378 and is complete after
+independent validation and corrective re-audit PASS (W054); operational
 evidence journaling and owner-side preservation remain authoritative. Shared-lifetime
 bootstrap/launch composition is not implemented in this bounded persistence slice.
 
@@ -47,9 +48,11 @@ collections receive local preservation attempts before operational-evidence
 handling; independent failures remain visible without false success or automatic
 replay. Slice 3B removes obsolete owner-level envelope intake, persistence and
 transport, with closeout reconciled against current operational evidence/audit
-and manifests. Developer regression verification passed: 848 run, 841 passed,
-seven optional skips and zero failures/errors. Independent validation and the
-final replacement integration audit remain pending.
+and manifests. This bounded owner replacement is complete after independent
+manual validation and corrective re-audit PASS (W054). The initial audit FAIL
+identified the P2 concurrent Normal Stop release/intake race and P3 unused envelope
+configuration in a product-failure test; both were corrected. The combined final
+Decision 377-378 functional integration and legacy-removal audit remains pending.
 W051/W052 are historical validated envelope
 paths, no longer required for routine scientific acquisition; active durability,
 identity, corruption/readback and Q019 preservation/recovery/closure protections
@@ -196,7 +199,13 @@ with no intake or unavailable archival confirmation; manifest handoff coverage
 and terminal-state checks remain mandatory. Stage A/B, authorized recovery and
 permanent immutability are not replaced by transport acknowledgments.
 
-This cleanup is not independent validation or closure. Cross-process Controller
+W054 records independent validation and corrective re-audit PASS for this bounded
+replacement, not final Decision 378 acceptance or deployment certification.
+Controller release holds intake -> preservation locks through final checks and
+binding retirement, never across unsubscription awaits. Later accepted intake
+remains Ingestor-owned and blocks release until current preservation is confirmed;
+existing Stage A reconciliation is limited to accepted lifecycle boundaries and
+cannot rewrite Stage B history or closed archives. Cross-process Controller
 closeout, maintenance/recovery and release adaptation, shared-process bootstrap,
 role launching and installation checks remain pending. No live deployment,
 hardware or independent power-loss guarantee is established here. Q019 remains
@@ -363,9 +372,12 @@ architecture or claims of implementation/validation:
 
 1. The bounded routine observation/metadata routing and node lifecycle/health
    preservation prerequisite is complete with correction, independent validation
-   and final re-audit PASS (W053). Slice 3B implements owner-level envelope removal
-   and closeout reconciliation, retaining required historical interpretation;
-   its independent validation and final integration audit remain pending.
+   and final re-audit PASS (W053). Owner-level envelope removal and closeout
+   reconciliation are complete after correction, independent validation and
+   corrective re-audit PASS (W054), retaining required historical interpretation.
+   Complete the combined Decision 377-378 final independent integration and
+   legacy-removal audit across node, adapter, manager, Ingestor, StorageManager,
+   Controller and NATS boundaries before final replacement acceptance.
    Reconcile the combined process's active local persistence/readback guarantees,
    and owner-side NATS operational-evidence intake, acceptance,
    receipt/compilation and external readback operations using existing

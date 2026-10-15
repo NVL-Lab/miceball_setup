@@ -1147,7 +1147,8 @@ for routine acquisition. W051/W052 validation histories below remain unchanged.
 Active responsibilities retain durability, identity, corruption/readback, and
 archival protections. Bounded scientific-local routing and operational-event
 preservation are complete after correction, independent validation and final
-re-audit PASS (W053); owner-level envelope reconciliation remains for Slice 3B.
+re-audit PASS (W053); owner-level envelope removal and closeout reconciliation
+are complete after independent validation and corrective re-audit PASS (W054).
 Future streaming is open, not designed here.
 
 Decision 378 now requires clean replacement, not indefinite envelope compatibility:
@@ -1157,9 +1158,9 @@ envelope mechanisms and dead code/tests/docs only where no accepted responsibili
 remains. Preserve scientific provenance, operational evidence, historical readback
 and Q019 guarantees. The final independent integration audit must verify functional
 preservation and absence of obsolete scientific-envelope architecture. This
-overall replacement remains incomplete: W053 closes only bounded Slice 3A, while
-Slice 3B cleanup and final integration audit remain pending. Project/milestone
-statuses are unchanged.
+overall replacement remains incomplete: W053 and W054 close bounded Slices 3A/3B,
+while the combined final integration and legacy-removal audit remains pending.
+Project/milestone statuses are unchanged.
 
 **W051 - Complete, bounded Q022 Ingestor-StorageManager ownership boundary.**
 Accepted-envelope persistence, current owner readback, journal-verified compilation,
@@ -1205,10 +1206,30 @@ are separate overlapping runs, not an additive unique total. See W053 for scope,
 failure semantics and full validation history.
 
 Temporary local storage and simulated devices/brokers do not establish live
-multi-host, hardware or power-loss guarantees. Slice 3B owner-level envelope
-cleanup/closeout reconciliation and Decision 378's final integration audit remain
-pending. W051/W052 history and Q019 CLOSED are preserved; Q022, Q024, Phase 16,
+multi-host, hardware or power-loss guarantees. W054 now closes bounded Slice 3B
+owner-level envelope removal/closeout reconciliation; Decision 378's combined final
+integration and legacy-removal audit remains pending.
+W051/W052 history and Q019 CLOSED are preserved; Q022, Q024, Phase 16,
 and M015 remain OPEN. These are recorded results, not new tests during closure.
+
+## Completed operational-evidence closeout and envelope-removal slice
+
+**W054 - Complete, bounded owner-level replacement (Slice 3B).**
+Obsolete scientific-envelope intake/persistence, transport, recovery and
+compatibility APIs are removed while operational intake/journaling/audit,
+historical-record interpretation and Q019 closeout/collection/closure remain.
+Initial independent audit FAIL identified P2 concurrent Normal Stop intake during
+release and P3 dead envelope configuration in a product-failure test. Both were
+corrected; release retains intake -> preservation locks through synchronous
+retirement, not awaits. Final independent corrective re-audit PASS found no
+remaining confirmed P0-P3 defects in scope. W054 records all separate developer,
+manual validation and audit runs, including 25 corrective audit tests and ten
+independent probes. Late intake remains Ingestor-owned and blocks stale release;
+reconciliation does not authorize rewriting Stage B or closed archives.
+
+This does not close Decision 378's combined final integration/legacy-removal audit
+or remaining Q022 deployment work. Q019 remains CLOSED; Q022, Q024, Phase 16 and
+M015 remain OPEN. Historical W041-W053 validation is unchanged.
 
 ## Completed Session-binding release slice validation
 

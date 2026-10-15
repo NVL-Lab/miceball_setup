@@ -52,9 +52,10 @@ metadata go only to LocalStorageManager. Node envelope forwarding/batching is
 removed; lifecycle, health and failure RuntimeEvidenceMessages use retained,
 serialized durable publication before command responses. Slice 3B reconciles owner
 closeout against current operational evidence/audit and manifest coverage, retaining
-plain historical Session Record validation without legacy writers. Independent
-validation and the final replacement integration audit remain pending. No future streaming or deployment validation
-is claimed.
+plain historical Session Record validation without legacy writers. This bounded
+replacement is complete after independent validation and corrective re-audit PASS
+(W054); the combined Decision 377-378 final integration and legacy-removal audit
+remains pending. No future streaming or deployment validation is claimed.
 
 Decision 378 now requires clean replacement: installation declarations and
 Experiment selections govern supported adapter scientific production and local
@@ -67,10 +68,12 @@ responsibilities; preserve Q019 guarantees. Final independent integration audit
 must verify functionality and absence of obsolete architecture; the complete
 replacement is not yet independently validated or closed.
 
-Slice 3B developer verification passed: 848 tests run, 841 passed and seven
-optional skips, with zero failures/errors. The full check was selected for the
-shared package/API removal and repository-wide constructor/fixture migration;
-it is not independent validation, audit or milestone closure.
+W054 records initial developer verification (841 passed, seven optional skips),
+independent validation, initial audit FAIL for the P2 release race and P3 obsolete
+test configuration, both corrections, and final corrective re-audit PASS. Corrective
+developer checks passed 32 focused tests and 847 full-regression tests with seven
+optional skips; independent re-audit passed 25 tests and ten probes. These are
+separate overlapping runs, not complete deployment or Decision 378 acceptance.
 
 Q019 is CLOSED following W041-W049 slice completion and W050 overall software
 integration validation/audit PASS. The permanent sequential Normal Stop regression
