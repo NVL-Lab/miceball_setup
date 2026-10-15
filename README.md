@@ -69,6 +69,17 @@ hardware or multi-host validation. Independent validation and final audit PASS
 close this bounded slice in W056; Q022 remains OPEN. See the implementation boundary and public entry points in
 [Installation And Deployment](docs/installation_and_deployment.md#timing-and-synchronization).
 
+Q022 Slice 3 is CLOSED in W057 after independent IPython validation and audit
+PASS of 880b108. AcquisitionNode operational evidence and manifests use durable
+Session-specific NATS intake with identity checks, journal/fsync-before-ACK,
+deduplication, restart recovery and exact journal-backed acceptance readback.
+Scientific observations remain node-local. Publication, acceptance, complete
+receipt and archival preservation are distinct; publication or acceptance does
+not authorize artifact release. Subject consistency is not authentication, and
+optional callbacks are not a durable retry queue. Multi-host, hardware and
+power-loss guarantees remain unverified; broader Q022 deployment integration
+remains OPEN. See [W057](docs/validated_workflows.md#w057---acquisitionnode-to-ingestor-durable-operational-evidence-over-nats).
+
 
 
 ## Overview

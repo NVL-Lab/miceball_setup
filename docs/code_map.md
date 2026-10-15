@@ -31,6 +31,18 @@ recommended implementation order in
 alone is not acceptance, complete receipt, or archival. Historical Q019 validation
 remains intact.
 
+## Durable Operational Evidence Transport (Closed, W057)
+
+AcquisitionNode-to-Ingestor NATS operational evidence intake and exact
+`read_runtime_evidence_acceptance` readback are independently validated and audited
+PASS in W057. Existing journal, durable consumer, deduplication and binding guards
+remain authoritative. Publication, acceptance, W041 receipt and StorageManager
+archival are distinct; scientific observations stay node-local and acceptance
+does not authorize artifact release. Subject consistency is not authentication;
+optional callbacks are not a durable retry queue. Broader Controller/recovery
+and deployment integration remain open, as do Q022, Q006/Q018, Q024, Phase 16 and
+M015. Q019 and W001-W056 closure records are unchanged.
+
 ## Distributed Synchronization And Experiment NATS Integration (Complete, W056)
 
 Decisions 379-381 resolve the minimum Q022 Slice 2 synchronization architecture:

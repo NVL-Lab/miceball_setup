@@ -896,6 +896,13 @@ provenance, readiness and degraded timing. This bounded implementation is comple
 with independent validation and final audit PASS (W056); advanced Q006/Q018 scope
 stays OPEN. Q022 remains OPEN for remaining deployment integration and verification.
 
+AcquisitionNode-to-Ingestor durable operational evidence over NATS is complete
+with independent IPython validation and audit PASS in W057 (Slice 3). Exact
+journal-backed acceptance readback remains distinct from publication, W041
+complete receipt, archival preservation and artifact-release authorization.
+Remaining Controller orchestration, recovery and deployment integration are not
+closed by W057; Q022 remains OPEN.
+
 ### Q022-A accepted scope
 
 One installed package is launched with an explicit service role. Installation uses

@@ -4237,6 +4237,92 @@ M015 remain OPEN. W001-W055 and accepted decision substance/numbering are unchan
 
 ---
 
+# W057 - AcquisitionNode-to-Ingestor Durable Operational Evidence over NATS
+
+**Status:** CLOSED - Q022 Slice 3; independently validated and audited.
+
+## Implemented scope and interfaces
+
+AcquisitionNode retains immutable operational evidence and manifest identities
+before existing NATS publication. Unconfirmed publication remains retained for
+retry, and publication cursors advance only after durable JetStream confirmation.
+Scientific observations and per-observation metadata remain AcquisitionNode-local
+regardless of size; no scientific-envelope intake or replacement streaming path
+is introduced. StorageManager and artifact-handoff responsibilities are unchanged.
+
+Ingestor uses the existing Session-specific durable JetStream consumer, validates
+subject/payload Session, source and evidence-type consistency before intake, and
+persists and fsyncs new journal entries before server-confirmed ACK. Stable
+evidence identities suppress duplicate accepted messages and journal appends;
+conflicting content is rejected. Receiver restart reconstructs accepted identity
+state through existing journal recovery. Binding identity is revalidated following
+asynchronous callbacks before Session ACK. Failed journal persistence prevents
+acceptance/ACK and retains the existing recovery obligations.
+
+`NatsControllerCommunication.request_persistence_command(participant, command_type,
+session_id, payload, result_window_s, *, command_id)` now supports
+`read_runtime_evidence_acceptance` with `{"evidence": message.to_dict()}`.
+`NatsIngestorCommunication` delegates this read-only request to the authoritative
+Ingestor's existing journal-history guard. Successful readback reports
+`durable_acceptance_confirmed=True` for exact current journal-backed evidence,
+with evidence identity and per-attempt reply correlation. Missing, stale,
+mismatched or timed-out responses are not confirmation. Damaged or missing
+journal contents cannot establish acceptance confirmation. Constructors and
+existing ownership boundaries are unchanged; no additional persistence owner,
+transport or recovery infrastructure is introduced.
+
+Evidence publication, durable intake acceptance, complete acquisition receipt
+under W041, and archival preservation are four separate guarantees. Neither
+publication nor acceptance authorizes scientific-artifact release. W041 receipt,
+Q019 closeout/release protections, Stage A/B preservation, artifact handoff and
+permanent archive immutability remain authoritative; W056 timing/Experiment
+integration remains closed and unchanged.
+
+## Consolidated verification evidence
+
+- Developer verification: **52 targeted tests PASS** for intake/readback, receipt,
+  publication ordering, scientific boundaries and preservation integration.
+- Additional developer verification: **9 directly affected checks PASS** for
+  journal/ACK, recovery, callback delivery fixtures and framework evidence.
+- Developer actual local JetStream verification with a separate Ingestor process
+  passed offline publication, lost publication confirmation, retry, receiver
+  restart and deduplication checks.
+- Independent user-run IPython validation: **PASS**. Publication alone did not
+  establish durable intake; journal-backed intake confirmed exact acceptance;
+  duplicate delivery did not duplicate accepted evidence or journal entries;
+  conflicting evidence identity was rejected; journal corruption invalidated
+  acceptance confirmation.
+- Final independent read-only audit of **880b108: PASS**, with no confirmed
+  P0-P3 findings. Audit execution included **50 targeted tests PASS**, including
+  actual local JetStream with a separate Ingestor process and affected lifecycle,
+  preservation, scientific timing and producer-publication integration.
+- **Three additional independent probes PASS:** callback failure with concurrent
+  redelivery; release during a paused callback; and malformed readback requests,
+  mismatched replies and missing journal history.
+
+These counts describe overlapping verification runs and must not be summed into
+a unique-test total. Local JetStream coverage is part of the cited runs, not an
+additional additive test count. No software tests or further independent audit
+were performed for this documentation-only closure.
+
+## Limitations and remaining boundaries
+
+NATS subject consistency is not sender authentication; broker access control
+remains a deployment responsibility. Optional callbacks are not a durable retry
+queue: failure leaves journaled evidence available, but identical redelivery does
+not rerun the callback. Exact acceptance readback is point-in-time journal
+verification, not complete receipt, archival confirmation or release permission.
+
+Multi-host, hardware and power-loss guarantees remain unverified. Broader
+Controller orchestration, cross-process recovery and deployment integration are
+outside this slice. No scientific streaming architecture is selected.
+
+W057 and Q022 Slice 3 are CLOSED. Q022 overall remains OPEN; Q019 and the prior
+W001-W056 closure records are preserved. Q006, Q018, Q024, Phase 16 and M015 remain
+OPEN. Accepted architectural decision substance and numbering are unchanged.
+
+---
+
 # Future Workflows
 
 The following workflows are expected to be added as the framework evolves.

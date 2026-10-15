@@ -10612,8 +10612,12 @@ with independent manual validation and final independent re-audit PASS after the
 malformed-correlation correction (W051). Full independent-service deployment
 remains unimplemented and unvalidated. Existing NATS participant commands, evidence publication,
 and readiness integration are reusable. Acquisition/Experiment and distributed
-synchronization runtime integration is complete in W056; preservation, intake,
-collection, release, and maintenance/recovery still contain development-time
+synchronization runtime integration is complete in W056. AcquisitionNode-to-Ingestor
+durable operational evidence transport and exact journal-backed acceptance readback
+are complete with independent validation and audit PASS in W057 (880b108), without
+reintroducing scientific intake or conflating publication, acceptance, complete
+receipt and archival preservation. Broader preservation, collection, release,
+and maintenance/recovery still contain development-time
 direct-object dependencies. Establish the required service-owned NATS interfaces
 before enabling deployment launch paths that depend on them. Historical accepted
 decisions and validated workflows remain preserved; Q019 remains CLOSED in W050,

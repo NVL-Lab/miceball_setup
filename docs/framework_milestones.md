@@ -1270,6 +1270,29 @@ accuracy or power-loss validation. W001-W055 are unchanged; Q019 remains CLOSED,
 and Q022, Q024, Phase 16 and M015 remain OPEN. Remaining Q022 deployment and
 installation obligations are not closed by W056.
 
+## Completed Q022 Slice 3 Operational Evidence Transport (W057)
+
+**Status:** CLOSED - bounded implementation, independent IPython validation and
+read-only audit PASS of 880b108; no confirmed P0-P3 findings.
+
+AcquisitionNode evidence retention/publication feeds Session-specific JetStream
+consumers with subject/payload identity validation, journal/fsync-before-ACK,
+stable deduplication, restart recovery and post-callback binding checks.
+`read_runtime_evidence_acceptance` verifies exact current journal-backed intake;
+publication, acceptance, W041 receipt and archival preservation remain separate,
+and neither publication nor acceptance authorizes scientific-artifact release.
+Scientific observations remain node-local; StorageManager and handoff ownership
+are preserved.
+
+W057 records 52 developer tests, nine additional affected checks, independent
+IPython PASS, and audit verification of 50 tests and three probes. Runs overlap
+and are not additive. Actual local JetStream separate-process coverage does not
+establish multi-host, hardware or power-loss guarantees. Subject consistency is
+not authentication; optional callbacks are not a durable retry queue. Broader
+Controller/recovery/deployment integration remains outside the closed slice.
+Q019 and W001-W056 remain closed with historical records unchanged. Q022, Q006,
+Q018, Q024, Phase 16 and M015 remain OPEN.
+
 ## Completed Session-binding release slice validation
 
 **Status:** Complete - narrow software implementation, manual IPython validation,

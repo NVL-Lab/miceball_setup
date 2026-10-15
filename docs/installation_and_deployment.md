@@ -344,7 +344,8 @@ before applicable command results. Controller decision and
 Experiment-rejection evidence also use direct `receive_runtime_evidence()`.
 Manifest recovery calls `has_durable_runtime_evidence()` on the same object.
 Reuse existing evidence publication/subscription, producer retention and correlated
-commands/results. The current Slice 3 implementation extends scoped readback with
+commands/results. Slice 3 is CLOSED in W057 after independent IPython validation
+and read-only audit PASS of 880b108, with no confirmed P0-P3 findings. It extends scoped readback with
 `read_runtime_evidence_acceptance`, using `request_persistence_command` and payload
 `{"evidence": message.to_dict()}`. Ingestor checks exact current journal coverage
 under its existing history guard and returns `durable_acceptance_confirmed` plus
@@ -364,8 +365,12 @@ access control remains a deployment responsibility.
 Developer verification includes a local JetStream receiver in a separate process,
 offline publication, lost publication confirmation, restart and exact acceptance
 readback; focused doubles cover journal failure, misrouting, callback cancellation,
-duplicate/conflicting content and stale/missing replies. This implementation has
-not yet completed independent validation/audit or work-record closure.
+duplicate/conflicting content and stale/missing replies. W057 records developer
+52-test and nine-check runs, independent IPython PASS, and final audit PASS with
+50 tests and three probes; these overlapping counts are not additive. Optional
+callbacks are not a durable retry queue. Multi-host, hardware and power-loss
+guarantees remain unverified. Neither publication nor acceptance authorizes
+scientific-artifact release.
 Remaining cross-owner recovery/Controller orchestration is not adapted by this
 bounded change, and scientific-envelope delivery is not reintroduced.
 Preserve applicable failure reporting, stable evidence identity,
@@ -484,17 +489,16 @@ architecture or claims of implementation/validation:
    The combined Decision 377-378 replacement is now accepted in W055 after
    functional audit PASS and targeted correction of its sole clean-replacement
    P3; no further independent re-audit was required by the user and ICC for that
-   test-only cleanup. Next, complete the remaining owner-side evidence interfaces:
-   Reconcile the combined process's active local persistence/readback guarantees,
-   and owner-side NATS operational-evidence intake, acceptance,
-   receipt/compilation and external readback operations using existing
-   envelopes/routing. Test exact identity, duplicates/conflicts, journal/ACK and
-   write failure, missing/stale results, cancellation, and receiving-owner guards.
+   test-only cleanup. AcquisitionNode-to-Ingestor durable operational evidence
+   intake and exact journal-backed acceptance readback are complete in W057 after
+   independent validation and audit PASS. Existing receipt/compilation interfaces
+   are preserved; broader Controller/recovery/deployment adaptation remains open.
 2. Acquisition/Experiment and distributed synchronization runtime integration is
    complete in W056 after corrections, independent manual validation and final
    audit PASS. It reuses existing node commands with local scientific timing,
    context/finalization and publication-before-completion. This does not close
-   the separate operational-evidence transport or broader deployment obligations.
+   broader deployment obligations; operational-evidence transport is separately
+   closed in W057.
 3. Adapt Q019 Controller Normal Stop/Kill, Stage A/handoff, completion/release,
    saved collection, and explicit closure coordination. Test current coverage,
    network-wait races, late intake, partial Kill, restart readback, batch isolation,
