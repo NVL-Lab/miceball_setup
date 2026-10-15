@@ -1366,6 +1366,7 @@ class NatsSynchronizationManagerCommunication:
         self._synchronization_manager = synchronization_manager
         self._results_by_command_id = {}
         self._commands_by_id = {}
+        self._command_lock = asyncio.Lock()
         self._runtime_lock = asyncio.Lock()
         self._assessment_task = None
         self._subscriptions = ()
@@ -1441,27 +1442,32 @@ class NatsSynchronizationManagerCommunication:
         self._subscriptions = ()
 
     async def subscribe_commands(self) -> tuple[Subscription, Subscription]:
-        async def receive(message: Any) -> None:
+        async def execute(message: Any) -> None:
             command = RuntimeCommandMessage.from_dict(json.loads(message.data.decode("utf-8")))
             if command.target_id != self._boundary.component_id:
                 await message.ack()
                 return
             owner = self._synchronization_manager
-            if (command.command_type == "stop_runtime" and command.session_id == owner._prepared_session_id
-                    and self._assessment_task is not None):
-                self._assessment_task.cancel()
-                try:
-                    await self._assessment_task
-                except asyncio.CancelledError:
-                    pass
-                self._assessment_task = None
-            async with self._runtime_lock:
-                identity = command.to_dict()
-                identity["payload"] = {k: v for k, v in command.payload.items() if k != "request_nonce"}
-                try:
-                    previous = self._results_by_command_id.get(command.command_id)
-                    if previous is not None and self._commands_by_id.get(command.command_id) != identity:
-                        raise ValueError("Conflicting synchronization command identity")
+            identity = command.to_dict()
+            identity["payload"] = {k: v for k, v in command.payload.items() if k != "request_nonce"}
+            try:
+                previous = self._results_by_command_id.get(command.command_id)
+                if previous is not None and self._commands_by_id.get(command.command_id) != identity:
+                    raise ValueError("Conflicting synchronization command identity")
+                if command.command_type == "stop_runtime" and previous is None:
+                    if command.session_id != owner._prepared_session_id:
+                        raise ValueError("Synchronization command Session mismatch")
+                    # The periodic task may own the runtime lock while awaiting NATS.
+                    # Serialize commands, but leave that lock free until cancellation finishes.
+                    task = self._assessment_task
+                    if task is not None:
+                        task.cancel()
+                        try:
+                            await task
+                        except asyncio.CancelledError:
+                            pass
+                        self._assessment_task = None
+                async with self._runtime_lock:
                     if previous is not None and command.command_type != "read_session_time":
                         result = previous
                     elif command.command_type in {"start_runtime", "assess_synchronization", "resynchronize"}:
@@ -1507,12 +1513,17 @@ class NatsSynchronizationManagerCommunication:
                             else _execute_service_command(self._boundary, owner, command, self._results_by_command_id))
                     self._results_by_command_id[command.command_id] = result
                     self._commands_by_id[command.command_id] = deepcopy(identity)
-                except Exception as error:
-                    result = _participant_result(self._boundary, command, False, f"{type(error).__name__}: {error}", {})
+            except Exception as error:
+                result = _participant_result(self._boundary, command, False, f"{type(error).__name__}: {error}", {})
             if "request_nonce" in command.payload:
                 result = replace(result, payload={**result.payload, "request_nonce": command.payload["request_nonce"]})
             await self._boundary.publish_command_result(result, command.command_type)
             await message.ack()
+
+        async def receive(message: Any) -> None:
+            async with self._command_lock:
+                await execute(message)
+
         self._subscriptions = await _subscribe_participant_commands(self._boundary, receive)
         return self._subscriptions
 

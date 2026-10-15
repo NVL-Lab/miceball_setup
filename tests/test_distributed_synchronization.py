@@ -130,6 +130,7 @@ class DistributedSynchronizationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.node.mapping_activation_history), 1)
         await self.experiment()
         await self.request(self.participants[-1], "run_one_iteration")
+        await self.advance_local_clock(monotonic())
         refreshed = await self.request(self.participants[1], "resynchronize", {"node_ids": ["node"]})
         self.assertTrue(refreshed.success, refreshed.reason)
         await self.request(self.participants[-1], "run_one_iteration")
@@ -274,6 +275,7 @@ class DistributedSynchronizationTests(unittest.IsolatedAsyncioTestCase):
     async def test_historical_quality_cannot_replace_new_mapping_or_activation_provenance(self):
         await self.start()
         old = deepcopy(self.sync._measured_mapping_quality["node"])
+        await self.advance_local_clock(monotonic())
         await self.request(self.participants[1], "resynchronize", {"node_ids": ["node"]})
         current = self.node.status()["active_synchronization_mapping"]
         old["measured_local_time_s"] -= 1
@@ -296,10 +298,7 @@ class DistributedSynchronizationTests(unittest.IsolatedAsyncioTestCase):
         await self.experiment()
         original = self.node.status()["active_synchronization_mapping"]
         observed_at = monotonic()
-        async def clock_advanced():
-            while monotonic() <= observed_at:
-                await asyncio.sleep(0)
-        await asyncio.wait_for(clock_advanced(), 2)
+        await self.advance_local_clock(observed_at)
         result = await self.request(self.participants[1], "resynchronize", {"node_ids": ["node"]})
         self.assertTrue(result.success, result.reason)
         def buffered(products, **context):
@@ -324,6 +323,12 @@ class DistributedSynchronizationTests(unittest.IsolatedAsyncioTestCase):
             result = await self.request(self.participants[-1], "run_one_iteration")
         self.assertTrue(result.success, result.reason)
 
+    async def advance_local_clock(self, previous):
+        async def advanced():
+            while monotonic() <= previous:
+                await asyncio.sleep(0)
+        await asyncio.wait_for(advanced(), 2)
+
     async def test_buffered_degraded_observation_stays_degraded_after_recovery(self):
         await self.start()
         await self.experiment()
@@ -341,6 +346,7 @@ class DistributedSynchronizationTests(unittest.IsolatedAsyncioTestCase):
         observed_at = monotonic()
         interpretation_ids = {m.evidence_id for m in self.node.runtime_evidence
                               if m.evidence_type == "timing_quality_interpretation"}
+        await self.advance_local_clock(observed_at)
         result = await self.request(self.participants[1], "resynchronize", {"node_ids": ["node"]})
         self.assertTrue(result.success, result.reason)
         await self.collect_buffered([{"value": 2, "acquisition_node_local_time_s": observed_at,
@@ -403,6 +409,7 @@ class DistributedSynchronizationTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue((await requester.request_runtime_command(self.participants[-1],
             "accept_synchronization_quality", self.sid, {"quality": quality}, 1)).success)
         observed_at = monotonic()
+        await self.advance_local_clock(observed_at)
         result = await self.request(self.participants[1], "assess_synchronization", {"node_ids": ["node"]})
         self.assertTrue(result.success, result.reason)
         self.assertEqual(self.node.status()["active_synchronization_mapping"], mapping)
@@ -518,6 +525,101 @@ class DistributedSynchronizationTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(self.sync_handler._assessment_task)
         self.assertFalse(self.sync.is_running)
         self.assertTrue(self.ingestor.has_durable_runtime_evidence(retained[0]))
+
+    async def test_rejected_stop_preserves_monitoring_and_later_assessments(self):
+        self.config["synchronization_configuration"] = configuration(assessment_interval_s=.02)
+        await self.start()
+        participant = self.participants[1]
+        accepted = await self.request(participant, "read_session_time", command_id="clock-read")
+        self.assertTrue(accepted.success, accepted.reason)
+        task = self.sync_handler._assessment_task
+        publishing, resume, assessed = (asyncio.Event() for _ in range(3))
+        self.addCleanup(resume.set)
+        publish = self.sync_handler._boundary.publish_evidence
+
+        async def pause(message):
+            if asyncio.current_task() is task and not publishing.is_set():
+                publishing.set()
+                await resume.wait()
+            await publish(message)
+
+        with patch.object(self.sync_handler._boundary, "publish_evidence", side_effect=pause):
+            await asyncio.wait_for(publishing.wait(), 2)
+            rejected = await asyncio.wait_for(self.request(participant, "stop_runtime", command_id="clock-read"), 2)
+            self.assertFalse(rejected.success)
+            self.assertIn("Conflicting synchronization command identity", rejected.reason)
+            self.assertTrue(self.sync.is_running)
+            self.assertTrue(self.node.status()["is_running"])
+            self.assertIs(self.sync_handler._assessment_task, task)
+            self.assertFalse(task.done())
+            sequence = self.sync._measured_mapping_quality["node"]["assessment_sequence"]
+
+            def observe(command):
+                if (command["command_type"] == "accept_synchronization_quality"
+                        and command["payload"]["quality"]["assessment_sequence"] > sequence):
+                    assessed.set()
+
+            self.broker.on_command = observe
+            resume.set()
+            await asyncio.wait_for(assessed.wait(), 2)
+        self.assertTrue((await self.controller.stop_launched_session()).succeeded)
+        stopped = await self.request(participant, "stop_runtime")
+        self.assertTrue(stopped.success, stopped.reason)
+        self.assertFalse(self.sync.is_running)
+        self.assertTrue(task.cancelled())
+        self.assertIsNone(self.sync_handler._assessment_task)
+
+    async def test_wrong_session_stop_preserves_running_monitoring(self):
+        await self.start()
+        task = self.sync_handler._assessment_task
+        original = self.node.status()["active_synchronization_mapping"]
+        rejected = await self.communication.request_runtime_command(self.participants[1], "stop_runtime",
+            "other-session", {}, 1, command_id="wrong-session-stop")
+        self.assertFalse(rejected.success)
+        self.assertIn("Session mismatch", rejected.reason)
+        self.assertTrue(self.sync.is_running)
+        self.assertTrue(self.node.status()["is_running"])
+        self.assertEqual(self.node.status()["active_synchronization_mapping"], original)
+        self.assertIs(self.sync_handler._assessment_task, task)
+        self.assertFalse(task.done())
+        self.assertTrue((await self.controller.stop_launched_session()).succeeded)
+        self.assertTrue((await self.request(self.participants[1], "stop_runtime")).success)
+        self.assertTrue(task.cancelled())
+
+    async def test_concurrent_duplicate_stops_preserve_identity_and_closeout(self):
+        await self.start()
+        self.assertTrue((await self.controller.stop_launched_session()).succeeded)
+        task = self.sync_handler._assessment_task
+        publishing, resume, duplicate_sent = (asyncio.Event() for _ in range(3))
+        self.addCleanup(resume.set)
+        publish = self.sync_handler._boundary.publish_evidence
+
+        async def pause(message):
+            if not publishing.is_set():
+                publishing.set()
+                await resume.wait()
+            await publish(message)
+
+        with patch.object(self.sync_handler._boundary, "publish_evidence", side_effect=pause):
+            first = asyncio.create_task(self.request(self.participants[1], "stop_runtime", command_id="stop-once"))
+            await asyncio.wait_for(publishing.wait(), 2)
+            self.broker.on_command = lambda command: duplicate_sent.set() if command["command_id"] == "stop-once" else None
+            second = asyncio.create_task(self.request(self.participants[1], "stop_runtime", command_id="stop-once"))
+            await asyncio.wait_for(duplicate_sent.wait(), 2)
+            resume.set()
+            first, second = await asyncio.wait_for(asyncio.gather(first, second), 2)
+        self.assertTrue(first.success and second.success)
+        self.assertEqual(first.result_id, second.result_id)
+        self.assertEqual(first.payload["session_time_s"], second.payload["session_time_s"])
+        self.assertEqual(sum(e.update_type == "retired" for e in self.sync.mapping_update_evidence), 1)
+        preserved = self.sync.session_timing_evidence(self.sid, "sync")
+        rejected = await self.request(self.participants[1], "read_session_time", command_id="stop-once")
+        self.assertFalse(rejected.success)
+        self.assertIn("Conflicting synchronization command identity", rejected.reason)
+        self.assertEqual(self.sync.session_timing_evidence(self.sid, "sync"), preserved)
+        self.assertFalse(self.sync.is_running)
+        self.assertTrue(task.cancelled())
+        self.assertIsNone(self.sync_handler._assessment_task)
 
     async def test_release_requires_quality_evidence_as_well_as_mapping_updates(self):
         await self.start()
@@ -711,18 +813,42 @@ class CrossProcessTimingTests(unittest.IsolatedAsyncioTestCase):
                     await boundary.connect()
                     try:
                         communication = NatsControllerCommunication(boundary)
-                        async def request(role, target, operation, payload):
+                        async def request(role, target, operation, payload, *, command_id=None):
                             result = await communication.request_runtime_command(RuntimeParticipant(role, target),
-                                operation, "session", payload, 5)
+                                operation, "session", payload, 5, command_id=command_id)
                             self.assertIsNotNone(result, operation)
                             self.assertTrue(result.success, result.reason)
                             return result
                         await request("synchronization_manager", "sync", "initialize_session",
-                                      {"synchronization_configuration": configuration()})
+                                      {"synchronization_configuration": configuration(assessment_interval_s=.05)})
                         await request("acquisition_node", "node", "reserve", {})
                         await request("acquisition_node", "node", "initialize_session", {"selected_devices": [declaration().to_dict()]})
                         await request("synchronization_manager", "sync", "start_runtime", {"node_ids": ["node"]})
                         await request("acquisition_node", "node", "start_runtime", {})
+                        await request("synchronization_manager", "sync", "read_session_time", {}, command_id="clock-read")
+                        rejected = await communication.request_runtime_command(
+                            RuntimeParticipant("synchronization_manager", "sync"), "stop_runtime", "session",
+                            {}, 5, command_id="clock-read")
+                        self.assertIsNotNone(rejected)
+                        self.assertFalse(rejected.success)
+                        self.assertIn("Conflicting synchronization command identity", rejected.reason)
+                        await request("synchronization_manager", "sync", "read_session_time", {})
+                        quality_subject = "messages.session.evidence.synchronization_manager.sync.timing_quality_observation"
+                        jetstream = boundary._require_jetstream()
+                        published = await jetstream.get_last_msg("LAB_EVIDENCE", quality_subject)
+                        sequence = json.loads(published.data)["payload"]["assessment_sequence"]
+                        assessed = asyncio.Event()
+
+                        async def observe(message):
+                            if json.loads(message.data)["payload"]["assessment_sequence"] > sequence:
+                                assessed.set()
+                            await message.ack()
+
+                        subscription = await jetstream.subscribe(quality_subject, cb=observe, manual_ack=True)
+                        try:
+                            await asyncio.wait_for(assessed.wait(), 5)
+                        finally:
+                            await subscription.unsubscribe()
                         await request("acquisition_node", "node", "prepare_experiment_scientific_outputs",
                             {"experiment_id": "experiment", "scientific_outputs": [ScientificOutputSelection("device", "node", "events").to_dict()]})
                         clock = await request("synchronization_manager", "sync", "read_session_time", {})
@@ -735,7 +861,10 @@ class CrossProcessTimingTests(unittest.IsolatedAsyncioTestCase):
                         self.assertEqual(row["timestamp_status"], "runtime_timestamped")
                         self.assertGreaterEqual(row["experiment_time_s"], 0)
                         await request("acquisition_node", "node", "stop_runtime", {})
-                        await request("synchronization_manager", "sync", "stop_runtime", {})
+                        stopped = await request("synchronization_manager", "sync", "stop_runtime", {}, command_id="stop-once")
+                        duplicate = await request("synchronization_manager", "sync", "stop_runtime", {}, command_id="stop-once")
+                        self.assertEqual(stopped.result_id, duplicate.result_id)
+                        self.assertEqual(stopped.payload["session_time_s"], duplicate.payload["session_time_s"])
                     finally:
                         await boundary.close()
                 finally:

@@ -930,7 +930,7 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 - _validate_owner_request(boundary, command): Validates target, requester, command, Session, connectivity, and transient reply correlation for the bounded owner operations.
 - NatsControllerCommunication.request_persistence_command(participant, command_type, session_id, payload, result_window_s, *, command_id): Makes one bounded scoped owner request with fresh-only results and an echoed per-attempt nonce, preserving the stable command ID while rejecting historical and late retry confirmations.
 - NatsSynchronizationManagerCommunication(boundary, synchronization_manager): Routes measured synchronization, readiness, Session preparation and timing closeout over existing command/result streams while retaining timing authority in SynchronizationManager.
-- NatsSynchronizationManagerCommunication.subscribe_commands(): Routes configured Session initialization, measured startup/assessment/resynchronization, current-time readback and closeout to the authoritative owner using correlated NATS commands.
+- NatsSynchronizationManagerCommunication.subscribe_commands(): Serializes command admission and rejects conflicting identities or mismatched stop Sessions before cancelling periodic work outside the runtime lock, then routes owner operations with existing correlated results and idempotency.
 - NatsSynchronizationManagerCommunication.close(): Cancels periodic assessment and unsubscribes transport callbacks without terminating acquisition or changing Session lifecycle.
 - NatsSynchronizationManagerCommunication._measure_node: Collects causal NATS exchanges and requests owner-side validity assessment before confirmed mapping delivery.
 - NatsSynchronizationManagerCommunication._deliver_quality: Requires correlated node acceptance of owner-issued mapping/quality state.
@@ -1406,6 +1406,7 @@ automatic. Kill integration and overall closeout validation remain deferred.
 - declaration(): Supplies one registered non-frame scientific product for transport and local-preservation workflows.
 - DistributedSynchronizationTests: Exercises measured startup, Experiment lifecycle, affine mapping/provenance, scoped health context, degraded quality, cancellation, retries, publication failures and release safety through real owners and broker adapters.
 - DistributedSynchronizationTests.collect_buffered: Delivers controlled buffered scientific observations through the public iteration command for acquisition-time mapping/quality and local artifact checks.
+- DistributedSynchronizationTests.advance_local_clock: Waits for a strictly later representable local clock tick so buffered-observation transition tests do not depend on platform timer granularity.
 - MeasuredClockBoundsTests: Verifies causal offset bounds under asymmetric delay/variability, explicit configuration rejection and detached stable timing evidence readback.
 - run_participant(role, url, directory, ready, stop): Runs a test node or synchronization owner in a spawned process, with harness-only startup/shutdown signaling and NATS-only framework communication.
 - CrossProcessTimingTests: Exercises independent node/clock processes against optional real local JetStream, checking scientific timing and finalized local output without shared service owners.
