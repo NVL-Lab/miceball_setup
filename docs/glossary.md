@@ -375,8 +375,10 @@ A Device may produce streams, events, or both.
 Decision 378 requires explicit support for installation-declared scientific
 products selected by Experiments, with scientific observations/metadata separated
 from operational evidence. Legacy `collect_records()` / `collect_scientific_records()`
-are current implementation contracts to be replaced, not target compatibility
-requirements. AcquisitionNode must not guess meaning from content, size or naming.
+have been replaced by `collect_products()` in the active node pathway (W053),
+not retained as compatibility fallbacks. AcquisitionNode must not guess meaning
+from content, size or naming. Owner-level scientific-envelope cleanup remains
+for Slice 3B; the full Decision 378 replacement is not complete.
 
 The component responsible for communicating with a specific device type.
 
@@ -612,8 +614,8 @@ Its fields preserve the originating observation reference, Experiment, live
 source, Expected Participant, observation type, assigned policy, interpretation
 label, required status, Session Time, and plain-data details. AcquisitionNode
 produces it immediately after its originating observation. Historical acquisition
-envelopes carry this evidence in current code; Decision 377 requires preservation
-through existing lifecycle/runtime-evidence mechanisms during adaptation. RuntimeEvidenceMessage carries this evidence
+envelopes carried this evidence; the active node path now preserves it through
+RuntimeEvidenceMessage publication/intake (W053, Decision 377)
 without changing ownership. Runtime messages marked persistent by their producer
 are compiled by Ingestor for the separate Evidence Archive, not conceptually a
 raw runtime-evidence dump in the final Session Record.
@@ -1934,8 +1936,10 @@ The Phase 1-9 unit of acquisition data exchanged between the acquisition side an
 
 Decision 377 removes this as a mandatory pathway for routine scientific
 observations, including small observations and their metadata. Existing code and
-W051/W052 remain historically validated; revised local scientific routing is
-not yet implemented. This term does not define future real-time streaming.
+W051/W052 remain historically validated; revised node-local scientific routing
+and operational evidence are complete in W053. Owner-level envelope cleanup and
+closeout reconciliation remain for Slice 3B. This term does not define future
+real-time streaming.
 
 An Acquisition Record Envelope contains session identity, source device
 identity, record kind, and records in a plain-data form that can cross a process

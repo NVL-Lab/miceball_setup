@@ -1145,8 +1145,10 @@ bounded local persistence. Decision 377 subsequently removes routine scientific
 observations and metadata from envelope intake; that path is no longer required
 for routine acquisition. W051/W052 validation histories below remain unchanged.
 Active responsibilities retain durability, identity, corruption/readback, and
-archival protections. Scientific-local routing and operational-event preservation
-need implementation reconciliation; future streaming is open, not designed here.
+archival protections. Bounded scientific-local routing and operational-event
+preservation are complete after correction, independent validation and final
+re-audit PASS (W053); owner-level envelope reconciliation remains for Slice 3B.
+Future streaming is open, not designed here.
 
 Decision 378 now requires clean replacement, not indefinite envelope compatibility:
 installation declarations and Experiment selections govern adapter scientific
@@ -1155,7 +1157,9 @@ envelope mechanisms and dead code/tests/docs only where no accepted responsibili
 remains. Preserve scientific provenance, operational evidence, historical readback
 and Q019 guarantees. The final independent integration audit must verify functional
 preservation and absence of obsolete scientific-envelope architecture. This
-replacement is not implemented or validated; project/milestone statuses are unchanged.
+overall replacement remains incomplete: W053 closes only bounded Slice 3A, while
+Slice 3B cleanup and final integration audit remain pending. Project/milestone
+statuses are unchanged.
 
 **W051 - Complete, bounded Q022 Ingestor-StorageManager ownership boundary.**
 Accepted-envelope persistence, current owner readback, journal-verified compilation,
@@ -1181,6 +1185,30 @@ Shared-lifetime bootstrap/enforcement and durable acquisition-intake reconstruct
 remain deferred; synchronous I/O can block the event loop. No live NATS,
 multi-host, hardware, or independently tested power-loss guarantees are established.
 Q019 remains CLOSED; Q022, Q024, Phase 16, and M015 remain OPEN.
+
+## Completed product-based acquisition slice validation
+
+**W053 - Complete, bounded product acquisition and operational evidence (Slice 3A).**
+Installed declarations and Experiment selections govern adapter/manager collection
+and local JSONL/HDF5 scientific persistence, separately from lifecycle, health,
+failure and manifest evidence. Node legacy collection fallback and routine
+scientific-envelope production/forwarding are removed. Initial developer tests
+80 distinct PASS and independent IPython validation 17/17 PASS preceded an audit
+FAIL for P2 loss of later-device observations after operational intake failure.
+The correction attempts scientific preservation across completed collections
+before operational intake, aggregating independent failures without false success
+or replay. Corrective developer tests 37 distinct PASS (seven permanent new
+regressions), independent correction validation 18/18 PASS, and final independent
+re-audit PASS with no remaining confirmed P0-P3 findings (13 focused tests and
+two negative probes, including injected journal fsync failure). Developer counts
+are separate overlapping runs, not an additive unique total. See W053 for scope,
+failure semantics and full validation history.
+
+Temporary local storage and simulated devices/brokers do not establish live
+multi-host, hardware or power-loss guarantees. Slice 3B owner-level envelope
+cleanup/closeout reconciliation and Decision 378's final integration audit remain
+pending. W051/W052 history and Q019 CLOSED are preserved; Q022, Q024, Phase 16,
+and M015 remain OPEN. These are recorded results, not new tests during closure.
 
 ## Completed Session-binding release slice validation
 

@@ -55,11 +55,15 @@ routine scientific-envelope intake: observations and per-observation metadata
 belong in LocalStorageManager products regardless of size. This reconciliation
 has a complete explicit local correlated persistence path, independently validated
 and audited PASS (W052), including permanent binding-abort ordering coverage.
-Lifecycle bootstrap and acquisition-intake adaptation remain pending.
+Lifecycle bootstrap and remaining cross-process owner adaptation remain pending;
+bounded node operational-evidence preservation is complete in W053.
 No general launcher or additional owner is introduced.
 
-The bounded product-acquisition replacement is implemented with developer tests,
-pending independent validation and audit. `collect_products()` follows installed
+The bounded product-acquisition replacement is complete with independent manual
+validation and final re-audit PASS after the scientific-observation-loss correction
+(W053). All completed scientific collections receive preservation attempts before
+operational intake; independent errors remain failures without automatic replay.
+`collect_products()` follows installed
 declarations and Experiment selections; node scientific observations and their
 metadata go only to LocalStorageManager. Node envelope forwarding/batching is
 removed; lifecycle, health and failure RuntimeEvidenceMessages use retained,

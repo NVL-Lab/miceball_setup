@@ -854,8 +854,10 @@ Distributed operation
 in Decisions 367-378; the bounded Ingestor-StorageManager NATS persistence slice is
 complete with independent validation and final re-audit PASS after correction
 (W051). The local correlated persistence adaptation is also complete with
-independent validation and audit PASS (W052); remaining deployment implementation
-and verification are pending.
+independent validation and audit PASS (W052). Product-based node acquisition and
+operational-evidence preservation are complete with independent manual validation
+and final re-audit PASS after correction (W053, bounded Slice 3A); Slice 3B and
+remaining deployment implementation/verification are pending.
 Q022 as a whole is not closed. Q019 remains CLOSED in W050.
 
 ### Q022-A accepted scope
@@ -978,8 +980,14 @@ exact formats remain implementation choices. No lifecycle API is introduced.
   LocalStorageManager products regardless of size. Preserve operational lifecycle,
   health/failure, timing and manifest evidence through existing mechanisms and
   RuntimeEvidenceMessage journal-before-ACK/deduplication/reconstruction guarantees.
-  Reconcile legacy envelope production, intake and Session Record coverage checks
-  without changing preserved historical products. Implement
+  W053 closes bounded node product acquisition/operational preservation after the
+  P2 observation-loss correction, independent validation and final re-audit PASS.
+  Active node scientific-envelope production/forwarding is removed. Slice 3B
+  must reconcile remaining owner-level intake/audits, persistence/recovery,
+  transport/compatibility APIs, Session Records, Normal Stop/Kill, release
+  blockers, compilation and archival closeout, removing redundant exports,
+  tests, demos and active documentation without changing preserved historical
+  products or dropping required historical interpretation. Implement
   service-owned NATS requests/results for currently direct receipt, compilation,
   persistence, readback, timing, collection, release, and recovery interactions
   before enabling dependent role launch paths. Local owner guards cannot be
@@ -995,9 +1003,10 @@ exact formats remain implementation choices. No lifecycle API is introduced.
   declares supported products, Experiments explicitly select them, and adapters
   must support those products and distinguish scientific observations/metadata
   from operational evidence. Do not infer meaning from content, size or old names.
-  Implement clean replacement/removal of obsolete collection and scientific-envelope
-  machinery, including redundant tests/documentation, retaining only accepted active
-  or historical-readback responsibilities. Final independent integration audit must
+  Bounded product-based acquisition is complete in W053, not the entire replacement.
+  Finish Slice 3B removal/reconciliation of obsolete scientific-envelope machinery,
+  retaining only accepted active or historical-readback responsibilities.
+  Final independent integration audit must
   assess both functional preservation and absence of obsolete architecture.
 * AcquisitionNode duplicate-ID policy is accepted; do not infer a new general
   policy for all RuntimeParticipant kinds or a global identity registry.

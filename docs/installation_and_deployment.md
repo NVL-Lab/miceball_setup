@@ -40,9 +40,13 @@ RuntimeEvidenceMessages for durable publication, separately from scientific rows
 No new formats,
 evidence categories, or transport for future scientific streaming are defined.
 
-Product-based node acquisition is implemented with focused developer coverage,
-pending independent validation and audit; owner-level envelope cleanup remains
-for Slice 3B. W051/W052 are historical validated envelope
+Product-based node acquisition is complete with independent manual validation
+and final re-audit PASS after correction (W053). All completed scientific
+collections receive local preservation attempts before operational-evidence
+handling; independent failures remain visible without false success or automatic
+replay. Owner-level envelope cleanup remains for Slice 3B, and Decision 378's
+full replacement/final integration audit remains pending.
+W051/W052 are historical validated envelope
 paths, no longer required for routine scientific acquisition; active durability,
 identity, corruption/readback and Q019 preservation/recovery/closure protections
 remain. Existing saved products and validation results must not be rewritten.
@@ -173,7 +177,9 @@ on retry. Exceptions retain intake and do not establish confirmation. Legacy
 constructor behavior and W051 NATS adapters remain compatible; no second owner
 or internal NATS request is created by this mode. Both owners can be constructed
 and restarted together by the same process; general lifecycle bootstrap is deferred.
-Acquisition intake reconstruction/acknowledgment is not implemented here.
+Historical scientific-envelope intake reconstruction is not supplied by W052;
+the bounded operational RuntimeEvidenceMessage intake/reconstruction path is
+validated separately in W053.
 This describes current W052 code, not a requirement to preserve superseded
 scientific-envelope APIs under Decision 378; retain only accepted responsibilities.
 This local adaptation is independently validated and audited PASS in W052:
@@ -272,13 +278,16 @@ journal-before-ACK and restart-safe deduplication remain mandatory. Evidence
 acceptance, StorageManager persistence confirmation and archival completion
 remain distinct.
 
-**AcquisitionNode/Controller/other producers -> Ingestor:** Node `_send_envelope()`
-and `_record_artifact_manifest()` call intake directly; Controller decision and
+**AcquisitionNode/Controller/other producers -> Ingestor:** W053 removes node
+scientific-envelope production/forwarding. Node `_retain_runtime_evidence()` and
+`_record_artifact_manifest()` retain messages before optional development-time
+local intake; the NATS node adapter publishes operational evidence/manifests
+before applicable command results. Controller decision and
 Experiment-rejection evidence also use direct `receive_runtime_evidence()`.
 Manifest recovery calls `has_durable_runtime_evidence()` on the same object.
 Reuse existing evidence publication/subscription, producer retention and correlated
 commands/results. Missing functionality is external operational-evidence
-acceptance/readback and local scientific-path reconciliation, not new NATS
+acceptance/readback for remaining cross-owner operations, not new NATS
 scientific-envelope delivery. Preserve applicable failure reporting, stable evidence identity,
 same-content deduplication, retained-manifest retry, and journal-before-ACK.
 Publication confirmation, Ingestor acceptance, and complete receipt remain distinct.
@@ -393,11 +402,14 @@ evidence/persistence interfaces before independent-role startup is fully enabled
 
 ## Recommended Implementation Order
 
-These are proposed implementation boundaries, not additional accepted architecture
-or claims of implementation/validation:
+Completed prerequisites are identified by their validated workflows below.
+Remaining items are proposed implementation boundaries, not additional accepted
+architecture or claims of implementation/validation:
 
-1. Reconcile routine observation/metadata handling with LocalStorageManager and
-   preserve node lifecycle/health evidence through existing runtime mechanisms.
+1. The bounded routine observation/metadata routing and node lifecycle/health
+   preservation prerequisite is complete with correction, independent validation
+   and final re-audit PASS (W053). Complete Slice 3B owner-level envelope cleanup
+   and closeout reconciliation, retaining only required historical interpretation.
    Reconcile the combined process's active local persistence/readback guarantees,
    and owner-side NATS operational-evidence intake, acceptance,
    receipt/compilation and external readback operations using existing

@@ -19,7 +19,8 @@ As the framework grows, this document should evolve into a catalog of validated 
 **Current architecture qualification (Decision 377):** Routine scientific
 observations and per-observation metadata now belong in AcquisitionNode-local
 scientific products regardless of size; Ingestor receives operational evidence
-and manifests. This revision is not yet implemented or validated. Scientific
+and manifests. The bounded node acquisition/operational-evidence replacement is
+complete, independently validated and re-audited after correction in W053. Scientific
 envelope workflows, including W051/W052, remain historical validated capabilities,
 not mandatory routine-acquisition pathways. Their results and historical records
 are unchanged; active evidence durability and Q019 archival guarantees remain.
@@ -29,7 +30,8 @@ envelope mechanisms, not indefinite legacy API compatibility. W051/W052 remain
 historical validations, not a reason to retain superseded code. Necessary
 operational/historical-readback responsibilities remain; the replacement's final
 independent integration audit must verify preserved functionality and absence of
-obsolete architecture. Replacement is not yet implemented or validated.
+obsolete architecture. Owner-level Slice 3B cleanup and that final integration
+audit remain pending; W053 does not close the complete Decision 378 replacement.
 
 The socket and acquisition-envelope workflows below remain valid historical demonstrations of implemented boundaries. They are not the accepted Phase 10 runtime transport architecture: Phase 10 adopts brokered NATS communication, keeps large scientific artifacts local during acquisition, and has not yet been implemented or validated.
 
@@ -3793,6 +3795,113 @@ Q022 remains OPEN for acquisition/Experiment/synchronization adaptation,
 Controller closeout/release, external maintenance/recovery, configuration/launch
 and installation verification. Q019 remains CLOSED; Q024, Phase 16, and M015
 remain OPEN. This closes only the supported local persistence slice.
+
+---
+
+# W053 - Product-Based Scientific Acquisition and Operational Evidence
+
+**Status:** Complete, independently validated and audited after correction;
+bounded Q022 Slice 3A under Decisions 377-378.
+
+## Implemented workflow and interfaces
+
+Installation-declared `ScientificProductDeclaration` records define supported
+products; explicit Experiment `ScientificOutputSelection` records determine what
+is acquired. `DeviceAdapter.collect_products(products, *, session_id,
+experiment_id, acquisition_node_id)` produces selected declaration-keyed rows
+separately from operational RuntimeEvidenceMessages.
+`DeviceManager.collect_products(products_by_device, *, session_id, experiment_id,
+acquisition_node_id)` coordinates adapters and retains completed partial results.
+Empty product selections perform no scientific reads. No legacy
+`collect_records()` or `collect_scientific_records()` fallback remains in the
+active node collection pathway.
+
+`AcquisitionNode.run_one_iteration()` coordinates selected observations and their
+per-observation metadata into LocalStorageManager products, not Ingestor intake.
+JSONL/HDF5 persistence retains applicable observation identity/order, available
+native timestamps, framework Session/Experiment timing, provenance, and artifact
+manifests. Non-frame metadata stays with its scientific observation without
+frame-name inference. Iteration counts describe rows accepted by local storage;
+they do not replace its flush/finalization durability confirmation.
+AcquisitionNode no longer produces, batches, or forwards routine scientific
+envelopes.
+
+Session start/stop, acquisition-health observations and interpretations, failures,
+and artifact manifests remain separate operational evidence. Retained immutable
+RuntimeEvidenceMessage snapshots preserve producer/Session identity across
+publication failure and retry. `publish_new_runtime_evidence()` and the existing
+manifest publisher complete applicable durable publication before Session-scoped
+command results. Ingestor retains journal-before-ACK, evidence-ID deduplication,
+known-Session reconstruction, and persistent compilation. Publication, durable
+acceptance, complete receipt, and archival remain distinct confirmations.
+
+## Audited failure and correction
+
+The initial audit found a P2: DeviceManager collected both devices, but an
+operational-evidence intake exception while processing the first result stopped
+AcquisitionNode before persisting the second device's already-acquired observation.
+The first artifact finalized with one row and the second with zero.
+
+Correction `2afac85` attempts scientific persistence across all completed results
+before operational-evidence handling. Individual row, product, device, and
+evidence errors do not unnecessarily prevent other writable observations from
+receiving persistence attempts. Partial-collection results follow the same
+preservation path. Single failures remain identifiable; multiple independent and
+nested failures retain their original exceptions. Failure-evidence handling errors
+do not mask the acquisition failure. Failed iterations report failure and prevent
+ordinary iteration replay; retained evidence is not duplicated.
+
+Failed writes are reported, not claimed recovered. No new durable scientific
+retry mechanism, evidence transport, or automatic replay was introduced.
+Scientific finalization and existing Q019 receipt, Stage A/B, handoff, Normal
+Stop/Kill, release, authorized recovery, and immutable archive protections remain.
+
+## Validation and audit evidence
+
+- Initial developer verification: **80 distinct targeted tests PASS**.
+- Initial independent user-run manual IPython validation: **17/17 PASS**, covering
+  selected products, local observations/metadata/timing/provenance, manifests,
+  lifecycle evidence, unselected products, no scientific-envelope intake,
+  operational durability/deduplication, restart reconstruction, and partial failure.
+- Initial independent source audit: **FAIL**, the P2 scientific-observation loss
+  after operational-evidence intake failure described above.
+- Corrective developer verification: **37 distinct targeted tests PASS**, including
+  seven permanent regressions for two-device intake failure, independent scientific
+  writes, multiple errors, partial collection, other products/rows, and failure-
+  evidence error reporting, with preservation, lifecycle and publication controls.
+- Independent user-run corrective manual IPython validation: **18/18 PASS**.
+- Final independent read-only re-audit of `2afac85`: **PASS**, original P2 resolved,
+  no remaining confirmed P0-P3 findings. **13 focused regression tests and two
+  independently constructed negative probes PASS**. The probes combined row
+  serialization, invalid/duplicate operational evidence, nested ExceptionGroups
+  and failure-evidence errors, and injected an actual Ingestor journal `fsync`
+  failure. Writable scientific observations survived without false acceptance,
+  successful iteration, or scientific replay.
+
+These are previously executed results, not new software tests, manual validation,
+or another audit during documentation closure. Developer runs overlap; the initial
+and corrective counts are separate, not an additive unique-test total.
+
+## Limitations and remaining work
+
+Verification used temporary local storage, simulated devices and broker doubles.
+It establishes no live external NATS, multi-host deployment, hardware, or power-loss
+guarantees; an injected `fsync` failure is not power-loss validation. A persistence attempt
+does not guarantee successful storage, and unavailable evidence acceptance remains
+unconfirmed. This is not complete independent-service deployment.
+
+Slice 3B still owns removal of obsolete Ingestor scientific-envelope intake/audits,
+StorageManager scientific-envelope persistence/recovery, NATS commands and
+compatibility paths, redundant exports/tests/demos/active documentation, and
+reconciliation of owner-level Session Records, Normal Stop/Kill, release blockers,
+compilation, recovery, and archival closeout. Retain historical interpretation only
+where accepted contracts require it; do not rewrite preserved records. Decision
+378's final independent integration audit must verify functional preservation and
+absence of obsolete scientific-envelope architecture after replacement.
+
+W051/W052 remain unchanged historical validations, not justification for keeping
+superseded code. Only Slice 3A is closed. Decision 378's overall replacement and
+Q022 remain OPEN; Q019 remains CLOSED. Q024, Phase 16, and M015 remain OPEN.
 
 ---
 

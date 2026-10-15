@@ -25,8 +25,11 @@ observations and per-observation metadata to remain in node-local scientific
 products regardless of size; Ingestor receives operational evidence and manifests.
 W051/W052 remain historically validated, but routine scientific-envelope transport
 and persistence are no longer required. Bounded product-based adapter/manager/node
-acquisition and operational evidence preservation are implemented with focused
-developer tests, pending independent validation and audit. Shared-lifetime bootstrap remains
+acquisition and operational evidence preservation are complete with independent
+manual validation and final re-audit PASS after correction (W053). The initial
+audit found lost later-device observations after operational intake failed; the
+correction attempts all completed scientific collections first and reports
+independent failures without replay. Shared-lifetime bootstrap remains
 deferred; future real-time scientific streaming is architecturally open.
 Decision 378 requires clean replacement of legacy collection/scientific-envelope
 paths: installation declares supported products, Experiments explicitly select

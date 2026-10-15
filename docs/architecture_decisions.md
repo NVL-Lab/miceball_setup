@@ -10723,11 +10723,16 @@ durability, identity, corruption rejection, readback and archival protections
 remain required for active responsibilities. Historical decisions, numbering and
 validation/audit results are preserved; obsolete code is not claimed removed.
 
-**Implementation status:** Accepted and synchronized, not implemented or
-independently validated. Existing envelope production, intake, persistence and
-Session Record/closeout coverage checks require reconciliation without weakening
-operational evidence preservation. Future real-time scientific streaming remains
-an open architectural question; no transport or infrastructure is selected.
+**Implementation status:** Bounded product-based node acquisition and operational
+evidence preservation (Slice 3A) are complete, independently manually validated
+and re-audited PASS after correction (W053). The initial audit FAIL identified
+lost later-device scientific observations after operational intake failed; the
+correction attempts preservation across completed collections before operational
+handling and retains independent failure reporting without replay. Remaining
+owner-level envelope intake/audit, persistence/recovery and Session Record/closeout
+reconciliation belong to Slice 3B; the complete replacement is not closed.
+Future real-time scientific streaming remains an open architectural question;
+no transport or infrastructure is selected.
 Q019 remains CLOSED; Q022, Q024, Phase 16 and M015 remain OPEN.
 
 ---
@@ -10784,11 +10789,17 @@ audit must verify both functional preservation of these scientific, operational
 and Q019 guarantees and absence of obsolete scientific-envelope architecture.
 Passing replacement tests alone does not establish closure.
 
-**Implementation status:** Accepted and synchronized, not implemented or
-independently validated. Existing legacy code and tests require replacement;
-historical decision numbering and W051/W052 validation records remain unchanged.
-Future real-time scientific streaming remains architecturally open. Q019 remains
-CLOSED; Q022, Q024, Phase 16 and M015 remain OPEN.
+**Implementation status:** Slice 3A is complete with independent manual validation
+and final re-audit PASS after correction (W053). Installed/selected product-based
+adapter/manager/node acquisition replaces legacy collection in the active node
+path, with local scientific persistence and separate operational evidence.
+Decision 378's full replacement is NOT complete: Slice 3B must remove/reconcile
+obsolete owner-level scientific-envelope mechanisms, exports, tests, demos and
+active documentation while retaining required historical interpretation and Q019
+protections. The required final integration audit remains pending. Historical
+decision numbering and W051/W052 records remain unchanged. Future real-time
+scientific streaming remains architecturally open. Q019 remains CLOSED;
+Q022, Q024, Phase 16 and M015 remain OPEN.
 
 ---
 
