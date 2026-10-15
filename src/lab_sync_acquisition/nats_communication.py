@@ -382,7 +382,8 @@ class NatsControllerCommunication:
         payload: dict[str, Any], result_window_s: float, *, command_id: str,
     ) -> RuntimeCommandResultMessage | None:
         """Request current owner readback without accepting history or an earlier attempt's reply."""
-        supported = {"storage_manager": {"read_session_preservation"},
+        supported = {"storage_manager": {"read_session_preservation",
+                                        "get_saved_session_collection_status", "collect_saved_artifacts"},
                      "ingestor": {"compile_session_evidence", "verify_acquisition_receipt",
                                   "read_runtime_evidence_acceptance"}}
         if (not isinstance(participant, RuntimeParticipant)
@@ -1320,7 +1321,35 @@ class NatsStorageManagerCommunication:
             if command.command_type == "check_readiness":
                 return _execute_service_command(self._boundary, self._storage_manager, command, {})
             _validate_owner_request(self._boundary, command)
-            if command.command_type == "read_session_preservation":
+            if command.command_type in {"get_saved_session_collection_status", "collect_saved_artifacts"}:
+                collecting = command.command_type == "collect_saved_artifacts"
+                expected = {"request_nonce", "evidence_id"} if collecting else {"request_nonce"}
+                if set(command.payload) != expected:
+                    raise ValueError("Saved collection accepts only Session and stable evidence identity")
+                if collecting and (not isinstance(command.payload["evidence_id"], str)
+                                   or not command.payload["evidence_id"]):
+                    raise ValueError("Saved collection requires a stable evidence identity")
+                if collecting and command.command_id != json.dumps(
+                        [command.session_id, command.payload["evidence_id"]], separators=(",", ":")):
+                    raise ValueError("Collection command identity must match its Session and evidence identity")
+                status = self._storage_manager.get_saved_session_collection_status(command.session_id)
+                payload = {"session_id": command.session_id, "collection_status": status}
+                if collecting:
+                    if not status["eligible"] or not status["collection_available"]:
+                        return _participant_result(self._boundary, command, False,
+                            status["availability_reason"] or status["eligibility_reason"],
+                            {**payload, "request_nonce": nonce})
+                    # The owner revalidates under its collection/preservation guards;
+                    # this status snapshot never authorizes retrieval on its own.
+                    outcome = self._storage_manager.collect_saved_artifacts(command.session_id,
+                        evidence_id=command.payload["evidence_id"], require_eligible=True)
+                    payload["collection_outcome"] = outcome
+                    confirmed = (outcome["archival_confirmed"] is True
+                                 and outcome["artifact_collection_result"]["succeeded"] is True)
+                    return _participant_result(self._boundary, command, confirmed,
+                        None if confirmed else "Collection or collection-evidence preservation is incomplete",
+                        {**payload, "request_nonce": nonce})
+            elif command.command_type == "read_session_preservation":
                 if set(command.payload) != {"request_nonce"}:
                     raise ValueError("Preservation readback accepts only the requested Session identity")
                 confirmation = self._storage_manager.get_persisted_session_preservation_confirmation(command.session_id)

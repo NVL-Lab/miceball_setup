@@ -454,6 +454,37 @@ StorageManager persistence mechanism under Decision 373, not a Python call to an
 AcquisitionNode service owner. Depends on preserved baselines/handoffs, but not
 restoration of old Session runtime bindings.
 
+**Current bounded Slice 4 implementation (developer-tested; independent validation
+and audit pending):** Controller can explicitly request one saved Session's
+collection with `await collect_saved_session_artifacts_remote(session_id,
+evidence_id=..., communication=..., storage_participant=..., result_window_s=...)`
+without local Ingestor or StorageManager references. The existing
+`request_persistence_command` supports StorageManager operations
+`get_saved_session_collection_status` (nonce only) and `collect_saved_artifacts`
+(stable `evidence_id` plus nonce). Collection command identity is the compact JSON
+encoding of `[session_id, evidence_id]`, checked by the owner; the Controller
+builds it automatically. The receiving service does not cache a successful
+collection flag: StorageManager revalidates eligibility, preservation, closure
+and handoff under existing collection guards, and exact durable collection
+evidence supports retries after lost replies and restart without refetching.
+
+Results retain eligibility/availability information and actual collection outcomes,
+including scientific retrieval failures whose evidence was durably preserved.
+Controller reports success only for the matching Session/evidence identity with
+confirmed collection-evidence archival and successful scientific collection.
+Missing or stale replies remain unconfirmed. Publication, intake acceptance,
+W041 receipt, Stage A preservation and release authorization are not substituted
+for this collection result. No automatic collection or permanent closure occurs.
+Stage B evidence remains directly archived by StorageManager, not sent via NATS
+to Ingestor. Existing local APIs remain usable for in-process workflows.
+
+Developer coverage includes real local JetStream with Controller and the combined
+Ingestor/StorageManager test process separated, simulated SFTP, overlapping
+requests and owner restart. This is not live SSH, hardware, multi-host or power-loss
+validation. This subset does not adapt active Session Stop/Kill, Stage A/handoff
+creation, completion/release, remote saved-Session enumeration/batch selection,
+permanent closure or maintenance/recovery orchestration.
+
 ### Framework Maintenance, Recovery, And Reconciliation
 
 **Each service's maintenance interface -> Ingestor/StorageManager:**
