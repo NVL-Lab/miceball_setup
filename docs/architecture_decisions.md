@@ -5354,6 +5354,14 @@ AcquisitionNode receives the active immutable mapping and applies it prospective
 
 The internal mathematical representation and detailed mapping algorithm remain unspecified in Phase 11 and remain open under Q006.
 
+**Subsequent clarification (Decisions 379-381):** The historical Phase 11 scope
+above is preserved. Decision 380 now specifies local affine mapping application;
+Decisions 379 and 381 establish measured cross-clock validity, synchronization
+readiness and degraded timing. Advanced estimation, measurement algorithms,
+hardware synchronization and offline refinement remain open under Q006/Q018,
+except for the minimum demonstrably valid measurement method required by the
+current implementation.
+
 ## Decision 173: AcquisitionNode local-time reports are not SynchronizationObservations
 
 **Status:** Accepted
@@ -10815,6 +10823,99 @@ Q022, Q024, Phase 16 and M015 remain OPEN.
 
 ---
 
+## Decision 379: Cross-clock measurement establishes node-specific mapping validity
+
+**Status:** Accepted
+
+SynchronizationManager establishes node-specific mappings using sufficient
+measured cross-clock exchanges, accounting for network delay, variability and
+uncertainty. Initial mappings may use an explicit, conservatively bounded
+clock-rate assumption without prior drift estimation. Clocks on different
+computers must not be assumed synchronized.
+
+Periodic synchronization-quality checks are distinct from complete
+resynchronization. SynchronizationManager alone determines mapping validity,
+refinement and replacement. Cadence and quality thresholds remain configurable;
+this decision invents no accuracy thresholds or additional acceptance criteria.
+
+Reuse existing NATS communication, synchronization schemas and evidence pathways.
+Q006/Q018 remain open for advanced drift estimation, measurement algorithms,
+hardware synchronization and offline refinement, except for the minimum
+demonstrably valid measurement method required by the current implementation.
+
+**Implementation status:** Accepted and synchronized to unblock Q022 Slice 2;
+distributed scientific synchronization is not implemented or validated by this
+documentation update. W001-W055 remain historical validated records. Q019 remains
+CLOSED; Q022, Q024, Phase 16 and M015 remain OPEN.
+
+---
+
+## Decision 380: AcquisitionNode applies authorized affine mappings with preserved provenance
+
+**Status:** Accepted
+
+AcquisitionNode applies the SynchronizationManager-authorized affine mapping
+locally:
+
+```text
+session_time = session_anchor + scale * (node_local_time - local_anchor)
+```
+
+The existing SynchronizationMapping fields `session_time_anchor_s`,
+`local_time_anchor_s` and `scale` supply those mapping values. Experiment Time
+derives from Session Time and the Experiment start Session Time (Decision 151).
+Mapping changes apply atomically and prospectively; already timestamped runtime
+records are not rewritten. SynchronizationManager retains mapping authority;
+local application does not create another clock authority.
+
+Preserve the existing required Session, Experiment, AcquisitionNode-local,
+available device-native and timestamp-quality information with scientific
+observations and artifacts, consistent with Decisions 153-158, 164-165 and 179.
+Preserve mapping history and the AcquisitionNode-local activation boundary of
+each mapping, enabling reconstruction without requiring a mapping ID on every
+observation. Reuse existing scientific-storage and evidence contracts; scientific
+observations and their per-observation metadata remain AcquisitionNode-local
+under Decisions 377-378.
+
+**Implementation status:** Accepted and synchronized; local affine application
+and activation-boundary provenance are implementation requirements, not newly
+implemented or validated behavior. Existing W053-W055 outcomes are unchanged.
+Q019 remains CLOSED; Q022, Q024, Phase 16 and M015 remain OPEN.
+
+---
+
+## Decision 381: Synchronization readiness and degraded timing use existing policy authority
+
+**Status:** Accepted
+
+Require acceptable synchronization at Session acquisition readiness and before
+each Experiment. Perform configurable periodic synchronization-quality
+assessments. These assessments do not inherently require complete
+resynchronization (Decision 379).
+
+Temporary synchronization degradation does not automatically terminate
+acquisition. Preserve local timing, applicable mapping provenance and explicit
+degraded timestamp status. Existing TimingQualityPolicy interpretation and
+Controller authority determine operational consequences; this decision adds no
+lifecycle states or fixed timing-quality thresholds.
+
+Never substitute NATS arrival times for scientific Session Time or assume clocks
+on different computers are synchronized. Use local authorized mapping application,
+not per-observation network timestamp requests. Reuse existing NATS communication,
+synchronization schemas, evidence pathways and scientific storage. No additional
+service, clock authority or legacy compatibility machinery is introduced.
+
+Together, Decisions 379-381 resolve the minimum distributed scientific
+synchronization architecture gate for Q022 Slice 2. Q006/Q018 retain their
+advanced scope as qualified by Decision 379; these open questions do not defer
+the minimum demonstrably valid measurement method required for implementation.
+
+**Implementation status:** Accepted and synchronized, not implemented or
+independently validated by this documentation-only task. Q019 remains CLOSED;
+Q022, Q024, Phase 16 and M015 remain OPEN. W001-W055 are unchanged.
+
+---
+
 # Accepted Architectural Principles
 
 The following principles summarize the accepted decisions so far.
@@ -11243,6 +11344,9 @@ requirements remain authoritative.
 376. Ingestor and StorageManager share one computer/process and startup/shutdown/restart lifetime with permitted local calls and distinct ownership; all process-crossing communication, including Controller access, uses NATS. Decision 377 qualifies scientific-envelope intake while preserving active durability and archival guarantees.
 377. Routine scientific observations and their metadata stay in AcquisitionNode-local scientific products regardless of size; Ingestor receives operational runtime evidence and manifests, not routine scientific envelopes. Historical W051/W052 remain validated; implementation reconciliation and future streaming are not completed or defined here.
 378. Installation declarations and explicit Experiment selections govern adapter scientific production and local persistence; cleanly replace obsolete collection/envelope architecture while retaining active operational and archival responsibilities, with final independent integration audit of functionality and obsolete-path removal.
+379. SynchronizationManager establishes node-specific mappings from sufficient measured cross-clock exchanges accounting for delay, variability and uncertainty; bounded initial clock-rate assumptions are explicit, and configurable quality checks are distinct from complete resynchronization.
+380. AcquisitionNode applies authorized affine mappings locally and prospectively, derives Experiment Time from Session Time, and preserves required scientific timing, mapping history and local activation boundaries without per-observation mapping IDs.
+381. Acceptable synchronization is required at Session acquisition readiness and before each Experiment; configurable periodic assessments preserve degraded timing/provenance, with consequences governed by existing TimingQualityPolicy and Controller authority, never transport timestamps or assumed shared clocks.
 
 ---
 

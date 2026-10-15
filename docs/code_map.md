@@ -31,6 +31,29 @@ recommended implementation order in
 alone is not acceptance, complete receipt, or archival. Historical Q019 validation
 remains intact.
 
+## Accepted Distributed Synchronization Contracts (Not Yet Implemented)
+
+Decisions 379-381 resolve the minimum Q022 Slice 2 synchronization architecture:
+SynchronizationManager measures cross-clock exchanges accounting for network
+delay, variability and uncertainty, and alone determines mapping validity and
+replacement. Initial clock-rate assumptions must be explicit and conservatively
+bounded. AcquisitionNode applies the authorized affine mapping locally,
+atomically and prospectively, preserving required scientific timing, mapping
+history and node-local activation boundaries without per-observation mapping IDs.
+Session acquisition readiness and each Experiment require acceptable
+synchronization; periodic quality assessment is configurable and distinct from
+complete resynchronization. Degradation preserves local timing/provenance and
+explicit degraded status, with existing policy/Controller consequences.
+
+These are accepted target requirements, not implemented methods or new APIs.
+The entries below describe current code: node mapping receipt still retains a
+reference, and timestamp attachment still uses a direct synchronization object.
+Adaptation must reuse existing NATS, schemas, evidence and scientific storage,
+without per-observation network timestamp requests, assumed synchronized clocks,
+or transport-time substitution. Advanced Q006/Q018 work remains open except for
+the minimum demonstrably valid measurement method required now. W001-W055 and
+Q019 CLOSED are preserved; Q022, Q024, Phase 16 and M015 remain OPEN.
+
 W051/W052 remain historical validation of superseded NATS/local scientific-envelope
 persistence. Slice 3B removes that intake, correlated persistence and dispatch,
 without replacing scientific transport. Operational RuntimeEvidenceMessage

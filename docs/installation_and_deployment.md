@@ -232,6 +232,37 @@ interfaces below, not creation of node collaborators in Controller.
 
 ### Timing And Synchronization
 
+**Accepted target (Decisions 379-381; not implemented by documentation
+synchronization):** SynchronizationManager establishes node-specific mappings
+from sufficient measured cross-clock exchanges accounting for network delay,
+variability and uncertainty. An initial mapping may use an explicit,
+conservatively bounded clock-rate assumption without prior drift estimation.
+Only SynchronizationManager determines validity, refinement and replacement;
+periodic quality checks are distinct from complete resynchronization.
+
+AcquisitionNode applies the authorized affine mapping locally:
+`session_time = session_anchor + scale * (node_local_time - local_anchor)`.
+Experiment Time derives from Session Time. Mapping changes apply atomically and
+prospectively. Existing scientific observations/artifacts retain required Session,
+Experiment, node-local, available device-native and timestamp-quality information;
+mapping history and each node-local activation boundary support reconstruction
+without requiring a mapping ID on every observation. Scientific observations and
+their metadata remain local under Decisions 377-378.
+
+Acceptable synchronization is required at Session acquisition readiness and before
+each Experiment. Cadence and quality thresholds are configurable. Temporary
+degradation preserves local timing, mapping provenance and explicit degraded
+timestamp status; existing TimingQualityPolicy interpretation and Controller
+authority determine consequences, not automatic acquisition termination. Reuse
+existing NATS, schemas, evidence and storage contracts; do not assume shared
+clocks, substitute message arrival time or issue per-observation network timestamp
+requests. Q006/Q018 retain advanced algorithms, hardware synchronization and
+offline refinement, except for the minimum demonstrably valid measurement method
+required for this implementation. No additional clock authority or service is
+introduced.
+
+**Current implementation and missing adaptation:**
+
 **AcquisitionNode/Controller -> SynchronizationManager:** Node readiness,
 start/stop, acquisition timestamps, and Controller Experiment lifecycle timestamps
 read a direct synchronization object (`current_session_time_s`, `start()`,

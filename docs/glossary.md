@@ -1735,6 +1735,13 @@ The Synchronization Manager is the sole owner of Session Time.
 
 It produces or authorizes synchronization information and detects timing conditions related to Session Time authority. It does not transfer ownership of Session Time to Controller, AcquisitionNode, transport, or a local machine clock.
 
+Decisions 379-381 require sufficient measured cross-clock exchanges accounting
+for network delay, variability and uncertainty. Initial mappings may use an
+explicit, conservatively bounded clock-rate assumption without prior drift
+estimation. SynchronizationManager alone determines mapping validity, refinement
+and replacement. Configurable periodic quality checks are not inherently complete
+resynchronization. These accepted contracts are not an implementation claim.
+
 ---
 
 # Synchronization Update
@@ -1755,7 +1762,14 @@ SynchronizationManager alone creates, activates, replaces, and retires mappings.
 
 The architecture does not require a mapping identifier on every acquired row.
 
-Detailed mapping mathematics remain unresolved under Q006.
+Decision 380 specifies local affine application:
+`session_time = session_anchor + scale * (node_local_time - local_anchor)`, using
+the existing `session_time_anchor_s`, `local_time_anchor_s` and `scale` fields.
+Experiment Time derives from Session Time. Mapping history and each
+AcquisitionNode-local activation boundary are preserved for reconstruction;
+no mapping ID is required on every observation. Advanced measurement/drift,
+uncertainty, hardware synchronization and offline refinement remain open under
+Q006/Q018 beyond the minimum demonstrably valid method required by Decision 379.
 
 ---
 
@@ -1852,9 +1866,13 @@ An auditable indication of the timing state or quality under which an Acquisitio
 
 Timestamp Status accompanies Runtime Timing or associated Timing Audit Evidence. It is not a transport timestamp or a replacement for Session Time.
 
-Current Slice 1 runtime timestamp attachment uses `runtime_timestamped`.
-Additional timing-quality semantics remain deferred; this value does not claim
-that drift estimation, uncertainty evaluation, or reconstruction occurred.
+The current implementation's basic runtime timestamp attachment uses
+`runtime_timestamped`; this value does not claim drift estimation, uncertainty
+evaluation or reconstruction. Decision 381 additionally requires explicit
+degraded timestamp status while preserving local timing and applicable mapping
+provenance during temporary degradation. Required Session/Experiment timing and
+available device-native information remain governed by Decisions 153-158,
+164-165 and 179; this synchronization does not implement the new degraded path.
 
 ---
 
@@ -1869,6 +1887,12 @@ SynchronizationManager detects conditions related to Session Time authority. Acq
 # Timing Quality Policy
 
 Experimenter-configured policy that interprets Timing Quality Observations using the accepted operational interpretation vocabulary.
+
+Decision 381 requires acceptable synchronization at Session acquisition readiness
+and before each Experiment, plus configurable periodic quality assessments.
+Temporary degradation does not itself terminate acquisition; existing policy
+interpretation and Controller authority govern operational consequences. No
+fixed accuracy thresholds or new lifecycle states are defined here.
 
 It does not itself execute framework consequences. Controller owns decisions and actions resulting from interpretation evidence.
 

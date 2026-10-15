@@ -85,27 +85,39 @@ Additional questions:
 
 ## Q006: What is the detailed drift and timing-uncertainty representation?
 
+**Status:** OPEN - minimum distributed synchronization contracts are resolved by
+Decisions 379-381; advanced timing/estimation and offline refinement remain open.
+
 ### Why this matters
 
 Decisions 154-176 establish synchronization ownership and minimum plain-data
 schemas while requiring drift, correction, mapping-update, timestamp-status,
 and timing-quality evidence while preserving runtime timestamps.
-SynchronizationManager owns runtime drift estimation and remapping decisions;
-the mapping mathematics, uncertainty representation, detailed drift model, and
-reconstruction estimators remain open.
+SynchronizationManager owns runtime drift estimation and remapping decisions.
+Decisions 379-381 now require measured cross-clock exchanges accounting for
+network delay, variability and uncertainty, authorize explicit conservatively
+bounded initial clock-rate assumptions, and specify local affine application:
+`session_time = session_anchor + scale * (node_local_time - local_anchor)`.
+Mapping history and node-local activation boundaries remain reconstructable
+without per-observation mapping IDs. Readiness and periodic quality assessment
+requirements are accepted, with configurable cadence/thresholds and existing
+TimingQualityPolicy/Controller consequences for degradation.
 
 ### Questions
 
 * Can drift vary during a session?
-* What mathematics relate `local_time_anchor_s`, `session_time_anchor_s`, and `scale`?
-* How should timestamp uncertainty be represented?
-* What precision and units are required for each timing-evidence field?
+* Which advanced drift-estimation and measurement algorithms are needed beyond
+  the minimum demonstrably valid cross-clock measurement method required now?
+* How should detailed timestamp uncertainty be represented beyond the accepted
+  requirement to account for uncertainty and preserve degraded timestamp status?
+* What additional precision requirements are needed beyond existing timing schemas?
+* What hardware synchronization models and offline refinement methods are needed?
 * How are reconstructed drift estimates linked to the runtime mappings they audit?
 * How is runtime drift-estimation evidence represented without exposing the SynchronizationManager algorithm as architecture?
 
 ### Blocks
 
-* Future synchronization features
+* Advanced synchronization features, not the accepted minimum Q022 Slice 2 method
 * Reconstruction quality reporting
 
 ---
@@ -226,9 +238,10 @@ Examples:
 Multi-node acquisition is architecturally supported. SynchronizationManager
 owns one Session Time and all active SynchronizationMappings; each
 AcquisitionNode applies its received active mapping without resetting its local
-monotonic clock. Detailed
-distributed synchronization transport, schemas, and failure behavior remain
-future work.
+monotonic clock. Decisions 379-381 resolve measured cross-clock validity, local
+affine application/provenance, readiness and degraded timing for Q022 Slice 2;
+process-crossing communication uses existing NATS contracts. Advanced multi-node
+timing, hardware synchronization and reconstruction questions remain open.
 
 ---
 
@@ -452,19 +465,29 @@ They do not decide Controller restart or repeated-action execution, so Q016 rema
 
 ## Q018: Synchronization observation, drift estimation, and mapping refinement model
 
-**Status:** Open
+**Status:** OPEN - Decisions 379-381 resolve the minimum distributed scientific
+synchronization gate for Q022 Slice 2, not advanced synchronization design.
 
-Phase 11 defines ownership of synchronization evidence and active mappings, but intentionally does not define the mathematical synchronization model.
+Phase 11's historical mapping-ownership scope is now supplemented by measured
+cross-clock exchanges, the accepted local affine formula, and synchronization
+readiness at Session acquisition and before each Experiment. Configurable
+periodic quality assessment is distinct from complete resynchronization.
+SynchronizationManager alone determines validity, refinement and replacement.
+Initial mappings may use an explicit, conservatively bounded clock-rate assumption
+without prior drift estimation. Temporary degradation retains timing/provenance
+and degraded status; existing policy and Controller authority govern consequences.
 
-The following remain future architecture decisions:
+The following remain open beyond the minimum demonstrably valid measurement
+method required for the current implementation:
 
-- detailed SynchronizationObservation schema
-- local-time sample reporting cadence
-- drift estimation method
-- synchronization mapping update criteria
-- timing uncertainty representation
-- mapping refinement strategy
-- reconstruction timing estimators
+- advanced cross-clock measurement and drift-estimation algorithms
+- richer SynchronizationObservation and timing-uncertainty representations
+- advanced mapping-refinement and update strategies
+- hardware synchronization
+- offline refinement and reconstruction timing estimators
+
+Cadence and quality thresholds are configurable, not newly chosen constants;
+their accepted configurability is no longer an unresolved architectural question.
 
 The future synchronization design must preserve the accepted Phase 11 principles:
 
@@ -474,7 +497,9 @@ The future synchronization design must preserve the accepted Phase 11 principles
 - Runtime Timing remains immutable.
 - Any reconstructed or refined timing remains distinguishable from Runtime Timing.
 
-This question does not block current Phase 11 implementation slices that only require mapping ownership and evidence preservation.
+This question does not block the accepted minimum Q022 Slice 2 synchronization
+implementation. It does not authorize deferring valid cross-clock measurement,
+assuming shared clocks, or substituting transport time for scientific time.
 
 
 Q019: How is Session-wide evidence consumption coordinated before processing finalization?
@@ -864,6 +889,12 @@ targeted correction of its sole clean-replacement P3. The user and ICC accepted
 verification without another independent re-audit for this test-only cleanup.
 Remaining deployment work is pending.
 Q022 as a whole is not closed. Q019 remains CLOSED in W050.
+
+Decisions 379-381 resolve Slice 2's distributed scientific synchronization
+architecture gate: measured cross-clock validity, local affine application and
+provenance, readiness and degraded timing. Implementation and independent
+verification remain pending; advanced Q006/Q018 scope stays OPEN without
+deferring the minimum demonstrably valid measurement method required now.
 
 ### Q022-A accepted scope
 

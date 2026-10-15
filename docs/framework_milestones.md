@@ -1249,6 +1249,21 @@ includes owner-side NATS interfaces, cross-process orchestration/recovery,
 shared-process bootstrap, configuration and installation verification.
 Q019 remains CLOSED; Q022, Q024, Phase 16 and M015 remain OPEN.
 
+## Accepted Q022 Slice 2 Synchronization Dependency
+
+Decisions 379-381 resolve the distributed scientific synchronization architecture
+gate: measured cross-clock exchanges with delay/variability/uncertainty,
+conservatively bounded explicit initial clock-rate assumptions, local authorized
+affine mapping application, and preserved mapping history/node-local activation
+boundaries. Acceptable synchronization is required at Session acquisition
+readiness and before each Experiment. Configurable periodic quality assessment
+is distinct from complete resynchronization; temporary degradation retains timing,
+provenance and degraded status with existing policy/Controller consequences.
+Advanced Q006/Q018 work remains open except for the minimum demonstrably valid
+measurement method required by the current implementation. This is architecture
+synchronization, not implementation, validation or closure of Slice 2. W001-W055
+are unchanged; Q019 remains CLOSED, and Q022, Q024, Phase 16 and M015 remain OPEN.
+
 ## Completed Session-binding release slice validation
 
 **Status:** Complete - narrow software implementation, manual IPython validation,
