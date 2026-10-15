@@ -13,9 +13,8 @@ from tests.fakes import ReadyFakeAdapter
 
 
 class HealthFakeAdapter(ReadyFakeAdapter):
-    def __init__(self, *args, record_kind="stream", batches=()):
+    def __init__(self, *args, batches=()):
         super().__init__(*args)
-        self._record_kind = record_kind
         self._batches = iter(batches)
 
     def collect_products(self, products, **context):
