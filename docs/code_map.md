@@ -21,7 +21,7 @@ startup/shutdown/restart lifetime, and permitted local calls while retaining dis
 ownership. Controller, SynchronizationManager, and nodes remain independently
 deployed; all process-crossing interactions, including Controller access to both
 components, use NATS. Current Controller/Ingestor/StorageManager closeout,
-acquisition intake/timing, collection, release, and maintenance/recovery paths
+collection, release, and maintenance/recovery paths
 still use development-time direct collaborators and cross-owner guards; these
 are not deployed remote interfaces. Reuse existing command/result envelopes,
 participant identities, correlated requests, evidence publication, receipt proof,
@@ -31,7 +31,7 @@ recommended implementation order in
 alone is not acceptance, complete receipt, or archival. Historical Q019 validation
 remains intact.
 
-## Accepted Distributed Synchronization Contracts (Not Yet Implemented)
+## Distributed Synchronization And Experiment NATS Integration (Developer Verification)
 
 Decisions 379-381 resolve the minimum Q022 Slice 2 synchronization architecture:
 SynchronizationManager measures cross-clock exchanges accounting for network
@@ -45,13 +45,18 @@ synchronization; periodic quality assessment is configurable and distinct from
 complete resynchronization. Degradation preserves local timing/provenance and
 explicit degraded status, with existing policy/Controller consequences.
 
-These are accepted target requirements, not implemented methods or new APIs.
-The entries below describe current code: node mapping receipt still retains a
-reference, and timestamp attachment still uses a direct synchronization object.
-Adaptation must reuse existing NATS, schemas, evidence and scientific storage,
-without per-observation network timestamp requests, assumed synchronized clocks,
-or transport-time substitution. Advanced Q006/Q018 work remains open except for
-the minimum demonstrably valid measurement method required now. W001-W055 and
+The Slice 2 implementation now wires measured synchronization into launched
+Session startup, local scientific timestamping and launched Experiment
+preparation/context/finalization. Remote nodes use an explicit
+`synchronization_source_id`, without a local SynchronizationManager or Ingestor
+owner. Existing direct-owner workflows remain supported for in-process use.
+Configuration is explicit in SessionConfig.synchronization_configuration; causal
+exchange bounds include measured clock resolution, delay/variability and the
+configured rate-error bound, without assuming symmetric delay. Periodic assessment
+does not replace mappings; explicit resynchronization can replace them. The
+supported degraded condition uses the configured interpretation label and records
+a Controller-owned decision, not automatic termination. Independent validation
+and audit remain pending. Advanced Q006/Q018 work remains open; W001-W055 and
 Q019 CLOSED are preserved; Q022, Q024, Phase 16 and M015 remain OPEN.
 
 W051/W052 remain historical validation of superseded NATS/local scientific-envelope
@@ -63,7 +68,8 @@ nonce correlation protect the retained NATS readback operations. StorageManager
 now takes an explicit directory `storage_root`; it owns Session Records,
 Evidence Archives and scientific-artifact collection, not observation appends.
 Lifecycle bootstrap, remaining cross-process Controller/maintenance adaptation,
-timing, configuration and role launching remain outstanding.
+configuration and role launching remain outstanding; Slice 2 timing/Experiment
+runtime integration is described below.
 
 The bounded product-acquisition replacement is complete with independent manual
 validation and final re-audit PASS after the scientific-observation-loss correction
@@ -653,7 +659,7 @@ guarantee remain deferred. M014/W034 retain completed Slice 27 scope and status.
 - NatsAcquisitionNodeCommunication: Public import for targeted AcquisitionNode command consumption, local duplicate detection, explicit command execution, command-result publication, and runtime evidence publication.
 - NatsIngestorCommunication: Public import for durable runtime evidence consumption into the existing Ingestor ownership boundary.
 - NatsStorageManagerCommunication: Public import for current owner preservation readback over existing NATS command/results.
-- NatsSynchronizationManagerCommunication: Public import for participant-scoped readiness and Session preparation/abort command handling without transport-owned timing semantics.
+- NatsSynchronizationManagerCommunication: Public import for measured synchronization, readiness, Session preparation and timing closeout through the authoritative timing owner.
 - NatsServiceMaintenanceCommunication: Public import for service-owned startup/readiness announcements and participant-scoped administrative commands using existing NATS pathways.
 - ServiceMaintenanceInterface: Public import for service-owned dependency readiness, framework evidence, correlated stop/kill/cancel, and evidence-confirmed operational retirement.
 - PersistentStorageManager: Public import for durable Session Records, Evidence Archives and scientific-artifact collection.
@@ -711,7 +717,7 @@ guarantee remain deferred. M014/W034 retain completed Slice 27 scope and status.
 - AcquisitionIterationSummary(iteration_index, collections_seen, scientific_observations): Reports device collections and scientific observations accepted by LocalStorageManager, without envelope counters or per-iteration durability claims.
 - AcquisitionNode: Owns bounded acquisition runtime execution and timestamping, stores separate active Experiment timing and health context, and emits explicitly linked ExperimentScopedHealthObservation and HealthInterpretationEvidence records without executing framework actions.
 - AcquisitionNode.status(): Includes existing local cleanup confirmation as `cleanup_confirmed` for safe Session-binding release, alongside runtime, reservation, and active-context status.
-- AcquisitionNode.__init__(session_id=None, device_manager=None, synchronization_manager=None, ingestor=None, node_id=None, role=None, acquisition_health_policies=(), error_evidence_location=None, *, default_local_storage_root=None, device_declarations=None): Configures node-owned runtime and installed product inventory, with an optional local-development Ingestor for operational evidence only and no legacy scientific-envelope configuration.
+- AcquisitionNode.__init__(session_id=None, device_manager=None, synchronization_manager=None, ingestor=None, node_id=None, role=None, acquisition_health_policies=(), error_evidence_location=None, *, default_local_storage_root=None, device_declarations=None, synchronization_source_id=None): Configures local development synchronization or an explicit remote NATS timing authority (never both), local product inventory/storage and optional in-process operational intake.
 - AcquisitionNode.declared_devices: Returns the node's declared DeviceDeclaration/ScientificProductDeclaration inventory independently of Session selection and device availability.
 - AcquisitionNode.reserved_for_session_id: Returns the current exclusive Session reservation or None under the node-owned lock.
 - AcquisitionNode.reserve(session_id): Atomically acquires an unreserved node, confirms the same owner's reservation idempotently, or rejects another owner without changing state.
@@ -724,6 +730,14 @@ guarantee remain deferred. M014/W034 retain completed Slice 27 scope and status.
 - AcquisitionNode.activate_experiment_runtime_context: Stores immutable active Experiment identity and start Session Time for Experiment Time derivation without owning lifecycle evidence.
 - AcquisitionNode.clear_experiment_runtime_context: Clears active Experiment timing context without stopping Acquisition Runtime or changing health mapping.
 - AcquisitionNode.receive_active_synchronization_mapping: Passively replaces AcquisitionNode's stored reference to the SynchronizationManager-owned active mapping without applying mapping mathematics.
+- AcquisitionNode.synchronization_source_id: Exposes the configured remote synchronization identity, or None for a local development owner.
+- AcquisitionNode.mapping_activation_history: Returns detached snapshots of Session-scoped mappings and node-local activation boundaries.
+- AcquisitionNode.accept_synchronization_quality(session_id, source_id, quality): Checks transport/schema scope, rejects historical readback, and atomically applies the owner's mapping/quality while retaining activation evidence.
+- AcquisitionNode.activate_experiment_runtime(context, health_mapping): Applies prepared Experiment timing and health context idempotently after acceptable synchronization, rejecting conflicting active context without resetting health counts.
+- AcquisitionNode._synchronization_readiness: Reports current mapping validity/expiry through existing ServiceReadiness without owning mapping-quality decisions.
+- AcquisitionNode._session_time(local_time_s=None): Applies the active authorized affine mapping locally, or reads the explicit in-process development owner.
+- AcquisitionNode._collect_iteration: Holds the node reservation lock through collection/preservation so mapping activation is prospective and atomic.
+- AcquisitionNode._record_degraded_timing: Retains one supported degraded-condition policy interpretation per assessment without executing a stop policy.
 - AcquisitionNode.default_local_storage_root: Exposes the explicitly configured persistent root without mutation by Session overrides.
 - AcquisitionNode.node_id: Exposes the configured AcquisitionNode identity used by scientific output selections.
 - AcquisitionNode.local_storage_manager: Exposes the Session-attached local persistence collaborator without transferring persistence ownership.
@@ -731,14 +745,14 @@ guarantee remain deferred. M014/W034 retain completed Slice 27 scope and status.
 - AcquisitionNode.prepare_experiment_scientific_outputs: Returns existing ServiceReadiness evidence after resolving explicit products and requesting one empty local stream per Experiment/device/product, reusing open preparations and preserving/finalizing newly created partial artifacts on failure.
 - AcquisitionNode.scientific_output_storage_ids: Returns a readback copy of Experiment/device/product associations with LocalStorageManager runtime write handles.
 - AcquisitionNode.finalize_experiment_scientific_outputs: Retires the Experiment's runtime identity and attempts LocalStorageManager finalization of every associated stream, returning finalized manifests or raising an error containing all failures without affecting other Experiments.
-- AcquisitionNode.start_runtime(): Requires active binding and successful preparation, retains persistent node Session-start evidence, and starts the acquisition clock and devices.
+- AcquisitionNode.start_runtime(): Requires binding, preparation and acceptable synchronization, retains Session-start evidence and starts devices without resetting the remote clock on retries.
 - AcquisitionNode.stop_runtime: Stops devices and finalizes selected artifacts, retaining persistent Session-stop evidence and explicit uncertainty before propagating finalization failures.
 - AcquisitionNode.run_one_iteration(): Attempts local preservation of all completed scientific collections before operational intake, aggregating collection, persistence and evidence failures without replay or scientific-envelope intake.
 - AcquisitionNode._persist_product_collection: Validates selected product and observation provenance and attempts each scientific row through LocalStorageManager with its complete metadata/timing, retaining errors while continuing other writable rows and products.
 - AcquisitionNode.runtime_evidence: Returns the retained append-order operational messages for durable publication and retry.
 - AcquisitionNode._retain_runtime_evidence: Retains an immutable producer snapshot with identity/conflict checks before optional local operational-evidence acceptance.
 - AcquisitionNode._record_acquisition_failure: Records the actual acquisition error as persistent operational evidence and prevents further iterations until existing recovery/preparation permits reuse.
-- AcquisitionNode._with_session_time: Preserves supplied scientific timing and derives missing Experiment Time from that Session Time and the active Experiment origin, adding runtime timing only when Session Time is absent.
+- AcquisitionNode._with_session_time: Converts remote-mode observation local time through its applicable activation boundary, preserves native timing, rejects conflicting supplied Session Time, derives Experiment Time and marks degraded timing without rewriting historical rows.
 - AcquisitionNode._evaluate_acquisition_health: Retains linked operational observations and interpretations once per active source without creating scientific envelopes.
 - AcquisitionNode._preserve_scientific_artifact: Finalizes one identified supported unfinished local artifact or reuses its finalized manifest, permitting success only after durable manifest acceptance while preserving local success separately and never reopening acquisition.
 - AcquisitionNode._cleanup_device_resources: Attempts shutdown only for identified devices in the original retained Session participation, recording partial confirmations without releasing reservations or finalizing scientific artifacts implicitly.
@@ -768,6 +782,7 @@ is complete; W030 records manual validation, focused tests, and audit reassessme
 - ControllerActionDecision: Records one health-derived Controller decision with Session, Experiment, source, policy, interpretation, and originating-observation provenance using the normalized local decision vocabulary.
 - Controller.controller_action_decision_evidence: Returns retained persistent RuntimeEvidenceMessages for Controller decisions, using existing evidence identities and plain decision payloads for caller-managed publication.
 - Controller.process_health_interpretation(evidence): Records one decision and its persistent runtime message per presentation, submitting to an attached Ingestor without changing lifecycle.
+- Controller.process_timing_quality_interpretation(message): Validates Session/participant scope, idempotently records the configured timing-policy decision and retains its evidence for completion-marker publication without autonomous lifecycle action.
 - Controller._record_action_decision(decision): Retains one persistent message per decision instance before optional Ingestor submission, including externally supplied executable decisions, without duplicating an already recorded instance.
 - Controller._controller_decision_evidence_snapshot(session_id): Copies Session-specific owned message identities and contents for exact compilation and archival confirmation.
 - Controller._controller_owned_session_evidence_snapshot(session_id): Copies persistent decisions, retained preparation-rejection messages, and any produced completion marker for exact Session-scoped preservation checks.
@@ -776,8 +791,14 @@ is complete; W030 records manual validation, focused tests, and audit reassessme
 - Controller.__init__(acquisition_node=None, ingestor=None, storage_manager=None, session_record_path=None, synchronization_manager=None, *, component_id="controller"): Supports Controller creation before Session and without remote participant references while retaining existing local collaborators.
 - Controller.launch_session(selections, *, communication, participants, config_parameters, result_window_s, scientific_outputs=()): Asynchronously allocates a fresh intended Session ID, resolves node-scoped device selections, reserves resources, constructs final SessionConfig, confirms participant preparation, and returns operational success or cleanup-aware rollback diagnostics.
 - Controller.shutdown_framework(participants, *, communication, stop_attempt_id, administrator_id, result_window_s, authorize_kill=None): Surveys an explicit Session-independent scope and coordinates progressive W036 retirement with StorageManager/Controller preparation, exact pre-Ingestor archival, separately bounded per-service authorization, and retained later confirmations in ControllerCommandResult.details.
-- Controller.start_launched_session(): Starts reserved nodes through correlated NATS commands and then starts the Session, returning ControllerCommandResult and attempting cleanup if startup fails.
+- Controller.start_launched_session(): Establishes configured remote synchronization before starting reserved nodes through correlated NATS commands, returning ControllerCommandResult and attempting cleanup if startup fails.
 - Controller.stop_launched_session(reason=None): Stops and locally finalizes all reserved nodes through NATS, releases only confirmed-clean reservations, records the Controller-owned end of any active Experiment without refinalizing node files, and stops the Session without waiting for global collection.
+- Controller.start_launched_experiment(experiment_id, *, scientific_outputs=(), runtime_health_mapping=None, details=None): Requires measured synchronization and output preparation, records canonical start before delivering node-specific timing/health context over NATS, and preserves failed/cancelled activation outcomes and cleanup uncertainty.
+- Controller.stop_launched_experiment(experiment_id, details=None): Confirms each node's finalization and evidence publication before recording canonical Experiment stop with fresh authoritative Session Time.
+- Controller._start_launched_session: Serializes Session startup with other runtime transitions, starts configured remote synchronization once and requires correlated node acquisition confirmations.
+- Controller._stop_launched_session: Retains confirmed node-release facts for retry when final clock readback is unavailable, without replaying cleanup against released nodes.
+- Controller._synchronization_participant: Resolves exactly one explicitly configured synchronization authority for the bound Session.
+- Controller._request_launched_runtime: Requires fresh owner success, validates timing/readiness readback and rechecks Session binding after network suspension.
 - Controller.publish_acquisition_evidence_completion(*, communication, result_window_s): Asynchronously confirms Session-scoped node and synchronization publication plus completed Controller health processing, publishes owned/retained evidence and one stable marker, and returns ControllerCommandResult without receipt, archival, or lifecycle completion.
 - Controller.archive_acquisition_evidence(*, communication): Verifies receipt of its confirmed W042 marker through the matching NatsIngestorCommunication, archives current protected Ingestor compilation and existing Session Record evidence, and returns confirmed Stage A paths without lifecycle completion, collection, or binding release.
 - Controller.preserve_artifact_collection_handoff(): Compiles journal-backed artifact information after current Stage A confirmation and returns verified durable handoff preservation without changing lifecycle or releasing bindings.
@@ -889,6 +910,7 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 - NatsControllerCommunication: Publishes unicast or issuer-fanned group commands, consumes and aggregates addressed per-target command results over an issuer-defined window, records missing results as unresolved, and independently presents HealthInterpretationEvidence without relaying evidence.
 - NatsControllerCommunication.check_ready(): Returns required NATS communication readiness for launch gating.
 - NatsControllerCommunication.request_command(participant, command_type, session_id, payload, result_window_s, *, command_id=None): Publishes once and awaits the bounded correlated result; when startup integration is attached to the same boundary, it also informs the service owner of missing results or explicit readiness observations without inferring technical unreadiness or using stale subscription bindings.
+- NatsControllerCommunication.request_runtime_command(participant, command_type, session_id, payload, result_window_s, *, command_id=None): Uses a fresh-only per-attempt result subscription and nonce for Session runtime work, retaining owner command identity independently of delivery attempts.
 - NatsControllerCommunication.subscribe_command_results(session_id, callback=None, *, new_only=False, result_filter=None): Preserves historical result consumption by default and optionally limits delivery/filtering for current owner requests.
 - NatsControllerCommunication.session_acquisition_completion(participant, session_id): Reads the successful result for this issuer's latest exactly correlated stop_runtime request, not an unrelated or historical response.
 - NatsControllerCommunication.confirm_session_health_processing(session_id, controller): Reads retained Session health publications against completed bound subscription callbacks, refusing unknown history or unfinished inputs without processing/replaying them.
@@ -907,8 +929,13 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 - NatsStorageManagerCommunication.execute_command(command): Validates scoped preservation readback and readiness without scientific-envelope writers, arbitrary remote methods, unrestricted recovery, collection, or closure.
 - _validate_owner_request(boundary, command): Validates target, requester, command, Session, connectivity, and transient reply correlation for the bounded owner operations.
 - NatsControllerCommunication.request_persistence_command(participant, command_type, session_id, payload, result_window_s, *, command_id): Makes one bounded scoped owner request with fresh-only results and an echoed per-attempt nonce, preserving the stable command ID while rejecting historical and late retry confirmations.
-- NatsSynchronizationManagerCommunication(boundary, synchronization_manager): Routes readiness, Session prepare/abort, and Session stop_runtime publication closeout to the timing owner over existing command/result streams, deduplicating completed requests.
-- NatsSynchronizationManagerCommunication.subscribe_commands(): Returns participant- and Session-scoped command subscriptions without implementing transport synchronization or remapping.
+- NatsSynchronizationManagerCommunication(boundary, synchronization_manager): Routes measured synchronization, readiness, Session preparation and timing closeout over existing command/result streams while retaining timing authority in SynchronizationManager.
+- NatsSynchronizationManagerCommunication.subscribe_commands(): Routes configured Session initialization, measured startup/assessment/resynchronization, current-time readback and closeout to the authoritative owner using correlated NATS commands.
+- NatsSynchronizationManagerCommunication.close(): Cancels periodic assessment and unsubscribes transport callbacks without terminating acquisition or changing Session lifecycle.
+- NatsSynchronizationManagerCommunication._measure_node: Collects causal NATS exchanges and requests owner-side validity assessment before confirmed mapping delivery.
+- NatsSynchronizationManagerCommunication._deliver_quality: Requires correlated node acceptance of owner-issued mapping/quality state.
+- NatsSynchronizationManagerCommunication._publish_timing: Publishes stable owner-created timing evidence without closing Session Time.
+- NatsSynchronizationManagerCommunication._periodic_assessment: Performs configured serialized checks, reporting unavailability without automatically resynchronizing or stopping nodes.
 - _participant_result: Builds an existing correlated final command-result message for one service-owned operation.
 - _execute_service_command: Delegates readiness/preparation/abort to the owner, includes configured maintenance identity and actual retirement confirmation in readiness replies, and retains command-ID deduplication.
 - _subscribe_participant_commands: Establishes the two addressed command subscriptions reused by mandatory service handlers.
@@ -1112,11 +1139,18 @@ recovery is introduced. Phase 16 and M015 remain open.
 - AcquisitionNodeLocalTimeReport: Stores one immutable AcquisitionNode local-time report as plain data without representing SynchronizationObservation evidence.
 - MappingUpdateEvidence: Stores immutable created, replaced, or retired mapping evidence with optional previous/new mappings and a plain-data round trip.
 - MappingUpdateEvidence.to_runtime_evidence_message: Wraps mapping update plain data in the existing RuntimeEvidenceMessage boundary using evidence type `mapping_update_evidence`.
-- SynchronizationManager: Owns the Session clock plus per-AcquisitionNode active mapping creation, replacement, retirement, lookup, and in-memory mapping-update evidence without implementing mapping mathematics or drift estimation.
+- SynchronizationManager: Owns the Session clock, measured affine mapping validity and lifecycle, quality evidence and publication identities without advanced drift estimation.
+- SynchronizationConfiguration(exchanges, initial_scale, clock_rate_error_bound, max_uncertainty_s, max_mapping_age_s, assessment_interval_s, result_window_s, quality_interpretation): Requires explicit finite measurement/rate/age/cadence bounds and a supported degraded-condition policy label, with to_dict/from_dict round trips.
+- SynchronizationManager.configure_distributed_session(session_id, configuration): Validates and binds explicit immutable Session synchronization configuration under the mapping lock.
+- SynchronizationManager.distributed_configuration: Exposes the immutable configured distributed measurement contract.
+- SynchronizationManager.start_distributed_session(session_id): Starts the prepared single Session clock once, refusing stopped-clock restoration and preserving its epoch on retries.
+- SynchronizationManager.assess_cross_clock_exchanges(session_id, node_id, exchanges, *, replace_mapping, source_id): Intersects causal measured offset intervals including clock resolution/rate error, owns validity and optional mapping replacement, and retains quality evidence.
+- SynchronizationManager.session_timing_evidence(session_id, source_id): Returns stable mapping-update and quality evidence identities for current Session publication without archival claims.
+- SynchronizationManager.mark_synchronization_unavailable(session_id, node_id, source_id, reason): Preserves the measured relationship while reporting failed quality assessment without fabricated clock information.
 - SynchronizationManager.prepare_session(session_id): Confirms Session-specific preparation independently of pre-Session service readiness, rejecting a different active preparation binding.
 - SynchronizationManager.abort_session_initialization(session_id): Clears only matching preparation state without altering mapping or established timing evidence.
 - SynchronizationManager.complete_session_evidence_publication(session_id, *, source_id, publisher): Stops prepared Session Time, retires only that Session's mappings, retains stable message identities and publishes its timing evidence before confirmation, guarding further timing changes without service retirement or archival claims.
-- SynchronizationManager.release_session(session_id, *, ingestor=None): Releases matching stopped preparation after mappings retire and each mapping update has exact durable Ingestor acceptance, retiring temporary history without waiting for downstream archival or terminating the service.
+- SynchronizationManager.release_session(session_id, *, ingestor=None): Releases matching stopped preparation only after mapping updates and distributed quality evidence have exact durable Ingestor acceptance, then retires temporary history without terminating the service.
 - SynchronizationManager.create_and_activate_mapping: Creates and atomically activates one initial immutable mapping for an AcquisitionNode.
 - SynchronizationManager.replace_active_mapping: Atomically replaces one active mapping and records replacement evidence.
 - SynchronizationManager.retire_active_mapping: Retires one active mapping and records retirement evidence.
@@ -1365,3 +1399,12 @@ automatic. Kill integration and overall closeout validation remain deferred.
 - FailingCollectionAdapter: Injects a later device's acquisition failure without producing unselected scientific observations.
 - ScientificCollectionFailureTests: Verifies preservation of earlier complete observations through later reads, device failures, invalid partial results and combined persistence errors.
 - ScientificCollectionFailureTests.assert_preserved_frame: Checks finalized bytes, provenance, timing and absence of scientific-envelope intake through actual owner readback.
+
+## tests/test_distributed_synchronization.py
+
+- configuration(**changes): Supplies explicit test synchronization bounds and a degraded-condition interpretation without production defaults.
+- declaration(): Supplies one registered non-frame scientific product for transport and local-preservation workflows.
+- DistributedSynchronizationTests: Exercises measured startup, Experiment lifecycle, affine mapping/provenance, scoped health context, degraded quality, cancellation, retries, publication failures and release safety through real owners and broker adapters.
+- MeasuredClockBoundsTests: Verifies causal offset bounds under asymmetric delay/variability, explicit configuration rejection and detached stable timing evidence readback.
+- run_participant(role, url, directory, ready, stop): Runs a test node or synchronization owner in a spawned process, with harness-only startup/shutdown signaling and NATS-only framework communication.
+- CrossProcessTimingTests: Exercises independent node/clock processes against optional real local JetStream, checking scientific timing and finalized local output without shared service owners.

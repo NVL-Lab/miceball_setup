@@ -217,14 +217,17 @@ CLOSED; Q022, Q024, Phase 16 and M015 remain OPEN.
 
 ### Acquisition Commands And Experiment Context
 
-**Controller -> AcquisitionNode:** Local `start_session()`, `run_one_iteration()`,
-`stop_session()`, `start_experiment()`, `_end_experiment()`, and release checks
-directly read/control node runtime, Experiment context, health mapping, scientific
-finalization, and device cleanup. Reuse existing inventory/readiness, reservation,
-Session initialization/rollback, scientific-output preparation, and
-start/iteration/stop NATS commands. Missing coverage includes remaining Experiment
-context/health activation and end/finalization operations, current owner diagnostics,
-and binding release where no equivalent command exists. The node must retain
+**Controller -> AcquisitionNode:** The original local `start_session()`,
+`run_one_iteration()`, `stop_session()` and Experiment APIs remain in-process
+development workflows. Launched Session startup/stop reuse existing NATS node
+commands; Slice 2 adds actively used launched Experiment context/health activation
+and finalization, synchronization readiness and current timing readback. Health
+assignments in `start_launched_experiment` are keyed explicitly by node identity,
+not broadcast across nodes or inferred from scientific product contents.
+Canonical Experiment start precedes context delivery, and unsuccessful/cancelled
+delivery retains terminal outcome and cleanup uncertainty separately. Remaining
+broader closeout/release and external recovery adaptation stays outside this slice.
+The node retains
 Session-keyed reservations, terminal Experiment/file protections, device safety,
 and W042 publication-before-success with concurrency-safe evidence cursors. A
 timeout cannot prove cleanup or reservation release. Depends on receiving/timing
@@ -261,17 +264,50 @@ offline refinement, except for the minimum demonstrably valid measurement method
 required for this implementation. No additional clock authority or service is
 introduced.
 
-**Current implementation and missing adaptation:**
+**Slice 2 implementation (developer testing; independent validation/audit pending):**
 
-**AcquisitionNode/Controller -> SynchronizationManager:** Node readiness,
-start/stop, acquisition timestamps, and Controller Experiment lifecycle timestamps
-read a direct synchronization object (`current_session_time_s`, `start()`,
-`stop()`). Mapping operations also remain SynchronizationManager-owned.
-Reuse existing Session preparation/readiness, serialized local-time/mapping
-records, and `NatsSynchronizationManagerCommunication` closing-Session timing
-publication. Add the missing owner requests/readback or existing-mechanism
-delivery needed for timing and mapping use; do not substitute NATS arrival/ingest
-time for scientific Session time or instantiate a second authoritative clock.
+Construct remote nodes with `synchronization_source_id` and no local
+SynchronizationManager. Set `SessionConfig.synchronization_configuration` to the
+plain-data form of `SynchronizationConfiguration(exchanges, initial_scale,
+clock_rate_error_bound, max_uncertainty_s, max_mapping_age_s,
+assessment_interval_s, result_window_s, quality_interpretation)`; all values are
+explicit, with no scientific timing defaults. `clock_rate_error_bound` bounds
+absolute error in Session-seconds per node-local second relative to initial_scale.
+The supported degraded-condition policy uses the configured interpretation label;
+Controller records its corresponding decision without autonomous termination.
+
+`Controller.start_launched_session()` uses the configured synchronization
+participant over NATS before node acquisition. SynchronizationManager starts its
+single clock once and intersects causal bounds from multiple timestamped exchanges,
+including platform clock resolution and the explicit rate bound, without assuming
+symmetric delay. Node-local validity deadlines bound continued use without
+per-observation network requests. `assess_synchronization` retains the mapping;
+`resynchronize` is an explicit measured replacement request. Periodic assessments
+are cancelled on timing closeout/adapter close, not converted into automatic
+acquisition termination or recovery.
+
+Use `Controller.start_launched_experiment(...)` and
+`stop_launched_experiment(...)` for launched distributed execution. They use
+existing product preparation plus NATS context/health activation and scientific
+finalization; applicable node evidence is published before successful results.
+Canonical lifecycle remains Controller/Session-owned. Each observation uses its
+node-local timestamp and applicable activation boundary; native timing remains
+separate. New operational mapping activation and quality records use existing
+RuntimeEvidenceMessage retention/publication and archival pathways, not scientific
+payload forwarding or a new evidence transport.
+
+The optional cross-process developer test uses actual local JetStream with
+SynchronizationManager and AcquisitionNode in separate spawned processes. Other
+focused workflows use broker doubles and real domain owners. This is not
+independent manual validation, hardware/multi-host validation or power-loss
+validation. W001-W055 remain unchanged; Q019 remains CLOSED and Q022 OPEN.
+
+**Remaining adaptation outside this slice:**
+
+The established in-process APIs continue to use explicit local collaborators for
+development/testing; the launched distributed timing/Experiment path above does
+not depend on those objects. Broader Controller closeout and deployment bootstrap
+remain outside this implementation.
 **SynchronizationManager -> Ingestor/StorageManager:** `release_session()` and
 `reconcile_timing()` inspect accepted mapping evidence, journal durability, and
 framework archival through direct owners. Missing NATS evidence readback and

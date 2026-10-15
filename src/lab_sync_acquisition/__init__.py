@@ -101,6 +101,7 @@ from lab_sync_acquisition.synchronization import (
     MappingUpdateEvidence,
     SynchronizationManager,
     SynchronizationMapping,
+    SynchronizationConfiguration,
 )
 
 __all__ = [
@@ -178,6 +179,7 @@ __all__ = [
     "NatsServiceMaintenanceCommunication",
     "SynchronizationManager",
     "SynchronizationMapping",
+    "SynchronizationConfiguration",
     "build_runtime_subject",
     "aggregate_group_command_results",
     "build_group_command_messages",

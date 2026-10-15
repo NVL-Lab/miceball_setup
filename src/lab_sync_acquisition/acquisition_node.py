@@ -68,14 +68,24 @@ class AcquisitionNode:
         *,
         default_local_storage_root: str | Path | None = None,
         device_declarations: Iterable[DeviceDeclaration] | None = None,
+        synchronization_source_id: str | None = None,
     ) -> None:
         self._session_id = session_id
         self._service_operation_lock = RLock()
         self._active_service_operations = 0
         # Explicitly pre-bound nodes retain the historical caller-prepared workflow.
         self._session_prepared = session_id is not None
-        if device_manager is None or synchronization_manager is None:
+        if device_manager is None or (synchronization_manager is None and not synchronization_source_id):
             raise ValueError("AcquisitionNode requires deployment runtime collaborators")
+        if synchronization_manager is not None and synchronization_source_id is not None:
+            raise ValueError("Choose local synchronization or an explicit remote authority, not both")
+        if synchronization_source_id is not None and (not isinstance(synchronization_source_id, str)
+                or not synchronization_source_id or not isinstance(node_id, str) or not node_id):
+            raise ValueError("Distributed synchronization requires explicit authority and node identities")
+        self._synchronization_source_id = synchronization_source_id
+        self._synchronization_quality: dict[str, Any] | None = None
+        self._mapping_activation_history: list[dict[str, Any]] = []
+        self._timing_quality_reported = False
         self._device_manager = device_manager
         self._deployment_device_configurations = {
             adapter.device_id: deepcopy(adapter.initialization_config)
@@ -177,6 +187,7 @@ class AcquisitionNode:
             self._local_storage_manager = None
             self._device_declarations = ()
             self._active_synchronization_mapping = None
+            self._synchronization_quality = None
             self.clear_experiment_runtime_context()
             self.clear_experiment_runtime_health_mapping()
             return True
@@ -554,6 +565,112 @@ class AcquisitionNode:
 
         self._active_synchronization_mapping = mapping
 
+    @property
+    def synchronization_source_id(self) -> str | None:
+        """Configured remote timing authority; None denotes a local development owner."""
+        return self._synchronization_source_id
+
+    @property
+    def mapping_activation_history(self) -> tuple[dict[str, Any], ...]:
+        """Immutable snapshots of node-local prospective activation boundaries."""
+        with self._reservation_lock:
+            return tuple(deepcopy(self._mapping_activation_history))
+
+    @service_operation()
+    def accept_synchronization_quality(self, session_id: str, source_id: str, quality: dict[str, Any]) -> None:
+        """Apply only owner-issued timing state to the matching bound Session."""
+        with self._reservation_lock:
+            if (source_id != self._synchronization_source_id or source_id is None
+                    or session_id != self._session_id or not self._session_prepared
+                    or quality.get("session_id") != session_id
+                    or quality.get("acquisition_node_id") != self._node_id):
+                raise ValueError("Synchronization authority, node or Session mismatch")
+            if type(quality.get("acceptable")) is not bool:
+                raise ValueError("Explicit synchronization validity is required")
+            if type(quality.get("assessment_sequence")) is not int or quality["assessment_sequence"] < 1:
+                raise ValueError("An owner-issued assessment sequence is required")
+            mapping = SynchronizationMapping.from_dict(quality["mapping"]) if quality.get("mapping") else None
+            if mapping is not None and (mapping.session_id != session_id or mapping.acquisition_node_id != self._node_id):
+                raise ValueError("Synchronization mapping scope mismatch")
+            if mapping is not None and (any(type(v) not in (int, float) or not isfinite(v) for v in (
+                    mapping.local_time_anchor_s, mapping.session_time_anchor_s, mapping.scale,
+                    mapping.created_session_time_s)) or mapping.scale <= 0):
+                raise ValueError("Malformed synchronization mapping fields")
+            for field in ("measured_local_time_s", "uncertainty_s", "valid_until_local_time_s"):
+                if type(quality.get(field)) not in (int, float) or not isfinite(quality[field]):
+                    raise ValueError("Invalid synchronization readback")
+            from lab_sync_acquisition.synchronization import SynchronizationConfiguration
+            SynchronizationConfiguration.from_dict(quality["configuration"])
+            previous = self._synchronization_quality
+            if previous is not None:
+                if quality["assessment_sequence"] == previous["assessment_sequence"]:
+                    if quality != previous:
+                        raise ValueError("Conflicting synchronization assessment identity")
+                    return
+                if (quality["assessment_sequence"] < previous["assessment_sequence"]
+                        or quality["measured_local_time_s"] < previous["measured_local_time_s"]):
+                    raise ValueError("Historical synchronization assessment cannot replace newer state")
+            activation_message = None
+            if mapping is not None and mapping != self._active_synchronization_mapping:
+                boundary = monotonic()
+                activation = {"session_id": session_id, "acquisition_node_id": self._node_id,
+                    "mapping": mapping.to_dict(), "activated_local_time_s": boundary,
+                    "measurement": deepcopy(quality)}
+                activation_message = RuntimeEvidenceMessage(
+                    f"mapping-activation-{session_id}-{self._node_id}-{len(self._mapping_activation_history)}",
+                    session_id, "mapping_activation", self._node_id, activation, True)
+                self._mapping_activation_history.append(deepcopy(activation))
+                self._active_synchronization_mapping = mapping
+            self._synchronization_quality = deepcopy(quality)
+            self._timing_quality_reported = False
+            if activation_message is not None:
+                self._retain_runtime_evidence(activation_message)
+            if self._running and not self._synchronization_readiness().ready:
+                self._record_degraded_timing(monotonic())
+
+    def _synchronization_readiness(self) -> ServiceReadiness:
+        if self._synchronization_manager is not None:
+            return self._synchronization_manager.check_ready()
+        if self._session_id is None:
+            return ServiceReadiness(self._synchronization_source_id, "synchronization_manager", False,
+                                    False, "Session synchronization is not established before Session preparation")
+        quality = self._synchronization_quality
+        ready = (quality is not None and quality["acceptable"]
+                 and self._active_synchronization_mapping is not None
+                 and monotonic() <= quality["valid_until_local_time_s"])
+        return ServiceReadiness(self._synchronization_source_id, "synchronization_manager", True,
+                                bool(ready), "ready" if ready else "synchronization_unconfirmed_or_degraded")
+
+    def _session_time(self, local_time_s: float | None = None) -> float:
+        if self._synchronization_manager is not None:
+            return self._synchronization_manager.current_session_time_s
+        with self._reservation_lock:
+            mapping = self._active_synchronization_mapping
+            if mapping is None or mapping.session_id != self._session_id:
+                raise RuntimeError("No authorized Session-Time mapping is available")
+            local = monotonic() if local_time_s is None else local_time_s
+            return mapping.session_time_anchor_s + mapping.scale * (local - mapping.local_time_anchor_s)
+
+    @service_operation(new_work=True)
+    def activate_experiment_runtime(self, context: ActiveExperimentRuntimeContext,
+                                    health_mapping: Iterable[ExperimentRuntimeHealthMapping]) -> None:
+        """Atomically apply Controller context without resetting a repeated health scope."""
+        with self._reservation_lock:
+            mapping = tuple(health_mapping)
+            if not context.experiment_id or not isfinite(context.experiment_start_session_time_s):
+                raise ValueError("Explicit Experiment identity and finite Session Time are required")
+            if not self._synchronization_readiness().ready:
+                raise RuntimeError("Experiment requires acceptable synchronization")
+            if context.experiment_id not in self._prepared_scientific_outputs:
+                raise RuntimeError("Experiment scientific outputs must be prepared first")
+            if self._active_experiment_runtime_context is not None:
+                if (self._active_experiment_runtime_context != context
+                        or self._active_experiment_runtime_health_mapping != mapping):
+                    raise ValueError("Conflicting active Experiment context")
+                return
+            self.activate_experiment_runtime_context(context)
+            self.activate_experiment_runtime_health_mapping(context.experiment_id, mapping)
+
     @service_operation()
     def clear_experiment_runtime_health_mapping(self) -> None:
         """Clear active Experiment runtime mapping without stopping runtime."""
@@ -568,7 +685,7 @@ class AcquisitionNode:
 
         device_readiness = self._inventory_readiness()
         service_readiness = (
-            self._synchronization_manager.check_ready(),
+            self._synchronization_readiness(),
             *((self._ingestor.check_ready(),) if self._ingestor is not None else ()),
             self._failure_evidence_readiness(),
             *dependency_readiness_reports(self),
@@ -592,7 +709,7 @@ class AcquisitionNode:
             raise ValueError("Phase 2 node readiness requires node_id and role")
         device_readiness = self._inventory_readiness()
         service_readiness = (
-            self._synchronization_manager.check_ready(),
+            self._synchronization_readiness(),
             *((self._ingestor.check_ready(),) if self._ingestor is not None else ()),
             self._failure_evidence_readiness(),
             *dependency_readiness_reports(self),
@@ -628,6 +745,10 @@ class AcquisitionNode:
             raise RuntimeError("Acquisition requires an active Session binding")
         if not self._session_prepared:
             raise RuntimeError("Acquisition requires successful Session preparation")
+        if self._synchronization_source_id is not None and self._running:
+            if self._failed:
+                raise RuntimeError("Acquisition runtime is failed")
+            return {"session_time_s": self._acquisition_start_session_time_s, "device_start_results": ()}
         failure_evidence_readiness = self._failure_evidence_readiness()
         if not failure_evidence_readiness.ready:
             raise RuntimeError(
@@ -635,7 +756,10 @@ class AcquisitionNode:
                 f"{failure_evidence_readiness.reason}"
             )
         self._initialization_cleanup_confirmed = False
-        session_time_s = self._synchronization_manager.start()
+        if not self._synchronization_readiness().ready:
+            raise RuntimeError("Acquisition requires acceptable synchronization")
+        session_time_s = (self._synchronization_manager.start() if self._synchronization_manager is not None
+                          else self._session_time())
         self._acquisition_start_session_time_s = session_time_s
         start_evidence = RuntimeEvidenceMessage(
             f"session-start-{self._session_id}-{self._node_id}", self._session_id,
@@ -659,6 +783,11 @@ class AcquisitionNode:
     @service_operation()
     def run_one_iteration(self) -> AcquisitionIterationSummary:
         """Collect explicitly selected products and persist their observations locally."""
+        with self._reservation_lock:
+            return self._collect_iteration()
+
+    def _collect_iteration(self) -> AcquisitionIterationSummary:
+        """Keep a prospective mapping stable through collection and local persistence."""
         if not self._session_prepared:
             raise RuntimeError("Acquisition requires successful Session preparation")
         if self._failed or not self._running:
@@ -785,7 +914,7 @@ class AcquisitionNode:
             self._session_id, "event", self._node_id or "acquisition_node",
             {"event_category": "acquisition_health", "event_type": "acquisition_failure",
              "error": self._last_error, "experiment_id": self._active_experiment_id,
-             "session_time_s": self._synchronization_manager.current_session_time_s}, True)
+             "session_time_s": self._session_time()}, True)
         self._retain_runtime_evidence(message)
 
     @service_operation()
@@ -796,7 +925,8 @@ class AcquisitionNode:
         failures = []
         final_session_time_s = None
         try:
-            final_session_time_s = self._synchronization_manager.stop()
+            final_session_time_s = (self._synchronization_manager.stop() if self._synchronization_manager is not None
+                                    else self._session_time())
         except Exception as error:
             failures.append(error)
         device_stop_results = self._runtime_device_manager.stop_all()
@@ -1012,18 +1142,48 @@ class AcquisitionNode:
 
     def _with_session_time(self, row: dict[str, Any]) -> dict[str, Any]:
         timestamped_row = dict(row)
-        if "session_time_s" not in row:
+        remote = self._synchronization_source_id is not None
+        if remote or "session_time_s" not in row:
+            local = row.get("acquisition_node_local_time_s", monotonic()) if remote else monotonic()
+            if type(local) not in (int, float) or not isfinite(local):
+                raise ValueError("Observation local time must be finite")
+            mapped = self._session_time(local)
+            if remote:
+                activations = [a for a in self._mapping_activation_history if a["session_id"] == self._session_id
+                               and a["activated_local_time_s"] <= local]
+                if not activations:
+                    raise ValueError("Observation precedes authorized mapping activation")
+                mapping = activations[-1]["mapping"]
+                mapped = mapping["session_time_anchor_s"] + mapping["scale"] * (local - mapping["local_time_anchor_s"])
+                if "session_time_s" in row and row["session_time_s"] != mapped:
+                    raise ValueError("Observation Session Time conflicts with authorized mapping")
             timestamped_row.update(
-                session_time_s=self._synchronization_manager.current_session_time_s,
-                acquisition_node_local_time_s=monotonic(),
-                timestamp_status="runtime_timestamped")
+                session_time_s=mapped,
+                acquisition_node_local_time_s=local,
+                timestamp_status=("runtime_timestamped" if self._synchronization_readiness().ready
+                                  else "synchronization_degraded"))
+            if self._synchronization_source_id is not None and not self._synchronization_readiness().ready:
+                self._record_degraded_timing(local)
         if (self._active_experiment_runtime_context is not None
-                and "experiment_time_s" not in timestamped_row):
+                and (remote or "experiment_time_s" not in timestamped_row)):
             timestamped_row["experiment_time_s"] = (
                 timestamped_row["session_time_s"]
                 - self._active_experiment_runtime_context.experiment_start_session_time_s
             )
         return timestamped_row
+
+    def _record_degraded_timing(self, local_time_s: float) -> None:
+        if self._timing_quality_reported:
+            return
+        quality = self._synchronization_quality
+        interpretation = quality["configuration"]["quality_interpretation"] if quality else "uninterpreted"
+        self._retain_runtime_evidence(RuntimeEvidenceMessage(
+            f"timing-degraded-{self._session_id}-{self._node_id}-{len(self._runtime_evidence)}",
+            self._session_id, "timing_quality_interpretation", self._node_id,
+            {"experiment_id": self._active_experiment_id, "interpretation_label": interpretation,
+             "acquisition_node_local_time_s": local_time_s, "session_time_s": self._session_time(local_time_s),
+             "quality": deepcopy(quality), "condition": "synchronization_degraded"}, True))
+        self._timing_quality_reported = True
 
 
     def _failure_evidence_readiness(self) -> ServiceReadiness:
@@ -1105,7 +1265,7 @@ class AcquisitionNode:
         ):
             return
         current_session_time_s = (
-            self._synchronization_manager.current_session_time_s
+            self._session_time()
         )
         for mapping in self._active_experiment_runtime_health_mapping:
             source_device_id = mapping.live_source_id

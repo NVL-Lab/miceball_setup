@@ -5,8 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from collections.abc import Awaitable, Callable
 from copy import deepcopy
+from math import isfinite
 from threading import RLock
-from time import monotonic
+from time import get_clock_info, monotonic
 from typing import Any, TYPE_CHECKING
 from uuid import uuid4
 
@@ -19,6 +20,43 @@ from lab_sync_acquisition.service_maintenance import service_operation
 
 if TYPE_CHECKING:
     from lab_sync_acquisition.ingestor import InMemoryIngestor
+
+
+@dataclass(frozen=True)
+class SynchronizationConfiguration:
+    """Explicit bounds and policy for measured distributed synchronization."""
+
+    exchanges: int
+    initial_scale: float
+    clock_rate_error_bound: float
+    max_uncertainty_s: float
+    max_mapping_age_s: float
+    assessment_interval_s: float
+    result_window_s: float
+    quality_interpretation: str
+
+    def __post_init__(self):
+        if type(self.exchanges) is not int or self.exchanges < 2:
+            raise ValueError("Synchronization requires at least two measured exchanges")
+        for name in ("initial_scale", "max_uncertainty_s", "max_mapping_age_s",
+                     "assessment_interval_s", "result_window_s"):
+            value = getattr(self, name)
+            if type(value) not in (int, float) or not isfinite(value) or value <= 0:
+                raise ValueError(f"{name} must be finite and positive")
+        if (type(self.clock_rate_error_bound) not in (int, float)
+                or not isfinite(self.clock_rate_error_bound)
+                or not 0 <= self.clock_rate_error_bound < self.initial_scale):
+            raise ValueError("clock_rate_error_bound must be finite, nonnegative and below initial_scale")
+        if self.quality_interpretation not in {"informational", "warning", "recoverable_failure",
+                "experiment_failure", "session_failure", "operator_required", "uninterpreted"}:
+            raise ValueError("Unsupported timing-quality interpretation")
+
+    def to_dict(self) -> dict[str, Any]:
+        return dict(vars(self))
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> SynchronizationConfiguration:
+        return cls(**data)
 
 
 @dataclass(frozen=True)
@@ -194,6 +232,142 @@ class SynchronizationManager:
         self._timing_reconciliation_evidence: list[RuntimeEvidenceMessage] = []
         self._publication_session_id: str | None = None
         self._mapping_publication_evidence: dict[int, RuntimeEvidenceMessage] = {}
+        self._distributed_configuration: SynchronizationConfiguration | None = None
+        self._measured_mapping_quality: dict[str, dict[str, Any]] = {}
+        self._distributed_evidence: list[RuntimeEvidenceMessage] = []
+
+    @service_operation(new_work=True)
+    def configure_distributed_session(self, session_id: str, configuration: dict[str, Any]) -> None:
+        """Bind explicit measurement bounds without creating another clock owner."""
+        config = SynchronizationConfiguration.from_dict(configuration)
+        with self._mapping_lock:
+            if self._prepared_session_id != session_id:
+                raise RuntimeError("Synchronization configuration Session mismatch")
+            if self._distributed_configuration not in (None, config):
+                raise ValueError("Conflicting Session synchronization configuration")
+            self._distributed_configuration = config
+
+    @property
+    def distributed_configuration(self) -> SynchronizationConfiguration | None:
+        return self._distributed_configuration
+
+    @service_operation(new_work=True)
+    def start_distributed_session(self, session_id: str) -> float:
+        """Start the single Session clock once; repeated requests never reset it."""
+        with self._mapping_lock:
+            if self._prepared_session_id != session_id or self._distributed_configuration is None:
+                raise RuntimeError("Configured synchronization Session is required")
+            if self._stopped_session_time_s is not None:
+                raise RuntimeError("Stopped Session Time cannot restart")
+            if not self.is_running:
+                self.start()
+            return self.current_session_time_s
+
+    @service_operation()
+    def assess_cross_clock_exchanges(self, session_id: str, node_id: str,
+                                    exchanges: list[dict[str, Any]], *, replace_mapping: bool,
+                                    source_id: str) -> dict[str, Any]:
+        """Bound clock offset by causal exchanges; never assume symmetric delay."""
+        with self._mapping_lock:
+            config = self._distributed_configuration
+            if (self._prepared_session_id != session_id or config is None or not self.is_running
+                    or self._publication_session_id == session_id):
+                raise RuntimeError("Current distributed Session Time is unavailable")
+            if not isinstance(node_id, str) or not node_id or len(exchanges) != config.exchanges:
+                raise ValueError("Complete node-specific cross-clock exchanges are required")
+            intervals = []
+            previous_end = None
+            for sample in exchanges:
+                values = [sample[k] for k in ("sent_session_time_s", "received_local_time_s",
+                                              "sent_local_time_s", "received_session_time_s")]
+                if any(type(v) not in (float, int) or not isfinite(v) for v in values):
+                    raise ValueError("Cross-clock samples must be finite numbers")
+                s0, n1, n2, s3 = values
+                resolution = sample.get("local_clock_resolution_s")
+                if type(resolution) not in (int, float) or not isfinite(resolution) or resolution < 0:
+                    raise ValueError("Measured local clock resolution is required")
+                rounding = 2 * get_clock_info("monotonic").resolution + config.initial_scale * resolution
+                if n2 < n1 or s3 < s0 or (previous_end is not None and s0 < previous_end):
+                    raise ValueError("Invalid cross-clock ordering")
+                previous_end = s3
+                mid = (n1 + n2) / 2
+                lower = s0 + (config.initial_scale - config.clock_rate_error_bound) * (mid - n1) - rounding
+                upper = s3 - (config.initial_scale - config.clock_rate_error_bound) * (n2 - mid) + rounding
+                if lower > upper:
+                    raise ValueError("Cross-clock exchange contradicts the configured clock-rate bound")
+                intervals.append((mid, lower, upper))
+            anchor = intervals[-1][0]
+            # Intersect causal bounds, widening for the explicit clock-rate assumption.
+            lower = max(lo + config.initial_scale * (anchor - n)
+                        - config.clock_rate_error_bound * abs(anchor - n) for n, lo, _ in intervals)
+            upper = min(hi + config.initial_scale * (anchor - n)
+                        + config.clock_rate_error_bound * abs(anchor - n) for n, _, hi in intervals)
+            if not isfinite(lower) or not isfinite(upper) or lower > upper:
+                raise ValueError("Measured clock exchanges are inconsistent")
+            center, uncertainty = (lower + upper) / 2, (upper - lower) / 2
+            mapping = self.get_active_mapping(session_id, node_id)
+            old = self._measured_mapping_quality.get(node_id)
+            if mapping is not None and not replace_mapping:
+                if old is None:
+                    raise RuntimeError("Active mapping has no verified measurement provenance")
+                projected = mapping.session_time_anchor_s + mapping.scale * (anchor - mapping.local_time_anchor_s)
+                uncertainty += abs(projected - center)
+                age = self.current_session_time_s - mapping.created_session_time_s
+                uncertainty = max(uncertainty, old["uncertainty_s"] +
+                                  config.clock_rate_error_bound * abs(anchor - old["measured_local_time_s"]))
+            else:
+                age = 0.0
+            acceptable = uncertainty <= config.max_uncertainty_s and age < config.max_mapping_age_s
+            if replace_mapping and acceptable:
+                method = self.replace_active_mapping if mapping is not None else self.create_and_activate_mapping
+                mapping = method(session_id, node_id, anchor, center, config.initial_scale,
+                    "measured_cross_clock_exchange", {"exchanges": deepcopy(exchanges),
+                    "uncertainty_s": uncertainty, "configuration": config.to_dict()})
+            remaining = max(0.0, config.max_mapping_age_s - age) / (config.initial_scale + config.clock_rate_error_bound)
+            if config.clock_rate_error_bound:
+                remaining = min(remaining, max(0.0, config.max_uncertainty_s - uncertainty)
+                                / config.clock_rate_error_bound)
+            quality = {"session_id": session_id, "acquisition_node_id": node_id,
+                "assessment_sequence": len(self._distributed_evidence) + 1,
+                "acceptable": acceptable and mapping is not None,
+                "mapping": mapping.to_dict() if mapping else None,
+                "measured_local_time_s": anchor, "uncertainty_s": uncertainty,
+                "valid_until_local_time_s": anchor + remaining,
+                "configuration": config.to_dict(), "exchanges": deepcopy(exchanges)}
+            self._measured_mapping_quality[node_id] = deepcopy(quality)
+            self._distributed_evidence.append(RuntimeEvidenceMessage(uuid4().hex, session_id,
+                "timing_quality_observation", source_id, deepcopy(quality), True))
+            return quality
+
+    def session_timing_evidence(self, session_id: str, source_id: str) -> tuple[RuntimeEvidenceMessage, ...]:
+        """Return stable timing publication identities without closing the Session clock."""
+        with self._mapping_lock:
+            messages = []
+            for update in self._mapping_update_evidence:
+                if update.session_id == session_id:
+                    message = self._mapping_publication_evidence.get(id(update))
+                    if message is None:
+                        message = update.to_runtime_evidence_message(uuid4().hex, source_id)
+                        self._mapping_publication_evidence[id(update)] = message
+                    if message.source_id != source_id:
+                        raise ValueError("Timing evidence publisher identity changed")
+                    messages.append(message)
+            messages.extend(m for m in self._distributed_evidence if m.session_id == session_id)
+            return tuple(RuntimeEvidenceMessage.from_dict(deepcopy(message.to_dict())) for message in messages)
+
+    @service_operation()
+    def mark_synchronization_unavailable(self, session_id: str, node_id: str,
+                                         source_id: str, reason: str) -> dict[str, Any]:
+        """Retain a failed assessment without fabricating a new clock relationship."""
+        with self._mapping_lock:
+            if self._prepared_session_id != session_id or node_id not in self._measured_mapping_quality:
+                raise RuntimeError("No measured mapping is available for this Session/node")
+            quality = deepcopy(self._measured_mapping_quality[node_id])
+            quality.update(acceptable=False, reason=reason, assessment_sequence=len(self._distributed_evidence) + 1)
+            self._measured_mapping_quality[node_id] = quality
+            self._distributed_evidence.append(RuntimeEvidenceMessage(uuid4().hex, session_id,
+                "timing_quality_observation", source_id, deepcopy(quality), True))
+            return deepcopy(quality)
 
     @service_operation(new_work=True)
     def prepare_session(self, session_id: str) -> ServiceReadiness:
@@ -232,6 +406,7 @@ class SynchronizationManager:
                 messages.append(message)
             messages.extend(m for m in self._timing_reconciliation_evidence
                             if m.session_id == session_id)
+            messages.extend(m for m in self._distributed_evidence if m.session_id == session_id)
             self._publication_session_id = session_id
         for message in messages:
             await publisher(message)
@@ -244,6 +419,8 @@ class SynchronizationManager:
                 raise ValueError("Synchronization initialization abort requires session_id")
             if self._prepared_session_id not in {None, session_id}:
                 raise RuntimeError("Synchronization initialization abort Session mismatch")
+            if self._distributed_configuration is not None and self.is_running:
+                raise RuntimeError("Started distributed timing requires preservation before binding release")
             self._prepared_session_id = None
             return True
 
@@ -260,7 +437,8 @@ class SynchronizationManager:
             if any(key[0] == session_id for key in self._active_mappings):
                 raise RuntimeError("Active mappings remain; retirement/preservation confirmation is required")
             evidence = [item for item in self._mapping_update_evidence if item.session_id == session_id]
-            if evidence:
+            distributed = [message for message in self._distributed_evidence if message.session_id == session_id]
+            if evidence or distributed:
                 if ingestor is None:
                     raise RuntimeError("Synchronization evidence preservation confirmation is required before release")
                 available = [message for message in ingestor.accepted_runtime_evidence
@@ -274,12 +452,17 @@ class SynchronizationManager:
                     if match is None:
                         raise RuntimeError("Synchronization evidence durable acceptance is unconfirmed")
                     available.remove(match)
+                if any(not ingestor.has_durable_runtime_evidence(message) for message in distributed):
+                    raise RuntimeError("Synchronization quality evidence durable acceptance is unconfirmed")
             self._mapping_update_evidence = tuple(
                 item for item in self._mapping_update_evidence if item.session_id != session_id)
             self._mapping_publication_evidence = {
                 key: message for key, message in self._mapping_publication_evidence.items()
                 if message.session_id != session_id}
             self._publication_session_id = None
+            self._distributed_configuration = None
+            self._measured_mapping_quality.clear()
+            self._distributed_evidence = [m for m in self._distributed_evidence if m.session_id != session_id]
             self._prepared_session_id = None
             self._started_at_monotonic_s = None
             self._stopped_session_time_s = None
@@ -568,6 +751,8 @@ class SynchronizationManager:
                     for message in self._timing_reconciliation_evidence)):
                 blockers.append("Unpreserved synchronization reconciliation evidence")
         available = ingestor.accepted_runtime_evidence
+        if any(not ingestor.has_durable_runtime_evidence(message) for message in self._distributed_evidence):
+            blockers.append("Unpreserved synchronization quality evidence")
         for update in self._mapping_update_evidence:
             if not any(message.is_persistent and message.evidence_type == MAPPING_UPDATE_EVIDENCE_TYPE
                        and message.payload == update.to_dict() and ingestor.has_durable_runtime_evidence(message)

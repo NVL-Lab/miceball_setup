@@ -9,6 +9,7 @@ import json
 import logging
 from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass, replace
+from time import get_clock_info, monotonic
 from typing import Any
 from uuid import uuid4
 
@@ -42,6 +43,7 @@ from lab_sync_acquisition.controller import Controller, ControllerActionDecision
 from lab_sync_acquisition.session import ScientificOutputSelection
 from lab_sync_acquisition.device import DeviceDeclaration
 from lab_sync_acquisition.synchronization import SynchronizationManager
+from lab_sync_acquisition.experiment_runtime import ActiveExperimentRuntimeContext, ExperimentRuntimeHealthMapping
 from lab_sync_acquisition.service_readiness import ServiceReadiness
 from lab_sync_acquisition.service_maintenance import service_operation
 from lab_sync_acquisition.storage import PersistentStorageManager
@@ -437,6 +439,27 @@ class NatsControllerCommunication:
             self._command_result_events.pop(command_id, None)
             await self._notify_dependency_result(observation, command_type, result)
 
+    async def request_runtime_command(self, participant: RuntimeParticipant, command_type: str,
+                                      session_id: str, payload: dict[str, Any], result_window_s: float,
+                                      *, command_id: str | None = None) -> RuntimeCommandResultMessage | None:
+        """Issue scoped runtime work with fresh per-attempt reply correlation."""
+        if (not isinstance(session_id, str) or not session_id or "request_nonce" in payload
+                or not isinstance(participant, RuntimeParticipant)):
+            raise ValueError("An explicit Session, participant and caller payload are required")
+        nonce = uuid4().hex
+        requests = NatsControllerCommunication(self._boundary)
+        subscription = await requests.subscribe_command_results(session_id, new_only=True,
+            result_filter=lambda result: (result.payload.get("request_nonce") == nonce
+                and result.source_id == participant.component_id and result.session_id == session_id))
+        try:
+            result = await requests.request_command(participant, command_type, session_id,
+                {**deepcopy(payload), "request_nonce": nonce}, result_window_s, command_id=command_id)
+            if result is not None:
+                self._command_results += (result,)
+            return result
+        finally:
+            await subscription.unsubscribe()
+
     @staticmethod
     async def _notify_dependency_result(observation, command_type, result):
         if observation is not None:
@@ -599,7 +622,7 @@ class NatsControllerCommunication:
             evidence_message = RuntimeEvidenceMessage.from_dict(
                 json.loads(message.data.decode("utf-8"))
             )
-            if evidence_message.evidence_type != "health_interpretation":
+            if evidence_message.evidence_type not in {"health_interpretation", "timing_quality_interpretation"}:
                 await message.ack()
                 return
             if evidence_message.session_id != session_id or controller._session is not state["session"]:
@@ -614,8 +637,11 @@ class NatsControllerCommunication:
                 return
             state["active"] += 1
             try:
-                interpretation = HealthInterpretationEvidence.from_dict(evidence_message.payload)
-                decision = controller.process_health_interpretation(interpretation)
+                if evidence_message.evidence_type == "timing_quality_interpretation":
+                    decision = controller.process_timing_quality_interpretation(evidence_message)
+                else:
+                    interpretation = HealthInterpretationEvidence.from_dict(evidence_message.payload)
+                    decision = controller.process_health_interpretation(interpretation)
                 if callback is not None:
                     await callback(decision)
                 await message.ack()
@@ -644,12 +670,15 @@ class NatsControllerCommunication:
         while sequence <= info.state.last_seq:
             try:
                 record = await broker.get_msg("LAB_EVIDENCE", seq=sequence,
-                    subject=f"messages.{session_id}.evidence.*.*.health_interpretation", next=True)
+                    subject=f"messages.{session_id}.evidence.*.*.*", next=True)
             except NotFoundError:
                 break
             if record.seq < sequence or record.seq > info.state.last_seq:
                 return False
             evidence = RuntimeEvidenceMessage.from_dict(json.loads(record.data))
+            if evidence.evidence_type not in {"health_interpretation", "timing_quality_interpretation"}:
+                sequence = record.seq + 1
+                continue
             content = json.dumps(evidence.to_dict(), sort_keys=True,
                                  separators=(",", ":"), allow_nan=False)
             if evidence.session_id != session_id or any(
@@ -705,6 +734,8 @@ class NatsAcquisitionNodeCommunication:
             "get_inventory", "reserve", "release_reservation",
             "initialize_session", "abort_session_initialization",
             "prepare_experiment_scientific_outputs",
+            "read_local_time", "accept_synchronization_quality", "activate_experiment_runtime",
+            "finalize_experiment_scientific_outputs",
         }
     )
 
@@ -716,6 +747,7 @@ class NatsAcquisitionNodeCommunication:
         self._boundary = boundary
         self._acquisition_node = acquisition_node
         self._results_by_command_id: dict[str, RuntimeCommandResultMessage] = {}
+        self._commands_by_id: dict[str, dict[str, Any]] = {}
         self._published_runtime_evidence_count = 0
         self._published_artifact_manifest_count = 0
         self._runtime_publication_lock = asyncio.Lock()
@@ -749,6 +781,8 @@ class NatsAcquisitionNodeCommunication:
                     for pending in tuple(self._unpublished_evidence.values()):
                         if pending.session_id == command.session_id:
                             await self.publish_evidence(pending)
+                if "request_nonce" in command.payload:
+                    result = replace(result, payload={**result.payload, "request_nonce": command.payload["request_nonce"]})
                 await self._boundary.publish_command_result(result, command.command_type)
                 logger.info("command_result_published command_id=%s status=%s",
                             result.command_id, result.status)
@@ -769,8 +803,13 @@ class NatsAcquisitionNodeCommunication:
         """Execute one supported command once and return explicit result evidence."""
 
         previous = self._results_by_command_id.get(command.command_id)
+        identity = command.to_dict()
+        identity["payload"] = {k: v for k, v in command.payload.items() if k != "request_nonce"}
         if previous is not None:
-            return previous
+            if self._commands_by_id.get(command.command_id) != identity:
+                return self._result(command, "failed", False, "Conflicting runtime command identity", {})
+            if command.command_type != "read_local_time":
+                return previous
 
         logger.info(
             "execute_command_entered command_id=%s command_type=%s",
@@ -781,10 +820,34 @@ class NatsAcquisitionNodeCommunication:
         try:
             if command.target_id != self._boundary.component_id:
                 raise ValueError("Command target does not match participant")
+            if command.command_type not in {"check_readiness", "get_inventory", "reserve", "release_reservation", "initialize_session", "abort_session_initialization"}:
+                AcquisitionNode._validate_session_id(command.session_id)
             if command.command_type not in {"check_readiness", "get_inventory", "reserve", "release_reservation", "initialize_session", "abort_session_initialization"} and command.session_id != self._acquisition_node.status()["session_id"]:
                 raise RuntimeError("Command session_id does not match AcquisitionNode")
             if command.command_type == "get_inventory":
-                payload = {"devices": [d.to_dict() for d in self._acquisition_node.declared_devices]}
+                payload = {"devices": [d.to_dict() for d in self._acquisition_node.declared_devices],
+                           "synchronization_source_id": self._acquisition_node.synchronization_source_id}
+            elif command.command_type == "read_local_time":
+                payload = {"received_local_time_s": monotonic(), "sent_local_time_s": monotonic(),
+                           "acquisition_node_id": self._boundary.component_id,
+                           "local_clock_resolution_s": get_clock_info("monotonic").resolution}
+            elif command.command_type == "accept_synchronization_quality":
+                self._acquisition_node.accept_synchronization_quality(command.session_id, command.source_id,
+                                                                     command.payload["quality"])
+                payload = {"confirmed": True}
+            elif command.command_type == "activate_experiment_runtime":
+                context = ActiveExperimentRuntimeContext.from_dict(command.payload["context"])
+                self._acquisition_node.activate_experiment_runtime(context,
+                    tuple(ExperimentRuntimeHealthMapping.from_dict(m) for m in command.payload["health_mapping"]))
+                payload = {"confirmed": True, "experiment_id": context.experiment_id}
+            elif command.command_type == "finalize_experiment_scientific_outputs":
+                experiment_id = command.payload["experiment_id"]
+                if (not isinstance(experiment_id, str) or not experiment_id
+                        or experiment_id not in self._acquisition_node._prepared_scientific_outputs):
+                    raise ValueError("Unknown Experiment scientific outputs")
+                manifests = self._acquisition_node.finalize_experiment_scientific_outputs(experiment_id)
+                payload = {"experiment_id": experiment_id, "manifests": [m.to_dict() for m in manifests],
+                           "confirmed": True}
             elif command.command_type in {"reserve", "release_reservation", "abort_session_initialization"}:
                 succeeded = getattr(self._acquisition_node, command.command_type)(command.session_id)
                 payload = {"confirmed": succeeded}
@@ -821,6 +884,7 @@ class NatsAcquisitionNodeCommunication:
                 if preparation.required and not preparation.ready:
                     result = self._result(command, "failed", False, preparation.reason, payload)
                     self._results_by_command_id[command.command_id] = result
+                    self._commands_by_id[command.command_id] = deepcopy(identity)
                     return result
             elif command.command_type == "start_runtime":
                 outcome = self._acquisition_node.start_runtime()
@@ -849,6 +913,7 @@ class NatsAcquisitionNodeCommunication:
         except Exception as error:
             result = self._result(command, "failed", False, str(error), {})
         self._results_by_command_id[command.command_id] = result
+        self._commands_by_id[command.command_id] = deepcopy(identity)
         return result
 
     async def publish_new_artifact_manifest_evidence(self) -> None:
@@ -1294,12 +1359,88 @@ async def _subscribe_participant_commands(boundary: NatsCommunicationBoundary, r
 
 
 class NatsSynchronizationManagerCommunication:
-    """Routes preparation commands; SynchronizationManager retains timing ownership."""
+    """Measure clocks over NATS; SynchronizationManager retains all timing decisions."""
 
     def __init__(self, boundary: NatsCommunicationBoundary, synchronization_manager: SynchronizationManager) -> None:
         self._boundary = boundary
         self._synchronization_manager = synchronization_manager
         self._results_by_command_id = {}
+        self._commands_by_id = {}
+        self._runtime_lock = asyncio.Lock()
+        self._assessment_task = None
+        self._subscriptions = ()
+
+    async def _measure_node(self, session_id, node_id, *, replace_mapping):
+        owner = self._synchronization_manager
+        config = owner.distributed_configuration
+        requester = NatsControllerCommunication(self._boundary)
+        node = RuntimeParticipant("acquisition_node", node_id)
+        exchanges = []
+        for _ in range(config.exchanges):
+            sent = owner.current_session_time_s
+            result = await requester.request_runtime_command(node, "read_local_time", session_id,
+                                                            {}, config.result_window_s)
+            received = owner.current_session_time_s
+            if (result is None or result.success is not True
+                    or result.payload.get("acquisition_node_id") != node_id):
+                raise RuntimeError(f"Cross-clock exchange unconfirmed: {node_id}")
+            exchanges.append({"sent_session_time_s": sent,
+                "received_local_time_s": result.payload["received_local_time_s"],
+                "sent_local_time_s": result.payload["sent_local_time_s"],
+                "local_clock_resolution_s": result.payload["local_clock_resolution_s"],
+                "received_session_time_s": received})
+        quality = owner.assess_cross_clock_exchanges(session_id, node_id, exchanges,
+                        replace_mapping=replace_mapping, source_id=self._boundary.component_id)
+        await self._deliver_quality(session_id, node, quality)
+        return quality
+
+    async def _deliver_quality(self, session_id, node, quality):
+        result = await NatsControllerCommunication(self._boundary).request_runtime_command(
+            node, "accept_synchronization_quality", session_id, {"quality": quality},
+            self._synchronization_manager.distributed_configuration.result_window_s)
+        if result is None or result.success is not True or result.payload.get("confirmed") is not True:
+            raise RuntimeError("Node mapping/quality acceptance is unconfirmed")
+
+    async def _publish_timing(self, session_id):
+        for message in self._synchronization_manager.session_timing_evidence(session_id, self._boundary.component_id):
+            await self._boundary.publish_evidence(message)
+
+    async def _periodic_assessment(self, session_id, node_ids):
+        owner = self._synchronization_manager
+        try:
+            while owner.is_running and owner._prepared_session_id == session_id:
+                await asyncio.sleep(owner.distributed_configuration.assessment_interval_s)
+                async with self._runtime_lock:
+                    if not owner.is_running or owner._prepared_session_id != session_id:
+                        return
+                    for node_id in node_ids:
+                        try:
+                            await self._measure_node(session_id, node_id, replace_mapping=False)
+                        except Exception as error:
+                            quality = owner.mark_synchronization_unavailable(session_id, node_id,
+                                self._boundary.component_id, str(error))
+                            try:
+                                await self._deliver_quality(session_id, RuntimeParticipant("acquisition_node", node_id), quality)
+                            except Exception:
+                                logger.warning("Synchronization quality delivery unconfirmed for %s", node_id)
+                    await self._publish_timing(session_id)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Periodic synchronization assessment failed; local validity bounds remain in force")
+
+    async def close(self) -> None:
+        """Release transport subscriptions and assessment tasks without altering Session lifecycle."""
+        if self._assessment_task is not None:
+            self._assessment_task.cancel()
+            try:
+                await self._assessment_task
+            except asyncio.CancelledError:
+                pass
+            self._assessment_task = None
+        for subscription in self._subscriptions:
+            await subscription.unsubscribe()
+        self._subscriptions = ()
 
     async def subscribe_commands(self) -> tuple[Subscription, Subscription]:
         async def receive(message: Any) -> None:
@@ -1307,24 +1448,74 @@ class NatsSynchronizationManagerCommunication:
             if command.target_id != self._boundary.component_id:
                 await message.ack()
                 return
-            if command.command_type == "stop_runtime" and command.command_id in self._results_by_command_id:
-                result = self._results_by_command_id[command.command_id]
-            elif command.command_type == "stop_runtime":
+            owner = self._synchronization_manager
+            if (command.command_type == "stop_runtime" and command.session_id == owner._prepared_session_id
+                    and self._assessment_task is not None):
+                self._assessment_task.cancel()
                 try:
-                    await self._synchronization_manager.complete_session_evidence_publication(
-                        command.session_id, source_id=self._boundary.component_id,
-                        publisher=self._boundary.publish_evidence)
-                    result = _participant_result(self._boundary, command, True, None, {})
+                    await self._assessment_task
+                except asyncio.CancelledError:
+                    pass
+                self._assessment_task = None
+            async with self._runtime_lock:
+                identity = command.to_dict()
+                identity["payload"] = {k: v for k, v in command.payload.items() if k != "request_nonce"}
+                try:
+                    previous = self._results_by_command_id.get(command.command_id)
+                    if previous is not None and self._commands_by_id.get(command.command_id) != identity:
+                        raise ValueError("Conflicting synchronization command identity")
+                    if previous is not None and command.command_type != "read_session_time":
+                        result = previous
+                    elif command.command_type in {"start_runtime", "assess_synchronization", "resynchronize"}:
+                        if owner._prepared_session_id != command.session_id:
+                            raise ValueError("Synchronization command Session mismatch")
+                        if command.command_type == "start_runtime":
+                            owner.start_distributed_session(command.session_id)
+                        node_ids = command.payload["node_ids"]
+                        if (not isinstance(node_ids, list) or not node_ids or len(set(node_ids)) != len(node_ids)
+                                or any(not isinstance(n, str) or not n for n in node_ids)):
+                            raise ValueError("Explicit unique AcquisitionNode identities are required")
+                        qualities = []
+                        for node_id in node_ids:
+                            qualities.append(await self._measure_node(command.session_id, node_id,
+                                replace_mapping=command.command_type != "assess_synchronization"))
+                        await self._publish_timing(command.session_id)
+                        result = _participant_result(self._boundary, command, all(q["acceptable"] for q in qualities),
+                            None if all(q["acceptable"] for q in qualities) else "Synchronization quality is unacceptable",
+                            {"qualities": qualities, "session_time_s": owner.current_session_time_s})
+                        if command.command_type == "start_runtime" and result.success and self._assessment_task is None:
+                            self._assessment_task = asyncio.create_task(self._periodic_assessment(command.session_id, tuple(node_ids)))
+                    elif command.command_type == "read_session_time":
+                        if owner._prepared_session_id != command.session_id or not owner.is_running:
+                            raise RuntimeError("Current Session clock is unavailable")
+                        result = _participant_result(self._boundary, command, True, None,
+                            {"session_time_s": owner.current_session_time_s})
+                    elif command.command_type == "stop_runtime":
+                        await owner.complete_session_evidence_publication(command.session_id,
+                            source_id=self._boundary.component_id, publisher=self._boundary.publish_evidence)
+                        result = _participant_result(self._boundary, command, True, None,
+                                                     {"session_time_s": owner.current_session_time_s})
+                    elif command.command_type == "initialize_session" and "synchronization_configuration" in command.payload:
+                        preparation = owner.prepare_session(command.session_id)
+                        owner.configure_distributed_session(command.session_id, command.payload["synchronization_configuration"])
+                        report = preparation.to_dict()
+                        report.update(component_id=self._boundary.component_id, component_type=self._boundary.component_type)
+                        result = _participant_result(self._boundary, command, preparation.ready, preparation.reason,
+                                                     {"preparation": report})
+                    else:
+                        result = (await _execute_maintenance_command(self._boundary, owner, command)
+                            if command.command_type in ({"stop", "kill", "cancel", "prepare_stop", "check_stop_readiness"} | SERVICE_RECOVERY_COMMAND_TYPES)
+                            else _execute_service_command(self._boundary, owner, command, self._results_by_command_id))
+                    self._results_by_command_id[command.command_id] = result
+                    self._commands_by_id[command.command_id] = deepcopy(identity)
                 except Exception as error:
-                    result = _participant_result(self._boundary, command, False, str(error), {})
-                self._results_by_command_id[command.command_id] = result
-            else:
-                result = (await _execute_maintenance_command(self._boundary, self._synchronization_manager, command)
-                      if command.command_type in ({"stop", "kill", "cancel", "prepare_stop", "check_stop_readiness"} | SERVICE_RECOVERY_COMMAND_TYPES) else
-                      _execute_service_command(self._boundary, self._synchronization_manager, command, self._results_by_command_id))
+                    result = _participant_result(self._boundary, command, False, f"{type(error).__name__}: {error}", {})
+            if "request_nonce" in command.payload:
+                result = replace(result, payload={**result.payload, "request_nonce": command.payload["request_nonce"]})
             await self._boundary.publish_command_result(result, command.command_type)
             await message.ack()
-        return await _subscribe_participant_commands(self._boundary, receive)
+        self._subscriptions = await _subscribe_participant_commands(self._boundary, receive)
+        return self._subscriptions
 
 
 async def _execute_maintenance_command(boundary, service, command):
