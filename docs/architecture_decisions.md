@@ -1010,6 +1010,9 @@ Multiple sessions may be acquired while previous sessions are awaiting NWB expor
 
 **Status:** Accepted
 
+**Subsequent revision:** Decision 377 removes routine scientific-observation
+intake through Ingestor, regardless of size; the historical text below is preserved.
+
 The Ingestor is responsible for creating a complete session record.
 
 Not all device data must be transferred through the Ingestor during acquisition.
@@ -1911,6 +1914,9 @@ Final readiness framework, service discovery, storage capacity validation, recon
 
 **Status:** Accepted
 
+**Subsequent revision:** Decision 377 removes mandatory scientific acquisition-envelope
+delivery to Ingestor; acquisition and device ownership remain unchanged.
+
 `DeviceManager` produces acquisition-side `DeviceRecordCollection` objects.
 
 Before records cross the boundary to the `Ingestor`, acquisition-side caller code wraps each collection in an `AcquisitionRecordEnvelope`.
@@ -2350,6 +2356,10 @@ The Controller assembles configuration; the Session owns the accepted run config
 
 **Status:** Accepted
 
+**Subsequent revision:** Decision 377 assigns routine scientific observations and
+their metadata to AcquisitionNode's LocalStorageManager, not global envelope intake.
+The historical JSONL implementation and validation remain recorded below.
+
 `StorageManager` remains the architectural component responsible for persistent storage of accepted acquisition records.
 
 For v1, `StorageManager` uses JSONL as the persistent storage backend.
@@ -2401,6 +2411,11 @@ Future Session Record implementations must persist the accepted `SessionConfig` 
 ## Decision 073: Persistent Session Record v1 contents
 
 **Status:** Accepted
+
+**Subsequent revision:** Decision 377 removes mandatory per-observation acquisition
+envelopes and their scientific-intake audit from the Session Record. Applicable
+configuration, provenance, lifecycle, readiness, operational audit, failure,
+cleanup, and terminal evidence remain required; historical text is preserved.
 
 A persistent Session Record is the durable evidence package for one Session.
 
@@ -10602,6 +10617,10 @@ establish fully independent-service deployment compliance with this decision.
 
 **Status:** Accepted
 
+**Subsequent revision:** Decision 377 removes the acquisition-envelope delivery
+identity/intake-journaling/retry requirement for routine scientific observations.
+The shared-process topology and runtime-evidence guarantees remain unchanged.
+
 Ingestor and StorageManager remain distinct software components with separate
 responsibilities, state, locks, and persistence authority, but must execute on the
 same computer within the same process. They share startup, shutdown, and restart
@@ -10635,6 +10654,77 @@ confirmation, and archival completion are distinct; none substitutes for another
 and acquisition-intake reconciliation are not yet implemented or independently
 validated. W051 history remains unchanged. Q019 remains CLOSED; Q022, Q024,
 Phase 16, and M015 remain OPEN.
+
+---
+
+## Decision 377: Routine scientific observations remain in local scientific storage
+
+**Status:** Accepted
+
+Routine scientific observations and their per-observation metadata are preserved
+through AcquisitionNode's co-located LocalStorageManager, regardless of size.
+They no longer pass through Ingestor as AcquisitionRecordEnvelope messages.
+Classify information by meaning, not size or existing code labels. AcquisitionNode
+may inspect locally stored observations to generate operational evidence; only
+the resulting operational evidence is delivered to Ingestor.
+
+Responsibilities remain distinct:
+
+- LocalStorageManager owns local observations, associated metadata, and scientific products.
+- AcquisitionNode owns acquisition execution and operational evidence generation.
+- Ingestor owns runtime evidence, manifest intake, intake audit, durable evidence
+  recovery, and compilation, not scientific per-observation intake.
+- SynchronizationManager owns authoritative scientific timing and synchronization.
+- StorageManager owns global artifact collection, Session records, and evidence persistence.
+
+Scientific products preserve existing observation/frame identity and ordering,
+available acquisition timestamps and device-provided timestamps, Session,
+Experiment, device and stream provenance, synchronization relationships,
+authoritative timing evidence, artifact lifecycle/manifests, and offline
+reconstruction. Decisions 154-158 and 178-186 remain applicable. No new
+per-observation fields, persistence formats, components, or storage ownership are
+introduced. Finalized scientific artifacts retain their existing protections.
+
+This qualifies Decisions 042, 063, 071, and 073 by removing mandatory scientific
+acquisition-envelope intake and corresponding per-observation Session Record
+requirements. Related historical envelope descriptions in Decisions 059-064,
+069 and 074 apply to their historical implementations, not a requirement to route
+routine observations through Ingestor. Acquisition/device responsibilities and
+applicable identities remain. Decision 376's envelope-delivery identity, durable
+scientific-intake correlation/journaling and retry requirements no longer apply
+to routine scientific observations. Its Ingestor-StorageManager shared-process
+topology remains; all process-crossing communication still uses NATS.
+
+Operational lifecycle and terminal evidence, acquisition health/failure reports,
+timing/synchronization evidence and ArtifactManifests remain required through
+existing lifecycle/runtime-evidence mechanisms, with existing owners and producer
+persistence intent. Current node `session_start`/`session_stop` events and health
+observations carried by acquisition envelopes must not be lost when adapting that
+path; preserve their operational meaning through those existing mechanisms, not
+scientific-observation envelopes. No new evidence categories are defined.
+Decisions 219-225, 240-244 and 276-280 remain authoritative for runtime-evidence
+acceptance, journal-before-ACK, identity/deduplication, restart reconstruction,
+intake audit, manifest handoff and persistent compilation.
+
+Q019 Decisions 356-366's producer confirmations, verified receipt, Stage A/B,
+durable handoff, Normal Stop/Kill, release, recovery and permanent closure
+guarantees remain. Acquisition-evidence completeness concerns required operational
+evidence and manifests, not transport of routine scientific observations.
+Historical envelopes/audits in already preserved Session Records and archives
+must not be deleted or rewritten by this revision.
+
+W051/W052 remain historically validated implementations. Their scientific-envelope
+persistence path is no longer required for routine acquisition, but applicable
+durability, identity, corruption rejection, readback and archival protections
+remain required for active responsibilities. Historical decisions, numbering and
+validation/audit results are preserved; obsolete code is not claimed removed.
+
+**Implementation status:** Accepted and synchronized, not implemented or
+independently validated. Existing envelope production, intake, persistence and
+Session Record/closeout coverage checks require reconciliation without weakening
+operational evidence preservation. Future real-time scientific streaming remains
+an open architectural question; no transport or infrastructure is selected.
+Q019 remains CLOSED; Q022, Q024, Phase 16 and M015 remain OPEN.
 
 ---
 
@@ -11063,7 +11153,8 @@ requirements remain authoritative.
 374. Initial manual installation verifies NATS and Controller-node readiness communication; device acquisition tests are strongly recommended, not mandatory runtime certification. Q022-A is accepted and synchronized, not implemented or independently validated; Q019 remains CLOSED and Q022, Q024, Phase 16, and M015 remain OPEN.
 
 375. Historically required all principal services to communicate through NATS; Decision 376 supersedes separate deployment and internal NATS for the Ingestor-StorageManager pair, preserving ownership and trustworthy confirmations.
-376. Ingestor and StorageManager share one computer/process and startup/shutdown/restart lifetime with permitted local calls and distinct ownership; all process-crossing communication, including Controller access, uses NATS. W051 guarantees and stable, durable AcquisitionNode intake correlation remain mandatory; reconciliation is not yet implemented.
+376. Ingestor and StorageManager share one computer/process and startup/shutdown/restart lifetime with permitted local calls and distinct ownership; all process-crossing communication, including Controller access, uses NATS. Decision 377 qualifies scientific-envelope intake while preserving active durability and archival guarantees.
+377. Routine scientific observations and their metadata stay in AcquisitionNode-local scientific products regardless of size; Ingestor receives operational runtime evidence and manifests, not routine scientific envelopes. Historical W051/W052 remain validated; implementation reconciliation and future streaming are not completed or defined here.
 
 ---
 

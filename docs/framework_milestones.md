@@ -1140,9 +1140,13 @@ Q022, Phase 16, and M015 remain OPEN.
 ## Completed NATS persistence boundary slice validation
 
 Decision 376 preserves W051 as historical validation but removes the internal
-NATS requirement for the combined Ingestor-StorageManager process. Pending local
-reconciliation must preserve its identity, durability, idempotency, readback,
-corruption/legacy and archive protections without duplicate owners/lifecycles.
+NATS requirement for the combined Ingestor-StorageManager process. W052 completes
+bounded local persistence. Decision 377 subsequently removes routine scientific
+observations and metadata from envelope intake; that path is no longer required
+for routine acquisition. W051/W052 validation histories below remain unchanged.
+Active responsibilities retain durability, identity, corruption/readback, and
+archival protections. Scientific-local routing and operational-event preservation
+need implementation reconciliation; future streaming is open, not designed here.
 
 **W051 - Complete, bounded Q022 Ingestor-StorageManager ownership boundary.**
 Accepted-envelope persistence, current owner readback, journal-verified compilation,

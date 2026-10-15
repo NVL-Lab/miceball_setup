@@ -2,7 +2,7 @@
 
 ## Status And Scope
 
-Q022-A Decisions 367-376 are accepted and synchronized. Configuration/launching
+Q022-A Decisions 367-377 are accepted and synchronized. Configuration/launching
 and full independent-service adaptation remain pending; the bounded owner
 persistence/readback foundation below is independently validated and audited
 after correction (W051). This is the initial manual installation contract and a
@@ -20,6 +20,29 @@ through NATS. No new registry, database, or scientific ownership is introduced.
 The explicit local correlated persistence path is complete with independent
 validation and audit PASS (W052). Shared-lifetime
 bootstrap/launch composition is not implemented in this bounded persistence slice.
+
+## Scientific Data And Operational Evidence Boundary
+
+Decision 377 requires routine scientific observations and per-observation metadata
+to remain in AcquisitionNode's LocalStorageManager products, regardless of size.
+Classification is by meaning: node-generated operational evidence and manifests
+go to Ingestor through NATS, not the observations themselves. Local products retain
+existing observation ordering/identity, available acquisition/device timestamps,
+Session/Experiment/device/stream provenance and synchronization relationships.
+SynchronizationManager remains timing authority; StorageManager later collects
+artifacts without changing original scientific ownership or bytes.
+
+Ingestor still owns runtime-evidence intake/audit, journal-before-ACK,
+evidence_id deduplication, known-Session reconstruction and compilation. Existing
+health/failure, lifecycle/terminal and manifest obligations remain. The current
+envelope-based node start/stop events and health observations must migrate to
+existing lifecycle/runtime-evidence mechanisms, not disappear. No new formats,
+evidence categories, or transport for future scientific streaming are defined.
+
+This revision is not implemented. W051/W052 are historical validated envelope
+paths, no longer required for routine scientific acquisition; active durability,
+identity, corruption/readback and Q019 preservation/recovery/closure protections
+remain. Existing saved products and validation results must not be rewritten.
 
 ## Accepted Manual Procedure
 
@@ -216,26 +239,26 @@ active-Session clock restoration. Local timing helpers are not new services.
 
 ### Producer Intake And Publication Confirmation
 
-Decision 376 requires stable AcquisitionNode envelope-delivery identity and
-durable intake correlation with journal-before-ACK and restart-safe deduplication.
-Retries are not separate identical observations. Intake acceptance, local
-StorageManager persistence confirmation, and archival completion remain distinct.
+Decision 377 removes routine scientific envelope delivery and its additional
+intake-correlation requirement. Existing RuntimeEvidenceMessage identity,
+journal-before-ACK and restart-safe deduplication remain mandatory. Evidence
+acceptance, StorageManager persistence confirmation and archival completion
+remain distinct.
 
 **AcquisitionNode/Controller/other producers -> Ingestor:** Node `_send_envelope()`
 and `_record_artifact_manifest()` call intake directly; Controller decision and
 Experiment-rejection evidence also use direct `receive_runtime_evidence()`.
 Manifest recovery calls `has_durable_runtime_evidence()` on the same object.
-Reuse existing evidence publication/subscription and producer retention, existing
-acquisition-envelope serialization, and existing correlated commands/results.
-Missing functionality is NATS delivery/owner responses for acquisition envelopes
-and exact evidence-acceptance readback, not another evidence transport. Preserve
-envelope validation/audit, sender handoff-failure policy, stable evidence identity,
+Reuse existing evidence publication/subscription, producer retention and correlated
+commands/results. Missing functionality is external operational-evidence
+acceptance/readback and local scientific-path reconciliation, not new NATS
+scientific-envelope delivery. Preserve applicable failure reporting, stable evidence identity,
 same-content deduplication, retained-manifest retry, and journal-before-ACK.
 Publication confirmation, Ingestor acceptance, and complete receipt remain distinct.
-Depends on owner intake validation and StorageManager persistence forwarding;
+Depends on owner runtime-evidence validation and local scientific persistence;
 do not turn Ingestor's internal framework partition into another service owner.
 
-### Accepted Acquisition Record Persistence
+### Historical Acquisition Envelope Persistence (Reconciliation Required)
 
 **Ingestor -> StorageManager (local under Decision 376):** `receive_envelope()` directly invokes
 `store_envelopes()`, and Controller later reads stored Session envelopes for the
@@ -244,7 +267,10 @@ writing/readback. Reuse envelope serialization, existing persistent record APIs,
 and local calls with authoritative results. Adapted local interfaces must report actual storage
 outcomes and preserve Session/source association and existing failure semantics;
 neither a transport ACK nor a missing result is durable storage confirmation.
-Reconcile this local boundary before enabling acquisition intake that relies on it.
+W051/W052 validate this existing path, but Decision 377 no longer requires it for
+routine scientific observations. Route those observations and metadata to existing
+LocalStorageManager products; preserve operational evidence/audit and applicable
+durability safeguards rather than extending scientific-envelope intake journaling.
 
 ### Receipt, Compilation, And Kill Obligations
 
@@ -338,8 +364,10 @@ evidence/persistence interfaces before independent-role startup is fully enabled
 These are proposed implementation boundaries, not additional accepted architecture
 or claims of implementation/validation:
 
-1. Reconcile the combined process using existing local persistence/readback
-   interfaces with W051 guarantees, and owner-side NATS intake, acceptance,
+1. Reconcile routine observation/metadata handling with LocalStorageManager and
+   preserve node lifecycle/health evidence through existing runtime mechanisms.
+   Reconcile the combined process's active local persistence/readback guarantees,
+   and owner-side NATS operational-evidence intake, acceptance,
    receipt/compilation and external readback operations using existing
    envelopes/routing. Test exact identity, duplicates/conflicts, journal/ACK and
    write failure, missing/stale results, cancellation, and receiving-owner guards.

@@ -16,6 +16,14 @@ rather than:
 
 As the framework grows, this document should evolve into a catalog of validated capabilities.
 
+**Current architecture qualification (Decision 377):** Routine scientific
+observations and per-observation metadata now belong in AcquisitionNode-local
+scientific products regardless of size; Ingestor receives operational evidence
+and manifests. This revision is not yet implemented or validated. Scientific
+envelope workflows, including W051/W052, remain historical validated capabilities,
+not mandatory routine-acquisition pathways. Their results and historical records
+are unchanged; active evidence durability and Q019 archival guarantees remain.
+
 The socket and acquisition-envelope workflows below remain valid historical demonstrations of implemented boundaries. They are not the accepted Phase 10 runtime transport architecture: Phase 10 adopts brokered NATS communication, keeps large scientific artifacts local during acquisition, and has not yet been implemented or validated.
 
 ---

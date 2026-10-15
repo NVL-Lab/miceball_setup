@@ -851,7 +851,7 @@ Distributed operation
 ## Q022: What is the deployment-local configuration and initialization model?
 
 **Status:** OPEN - Q022-A installation/deployment design is accepted and synchronized
-in Decisions 367-376; the bounded Ingestor-StorageManager NATS persistence slice is
+in Decisions 367-377; the bounded Ingestor-StorageManager NATS persistence slice is
 complete with independent validation and final re-audit PASS after correction
 (W051). The local correlated persistence adaptation is also complete with
 independent validation and audit PASS (W052); remaining deployment implementation
@@ -973,9 +973,13 @@ exact formats remain implementation choices. No lifecycle API is introduced.
 * The composition/access question is resolved by Decision 376. Reconcile local
   Ingestor-StorageManager interfaces with W051 guarantees and shared lifetime;
   local correlated persistence is complete in W052, while bootstrap/lifetime
-  enforcement remains deferred. AcquisitionNode intake requires
-  stable delivery identity, durable correlation, journal-before-ACK and restart-safe
-  deduplication, distinct from persistence or archival confirmation. Implement
+  enforcement remains deferred. Decision 377 supersedes scientific-envelope
+  delivery/intake-journal work: routine observations and metadata remain in
+  LocalStorageManager products regardless of size. Preserve operational lifecycle,
+  health/failure, timing and manifest evidence through existing mechanisms and
+  RuntimeEvidenceMessage journal-before-ACK/deduplication/reconstruction guarantees.
+  Reconcile legacy envelope production, intake and Session Record coverage checks
+  without changing preserved historical products. Implement
   service-owned NATS requests/results for currently direct receipt, compilation,
   persistence, readback, timing, collection, release, and recovery interactions
   before enabling dependent role launch paths. Local owner guards cannot be
@@ -984,6 +988,9 @@ exact formats remain implementation choices. No lifecycle API is introduced.
   implemented remote APIs or new architectural contracts.
 * No automatic discovery, live reload/registration, GUI installer, configuration
   database, or mandatory device commissioning gate is required by this scope.
+* Future real-time scientific streaming remains architecturally OPEN; Decision
+  377 selects neither its transport nor additional infrastructure. No extension
+  of the Ingestor journal to routine scientific envelopes is required by Q022.
 * AcquisitionNode duplicate-ID policy is accepted; do not infer a new general
   policy for all RuntimeParticipant kinds or a global identity registry.
 

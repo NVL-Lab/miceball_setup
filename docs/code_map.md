@@ -2,7 +2,7 @@
 
 ## Accepted Q022-A Installation Contracts (Not Implemented)
 
-Decisions 367-376 accept one installed package with explicit role launching,
+Decisions 367-377 accept one installed package with explicit role launching,
 file-based local service/node configuration, explicit adapters and persistent node
 registration, adapter-defined Session-adjustable parameters, and manual installation
 verification. See [installation_and_deployment.md](installation_and_deployment.md).
@@ -49,12 +49,22 @@ W051 remains historically validated; internal NATS between the combined pair is
 no longer required. Local-interface reconciliation must preserve all W051 identity,
 durability, correlation, retry, readback, corruption/legacy and archival protections
 without duplicate state or separate lifetimes. AcquisitionNode intake requires
-stable delivery identity, durable correlation, journal-before-ACK and restart-safe
-deduplication distinct from persistence/archival confirmation. This reconciliation
+operational RuntimeEvidenceMessage identity, journal-before-ACK and restart-safe
+deduplication distinct from persistence/archival confirmation. Decision 377 removes
+routine scientific-envelope intake: observations and per-observation metadata
+belong in LocalStorageManager products regardless of size. This reconciliation
 has a complete explicit local correlated persistence path, independently validated
 and audited PASS (W052), including permanent binding-abort ordering coverage.
 Lifecycle bootstrap and acquisition-intake adaptation remain pending.
 No general launcher or additional owner is introduced.
+
+Decision 377 scientific-boundary adaptation is not implemented. Current
+AcquisitionNode `_send_envelope()`, collection/batching and start/stop/health event
+paths, Ingestor `receive_envelope()`, W051/W052 envelope persistence, and Controller/
+StorageManager Session Record and closeout envelope/audit checks remain legacy
+implementation. Reconcile scientific routing locally while retaining operational
+lifecycle/health/timing evidence, manifests and Q019 coverage/immutability guards.
+No obsolete code removal, new fields/formats, or future streaming is claimed.
 
 Q019 is CLOSED following W041-W049 slice completion and W050 overall software
 integration validation/audit PASS. The permanent sequential Normal Stop regression

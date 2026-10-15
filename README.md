@@ -4,7 +4,7 @@
 
 A modular synchronization and acquisition framework for neuroscience experiments.
 
-Q022-A installation/deployment architecture is accepted in Decisions 367-376.
+Q022-A installation/deployment architecture is accepted in Decisions 367-377.
 Its bounded NATS Ingestor-StorageManager persistence foundation is complete with
 independent validation and final re-audit PASS after a malformed-correlation
 correction (W051). Full deployment implementation remains outstanding. The intended
@@ -20,8 +20,13 @@ while retaining separate ownership. Controller, SynchronizationManager, and node
 remain independently deployed; every process-crossing interaction uses NATS,
 including Controller access to both components. W051 remains historically
 validated; bounded local correlated persistence is complete with independent
-validation and audit PASS (W052). Shared-lifetime bootstrap and durable acquisition
-intake reconstruction remain deferred.
+validation and audit PASS (W052). Decision 377 now requires routine scientific
+observations and per-observation metadata to remain in node-local scientific
+products regardless of size; Ingestor receives operational evidence and manifests.
+W051/W052 remain historically validated, but routine scientific-envelope transport
+and persistence are no longer required. Revised scientific routing and operational
+event preservation are not yet implemented. Shared-lifetime bootstrap remains
+deferred; future real-time scientific streaming is architecturally open.
 Remaining process-crossing direct-owner dependencies still need adaptation before
 fully functional independent-role deployment. Historical Q019 validation remains
 complete and does not claim this deployment adaptation has been validated.

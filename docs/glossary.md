@@ -46,12 +46,14 @@ connectivity alone does not prove Ingestor acceptance of evidence.
 
 ## Independent-Service Communication
 
-The deployment boundary in Decision 375: Controller, Ingestor, StorageManager,
-SynchronizationManager, and every AcquisitionNode launch independently, may run
-on different computers, and communicate with one another only through NATS.
+The deployment boundary in Decisions 375-377: Ingestor and StorageManager remain
+distinct authoritative components within one computer/process, sharing lifetime
+and permitted local calls. Controller, SynchronizationManager, and each node
+remain independently deployed. All process-crossing communication uses NATS,
+including Controller access to both combined-process components.
 Each service owns its operations, state, locks, evidence, and persistence.
-Development/test shared Python objects are not deployment dependencies; direct
-calls within a service remain appropriate. A missing or timed-out response is
+Direct local calls within the combined pair are permitted; other process-crossing
+shared Python objects are not deployment dependencies. A missing or timed-out response is
 unconfirmed, not success, and publication, acceptance, receipt, and archival
 remain distinct. This contract still requires implementation and validation.
 
@@ -239,7 +241,7 @@ termination of shared infrastructure, and scope must not expand automatically.
 
 # Acquisition Node
 
-A hardware-facing runtime responsible for acquiring data from devices, attaching framework scientific Runtime Timing, generating acquisition records, forwarding records to the Ingestor, evaluating Experiment-scoped acquisition health, executing assigned AcquisitionHealthPolicy interpretation, and recording Health Interpretation Evidence.
+A hardware-facing runtime responsible for acquiring data from devices, attaching framework scientific Runtime Timing, preserving observations and per-observation metadata through its LocalStorageManager, generating operational evidence for Ingestor, evaluating Experiment-scoped acquisition health, executing assigned AcquisitionHealthPolicy interpretation, and recording Health Interpretation Evidence (Decision 377).
 
 AcquisitionNode receives and applies the active immutable SynchronizationMapping, derives Experiment Time when an Experiment is active, reports local AcquisitionNode time samples to SynchronizationManager, and records local timing-quality observations. It does not create SynchronizationObservation evidence, create, validate, modify, activate, or retire mappings, estimate drift, decide when to remap, or interpret device-native clocks online.
 
@@ -603,8 +605,9 @@ Each emitted Health Observation produces at most one corresponding Health Interp
 Its fields preserve the originating observation reference, Experiment, live
 source, Expected Participant, observation type, assigned policy, interpretation
 label, required status, Session Time, and plain-data details. AcquisitionNode
-produces it immediately after its originating observation. Existing acquisition
-envelopes and the RuntimeEvidenceMessage communication path carry this evidence
+produces it immediately after its originating observation. Historical acquisition
+envelopes carry this evidence in current code; Decision 377 requires preservation
+through existing lifecycle/runtime-evidence mechanisms during adaptation. RuntimeEvidenceMessage carries this evidence
 without changing ownership. Runtime messages marked persistent by their producer
 are compiled by Ingestor for the separate Evidence Archive, not conceptually a
 raw runtime-evidence dump in the final Session Record.
@@ -681,7 +684,12 @@ or a transfer of permanent Evidence Archive ownership from StorageManager.
 
 The Ingestor does not own scientific time, evidence interpretation, lifecycle, scientific meaning, or persistence decisions. It must not infer persistence from evidence type, payload, source component, or domain meaning; it uses the explicit persistence intent carried by `RuntimeEvidenceMessage`.
 
-The Ingestor is not the universal online pipe for every scientific sample, frame, continuous data row, or large artifact byte. Producing components may store authoritative scientific data locally and represent artifact lifecycle through durable manifests.
+Under Decision 377, Ingestor does not receive routine scientific observations or
+their per-observation metadata as acquisition envelopes, regardless of size.
+LocalStorageManager owns those scientific products and metadata; AcquisitionNode
+may inspect them to generate operational evidence. Ingestor continues runtime
+evidence and manifest intake, audit, durable recovery and compilation. Existing
+timing/provenance, offline reconstruction and manifest protections remain.
 
 ---
 
@@ -712,7 +720,11 @@ Architecture-defined mandatory persistent evidence categories remain mandatory, 
 
 # Control Plane
 
-The NATS-based runtime communication plane for commands, command results, lifecycle, status, health, evidence, metadata, manifests, and transient telemetry. It does not transport large scientific artifacts or define Session Time.
+The NATS-based runtime communication plane for commands, command results,
+lifecycle, status, health, operational evidence/metadata, manifests, and transient
+telemetry. Under Decision 377 it does not carry routine scientific observations
+or their per-observation metadata, regardless of size, or define Session Time.
+Future real-time scientific streaming remains architecturally open.
 
 ---
 
@@ -1358,6 +1370,13 @@ cleanup or final persistence.
 
 A durable record describing one Session.
 
+Decision 377 qualifies the historical v1 examples below: routine scientific
+observations and their per-observation metadata belong in local scientific
+products, not mandatory acquisition-envelope/ingest-audit contents of this
+record. Applicable Session/Experiment/device/timing provenance and operational
+configuration, readiness, lifecycle, failure, cleanup and terminal evidence remain.
+Existing archived Session Records are not rewritten by this revision.
+
 Examples include:
 
 * accepted Session Configuration
@@ -1902,6 +1921,11 @@ Experiment identity, framework timing authority, artifact paths, or manifests.
 # Acquisition Record Envelope
 
 The Phase 1-9 unit of acquisition data exchanged between the acquisition side and the Ingestor in the validated bounded-envelope workflows.
+
+Decision 377 removes this as a mandatory pathway for routine scientific
+observations, including small observations and their metadata. Existing code and
+W051/W052 remain historically validated; revised local scientific routing is
+not yet implemented. This term does not define future real-time streaming.
 
 An Acquisition Record Envelope contains session identity, source device
 identity, record kind, and records in a plain-data form that can cross a process
