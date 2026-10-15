@@ -1148,6 +1148,15 @@ Active responsibilities retain durability, identity, corruption/readback, and
 archival protections. Scientific-local routing and operational-event preservation
 need implementation reconciliation; future streaming is open, not designed here.
 
+Decision 378 now requires clean replacement, not indefinite envelope compatibility:
+installation declarations and Experiment selections govern adapter scientific
+production/local persistence. Remove obsolete collection contracts, scientific
+envelope mechanisms and dead code/tests/docs only where no accepted responsibility
+remains. Preserve scientific provenance, operational evidence, historical readback
+and Q019 guarantees. The final independent integration audit must verify functional
+preservation and absence of obsolete scientific-envelope architecture. This
+replacement is not implemented or validated; project/milestone statuses are unchanged.
+
 **W051 - Complete, bounded Q022 Ingestor-StorageManager ownership boundary.**
 Accepted-envelope persistence, current owner readback, journal-verified compilation,
 and W041 receipt operations use NATS with stable write identity and fresh correlated

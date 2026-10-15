@@ -2,7 +2,7 @@
 
 ## Accepted Q022-A Installation Contracts (Not Implemented)
 
-Decisions 367-377 accept one installed package with explicit role launching,
+Decisions 367-378 accept one installed package with explicit role launching,
 file-based local service/node configuration, explicit adapters and persistent node
 registration, adapter-defined Session-adjustable parameters, and manual installation
 verification. See [installation_and_deployment.md](installation_and_deployment.md).
@@ -65,6 +65,16 @@ StorageManager Session Record and closeout envelope/audit checks remain legacy
 implementation. Reconcile scientific routing locally while retaining operational
 lifecycle/health/timing evidence, manifests and Q019 coverage/immutability guards.
 No obsolete code removal, new fields/formats, or future streaming is claimed.
+
+Decision 378 now requires clean replacement: installation declarations and
+Experiment selections govern supported adapter scientific production and local
+persistence, separately from operational evidence without content/size/name
+heuristics. Legacy collection contracts, scientific-envelope transport/persistence/
+audit/recovery/compatibility machinery, and dead functions/types/tests must be
+removed when no accepted responsibility remains. Entries below map existing code,
+not approved target APIs. Retain operational evidence and historical-readback
+responsibilities; preserve Q019 guarantees. Final independent integration audit
+must verify functionality and absence of obsolete architecture. Not implemented.
 
 Q019 is CLOSED following W041-W049 slice completion and W050 overall software
 integration validation/audit PASS. The permanent sequential Normal Stop regression

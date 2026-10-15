@@ -851,7 +851,7 @@ Distributed operation
 ## Q022: What is the deployment-local configuration and initialization model?
 
 **Status:** OPEN - Q022-A installation/deployment design is accepted and synchronized
-in Decisions 367-377; the bounded Ingestor-StorageManager NATS persistence slice is
+in Decisions 367-378; the bounded Ingestor-StorageManager NATS persistence slice is
 complete with independent validation and final re-audit PASS after correction
 (W051). The local correlated persistence adaptation is also complete with
 independent validation and audit PASS (W052); remaining deployment implementation
@@ -991,6 +991,14 @@ exact formats remain implementation choices. No lifecycle API is introduced.
 * Future real-time scientific streaming remains architecturally OPEN; Decision
   377 selects neither its transport nor additional infrastructure. No extension
   of the Ingestor journal to routine scientific envelopes is required by Q022.
+* Decision 378 resolves the adapter meaning/legacy-compatibility gate: installation
+  declares supported products, Experiments explicitly select them, and adapters
+  must support those products and distinguish scientific observations/metadata
+  from operational evidence. Do not infer meaning from content, size or old names.
+  Implement clean replacement/removal of obsolete collection and scientific-envelope
+  machinery, including redundant tests/documentation, retaining only accepted active
+  or historical-readback responsibilities. Final independent integration audit must
+  assess both functional preservation and absence of obsolete architecture.
 * AcquisitionNode duplicate-ID policy is accepted; do not infer a new general
   policy for all RuntimeParticipant kinds or a global identity registry.
 

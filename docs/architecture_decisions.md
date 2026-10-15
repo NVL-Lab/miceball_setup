@@ -10661,6 +10661,10 @@ Phase 16, and M015 remain OPEN.
 
 **Status:** Accepted
 
+**Subsequent clarification:** Decision 378 requires clean replacement of obsolete
+collection/scientific-envelope mechanisms, not indefinite legacy API compatibility.
+Historical decisions, validated outcomes and necessary record interpretation remain.
+
 Routine scientific observations and their per-observation metadata are preserved
 through AcquisitionNode's co-located LocalStorageManager, regardless of size.
 They no longer pass through Ingestor as AcquisitionRecordEnvelope messages.
@@ -10725,6 +10729,66 @@ Session Record/closeout coverage checks require reconciliation without weakening
 operational evidence preservation. Future real-time scientific streaming remains
 an open architectural question; no transport or infrastructure is selected.
 Q019 remains CLOSED; Q022, Q024, Phase 16 and M015 remain OPEN.
+
+---
+
+## Decision 378: Declared and selected scientific products replace legacy collection
+
+**Status:** Accepted
+
+Device installation declares the scientific products a device supports. Experiment
+configuration explicitly selects which registered products will be recorded.
+Those declarations and selections are authoritative for scientific acquisition
+and LocalStorageManager persistence, reusing Decisions 208-210 and 235-236.
+DeviceAdapters must explicitly support their declared scientific products and
+distinguish scientific observations and associated metadata from operational
+evidence. AcquisitionNode must not infer scientific meaning from content, size,
+or legacy naming. This clarifies Decision 377's meaning-based boundary without
+introducing a new component, scientific format or streaming infrastructure.
+
+The target contract is:
+
+```text
+Installation declares supported scientific products
+    -> Experiment explicitly selects registered products
+    -> DeviceAdapter produces those scientific observations/metadata
+    -> AcquisitionNode coordinates LocalStorageManager persistence
+
+DeviceAdapter/AcquisitionNode operational evidence
+    -> existing runtime-evidence mechanisms -> Ingestor
+```
+
+Implementation must cleanly replace legacy `collect_records()` /
+`collect_scientific_records()` contracts and routine scientific-envelope delivery
+from AcquisitionNode to Ingestor. Remove superseded scientific-envelope
+persistence, auditing, recovery and compatibility machinery, dead functions,
+unused types, redundant tests and obsolete documentation where they no longer
+serve an accepted responsibility. W051/W052 are historical validated outcomes,
+not justification to retain superseded architecture. Interfaces/records still
+needed for operational evidence, historical record interpretation or other
+authoritative responsibilities remain; this is not authorization to delete or
+rewrite preserved scientific artifacts, journals, Session Records or archives.
+
+Preserve observation identity/order, timestamps, Session/Experiment/device/stream
+provenance, local persistence, global collection and offline reconstruction.
+Preserve operational lifecycle/terminal events, acquisition health/failures,
+synchronization evidence and ArtifactManifests with their existing owners.
+RuntimeEvidenceMessage identity, producer persistence intent, journal-before-ACK,
+deduplication, reconstruction and compilation remain authoritative. Q019 evidence
+completeness, Normal Stop, Kill, Stage A/B, authorized recovery and permanent
+archive immutability must survive the replacement. Decision 376's shared-process
+topology and NATS across process boundaries remain unchanged.
+
+**Required integration audit:** After replacement, independent final integration
+audit must verify both functional preservation of these scientific, operational
+and Q019 guarantees and absence of obsolete scientific-envelope architecture.
+Passing replacement tests alone does not establish closure.
+
+**Implementation status:** Accepted and synchronized, not implemented or
+independently validated. Existing legacy code and tests require replacement;
+historical decision numbering and W051/W052 validation records remain unchanged.
+Future real-time scientific streaming remains architecturally open. Q019 remains
+CLOSED; Q022, Q024, Phase 16 and M015 remain OPEN.
 
 ---
 
@@ -11155,6 +11219,7 @@ requirements remain authoritative.
 375. Historically required all principal services to communicate through NATS; Decision 376 supersedes separate deployment and internal NATS for the Ingestor-StorageManager pair, preserving ownership and trustworthy confirmations.
 376. Ingestor and StorageManager share one computer/process and startup/shutdown/restart lifetime with permitted local calls and distinct ownership; all process-crossing communication, including Controller access, uses NATS. Decision 377 qualifies scientific-envelope intake while preserving active durability and archival guarantees.
 377. Routine scientific observations and their metadata stay in AcquisitionNode-local scientific products regardless of size; Ingestor receives operational runtime evidence and manifests, not routine scientific envelopes. Historical W051/W052 remain validated; implementation reconciliation and future streaming are not completed or defined here.
+378. Installation declarations and explicit Experiment selections govern adapter scientific production and local persistence; cleanly replace obsolete collection/envelope architecture while retaining active operational and archival responsibilities, with final independent integration audit of functionality and obsolete-path removal.
 
 ---
 

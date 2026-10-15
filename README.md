@@ -4,7 +4,7 @@
 
 A modular synchronization and acquisition framework for neuroscience experiments.
 
-Q022-A installation/deployment architecture is accepted in Decisions 367-377.
+Q022-A installation/deployment architecture is accepted in Decisions 367-378.
 Its bounded NATS Ingestor-StorageManager persistence foundation is complete with
 independent validation and final re-audit PASS after a malformed-correlation
 correction (W051). Full deployment implementation remains outstanding. The intended
@@ -27,6 +27,12 @@ W051/W052 remain historically validated, but routine scientific-envelope transpo
 and persistence are no longer required. Revised scientific routing and operational
 event preservation are not yet implemented. Shared-lifetime bootstrap remains
 deferred; future real-time scientific streaming is architecturally open.
+Decision 378 requires clean replacement of legacy collection/scientific-envelope
+paths: installation declares supported products, Experiments explicitly select
+them, and adapters produce scientific observations/metadata for local storage
+separately from operational evidence. W051/W052 history does not mandate obsolete
+API compatibility. Replacement is not implemented; final independent integration
+audit must verify both preserved guarantees and absence of obsolete architecture.
 Remaining process-crossing direct-owner dependencies still need adaptation before
 fully functional independent-role deployment. Historical Q019 validation remains
 complete and does not claim this deployment adaptation has been validated.

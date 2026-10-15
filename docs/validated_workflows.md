@@ -24,6 +24,13 @@ envelope workflows, including W051/W052, remain historical validated capabilitie
 not mandatory routine-acquisition pathways. Their results and historical records
 are unchanged; active evidence durability and Q019 archival guarantees remain.
 
+Decision 378 requires clean replacement of obsolete collection and scientific-
+envelope mechanisms, not indefinite legacy API compatibility. W051/W052 remain
+historical validations, not a reason to retain superseded code. Necessary
+operational/historical-readback responsibilities remain; the replacement's final
+independent integration audit must verify preserved functionality and absence of
+obsolete architecture. Replacement is not yet implemented or validated.
+
 The socket and acquisition-envelope workflows below remain valid historical demonstrations of implemented boundaries. They are not the accepted Phase 10 runtime transport architecture: Phase 10 adopts brokered NATS communication, keeps large scientific artifacts local during acquisition, and has not yet been implemented or validated.
 
 ---

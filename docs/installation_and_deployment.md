@@ -2,7 +2,7 @@
 
 ## Status And Scope
 
-Q022-A Decisions 367-377 are accepted and synchronized. Configuration/launching
+Q022-A Decisions 367-378 are accepted and synchronized. Configuration/launching
 and full independent-service adaptation remain pending; the bounded owner
 persistence/readback foundation below is independently validated and audited
 after correction (W051). This is the initial manual installation contract and a
@@ -43,6 +43,21 @@ This revision is not implemented. W051/W052 are historical validated envelope
 paths, no longer required for routine scientific acquisition; active durability,
 identity, corruption/readback and Q019 preservation/recovery/closure protections
 remain. Existing saved products and validation results must not be rewritten.
+
+Decision 378 makes installation-declared scientific products and explicit
+Experiment selections authoritative: DeviceAdapters produce their declared and
+selected observations/metadata for LocalStorageManager, separately from operational
+evidence. AcquisitionNode must not guess meaning from payload size/content or
+legacy `runtime_records` labels. This target contract is not yet implemented.
+Cleanly replace `collect_records()` / `collect_scientific_records()` and obsolete
+scientific-envelope transport, persistence, audit/recovery and compatibility paths,
+including dead functions/types, redundant tests and obsolete descriptions. Retain
+only interfaces and records serving accepted operational, historical-readback or
+other authoritative responsibilities; W051/W052 history is not a compatibility
+mandate. Preserve local scientific identity/order/timing/provenance, manifests,
+operational events/health/synchronization, and all Q019 preservation/recovery guards.
+Final independent integration audit must assess both functional preservation and
+absence of obsolete scientific-envelope architecture before closure.
 
 ## Accepted Manual Procedure
 
@@ -149,6 +164,8 @@ constructor behavior and W051 NATS adapters remain compatible; no second owner
 or internal NATS request is created by this mode. Both owners can be constructed
 and restarted together by the same process; general lifecycle bootstrap is deferred.
 Acquisition intake reconstruction/acknowledgment is not implemented here.
+This describes current W052 code, not a requirement to preserve superseded
+scientific-envelope APIs under Decision 378; retain only accepted responsibilities.
 This local adaptation is independently validated and audited PASS in W052:
 17 targeted developer tests, 16/16 independent IPython checks, eight focused audit
 tests and two probes passed. The permanent binding-abort regression and three
@@ -259,6 +276,11 @@ Depends on owner runtime-evidence validation and local scientific persistence;
 do not turn Ingestor's internal framework partition into another service owner.
 
 ### Historical Acquisition Envelope Persistence (Reconciliation Required)
+
+Decision 378 requires removal of these paths where they no longer serve an
+accepted responsibility, not an additional scientific-intake adapter. The existing
+interfaces below describe current code; only necessary historical record
+interpretation and active authoritative responsibilities justify retention.
 
 **Ingestor -> StorageManager (local under Decision 376):** `receive_envelope()` directly invokes
 `store_envelopes()`, and Controller later reads stored Session envelopes for the

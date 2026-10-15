@@ -372,6 +372,12 @@ A Device may produce streams, events, or both.
 
 # Device Adapter
 
+Decision 378 requires explicit support for installation-declared scientific
+products selected by Experiments, with scientific observations/metadata separated
+from operational evidence. Legacy `collect_records()` / `collect_scientific_records()`
+are current implementation contracts to be replaced, not target compatibility
+requirements. AcquisitionNode must not guess meaning from content, size or naming.
+
 The component responsible for communicating with a specific device type.
 
 The Device Adapter owns device-specific communication and exposes device capabilities to the framework.
@@ -887,6 +893,10 @@ requests without directly writing artifacts.
 ---
 
 # Scientific-Product Declaration
+
+Under Decision 378, installation registers these supported products; the adapter
+must explicitly support them and Experiment selection is authoritative for
+production and LocalStorageManager persistence.
 
 A device declaration's description of an available scientific product. It
 includes, as applicable, the existing product identity, type, scientific schema,
@@ -1931,6 +1941,11 @@ An Acquisition Record Envelope contains session identity, source device
 identity, record kind, and records in a plain-data form that can cross a process
 or computer boundary. Phase 2 envelopes may also contain `source_node_id`;
 existing Phase 1 envelopes remain valid without it.
+
+Decision 378 requires removal of superseded envelope production, persistence,
+audit/recovery and compatibility code where no accepted responsibility remains.
+Historical record interpretation and active operational evidence remain protected;
+the historical validations do not mandate retaining obsolete APIs.
 
 Phase 10 narrows this assumption for large-artifact workflows: NATS carries runtime evidence, metadata, and artifact manifests, while authoritative scientific rows and artifact bytes may remain local rather than crossing the Ingestor online.
 
