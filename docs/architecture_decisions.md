@@ -11004,6 +11004,113 @@ Q006, Q018, Q024, Phase 16 and M015 remain OPEN.
 
 ---
 
+## Decision 383: One common manual CLI reuses service launch and maintenance interfaces
+
+**Status:** Accepted
+
+One common framework CLI launches and administers Controller, AcquisitionNode,
+Ingestor, StorageManager and SynchronizationManager using their existing
+initialization, communication, readiness and maintenance interfaces. It does not
+create separate service implementations or provision configuration.
+
+Independent service operation remains governed by Decisions 295, 304 and 321.
+Decision 376's shared Ingestor/StorageManager process and lifetime remain unchanged;
+the CLI does not split that pair or implicitly launch other independent roles.
+All process-crossing communication remains NATS-based. This accepts manual entry
+points, not supervision, automatic restart, discovery or NATS process management.
+
+**Implementation status:** Accepted and synchronized; CLI implementation and
+independent validation remain pending under Q022.
+
+---
+
+## Decision 384: Ctrl+C requests local maintenance Stop without forced process exit
+
+**Status:** Accepted
+
+Ctrl+C invokes the running service's existing maintenance Stop locally. Confirmed
+completion permits normal exit subject to Decision 386. A blocked Stop triggers
+automatic Cancel; the launcher reports that outcome and keeps the process running.
+Failed or unconfirmed Stop must not silently terminate the process.
+
+There is no interactive Kill prompt or repeated-Ctrl+C forced termination. Reuse
+the existing maintenance attempt and cleanup/evidence obligations; Ctrl+C is not
+Session Normal Stop, Kill Session or Controller-coordinated framework shutdown.
+
+**Implementation status:** Accepted and synchronized; not yet implemented or validated.
+
+---
+
+## Decision 385: Separate terminals address service maintenance directly over NATS
+
+**Status:** Accepted
+
+A separate terminal may issue Stop, explicitly authorized Kill and Cancel directly
+to an identified service using existing NATS commands and maintenance identities,
+independently of Controller. Kill continues the same blocked stop attempt. Cancel
+ends that attempt without force. Existing authorization, cleanup, evidence and
+retirement protections remain mandatory.
+
+This does not introduce Controller-dependent administrative maintenance, a new
+network protocol, service discovery or a parallel command-processing mechanism.
+It does not change Session/Experiment lifecycle authority or framework shutdown.
+
+**Implementation status:** Accepted and synchronized; not yet implemented or validated.
+
+---
+
+## Decision 386: Launcher exit follows confirmed maintenance and final result handling
+
+**Status:** Accepted
+
+OS process exit is distinct from service operational retirement. The launcher
+exits only after confirmed completed maintenance and required final command-result
+publication/handling. Blocked, failed and unconfirmed outcomes must not be mistaken
+for successful process termination. This does not require a service to confirm
+its own death after exit.
+
+Existing maintenance/shutdown contracts, including Decisions 305-321 and 324-328,
+remain authoritative. Decision 313 independent Session-binding release and
+Decision 382 preservation eligibility do not by themselves authorize process exit.
+No new lifecycle state, supervision service or evidence store is introduced.
+
+**Implementation status:** Accepted and synchronized; not yet implemented or validated.
+
+---
+
+## Decision 387: Manual CLI reuses maintenance identities without adding authentication
+
+**Status:** Accepted
+
+Reuse existing command IDs, stop-attempt IDs and RuntimeParticipant identities.
+Generate a temporary requester ID for each terminal invocation. Use the OS username
+for local Ctrl+C administrator identity; require explicit administrator identity
+for remote commands. Identity recording is not a new authentication system and
+does not replace existing explicit Kill authorization.
+
+**Implementation status:** Accepted and synchronized; not yet implemented or validated.
+
+---
+
+## Decision 388: Terminal feedback reports existing outcomes and confirmed success only
+
+**Status:** Accepted
+
+Terminal feedback distinguishes confirmed completion, blocked, failed, rejected
+and unconfirmed results without introducing framework outcome states. Exit code 0
+is reserved for confirmed successful terminal commands; otherwise use nonzero.
+Report target identity, attempt ID, blockers, errors, unresolved obligations and
+necessary operator action. Missing responses or publication alone cannot be
+reported as confirmed completion or successful process termination.
+
+Decisions 383-388 accept the Manual Service Entry Points handoff without resolving
+Q022 configuration provisioning, Q024 recovery or unrelated open questions. Q019
+and W001-W060 remain CLOSED; Q022, Q006, Q018, Q024, Phase 16 and M015 remain OPEN.
+
+**Implementation status:** Accepted and synchronized; not yet implemented or validated.
+
+---
+
 # Accepted Architectural Principles
 
 The following principles summarize the accepted decisions so far.

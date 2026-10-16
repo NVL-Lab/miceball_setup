@@ -2560,6 +2560,19 @@ the audit corrections require follow-up validation and audit before M015 closure
 
 ---
 
+# Manual Service CLI
+
+Accepted common terminal entry point for launching and directly administering
+existing service capabilities (Decisions 383-388), not a separate service,
+configuration provisioner, supervisor or authentication system. Local Ctrl+C and
+addressed remote maintenance retain existing Stop/Kill/Cancel attempt semantics.
+Service operational retirement and confirmed final result handling precede OS
+process exit; Session-binding release alone does not authorize exit. The
+Ingestor/StorageManager pair retains its shared process lifetime. Implementation
+and independent validation are pending.
+
+---
+
 # Unknown Readiness
 
 Controller's interpretation when no valid current readiness report is available.

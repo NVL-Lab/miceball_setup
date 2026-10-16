@@ -1338,6 +1338,19 @@ enumeration/batch operations, broader recovery and deployment bootstrap remain
 outside this slice. Q022, Q006, Q018, Q024, Phase 16 and M015 remain OPEN.
 Q019 and W001-W058 remain CLOSED with historical records unchanged.
 
+## Accepted Manual Service CLI Architecture (Decisions 383-388)
+
+**Status:** Architecture accepted and synchronized; implementation and independent
+validation pending. One common CLI reuses service launch/readiness/maintenance,
+with local Ctrl+C Stop and automatic Cancel when blocked, direct addressed remote
+Stop/authorized Kill/Cancel, and exit only after confirmed maintenance and required
+final result handling. Existing identities and outcomes are reused; terminal
+feedback and exit codes distinguish unconfirmed results from success. Decision
+376's shared-process pair remains unchanged. No configuration provisioning,
+supervision, forced exit or new lifecycle state is accepted. This is not a new
+validated workflow or completion of Q022. W001-W060 and Q019 remain CLOSED;
+Q022, Q006, Q018, Q024, Phase 16 and M015 remain OPEN.
+
 ## Completed Q022 Distributed Session Closeout (W060)
 
 **Status:** CLOSED - implemented, independently validated and audited under

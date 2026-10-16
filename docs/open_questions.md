@@ -955,6 +955,25 @@ multi-host/hardware or power-loss validation is claimed. Q022 remains OPEN for
 its remaining deployment, remote enumeration/batch and broader maintenance/recovery
 obligations; Q006/Q018, Q024, Phase 16 and M015 remain OPEN. W001-W059 are unchanged.
 
+### Manual service entry points resolved (Decisions 383-388)
+
+The accepted CLI boundary reuses one common package and existing service
+initialization/readiness/maintenance. It preserves the shared Ingestor/StorageManager
+process and other independent roles. Local Ctrl+C requests maintenance Stop;
+blocked Stop automatically Cancels and keeps running. Separate terminals directly
+address existing NATS Stop/authorized Kill/Cancel without Controller; Kill continues
+the same blocked attempt. Exit waits for confirmed maintenance and required final
+result handling. Existing identities, temporary per-invocation requesters, local OS
+username and explicit remote administrator identities are not new authentication.
+Terminal feedback separates existing outcomes and reserves exit code 0 for
+confirmed success. No forced repeated-Ctrl+C exit or interactive Kill is accepted.
+
+This resolves manual CLI behavior, not configuration provisioning or Q024 recovery.
+Implementation and independent verification remain pending; Q022 remains OPEN.
+Q019 and W001-W060 remain CLOSED. Existing Q006/Q018, Q024, Phase 16 and M015
+statuses are unchanged. See installation_and_deployment.md for the accepted
+entry-point contract; no CLI implementation or validation is claimed.
+
 ### Q022-A accepted scope
 
 One installed package is launched with an explicit service role. Installation uses

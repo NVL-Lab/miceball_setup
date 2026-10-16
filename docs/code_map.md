@@ -1,5 +1,19 @@
 # Code Map
 
+## Accepted Manual Service CLI (Decisions 383-388; Not Implemented)
+
+One common CLI will reuse service initialization, NATS readiness and existing
+maintenance Stop/authorized Kill/Cancel, preserving Decision 376's paired process.
+Ctrl+C requests local Stop, automatically Cancels a blocked attempt and keeps
+running; it never offers interactive Kill or forced repeated-Ctrl+C exit. Separate
+terminals address services directly without Controller. Confirmed maintenance and
+required final command-result handling precede process exit. Existing identities,
+temporary requesters, local OS administrator name and explicit remote administrator
+identity are not authentication infrastructure. Terminal feedback uses existing
+outcomes, with exit code 0 only for confirmed success. No launcher, provisioning,
+new public API or validation is claimed here; Q022 remains OPEN. See
+installation_and_deployment.md and Decisions 383-388.
+
 ## Accepted Q022-A Installation Contracts (Not Implemented)
 
 Decisions 367-378 accept one installed package with explicit role launching,

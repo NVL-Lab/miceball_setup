@@ -23,6 +23,37 @@ independent validation and corrective re-audit PASS (W054); operational
 evidence journaling and owner-side preservation remain authoritative. Shared-lifetime
 bootstrap/launch composition is not implemented in this bounded persistence slice.
 
+## Accepted Manual Service Entry Points (Decisions 383-388)
+
+These contracts are accepted, not implemented or independently validated. One
+common CLI launches/administers the existing Controller, AcquisitionNode,
+Ingestor, StorageManager and SynchronizationManager capabilities. Decision 376's
+shared Ingestor/StorageManager process lifetime remains mandatory; other roles
+operate independently. Reuse initialization, NATS, readiness and maintenance;
+the CLI neither provisions configuration nor manages NATS or supervises services.
+
+Ctrl+C invokes local maintenance Stop using the OS username as administrator.
+Confirmed completion permits exit only after required final result
+publication/handling. Blocked Stop automatically invokes Cancel, reports its
+outcome and leaves the process running. Failed or unconfirmed Stop does not
+silently exit. There is no interactive Kill or repeated-Ctrl+C forced exit.
+
+A separate terminal sends existing NATS Stop, explicitly authorized Kill or Cancel
+directly to an identified service without Controller. Kill continues the same
+blocked stop attempt; Cancel ends it without force. Reuse command IDs,
+stop-attempt IDs and RuntimeParticipant identities, with a temporary requester ID
+per invocation and explicit administrator identity for remote commands. These
+identities are records, not new authentication infrastructure.
+
+Feedback distinguishes confirmed completion, blocked, failed, rejected and
+unconfirmed, reporting target, attempt, blockers/errors, outstanding obligations
+and operator action. Only confirmed successful terminal commands return exit code
+0; other terminal outcomes are nonzero. These are presentations of existing
+outcomes, not new lifecycle states. Operational retirement is distinct from OS
+process exit, Session-binding release, Session/Experiment termination and general
+framework shutdown. Existing preservation, cleanup and safety obligations remain.
+Configuration provisioning and Q024 recovery remain outside these decisions.
+
 ## Scientific Data And Operational Evidence Boundary
 
 Decision 377 requires routine scientific observations and per-observation metadata
