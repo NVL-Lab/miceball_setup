@@ -87,8 +87,18 @@ Ingestor/StorageManager references. StorageManager retains eligibility, collecti
 and persistence authority. All three replay/result-correlation P2 findings are
 resolved; independent validation and final audit PASS of d788d2e confirm bounded
 retry/restart behavior. Local JetStream used separate processes and simulated SFTP.
-Full cross-process closeout, enumeration/batch selection, closure/release,
+Full cross-process closeout, enumeration/batch selection, resource release,
 configuration/launching and broader deployment remain outstanding; Q022 stays OPEN.
+
+Q022 Slice 5 is CLOSED in
+[W059](docs/validated_workflows.md#w059---controller-remote-saved-session-evidence-archive-closure-over-nats):
+Controller can explicitly request permanent closure of one saved Evidence Archive
+over NATS. StorageManager retains closure authority and current durable readback;
+closure neither terminates Sessions nor releases services or scientific artifacts.
+The cached-success history-validation P2 was corrected, independently validated
+and passed focused audit of 31b2c7e. Corrective automated runtime attempts stalled
+inside the sandbox without results; no correction test passes are claimed.
+Multi-host, hardware/SFTP and power-loss validation remain unestablished.
 
 
 

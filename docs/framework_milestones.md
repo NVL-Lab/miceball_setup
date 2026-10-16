@@ -1313,6 +1313,31 @@ enumeration/batch selection, explicit closure, broader recovery and deployment
 configuration/launching/installation verification remain outside this slice.
 Q019 and W001-W057 remain CLOSED. Q022, Q006, Q018, Q024, Phase 16 and M015 remain OPEN.
 
+## Completed Q022 Slice 5 Remote Evidence Archive Closure (W059)
+
+**Status:** CLOSED - explicit permanent closure of one saved Evidence Archive
+over NATS, independently validated and final focused audit PASS of 31b2c7e;
+no confirmed P0-P3 findings. Controller requires no local persistence owners.
+StorageManager retains closure eligibility, locks, durable publication and current
+matching readback. Durably preserved collection failure does not itself block
+closure. Historical rejections stay rejected, fresh retries remain possible, and
+successful retries do not rewrite closed products. Closure is not Session
+termination, scientific-artifact mutation or service/resource release.
+
+W059 preserves original developer 67 tests PASS and independent IPython 4/4 PASS,
+the subsequent audit FAIL (one cached-success history-validation P2), correction
+IPython 3/3 PASS and final source audit PASS. Retained successes now pass complete
+scoped-history validation, including persisted-resolution conflicts, before owner
+reconfirmation. Corrective automated runtime attempts stalled in the sandbox;
+the final audit's six attempted tests produced no results and no passes are claimed.
+Counts are not additive. Local separate-process JetStream used simulated SFTP;
+no multi-host, hardware/physical SFTP or power-loss validation is claimed.
+
+Full cross-process Normal Stop/Kill, Stage A orchestration, release,
+enumeration/batch operations, broader recovery and deployment bootstrap remain
+outside this slice. Q022, Q006, Q018, Q024, Phase 16 and M015 remain OPEN.
+Q019 and W001-W058 remain CLOSED with historical records unchanged.
+
 ## Completed Session-binding release slice validation
 
 **Status:** Complete - narrow software implementation, manual IPython validation,

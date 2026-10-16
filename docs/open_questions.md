@@ -909,9 +909,19 @@ replay/result-correlation defects are resolved, including same-nonce identity
 conflicts. Controller uses NATS without local owner references; StorageManager
 revalidates eligibility/preservation and reuses durable outcomes without refetch.
 Full cross-process Normal Stop/Kill, Stage A receipt/handoff, completion/release,
-saved-Session enumeration/batch coordination, explicit closure, broader authorized
+saved-Session enumeration/batch coordination, broader authorized
 recovery, configuration/role launching and installation verification remain open.
 This closes only the implemented Slice 4 boundary, not Q022.
+
+Explicit Controller-driven remote permanent closure of one saved Evidence Archive
+is CLOSED in W059 after initial audit FAIL, cached-success history-validation P2
+correction, independent IPython correction validation 3/3 PASS and final focused
+audit PASS of 31b2c7e. Owner consistency/durability checks, complete scoped history
+and current archive readback remain required; closure does not terminate the
+Session, release resources or alter scientific products. Corrective automated
+runtime attempts stalled inside the sandbox without results. Full cross-process
+closeout/release, Stage A, enumeration/batch, recovery and bootstrap remain open;
+Q022 is not closed.
 
 ### Q022-A accepted scope
 

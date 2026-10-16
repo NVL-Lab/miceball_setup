@@ -4421,6 +4421,94 @@ Phase 16 and M015 remain OPEN. No accepted architectural decision is changed.
 
 ---
 
+# W059 - Controller Remote Saved-Session Evidence Archive Closure over NATS
+
+**Status:** CLOSED - bounded Q022 Slice 5; independently validated and audited.
+
+## Implemented scope and interfaces
+
+`Controller.close_saved_session_archive_remote(session_id, *, communication,
+storage_participant, result_window_s)` sends a separate explicit closure request
+over NATS without local Ingestor/StorageManager references. This closes one saved
+Session's Evidence Archive, not the Session lifecycle or its resource obligations.
+StorageManager retains closure eligibility, locks, consistency/preservation guards,
+durable publication and readback through its existing
+`close_session_evidence_archive(session_id)` method. Missing prerequisites and
+unresolved preservation writes prevent closure. Durably preserved failed or unknown
+collection outcomes do not automatically prevent otherwise valid closure.
+
+The NATS operation is `close_session_evidence_archive`, with canonical compact JSON
+`[session_id, "close_session_evidence_archive"]` command identity and fresh
+per-attempt nonce. StorageManager records closure in the existing
+`compilation_summary.json`; no new evidence ID, closure file or persistence owner
+is introduced. Success requires matching Session identity, owner-confirmed
+`closure_outcome` and current matching closed-archive readback. A cached response
+or historical success alone is insufficient.
+
+Fresh-only command subscriptions and complete scoped-result-history validation
+prevent historical rejections from becoming executable when prerequisites change.
+Fresh explicit retries remain possible. Duplicate/overlapping requests, lost
+replies, cancellation and owner restart preserve existing guards. Successful
+retries reconfirm current preservation without rewriting the closed archive.
+Retained successful responses undergo the same complete history scan before
+archive reconfirmation; malformed correlation, same-nonce identity conflicts and
+persisted resolutions conflicting with the retained outcome fail closed.
+Retained rejections remain rejected. Pending responses are in memory, not a new
+durable store; missing replies never establish confirmation.
+
+Closure neither terminates a Session nor releases services, bindings or hardware.
+It does not collect or mutate scientific artifacts. Scientific observations stay
+AcquisitionNode-local; existing Stage A/B, recovery and release ownership remains.
+
+## Validation and correction history
+
+- Original developer verification: **67 targeted tests PASS**, including local
+  JetStream with a separate shared Ingestor/StorageManager process, closure,
+  collection, preservation and NATS readback coverage.
+- Original independent user-run IPython validation: **4/4 PASS** for explicit
+  closure without release, historical rejection/fresh retry, lost reply/restart
+  reuse without rewrite, and corrupted archive readback rejection.
+- Subsequent independent audit of **6742383: FAIL**, one confirmed P2. A successful
+  closure response retained after result-publication failure could bypass complete
+  scoped-result-history validation on identical redelivery. Injected scoped
+  history missing `request_nonce` incorrectly allowed a successful reply.
+- Correction: retained-success reuse now enters the existing full history
+  validator before current archive reconfirmation and rejects disagreement with a
+  persisted resolution. Permanent regressions cover malformed history without
+  archive rewrite/history repair and conflicting retained/persisted resolutions.
+  Python syntax validation and `git diff --check` passed; sandbox runtime attempts
+  stalled without results. **No automated test passes are claimed for the correction.**
+- Independent user-run IPython correction validation: **3/3 PASS**. Malformed
+  scoped history blocked cached success; a conflicting persisted resolution blocked
+  cached success; a valid retry succeeded without rewriting the closed archive.
+- Final focused independent read-only audit of **31b2c7e: PASS**, no confirmed
+  P0-P3 findings. Source inspection confirmed the corrected admission path and
+  preservation of existing closure guards. Six relevant automated tests were
+  attempted inside the sandbox, stalled without results and were stopped. No
+  automated passes, elevated permissions or out-of-sandbox execution were claimed
+  for that re-audit.
+
+The verification runs describe distinct stages and must not be summed into an
+additive test total. Sandbox execution limitations are not application failures.
+No software tests or new audit were performed for this documentation-only closure.
+
+## Limitations and remaining boundaries
+
+This does not establish full cross-process Normal Stop/Kill, Stage A receipt/handoff
+orchestration, resource release, saved-Session enumeration/batch operations, broader
+maintenance/recovery or deployment bootstrap. Required retained history must remain
+available and intact; scanning is linear. Local separate-process JetStream coverage
+used simulated SFTP and does not establish multi-host, hardware/physical SFTP or
+power-loss validation. Corrective automated runtime verification remains limited
+by the reported sandbox stalls; independent correction validation and audit passed.
+
+W059 and bounded Q022 Slice 5 are CLOSED. Q022 overall remains OPEN. Q019 and
+W001-W058 remain CLOSED with historical records unchanged. Q006, Q018, Q024,
+Phase 16 and M015 remain OPEN. Accepted architecture and decision numbering are
+unchanged.
+
+---
+
 # Future Workflows
 
 The following workflows are expected to be added as the framework evolves.

@@ -523,14 +523,16 @@ validation. This subset does not adapt active Session Stop/Kill, Stage A/handoff
 creation, completion/release, remote saved-Session enumeration/batch selection,
 permanent closure or maintenance/recovery orchestration.
 
-### Explicit Remote Saved-Session Archive Closure (Slice 5 Implementation)
+### Explicit Remote Saved-Session Archive Closure (Closed, W059)
 
 The bounded implementation exposes the existing permanent Evidence Archive
 closure operation, not general Session lifecycle closeout. Call
 `await controller.close_saved_session_archive_remote(session_id,
 communication=..., storage_participant=..., result_window_s=...)` only as a
 separate explicit operator request. No local Controller Ingestor/StorageManager
-reference is needed. Independent validation/audit and slice closure remain pending.
+reference is needed. This bounded Slice 5 is CLOSED in W059 after independent
+IPython validation and final focused audit PASS of 31b2c7e, with no confirmed
+P0-P3 findings after the cached-success history-validation P2 correction.
 
 `close_session_evidence_archive` uses existing NATS command/results, canonical
 compact JSON `[session_id, "close_session_evidence_archive"]` command identity
@@ -563,7 +565,11 @@ preconditions are unchanged. Full Normal Stop/Kill, Stage A/handoff orchestratio
 enumeration/batch closeout, broader maintenance/recovery and role bootstrap remain
 outside this boundary. Retained history must be intact and scanning is linear;
 simulated SFTP/local JetStream testing does not establish hardware, multi-host or
-power-loss guarantees. Q022 remains OPEN; W058 history is unchanged.
+power-loss guarantees. W059 records the original 67 developer tests and 4/4
+independent IPython checks, initial audit FAIL, correction IPython 3/3 PASS and
+final audit PASS. Corrective runtime attempts, including six audit tests, stalled
+inside the sandbox without results; no automated correction passes are claimed.
+Counts are not additive. Q022 remains OPEN; W001-W058 history is unchanged.
 
 ### Framework Maintenance, Recovery, And Reconciliation
 
@@ -611,9 +617,11 @@ architecture or claims of implementation/validation:
    broader deployment obligations; operational-evidence transport is separately
    closed in W057.
 3. Bounded remote single saved-Session collection is CLOSED in W058 after
-   independent validation and final audit PASS. Remaining adaptation includes
+   independent validation and final audit PASS. Explicit remote permanent closure
+   of one saved Evidence Archive is CLOSED in W059 after correction, independent
+   validation and focused audit PASS. Remaining adaptation includes
    Q019 Controller Normal Stop/Kill, Stage A/handoff, completion/release,
-   saved-Session enumeration/batch collection, and explicit closure coordination. Test current coverage,
+   saved-Session enumeration/batch collection and batch closeout. Test current coverage,
    network-wait races, late intake, partial Kill, restart readback, batch isolation,
    idempotency, and archive immutability using independently owned services.
 4. Adapt framework startup evidence, reconciliation, maintenance and authorized

@@ -59,6 +59,22 @@ are recorded in W058. This is not full remote closeout, enumeration/batch,
 closure/release or maintenance/recovery. Scientific observations stay node-local;
 Stage B evidence stays StorageManager-owned. Q022 remains OPEN.
 
+## Remote Saved-Session Evidence Archive Closure (Closed, W059)
+
+`Controller.close_saved_session_archive_remote()` requests one saved archive's
+explicit permanent closure through existing NATS command/results without local
+Ingestor/StorageManager references. `NatsStorageManagerCommunication` admits both
+new and retained-success requests through complete scoped-history validation,
+rejects identity/resolution conflicts, and requires current matching owner readback.
+StorageManager's existing `close_session_evidence_archive()` retains locks,
+consistency checks and durable summary publication. Repeated success does not
+rewrite closed products; retained rejection is not readmitted after prerequisites
+change. Closure does not terminate Sessions or release services/resources.
+W059 records original developer 67 tests PASS, independent IPython 4/4 PASS,
+the cached-history P2 correction, correction IPython 3/3 PASS and final focused
+audit PASS of 31b2c7e. Corrective runtime attempts stalled in the sandbox without
+results; no correction automated passes are claimed. Broader Q022 remains OPEN.
+
 ## Distributed Synchronization And Experiment NATS Integration (Complete, W056)
 
 Decisions 379-381 resolve the minimum Q022 Slice 2 synchronization architecture:

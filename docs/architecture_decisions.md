@@ -10621,6 +10621,12 @@ collection over NATS is complete with independent validation and final audit PAS
 of d788d2e (W058), after three replay/result-correlation P2 corrections. Remote
 collection reuses owner eligibility/persistence guards and verified durable outcomes;
 it does not implement full closeout, remote enumeration/batch selection or closure.
+Bounded explicit remote permanent Evidence Archive closure is separately complete
+in W059 after independent validation and final focused audit PASS of 31b2c7e.
+The cached-success history-validation P2 is resolved: complete scoped history and
+current owner readback precede confirmation, without rewriting closed products.
+This adds no Session termination or release authority. Corrective automated runtime
+attempts stalled in the sandbox; no correction test passes are claimed.
 Broader preservation, collection, release,
 and maintenance/recovery still contain development-time
 direct-object dependencies. Establish the required service-owned NATS interfaces
