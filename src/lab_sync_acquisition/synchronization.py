@@ -425,7 +425,8 @@ class SynchronizationManager:
             return True
 
     @service_operation()
-    def release_session(self, session_id: str, *, ingestor: InMemoryIngestor | None = None) -> bool:
+    def release_session(self, session_id: str, *, ingestor: InMemoryIngestor | None = None,
+                        accepted_evidence: tuple[RuntimeEvidenceMessage, ...] | None = None) -> bool:
         """Release stopped preparation after mappings retire and evidence is durably handed off."""
         with self._mapping_lock:
             if not isinstance(session_id, str) or not session_id:
@@ -439,20 +440,22 @@ class SynchronizationManager:
             evidence = [item for item in self._mapping_update_evidence if item.session_id == session_id]
             distributed = [message for message in self._distributed_evidence if message.session_id == session_id]
             if evidence or distributed:
-                if ingestor is None:
+                if ingestor is None and accepted_evidence is None:
                     raise RuntimeError("Synchronization evidence preservation confirmation is required before release")
-                available = [message for message in ingestor.accepted_runtime_evidence
+                confirmed = (lambda message: ingestor.has_durable_runtime_evidence(message)) if ingestor is not None else (
+                    lambda message: any(candidate.to_dict() == message.to_dict() for candidate in accepted_evidence))
+                available = [message for message in (ingestor.accepted_runtime_evidence if ingestor is not None else accepted_evidence)
                              if message.session_id == session_id
                              and message.evidence_type == MAPPING_UPDATE_EVIDENCE_TYPE
                              and message.is_persistent]
                 for update in evidence:
                     match = next((message for message in available
                                   if message.payload == update.to_dict()
-                                  and ingestor.has_durable_runtime_evidence(message)), None)
+                                  and confirmed(message)), None)
                     if match is None:
                         raise RuntimeError("Synchronization evidence durable acceptance is unconfirmed")
                     available.remove(match)
-                if any(not ingestor.has_durable_runtime_evidence(message) for message in distributed):
+                if any(not confirmed(message) for message in distributed):
                     raise RuntimeError("Synchronization quality evidence durable acceptance is unconfirmed")
             self._mapping_update_evidence = tuple(
                 item for item in self._mapping_update_evidence if item.session_id != session_id)

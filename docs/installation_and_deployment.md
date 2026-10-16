@@ -145,12 +145,14 @@ Concrete camera configuration is an adapter example, not the generic parameter
 contract. No principal-service package split, registry, database, plugin framework,
 GUI, supervision, automatic discovery, or new readiness state is needed here.
 
-Controller archival/collection and maintenance preservation currently use actual
-Ingestor/StorageManager collaborators, including synchronous owner guards. They
-are not remote APIs merely because NATS participant commands exist. Decision 376
-permits local Ingestor-StorageManager calls but requires NATS for Controller and
-other process-crossing access; adapting these paths is pending
-implementation. Establish the necessary service-owned NATS interfaces before
+Local development archival/collection and maintenance preservation use actual
+Ingestor/StorageManager collaborators, including synchronous owner guards. Remote
+single-Session collection/closure are validated in W058/W059; distributed active
+Session closeout now has a developer implementation pending complete validation,
+described below. Decision 376 permits local Ingestor-StorageManager calls but
+requires NATS for Controller and other process-crossing access. Broader remote
+maintenance/recovery and deployment adaptation remain pending. Establish the
+necessary service-owned NATS interfaces before
 enabling launch paths that depend on them. Missing responses, failures, and
 timeouts must remain unconfirmed; retries must retain existing identity,
 durability, idempotency, and recovery protections.
@@ -406,7 +408,7 @@ or receipt reconstruction is needed.
 
 ### Stage A, Session Records, Handoff, And Binding Release
 
-**Accepted target (Decision 382; not yet implemented/validated):** The Normal Stop
+**Accepted contract (Decision 382; distributed implementation pending validation):** The Normal Stop
 marker is last-call after required producer-publication confirmations. Ingestor
 independently proves complete durable receipt through the marker, including the
 full publication interval, contiguous JetStream receiving progress and journal
@@ -429,23 +431,37 @@ or hardware safety. Kill partial-preservation/recovery and later Stage B/explici
 permanent closure remain separate. No new reliability subsystem, transaction
 coordinator, registry or Session state is authorized.
 
-**Current implementation - Controller/Ingestor -> StorageManager:** Controller directly writes Stage A,
-partial Kill preservation, initial/final Session Records, and the handoff, then
-reads preservation confirmations; completion/release compare current Ingestor
-contents with durable products under shared guards. Ingestor `release_session()`
-likewise uses `session_preservation_guard()` and handoff readback directly.
-Reuse StorageManager writers, persisted-product validation/readback, and NATS
-request/results. Missing handlers must preserve exact operational compilation/audit
-coverage, final-record Session identity, marker provenance, fsync/readback,
-non-overwriting handoff semantics, and immutable historical/closed contents.
-Adapt completion and release to trustworthy current owner confirmations, not
-cached flags, borrowed remote context managers, or shared locks. Revalidate
-Session/operation identity after network waits. Existing local late-intake checks
-remain the current implementation, not the finalized-intake target: Decision 382
-requires post-finalization deliveries to leave finalized products/audit unchanged.
-Before finalization, intake coverage, cancellation and stale release must not
-bypass obligations or retire a new binding. Depends on Ingestor receipt/compilation and StorageManager persistence
-interfaces; Stage A is not collection or permanent closure.
+**Current developer implementation - remote closeout:** A Controller with no local
+Ingestor/StorageManager references uses its launched NATS communication plus an
+explicit `storage_participant` for `normal_stop_session()` or authorized
+`kill_session()`. The receiving Ingestor adapter offers `admit_session_kill`,
+`preserve_session_acquisition`, `read_session_closeout`,
+`preserve_session_terminal_record` and `release_session`. These use fresh-only
+commands, complete scoped durable result history, per-attempt nonce/request
+correlation and current owner readback; missing responses never confirm success.
+
+Ingestor stores Kill admission or exact normal finality in its existing recovery
+journal. Normal finality follows W041 receipt verification and freezes evidence
+identities, marker receipt and the complete audit. Restart retains that audit
+instead of generating replacement recovery entries. Later deliveries are discarded
+without changing the frozen interval. Ingestor calls its paired StorageManager's
+existing writers and guards locally, and reconciles archive evidence, audit,
+Session Record, handoff and marker provenance. Partial Kill never claims complete
+receipt. Changed intake cannot silently replace historical preservation.
+
+Controller completes only after confirmed normal preservation and its own cleanup
+requirements, then preserves terminal lifecycle. Release separately rechecks the
+terminal record, obtains SynchronizationManager's guarded timing-evidence release,
+applicable node reservation release, and Ingestor release. Uncertainty retains the
+Controller binding and obligations. `reconcile_session_closeout()` reads a known
+saved scope after restart without restoring application state or a live clock.
+Saved readback requires the existing configured journal root and durable products;
+interrupted products still require existing authorized recovery. Local development
+interfaces remain available and do not require a NATS round trip inside the shared
+Ingestor/StorageManager process. Stage B, permanent closure and general service
+maintenance remain separate. This implementation is not independently validated
+or closed; sandbox restrictions currently prevent async integration execution and
+hard-link-based handoff publication tests.
 
 ### Partial-Handoff Refresh And Authorized Recovery Inputs
 
@@ -644,9 +660,11 @@ architecture or claims of implementation/validation:
 3. Bounded remote single saved-Session collection is CLOSED in W058 after
    independent validation and final audit PASS. Explicit remote permanent closure
    of one saved Evidence Archive is CLOSED in W059 after correction, independent
-   validation and focused audit PASS. Remaining adaptation includes
-   Q019 Controller Normal Stop/Kill, Stage A/handoff, completion/release,
-   saved-Session enumeration/batch collection and batch closeout. Test current coverage,
+   validation and focused audit PASS. Q019 Controller Normal Stop/Kill,
+   Stage A/handoff and completion/release now have a developer implementation
+   pending complete runtime verification, independent validation and audit (see
+   the Stage A section above). Saved-Session enumeration/batch collection and
+   batch closeout remain outside that implementation. Test current coverage,
    network-wait races, late intake, partial Kill, restart readback, batch isolation,
    idempotency, and archive immutability using independently owned services.
 4. Adapt framework startup evidence, reconciliation, maintenance and authorized

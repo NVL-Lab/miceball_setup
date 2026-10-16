@@ -82,6 +82,7 @@ class InMemoryIngestor:
         self._requires_prepared_session = session_id is not None or recovery_journal_root is not None
         self._session_id = session_id
         self._kill_handoff_required = False
+        self._finalized_intake = None
         self._component_id = component_id
         self._recovery_journal_path = (
             Path(recovery_journal_path) if recovery_journal_path is not None else None
@@ -167,6 +168,8 @@ class InMemoryIngestor:
         if self._recovery_journal_path is not None:
             if self._recovery_journal_path.exists():
                 self._restore_runtime_evidence()
+                if self._finalized_intake is not None:
+                    return
                 self.receive_runtime_evidence(
                     RuntimeEvidenceMessage(
                         evidence_id=uuid4().hex,
@@ -243,6 +246,229 @@ class InMemoryIngestor:
                 raise RuntimeError("Kill handoff obligation does not match Ingestor Session")
             self._kill_handoff_required = True
 
+    def admit_kill_closeout(self, session_id: str) -> None:
+        """Durably retain Kill preservation obligations before participant shutdown."""
+        with self._intake_lock:
+            if self._session_id != session_id or self._finalized_intake is not None:
+                raise RuntimeError("Kill admission requires the current unfinalized Session")
+            if not self._kill_handoff_required:
+                if self._recovery_journal_path is None:
+                    raise RuntimeError("Kill admission requires a durable journal")
+                self._append_runtime_evidence(json.dumps({"ingestor_checkpoint": {
+                    "kind": "kill_admission", "session_id": session_id}}, sort_keys=True))
+                self._kill_handoff_required = True
+
+    def finalize_acquisition_intake(self, marker: RuntimeEvidenceMessage, receipt: dict) -> dict:
+        """Freeze exact acquisition intake after owner-side complete receipt verification."""
+        with self._intake_lock:
+            if self._finalized_intake is not None:
+                if self._finalized_intake["marker"] != marker.to_dict():
+                    raise RuntimeError("A different completion marker cannot replace finalized intake")
+                return self.finalized_acquisition_intake(marker.session_id)
+            if (self._kill_handoff_required or marker.session_id != self._session_id
+                    or marker.evidence_type != "acquisition_evidence_completion"
+                    or receipt.get("session_id") != self._session_id
+                    or receipt.get("evidence_id") != marker.evidence_id
+                    or receipt.get("durable_receipt_confirmed") is not True
+                    or type(receipt.get("marker_stream_sequence")) is not int
+                    or receipt["marker_stream_sequence"] <= 0):
+                raise RuntimeError("Finalization requires matching complete durable acquisition receipt")
+            with self.durable_runtime_evidence_history_guard(self._session_id,
+                    self._recovery_journal_path, self._accepted_runtime_evidence) as confirmed:
+                if not confirmed or not self.has_durable_runtime_evidence(marker):
+                    raise RuntimeError("Finalization journal coverage is unconfirmed")
+                checkpoint = {"kind": "acquisition_finality", "session_id": self._session_id,
+                    "marker": marker.to_dict(), "receipt": deepcopy(receipt),
+                    "evidence_ids": list(self._accepted_evidence_content),
+                    "ingest_audit": [audit.to_dict() for audit in self._runtime_evidence_audit]}
+                self._append_runtime_evidence(json.dumps({"ingestor_checkpoint": checkpoint},
+                    sort_keys=True, allow_nan=False))
+                self._finalized_intake = checkpoint
+                return deepcopy(checkpoint)
+
+    def finalized_acquisition_intake(self, session_id: str) -> dict | None:
+        """Read exact journal-confirmed finality, never an in-memory flag alone."""
+        with self._intake_lock:
+            if session_id != self._session_id or self._finalized_intake is None:
+                return None
+            with self.durable_runtime_evidence_history_guard(session_id,
+                    self._recovery_journal_path, self._accepted_runtime_evidence) as confirmed:
+                if not confirmed:
+                    raise RuntimeError("Finalized acquisition journal is unconfirmed")
+                return deepcopy(self._finalized_intake)
+
+    def preserve_session_closeout(self, session_id: str, *, mode: str, session_record: dict,
+                                  controller_evidence: list[dict], uncertainties: list[dict]) -> dict:
+        """Preserve owner-verified complete or explicitly partial intake with the paired storage owner."""
+        storage = self._storage_manager
+        if storage is None:
+            raise RuntimeError("Closeout requires the configured shared-process StorageManager")
+        with self._intake_lock, self.durable_runtime_evidence_history_guard(
+                session_id, self._recovery_journal_path, self._accepted_runtime_evidence) as confirmed:
+            if not confirmed:
+                raise RuntimeError("Closeout journal coverage is unconfirmed")
+            if mode not in {"normal", "kill"}:
+                raise ValueError("Unknown Session closeout mode")
+            if mode == "normal" and self._finalized_intake is None:
+                raise RuntimeError("Normal closeout requires finalized acquisition intake")
+            if mode == "kill" and (not self._kill_handoff_required or self._finalized_intake is not None):
+                raise RuntimeError("Partial Kill requires its admitted preservation obligation")
+            if session_record.get("accepted_session_config", {}).get("session_id") != session_id:
+                raise ValueError("Closeout Session Record identity mismatch")
+            compiled = self.compile_persistent_runtime_evidence()
+            actual = {m.evidence_id: m.to_dict() for m in self._accepted_runtime_evidence}
+            if mode == "normal" and any(actual.get(m.get("evidence_id")) != m for m in controller_evidence):
+                raise RuntimeError("Required Controller evidence is not durably accepted")
+            with storage.session_preservation_guard(session_id):
+                current = storage.get_persisted_session_preservation_confirmation(session_id)
+                if current is None:
+                    record = deepcopy(session_record)
+                    record.update(runtime_evidence=[m.to_dict() for m in compiled["runtime_evidence"]],
+                                  runtime_evidence_audit=[a.to_dict() for a in compiled["ingest_audit"]])
+                    if mode == "normal":
+                        storage.write_acquisition_stage(session_id, compiled,
+                            receipt=self._finalized_intake["receipt"], **record)
+                    else:
+                        uncertainties = deepcopy(uncertainties) + [{"evidence_id": m.get("evidence_id"),
+                            "acceptance_confirmed": False, "reason": "Controller publication is unconfirmed"}
+                            for m in controller_evidence if actual.get(m.get("evidence_id")) != m]
+                        storage.write_kill_acquisition_stage(session_id, compiled,
+                            uncertainties=uncertainties, **record)
+                    storage.write_artifact_collection_handoff(session_id,
+                        self.compile_artifact_collection_handoff(session_id))
+                return self.read_session_closeout(session_id)
+
+    def read_session_closeout(self, session_id: str) -> dict:
+        """Reconcile exact current journal, finalized audit, archive and handoff coverage."""
+        storage = self._storage_manager
+        if storage is None:
+            raise RuntimeError("Closeout readback requires the paired StorageManager")
+        if self._session_id is None:
+            return self._read_saved_closeout(session_id)
+        with self._intake_lock, self.durable_runtime_evidence_history_guard(
+                session_id, self._recovery_journal_path, self._accepted_runtime_evidence) as confirmed:
+            if not confirmed:
+                raise RuntimeError("Current closeout journal coverage is unconfirmed")
+            with storage.session_preservation_guard(session_id):
+                current = storage.get_persisted_session_preservation_confirmation(session_id)
+                compiled = self.compile_persistent_runtime_evidence()
+                origins = set((current or {}).get("compilation_summary", {}).get("runtime_evidence_origins", {}).get("ingestor", []))
+                if (current is None or [m for m in current["runtime_evidence"] if m["evidence_id"] in origins]
+                        != [v.to_dict() for v in compiled["runtime_evidence"]]
+                        or current["ingest_audit"] != [v.to_dict() for v in compiled["ingest_audit"]]
+                        or current["artifact_collection_handoff"] != self.compile_artifact_collection_handoff(session_id)):
+                    raise RuntimeError("Current closeout preservation does not cover intake")
+                normal = self._finalized_intake is not None
+                summary = current["compilation_summary"]
+                if normal:
+                    if (summary.get("stage_a_complete") is not True
+                            or summary.get("acquisition_evidence_completion", {}).get("evidence_id")
+                                != self._finalized_intake["marker"]["evidence_id"]
+                            or summary["acquisition_evidence_completion"].get("marker_stream_sequence")
+                                != self._finalized_intake["receipt"]["marker_stream_sequence"]):
+                        raise RuntimeError("Finalized marker provenance is not preserved")
+                elif not summary.get("kill_preservation", {}).get("preservation_confirmed"):
+                    raise RuntimeError("Partial Kill preservation is unconfirmed")
+                return deepcopy({"session_id": session_id, "storage_id": storage._component_id,
+                    "preservation_confirmed": True, "acquisition_preservation_eligible": normal,
+                    "finalized_intake": self._finalized_intake,
+                    "compilation_summary": summary, "session_record": current["session_record"],
+                    "artifact_collection_handoff": current["artifact_collection_handoff"]})
+
+    def _read_saved_closeout(self, session_id: str) -> dict:
+        """Verify a known saved scope without restoring an active Session or adding recovery intake."""
+        if self._recovery_journal_root is None or not isinstance(session_id, str) or not session_id:
+            raise RuntimeError("Known-Session journal configuration is required for restart readback")
+        if any(c in session_id for c in '/\\\x00:') or session_id in {".", ".."}:
+            raise ValueError("Invalid Session journal identity")
+        with self._intake_lock, self._storage_manager.session_preservation_guard(session_id):
+            current = self._storage_manager.get_persisted_session_preservation_confirmation(session_id)
+            if current is None:
+                raise RuntimeError("Saved preservation is unconfirmed")
+            messages, finality, kill = {}, None, False
+            with (self._recovery_journal_root / f"session_{session_id}.jsonl").open("rb") as journal:
+                before = os.fstat(journal.fileno())
+                for line in journal:
+                    data = json.loads(line)
+                    if "ingestor_checkpoint" in data:
+                        checkpoint = data["ingestor_checkpoint"]
+                        if checkpoint.get("session_id") != session_id:
+                            raise ValueError("Saved checkpoint Session mismatch")
+                        if checkpoint.get("kind") == "kill_admission" and finality is None:
+                            kill = True
+                        elif checkpoint.get("kind") == "acquisition_finality" and finality is None and not kill:
+                            finality = checkpoint
+                        else:
+                            raise ValueError("Saved closeout checkpoint is conflicting")
+                    else:
+                        evidence = RuntimeEvidenceMessage.from_dict(data)
+                        if finality is not None or evidence.session_id != session_id:
+                            raise ValueError("Saved acquisition interval changed")
+                        old = messages.setdefault(evidence.evidence_id, evidence.to_dict())
+                        if old != evidence.to_dict():
+                            raise ValueError("Saved evidence identity conflict")
+                after = os.fstat(journal.fileno())
+                if (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
+                    raise RuntimeError("Saved journal changed during readback")
+            origins = set(current["compilation_summary"].get("runtime_evidence_origins", {}).get("ingestor", []))
+            if [m for m in current["runtime_evidence"] if m["evidence_id"] in origins] != [m for m in messages.values() if m["is_persistent"]]:
+                raise RuntimeError("Saved journal evidence is not completely preserved")
+            summary = current["compilation_summary"]
+            if finality is not None:
+                if (finality.get("evidence_ids") != list(messages)
+                        or finality.get("ingest_audit") != current["ingest_audit"]
+                        or finality.get("marker") != messages.get(finality.get("receipt", {}).get("evidence_id"))
+                        or finality.get("marker", {}).get("session_id") != session_id
+                        or finality.get("marker", {}).get("evidence_type") != "acquisition_evidence_completion"
+                        or finality.get("receipt", {}).get("session_id") != session_id
+                        or finality.get("receipt", {}).get("durable_receipt_confirmed") is not True
+                        or type(finality.get("receipt", {}).get("marker_stream_sequence")) is not int
+                        or finality["receipt"]["marker_stream_sequence"] <= 0
+                        or summary.get("stage_a_complete") is not True
+                        or summary.get("acquisition_evidence_completion", {}).get("evidence_id")
+                            != finality["receipt"]["evidence_id"]
+                        or summary.get("acquisition_evidence_completion", {}).get("marker_stream_sequence")
+                            != finality.get("receipt", {}).get("marker_stream_sequence")):
+                    raise RuntimeError("Saved finalized intake coverage is unconfirmed")
+            elif not kill or not summary.get("kill_preservation", {}).get("preservation_confirmed"):
+                raise RuntimeError("Saved partial Kill obligation is unconfirmed")
+            return deepcopy({"session_id": session_id, "storage_id": self._storage_manager._component_id,
+                "preservation_confirmed": True, "acquisition_preservation_eligible": finality is not None,
+                "finalized_intake": finality, "compilation_summary": summary,
+                "session_record": current["session_record"],
+                "artifact_collection_handoff": current["artifact_collection_handoff"]})
+
+    def preserve_terminal_session_record(self, session_id: str, session_record: dict) -> dict:
+        """Persist Controller-owned terminal lifecycle without changing acquisition evidence."""
+        with self._intake_lock:
+            before = self.read_session_closeout(session_id)
+            old = before["session_record"]
+            lifecycle = session_record.get("lifecycle_evidence", [])
+            status = session_record.get("final_session_status") or {}
+            if (session_record.get("accepted_session_config") != old["accepted_session_config"]
+                    or status.get("state") not in {"completed", "failed", "aborted"}
+                    or not lifecycle or lifecycle[-1].get("to_state") != status["state"]
+                    or lifecycle[:len(old["session_lifecycle_evidence"])] != old["session_lifecycle_evidence"]):
+                raise RuntimeError("Terminal Session Record conflicts with preserved lifecycle")
+            if (old.get("final_session_status") or {}).get("state") in {"completed", "failed", "aborted"}:
+                if (old["final_session_status"] != status or old["session_lifecycle_evidence"] != lifecycle):
+                    raise RuntimeError("Terminal Session history cannot be replaced")
+                return before
+            if not before["acquisition_preservation_eligible"]:
+                raise RuntimeError("Partial Kill terminal history is immutable")
+            record = deepcopy(session_record)
+            if self._session_id is None:
+                archived = self._storage_manager.get_persisted_session_preservation_confirmation(session_id)
+                origins = set(archived["compilation_summary"]["runtime_evidence_origins"]["ingestor"])
+                record.update(runtime_evidence=[m for m in archived["runtime_evidence"] if m["evidence_id"] in origins],
+                              runtime_evidence_audit=archived["ingest_audit"])
+            else:
+                compiled = self.compile_persistent_runtime_evidence()
+                record.update(runtime_evidence=[m.to_dict() for m in compiled["runtime_evidence"]],
+                              runtime_evidence_audit=[a.to_dict() for a in compiled["ingest_audit"]])
+            self._storage_manager.write_final_session_record(session_id, **record)
+            return self.read_session_closeout(session_id)
+
     @service_operation()
     def release_session(
         self, session_id: str, *, storage_manager: PersistentStorageManager | None = None,
@@ -287,6 +513,7 @@ class InMemoryIngestor:
             self._session_prepared = False
             self._session_id = None
             self._kill_handoff_required = False
+            self._finalized_intake = None
             self._recovery_journal_path = None
             self._accepted_evidence_content.clear()
             self._accepted_runtime_evidence = ()
@@ -327,8 +554,24 @@ class InMemoryIngestor:
                            for identity, content in required.items()):
                         with self._recovery_journal_path.open("rb") as journal:
                             before = os.fstat(journal.fileno())
+                            finality_seen = None
+                            kill_seen = False
                             for line in journal:
-                                item = RuntimeEvidenceMessage.from_dict(json.loads(line))
+                                data = json.loads(line)
+                                if "ingestor_checkpoint" in data:
+                                    checkpoint = data["ingestor_checkpoint"]
+                                    if checkpoint.get("session_id") != session_id:
+                                        raise ValueError("Journal checkpoint Session mismatch")
+                                    if checkpoint.get("kind") == "kill_admission" and finality_seen is None:
+                                        kill_seen = True
+                                    elif checkpoint.get("kind") == "acquisition_finality" and finality_seen is None and not kill_seen:
+                                        finality_seen = checkpoint
+                                    else:
+                                        raise ValueError("Conflicting journal checkpoint")
+                                    continue
+                                if finality_seen is not None:
+                                    raise ValueError("Acquisition evidence follows finalized intake")
+                                item = RuntimeEvidenceMessage.from_dict(data)
                                 content = self._evidence_content(item)
                                 if self._accepted_evidence_content.get(item.evidence_id) != content:
                                     raise ValueError("Journal history differs from accepted evidence")
@@ -336,9 +579,10 @@ class InMemoryIngestor:
                             after = os.fstat(journal.fileno())
                             current = self._recovery_journal_path.stat()
                             attributes = ("st_dev", "st_ino", "st_size", "st_mtime_ns")
-                            confirmed = not remaining and all(
+                            confirmed = (not remaining and finality_seen == self._finalized_intake
+                                and (not kill_seen or self._kill_handoff_required) and all(
                                 getattr(before, name) == getattr(after, name) == getattr(current, name)
-                                for name in attributes)
+                                for name in attributes))
             except (OSError, ValueError, TypeError, KeyError, AttributeError):
                 confirmed = False
             # The caller commits only a readback result here, never an async operation.
@@ -393,6 +637,8 @@ class InMemoryIngestor:
     def _restore_runtime_evidence(self) -> None:
         restored: dict[str, tuple[str, RuntimeEvidenceMessage]] = {}
         framework_audit = []
+        finality = None
+        kill_required = False
         with self._recovery_journal_path.open("r+b") as journal:
             while True:
                 offset = journal.tell()
@@ -421,6 +667,42 @@ class InMemoryIngestor:
                     journal.flush()
                     os.fsync(journal.fileno())
                     break
+                if self._evidence_scope == "session" and "ingestor_checkpoint" in data:
+                    checkpoint = data["ingestor_checkpoint"]
+                    if not isinstance(checkpoint, dict) or checkpoint.get("session_id") != self._session_id:
+                        raise ValueError("Invalid Session journal checkpoint")
+                    if checkpoint.get("kind") == "kill_admission" and finality is None:
+                        kill_required = True
+                    elif checkpoint.get("kind") == "acquisition_finality" and finality is None and not kill_required:
+                        marker = RuntimeEvidenceMessage.from_dict(checkpoint["marker"])
+                        receipt = checkpoint["receipt"]
+                        audits = [RuntimeEvidenceAuditRecord(**item) for item in checkpoint["ingest_audit"]]
+                        if (checkpoint["evidence_ids"] != list(restored)
+                                or marker.evidence_id not in restored
+                                or restored[marker.evidence_id][0] != self._evidence_content(marker)
+                                or marker.evidence_type != "acquisition_evidence_completion"
+                                or receipt.get("session_id") != self._session_id
+                                or receipt.get("evidence_id") != marker.evidence_id
+                                or receipt.get("durable_receipt_confirmed") is not True
+                                or type(receipt.get("marker_stream_sequence")) is not int
+                                or receipt["marker_stream_sequence"] <= 0
+                                or any(a.ingest_order != i or type(a.accepted) is not bool
+                                    or type(a.ingest_received_at) not in {int, float}
+                                    or not isinstance(a.reason, str)
+                                    or (a.accepted and a.evidence_id not in restored)
+                                    for i, a in enumerate(audits, 1))
+                                or {a.evidence_id for a in audits if a.accepted} != set(restored)):
+                            raise ValueError("Finalized journal coverage or audit is inconsistent")
+                        finality = checkpoint
+                    else:
+                        raise ValueError("Conflicting Session journal checkpoint")
+                    if not terminated:
+                        journal.write(b"\n")
+                        journal.flush()
+                        os.fsync(journal.fileno())
+                    continue
+                if finality is not None:
+                    raise ValueError("Journal evidence follows finalized acquisition intake")
                 if self._evidence_scope == "framework":
                     audit = RuntimeEvidenceAuditRecord(**data["ingest_audit"])
                     if audit.ingest_order != len(framework_audit) + 1:
@@ -449,9 +731,13 @@ class InMemoryIngestor:
                     journal.flush()
                     os.fsync(journal.fileno())
             # Do not expose any staged state unless the entire journal is valid.
+            journal.flush()
+            os.fsync(journal.fileno())
         self._accepted_runtime_evidence = tuple(item[1] for item in restored.values())
         self._accepted_evidence_content = {key: value[0] for key, value in restored.items()}
-        self._runtime_evidence_audit = tuple(framework_audit) if self._evidence_scope == "framework" else tuple(
+        self._finalized_intake = finality
+        self._kill_handoff_required = kill_required
+        self._runtime_evidence_audit = tuple(RuntimeEvidenceAuditRecord(**item) for item in finality["ingest_audit"]) if finality is not None else tuple(framework_audit) if self._evidence_scope == "framework" else tuple(
             RuntimeEvidenceAuditRecord(index, time(), evidence.evidence_id, True, "recovered")
             for index, evidence in enumerate(self._accepted_runtime_evidence, 1)
         )
@@ -536,6 +822,8 @@ class InMemoryIngestor:
         """Journal new evidence before acceptance when configured; deduplicate intake."""
 
         with self._intake_lock:
+            if self._finalized_intake is not None:
+                return RuntimeEvidenceAuditRecord(0, time(), evidence.evidence_id, False, "acquisition_intake_finalized")
             if evidence.session_id is None and self._evidence_scope == "session":
                 if self._framework_ingestor is None:
                     raise RuntimeError("Framework recovery journal is not configured")

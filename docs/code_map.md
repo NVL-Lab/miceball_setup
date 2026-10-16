@@ -864,8 +864,14 @@ is complete; W030 records manual validation, focused tests, and audit reassessme
 - Controller.publish_acquisition_evidence_completion(*, communication, result_window_s): Asynchronously confirms Session-scoped node and synchronization publication plus completed Controller health processing, publishes owned/retained evidence and one stable marker, and returns ControllerCommandResult without receipt, archival, or lifecycle completion.
 - Controller.archive_acquisition_evidence(*, communication): Verifies receipt of its confirmed W042 marker through the matching NatsIngestorCommunication, archives current protected Ingestor compilation and existing Session Record evidence, and returns confirmed Stage A paths without lifecycle completion, collection, or binding release.
 - Controller.preserve_artifact_collection_handoff(): Compiles journal-backed artifact information after current Stage A confirmation and returns verified durable handoff preservation without changing lifecycle or releasing bindings.
-- Controller.normal_stop_session(*, communication, receiving, result_window_s, reason=None): Associates the Session with Q019 before asynchronous shutdown and retains that requirement through failure/cancellation, then coordinates cleanup, producer/marker publication, independently verified receipt, Stage A archival, durable handoff, and completion without automatic collection, binding release, or archive closure.
-- Controller.kill_session(*, communication, result_window_s, operator_authorized, reason=None): Explicitly aborts the active Experiment and Session, preserves partial acquisition evidence and handoff, retains correlated cleanup uncertainty and reservations, and never initiates collection or permanent closure.
+- Controller.normal_stop_session(*, communication, receiving=None, result_window_s, reason=None, storage_participant=None): Coordinates local or remote producer shutdown, marker receipt, Stage A/handoff verification and lifecycle completion, requiring explicit remote storage identity when no local owners are configured.
+- Controller.kill_session(*, communication, result_window_s, operator_authorized, reason=None, storage_participant=None): Admits local or remote forced closeout before shutdown, aborts Experiment/Session and preserves available evidence while retaining cleanup uncertainty and reservations without automatic collection or closure.
+- Controller.reconcile_session_closeout(session_id, *, communication, ingestor_participant, storage_participant, result_window_s): Reads authoritative known-Session preservation over NATS without restoring a Session or transitioning its lifecycle.
+- Controller._closeout_owner_request: Requires a current correlated closeout result and unchanged Controller binding after each owner request.
+- Controller._require_remote_preservation: Checks receiving/storage identity, accepted configuration and applicable finalized-marker provenance before using remote preservation.
+- Controller._close_session_remote: Connects remote Normal Stop or Kill, durable preservation and Controller-owned terminal lifecycle publication without shared owner objects.
+- Controller._release_session_remote: Revalidates terminal preservation and independent participant cleanup/release confirmations before retiring Controller state.
+- Controller._retire_session_binding: Retires only a confirmed Controller binding while preserving its terminal outcome and service lifetime.
 - Controller._preserve_kill_closeout(session): Confirms current journal-backed partial archive and handoff under intake, persistence, and admission guards without claiming complete receipt.
 - Controller._complete_preserved_acquisition(session): Rechecks current journal, Stage A operational evidence/all-audit coverage, final Session Record, owned evidence, marker and handoff under intake/storage/admission locks before completion without replacing an unconfirmed baseline.
 - Controller.get_status(): Returns Session/command status, the bounded last released terminal outcome, and the local AcquisitionNode snapshot or None, without fabricating remote runtime status.
@@ -875,7 +881,7 @@ is complete; W030 records manual validation, focused tests, and audit reassessme
 - Controller.reconciliation_evidence: Returns detached retained persistent informational findings for existing publication and preservation paths.
 - Controller._reconcile_framework_attempt: Correlates confirmed final participant results against the original framework attempt and archived evidence without treating missing results or intent as completion.
 - Controller.check_ready(): Returns Session-independent service readiness, combining confirmed configured dependencies and refusing to fabricate a ready/unready report when dependency availability is unknown.
-- Controller.release_session(): Asynchronously releases only its captured terminal Session binding after confirmed cleanup and current archival, holding Ingestor intake then StorageManager preservation locks through final synchronous checks and retirement for Normal Stop and Kill, never across unsubscription awaits; stale operations fail without changing a newer binding, while cancellation retains outstanding obligations.
+- Controller.release_session(*, communication=None, result_window_s=None): Releases only its captured terminal binding after current preservation and independent cleanup/release obligations, using local guards or remote owner confirmation without borrowing locks across network waits.
 - Controller._session_ingest_state(): Snapshots existing intake views to detect acceptance/audit changes after final persistence or during subscription release.
 - Controller.start_experiment: Accepts keyword-only `scientific_outputs=()`, `preparation_readiness=()`, and `preparation_outcomes=()`, gates start on required readiness and correlated final remote successes, and reports preparation rejection once as persistent runtime evidence in failed result details without lifecycle activation.
 - Controller._record_failed_command: Records an unsuccessful command with optional plain diagnostic details, including the produced rejection message for a pre-start preparation failure.
@@ -932,6 +938,13 @@ is complete; W030 records manual validation, focused tests, and audit reassessme
 - InMemoryIngestor.prepare_session(session_id): Creates or reconstructs the intended Session recovery journal from its deployment root before confirming evidence intake preparation.
 - InMemoryIngestor.abort_session_initialization(session_id): Disables prepared intake while preserving durable journal entries and accepted evidence, clearing empty preparation bindings without deleting files.
 - InMemoryIngestor.release_session(session_id, *, storage_manager=None): Releases a matching healthy binding only after exact archive/terminal-record preservation and matching Q019 durable handoff coverage for completion-marker archives or admitted Kill obligations, including empty intake and unavailable confirmation, retaining intake/storage guards through retirement without deleting journals.
+- InMemoryIngestor.admit_kill_closeout(session_id): Journals an admitted Kill obligation before asynchronous shutdown, including empty intake.
+- InMemoryIngestor.finalize_acquisition_intake(marker, receipt): Durably freezes exact accepted evidence identities and intake audit after matching owner-verified complete receipt.
+- InMemoryIngestor.finalized_acquisition_intake(session_id): Returns detached finality only when the existing journal still matches the frozen interval.
+- InMemoryIngestor.preserve_session_closeout(session_id, *, mode, session_record, controller_evidence, uncertainties): Connects verified complete or admitted partial intake to the paired StorageManager's existing Stage A and handoff writers.
+- InMemoryIngestor.read_session_closeout(session_id): Reconciles current journal, exact intake coverage, marker provenance and durable archive/handoff without cached success alone.
+- InMemoryIngestor._read_saved_closeout: Verifies known saved preservation and journal checkpoints after restart without restoring an active binding or adding recovery intake.
+- InMemoryIngestor.preserve_terminal_session_record(session_id, session_record): Preserves Controller terminal lifecycle following verified acquisition preservation without changing acquisition evidence or replacing terminal history.
 - InMemoryIngestor._require_kill_handoff(session_id): Retains the matching binding's admitted Kill handoff obligation before shutdown suspension, independently of archival success.
 - InMemoryIngestor.has_durable_runtime_evidence(evidence): Confirms exact journal-backed message acceptance for a producer handoff, returning False for memory-only intake or uncertain journal state without claiming final archival.
 - InMemoryIngestor.durable_runtime_evidence_history_guard(session_id, journal_path, evidence): Read-only context manager yielding exact retained Session-journal coverage confirmation while holding intake/binding steady through synchronous receipt-result commitment; it permits additional local recovery evidence and performs no reconstruction or archival.
@@ -984,7 +997,10 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 - NatsAcquisitionNodeCommunication: Consumes targeted readiness, scientific-output preparation, or runtime commands, deduplicates by command_id, and publishes explicit outcomes without owning Experiment lifecycle.
 - NatsAcquisitionNodeCommunication.execute_command: Executes existing node commands and includes available owner diagnostics in readiness results while preserving readiness-only compatibility and scientific-output preparation behavior.
 - NatsIngestorCommunication: Consumes durable RuntimeEvidenceMessage records and passes them to InMemoryIngestor for separate evidence intake and audit.
-- NatsIngestorCommunication.subscribe_commands(): Routes readiness/preparation/abort and scoped current compilation/receipt requests to the existing Ingestor owner, publishing results before command ACK.
+- NatsIngestorCommunication.subscribe_commands(): Admits fresh readiness/preparation, evidence readback and serialized closeout commands, validating complete scoped resolution history and publishing owner results before command ACK.
+- NatsIngestorCommunication._execute_closeout_command(command): Executes durable Kill admission, complete/partial preservation, terminal-record persistence, restart reconciliation and guarded intake release through the existing paired owners.
+- read_closeout_result(boundary, record, operation): Validates persisted closeout resolution routing, canonical command identity, nonce, request payload and preservation flags.
+- read_scoped_result_history(boundary, command, validate): Scans complete owner/Session/operation result history and rejects malformed or conflicting same-attempt resolutions before mutation or reuse.
 - NatsIngestorCommunication._execute_evidence_readback(command): Delegates scoped compilation, exact journal-backed runtime-evidence acceptance and W041 marker-receipt verification to the Ingestor owner with current-request reply correlation and explicit failed/unconfirmed results.
 - NatsStorageManagerCommunication(boundary, storage_manager): Binds one existing authoritative StorageManager to matching NATS participant identity without constructing another owner.
 - NatsStorageManagerCommunication.subscribe_commands(): Admits fresh StorageManager commands, serializes collection attempt resolution through durable result publication before ACK, and keeps administrative execution within the configured owner maintenance interface.
@@ -1218,7 +1234,7 @@ recovery is introduced. Phase 16 and M015 remain open.
 - SynchronizationManager.prepare_session(session_id): Confirms Session-specific preparation independently of pre-Session service readiness, rejecting a different active preparation binding.
 - SynchronizationManager.abort_session_initialization(session_id): Clears only matching preparation state without altering mapping or established timing evidence.
 - SynchronizationManager.complete_session_evidence_publication(session_id, *, source_id, publisher): Stops prepared Session Time, retires only that Session's mappings, retains stable message identities and publishes its timing evidence before confirmation, guarding further timing changes without service retirement or archival claims.
-- SynchronizationManager.release_session(session_id, *, ingestor=None): Releases matching stopped preparation only after mapping updates and distributed quality evidence have exact durable Ingestor acceptance, then retires temporary history without terminating the service.
+- SynchronizationManager.release_session(session_id, *, ingestor=None, accepted_evidence=None): Releases stopped preparation only after exact local or NATS-adapter-verified durable acceptance of retained timing evidence, without terminating the service.
 - SynchronizationManager.create_and_activate_mapping: Creates and atomically activates one initial immutable mapping for an AcquisitionNode.
 - SynchronizationManager.replace_active_mapping: Atomically replaces one active mapping and records replacement evidence.
 - SynchronizationManager.retire_active_mapping: Retires one active mapping and records retirement evidence.
@@ -1546,3 +1562,16 @@ automatic. Kill integration and overall closeout validation remain deferred.
 - RemoteArchiveClosureTests.test_conflicting_tail_blocks_reuse_of_matching_resolution(): Validates conflicting records even after a matching closure resolution.
 - RemoteArchiveClosureTests.test_missing_service_and_invalid_closure_request_remain_unconfirmed(): Leaves missing owner replies and malformed operation identity unconfirmed.
 - RemoteArchiveClosureTests.test_separate_owner_restart_requires_explicit_closure_and_reuses_closed_archive(): Uses real local JetStream and a spawned shared Ingestor/StorageManager process to verify rejection, restart-only replay prevention, fresh closure and restart reuse.
+
+## tests/test_finalized_intake.py
+
+- FinalizedIntakeTests: Exercises durable finality, exact audit restart, immutable late intake, write failure, corrupted history, Kill admission and saved complete/partial preservation through owner APIs.
+
+## tests/test_distributed_session_closeout.py
+
+- CloseoutBroker: Combines existing evidence-receipt and command-result-history doubles while executing real service-owned operations.
+- DistributedSessionCloseoutTests: Exercises remote Normal Stop/Kill, scientific persistence, finalized-intake discard, restart, incomplete receipt, preservation failure, cancellation, retry and independent release.
+- DistributedSessionCloseoutTests.running: Starts a real-owner distributed workflow and connects Session-specific contiguous receiving progress.
+- DistributedSessionCloseoutTests.acknowledge: Delivers the retained publication interval through the existing evidence consumer.
+- DistributedSessionCloseoutTests.stop: Requests Normal Stop through the public remote Controller API.
+- DistributedSessionCloseoutTests.archive: Snapshots saved archive bytes to verify preservation and retry immutability.

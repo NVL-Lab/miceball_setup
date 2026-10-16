@@ -386,7 +386,9 @@ class NatsControllerCommunication:
                                         "get_saved_session_collection_status", "collect_saved_artifacts",
                                         "close_session_evidence_archive"},
                      "ingestor": {"compile_session_evidence", "verify_acquisition_receipt",
-                                  "read_runtime_evidence_acceptance"}}
+                                  "read_runtime_evidence_acceptance", "admit_session_kill",
+                                  "preserve_session_acquisition", "read_session_closeout",
+                                  "preserve_session_terminal_record", "release_session"}}
         if (not isinstance(participant, RuntimeParticipant)
                 or command_type not in supported.get(participant.component_type, set())
                 or "request_nonce" in payload):
@@ -969,6 +971,83 @@ class NatsAcquisitionNodeCommunication:
         )
 
 
+SESSION_CLOSEOUT_OPERATIONS = frozenset({"admit_session_kill", "preserve_session_acquisition",
+    "read_session_closeout", "preserve_session_terminal_record", "release_session"})
+
+
+def read_closeout_result(boundary, record, operation):
+    """Validate owner and attempt identity before reusing a closeout resolution."""
+    data = json.loads(record.data)
+    required = {"result_id", "command_id", "session_id", "source_id", "target_id", "status", "success", "reason", "payload"}
+    if not isinstance(data, dict) or not required.issubset(data) or not isinstance(data["payload"], dict):
+        raise ValueError("Incomplete closeout result history")
+    result = RuntimeCommandResultMessage.from_dict(data)
+    route = parse_runtime_subject(record.subject)
+    if (any(not isinstance(value, str) or not value for value in
+            (result.result_id, result.command_id, result.session_id, result.source_id, result.target_id))
+            or route != parse_runtime_subject(build_runtime_subject(result.session_id, "command_result",
+                boundary.component_type, boundary.component_id, operation))
+            or result.source_id != boundary.component_id
+            or result.command_id != json.dumps([result.session_id, operation], separators=(",", ":"))
+            or type(result.success) is not bool or result.status not in {"succeeded", "failed"}
+            or result.success != (result.status == "succeeded")
+            or (result.reason is not None and not isinstance(result.reason, str))
+            or not isinstance(result.payload.get("request_nonce"), str) or not result.payload["request_nonce"]
+            or not isinstance(result.payload.get("request_payload"), dict)
+            or result.payload["request_payload"].get("request_nonce") != result.payload["request_nonce"]):
+        raise ValueError("Closeout result history has inconsistent correlation")
+    if result.success:
+        if result.payload.get("session_id") != result.session_id:
+            raise ValueError("Closeout result Session mismatch")
+        if operation == "admit_session_kill" and result.payload.get("kill_admitted") is not True:
+            raise ValueError("Kill admission is unconfirmed")
+        if operation == "release_session" and result.payload.get("released") is not True:
+            raise ValueError("Binding release is unconfirmed")
+        if operation in {"read_session_closeout", "preserve_session_acquisition", "preserve_session_terminal_record"}:
+            if (result.payload.get("preservation_confirmed") is not True
+                    or not isinstance(result.payload.get("compilation_summary"), dict)
+                    or result.payload["compilation_summary"].get("session_id") != result.session_id):
+                raise ValueError("Closeout preservation history is unconfirmed")
+    return result
+
+
+async def read_scoped_result_history(boundary, command, validate):
+    """Read the complete retained owner/Session/operation history before mutation or reuse."""
+    jetstream = boundary._require_jetstream()
+    history = await jetstream.stream_info("LAB_COMMAND_RESULTS")
+    if not NatsIngestorCommunication._receiving_history_intact(history):
+        raise RuntimeError("Command-result history is unconfirmed")
+    subject = build_runtime_subject(command.session_id, "command_result",
+        boundary.component_type, boundary.component_id, command.command_type)
+    sequence, matched, resolutions = 1, None, {}
+    while sequence <= history.state.last_seq:
+        try:
+            record = await jetstream.get_msg("LAB_COMMAND_RESULTS", seq=sequence, subject=subject, next=True)
+        except NotFoundError:
+            break
+        if record.seq > history.state.last_seq:
+            break
+        if record.subject != subject or record.seq < sequence:
+            raise ValueError("Command-result history is inconsistent")
+        previous = validate(record)
+        nonce = previous.payload["request_nonce"]
+        content = previous.to_dict()
+        if nonce in resolutions and resolutions[nonce] != content:
+            raise ValueError("Command-result history contains conflicting attempt resolutions")
+        resolutions[nonce] = content
+        if nonce == command.payload["request_nonce"]:
+            if (previous.command_id != command.command_id or previous.target_id != command.source_id
+                    or ("request_payload" in previous.payload and previous.payload["request_payload"] != command.payload)):
+                raise ValueError("Command-result history contains conflicting same-attempt identity")
+            matched = previous
+        sequence = record.seq + 1
+    current = await jetstream.stream_info("LAB_COMMAND_RESULTS")
+    if (current.created != history.created or current.state.last_seq < history.state.last_seq
+            or not NatsIngestorCommunication._receiving_history_intact(current)):
+        raise RuntimeError("Command-result history changed during admission")
+    return matched
+
+
 class NatsIngestorCommunication:
     """NATS evidence consumer that hands durable evidence to Ingestor."""
 
@@ -981,6 +1060,8 @@ class NatsIngestorCommunication:
         self._ingestor = ingestor
         self._results_by_command_id = {}
         self._evidence_subscriptions: dict[str, Subscription] = {}
+        self._closeout_lock = asyncio.Lock()
+        self._pending_closeout_results = {}
 
     async def subscribe_commands(self) -> tuple[Subscription, Subscription]:
         """Receive readiness and Session preparation over the existing command stream."""
@@ -988,6 +1069,39 @@ class NatsIngestorCommunication:
             command = RuntimeCommandMessage.from_dict(json.loads(message.data.decode("utf-8")))
             if command.target_id != self._boundary.component_id:
                 await message.ack()
+                return
+            if command.command_type in SESSION_CLOSEOUT_OPERATIONS:
+                async with self._closeout_lock:
+                    key = json.dumps(command.to_dict(), sort_keys=True)
+                    retained = self._pending_closeout_results.get(key)
+                    try:
+                        _validate_owner_request(self._boundary, command)
+                        for pending in self._pending_closeout_results.values():
+                            if (pending.session_id == command.session_id
+                                    and pending.payload.get("request_nonce") == command.payload.get("request_nonce")
+                                    and (pending.command_id != command.command_id
+                                        or pending.target_id != command.source_id
+                                        or pending.payload.get("request_payload") != command.payload)):
+                                raise ValueError("Retained closeout resolution conflicts with attempt identity")
+                        matched = await read_scoped_result_history(self._boundary, command,
+                            lambda record: read_closeout_result(self._boundary, record, command.command_type))
+                        if retained is not None and matched is not None and retained.to_dict() != matched.to_dict():
+                            raise ValueError("Persisted history conflicts with retained closeout resolution")
+                        if matched is not None and not matched.success:
+                            result = matched
+                        elif retained is not None and not retained.success:
+                            result = retained
+                        else:
+                            result = await self._execute_closeout_command(command)
+                            if result.success and (matched is not None or retained is not None):
+                                result = matched if matched is not None else retained
+                    except Exception as error:
+                        result = _participant_result(self._boundary, command, False, str(error),
+                            {"request_nonce": command.payload.get("request_nonce"), "request_payload": deepcopy(command.payload)})
+                    self._pending_closeout_results[key] = deepcopy(result)
+                    await self._boundary.publish_command_result(result, command.command_type)
+                    self._pending_closeout_results.pop(key, None)
+                    await message.ack()
                 return
             result = (await self._execute_evidence_readback(command)
                       if command.command_type in {"compile_session_evidence", "verify_acquisition_receipt",
@@ -1012,7 +1126,84 @@ class NatsIngestorCommunication:
                         self._results_by_command_id[command.command_id] = result
             await self._boundary.publish_command_result(result, command.command_type)
             await message.ack()
-        return await _subscribe_participant_commands(self._boundary, receive)
+        return await _subscribe_participant_commands(self._boundary, receive, new_only=True)
+
+    async def _execute_closeout_command(self, command):
+        nonce = command.payload.get("request_nonce")
+        try:
+            _validate_owner_request(self._boundary, command)
+            if command.command_id != json.dumps([command.session_id, command.command_type], separators=(",", ":")):
+                raise ValueError("Closeout command identity must match Session and operation")
+            intake = self._ingestor
+            operation = command.command_type
+            supplied = set(command.payload) - {"request_nonce"}
+            if operation == "admit_session_kill":
+                if supplied != {"operator_authorized"} or command.payload["operator_authorized"] is not True:
+                    raise ValueError("Kill admission requires explicit operator authorization")
+                if intake.session_id is None:
+                    saved = intake.read_session_closeout(command.session_id)
+                    if saved["acquisition_preservation_eligible"]:
+                        raise RuntimeError("Kill cannot replace finalized Normal Stop")
+                else:
+                    intake.admit_kill_closeout(command.session_id)
+                payload = {"session_id": command.session_id, "kill_admitted": True}
+            elif operation == "preserve_session_acquisition":
+                if supplied != {"mode", "marker", "session_record", "controller_evidence", "uncertainties"}:
+                    raise ValueError("Closeout preservation payload is incomplete")
+                mode = command.payload["mode"]
+                if mode not in {"normal", "kill"}:
+                    raise ValueError("Unknown closeout mode")
+                if intake.session_id is None:
+                    payload = intake.read_session_closeout(command.session_id)
+                    if (payload["session_record"]["accepted_session_config"] != command.payload["session_record"]["accepted_session_config"]
+                            or (mode == "normal" and (not payload["acquisition_preservation_eligible"]
+                                or payload["finalized_intake"]["marker"] != command.payload["marker"]))
+                            or (mode == "kill" and payload["acquisition_preservation_eligible"])):
+                        raise RuntimeError("Saved closeout does not match the requested operation")
+                    return _participant_result(self._boundary, command, True, None,
+                        {**payload, "request_nonce": nonce, "request_payload": deepcopy(command.payload)})
+                if mode == "normal":
+                    marker = RuntimeEvidenceMessage.from_dict(command.payload["marker"])
+                    receipt = await self.verify_acquisition_evidence_receipt(marker)
+                    if not receipt.get("durable_receipt_confirmed"):
+                        raise RuntimeError(f"Complete acquisition receipt is unconfirmed: {receipt.get('reason')}")
+                    intake.finalize_acquisition_intake(marker, receipt)
+                payload = intake.preserve_session_closeout(command.session_id, mode=mode,
+                    session_record=command.payload["session_record"],
+                    controller_evidence=command.payload["controller_evidence"],
+                    uncertainties=command.payload["uncertainties"])
+            elif operation == "preserve_session_terminal_record":
+                if supplied != {"session_record"}:
+                    raise ValueError("Terminal persistence requires the Controller Session Record")
+                payload = intake.preserve_terminal_session_record(command.session_id, command.payload["session_record"])
+            elif operation == "read_session_closeout":
+                if supplied:
+                    raise ValueError("Closeout readback accepts only a Session identity")
+                payload = intake.read_session_closeout(command.session_id)
+            elif operation == "release_session":
+                if supplied:
+                    raise ValueError("Session release accepts only its Session identity")
+                if intake.session_id == command.session_id:
+                    intake.release_session(command.session_id)
+                elif intake.session_id is not None:
+                    raise RuntimeError("Release cannot retire another Session binding")
+                else:
+                    preserved = intake.read_session_closeout(command.session_id)
+                    if ((preserved["session_record"].get("final_session_status") or {}).get("state")
+                            not in {"completed", "failed", "aborted"}):
+                        raise RuntimeError("Prior binding release is unconfirmed")
+                subscription = self._evidence_subscriptions.get(command.session_id)
+                if subscription is not None:
+                    await subscription.unsubscribe()
+                    self._evidence_subscriptions.pop(command.session_id, None)
+                payload = {"session_id": command.session_id, "released": True}
+            else:
+                raise ValueError("Unsupported closeout operation")
+            return _participant_result(self._boundary, command, True, None,
+                {**payload, "request_nonce": nonce, "request_payload": deepcopy(command.payload)})
+        except Exception as error:
+            return _participant_result(self._boundary, command, False, str(error),
+                {"request_nonce": nonce, "request_payload": deepcopy(command.payload)})
 
 
     async def _execute_evidence_readback(self, command):
@@ -1036,8 +1227,13 @@ class NatsIngestorCommunication:
                                    "durable_acceptance_confirmed": confirmed,
                                    "request_nonce": nonce}
                 else:
+                    if self._ingestor.session_id is None:
+                        self._ingestor.read_session_closeout(command.session_id)
+                        confirmation = self._ingestor._storage_manager.get_persisted_session_preservation_confirmation(command.session_id)
+                        confirmed = (evidence.evidence_id in confirmation["compilation_summary"]["runtime_evidence_origins"]["ingestor"]
+                            and evidence.to_dict() in confirmation["runtime_evidence"])
                     payload = {"evidence_id": evidence.evidence_id,
-                               "durable_acceptance_confirmed": False, "request_nonce": nonce}
+                               "durable_acceptance_confirmed": confirmed, "request_nonce": nonce}
                 return _participant_result(self._boundary, command, confirmed,
                     None if confirmed else "Exact journal-backed evidence acceptance is unconfirmed", payload)
             if command.command_type == "compile_session_evidence":
@@ -1115,6 +1311,11 @@ class NatsIngestorCommunication:
                         tokens[component_index], evidence.source_id, evidence.evidence_type)):
                 raise ValueError("Runtime evidence Session/source/type identity does not match its NATS subject")
             audit = self._ingestor.receive_runtime_evidence(evidence)
+            if audit.reason == "acquisition_intake_finalized":
+                if self._ingestor.session_id != session_id or self._ingestor.recovery_journal_path != journal:
+                    raise RuntimeError("Finalized Session binding changed before discard acknowledgment")
+                await message.ack_sync()
+                return
             if session_id is not None and (not audit.accepted
                     or not self._ingestor.has_durable_runtime_evidence(evidence)):
                 raise ValueError("Session evidence was not durably accepted")
@@ -1195,6 +1396,12 @@ class NatsIngestorCommunication:
         result = {"session_id": marker.session_id, "evidence_id": marker.evidence_id,
                   "durable_receipt_confirmed": False, "reason": "unverifiable_progress"}
         session_id = marker.session_id
+        finalized = self._ingestor.finalized_acquisition_intake(session_id)
+        if finalized is not None:
+            if finalized["marker"] != marker.to_dict():
+                result["reason"] = "finalized_marker_mismatch"
+                return result
+            return deepcopy(finalized["receipt"])
         if (session_id is None or self._ingestor.session_id != session_id
                 or marker.evidence_type != "acquisition_evidence_completion"
                 or not self._ingestor.has_durable_runtime_evidence(marker)):
@@ -1349,44 +1556,8 @@ class NatsStorageManagerCommunication:
         # attempt resolution and result publication serialized together.
         try:
             self._validate_saved_session_request(command)
-            jetstream = self._boundary._require_jetstream()
-            history = await jetstream.stream_info("LAB_COMMAND_RESULTS")
-            if not NatsIngestorCommunication._receiving_history_intact(history):
-                raise RuntimeError("Collection command-result history is unconfirmed")
-            subject = build_runtime_subject(command.session_id, "command_result",
-                self._boundary.component_type, self._boundary.component_id, command.command_type)
-            sequence = 1
-            matched = None
-            resolutions = {}
-            while sequence <= history.state.last_seq:
-                try:
-                    record = await jetstream.get_msg("LAB_COMMAND_RESULTS", seq=sequence,
-                        subject=subject, next=True)
-                except NotFoundError:
-                    break
-                if record.seq > history.state.last_seq:
-                    break
-                if record.subject != subject or record.seq < sequence:
-                    raise ValueError("Collection result history is inconsistent")
-                try:
-                    previous = self._read_saved_session_result(record, command.command_type)
-                except (ValueError, TypeError, KeyError, AttributeError) as error:
-                    raise ValueError(f"Collection result history has invalid persisted correlation: {error}") from error
-                identity = previous.payload["request_nonce"]
-                content = previous.to_dict()
-                if identity in resolutions and resolutions[identity] != content:
-                    raise ValueError("Collection result history contains conflicting attempt resolutions")
-                resolutions[identity] = content
-                if identity == command.payload["request_nonce"]:
-                    if (previous.command_id != command.command_id
-                            or previous.target_id != command.source_id):
-                        raise ValueError("Collection result history contains conflicting same-attempt identity")
-                    matched = previous
-                sequence = record.seq + 1
-            current = await jetstream.stream_info("LAB_COMMAND_RESULTS")
-            if (current.created != history.created or current.state.last_seq < history.state.last_seq
-                    or not NatsIngestorCommunication._receiving_history_intact(current)):
-                raise RuntimeError("Collection command-result history changed during admission")
+            matched = await read_scoped_result_history(self._boundary, command,
+                lambda record: self._read_saved_session_result(record, command.command_type))
             if retained_result is not None:
                 if matched is not None and matched.to_dict() != retained_result.to_dict():
                     raise ValueError("Collection result history conflicts with the retained attempt resolution")
@@ -1726,6 +1897,30 @@ class NatsSynchronizationManagerCommunication:
                             source_id=self._boundary.component_id, publisher=self._boundary.publish_evidence)
                         result = _participant_result(self._boundary, command, True, None,
                                                      {"session_time_s": owner.current_session_time_s})
+                    elif command.command_type == "release_session":
+                        if set(command.payload) != {"request_nonce", "ingestor_participant", "result_window_s"}:
+                            raise ValueError("Synchronization release requires an explicit receiving owner")
+                        from math import isfinite
+                        window = command.payload["result_window_s"]
+                        if type(window) not in {int, float} or not isfinite(window) or window <= 0:
+                            raise ValueError("Synchronization release requires a positive finite result window")
+                        participant = RuntimeParticipant.from_dict(command.payload["ingestor_participant"])
+                        if participant.component_type != "ingestor":
+                            raise ValueError("Synchronization release requires the Ingestor identity")
+                        messages = tuple(m for m in (*owner._mapping_publication_evidence.values(),
+                            *owner._distributed_evidence) if m.session_id == command.session_id)
+                        requests = NatsControllerCommunication(self._boundary)
+                        for evidence in messages:
+                            acceptance = await requests.request_persistence_command(participant,
+                                "read_runtime_evidence_acceptance", command.session_id,
+                                {"evidence": evidence.to_dict()}, command.payload["result_window_s"],
+                                command_id=json.dumps([command.session_id, evidence.evidence_id]))
+                            if (acceptance is None or not acceptance.success
+                                    or acceptance.payload.get("durable_acceptance_confirmed") is not True):
+                                raise RuntimeError("Synchronization evidence durable acceptance is unconfirmed")
+                        released = owner.release_session(command.session_id, accepted_evidence=messages)
+                        result = _participant_result(self._boundary, command, released, None,
+                            {"session_id": command.session_id, "released": released})
                     elif command.command_type == "initialize_session" and "synchronization_configuration" in command.payload:
                         preparation = owner.prepare_session(command.session_id)
                         owner.configure_distributed_session(command.session_id, command.payload["synchronization_configuration"])
