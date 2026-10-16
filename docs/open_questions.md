@@ -974,9 +974,14 @@ independent IPython validation (22/22) and focused re-audit PASS following two P
 corrections. Only the shared Ingestor/StorageManager launch path is supported;
 the other three roles explicitly reject startup. Complete role composition and
 configuration provisioning remain outstanding. Addressed remote Stop/Kill/Cancel
-issuance is implemented in W062, pending independent validation, audit and closure;
-it adds no service launch paths or Controller dependency.
-Q022 remains OPEN. Q019 and W001-W060 remain CLOSED. Existing Q006/Q018, Q024,
+issuance is CLOSED in W062 after independent IPython validation (41/41 initially,
+42/42 after correction; overlapping sets) and focused independent re-audit PASS.
+The initial audit's interrupted-Kill feedback P3 is resolved without changing
+authorization or maintenance semantics. This adds no service launch paths or
+Controller dependency; unsupported Controller, AcquisitionNode and
+SynchronizationManager bootstrap, configuration/installation, remote enumeration/
+batch integration and broader maintenance/recovery remain outside this slice.
+Q022 remains OPEN. Q019 and W001-W062 remain CLOSED. Existing Q006/Q018, Q024,
 Phase 16 and M015 statuses are unchanged. See installation_and_deployment.md for
 the supported entry points and validated_workflows.md for verification limitations.
 

@@ -11022,8 +11022,9 @@ points, not supervision, automatic restart, discovery or NATS process management
 **Implementation status:** Bounded common launcher and shared-process
 Ingestor/StorageManager launching are independently validated and re-audited PASS
 after correction (W061, CLOSED). The other three role paths reject startup;
-complete role composition, remote administrative issuance and provisioning remain
-outstanding under Q022.
+addressed remote maintenance is independently validated and re-audited PASS
+after the feedback correction (W062, CLOSED). Complete role composition and
+provisioning remain outstanding under Q022.
 
 ---
 
@@ -11059,7 +11060,10 @@ This does not introduce Controller-dependent administrative maintenance, a new
 network protocol, service discovery or a parallel command-processing mechanism.
 It does not change Session/Experiment lifecycle authority or framework shutdown.
 
-**Implementation status:** Accepted and synchronized; not yet implemented or validated.
+**Implementation status:** Addressed remote Stop/authorized Kill/Cancel CLI is
+implemented, independently validated and focused re-audited PASS (W062, CLOSED).
+It adds no role launch paths or Controller dependency and preserves existing
+Cancel outcomes and shared-process ownership.
 
 ---
 
@@ -11095,7 +11099,9 @@ for remote commands. Identity recording is not a new authentication system and
 does not replace existing explicit Kill authorization.
 
 **Implementation status:** Local launcher identities are implemented and validated
-in W061 (CLOSED). Remote administrative CLI issuance remains unimplemented.
+in W061 (CLOSED). Explicit remote administrator and temporary requester identities
+are implemented and independently validated in W062 (CLOSED), without new
+authentication infrastructure.
 
 ---
 
@@ -11116,7 +11122,9 @@ and W001-W060 remain CLOSED; Q022, Q006, Q018, Q024, Phase 16 and M015 remain OP
 
 **Implementation status:** Bounded launcher feedback and confirmed-success exit
 handling are independently validated and re-audited PASS (W061, CLOSED). Remote
-administrative issuance and unsupported role paths remain outside that closure.
+CLI feedback and exit statuses are independently validated and focused re-audited
+PASS after the interrupted-Kill feedback P3 correction (W062, CLOSED).
+Unsupported role launch paths and full deployment remain outside these closures.
 
 ---
 

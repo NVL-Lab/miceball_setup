@@ -1341,7 +1341,8 @@ Q019 and W001-W058 remain CLOSED with historical records unchanged.
 ## Accepted Manual Service CLI Architecture (Decisions 383-388)
 
 **Status:** Bounded launcher/local graceful shutdown CLOSED in W061; complete
-role composition and remote administrative issuance remain outstanding.
+role composition remains outstanding. Remote administrative issuance is CLOSED
+in W062 after independent validation and focused re-audit PASS.
 One common CLI reuses service launch/readiness/maintenance,
 with local Ctrl+C Stop and automatic Cancel when blocked, direct addressed remote
 Stop/authorized Kill/Cancel, and exit only after confirmed maintenance and required
@@ -1355,8 +1356,30 @@ confirmed P0-P3 findings. Counts overlap and are not additive. Only the shared
 Ingestor/StorageManager launch path is supported; other roles reject startup.
 Sandbox asynchronous runs stalled before setup; synchronous tests and controlled
 probes passed. No live JetStream, actual OS signal delivery, hardware or complete
-five-role deployment validation is claimed. W001-W061 and Q019 remain CLOSED;
+five-role deployment validation is claimed. W001-W062 and Q019 remain CLOSED;
 Q022, Q006, Q018, Q024, Phase 16 and M015 remain OPEN.
+
+### Completed Remote Service Maintenance CLI (W062)
+
+**Status:** CLOSED - addressed Stop/explicitly authorized Kill/Cancel reuse existing
+NATS maintenance without Controller. Explicit server, target, administrator and
+request window are required. Kill/Cancel continue the existing blocked attempt;
+later Stop uses a new identity. Scoped fresh replies, bounded waiting and current
+correlation preserve owner authority. Cancel retains `failed` / `Administrator
+cancelled` and nonzero status; missing/rejected/unconfirmed results are not success.
+Separate Ingestor/StorageManager ownership in one process and W061 final-result
+handling remain mandatory; maintenance confirmation is not OS process-exit proof.
+
+Independent IPython validation passed 41/41 initially and 42/42 after correction
+(overlapping sets, not additive). Initial independent audit FAIL identified one
+P3: interrupted authorized Kill falsely said no force was requested. Corrected
+feedback acknowledges possible execution, no revocation by interruption and
+unconfirmed activity/retirement, with permanent coverage. Focused independent
+re-audit PASS found no confirmed P0-P3 findings. Executable sandbox checks passed;
+Windows asyncio socket-pair initialization blocked normal asynchronous runs.
+No live JetStream, OS-signal, hardware or full deployment validation is claimed.
+The three unsupported role launch paths, configuration, installation and broader
+Q022 integration remain open; W062 does not complete Q022 or Q024.
 
 ## Completed Q022 Distributed Session Closeout (W060)
 

@@ -4674,6 +4674,86 @@ records unchanged; Q006, Q018, Q024, Phase 16 and M015 remain OPEN.
 
 ---
 
+# W062 - Remote Service Maintenance CLI
+
+**Status:** CLOSED - implemented, independently validated and independently
+re-audited PASS under Decisions 383-388 and existing maintenance dependencies,
+preserving Decision 376.
+
+## Implemented scope
+
+The common `lab-sync-acquisition` CLI supplies addressed `stop`, `kill` and
+`cancel` actions over existing NATS/JetStream interfaces without requiring a
+running Controller or creating service owners. Each invocation requires explicit
+server settings, target service type/ID, administrator identity and a positive
+finite result window, with a temporary requester identity and fresh command ID.
+Kill requires explicit authorization and the existing blocked stop-attempt ID;
+Cancel uses that blocked attempt without force. A subsequent Stop creates a new
+attempt. Existing owner-side authority, safety, preservation and idempotency
+remain unchanged; no timeout, blocker or interruption automatically issues Kill.
+
+The terminal subscribes before publication using fresh-only owner/operation
+result subjects and verifies command, requester, target, Session and applicable
+attempt correlation. Bounded waiting and transient subscription/connection cleanup
+do not substitute publication or missing replies for confirmation. Feedback
+reports actual outcomes, identities, blockers, failures, unresolved obligations
+and operator action. Only confirmed successful completion returns 0; blocked,
+failed, rejected or unconfirmed outcomes return nonzero. Existing Cancel reports
+`failed` / `Administrator cancelled` and nonzero, not a new maintenance outcome.
+
+Ingestor and StorageManager remain separately addressed authoritative owners in
+one shared process. Confirmed maintenance is not proof of OS process exit: W061
+still requires all hosted owners' retirement and final result publication/handling.
+The CLI does not add service launch paths, configuration provisioning,
+authentication infrastructure, discovery, supervision or recovery mechanisms.
+
+## Validation and correction history
+
+- Initial independent user-run IPython validation: **41/41 PASS**, zero failures,
+  errors or skips across the remote maintenance CLI and W061 launcher suites.
+- Initial independent architectural audit: **FAIL**, one confirmed P3; no
+  confirmed P0-P2 findings. Interrupted explicitly authorized Kill incorrectly
+  reported `no force requested` even when the owner had already retired before
+  result publication was interrupted.
+- Correction: interrupted Kill warns that submission or execution may already
+  have occurred and interruption does not revoke a submitted request. Neither
+  continued activity nor retirement is claimed without confirmation. Stop/Cancel
+  interruption reports no automatic force escalation. Nonzero/unconfirmed
+  reporting, authorization, maintenance semantics and correlation are unchanged.
+  Permanent coverage reproduces interruption after actual owner retirement and
+  checks both Stop and Cancel interruption feedback.
+- Post-correction independent user-run IPython validation: **42/42 PASS**, zero
+  failures, errors or skips across the same suites. These overlap the initial
+  run and are not an additive test total.
+- Focused independent read-only re-audit: **PASS**, no confirmed P0-P3 findings.
+  Both affected regression methods passed as controlled coroutine checks,
+  including Stop/Cancel subcases and executed Kill with an unconfirmed reply.
+  An additional independent controlled pre-publication Kill-interruption probe
+  passed. These checks do not establish live task, OS-signal or JetStream behavior.
+
+Codex sandbox checks passed where executable, including synchronous CLI checks
+and controlled coroutine checks using actual owners and transport doubles.
+Normal asynchronous execution encountered Windows asyncio socket-pair
+initialization stalls before setup; blocked runs are not claimed as passes or
+application defects. Independent IPython results remain separate evidence.
+No implementation tests or independent audit were performed for this closure.
+
+## Limitations and status
+
+No live JetStream, actual OS-signal delivery, hardware, multi-host, full
+distributed deployment or power-loss verification is established by W062.
+Controller, AcquisitionNode and SynchronizationManager launch paths remain
+unsupported and explicitly reject startup. Complete role composition, file-based
+configuration/provisioning, installation verification, remote saved-Session
+enumeration/batch integration and broader accepted maintenance/recovery work
+remain outside this slice. No next implementation slice is selected here.
+
+W062 is CLOSED. Q022 remains OPEN. Q019 and W001-W061 remain CLOSED with historical
+records preserved. Q006, Q018, Q024, Phase 16 and M015 remain OPEN; accepted
+architectural decisions are unchanged.
+
+---
+
 # Future Workflows
 
 The following workflows are expected to be added as the framework evolves.

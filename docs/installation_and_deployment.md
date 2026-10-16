@@ -28,7 +28,7 @@ bootstrap/launch composition is not implemented in this bounded persistence slic
 
 The bounded W061 launcher below is independently validated and audited PASS;
 full role composition remains outstanding. W062 remote administrative issuance
-is implemented below but is not independently validated, audited or closed. One
+below is CLOSED after independent validation and focused re-audit PASS. One
 common CLI launches/administers the existing Controller, AcquisitionNode,
 Ingestor, StorageManager and SynchronizationManager capabilities. Decision 376's
 shared Ingestor/StorageManager process lifetime remains mandatory; other roles
@@ -134,7 +134,7 @@ JetStream, actual OS signal-delivery, physical hardware, full five-role deployme
 or power-loss validation is established. See W061 in validated_workflows.md for
 the complete record. Q022 remains OPEN.
 
-### Remote Service Maintenance (W062 Implementation, Not Closed)
+### Remote Service Maintenance (W062 Closed)
 
 An independent terminal can address an existing service owner without a running
 Controller. Use the common installed command (or the same arguments after
@@ -186,10 +186,16 @@ Focused checks:
 python -B -m unittest tests.test_service_maintenance_cli tests.test_service_launcher.LauncherCommandTests -v
 ```
 
-W062 is not closed. Sandbox asynchronous execution remains limited by Windows
-asyncio socket-pair initialization; controlled coroutine checks are not live
-JetStream, actual signal-delivery, multi-host or hardware validation. Independent
-validation and audit remain required. Q022 remains OPEN.
+W062 is CLOSED. Independent IPython passed 41/41 initially and 42/42 after correction
+(overlapping runs). The initial audit FAIL identified one interrupted-authorized-
+Kill feedback P3; permanent regression coverage and focused independent re-audit
+PASS resolved it, with no confirmed P0-P3 findings. See validated_workflows.md for
+the preserved audit sequence. Executable sandbox checks passed, but Windows
+asyncio socket-pair initialization limited normal asynchronous runs; no blocked
+run is claimed as a pass. Controlled checks are not live JetStream, actual
+OS-signal delivery, hardware, multi-host or full deployment validation. Q022
+remains OPEN; the three unsupported launch paths and broader deployment work
+are unchanged.
 
 ## Scientific Data And Operational Evidence Boundary
 
