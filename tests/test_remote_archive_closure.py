@@ -138,6 +138,42 @@ class RemoteArchiveClosureTests(unittest.IsolatedAsyncioTestCase):
         self.remote.broker.change_result = lambda operation, current: old
         self.assertFalse((await self.close()).succeeded)
 
+    async def test_pending_closure_retry_rejects_malformed_history_without_rewrite(self):
+        with patch("tests.test_session_launch._Boundary.publish_command_result", side_effect=ConnectionError("lost")):
+            self.assertFalse((await self.close()).succeeded)
+        command = RuntimeCommandMessage.from_dict(self.remote.broker.commands[-1])
+        closed = self.summary.read_bytes()
+        products = self.stage.products()
+        malformed = RuntimeCommandResultMessage("missing-nonce", command.command_id, "session",
+            "storage", "controller", "failed", False, "invalid correlation", {})
+        await remote._Boundary("storage_manager", "storage", self.remote.broker).publish_command_result(
+            malformed, "close_session_evidence_archive")
+        history = {seq: record.data for seq, record in self.remote.broker.result_history.records.items()}
+        with patch("lab_sync_acquisition.storage.os.replace", side_effect=AssertionError("closure rewritten")):
+            await self.remote.communication.publish_command(command, "storage_manager")
+        self.assertFalse(self.remote.broker.results[-1]["success"])
+        self.assertIn("history", self.remote.broker.results[-1]["reason"].lower())
+        self.assertEqual(self.summary.read_bytes(), closed)
+        self.assertEqual(self.stage.products(), products)
+        self.assertEqual(self.stage.sftp.opened, [])
+        for seq, content in history.items():
+            self.assertEqual(self.remote.broker.result_history.records[seq].data, content)
+
+    async def test_pending_closure_retry_rejects_conflicting_resolution(self):
+        with patch("tests.test_session_launch._Boundary.publish_command_result", side_effect=ConnectionError("lost")):
+            self.assertFalse((await self.close()).succeeded)
+        command = RuntimeCommandMessage.from_dict(self.remote.broker.commands[-1])
+        closed = self.summary.read_bytes()
+        conflicting = RuntimeCommandResultMessage("conflicting", command.command_id, "session",
+            "storage", "controller", "failed", False, "different resolution",
+            {"request_nonce": command.payload["request_nonce"]})
+        await remote._Boundary("storage_manager", "storage", self.remote.broker).publish_command_result(
+            conflicting, "close_session_evidence_archive")
+        await self.remote.communication.publish_command(command, "storage_manager")
+        self.assertFalse(self.remote.broker.results[-1]["success"])
+        self.assertIn("conflict", self.remote.broker.results[-1]["reason"].lower())
+        self.assertEqual(self.summary.read_bytes(), closed)
+
     async def test_success_history_requires_matching_closed_summary(self):
         self.assertTrue((await self.close()).succeeded)
         command = RuntimeCommandMessage.from_dict(self.remote.broker.commands[-1])

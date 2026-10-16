@@ -1317,11 +1317,7 @@ class NatsStorageManagerCommunication:
                         result = await self._execute_saved_session_attempt(command)
                         self._pending_collection_results[identity] = deepcopy(result)
                     elif result.success and command.command_type == "close_session_evidence_archive":
-                        try:
-                            result = self._reconfirm_archive_closure(command, result)
-                        except Exception as error:
-                            result = _participant_result(self._boundary, command, False, str(error),
-                                {"request_nonce": command.payload.get("request_nonce")})
+                        result = await self._execute_saved_session_attempt(command, retained_result=result)
                     await self._boundary.publish_command_result(result, command.command_type)
                     self._pending_collection_results.pop(identity, None)
             else:
@@ -1348,7 +1344,7 @@ class NatsStorageManagerCommunication:
                 [command.session_id, command.payload["evidence_id"]], separators=(",", ":")):
             raise ValueError("Collection command identity must match its Session and evidence identity")
 
-    async def _execute_saved_session_attempt(self, command):
+    async def _execute_saved_session_attempt(self, command, *, retained_result=None):
         # No storage lock is borrowed across broker readback. The caller keeps
         # attempt resolution and result publication serialized together.
         try:
@@ -1391,6 +1387,10 @@ class NatsStorageManagerCommunication:
             if (current.created != history.created or current.state.last_seq < history.state.last_seq
                     or not NatsIngestorCommunication._receiving_history_intact(current)):
                 raise RuntimeError("Collection command-result history changed during admission")
+            if retained_result is not None:
+                if matched is not None and matched.to_dict() != retained_result.to_dict():
+                    raise ValueError("Collection result history conflicts with the retained attempt resolution")
+                return self._reconfirm_archive_closure(command, retained_result)
             if matched is not None:
                 if matched.success and command.command_type == "close_session_evidence_archive":
                     return self._reconfirm_archive_closure(command, matched)

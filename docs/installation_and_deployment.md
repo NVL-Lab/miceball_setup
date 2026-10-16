@@ -545,7 +545,10 @@ Collection eligibility is not a new lifecycle gate for permanent closure.
 The shared saved-Session command admission path retains fresh-only subscriptions,
 full operation-scoped history validation, same-nonce identity conflict rejection
 and serialization through result publication. Historical rejections cannot become
-new executions; explicit API retries use fresh nonces. Repeated successful closure
+new executions; explicit API retries use fresh nonces. Successful closure responses
+retained after failed/cancelled publication pass the same complete history scan
+before reuse; disagreement with a persisted resolution is unconfirmed, not ignored.
+Retained rejections remain rejected. Repeated successful closure
 requires current owner readback matching the retained/historical closed summary,
 then invokes the existing idempotent closure confirmation without rewriting closed
 products. Missing or corrupt current preservation invalidates success, including

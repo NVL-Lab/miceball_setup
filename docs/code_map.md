@@ -958,7 +958,7 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 - NatsStorageManagerCommunication.subscribe_commands(): Admits fresh StorageManager commands, serializes collection attempt resolution through durable result publication before ACK, and keeps administrative execution within the configured owner maintenance interface.
 - NatsStorageManagerCommunication.execute_command(command): Routes scoped preservation/status readback, eligible saved-Session collection and separately explicit permanent archive closure to the authoritative storage owner without arbitrary remote methods or recovery/release bypasses.
 - NatsStorageManagerCommunication._validate_saved_session_request(command): Checks the exact collection or explicit archive-closure payload, nonce and canonical Session/evidence or Session/operation command identity.
-- NatsStorageManagerCommunication._execute_saved_session_attempt(command): Validates complete operation-scoped result history and same-nonce identity before executing collection/closure or reusing an existing resolution.
+- NatsStorageManagerCommunication._execute_saved_session_attempt(command, *, retained_result=None): Validates complete operation-scoped history and same-nonce identity before execution or reuse, rejecting disagreement with a retained successful closure before current archive reconfirmation.
 - NatsStorageManagerCommunication._reconfirm_archive_closure(command, result): Requires matching current closed-archive preservation before reconfirming a retained or historical successful closure through the owner.
 - NatsStorageManagerCommunication._read_saved_session_result(record, operation): Validates persisted result correlation, subject/body routing and collection-evidence or closed-summary identity before matching.
 - _subscribe_participant_commands(boundary, receive, *, new_only=False): Subscribes to existing scoped/independent participant command subjects, optionally admitting only commands published after startup for StorageManager.
@@ -1507,6 +1507,8 @@ automatic. Kill integration and overall closeout validation remain deferred.
 - RemoteArchiveClosureTests.test_cancelled_result_publication_retains_closure_but_requires_current_readback(): Refuses cached success after publication cancellation and subsequent archive corruption.
 - RemoteArchiveClosureTests.test_failed_result_publication_can_retry_without_rewriting_closed_archive(): Retries an unpublished result without repeating closure publication.
 - RemoteArchiveClosureTests.test_stale_success_response_cannot_confirm_another_request(): Rejects a prior attempt's successful reply for a fresh request.
+- RemoteArchiveClosureTests.test_pending_closure_retry_rejects_malformed_history_without_rewrite(): Rejects cached closure success after failed reply publication when scoped history lacks a nonce, preserving archive and historical bytes.
+- RemoteArchiveClosureTests.test_pending_closure_retry_rejects_conflicting_resolution(): Rejects cached closure success when persisted history resolves the same attempt differently.
 - RemoteArchiveClosureTests.test_success_history_requires_matching_closed_summary(): Rejects malformed successful closure history without repairing archive or results.
 - RemoteArchiveClosureTests.test_corrupt_attempt_history_blocks_closure_without_repair(): Rejects conflicting identities, missing nonce and source mismatch before closure.
 - RemoteArchiveClosureTests.test_conflicting_tail_blocks_reuse_of_matching_resolution(): Validates conflicting records even after a matching closure resolution.
