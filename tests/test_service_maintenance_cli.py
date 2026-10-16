@@ -253,12 +253,50 @@ class RemoteMaintenanceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(feedback["outcome"], "unconfirmed")
 
     async def test_interrupted_terminal_does_not_authorize_kill(self):
-        with patch.object(self.broker, "publish", AsyncMock(side_effect=asyncio.CancelledError)):
-            code, feedback = await self.request()
+        for operation in ("stop", "cancel"):
+            with self.subTest(operation=operation):
+                with patch.object(self.broker, "publish", AsyncMock(side_effect=asyncio.CancelledError)):
+                    code, feedback = await self.request(operation,
+                        attempt="blocked" if operation == "cancel" else None)
+                self.assertEqual(code, 1)
+                self.assertEqual(feedback["outcome"], "unconfirmed")
+                self.assertFalse(feedback["termination_confirmed"])
+                self.assertIn("interrupted", feedback["reason"])
+                self.assertIn("no automatic force escalation", feedback["reason"])
+                self.assertIn("does not revoke a submitted request", feedback["reason"])
+                self.assertNotIn("Explicitly authorized Kill", feedback["reason"])
+        self.close.assert_not_awaited()
+
+    async def test_interrupted_executed_kill_reports_uncertain_retirement(self):
+        self.node.reserve("session")
+        await self.serve()
+        code, blocked = await self.request()
+        self.assertEqual(code, 1)
+        self.assertEqual(blocked["outcome"], "blocked")
+        publish = self.broker.publish
+
+        async def interrupt_reply(subject, data, stream):
+            if stream == "LAB_COMMAND_RESULTS" and subject.endswith(".kill"):
+                self.assertTrue(self.owner.terminated)
+                self.assertTrue(json.loads(data)["success"])
+                raise asyncio.CancelledError()
+            return await publish(subject, data, stream)
+
+        with patch.object(self.broker, "publish", interrupt_reply):
+            code, feedback = await self.request("kill", attempt=blocked["stop_attempt_id"], authorized=True)
+        self.close.assert_awaited_once_with(True)
+        self.assertTrue(self.owner.terminated)
+        self.assertTrue(self.broker.commands[-1]["payload"]["authorized"])
+        self.assertEqual(feedback["command"], "kill")
+        self.assertEqual(feedback["stop_attempt_id"], blocked["stop_attempt_id"])
         self.assertEqual(code, 1)
         self.assertEqual(feedback["outcome"], "unconfirmed")
-        self.assertIn("interrupted", feedback["reason"])
-        self.close.assert_not_awaited()
+        self.assertFalse(feedback["termination_confirmed"])
+        self.assertIn("Explicitly authorized Kill may already have been submitted or executed", feedback["reason"])
+        self.assertIn("Interruption does not revoke a submitted request", feedback["reason"])
+        self.assertIn("do not assume the target remains active or has retired", feedback["reason"])
+        self.assertNotIn("no force requested", feedback["reason"])
+        self.terminals[-1].close.assert_awaited_once()
 
     async def test_failed_terminal_cleanup_retains_received_blockers(self):
         self.node.reserve("session")

@@ -156,6 +156,10 @@ Each invocation has a fresh temporary requester and command ID. These identities
 are not authentication. There is no automatic retry, Cancel or Kill after a remote
 timeout/blocker. An interrupted or timed-out request may already have executed;
 inspect the target and retained obligations rather than assuming it was undone.
+Interrupted Stop/Cancel feedback states that no automatic force escalation was
+requested. Interrupted explicitly authorized Kill instead warns that it may have
+been submitted or executed: interruption does not revoke the request, and neither
+continued activity nor retirement may be assumed without confirmation.
 
 The terminal uses existing NATS command/result APIs, a fresh-only subscription
 scoped to the target owner and operation before publication, and matching command,

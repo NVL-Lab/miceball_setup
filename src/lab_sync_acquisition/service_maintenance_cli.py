@@ -77,7 +77,15 @@ async def request_service_maintenance(*, servers, participant, operation, admini
     try:
         result = await asyncio.wait_for(execute(), result_window_s)
     except asyncio.CancelledError:
-        error = "Terminal request interrupted; remote outcome is unconfirmed; no force requested"
+        if operation == "kill":
+            error = ("Terminal request interrupted; remote outcome is unconfirmed. "
+                     "Explicitly authorized Kill may already have been submitted or executed. "
+                     "Interruption does not revoke a submitted request; do not assume the target "
+                     "remains active or has retired.")
+        else:
+            error = ("Terminal request interrupted; remote outcome is unconfirmed; "
+                     "no automatic force escalation was requested. "
+                     "Interruption does not revoke a submitted request.")
     except Exception as failure:
         error = f"{type(failure).__name__}: {failure}"
     finally:

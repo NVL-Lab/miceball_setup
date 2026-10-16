@@ -46,7 +46,7 @@ installation_and_deployment.md and Decisions 383-388.
 
 - MaintenanceCommandTests: Exercises common CLI dispatch, explicit identity/deadline/authorization requirements, continuation arguments and exit-code propagation.
 - MaintenanceCommandTests.arguments(operation="stop"): Supplies explicit hardware-independent terminal arguments for command examples.
-- RemoteMaintenanceTests: Exercises actual maintenance owners through broker-double NATS transport for Stop/Kill/Cancel, correlation, failure, cancellation, feedback and shared-process exit obligations.
+- RemoteMaintenanceTests: Exercises actual maintenance owners through broker-double NATS transport for Stop/Kill/Cancel, correlation, failure, operation-specific interruption feedback including executed Kill with an unconfirmed reply, and shared-process exit obligations.
 - RemoteMaintenanceTests.maintenance(service, kind, identity): Composes an existing maintenance owner with explicit local evidence preservation for tests.
 - RemoteMaintenanceTests.terminal(kind, identity, servers): Substitutes only terminal connectivity with the broker double while retaining real NATS communication adapters.
 - RemoteMaintenanceTests.request(operation="stop", *, attempt=None, authorized=False, target=None, window=0.05): Executes the public remote maintenance API and returns its code and terminal feedback.
