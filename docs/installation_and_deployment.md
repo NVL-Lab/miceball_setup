@@ -2,8 +2,9 @@
 
 ## Status And Scope
 
-Q022-A Decisions 367-378 are accepted and synchronized. Configuration/launching
-and full independent-service adaptation remain pending; the bounded owner
+Q022-A Decisions 367-378 are accepted and synchronized. Full configuration/role
+bootstrap and independent-service adaptation remain pending; bounded shared-process
+launching is closed in W061. The bounded owner
 persistence/readback foundation below is independently validated and audited
 after correction (W051). This is the initial manual installation contract and a
 current-interface reference, not a working installer or deployment certification.
@@ -25,9 +26,8 @@ bootstrap/launch composition is not implemented in this bounded persistence slic
 
 ## Accepted Manual Service Entry Points (Decisions 383-388)
 
-The bounded W061 developer implementation below is not independently validated
-or audited; the full role composition and remote operator interface are not
-implemented. One
+The bounded W061 launcher below is independently validated and audited PASS;
+full role composition and the remote operator interface are not implemented. One
 common CLI launches/administers the existing Controller, AcquisitionNode,
 Ingestor, StorageManager and SynchronizationManager capabilities. Decision 376's
 shared Ingestor/StorageManager process lifetime remains mandatory; other roles
@@ -56,7 +56,7 @@ process exit, Session-binding release, Session/Experiment termination and genera
 framework shutdown. Existing preservation, cleanup and safety obligations remain.
 Configuration provisioning and Q024 recovery remain outside these decisions.
 
-### Common Launcher (W061 Developer Implementation, Not Closed)
+### Common Launcher (W061 Closed)
 
 The package installs `lab-sync-acquisition`; source-tree invocation also works as
 `python -m lab_sync_acquisition.service_launcher`. `--help` lists all five logical
@@ -121,8 +121,16 @@ Run the focused developer checks with:
 python -B -m unittest tests.test_service_launcher -v
 ```
 
-No live deployment, hardware or power-loss validation is implied. Independent
-validation/audit and W061 closure remain outstanding; Q022 remains OPEN.
+W061 is CLOSED following independent IPython validation (initial 18/18, then
+22/22 after correction; overlapping sets) and focused independent re-audit PASS.
+The initial audit FAIL identified cached-success substitution by a conflicting
+rejection and unprotected partial-startup interruption; both P2 findings are
+resolved with permanent regressions. Sandbox synchronous tests and controlled
+coroutine probes passed; normal asynchronous runs stalled before setup in Windows
+asyncio socket-pair initialization and are not claimed as passes. No live
+JetStream, actual OS signal-delivery, physical hardware, full five-role deployment
+or power-loss validation is established. See W061 in validated_workflows.md for
+the complete record. Q022 remains OPEN.
 
 ## Scientific Data And Operational Evidence Boundary
 

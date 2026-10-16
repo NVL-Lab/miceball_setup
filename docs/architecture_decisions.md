@@ -11019,8 +11019,11 @@ the CLI does not split that pair or implicitly launch other independent roles.
 All process-crossing communication remains NATS-based. This accepts manual entry
 points, not supervision, automatic restart, discovery or NATS process management.
 
-**Implementation status:** Accepted and synchronized; CLI implementation and
-independent validation remain pending under Q022.
+**Implementation status:** Bounded common launcher and shared-process
+Ingestor/StorageManager launching are independently validated and re-audited PASS
+after correction (W061, CLOSED). The other three role paths reject startup;
+complete role composition, remote administrative issuance and provisioning remain
+outstanding under Q022.
 
 ---
 
@@ -11037,7 +11040,8 @@ There is no interactive Kill prompt or repeated-Ctrl+C forced termination. Reuse
 the existing maintenance attempt and cleanup/evidence obligations; Ctrl+C is not
 Session Normal Stop, Kill Session or Controller-coordinated framework shutdown.
 
-**Implementation status:** Accepted and synchronized; not yet implemented or validated.
+**Implementation status:** Bounded local Stop/Cancel and protected startup are
+implemented, independently validated and re-audited PASS (W061, CLOSED).
 
 ---
 
@@ -11074,7 +11078,9 @@ remain authoritative. Decision 313 independent Session-binding release and
 Decision 382 preservation eligibility do not by themselves authorize process exit.
 No new lifecycle state, supervision service or evidence store is introduced.
 
-**Implementation status:** Accepted and synchronized; not yet implemented or validated.
+**Implementation status:** Bounded launcher exit gating is independently validated
+and re-audited PASS (W061, CLOSED), including exact published-and-acknowledged
+request/result identity after correction. This does not claim requester receipt.
 
 ---
 
@@ -11088,7 +11094,8 @@ for local Ctrl+C administrator identity; require explicit administrator identity
 for remote commands. Identity recording is not a new authentication system and
 does not replace existing explicit Kill authorization.
 
-**Implementation status:** Accepted and synchronized; not yet implemented or validated.
+**Implementation status:** Local launcher identities are implemented and validated
+in W061 (CLOSED). Remote administrative CLI issuance remains unimplemented.
 
 ---
 
@@ -11107,7 +11114,9 @@ Decisions 383-388 accept the Manual Service Entry Points handoff without resolvi
 Q022 configuration provisioning, Q024 recovery or unrelated open questions. Q019
 and W001-W060 remain CLOSED; Q022, Q006, Q018, Q024, Phase 16 and M015 remain OPEN.
 
-**Implementation status:** Accepted and synchronized; not yet implemented or validated.
+**Implementation status:** Bounded launcher feedback and confirmed-success exit
+handling are independently validated and re-audited PASS (W061, CLOSED). Remote
+administrative issuance and unsupported role paths remain outside that closure.
 
 ---
 

@@ -1,6 +1,6 @@
 # Code Map
 
-## Manual Service CLI (Decisions 383-388; W061 Developer Implementation)
+## Manual Service CLI (Decisions 383-388; W061 Closed)
 
 The common installed `lab-sync-acquisition` entry point now exposes the five
 logical role names. Only `ingestor` and `storage-manager` currently launch; both
@@ -8,8 +8,10 @@ start the same shared pair, with explicit owner identities and existing
 constructor settings supplied as CLI arguments. The other roles fail clearly
 before startup: distributed framework-maintenance preservation dependencies and
 node installation composition remain unavailable. No hidden owners, configuration
-provisioning or remote administrative operator commands are supplied. This is
-developer implementation, not independent validation, audit or W061 closure.
+provisioning or remote administrative operator commands are supplied. W061 is
+CLOSED after independent IPython validation (22/22) and focused re-audit PASS
+following two P2 corrections. See validated_workflows.md for the audit history
+and sandbox/runtime limitations; full five-role deployment remains unvalidated.
 
 The accepted complete CLI scope reuses service initialization, NATS readiness and existing
 maintenance Stop/authorized Kill/Cancel, preserving Decision 376's paired process.

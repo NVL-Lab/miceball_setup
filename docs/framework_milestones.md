@@ -1340,15 +1340,22 @@ Q019 and W001-W058 remain CLOSED with historical records unchanged.
 
 ## Accepted Manual Service CLI Architecture (Decisions 383-388)
 
-**Status:** Architecture accepted and synchronized; implementation and independent
-validation pending. One common CLI reuses service launch/readiness/maintenance,
+**Status:** Bounded launcher/local graceful shutdown CLOSED in W061; complete
+role composition and remote administrative issuance remain outstanding.
+One common CLI reuses service launch/readiness/maintenance,
 with local Ctrl+C Stop and automatic Cancel when blocked, direct addressed remote
 Stop/authorized Kill/Cancel, and exit only after confirmed maintenance and required
 final result handling. Existing identities and outcomes are reused; terminal
 feedback and exit codes distinguish unconfirmed results from success. Decision
 376's shared-process pair remains unchanged. No configuration provisioning,
-supervision, forced exit or new lifecycle state is accepted. This is not a new
-validated workflow or completion of Q022. W001-W060 and Q019 remain CLOSED;
+supervision, forced exit or new lifecycle state is accepted. This is not
+completion of Q022. W061 records independent IPython 18/18 initially and 22/22
+after two P2 corrections, followed by focused independent re-audit PASS with no
+confirmed P0-P3 findings. Counts overlap and are not additive. Only the shared
+Ingestor/StorageManager launch path is supported; other roles reject startup.
+Sandbox asynchronous runs stalled before setup; synchronous tests and controlled
+probes passed. No live JetStream, actual OS signal delivery, hardware or complete
+five-role deployment validation is claimed. W001-W061 and Q019 remain CLOSED;
 Q022, Q006, Q018, Q024, Phase 16 and M015 remain OPEN.
 
 ## Completed Q022 Distributed Session Closeout (W060)

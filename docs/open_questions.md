@@ -969,10 +969,14 @@ Terminal feedback separates existing outcomes and reserves exit code 0 for
 confirmed success. No forced repeated-Ctrl+C exit or interactive Kill is accepted.
 
 This resolves manual CLI behavior, not configuration provisioning or Q024 recovery.
-Implementation and independent verification remain pending; Q022 remains OPEN.
-Q019 and W001-W060 remain CLOSED. Existing Q006/Q018, Q024, Phase 16 and M015
-statuses are unchanged. See installation_and_deployment.md for the accepted
-entry-point contract; no CLI implementation or validation is claimed.
+Bounded common launching/local graceful shutdown is CLOSED in W061 after
+independent IPython validation (22/22) and focused re-audit PASS following two P2
+corrections. Only the shared Ingestor/StorageManager launch path is supported;
+the other three roles explicitly reject startup. Complete role composition,
+remote administrative issuance and configuration provisioning remain outstanding.
+Q022 remains OPEN. Q019 and W001-W060 remain CLOSED. Existing Q006/Q018, Q024,
+Phase 16 and M015 statuses are unchanged. See installation_and_deployment.md for
+the supported entry points and validated_workflows.md for verification limitations.
 
 ### Q022-A accepted scope
 

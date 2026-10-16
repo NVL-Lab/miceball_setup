@@ -4604,6 +4604,76 @@ Accepted architectural decisions are unchanged.
 
 ---
 
+# W061 - Common Service Launcher and Local Graceful Shutdown
+
+**Status:** CLOSED - implemented, independently validated and independently
+re-audited PASS under Decisions 376 and 383-388 and existing maintenance contracts.
+
+## Implemented scope
+
+The installed `lab-sync-acquisition` console entry point exposes five logical role
+names. Only `ingestor` and `storage-manager` launch, as aliases for one shared
+process containing two distinct authoritative owners. Startup requires explicit
+existing constructor settings and an operational-dependency declaration. The CLI
+supports only an explicit declaration of no external operational dependents;
+`launch_storage_services()` accepts existing configured dependency callbacks.
+Controller, AcquisitionNode and SynchronizationManager paths reject startup
+without creating hidden owners. Configuration provisioning is not implemented.
+
+`ServiceLauncher` installs interrupt protection before asynchronous operational
+admission. Interrupted initialization is cancelled and awaited before existing
+local maintenance Stop/Cancel. Ctrl+C uses a temporary requester and OS username;
+blocked Stop automatically Cancels the same attempt and retains the process.
+Failed or unconfirmed shutdown retains unresolved obligations. Repeated interrupts
+never authorize Kill. Pre-admission startup failure is not orderly retirement.
+
+The pair reuses StorageManager preparation, Ingestor Stop and prepared
+StorageManager retirement. Services remain alive independently of Session lifetime.
+Process exit requires confirmed retirement of every owner, required final result
+handling and communication cleanup. Remote notification carries the exact request
+and result only after result publication and command acknowledgment; conflicting
+rejections cannot substitute cached success. Identical retries remain valid.
+Publication/acknowledgment does not establish requester receipt. Existing service
+authority, maintenance identities, evidence obligations and outcomes are unchanged.
+Remote administrative command issuance is not supplied by this CLI slice.
+
+## Validation and correction history
+
+- Initial independent user-run IPython validation: **18/18 PASS**.
+- Initial independent audit: **FAIL**, two confirmed P2 findings. A conflicting
+  rejection could substitute an unpublished successful retirement cached by command
+  ID. SIGINT/task cancellation during partial startup could bypass maintenance
+  after operational admission.
+- Corrections pass the exact published-and-acknowledged request/result pair to the
+  launcher and establish interrupt protection before startup, cancelling and
+  awaiting initialization before maintenance. Permanent regressions cover both
+  defects, identity conflicts, retained obligations and early startup failure.
+- Independent user-run IPython validation after correction: **22/22 PASS**, zero
+  failures, errors or skips. This overlaps the initial set; counts are not additive.
+- Focused independent read-only re-audit: **PASS**, no confirmed P0-P3 findings.
+  Five synchronous CLI tests and three controlled coroutine probes passed,
+  covering conflicting rejection, publication failure/retry and ACK failure/retry,
+  with successful temporary-resource cleanup. These are not live task/signal tests.
+
+Codex sandbox verification also included passing synchronous tests and controlled
+coroutine probes. Normal asynchronous execution stalled in Windows asyncio
+socket-pair initialization before test setup. Those blocked runs are not passes
+or application failures; independent IPython results remain separate evidence.
+No new implementation tests or audit were performed for documentation closure.
+
+## Limitations and status
+
+No live JetStream, physical hardware, full five-role deployment, actual OS
+signal-delivery or power-loss validation is established by these results.
+Unsupported role composition, remote administrative issuance, file-based
+configuration/provisioning and broader deployment integration remain outstanding.
+No supervision, automatic restart, discovery or new lifecycle states are supplied.
+
+W061 is CLOSED. Q022 remains OPEN. Q019 and W001-W060 remain CLOSED with historical
+records unchanged; Q006, Q018, Q024, Phase 16 and M015 remain OPEN.
+
+---
+
 # Future Workflows
 
 The following workflows are expected to be added as the framework evolves.

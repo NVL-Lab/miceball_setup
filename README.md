@@ -29,8 +29,9 @@ acquisition and operational evidence preservation are complete with independent
 manual validation and final re-audit PASS after correction (W053). The initial
 audit found lost later-device observations after operational intake failed; the
 correction attempts all completed scientific collections first and reports
-independent failures without replay. Shared-lifetime bootstrap remains
-deferred; future real-time scientific streaming is architecturally open.
+independent failures without replay. Bounded shared-lifetime launching is closed
+in W061; complete deployment bootstrap remains deferred. Future real-time
+scientific streaming is architecturally open.
 Decision 378 requires clean replacement of legacy collection/scientific-envelope
 paths: installation declares supported products, Experiments explicitly select
 them, and adapters produce scientific observations/metadata for local storage
@@ -115,7 +116,7 @@ verification was blocked by Windows asyncio startup. Q022 remains OPEN.
 
 ## Overview
 
-### Manual Service Launcher (Developer Implementation)
+### Manual Service Launcher (W061 Closed)
 
 `lab-sync-acquisition --help` (or `python -m lab_sync_acquisition.service_launcher --help`)
 lists the five logical roles. Currently only `ingestor` and `storage-manager`
@@ -124,8 +125,11 @@ settings and an explicit declaration of no external operational dependents.
 Other roles report unavailable maintenance/installation composition
 without creating hidden services. Ctrl+C uses existing local Stop/Cancel, never
 implicit Kill; remote retirement waits for final result publication/handling.
-See [launcher usage and limitations](docs/installation_and_deployment.md#common-launcher-w061-developer-implementation-not-closed).
-W061 is not closed or independently validated/audited; Q022 remains OPEN.
+See [launcher usage and limitations](docs/installation_and_deployment.md#common-launcher-w061-closed)
+and [W061](docs/validated_workflows.md#w061---common-service-launcher-and-local-graceful-shutdown).
+W061 is CLOSED after independent IPython validation (22/22) and focused re-audit
+PASS following two P2 corrections. No live JetStream, actual OS signal-delivery,
+hardware or full five-role deployment validation is claimed. Q022 remains OPEN.
 
 
 
