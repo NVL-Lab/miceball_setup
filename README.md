@@ -131,6 +131,13 @@ W061 is CLOSED after independent IPython validation (22/22) and focused re-audit
 PASS following two P2 corrections. No live JetStream, actual OS signal-delivery,
 hardware or full five-role deployment validation is claimed. Q022 remains OPEN.
 
+Remote addressed maintenance is implemented for W062 (not independently validated,
+audited or closed): `lab-sync-acquisition stop|kill|cancel` uses explicit servers,
+target type/identity, administrator and result window. Kill additionally requires
+the blocked stop-attempt ID and explicit authorization; Cancel uses that attempt
+without force. No Controller is required and no extra service is launched.
+See [remote maintenance usage](docs/installation_and_deployment.md#remote-service-maintenance-w062-implementation-not-closed).
+
 
 
 This repository is developing a hardware-agnostic framework for:

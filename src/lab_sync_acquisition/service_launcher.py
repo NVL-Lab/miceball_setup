@@ -284,7 +284,13 @@ async def launch_storage_services(*, servers, ingestor_id, storage_id, storage_r
 def main(argv=None):
     """Common installed CLI; unavailable role composition fails before startup."""
     parser = argparse.ArgumentParser(description="Launch existing services; Ctrl+C requests maintenance Stop.")
-    parser.add_argument("role", choices=("controller", "acquisition-node", "ingestor", "storage-manager", "synchronization-manager"))
+    parser.add_argument("role", choices=("controller", "acquisition-node", "ingestor", "storage-manager", "synchronization-manager", "stop", "kill", "cancel"))
+    parser.add_argument("--target-type", choices=("controller", "acquisition_node", "ingestor", "storage_manager", "synchronization_manager"))
+    parser.add_argument("--target-id")
+    parser.add_argument("--administrator-id")
+    parser.add_argument("--result-window-s", type=float)
+    parser.add_argument("--stop-attempt-id")
+    parser.add_argument("--authorize-kill", action="store_true")
     parser.add_argument("--server", action="append", help="Explicit NATS server URL; repeat for multiple servers")
     parser.add_argument("--ingestor-id")
     parser.add_argument("--storage-id")
@@ -295,6 +301,35 @@ def main(argv=None):
     parser.add_argument("--no-operational-dependents", action="store_true",
         help="Explicitly declare no external operational dependents; other dependency composition is unavailable here")
     args = parser.parse_args(argv)
+    if args.role in {"stop", "kill", "cancel"}:
+        from lab_sync_acquisition.communication import build_runtime_subject
+        from lab_sync_acquisition.service_maintenance_cli import request_service_maintenance
+        if (not args.server or any(not s.strip() for s in args.server)
+                or not args.target_type or not args.target_id or not args.target_id.strip()
+                or not args.administrator_id or not args.administrator_id.strip()
+                or args.result_window_s is None or not isfinite(args.result_window_s) or args.result_window_s <= 0):
+            parser.error("Remote maintenance requires --server, --target-type, --target-id, --administrator-id and a positive finite --result-window-s")
+        try:
+            build_runtime_subject(None, "command", args.target_type, args.target_id, args.role)
+        except ValueError as error:
+            parser.error(str(error))
+        if args.role == "stop" and (args.stop_attempt_id is not None or args.authorize_kill):
+            parser.error("Stop creates a new attempt; do not supply continuation or Kill authorization")
+        if args.role in {"kill", "cancel"} and (not args.stop_attempt_id or not args.stop_attempt_id.strip()):
+            parser.error("Kill/Cancel require --stop-attempt-id from the existing blocked Stop")
+        if args.authorize_kill != (args.role == "kill"):
+            parser.error("--authorize-kill is required only for Kill")
+        try:
+            return asyncio.run(request_service_maintenance(servers=args.server,
+                participant=RuntimeParticipant(args.target_type, args.target_id), operation=args.role,
+                administrator_id=args.administrator_id, result_window_s=args.result_window_s,
+                stop_attempt_id=args.stop_attempt_id, authorized=args.authorize_kill))
+        except KeyboardInterrupt:
+            print("Remote outcome unconfirmed after interruption; no Kill was authorized implicitly.", file=sys.stderr)
+            return 1
+        except Exception as error:
+            print(f"Remote maintenance unconfirmed: {type(error).__name__}: {error}", file=sys.stderr)
+            return 1
     if args.role not in {"ingestor", "storage-manager"}:
         parser.error(f"{args.role} launch unavailable: distributed framework-maintenance preservation "
                      "dependencies are not composed yet; AcquisitionNode also requires installed devices/adapters. "

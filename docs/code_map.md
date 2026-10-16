@@ -7,8 +7,9 @@ logical role names. Only `ingestor` and `storage-manager` currently launch; both
 start the same shared pair, with explicit owner identities and existing
 constructor settings supplied as CLI arguments. The other roles fail clearly
 before startup: distributed framework-maintenance preservation dependencies and
-node installation composition remain unavailable. No hidden owners, configuration
-provisioning or remote administrative operator commands are supplied. W061 is
+node installation composition remain unavailable. No hidden owners or configuration
+provisioning are supplied. Remote administrative issuance is now implemented below
+for W062, pending independent validation/audit and closure. W061 is
 CLOSED after independent IPython validation (22/22) and focused re-audit PASS
 following two P2 corrections. See validated_workflows.md for the audit history
 and sandbox/runtime limitations; full five-role deployment remains unvalidated.
@@ -35,7 +36,21 @@ installation_and_deployment.md and Decisions 383-388.
 - ServiceLauncher._feedback: Reports existing maintenance outcomes, identities, blockers and outstanding obligations without creating lifecycle evidence or outcome states.
 - ServiceLauncher._remote_handled: Validates request/result correlation using the exact published-and-acknowledged result and counts only confirmed retirement toward exit, never a cached success substituted by command ID.
 - launch_storage_services(*, servers, ingestor_id, storage_id, storage_root, recovery_journal_root, framework_journal, preservation_window_s, operational_dependents, report=print): Constructs the two existing paired owners with explicit existing Ingestor dependency callbacks, connects their NATS handlers/readiness and runs the shared lifetime.
-- main(argv=None): Parses explicit-role launcher arguments, rejects unavailable initialization paths and returns nonzero on unconfirmed startup.
+- main(argv=None): Parses explicit-role launching or addressed remote Stop/Kill/Cancel, requires explicit administrative settings and returns nonzero for unconfirmed or unsuccessful commands.
+
+## src/lab_sync_acquisition/service_maintenance_cli.py
+
+- request_service_maintenance(*, servers, participant, operation, administrator_id, result_window_s, stop_attempt_id=None, authorized=False, report=print): Uses a temporary NATS issuer and fresh exact-owner/operation result subscription to request one existing maintenance operation within an explicit deadline, report correlated outcomes and return zero only for confirmed success without claiming OS process exit.
+
+## tests/test_service_maintenance_cli.py
+
+- MaintenanceCommandTests: Exercises common CLI dispatch, explicit identity/deadline/authorization requirements, continuation arguments and exit-code propagation.
+- MaintenanceCommandTests.arguments(operation="stop"): Supplies explicit hardware-independent terminal arguments for command examples.
+- RemoteMaintenanceTests: Exercises actual maintenance owners through broker-double NATS transport for Stop/Kill/Cancel, correlation, failure, cancellation, feedback and shared-process exit obligations.
+- RemoteMaintenanceTests.maintenance(service, kind, identity): Composes an existing maintenance owner with explicit local evidence preservation for tests.
+- RemoteMaintenanceTests.terminal(kind, identity, servers): Substitutes only terminal connectivity with the broker double while retaining real NATS communication adapters.
+- RemoteMaintenanceTests.request(operation="stop", *, attempt=None, authorized=False, target=None, window=0.05): Executes the public remote maintenance API and returns its code and terminal feedback.
+- RemoteMaintenanceTests.serve(): Attaches the existing command receiver to the authoritative test owner.
 
 ## tests/test_service_launcher.py
 
@@ -1036,7 +1051,7 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 - NatsControllerCommunication.check_ready(): Returns required NATS communication readiness for launch gating.
 - NatsControllerCommunication.request_command(participant, command_type, session_id, payload, result_window_s, *, command_id=None): Publishes once and awaits the bounded correlated result; when startup integration is attached to the same boundary, it also informs the service owner of missing results or explicit readiness observations without inferring technical unreadiness or using stale subscription bindings.
 - NatsControllerCommunication.request_runtime_command(participant, command_type, session_id, payload, result_window_s, *, command_id=None): Uses a fresh-only per-attempt result subscription and nonce for Session runtime work, retaining owner command identity independently of delivery attempts.
-- NatsControllerCommunication.subscribe_command_results(session_id, callback=None, *, new_only=False, result_filter=None): Preserves historical result consumption by default and optionally limits delivery/filtering for current owner requests.
+- NatsControllerCommunication.subscribe_command_results(session_id, callback=None, *, new_only=False, result_filter=None, participant=None, command_type=None): Preserves historical result consumption by default and optionally limits delivery/filtering for current requests, with an exact owner/operation subject when both scoping arguments are supplied.
 - NatsControllerCommunication.session_acquisition_completion(participant, session_id): Reads the successful result for this issuer's latest exactly correlated stop_runtime request, not an unrelated or historical response.
 - NatsControllerCommunication.confirm_session_health_processing(session_id, controller): Reads retained Session health publications against completed bound subscription callbacks, refusing unknown history or unfinished inputs without processing/replaying them.
 - NatsControllerCommunication.publish_evidence(message): Retains Controller-owned publication failures and requires the existing durable stream acknowledgment, rejecting conflicting retained identities.

@@ -27,7 +27,8 @@ bootstrap/launch composition is not implemented in this bounded persistence slic
 ## Accepted Manual Service Entry Points (Decisions 383-388)
 
 The bounded W061 launcher below is independently validated and audited PASS;
-full role composition and the remote operator interface are not implemented. One
+full role composition remains outstanding. W062 remote administrative issuance
+is implemented below but is not independently validated, audited or closed. One
 common CLI launches/administers the existing Controller, AcquisitionNode,
 Ingestor, StorageManager and SynchronizationManager capabilities. Decision 376's
 shared Ingestor/StorageManager process lifetime remains mandatory; other roles
@@ -101,7 +102,8 @@ until the accepted retirement boundary. Blocked Stop invokes Cancel for the same
 attempt; failed/unconfirmed results retain the process and report obligations.
 Already confirmed retirement is not falsely undone on a later failure.
 
-Remote maintenance issuance is not a CLI command in this slice. Existing receiving
+Remote maintenance issuance was not a CLI command in W061; W062 adds it below.
+Existing receiving
 handlers remain usable: the launcher waits until final result publication and
 delivery ACK finish before counting remote retirement toward process exit. Lost
 publication or ACK leaves exit unconfirmed until an existing explicit retry is
@@ -131,6 +133,59 @@ asyncio socket-pair initialization and are not claimed as passes. No live
 JetStream, actual OS signal-delivery, physical hardware, full five-role deployment
 or power-loss validation is established. See W061 in validated_workflows.md for
 the complete record. Q022 remains OPEN.
+
+### Remote Service Maintenance (W062 Implementation, Not Closed)
+
+An independent terminal can address an existing service owner without a running
+Controller. Use the common installed command (or the same arguments after
+`python -m lab_sync_acquisition.service_launcher`):
+
+```text
+lab-sync-acquisition stop --server nats://HOST:4222 --target-type acquisition_node --target-id NODE_ID --administrator-id ADMIN --result-window-s SECONDS
+lab-sync-acquisition kill --server nats://HOST:4222 --target-type acquisition_node --target-id NODE_ID --administrator-id ADMIN --result-window-s SECONDS --stop-attempt-id BLOCKED_ATTEMPT_ID --authorize-kill
+lab-sync-acquisition cancel --server nats://HOST:4222 --target-type acquisition_node --target-id NODE_ID --administrator-id ADMIN --result-window-s SECONDS --stop-attempt-id BLOCKED_ATTEMPT_ID
+```
+
+Target types are `controller`, `acquisition_node`, `ingestor`, `storage_manager`
+and `synchronization_manager`; the owner must already have its existing NATS
+maintenance handler running. This does not enable additional role launch paths.
+Every invocation requires explicit servers, target, administrator and a positive
+finite request window. Stop creates a new attempt; Kill and Cancel require the
+blocked attempt printed by Stop. Kill additionally requires `--authorize-kill`.
+Each invocation has a fresh temporary requester and command ID. These identities
+are not authentication. There is no automatic retry, Cancel or Kill after a remote
+timeout/blocker. An interrupted or timed-out request may already have executed;
+inspect the target and retained obligations rather than assuming it was undone.
+
+The terminal uses existing NATS command/result APIs, a fresh-only subscription
+scoped to the target owner and operation before publication, and matching command,
+requester, Session and attempt identities. A bounded request covers connection,
+subscription, publication and result waiting; cleanup also has bounded waits.
+Missing, malformed or mismatched results never establish success. JSON feedback
+reports actual outcomes, target/requester/command/attempt/administrator identities,
+blockers, failures, unresolved obligations and operator action. Only confirmed
+successful completion returns 0; blocked, rejected, failed or unconfirmed results
+return nonzero. Existing maintenance represents Cancel as outcome `failed` with
+reason `Administrator cancelled`; Cancel ends the blocked attempt without force
+but consequently returns nonzero. A subsequent Stop uses a new attempt identity.
+
+An owner retirement result is not proof of OS process exit. Ingestor and
+StorageManager remain distinct addressed owners in one process; both must satisfy
+their own retirement and final-result obligations before the W061 launcher exits.
+The terminal does not launch a Controller, create service owners, supervise or
+terminate processes, configure dependencies, or implement recovery. Existing
+owner-side idempotency, preservation and safety checks remain authoritative.
+
+Focused checks:
+
+```text
+python -B -m unittest tests.test_service_maintenance_cli tests.test_service_launcher.LauncherCommandTests -v
+```
+
+W062 is not closed. Sandbox asynchronous execution remains limited by Windows
+asyncio socket-pair initialization; controlled coroutine checks are not live
+JetStream, actual signal-delivery, multi-host or hardware validation. Independent
+validation and audit remain required. Q022 remains OPEN.
 
 ## Scientific Data And Operational Evidence Boundary
 

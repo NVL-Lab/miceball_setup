@@ -575,10 +575,17 @@ class NatsControllerCommunication:
         callback: RuntimeResultCallback | None = None,
         *, new_only: bool = False,
         result_filter: Callable[[RuntimeCommandResultMessage], bool] | None = None,
+        participant: RuntimeParticipant | None = None,
+        command_type: str | None = None,
     ) -> Subscription:
         """Consume durable results addressed to this command issuer."""
 
         subject = "messages.command_result.*.*.*" if session_id is None else f"messages.{session_id}.command_result.*.*.*"
+        if (participant is None) != (command_type is None):
+            raise ValueError("Result subject scoping requires both participant and command type")
+        if participant is not None:
+            subject = build_runtime_subject(session_id, "command_result", participant.component_type,
+                                            participant.component_id, command_type)
 
         async def receive(message: Any) -> None:
             result = RuntimeCommandResultMessage.from_dict(
