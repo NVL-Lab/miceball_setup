@@ -32,6 +32,22 @@ recommended implementation order in
 alone is not acceptance, complete receipt, or archival. Historical Q019 validation
 remains intact.
 
+## Distributed Completion And Release Target (Accepted, Not Implemented)
+
+Decision 382 resolves the cross-process preservation boundary: Controller publishes
+the Normal Stop last-call marker after producer confirmations; Ingestor proves
+complete durable receipt/journal consistency and finalizes acquisition intake;
+StorageManager verifies corresponding complete Stage A products/handoff. Later
+acquisition deliveries, including duplicates, cannot mutate finalized evidence,
+audit or final Session Record. Existing `Controller._complete_preserved_acquisition()`
+and `release_session()` use local intake/preservation guards, not this distributed
+finalization contract. Adapt existing owner methods and NATS confirmations/readback
+without remote shared locks or a new reliability subsystem. Eligibility remains
+restart-verifiable; Controller keeps lifecycle authority and each service retains
+Decision 313 cleanup/preservation/safety and release obligations. Kill and later
+Stage B/permanent closure remain separate. No implementation or new validation is
+claimed; Q022 remains OPEN and W001-W059 history is unchanged.
+
 ## Durable Operational Evidence Transport (Closed, W057)
 
 AcquisitionNode-to-Ingestor NATS operational evidence intake and exact

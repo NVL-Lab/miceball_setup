@@ -10939,6 +10939,71 @@ W001-W055 are unchanged.
 
 ---
 
+## Decision 382: Finalized acquisition intake and verified Stage A establish distributed preservation eligibility
+
+**Status:** Accepted
+
+The existing acquisition-evidence completion marker is the last-call boundary
+for Normal Stop. Controller obtains the required producer-publication
+confirmations and publishes the Session-scoped marker. Ingestor independently
+verifies complete durable acceptance through that marker, including contiguous
+JetStream receipt and journal consistency. A marker alone is insufficient: the
+full required publication interval must first be proven complete under the
+existing receipt contracts.
+
+Ingestor establishes the authoritative final acquisition-intake boundary. Once
+finalized, subsequent acquisition-evidence deliveries for that Session, including
+duplicates, are rejected or discarded without modifying finalized Stage A
+evidence, intake audit or final Session Record. This qualifies the mutable-intake
+coverage assumptions of the earlier closeout implementation; it does not weaken
+the completeness proof required before finalization.
+
+StorageManager durably preserves and verifies the corresponding complete Stage A
+products: acquisition evidence, intake audit, final Session Record and applicable
+artifact handoff, with existing summary/provenance and preservation checks.
+Finalized intake together with verified Stage A preservation establishes
+authoritative acquisition-preservation eligibility. Controller retains exclusive
+Session lifecycle authority. Completion additionally requires all existing
+lifecycle, cleanup and safety obligations; neither Ingestor nor StorageManager
+independently transitions the Session to `completed`.
+
+Reuse existing NATS/JetStream reliability mechanisms. Publication or delivery
+acknowledgment alone does not prove Stage A preservation. Controller requires an
+authoritative, correctly correlated preservation result. Missing, delayed,
+duplicated, cancelled or superseded confirmations cannot authorize an
+inappropriate lifecycle transition. No separate messaging-reliability subsystem
+or distributed transaction coordinator is introduced.
+
+Preservation eligibility remains independently verifiable after Controller or
+Ingestor/StorageManager restart, using existing durable Session products,
+journals and accepted recovery/readback mechanisms. Do not rewrite finalized
+acquisition evidence or unnecessarily repeat previously confirmed Stage A
+preservation. If eligibility cannot be established, completion remains unconfirmed.
+
+Decision 313 remains unchanged: each operational service independently releases
+its Session binding only after its own cleanup, preservation and safety
+obligations are satisfied. Stage A preservation alone establishes neither
+hardware safety, cleanup completion nor remote resource-release eligibility.
+Preserve Normal Stop versus Kill, including partial Kill preservation and its
+accepted recovery protections, and Stage A versus later Stage B collection and
+separate explicit permanent Evidence Archive closure. This decision does not
+turn partial Kill preservation into complete Normal Stop receipt.
+
+This clarifies Decisions 313, 357-365 and 375-376 without changing component
+ownership, adding Session states, a Session registry, another Evidence Archive
+or new infrastructure. The Ingestor/StorageManager shared-process topology and
+NATS across process boundaries remain unchanged. No new message schema or
+implementation-specific finalization mechanism is specified here.
+
+**Implementation status:** Accepted and synchronized, not yet implemented or
+independently validated. This resolves the distributed acquisition-preservation
+boundary question identified before cross-process Session closeout implementation;
+the implementation must preserve the remaining lifecycle/release requirements.
+Q019 and W001-W059 remain CLOSED with historical outcomes unchanged. Q022,
+Q006, Q018, Q024, Phase 16 and M015 remain OPEN.
+
+---
+
 # Accepted Architectural Principles
 
 The following principles summarize the accepted decisions so far.
@@ -11370,6 +11435,7 @@ requirements remain authoritative.
 379. SynchronizationManager establishes node-specific mappings from sufficient measured cross-clock exchanges accounting for delay, variability and uncertainty; bounded initial clock-rate assumptions are explicit, and configurable quality checks are distinct from complete resynchronization.
 380. AcquisitionNode applies authorized affine mappings locally and prospectively, derives Experiment Time from Session Time, and preserves required scientific timing, mapping history and local activation boundaries without per-observation mapping IDs.
 381. Acceptable synchronization is required at Session acquisition readiness and before each Experiment; configurable periodic assessments preserve degraded timing/provenance, with consequences governed by existing TimingQualityPolicy and Controller authority, never transport timestamps or assumed shared clocks.
+382. The Normal Stop marker is last-call, not proof by itself; Ingestor finalizes acquisition intake only after complete durable receipt verification, and finalized intake plus verified Stage A establishes preservation eligibility without transferring Controller lifecycle or independent service-release authority.
 
 ---
 

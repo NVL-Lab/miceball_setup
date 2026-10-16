@@ -406,7 +406,30 @@ or receipt reconstruction is needed.
 
 ### Stage A, Session Records, Handoff, And Binding Release
 
-**Controller/Ingestor -> StorageManager:** Controller directly writes Stage A,
+**Accepted target (Decision 382; not yet implemented/validated):** The Normal Stop
+marker is last-call after required producer-publication confirmations. Ingestor
+independently proves complete durable receipt through the marker, including the
+full publication interval, contiguous JetStream receiving progress and journal
+consistency, before establishing final acquisition intake. After finalization,
+subsequent acquisition deliveries, including duplicates, are rejected/discarded
+without changing finalized Stage A evidence, audit or final Session Record.
+StorageManager verifies durable corresponding complete Stage A products and the
+applicable handoff. Together these establish acquisition-preservation eligibility,
+not automatic Session completion or release.
+
+Controller retains lifecycle authority and requires all existing lifecycle,
+cleanup and safety obligations plus a correctly correlated owner preservation
+result. Publication/ACK alone is insufficient. Existing NATS/JetStream and durable
+Session products/journals/readback/recovery must preserve independently verifiable
+eligibility across restart; missing, delayed, duplicated, cancelled or superseded
+confirmations cannot authorize an inappropriate transition. Do not rewrite
+finalized evidence or unnecessarily repeat confirmed Stage A. Each service
+independently releases under Decision 313; Stage A does not confirm remote cleanup
+or hardware safety. Kill partial-preservation/recovery and later Stage B/explicit
+permanent closure remain separate. No new reliability subsystem, transaction
+coordinator, registry or Session state is authorized.
+
+**Current implementation - Controller/Ingestor -> StorageManager:** Controller directly writes Stage A,
 partial Kill preservation, initial/final Session Records, and the handoff, then
 reads preservation confirmations; completion/release compare current Ingestor
 contents with durable products under shared guards. Ingestor `release_session()`
@@ -417,9 +440,11 @@ coverage, final-record Session identity, marker provenance, fsync/readback,
 non-overwriting handoff semantics, and immutable historical/closed contents.
 Adapt completion and release to trustworthy current owner confirmations, not
 cached flags, borrowed remote context managers, or shared locks. Revalidate
-Session/operation identity after network waits; late accepted or rejected intake,
-cancellation, and stale release must not bypass obligations or retire a new
-binding. Depends on Ingestor receipt/compilation and StorageManager persistence
+Session/operation identity after network waits. Existing local late-intake checks
+remain the current implementation, not the finalized-intake target: Decision 382
+requires post-finalization deliveries to leave finalized products/audit unchanged.
+Before finalization, intake coverage, cancellation and stale release must not
+bypass obligations or retire a new binding. Depends on Ingestor receipt/compilation and StorageManager persistence
 interfaces; Stage A is not collection or permanent closure.
 
 ### Partial-Handoff Refresh And Authorized Recovery Inputs

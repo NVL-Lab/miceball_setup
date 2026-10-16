@@ -1219,8 +1219,12 @@ during implementation; inability cannot weaken the guarantee. JetStream's intern
 consumer terminology introduces no architectural Consumer service/component.
 The receiving foundation and routing prerequisite are complete with automated
 testing, independent manual IPython validation, and final independent re-audit PASS
-after correction (W041), using local JetStream/software. Complete closeout remains
-unimplemented and Q019 remains OPEN. Receipt confirmation alone does not establish
+after correction (W041), using local JetStream/software. Q019's supported local
+closeout integration is closed in W050; cross-process closeout under Decision 382
+remains unimplemented. Decision 382 uses the existing Normal Stop marker as
+last-call, but requires proof of the full publication interval before Ingestor
+finalizes intake. Later acquisition deliveries, including duplicates, must not
+change finalized acquisition products or audit. Receipt confirmation alone does not establish
 producer confirmations, Session completion, or archive preservation. Stage B collection
 evidence is directly persisted by StorageManager rather than compiled by Ingestor
 under Decision 358.
@@ -1522,6 +1526,15 @@ without treating status alone as preservation proof. Decision 365 requires compl
 producer/acceptance/preservation confirmations for successful Normal Stop; Kill
 may preserve explicitly partial information, confirming only actual preserved
 content. Applicable cleanup and durable handoff obligations remain required.
+Decision 382 clarifies the accepted distributed target: Ingestor-finalized
+acquisition intake plus verified complete Stage A preservation establishes
+acquisition-preservation eligibility, independently verifiable after restart.
+Controller still owns lifecycle completion and each service independently meets
+its cleanup/preservation/safety obligations before release. Publication/ACK is
+not preservation confirmation, and neither a marker alone nor a stale/mismatched
+reply is sufficient. Finalized acquisition evidence is not rewritten; later
+deliveries do not change its audit or final Session Record. This clarification
+is accepted, not implemented or validated by the earlier workflows.
 The bounded Stage A persistence slice is complete with developer automated testing,
 independent manual validation, and independent audit PASS (W043). It requires
 W041 verified receipt of the W042 marker, preserves the existing archive products and final

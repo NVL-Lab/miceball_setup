@@ -1338,6 +1338,22 @@ enumeration/batch operations, broader recovery and deployment bootstrap remain
 outside this slice. Q022, Q006, Q018, Q024, Phase 16 and M015 remain OPEN.
 Q019 and W001-W058 remain CLOSED with historical records unchanged.
 
+## Accepted Q022 Distributed Completion Boundary (Decision 382)
+
+**Status:** Architecture synchronized; implementation and independent verification
+pending. The Normal Stop marker is last-call after producer confirmations, not
+proof of complete receipt by itself. Ingestor verifies the full durable publication
+interval and finalizes acquisition intake; later deliveries cannot change finalized
+evidence/audit/record. Finalized intake plus StorageManager-verified complete Stage A
+and applicable handoff establishes preservation eligibility. Controller alone owns
+lifecycle completion and must also satisfy cleanup/safety obligations. Decision
+313 keeps each service's release independent; Stage A is not hardware safety or
+release authorization. Existing durable products/journals and NATS readback/recovery
+must support restart without rewriting finalized evidence or unnecessarily repeating
+confirmed preservation. Kill and later Stage B/permanent closure remain distinct.
+This resolves the inspected cross-process architecture gate, not the implementation
+slice. Q019 and W001-W059 stay CLOSED; Q022, Q024, Phase 16 and M015 stay OPEN.
+
 ## Completed Session-binding release slice validation
 
 **Status:** Complete - narrow software implementation, manual IPython validation,

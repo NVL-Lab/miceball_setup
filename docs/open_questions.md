@@ -923,6 +923,31 @@ runtime attempts stalled inside the sandbox without results. Full cross-process
 closeout/release, Stage A, enumeration/batch, recovery and bootstrap remain open;
 Q022 is not closed.
 
+### Distributed completion and release clarification (Decision 382)
+
+**Architecture resolved; implementation pending.** The Normal Stop completion
+marker is last-call after required producer-publication confirmations. Ingestor
+must independently prove the full publication interval, contiguous durable receipt
+and journal consistency before finalizing acquisition intake. Subsequent
+acquisition deliveries, including duplicates, cannot modify finalized Stage A
+evidence, audit or final Session Record. Finalized intake plus StorageManager's
+verified complete Stage A/handoff establishes acquisition-preservation eligibility;
+an earlier mutable snapshot or the marker alone does not.
+
+Controller alone transitions Session lifecycle after all existing cleanup and
+safety obligations. Correctly correlated owner preservation results and existing
+durable readback/recovery must support restart and fail closed on missing or
+superseded confirmation without rewriting finalized evidence or unnecessarily
+repeating confirmed Stage A. Each service still independently satisfies Decision
+313 before releasing its binding; preservation does not establish hardware safety
+or resource-release eligibility. Partial Kill, later collection and explicit
+permanent closure remain distinct.
+
+Decision 382 resolves the architecture gate raised during cross-process closeout
+inspection. It is not a claim of implemented finalization, restored application
+state, completed closeout/release integration or new validation. Q022 remains OPEN
+for implementation and independent verification; W001-W059 remain unchanged.
+
 ### Q022-A accepted scope
 
 One installed package is launched with an explicit service role. Installation uses
