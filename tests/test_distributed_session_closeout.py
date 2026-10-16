@@ -17,6 +17,7 @@ from lab_sync_acquisition import (
 from tests import test_distributed_synchronization as timing
 from tests.evidence_receipt_fixtures import EvidenceReceiptBroker
 from tests.test_producer_publication_completion import PublicationBroker
+from tests.test_producer_publication_completion import interpretation
 from tests.nats_server_fixture import NATS_SERVER, temporary_jetstream_server
 
 
@@ -176,6 +177,197 @@ class DistributedSessionCloseoutTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(f.controller._session.experiment_lifecycle_evidence[-1].event_type, "experiment_abort")
         self.assertFalse((await f.controller.release_session(communication=f.communication, result_window_s=0.05)).succeeded)
         self.assertEqual(f.node.reserved_for_session_id, f.sid)
+
+    async def test_health_during_normal_stop_is_preserved_before_last_call(self):
+        await self.running()
+        f = self.fixture
+        reached, resume = asyncio.Event(), asyncio.Event()
+
+        async def pause(subject, payload):
+            if payload.get("command_type") == "stop_runtime" and payload.get("target_id") == "node":
+                reached.set()
+                await resume.wait()
+
+        f.broker.before_publication = pause
+        task = asyncio.create_task(self.stop())
+        try:
+            await asyncio.wait_for(reached.wait(), 2)
+            decision = f.controller.process_health_interpretation(interpretation("during-stop"))
+            timing_evidence = RuntimeEvidenceMessage("during-stop-timing", f.sid,
+                "timing_quality_interpretation", "node", {"interpretation_label": "warning"}, True)
+            f.controller.process_timing_quality_interpretation(timing_evidence)
+            self.assertIsNone(f.controller._acquisition_marker)
+            self.assertFalse(f.controller.finalize_session().succeeded)
+        finally:
+            resume.set()
+            result = await task
+            f.broker.before_publication = None
+        self.assertTrue(result.succeeded, result.error)
+        messages = result.details["runtime_evidence"]
+        self.assertTrue(any(m["payload"].get("originating_observation_id") == decision.originating_observation_id
+                            for m in messages if m["evidence_type"] == "controller_action_decision"))
+        self.assertTrue(any(m["payload"].get("originating_observation_id") == timing_evidence.evidence_id
+                            for m in messages if m["evidence_type"] == "controller_action_decision"))
+        before = self.archive()
+        with self.assertRaises(RuntimeError):
+            f.controller.process_health_interpretation(interpretation("after-marker"))
+        with self.assertRaises(RuntimeError):
+            f.controller.process_timing_quality_interpretation(RuntimeEvidenceMessage("after-marker-timing", f.sid,
+                "timing_quality_interpretation", "node", {"interpretation_label": "warning"}, True))
+        self.assertEqual(self.archive(), before)
+
+    async def test_new_health_during_publication_requires_retry_before_marker(self):
+        await self.running()
+        f = self.fixture
+        f.controller.process_health_interpretation(interpretation("first"))
+        acknowledge_marker = f.broker.after_publication
+        injected = False
+
+        async def add_health(subject, payload):
+            nonlocal injected
+            if payload.get("evidence_type") == "controller_action_decision" and not injected:
+                injected = True
+                f.controller.process_health_interpretation(interpretation("during-publication"))
+            await acknowledge_marker(subject, payload)
+
+        f.broker.after_publication = add_health
+        result = await self.stop()
+        self.assertFalse(result.succeeded)
+        self.assertIn("changed during publication", result.error)
+        self.assertIsNone(f.controller._acquisition_marker)
+        f.broker.after_publication = acknowledge_marker
+        result = await self.stop()
+        self.assertTrue(result.succeeded, result.error)
+        self.assertTrue(result.details["acquisition_preservation_eligible"])
+        observations = {m["payload"].get("originating_observation_id") for m in result.details["runtime_evidence"]
+                        if m["evidence_type"] == "controller_action_decision"}
+        self.assertTrue({"first", "during-publication"} <= observations)
+
+    async def test_post_completion_rejection_blocks_remote_release(self):
+        await self.running()
+        f = self.fixture
+        result = await self.stop()
+        self.assertTrue(result.succeeded, result.error)
+        before = self.archive()
+        rejection = await f.controller.start_launched_experiment("too-late")
+        self.assertFalse(rejection.succeeded)
+        self.assertTrue(rejection.details["rejection_evidence"]["is_persistent"])
+        released = await f.controller.release_session(communication=f.communication, result_window_s=0.05)
+        self.assertFalse(released.succeeded)
+        self.assertIn("Controller-owned evidence", released.error)
+        self.assertEqual(f.ingestor.session_id, f.sid)
+        self.assertEqual(f.controller.get_status()["session_state"], "completed")
+        self.assertEqual(self.archive(), before)
+        self.assertFalse((await f.controller.release_session(communication=f.communication, result_window_s=0.05)).succeeded)
+
+    async def test_evidence_created_during_participant_release_retains_controller_binding(self):
+        await self.running()
+        f = self.fixture
+        result = await self.stop()
+        self.assertTrue(result.succeeded, result.error)
+        before = self.archive()
+        reached, resume = asyncio.Event(), asyncio.Event()
+
+        async def pause(subject, payload):
+            if payload.get("command_type") == "release_session" and payload.get("target_id") == "sync":
+                reached.set()
+                await resume.wait()
+
+        f.broker.before_publication = pause
+        task = asyncio.create_task(f.controller.release_session(communication=f.communication, result_window_s=0.05))
+        try:
+            await asyncio.wait_for(reached.wait(), 2)
+            rejected = await f.controller.start_launched_experiment("during-release")
+            self.assertFalse(rejected.succeeded)
+        finally:
+            resume.set()
+            released = await task
+            f.broker.before_publication = None
+        self.assertFalse(released.succeeded)
+        self.assertIn("Controller-owned evidence", released.error)
+        self.assertEqual(f.controller.get_status()["session_state"], "completed")
+        self.assertEqual(f.ingestor.session_id, f.sid)
+        self.assertEqual(self.archive(), before)
+        self.assertFalse((await f.controller.release_session(communication=f.communication, result_window_s=0.05)).succeeded)
+
+    async def test_new_evidence_during_final_readback_blocks_retirement(self):
+        await self.running()
+        f = self.fixture
+        result = await self.stop()
+        self.assertTrue(result.succeeded, result.error)
+        before = self.archive()
+        reads = 0
+        rejected = None
+
+        async def reject_during_readback(subject, payload):
+            nonlocal reads, rejected
+            if payload.get("command_type") == "read_session_closeout":
+                reads += 1
+                if reads == 2:
+                    rejected = await f.controller.start_launched_experiment("during-final-readback")
+
+        f.broker.before_publication = reject_during_readback
+        try:
+            result = await f.controller.release_session(communication=f.communication, result_window_s=0.05)
+        finally:
+            f.broker.before_publication = None
+        self.assertIsNotNone(rejected)
+        self.assertFalse(rejected.succeeded)
+        self.assertFalse(result.succeeded)
+        self.assertIn("Controller-owned evidence", result.error)
+        self.assertEqual(f.controller.get_status()["session_state"], "completed")
+        self.assertEqual(self.archive(), before)
+        self.assertFalse((await f.controller.release_session(communication=f.communication, result_window_s=0.05)).succeeded)
+
+    async def test_unconfirmed_release_readback_allows_explicit_verified_retry(self):
+        await self.running()
+        f = self.fixture
+        result = await self.stop()
+        self.assertTrue(result.succeeded, result.error)
+        before = self.archive()
+        f.broker.drop_results.add(("ingestor", "read_session_closeout"))
+        result = await f.controller.release_session(communication=f.communication, result_window_s=0.05)
+        self.assertFalse(result.succeeded)
+        self.assertEqual(f.ingestor.session_id, f.sid)
+        f.broker.drop_results.clear()
+        result = await f.controller.release_session(communication=f.communication, result_window_s=0.05)
+        self.assertTrue(result.succeeded, result.error)
+        self.assertEqual(self.archive(), before)
+
+    async def test_cancelled_release_retries_with_fresh_verified_preservation(self):
+        await self.running()
+        f = self.fixture
+        result = await self.stop()
+        self.assertTrue(result.succeeded, result.error)
+        before = self.archive()
+        reached, resume = asyncio.Event(), asyncio.Event()
+        reads = 0
+
+        async def pause(subject, payload):
+            nonlocal reads
+            if payload.get("command_type") == "read_session_closeout":
+                reads += 1
+                if reads == 2:
+                    reached.set()
+                    await resume.wait()
+
+        f.broker.before_publication = pause
+        task = asyncio.create_task(f.controller.release_session(communication=f.communication, result_window_s=0.05))
+        try:
+            await asyncio.wait_for(reached.wait(), 2)
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+        finally:
+            resume.set()
+            f.broker.before_publication = None
+            if not task.done():
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+        self.assertEqual(f.controller.get_status()["session_state"], "completed")
+        released = await f.controller.release_session(communication=f.communication, result_window_s=0.05)
+        self.assertTrue(released.succeeded, released.error)
+        self.assertEqual(self.archive(), before)
 
     async def test_cancelled_preservation_keeps_binding_and_allows_explicit_retry(self):
         await self.running()

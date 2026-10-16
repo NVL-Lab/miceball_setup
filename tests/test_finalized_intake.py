@@ -28,6 +28,28 @@ class FinalizedIntakeTests(unittest.TestCase):
         self.assertEqual(restored.runtime_evidence_audit, self.intake.runtime_evidence_audit)
         self.assertEqual(self.path.read_bytes(), before)
 
+    def test_framework_evidence_remains_independent_of_finalized_session_intake(self):
+        framework_path = self.path.parent / "framework.jsonl"
+        self.intake.prepare_framework_evidence(framework_path)
+        first = RuntimeEvidenceMessage("before", None, "service_maintenance_evidence", "controller", {}, True)
+        second = RuntimeEvidenceMessage("after", None, "service_maintenance_evidence", "controller", {}, True)
+        self.assertTrue(self.intake.receive_runtime_evidence(first).accepted)
+        finality = self.intake.finalize_acquisition_intake(self.marker, self.receipt)
+        session_bytes = self.path.read_bytes()
+        compiled = self.intake.compile_persistent_runtime_evidence()
+        self.assertTrue(self.intake.receive_runtime_evidence(second).accepted)
+        self.assertFalse(self.intake.receive_runtime_evidence(self.marker).accepted)
+        self.assertFalse(self.intake.receive_runtime_evidence(RuntimeEvidenceMessage(
+            "late", "session", "health", "node", {}, True)).accepted)
+        framework = self.intake.compile_framework_runtime_evidence()
+        self.assertEqual([m.evidence_id for m in framework["runtime_evidence"]], ["before", "after"])
+        self.assertEqual(len(framework["ingest_audit"]), 2)
+        self.assertTrue(self.intake.has_durable_runtime_evidence(first))
+        self.assertTrue(self.intake.has_durable_runtime_evidence(second))
+        self.assertEqual(self.intake.compile_persistent_runtime_evidence(), compiled)
+        self.assertEqual(self.intake.finalized_acquisition_intake("session"), finality)
+        self.assertEqual(self.path.read_bytes(), session_bytes)
+
     def test_late_evidence_and_duplicates_do_not_mutate_finalized_intake(self):
         self.intake.finalize_acquisition_intake(self.marker, self.receipt)
         before = self.path.read_bytes()

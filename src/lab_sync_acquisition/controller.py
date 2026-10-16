@@ -757,9 +757,16 @@ class Controller:
                     self._acquisition_marker_confirmed = False
             for message in messages:
                 await communication.publish_evidence(message)
+            if not await communication.confirm_session_health_processing(session.session_id, self):
+                raise RuntimeError("Controller Session health processing is unconfirmed")
             with self._service_operation_lock:
                 if self._session is not session:
                     raise RuntimeError("Controller Session binding changed during publication")
+                required = self._controller_owned_session_evidence_snapshot(session.session_id)
+                required.pop(getattr(self._acquisition_marker, "evidence_id", None), None)
+                if any(unique.get(identity) is None or unique[identity].to_dict() != contents
+                       for identity, contents in required.items()):
+                    raise RuntimeError("Controller evidence changed during publication; retry before the marker")
                 if self._acquisition_marker is None:
                     self._acquisition_marker = RuntimeEvidenceMessage(uuid4().hex,
                         session.session_id, "acquisition_evidence_completion", self._component_id, {}, True)
@@ -1532,25 +1539,29 @@ class Controller:
         if label not in decisions:
             raise ValueError("Unknown timing-quality interpretation")
         identity = f"timing-decision-{message.evidence_id}"
-        previous = next((m for m in self._controller_action_decision_evidence if m.evidence_id == identity), None)
-        if previous is not None:
-            if previous.payload["interpretation"] != message.to_dict():
-                raise ValueError("Conflicting timing interpretation identity")
-            return deepcopy(previous.payload)
-        if self._acquisition_marker_session is session:
-            raise RuntimeError("Session acquisition publication is already closed")
-        payload = {"session_id": session.session_id, "experiment_id": message.payload.get("experiment_id"),
-            "originating_observation_id": message.evidence_id, "interpretation_label": label,
-            "controller_decision": decisions[label], "interpretation": message.to_dict()}
-        self._controller_action_decision_evidence.append(RuntimeEvidenceMessage(identity, session.session_id,
-            "controller_action_decision", self._component_id, deepcopy(payload), True))
-        return payload
+        with self._service_operation_lock:
+            if self._session is not session:
+                raise RuntimeError("Controller Session changed during timing interpretation")
+            previous = next((m for m in self._controller_action_decision_evidence if m.evidence_id == identity), None)
+            if previous is not None:
+                if previous.payload["interpretation"] != message.to_dict():
+                    raise ValueError("Conflicting timing interpretation identity")
+                return deepcopy(previous.payload)
+            if self._acquisition_marker_session is session and self._acquisition_marker is not None:
+                raise RuntimeError("Session acquisition publication is already closed")
+            payload = {"session_id": session.session_id, "experiment_id": message.payload.get("experiment_id"),
+                "originating_observation_id": message.evidence_id, "interpretation_label": label,
+                "controller_decision": decisions[label], "interpretation": message.to_dict()}
+            self._controller_action_decision_evidence.append(RuntimeEvidenceMessage(identity, session.session_id,
+                "controller_action_decision", self._component_id, deepcopy(payload), True))
+            return payload
 
     def _record_action_decision(self, decision: ControllerActionDecision) -> None:
         with self._service_operation_lock:
             if any(recorded is decision for recorded in self._controller_action_decisions):
                 return
-            if self._acquisition_marker_session is self._session and self._session is not None:
+            if (self._acquisition_marker_session is self._session and self._session is not None
+                    and self._acquisition_marker is not None):
                 raise RuntimeError("Session acquisition evidence publication boundary is closed")
             message = RuntimeEvidenceMessage(
                 evidence_id=uuid4().hex,
@@ -1595,17 +1606,21 @@ class Controller:
         decisions = self._controller_decision_evidence_snapshot(session_id)
         if confirmation is None or decisions != self._archived_controller_action_decisions:
             raise RuntimeError("Controller decision Evidence Archive preservation is unconfirmed")
-        archived = {message["evidence_id"]: message for message in confirmation["runtime_evidence"]}
-        if any(archived.get(identity) != contents for identity, contents in decisions.items()):
-            raise RuntimeError("Current Evidence Archive does not preserve required Controller decisions")
-        owned = self._controller_owned_session_evidence_snapshot(session_id)
-        if any(json.dumps(archived.get(identity), sort_keys=True) != json.dumps(contents, sort_keys=True)
-               for identity, contents in owned.items()):
-            raise RuntimeError("Current Evidence Archive does not preserve required Controller-owned evidence")
+        self._require_controller_owned_evidence(session_id, confirmation)
         if self._acquisition_marker_session is self._session and self._acquisition_marker is not None:
             expected_handoff = self._ingestor.compile_artifact_collection_handoff(session_id)
             if json.dumps(self._storage_manager.read_artifact_collection_handoff(session_id), sort_keys=True) != json.dumps(expected_handoff, sort_keys=True):
                 raise RuntimeError("Current durable artifact handoff does not cover the closing Session")
+
+    def _require_controller_owned_evidence(self, session_id: str, confirmation: dict) -> None:
+        """Require exact authoritative archive coverage without retiring unpreserved evidence."""
+        if not isinstance(confirmation.get("runtime_evidence"), list):
+            raise RuntimeError("Controller evidence archival readback is unavailable")
+        archived = {message["evidence_id"]: message for message in confirmation["runtime_evidence"]}
+        owned = self._controller_owned_session_evidence_snapshot(session_id)
+        if any(json.dumps(archived.get(identity), sort_keys=True) != json.dumps(contents, sort_keys=True)
+               for identity, contents in owned.items()):
+            raise RuntimeError("Current Evidence Archive does not preserve required Controller-owned evidence")
 
     @service_operation()
     def execute_controller_action_decision(
@@ -2125,12 +2140,17 @@ class Controller:
             scope = self._distributed_closeout
             storage = RuntimeParticipant.from_dict(scope["storage"])
             intake = RuntimeParticipant.from_dict(scope["ingestor"])
+
+            def require_release_coverage(preserved):
+                self._require_remote_preservation(session, preserved, storage, normal=not scope["kill"])
+                self._require_controller_owned_evidence(session.session_id, preserved)
+                record = preserved["session_record"]
+                if (record.get("final_session_status") != session.final_status
+                        or record.get("session_lifecycle_evidence") != _to_plain_data(session.transition_history)):
+                    raise RuntimeError("Terminal Session Record does not cover this Controller's outcome")
+
             preserved = await self._closeout_owner_request(session, intake, "read_session_closeout", {}, window)
-            self._require_remote_preservation(session, preserved, storage, normal=not scope["kill"])
-            record = preserved["session_record"]
-            if (record.get("final_session_status") != session.final_status
-                    or record.get("session_lifecycle_evidence") != _to_plain_data(session.transition_history)):
-                raise RuntimeError("Terminal Session Record does not cover this Controller's outcome")
+            require_release_coverage(preserved)
             for participant in session.configuration.expected_runtime_participants:
                 if participant.component_type != "synchronization_manager" or participant.to_dict() in scope["release_confirmed"]:
                     continue
@@ -2140,6 +2160,7 @@ class Controller:
                 if self._session is not session or result is None or not result.success or result.payload.get("released") is not True:
                     raise RuntimeError("Synchronization Session release is unconfirmed")
                 scope["release_confirmed"].append(participant.to_dict())
+                self._require_controller_owned_evidence(session.session_id, preserved)
             if scope["kill"]:
                 for participant in self._reserved_participants:
                     if participant.to_dict() in scope["release_confirmed"]:
@@ -2150,14 +2171,19 @@ class Controller:
                     if self._session is not session or result is None or not result.success or result.payload.get("confirmed") is not True:
                         raise RuntimeError("Node-owned resource release is unconfirmed")
                     scope["release_confirmed"].append(participant.to_dict())
+                    self._require_controller_owned_evidence(session.session_id, preserved)
             await self._closeout_owner_request(session, intake, "release_session", {}, window)
+            self._require_controller_owned_evidence(session.session_id, preserved)
             for subscription in self._launch_subscriptions:
                 await subscription.unsubscribe()
                 if self._session is not session:
                     raise RuntimeError("Controller Session changed during subscription release")
+                self._require_controller_owned_evidence(session.session_id, preserved)
+            preserved = await self._closeout_owner_request(session, intake, "read_session_closeout", {}, window)
             outcome = {"session_id": session.session_id, "session_state": session.current_state.value,
                        "final_session_status": deepcopy(session.final_status)}
             with self._service_operation_lock:
+                require_release_coverage(preserved)
                 self._retire_session_binding(outcome)
             return self._record_successful_command("release_session", outcome)
         except Exception as error:
@@ -2714,8 +2740,9 @@ class Controller:
     def _record_command_result(
         self, result: ControllerCommandResult
     ) -> ControllerCommandResult:
-        self._last_result = result
-        self._command_results.append(result)
+        with self._service_operation_lock:
+            self._last_result = result
+            self._command_results.append(result)
         return result
 
     def _runtime_start_failed(self, runtime_result: Any) -> bool:

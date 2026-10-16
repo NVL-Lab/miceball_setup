@@ -372,6 +372,7 @@ class InMemoryIngestor:
                 return deepcopy({"session_id": session_id, "storage_id": storage._component_id,
                     "preservation_confirmed": True, "acquisition_preservation_eligible": normal,
                     "finalized_intake": self._finalized_intake,
+                    "runtime_evidence": current["runtime_evidence"],
                     "compilation_summary": summary, "session_record": current["session_record"],
                     "artifact_collection_handoff": current["artifact_collection_handoff"]})
 
@@ -435,7 +436,7 @@ class InMemoryIngestor:
             return deepcopy({"session_id": session_id, "storage_id": self._storage_manager._component_id,
                 "preservation_confirmed": True, "acquisition_preservation_eligible": finality is not None,
                 "finalized_intake": finality, "compilation_summary": summary,
-                "session_record": current["session_record"],
+                "runtime_evidence": current["runtime_evidence"], "session_record": current["session_record"],
                 "artifact_collection_handoff": current["artifact_collection_handoff"]})
 
     def preserve_terminal_session_record(self, session_id: str, session_record: dict) -> dict:
@@ -822,12 +823,12 @@ class InMemoryIngestor:
         """Journal new evidence before acceptance when configured; deduplicate intake."""
 
         with self._intake_lock:
-            if self._finalized_intake is not None:
-                return RuntimeEvidenceAuditRecord(0, time(), evidence.evidence_id, False, "acquisition_intake_finalized")
             if evidence.session_id is None and self._evidence_scope == "session":
                 if self._framework_ingestor is None:
                     raise RuntimeError("Framework recovery journal is not configured")
                 return self._framework_ingestor.receive_runtime_evidence(evidence)
+            if self._finalized_intake is not None:
+                return RuntimeEvidenceAuditRecord(0, time(), evidence.evidence_id, False, "acquisition_intake_finalized")
             if self._evidence_scope == "session" and self._requires_prepared_session and not self._session_prepared:
                 raise RuntimeError("Session evidence intake is not prepared or has been aborted/released")
 

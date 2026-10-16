@@ -449,6 +449,12 @@ existing writers and guards locally, and reconciles archive evidence, audit,
 Session Record, handoff and marker provenance. Partial Kill never claims complete
 receipt. Changed intake cannot silently replace historical preservation.
 
+Session finality does not close framework intake: Session-independent messages
+still route to the configured framework journal. Early Controller closeout
+association protects cancellation without rejecting in-flight health decisions.
+Controller verifies their publication before creating the last-call marker; new
+health decisions are rejected once that marker exists.
+
 Controller completes only after confirmed normal preservation and its own cleanup
 requirements, then preserves terminal lifecycle. Release separately rechecks the
 terminal record, obtains SynchronizationManager's guarded timing-evidence release,
@@ -462,6 +468,15 @@ Ingestor/StorageManager process. Stage B, permanent closure and general service
 maintenance remain separate. This implementation is not independently validated
 or closed; sandbox restrictions currently prevent async integration execution and
 hard-link-based handoff publication tests.
+
+Remote preservation readback includes the exact validated archive runtime
+evidence. Controller checks its currently retained evidence against that readback
+before release, across asynchronous participant/subscription steps, and against
+fresh owner readback immediately before retirement. Missing coverage or cancelled
+confirmation retains the binding and evidence. Newly retained post-finality
+rejection evidence is not silently discarded, reclassified as framework evidence,
+or appended to immutable Stage A by this correction; it blocks release unless
+applicable preservation obligations can be authoritatively established.
 
 ### Partial-Handoff Refresh And Authorized Recovery Inputs
 
