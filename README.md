@@ -87,8 +87,9 @@ Ingestor/StorageManager references. StorageManager retains eligibility, collecti
 and persistence authority. All three replay/result-correlation P2 findings are
 resolved; independent validation and final audit PASS of d788d2e confirm bounded
 retry/restart behavior. Local JetStream used separate processes and simulated SFTP.
-Full cross-process closeout, enumeration/batch selection, resource release,
-configuration/launching and broader deployment remain outstanding; Q022 stays OPEN.
+Distributed closeout and independent release are closed separately in W060;
+remote enumeration/batch selection, configuration/launching and broader deployment
+remain outstanding. Q022 stays OPEN.
 
 Q022 Slice 5 is CLOSED in
 [W059](docs/validated_workflows.md#w059---controller-remote-saved-session-evidence-archive-closure-over-nats):
@@ -99,6 +100,16 @@ The cached-success history-validation P2 was corrected, independently validated
 and passed focused audit of 31b2c7e. Corrective automated runtime attempts stalled
 inside the sandbox without results; no correction test passes are claimed.
 Multi-host, hardware/SFTP and power-loss validation remain unestablished.
+
+Distributed Session closeout is CLOSED in
+[W060](docs/validated_workflows.md#w060---distributed-session-closeout-and-independent-release-over-nats):
+Normal Stop/Kill, finalized acquisition intake, verified Stage A, restart
+reconciliation and independent service release are implemented, independently
+validated and audited. Controller alone owns lifecycle completion; preservation
+does not authorize hardware/resource release. Audits confirmed the three original
+P2 corrections and the non-idempotent unsubscribe retry correction. Final
+nats-py 2.16.0 cancellation probes found no reproducible defect; live task-level
+verification was blocked by Windows asyncio startup. Q022 remains OPEN.
 
 
 

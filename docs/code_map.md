@@ -21,10 +21,9 @@ startup/shutdown/restart lifetime, and permitted local calls while retaining dis
 ownership. Controller, SynchronizationManager, and nodes remain independently
 deployed; all process-crossing interactions, including Controller access to both
 components, use NATS. Bounded remote single saved-Session collection is closed in
-W058; remaining Controller/Ingestor/StorageManager closeout,
-enumeration/batch collection, release, and maintenance/recovery paths
-still use development-time direct collaborators and cross-owner guards; these
-are not deployed remote interfaces. Reuse existing command/result envelopes,
+W058; distributed closeout and independent release are closed in W060.
+Remaining remote enumeration/batch collection and broader maintenance/recovery
+adaptation are not completed deployment interfaces. Reuse existing command/result envelopes,
 participant identities, correlated requests, evidence publication, receipt proof,
 and owner-local validation/persistence. See the cross-service dependency map and
 recommended implementation order in
@@ -32,21 +31,26 @@ recommended implementation order in
 alone is not acceptance, complete receipt, or archival. Historical Q019 validation
 remains intact.
 
-## Distributed Completion And Release Target (Accepted, Not Implemented)
+## Distributed Completion And Independent Release (Closed, W060)
 
 Decision 382 resolves the cross-process preservation boundary: Controller publishes
 the Normal Stop last-call marker after producer confirmations; Ingestor proves
 complete durable receipt/journal consistency and finalizes acquisition intake;
 StorageManager verifies corresponding complete Stage A products/handoff. Later
 acquisition deliveries, including duplicates, cannot mutate finalized evidence,
-audit or final Session Record. Existing `Controller._complete_preserved_acquisition()`
-and `release_session()` use local intake/preservation guards, not this distributed
-finalization contract. Adapt existing owner methods and NATS confirmations/readback
-without remote shared locks or a new reliability subsystem. Eligibility remains
+audit or final Session Record. Remote `normal_stop_session()`, `kill_session()`,
+`reconcile_session_closeout()` and `release_session()` use authoritative NATS
+confirmations and owner readback without remote shared locks or a new reliability
+subsystem. Existing local guards remain available for in-process workflows. Eligibility remains
 restart-verifiable; Controller keeps lifecycle authority and each service retains
 Decision 313 cleanup/preservation/safety and release obligations. Kill and later
-Stage B/permanent closure remain separate. No implementation or new validation is
-claimed; Q022 remains OPEN and W001-W059 history is unchanged.
+Stage B/permanent closure remain separate. W060 records independent validation and
+audited resolution of framework-routing, pre-marker health, current Controller
+evidence coverage and non-idempotent unsubscribe retry defects. Confirmed
+unsubscribe progress is retained across failed final readback; unresolved work
+remains pending. Controlled nats-py 2.16.0 cancellation probes passed, but live
+task-level verification was blocked by Windows asyncio startup. Q022 remains OPEN
+and W001-W059 history is unchanged.
 
 ## Durable Operational Evidence Transport (Closed, W057)
 

@@ -4509,6 +4509,101 @@ unchanged.
 
 ---
 
+# W060 - Distributed Session Closeout and Independent Release over NATS
+
+**Status:** CLOSED - implemented, independently validated and audited under
+Decisions 313 and 382 and their existing preservation/lifecycle dependencies.
+
+## Implemented scope
+
+Controller coordinates Normal Stop and explicitly authorized Kill across
+independently deployed AcquisitionNode, SynchronizationManager and the paired
+Ingestor/StorageManager process using NATS, without local persistence-owner
+references. Scientific observations and per-observation metadata stay node-local.
+
+Normal Stop obtains required producer-publication confirmations and publishes the
+Session-scoped completion marker. Ingestor independently verifies the complete
+publication interval, contiguous durable receipt and journal consistency before
+finalizing acquisition intake. Late and duplicate acquisition deliveries cannot
+change finalized evidence, intake audit or the final Session Record. Framework
+evidence retains its independent intake boundary.
+
+The paired StorageManager owns durable Stage A publication and verification of
+evidence, audit, Session Record and applicable artifact handoff. Finalized intake
+and verified Stage A establish acquisition-preservation eligibility, not lifecycle
+completion by themselves. Controller alone applies terminal lifecycle transitions
+after its existing cleanup/safety obligations. Kill preserves available evidence
+with explicit uncertainty and an aborted lifecycle, never claiming complete
+Normal Stop receipt or confirmed participant cleanup.
+
+Correlated owner confirmation, durable readback and restart reconciliation support
+explicit retries without rewriting finalized products or unnecessarily repeating
+confirmed preservation. Publication, durable intake acceptance, complete receipt,
+Stage A preservation, lifecycle completion and release remain distinct guarantees.
+Missing, cancelled or unconfirmed results do not authorize completion or release.
+
+Each service independently satisfies its own cleanup, preservation and safety
+obligations before releasing its binding. Controller requires coverage of its
+current owned evidence through asynchronous release and final authoritative
+readback. Successfully unsubscribed subscriptions are immediately retired from
+pending release work; failed or unconfirmed obligations remain available for
+explicit retry. Failed final readback retains the Controller binding and evidence
+without repeating completed unsubscribe operations. Stage B collection and
+permanent Evidence Archive closure remain separately requested operations.
+
+## Validation and correction history
+
+Independent user-run IPython validation passed the following separately reported
+sets; overlapping runs are not an additive total:
+
+- **9/9** finalized-intake and preservation tests.
+- **7/7** distributed closeout tests using the simulated broker.
+- **4/4** real JetStream infrastructure tests.
+- **3/3** real JetStream closeout tests with independent service processes,
+  covering Normal Stop/post-finalization immutability, Kill uncertainty/release
+  protection, and lost preservation reply with restart and explicit retry.
+- **8/8** targeted regressions for the original three P2 corrections.
+- **6/6** subscription-release retry and readback regressions.
+
+The initial independent audit failed with three P2 findings: Session finality
+incorrectly blocked framework evidence; early closeout association prematurely
+blocked health processing before the marker; remote release could discard newer
+Controller evidence absent from preservation. Corrections restored independent
+framework routing, permitted in-flight health before last-call, and required
+current Controller evidence coverage through release and final readback.
+Independent re-audit confirmed all three resolved but identified a further P2:
+successful unsubscriptions remained pending after failed final readback, so retry
+could raise BadSubscriptionError. Immediate confirmed-unsubscribe bookkeeping and
+non-idempotent subscription regressions corrected that defect. Focused independent
+re-audit passed that correction; no confirmed finding remains outstanding.
+
+A final focused investigation of ambiguous unsubscribe cancellation with installed
+nats-py **2.16.0** found no reproducible defect. Four controlled core/JetStream
+unsubscribe probes and a Controller cancellation/readback/retry probe passed.
+The installed client's flush path catches CancelledError, permitting successful
+unsubscribe bookkeeping before another await. These probes used real client
+methods with controlled transport/coroutine suspension, not live Task.cancel()
+execution. Windows asyncio stalled creating its socket pair before task-level
+verification could run. No task-level pass or speculative correction is claimed.
+Earlier sandbox-blocked automated attempts likewise are not runtime passes;
+independent user-run results above remain the reported validation evidence.
+
+## Limitations and status
+
+Local separate-process JetStream coverage is not multi-host clock-accuracy,
+physical hardware/SFTP or power-loss validation. Ambiguous unsubscribe task-level
+cancellation remains environment-limited as described above. This record does not
+claim application restoration, full deployment bootstrap, broader remote
+maintenance/recovery or remote saved-Session enumeration/batch integration.
+No new software tests or independent audit were performed during this
+documentation-only closure.
+
+W060 is CLOSED. Q022 remains OPEN; Q019 and W001-W059 remain CLOSED with their
+historical records preserved. Q006, Q018, Q024, Phase 16 and M015 remain OPEN.
+Accepted architectural decisions are unchanged.
+
+---
+
 # Future Workflows
 
 The following workflows are expected to be added as the framework evolves.

@@ -920,12 +920,13 @@ audit PASS of 31b2c7e. Owner consistency/durability checks, complete scoped hist
 and current archive readback remain required; closure does not terminate the
 Session, release resources or alter scientific products. Corrective automated
 runtime attempts stalled inside the sandbox without results. Full cross-process
-closeout/release, Stage A, enumeration/batch, recovery and bootstrap remain open;
+enumeration/batch, broader recovery and bootstrap remain open; distributed
+closeout/release and Stage A are closed separately in W060;
 Q022 is not closed.
 
 ### Distributed completion and release clarification (Decision 382)
 
-**Architecture resolved; implementation pending.** The Normal Stop completion
+**Architecture resolved; bounded implementation CLOSED in W060.** The Normal Stop completion
 marker is last-call after required producer-publication confirmations. Ingestor
 must independently prove the full publication interval, contiguous durable receipt
 and journal consistency before finalizing acquisition intake. Subsequent
@@ -943,10 +944,16 @@ repeating confirmed Stage A. Each service still independently satisfies Decision
 or resource-release eligibility. Partial Kill, later collection and explicit
 permanent closure remain distinct.
 
-Decision 382 resolves the architecture gate raised during cross-process closeout
-inspection. It is not a claim of implemented finalization, restored application
-state, completed closeout/release integration or new validation. Q022 remains OPEN
-for implementation and independent verification; W001-W059 remain unchanged.
+Decision 382's distributed closeout implementation is independently validated and
+audited in W060: finalized intake, durable Stage A, Normal Stop/Kill, restart
+reconciliation and independent release. Audits confirmed corrections to framework
+routing, pre-marker health, current Controller evidence coverage and subscription
+release retry bookkeeping. The final nats-py 2.16.0 cancellation investigation
+found no reproducible defect; controlled probes passed, while Windows asyncio
+startup blocked live task-level verification. No application restoration,
+multi-host/hardware or power-loss validation is claimed. Q022 remains OPEN for
+its remaining deployment, remote enumeration/batch and broader maintenance/recovery
+obligations; Q006/Q018, Q024, Phase 16 and M015 remain OPEN. W001-W059 are unchanged.
 
 ### Q022-A accepted scope
 

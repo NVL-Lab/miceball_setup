@@ -1338,10 +1338,10 @@ enumeration/batch operations, broader recovery and deployment bootstrap remain
 outside this slice. Q022, Q006, Q018, Q024, Phase 16 and M015 remain OPEN.
 Q019 and W001-W058 remain CLOSED with historical records unchanged.
 
-## Accepted Q022 Distributed Completion Boundary (Decision 382)
+## Completed Q022 Distributed Session Closeout (W060)
 
-**Status:** Architecture synchronized; implementation and independent verification
-pending. The Normal Stop marker is last-call after producer confirmations, not
+**Status:** CLOSED - implemented, independently validated and audited under
+Decisions 313 and 382. The Normal Stop marker is last-call after producer confirmations, not
 proof of complete receipt by itself. Ingestor verifies the full durable publication
 interval and finalizes acquisition intake; later deliveries cannot change finalized
 evidence/audit/record. Finalized intake plus StorageManager-verified complete Stage A
@@ -1351,8 +1351,22 @@ lifecycle completion and must also satisfy cleanup/safety obligations. Decision
 release authorization. Existing durable products/journals and NATS readback/recovery
 must support restart without rewriting finalized evidence or unnecessarily repeating
 confirmed preservation. Kill and later Stage B/permanent closure remain distinct.
-This resolves the inspected cross-process architecture gate, not the implementation
-slice. Q019 and W001-W059 stay CLOSED; Q022, Q024, Phase 16 and M015 stay OPEN.
+W060 records independent IPython sets of 9/9 finalized-intake, 7/7 distributed
+closeout, 4/4 real JetStream infrastructure, 3/3 separate-process closeout, 8/8
+original-correction and 6/6 subscription-release tests. Counts are not additive.
+Independent audits confirmed resolution of the three original P2 findings and
+the subsequent non-idempotent unsubscribe retry P2. Framework intake remains
+independent, pre-marker health is preserved, and remote release requires current
+Controller evidence coverage plus fresh authoritative preservation readback.
+Confirmed unsubscribe progress survives failed readback and explicit retry.
+
+Final nats-py 2.16.0 cancellation investigation found no reproducible defect;
+controlled probes passed, but Windows asyncio socket-pair startup blocked live
+task-level cancellation verification. No such runtime pass, multi-host, physical
+hardware/SFTP or power-loss guarantee is claimed. See W060 for the complete
+validation/correction sequence. Q019 and W001-W060 stay CLOSED; Q022, Q006, Q018,
+Q024, Phase 16 and M015 stay OPEN. Broader deployment, maintenance/recovery and
+remote enumeration/batch integration are not closed by this slice.
 
 ## Completed Session-binding release slice validation
 

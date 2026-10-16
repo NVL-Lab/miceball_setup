@@ -148,7 +148,7 @@ GUI, supervision, automatic discovery, or new readiness state is needed here.
 Local development archival/collection and maintenance preservation use actual
 Ingestor/StorageManager collaborators, including synchronous owner guards. Remote
 single-Session collection/closure are validated in W058/W059; distributed active
-Session closeout now has a developer implementation pending complete validation,
+Session closeout and independent release are validated and closed in W060,
 described below. Decision 376 permits local Ingestor-StorageManager calls but
 requires NATS for Controller and other process-crossing access. Broader remote
 maintenance/recovery and deployment adaptation remain pending. Establish the
@@ -408,7 +408,7 @@ or receipt reconstruction is needed.
 
 ### Stage A, Session Records, Handoff, And Binding Release
 
-**Accepted contract (Decision 382; distributed implementation pending validation):** The Normal Stop
+**Accepted contract (Decision 382; bounded implementation CLOSED in W060):** The Normal Stop
 marker is last-call after required producer-publication confirmations. Ingestor
 independently proves complete durable receipt through the marker, including the
 full publication interval, contiguous JetStream receiving progress and journal
@@ -431,7 +431,7 @@ or hardware safety. Kill partial-preservation/recovery and later Stage B/explici
 permanent closure remain separate. No new reliability subsystem, transaction
 coordinator, registry or Session state is authorized.
 
-**Current developer implementation - remote closeout:** A Controller with no local
+**Validated implementation - remote closeout (W060):** A Controller with no local
 Ingestor/StorageManager references uses its launched NATS communication plus an
 explicit `storage_participant` for `normal_stop_session()` or authorized
 `kill_session()`. The receiving Ingestor adapter offers `admit_session_kill`,
@@ -465,9 +465,15 @@ Saved readback requires the existing configured journal root and durable product
 interrupted products still require existing authorized recovery. Local development
 interfaces remain available and do not require a NATS round trip inside the shared
 Ingestor/StorageManager process. Stage B, permanent closure and general service
-maintenance remain separate. This implementation is not independently validated
-or closed; sandbox restrictions currently prevent async integration execution and
-hard-link-based handoff publication tests.
+maintenance remain separate. W060 closes this bounded implementation after
+independent user-run validation and independent audits. Its separate validation
+sets are 9/9 finalized intake, 7/7 simulated distributed closeout, 4/4 real
+JetStream infrastructure, 3/3 separate-process closeout, 8/8 original-correction
+and 6/6 subscription-release regressions; overlapping counts are not additive.
+Earlier sandbox-blocked execution is not a claimed pass. Final controlled
+nats-py 2.16.0 cancellation probes found no reproducible defect, but Windows
+asyncio socket-pair startup prevented live task-level cancellation verification.
+No multi-host, physical hardware/SFTP or power-loss validation is claimed.
 
 Remote preservation readback includes the exact validated archive runtime
 evidence. Controller checks its currently retained evidence against that readback
@@ -477,6 +483,10 @@ confirmation retains the binding and evidence. Newly retained post-finality
 rejection evidence is not silently discarded, reclassified as framework evidence,
 or appended to immutable Stage A by this correction; it blocks release unless
 applicable preservation obligations can be authoritatively established.
+Successful unsubscribe progress is removed immediately from pending release work;
+failed or unconfirmed operations remain pending. Failed final readback retains
+the Controller binding without restoring completed unsubscribe obligations, so
+explicit retry obtains fresh preservation confirmation without duplicate removal.
 
 ### Partial-Handoff Refresh And Authorized Recovery Inputs
 
@@ -676,12 +686,11 @@ architecture or claims of implementation/validation:
    independent validation and final audit PASS. Explicit remote permanent closure
    of one saved Evidence Archive is CLOSED in W059 after correction, independent
    validation and focused audit PASS. Q019 Controller Normal Stop/Kill,
-   Stage A/handoff and completion/release now have a developer implementation
-   pending complete runtime verification, independent validation and audit (see
-   the Stage A section above). Saved-Session enumeration/batch collection and
-   batch closeout remain outside that implementation. Test current coverage,
-   network-wait races, late intake, partial Kill, restart readback, batch isolation,
-   idempotency, and archive immutability using independently owned services.
+   Stage A/handoff and completion/release are CLOSED in W060 after independent
+   validation and audits confirmed the original three P2 corrections and the
+   subsequent subscription-retry correction (see the Stage A section above).
+   Saved-Session enumeration/batch collection and batch closeout remain outside
+   that implementation. W060 does not close broader deployment obligations.
 4. Adapt framework startup evidence, reconciliation, maintenance and authorized
    recovery, including partial-handoff refresh and prepared retirement. Test
    durable authorization/attempt before action, missing results, failed cleanup,
