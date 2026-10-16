@@ -443,7 +443,8 @@ replacement-handoff operation.
 `get_saved_session_collection_status()` and `collect_saved_artifacts()`; listing,
 handoff readback, and `close_session_evidence_archive()` are local StorageManager
 APIs; W058 adds bounded remote single-Session collection as described below.
-Remote enumeration/batch and closure remain unimplemented. StorageManager independently enumerates/validates saved
+Remote enumeration/batch remain unimplemented; explicit closure is exposed by
+the Slice 5 implementation below. StorageManager independently enumerates/validates saved
 products, rechecks eligibility/availability under collection guards, and retains
 stable per-Session evidence IDs and durable outcomes before direct Stage B archival.
 Do not send Stage B evidence through Ingestor merely to archive it. Preserve
@@ -521,6 +522,45 @@ requests and owner restart. This is not live SSH, hardware, multi-host or power-
 validation. This subset does not adapt active Session Stop/Kill, Stage A/handoff
 creation, completion/release, remote saved-Session enumeration/batch selection,
 permanent closure or maintenance/recovery orchestration.
+
+### Explicit Remote Saved-Session Archive Closure (Slice 5 Implementation)
+
+The bounded implementation exposes the existing permanent Evidence Archive
+closure operation, not general Session lifecycle closeout. Call
+`await controller.close_saved_session_archive_remote(session_id,
+communication=..., storage_participant=..., result_window_s=...)` only as a
+separate explicit operator request. No local Controller Ingestor/StorageManager
+reference is needed. Independent validation/audit and slice closure remain pending.
+
+`close_session_evidence_archive` uses existing NATS command/results, canonical
+compact JSON `[session_id, "close_session_evidence_archive"]` command identity
+and fresh per-attempt nonce. This operation creates no new evidence ID or closure
+file: StorageManager records closure only in `compilation_summary.json`, through
+its existing locked, durable write/readback method. Its existing Stage A/B,
+handoff, audit, final-record and unresolved-write checks remain authoritative.
+Failed or unknown artifact outcomes do not block closure when durably recorded;
+collection success is neither required nor a substitute for archive consistency.
+Collection eligibility is not a new lifecycle gate for permanent closure.
+
+The shared saved-Session command admission path retains fresh-only subscriptions,
+full operation-scoped history validation, same-nonce identity conflict rejection
+and serialization through result publication. Historical rejections cannot become
+new executions; explicit API retries use fresh nonces. Repeated successful closure
+requires current owner readback matching the retained/historical closed summary,
+then invokes the existing idempotent closure confirmation without rewriting closed
+products. Missing or corrupt current preservation invalidates success, including
+after cancelled/failed reply publication. Pending replies remain in memory, not a
+new durable command store. Missing replies leave the Controller outcome unconfirmed.
+
+Success includes `closure_outcome` from StorageManager and its verified current
+`compilation_summary`; Controller checks Session identity, `archive_closed=True`
+and `archival_confirmed=True`. It does not complete an active Session, collect
+artifacts, release bindings/hardware, or authorize recovery. Local closure
+preconditions are unchanged. Full Normal Stop/Kill, Stage A/handoff orchestration,
+enumeration/batch closeout, broader maintenance/recovery and role bootstrap remain
+outside this boundary. Retained history must be intact and scanning is linear;
+simulated SFTP/local JetStream testing does not establish hardware, multi-host or
+power-loss guarantees. Q022 remains OPEN; W058 history is unchanged.
 
 ### Framework Maintenance, Recovery, And Reconciliation
 

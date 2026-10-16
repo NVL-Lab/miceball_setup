@@ -2069,6 +2069,35 @@ class Controller:
         except Exception as error:
             return self._record_failed_command(name, error)
 
+    async def close_saved_session_archive_remote(
+        self, session_id: str, *, communication: NatsControllerCommunication,
+        storage_participant: RuntimeParticipant, result_window_s: float,
+    ) -> ControllerCommandResult:
+        """Explicitly request permanent evidence closure, never Session completion or release."""
+        name = "close_saved_session_archive_remote"
+        try:
+            if (not isinstance(storage_participant, RuntimeParticipant)
+                    or storage_participant.component_type != "storage_manager"):
+                raise ValueError("Archive closure requires its authoritative StorageManager")
+            result = await communication.request_persistence_command(
+                storage_participant, "close_session_evidence_archive", session_id, {}, result_window_s,
+                command_id=json.dumps([session_id, "close_session_evidence_archive"], separators=(",", ":")))
+            if result is None:
+                raise RuntimeError("StorageManager closure response is unavailable; outcome remains unconfirmed")
+            details = result.payload
+            closure = details.get("closure_outcome")
+            summary = details.get("compilation_summary")
+            if (not result.success or details.get("session_id") != session_id
+                    or not isinstance(closure, dict) or closure.get("session_id") != session_id
+                    or closure.get("archive_closed") is not True or closure.get("archival_confirmed") is not True
+                    or not isinstance(summary, dict) or summary.get("session_id") != session_id
+                    or summary.get("archive_closed") is not True):
+                return self._record_failed_command(name,
+                    RuntimeError(result.reason or "Exact permanent closure preservation is unconfirmed"), details)
+            return self._record_successful_command(name, details)
+        except Exception as error:
+            return self._record_failed_command(name, error)
+
     def get_status(self) -> dict[str, Any]:
         """Return a small Controller view without redefining owned lifecycles."""
 

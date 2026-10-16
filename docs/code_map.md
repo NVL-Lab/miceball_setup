@@ -956,14 +956,16 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 - NatsIngestorCommunication._execute_evidence_readback(command): Delegates scoped compilation, exact journal-backed runtime-evidence acceptance and W041 marker-receipt verification to the Ingestor owner with current-request reply correlation and explicit failed/unconfirmed results.
 - NatsStorageManagerCommunication(boundary, storage_manager): Binds one existing authoritative StorageManager to matching NATS participant identity without constructing another owner.
 - NatsStorageManagerCommunication.subscribe_commands(): Admits fresh StorageManager commands, serializes collection attempt resolution through durable result publication before ACK, and keeps administrative execution within the configured owner maintenance interface.
-- NatsStorageManagerCommunication.execute_command(command): Routes scoped preservation/collection-status readback and explicitly requested eligible saved-Session collection to the authoritative storage owner without arbitrary remote methods, recovery bypasses or implicit closure.
-- NatsStorageManagerCommunication._validate_collection_request(command): Checks the exact collection payload, per-attempt nonce and stable Session/evidence-correlated command identity before attempt resolution.
-- NatsStorageManagerCommunication._execute_collection_attempt(command): Reuses a matching durable result only after validating complete scoped history, nonce-associated command/destination consistency, and retained history continuity.
-- NatsStorageManagerCommunication._read_collection_result(record): Validates persisted result schema, correlation, subject/body consistency and collection-evidence identity before scoped history matching.
+- NatsStorageManagerCommunication.execute_command(command): Routes scoped preservation/status readback, eligible saved-Session collection and separately explicit permanent archive closure to the authoritative storage owner without arbitrary remote methods or recovery/release bypasses.
+- NatsStorageManagerCommunication._validate_saved_session_request(command): Checks the exact collection or explicit archive-closure payload, nonce and canonical Session/evidence or Session/operation command identity.
+- NatsStorageManagerCommunication._execute_saved_session_attempt(command): Validates complete operation-scoped result history and same-nonce identity before executing collection/closure or reusing an existing resolution.
+- NatsStorageManagerCommunication._reconfirm_archive_closure(command, result): Requires matching current closed-archive preservation before reconfirming a retained or historical successful closure through the owner.
+- NatsStorageManagerCommunication._read_saved_session_result(record, operation): Validates persisted result correlation, subject/body routing and collection-evidence or closed-summary identity before matching.
 - _subscribe_participant_commands(boundary, receive, *, new_only=False): Subscribes to existing scoped/independent participant command subjects, optionally admitting only commands published after startup for StorageManager.
 - _validate_owner_request(boundary, command): Validates target, requester, command, Session, connectivity, and transient reply correlation for the bounded owner operations.
 - NatsControllerCommunication.request_persistence_command(participant, command_type, session_id, payload, result_window_s, *, command_id): Makes one bounded scoped owner request with fresh-only results and an echoed per-attempt nonce, preserving the stable command ID while rejecting historical and late retry confirmations.
 - Controller.collect_saved_session_artifacts_remote(session_id, *, evidence_id, communication, storage_participant, result_window_s): Coordinates explicit single saved-Session collection through NATS without local service references, requiring matching durable collection evidence and retaining failures or missing responses as unconfirmed.
+- Controller.close_saved_session_archive_remote(session_id, *, communication, storage_participant, result_window_s): Explicitly requests permanent closure of one saved Evidence Archive through NATS, requiring matching owner-verified closure and summary without Session completion or resource release.
 - NatsSynchronizationManagerCommunication(boundary, synchronization_manager): Routes measured synchronization, readiness, Session preparation and timing closeout over existing command/result streams while retaining timing authority in SynchronizationManager.
 - NatsSynchronizationManagerCommunication.subscribe_commands(): Serializes command admission and rejects conflicting identities or mismatched stop Sessions before cancelling periodic work outside the runtime lock, then routes owner operations with existing correlated results and idempotency.
 - NatsSynchronizationManagerCommunication.close(): Cancels periodic assessment and unsubscribes transport callbacks without terminating acquisition or changing Session lifecycle.
@@ -1490,3 +1492,23 @@ automatic. Kill integration and overall closeout validation remain deferred.
 - MeasuredClockBoundsTests: Verifies causal offset bounds under asymmetric delay/variability, explicit configuration rejection and detached stable timing evidence readback.
 - run_participant(role, url, directory, ready, stop): Runs a test node or synchronization owner in a spawned process, with harness-only startup/shutdown signaling and NATS-only framework communication.
 - CrossProcessTimingTests: Exercises independent node/clock processes against optional real local JetStream, checking scientific timing and finalized local output without shared service owners.
+
+## tests/test_remote_archive_closure.py
+
+- RemoteArchiveClosureTests: Exercises explicit single saved-Session permanent closure through real Controller, NATS adapters and StorageManager guards without local Controller owner references.
+- RemoteArchiveClosureTests.asyncSetUp(): Reuses saved-Session collection fixtures with all cleanup owned by the active test case.
+- RemoteArchiveClosureTests.close(session="session"): Requests explicit permanent closure through the Controller public NATS API.
+- RemoteArchiveClosureTests.test_explicit_closure_preserves_products_and_does_not_release_services(): Confirms collection alone leaves the archive open and explicit closure preserves history without Session completion or service release.
+- RemoteArchiveClosureTests.test_failed_collection_does_not_prevent_verified_closure(): Closes an archive containing durably preserved unsuccessful retrieval outcomes.
+- RemoteArchiveClosureTests.test_missing_and_unresolved_preservation_prevent_closure(): Rejects absent or pending preservation until existing authorized recovery succeeds.
+- RemoteArchiveClosureTests.test_rejected_attempt_remains_rejected_after_prerequisites_recover(): Preserves historical rejection across restart while permitting a fresh explicit request.
+- RemoteArchiveClosureTests.test_lost_reply_restart_and_overlapping_retries_do_not_rewrite_closure(): Reuses closed products after lost replies, owner restart and overlapping requests without rewrite.
+- RemoteArchiveClosureTests.test_closed_history_cannot_substitute_for_current_durable_archive(): Rejects historical success when current persisted closure is corrupted.
+- RemoteArchiveClosureTests.test_cancelled_result_publication_retains_closure_but_requires_current_readback(): Refuses cached success after publication cancellation and subsequent archive corruption.
+- RemoteArchiveClosureTests.test_failed_result_publication_can_retry_without_rewriting_closed_archive(): Retries an unpublished result without repeating closure publication.
+- RemoteArchiveClosureTests.test_stale_success_response_cannot_confirm_another_request(): Rejects a prior attempt's successful reply for a fresh request.
+- RemoteArchiveClosureTests.test_success_history_requires_matching_closed_summary(): Rejects malformed successful closure history without repairing archive or results.
+- RemoteArchiveClosureTests.test_corrupt_attempt_history_blocks_closure_without_repair(): Rejects conflicting identities, missing nonce and source mismatch before closure.
+- RemoteArchiveClosureTests.test_conflicting_tail_blocks_reuse_of_matching_resolution(): Validates conflicting records even after a matching closure resolution.
+- RemoteArchiveClosureTests.test_missing_service_and_invalid_closure_request_remain_unconfirmed(): Leaves missing owner replies and malformed operation identity unconfirmed.
+- RemoteArchiveClosureTests.test_separate_owner_restart_requires_explicit_closure_and_reuses_closed_archive(): Uses real local JetStream and a spawned shared Ingestor/StorageManager process to verify rejection, restart-only replay prevention, fresh closure and restart reuse.

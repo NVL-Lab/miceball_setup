@@ -383,7 +383,8 @@ class NatsControllerCommunication:
     ) -> RuntimeCommandResultMessage | None:
         """Request current owner readback without accepting history or an earlier attempt's reply."""
         supported = {"storage_manager": {"read_session_preservation",
-                                        "get_saved_session_collection_status", "collect_saved_artifacts"},
+                                        "get_saved_session_collection_status", "collect_saved_artifacts",
+                                        "close_session_evidence_archive"},
                      "ingestor": {"compile_session_evidence", "verify_acquisition_receipt",
                                   "read_runtime_evidence_acceptance"}}
         if (not isinstance(participant, RuntimeParticipant)
@@ -1308,13 +1309,19 @@ class NatsStorageManagerCommunication:
             if command.target_id != self._boundary.component_id:
                 await message.ack()
                 return
-            if command.command_type == "collect_saved_artifacts":
+            if command.command_type in {"collect_saved_artifacts", "close_session_evidence_archive"}:
                 async with self._collection_command_lock:
                     identity = json.dumps(command.to_dict(), sort_keys=True)
                     result = self._pending_collection_results.get(identity)
                     if result is None:
-                        result = await self._execute_collection_attempt(command)
+                        result = await self._execute_saved_session_attempt(command)
                         self._pending_collection_results[identity] = deepcopy(result)
+                    elif result.success and command.command_type == "close_session_evidence_archive":
+                        try:
+                            result = self._reconfirm_archive_closure(command, result)
+                        except Exception as error:
+                            result = _participant_result(self._boundary, command, False, str(error),
+                                {"request_nonce": command.payload.get("request_nonce")})
                     await self._boundary.publish_command_result(result, command.command_type)
                     self._pending_collection_results.pop(identity, None)
             else:
@@ -1326,8 +1333,14 @@ class NatsStorageManagerCommunication:
             await message.ack()
         return await _subscribe_participant_commands(self._boundary, receive, new_only=True)
 
-    def _validate_collection_request(self, command):
+    def _validate_saved_session_request(self, command):
         _validate_owner_request(self._boundary, command)
+        if command.command_type == "close_session_evidence_archive":
+            if (set(command.payload) != {"request_nonce"}
+                    or command.command_id != json.dumps(
+                        [command.session_id, command.command_type], separators=(",", ":"))):
+                raise ValueError("Archive closure requires its canonical Session/operation identity and reply correlation")
+            return
         if (set(command.payload) != {"request_nonce", "evidence_id"}
                 or not isinstance(command.payload["evidence_id"], str) or not command.payload["evidence_id"]):
             raise ValueError("Saved collection requires only a stable evidence identity and reply correlation")
@@ -1335,11 +1348,11 @@ class NatsStorageManagerCommunication:
                 [command.session_id, command.payload["evidence_id"]], separators=(",", ":")):
             raise ValueError("Collection command identity must match its Session and evidence identity")
 
-    async def _execute_collection_attempt(self, command):
+    async def _execute_saved_session_attempt(self, command):
         # No storage lock is borrowed across broker readback. The caller keeps
         # attempt resolution and result publication serialized together.
         try:
-            self._validate_collection_request(command)
+            self._validate_saved_session_request(command)
             jetstream = self._boundary._require_jetstream()
             history = await jetstream.stream_info("LAB_COMMAND_RESULTS")
             if not NatsIngestorCommunication._receiving_history_intact(history):
@@ -1360,7 +1373,7 @@ class NatsStorageManagerCommunication:
                 if record.subject != subject or record.seq < sequence:
                     raise ValueError("Collection result history is inconsistent")
                 try:
-                    previous = self._read_collection_result(record)
+                    previous = self._read_saved_session_result(record, command.command_type)
                 except (ValueError, TypeError, KeyError, AttributeError) as error:
                     raise ValueError(f"Collection result history has invalid persisted correlation: {error}") from error
                 identity = previous.payload["request_nonce"]
@@ -1378,12 +1391,24 @@ class NatsStorageManagerCommunication:
             if (current.created != history.created or current.state.last_seq < history.state.last_seq
                     or not NatsIngestorCommunication._receiving_history_intact(current)):
                 raise RuntimeError("Collection command-result history changed during admission")
-            return matched if matched is not None else self.execute_command(command)
+            if matched is not None:
+                if matched.success and command.command_type == "close_session_evidence_archive":
+                    return self._reconfirm_archive_closure(command, matched)
+                return matched
+            return self.execute_command(command)
         except Exception as error:
             return _participant_result(self._boundary, command, False, str(error),
                 {"request_nonce": command.payload.get("request_nonce")})
 
-    def _read_collection_result(self, record):
+    def _reconfirm_archive_closure(self, command, result):
+        confirmation = self._storage_manager.get_persisted_session_preservation_confirmation(command.session_id)
+        if (confirmation is None
+                or confirmation["compilation_summary"].get("archive_closed") is not True
+                or confirmation["compilation_summary"] != result.payload["compilation_summary"]):
+            raise RuntimeError("Closed archive history lacks matching current preservation")
+        return self.execute_command(command)
+
+    def _read_saved_session_result(self, record, operation):
         """Validate scoped persisted correlation before treating a result as unrelated."""
         data = json.loads(record.data)
         required = {"result_id", "command_id", "session_id", "source_id", "target_id",
@@ -1407,7 +1432,7 @@ class NatsStorageManagerCommunication:
                 or routing["component_type"] != self._boundary.component_type
                 or routing["component_id"] != result.source_id
                 or result.source_id != self._boundary.component_id
-                or routing["message_type"] != "collect_saved_artifacts"):
+                or routing["message_type"] != operation):
             raise ValueError("Collection result history disagrees with its NATS subject")
         identity = json.loads(result.command_id)
         if (not isinstance(identity, list) or len(identity) != 2
@@ -1417,6 +1442,19 @@ class NatsStorageManagerCommunication:
             raise ValueError("Collection result history has inconsistent Session/evidence command identity")
         if "session_id" in result.payload and result.payload["session_id"] != result.session_id:
             raise ValueError("Collection result payload disagrees with its Session")
+        if operation == "close_session_evidence_archive":
+            if identity[1] != operation:
+                raise ValueError("Closure result history has inconsistent operation identity")
+            if result.success:
+                closure = result.payload.get("closure_outcome")
+                summary = result.payload.get("compilation_summary")
+                if (not isinstance(closure, dict) or closure.get("session_id") != result.session_id
+                        or closure.get("archive_closed") is not True
+                        or closure.get("archival_confirmed") is not True
+                        or not isinstance(summary, dict) or summary.get("session_id") != result.session_id
+                        or summary.get("archive_closed") is not True):
+                    raise ValueError("Successful closure history lacks confirmed archive preservation")
+            return result
         if "collection_status" in result.payload:
             status = result.payload["collection_status"]
             if not isinstance(status, dict) or status.get("session_id") != result.session_id:
@@ -1449,7 +1487,7 @@ class NatsStorageManagerCommunication:
                 if set(command.payload) != expected:
                     raise ValueError("Saved collection accepts only Session and stable evidence identity")
                 if collecting:
-                    self._validate_collection_request(command)
+                    self._validate_saved_session_request(command)
                 status = self._storage_manager.get_saved_session_collection_status(command.session_id)
                 payload = {"session_id": command.session_id, "collection_status": status}
                 if collecting:
@@ -1467,6 +1505,14 @@ class NatsStorageManagerCommunication:
                     return _participant_result(self._boundary, command, confirmed,
                         None if confirmed else "Collection or collection-evidence preservation is incomplete",
                         {**payload, "request_nonce": nonce})
+            elif command.command_type == "close_session_evidence_archive":
+                self._validate_saved_session_request(command)
+                closure = self._storage_manager.close_session_evidence_archive(command.session_id)
+                confirmation = self._storage_manager.get_persisted_session_preservation_confirmation(command.session_id)
+                if (confirmation is None or confirmation["compilation_summary"].get("archive_closed") is not True):
+                    raise RuntimeError("Current permanent closure preservation is unconfirmed")
+                payload = {"session_id": command.session_id, "closure_outcome": closure,
+                           "compilation_summary": confirmation["compilation_summary"]}
             elif command.command_type == "read_session_preservation":
                 if set(command.payload) != {"request_nonce"}:
                     raise ValueError("Preservation readback accepts only the requested Session identity")
