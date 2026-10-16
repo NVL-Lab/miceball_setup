@@ -6,10 +6,11 @@ import multiprocessing
 from pathlib import Path
 import unittest
 from unittest.mock import patch
+from copy import deepcopy
 
 from lab_sync_acquisition import (Controller, InMemoryIngestor, NatsCommunicationBoundary,
     NatsControllerCommunication, NatsStorageManagerCommunication, PersistentStorageManager,
-    RuntimeCommandMessage, RuntimeParticipant, SshRetrievalEndpoint)
+    RuntimeCommandMessage, RuntimeCommandResultMessage, RuntimeParticipant, SshRetrievalEndpoint)
 from tests import test_saved_session_selection as selection_fixtures
 from tests.test_session_launch import _Boundary, _Broker
 from tests import test_artifact_retrieval as retrieval_fixtures
@@ -216,6 +217,129 @@ class RemoteSavedCollectionTests(unittest.IsolatedAsyncioTestCase):
         old = RuntimeCommandMessage.from_dict(self.broker.commands[-1])
         self.selection.terminal("session", "completed")
         await self.communication.publish_command(old, "storage_manager")
+        self.assertFalse(self.broker.results[-1]["success"])
+        self.assertEqual(self.fixture.sftp.opened, [])
+
+    async def _reject_corrupted_result(self, change):
+        self.broker = CollectionBroker()
+        self.communication = NatsControllerCommunication(_Boundary("controller", "controller", self.broker))
+        await self.subscribe(self.storage)
+        self.selection.terminal("session", "stopping")
+        self.assertFalse((await self.collect("correlation")).succeeded)
+        original = RuntimeCommandMessage.from_dict(self.broker.commands[-1])
+        record = self.broker.result_history.records[self.broker.result_history.last_sequence]
+        data = json.loads(record.data)
+        change(data)
+        record.data = json.dumps(data).encode()
+        corrupted = record.data
+        self.selection.terminal("session", "completed")
+        before = self.fixture.products()
+        await self.subscribe(self.fixture.new_storage())
+        transport, _ = self.fixture.retrieval.ssh(self.fixture.sftp)
+        with transport:
+            await self.communication.publish_command(original, "storage_manager")
+        self.assertFalse(self.broker.results[-1]["success"])
+        self.assertIn("history", self.broker.results[-1]["reason"].lower())
+        self.assertEqual(self.fixture.sftp.opened, [])
+        self.assertEqual(self.fixture.products(), before)
+        self.assertEqual(record.data, corrupted)
+
+    async def test_missing_persisted_nonce_cannot_reactivate_rejected_collection(self):
+        await self._reject_corrupted_result(lambda data: data["payload"].pop("request_nonce"))
+
+    async def test_persisted_source_mismatch_cannot_reactivate_rejected_collection(self):
+        await self._reject_corrupted_result(lambda data: data.update(source_id="different-owner"))
+
+    async def test_invalid_result_correlation_blocks_collection(self):
+        changes = [
+            lambda data: data["payload"].update(request_nonce=None),
+            lambda data: data["payload"].update(request_nonce=42),
+            lambda data: data["payload"].update(request_nonce=""),
+            lambda data: data.pop("target_id"),
+            lambda data: data.pop("session_id"),
+            lambda data: data.update(target_id=7),
+            lambda data: data.update(source_id=None),
+            lambda data: data.update(result_id=""),
+            lambda data: data.update(command_id=7),
+            lambda data: data.update(command_id='["other","correlation"]'),
+            lambda data: data.update(session_id="other"),
+            lambda data: data.update(success=0),
+            lambda data: data.update(status="succeeded"),
+            lambda data: data.update(payload=[]),
+            lambda data: data.update(reason=42),
+            lambda data: data["payload"]["collection_status"].update(session_id="other"),
+        ]
+        for index, change in enumerate(changes):
+            with self.subTest(case=index):
+                await self._reject_corrupted_result(change)
+
+    async def test_valid_unrelated_attempts_and_other_sessions_remain_isolated(self):
+        boundary = _Boundary("storage_manager", "storage", self.broker)
+        for session, requester, evidence_id in (("session", "another-controller", "unrelated"),
+                                                ("other", "controller", "collection")):
+            result = RuntimeCommandResultMessage("other-result", json.dumps([session, evidence_id], separators=(",", ":")),
+                session, "storage", requester, "failed", False, "rejected", {"request_nonce": "other-attempt"})
+            await boundary.publish_command_result(result, "collect_saved_artifacts")
+        transport, _ = self.fixture.retrieval.ssh(self.fixture.sftp)
+        with transport:
+            result = await self.collect()
+        self.assertTrue(result.succeeded, result.error)
+        self.assertEqual(len(self.fixture.sftp.opened), 1)
+
+    async def test_conflicting_attempt_resolutions_block_collection(self):
+        self.selection.terminal("session", "stopping")
+        self.assertFalse((await self.collect()).succeeded)
+        previous = deepcopy(self.broker.results[-1])
+        previous["reason"] = "conflicting resolution"
+        await _Boundary("storage_manager", "storage", self.broker).publish_command_result(
+            RuntimeCommandResultMessage.from_dict(previous), "collect_saved_artifacts")
+        self.selection.terminal("session", "completed")
+        await self.communication.publish_command(RuntimeCommandMessage.from_dict(self.broker.commands[-1]), "storage_manager")
+        self.assertFalse(self.broker.results[-1]["success"])
+        self.assertIn("conflicting", self.broker.results[-1]["reason"])
+        self.assertEqual(self.fixture.sftp.opened, [])
+
+    async def test_success_result_requires_matching_collection_evidence(self):
+        transport, _ = self.fixture.retrieval.ssh(self.fixture.sftp)
+        with transport:
+            self.assertTrue((await self.collect("confirmed")).succeeded)
+        original = RuntimeCommandMessage.from_dict(self.broker.commands[-1])
+        successful = deepcopy(self.broker.results[-1])
+        before = self.fixture.products()
+        for field, value in (("evidence_id", "different"), ("session_id", "other"),
+                             ("source_id", "other-storage")):
+            with self.subTest(field=field):
+                self.broker = CollectionBroker()
+                self.communication = NatsControllerCommunication(_Boundary("controller", "controller", self.broker))
+                await self.subscribe(self.fixture.new_storage())
+                corrupted = deepcopy(successful)
+                corrupted["payload"]["collection_outcome"]["collection_evidence"][field] = value
+                await _Boundary("storage_manager", "storage", self.broker).publish_command_result(
+                    RuntimeCommandResultMessage.from_dict(corrupted), "collect_saved_artifacts")
+                await self.communication.publish_command(original, "storage_manager")
+                self.assertFalse(self.broker.results[-1]["success"])
+                self.assertEqual(len(self.fixture.sftp.opened), 1)
+                self.assertEqual(self.fixture.products(), before)
+
+    async def test_cancelled_result_publication_retains_rejection(self):
+        self.selection.terminal("session", "stopping")
+        entered = asyncio.Event()
+
+        async def pause(*args):
+            entered.set()
+            await asyncio.Future()
+
+        with patch("tests.test_session_launch._Boundary.publish_command_result", side_effect=pause):
+            task = asyncio.create_task(self.collect("cancelled"))
+            try:
+                await asyncio.wait_for(entered.wait(), 2)
+            finally:
+                task.cancel()
+                with self.assertRaises(asyncio.CancelledError):
+                    await task
+        original = RuntimeCommandMessage.from_dict(self.broker.commands[-1])
+        self.selection.terminal("session", "completed")
+        await self.communication.publish_command(original, "storage_manager")
         self.assertFalse(self.broker.results[-1]["success"])
         self.assertEqual(self.fixture.sftp.opened, [])
 

@@ -1347,6 +1347,8 @@ class NatsStorageManagerCommunication:
             subject = build_runtime_subject(command.session_id, "command_result",
                 self._boundary.component_type, self._boundary.component_id, command.command_type)
             sequence = 1
+            matched = None
+            resolutions = {}
             while sequence <= history.state.last_seq:
                 try:
                     record = await jetstream.get_msg("LAB_COMMAND_RESULTS", seq=sequence,
@@ -1357,22 +1359,83 @@ class NatsStorageManagerCommunication:
                     break
                 if record.subject != subject or record.seq < sequence:
                     raise ValueError("Collection result history is inconsistent")
-                previous = RuntimeCommandResultMessage.from_dict(json.loads(record.data))
+                try:
+                    previous = self._read_collection_result(record)
+                except (ValueError, TypeError, KeyError, AttributeError) as error:
+                    raise ValueError(f"Collection result history has invalid persisted correlation: {error}") from error
+                identity = (previous.command_id, previous.target_id, previous.payload["request_nonce"])
+                content = previous.to_dict()
+                if identity in resolutions and resolutions[identity] != content:
+                    raise ValueError("Collection result history contains conflicting attempt resolutions")
+                resolutions[identity] = content
                 if (previous.command_id == command.command_id
                         and previous.session_id == command.session_id
                         and previous.source_id == self._boundary.component_id
                         and previous.target_id == command.source_id
                         and previous.payload.get("request_nonce") == command.payload["request_nonce"]):
-                    return previous
+                    matched = previous
                 sequence = record.seq + 1
             current = await jetstream.stream_info("LAB_COMMAND_RESULTS")
             if (current.created != history.created or current.state.last_seq < history.state.last_seq
                     or not NatsIngestorCommunication._receiving_history_intact(current)):
                 raise RuntimeError("Collection command-result history changed during admission")
-            return self.execute_command(command)
+            return matched if matched is not None else self.execute_command(command)
         except Exception as error:
             return _participant_result(self._boundary, command, False, str(error),
                 {"request_nonce": command.payload.get("request_nonce")})
+
+    def _read_collection_result(self, record):
+        """Validate scoped persisted correlation before treating a result as unrelated."""
+        data = json.loads(record.data)
+        required = {"result_id", "command_id", "session_id", "source_id", "target_id",
+                    "status", "success", "reason", "payload"}
+        if (not isinstance(data, dict) or not required.issubset(data)
+                or not isinstance(data["payload"], dict)):
+            raise ValueError("Collection result history lacks required result fields")
+        result = RuntimeCommandResultMessage.from_dict(data)
+        if (any(not isinstance(value, str) or not value for value in
+                (result.result_id, result.command_id, result.session_id, result.source_id, result.target_id))
+                or not isinstance(result.payload.get("request_nonce"), str)
+                or not result.payload["request_nonce"]
+                or type(result.success) is not bool
+                or result.status not in {"succeeded", "failed"}
+                or result.success != (result.status == "succeeded")
+                or (result.reason is not None and not isinstance(result.reason, str))):
+            raise ValueError("Collection result history has invalid correlation or final status")
+        routing = parse_runtime_subject(record.subject)
+        if (routing["session_id"] != result.session_id
+                or routing["message_class"] != "command_result"
+                or routing["component_type"] != self._boundary.component_type
+                or routing["component_id"] != result.source_id
+                or result.source_id != self._boundary.component_id
+                or routing["message_type"] != "collect_saved_artifacts"):
+            raise ValueError("Collection result history disagrees with its NATS subject")
+        identity = json.loads(result.command_id)
+        if (not isinstance(identity, list) or len(identity) != 2
+                or identity[0] != result.session_id
+                or not isinstance(identity[1], str) or not identity[1]
+                or result.command_id != json.dumps(identity, separators=(",", ":"))):
+            raise ValueError("Collection result history has inconsistent Session/evidence command identity")
+        if "session_id" in result.payload and result.payload["session_id"] != result.session_id:
+            raise ValueError("Collection result payload disagrees with its Session")
+        if "collection_status" in result.payload:
+            status = result.payload["collection_status"]
+            if not isinstance(status, dict) or status.get("session_id") != result.session_id:
+                raise ValueError("Collection status history disagrees with its Session")
+        if "collection_outcome" in result.payload:
+            outcome = result.payload["collection_outcome"]
+            if not isinstance(outcome, dict):
+                raise ValueError("Collection result history has an invalid outcome")
+            evidence = RuntimeEvidenceMessage.from_dict(outcome["collection_evidence"])
+            if (outcome.get("session_id") != result.session_id
+                    or evidence.session_id != result.session_id
+                    or evidence.evidence_id != identity[1] or evidence.source_id != result.source_id):
+                raise ValueError("Collection result history has inconsistent collection evidence identity")
+        if result.success and (not isinstance(result.payload.get("collection_outcome"), dict)
+                or result.payload["collection_outcome"].get("archival_confirmed") is not True
+                or result.payload["collection_outcome"].get("artifact_collection_result", {}).get("succeeded") is not True):
+            raise ValueError("Successful collection result lacks confirmed collection preservation")
+        return result
 
     def execute_command(self, command: RuntimeCommandMessage) -> RuntimeCommandResultMessage:
         """Execute scoped owner persistence/readback, never recovery or arbitrary remote method calls."""

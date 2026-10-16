@@ -489,6 +489,18 @@ and linear result-history scan are operational limitations, not new power-loss o
 broker-history restoration guarantees. Existing storage locks are never held
 across NATS readback. Independent correction validation and re-audit remain pending.
 
+Persisted collection-result correlation is validated before an attempt can be
+treated as unrelated or absent: required result fields/types, nonempty identities
+and nonce, final status/success consistency, subject/body Session/source/operation,
+and canonical Session/evidence command identity. Payload Session/status and any
+collection evidence must agree with those identities; success requires confirmed
+collection preservation. Every record in the scoped scan is checked, even after
+finding a matching attempt, and conflicting resolutions fail closed. Valid
+unrelated attempts remain isolated; other Sessions remain outside the scoped
+readback. Invalid history blocks collection without rewriting the offending
+records or producing new collection evidence. A normal failed command reply may
+still be appended to the existing NATS result stream; it is not history repair.
+
 Results retain eligibility/availability information and actual collection outcomes,
 including scientific retrieval failures whose evidence was durably preserved.
 Controller reports success only for the matching Session/evidence identity with
