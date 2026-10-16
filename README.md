@@ -115,6 +115,18 @@ verification was blocked by Windows asyncio startup. Q022 remains OPEN.
 
 ## Overview
 
+### Manual Service Launcher (Developer Implementation)
+
+`lab-sync-acquisition --help` (or `python -m lab_sync_acquisition.service_launcher --help`)
+lists the five logical roles. Currently only `ingestor` and `storage-manager`
+launch, both as the required shared process with explicit existing constructor
+settings and an explicit declaration of no external operational dependents.
+Other roles report unavailable maintenance/installation composition
+without creating hidden services. Ctrl+C uses existing local Stop/Cancel, never
+implicit Kill; remote retirement waits for final result publication/handling.
+See [launcher usage and limitations](docs/installation_and_deployment.md#common-launcher-w061-developer-implementation-not-closed).
+W061 is not closed or independently validated/audited; Q022 remains OPEN.
+
 
 
 This repository is developing a hardware-agnostic framework for:

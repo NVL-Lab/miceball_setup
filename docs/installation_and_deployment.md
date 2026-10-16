@@ -25,7 +25,9 @@ bootstrap/launch composition is not implemented in this bounded persistence slic
 
 ## Accepted Manual Service Entry Points (Decisions 383-388)
 
-These contracts are accepted, not implemented or independently validated. One
+The bounded W061 developer implementation below is not independently validated
+or audited; the full role composition and remote operator interface are not
+implemented. One
 common CLI launches/administers the existing Controller, AcquisitionNode,
 Ingestor, StorageManager and SynchronizationManager capabilities. Decision 376's
 shared Ingestor/StorageManager process lifetime remains mandatory; other roles
@@ -53,6 +55,74 @@ outcomes, not new lifecycle states. Operational retirement is distinct from OS
 process exit, Session-binding release, Session/Experiment termination and general
 framework shutdown. Existing preservation, cleanup and safety obligations remain.
 Configuration provisioning and Q024 recovery remain outside these decisions.
+
+### Common Launcher (W061 Developer Implementation, Not Closed)
+
+The package installs `lab-sync-acquisition`; source-tree invocation also works as
+`python -m lab_sync_acquisition.service_launcher`. `--help` lists all five logical
+roles. Currently `ingestor` and `storage-manager` are aliases for the same paired
+process, not independent processes. For example, using explicitly chosen local
+paths, identities and a preservation window:
+
+```text
+lab-sync-acquisition ingestor --server nats://HOST:4222 --ingestor-id INTAKE_ID --storage-id STORAGE_ID --storage-root PATH --recovery-journal-root PATH --framework-journal PATH --preservation-window-s SECONDS --no-operational-dependents
+```
+
+Every setting above is required; server arguments may be repeated. These arguments
+pass existing constructor settings, not a new configuration-file schema or a
+provisioning mechanism. No credentials or machine-specific settings are committed.
+Retrieval-endpoint configuration and installation checks are not supplied here.
+The CLI currently supports only an explicitly declared absence of external
+operational dependents; it does not silently assume the dependency set is empty.
+Do not use that declaration when producers depend on Ingestor. The reusable
+`launch_storage_services()` interface accepts the existing explicit
+`operational_dependents` callbacks; configuring distributed dependencies through
+the CLI is unavailable, not replaced by discovery or fabricated availability.
+Controller, AcquisitionNode and SynchronizationManager commands fail before startup
+with an actionable diagnostic: their distributed framework-maintenance preservation
+dependencies are not yet composed, and node installation requires explicit devices
+and adapters. No extra local persistence owner substitutes for those dependencies.
+Do not interpret help visibility as verified launch coverage for these roles.
+
+The paired process uses the existing service-owned NATS command handlers, framework
+evidence intake and journal, StorageManager preservation, and startup/readiness
+announcements. It is not tied to Session lifetime. Ctrl+C requests maintenance
+locally using a temporary requester and OS administrator name; it does not cancel
+the running maintenance coroutine or escalate repeated interrupts into Kill.
+SIGINT protection is installed before the asynchronous startup callback can admit
+commands or evidence. Startup interruption cancels and awaits that callback before
+attempting local Stop/Cancel; it does not close connections or discard admitted
+Session/journal obligations. Cancellation of the launcher itself retains owners
+instead of implying retirement. Pre-admission connection errors still fail startup;
+partial-admission errors are reported separately and retain the process.
+For orderly pair retirement, the existing StorageManager preparation precedes
+Ingestor Stop and prepared StorageManager Stop, retaining evidence capabilities
+until the accepted retirement boundary. Blocked Stop invokes Cancel for the same
+attempt; failed/unconfirmed results retain the process and report obligations.
+Already confirmed retirement is not falsely undone on a later failure.
+
+Remote maintenance issuance is not a CLI command in this slice. Existing receiving
+handlers remain usable: the launcher waits until final result publication and
+delivery ACK finish before counting remote retirement toward process exit. Lost
+publication or ACK leaves exit unconfirmed until an existing explicit retry is
+handled. Notification carries the complete request and the exact result actually
+published and ACKed, with Session/source/destination/command correlation checks.
+A conflicting rejection cannot substitute another cached success with the same
+command ID. Identical redelivery may publish the retained owner result normally.
+Publication/handling confirmation does not claim requester receipt.
+After all hosted owners retire, connections drain before normal exit.
+Feedback reports existing outcomes, target/command/attempt identities, blockers,
+errors and unresolved obligations; only confirmed successful completion exits 0.
+Communication cleanup failures retain the process for explicit retry.
+
+Run the focused developer checks with:
+
+```text
+python -B -m unittest tests.test_service_launcher -v
+```
+
+No live deployment, hardware or power-loss validation is implied. Independent
+validation/audit and W061 closure remain outstanding; Q022 remains OPEN.
 
 ## Scientific Data And Operational Evidence Boundary
 

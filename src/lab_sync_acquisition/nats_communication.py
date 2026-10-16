@@ -96,6 +96,7 @@ class NatsCommunicationBoundary:
         self._client: NATS | None = None
         self._jetstream: JetStreamContext | None = None
         self._dependency_result_observer = None
+        self.maintenance_command_handled: Callable[[RuntimeCommandMessage, RuntimeCommandResultMessage], None] | None = None
 
     @property
     def connected(self) -> bool:
@@ -1065,7 +1066,7 @@ class NatsIngestorCommunication:
 
     async def subscribe_commands(self) -> tuple[Subscription, Subscription]:
         """Receive readiness and Session preparation over the existing command stream."""
-        async def receive(message: Any) -> None:
+        async def receive(message: Any) -> RuntimeCommandResultMessage | None:
             command = RuntimeCommandMessage.from_dict(json.loads(message.data.decode("utf-8")))
             if command.target_id != self._boundary.component_id:
                 await message.ack()
@@ -1126,6 +1127,7 @@ class NatsIngestorCommunication:
                         self._results_by_command_id[command.command_id] = result
             await self._boundary.publish_command_result(result, command.command_type)
             await message.ack()
+            return result
         return await _subscribe_participant_commands(self._boundary, receive, new_only=True)
 
     async def _execute_closeout_command(self, command):
@@ -1534,6 +1536,7 @@ class NatsStorageManagerCommunication:
                           else self.execute_command(command))
                 await self._boundary.publish_command_result(result, command.command_type)
             await message.ack()
+            return result
         return await _subscribe_participant_commands(self._boundary, receive, new_only=True)
 
     def _validate_saved_session_request(self, command):
@@ -1747,11 +1750,20 @@ def _execute_service_command(boundary: NatsCommunicationBoundary, service: Any,
 
 async def _subscribe_participant_commands(boundary: NatsCommunicationBoundary, receive: Callable,
                                          *, new_only: bool = False) -> tuple[Subscription, Subscription]:
+    async def handled(message):
+        result = await receive(message)
+        observer = getattr(boundary, "maintenance_command_handled", None)
+        if observer is not None:
+            command = RuntimeCommandMessage.from_dict(json.loads(message.data.decode("utf-8")))
+            if (command.session_id is None and command.target_id == boundary.component_id
+                    and command.command_type in {"stop", "kill", "cancel", "prepare_stop"}):
+                observer(command, result)
+
     subscriptions = []
     for subject in (f"messages.*.command.{boundary.component_type}.{boundary.component_id}.*",
                     f"messages.command.{boundary.component_type}.{boundary.component_id}.*"):
         options = {"config": ConsumerConfig(deliver_policy=DeliverPolicy.NEW)} if new_only else {}
-        subscriptions.append(await boundary._require_jetstream().subscribe(subject, cb=receive, manual_ack=True, **options))
+        subscriptions.append(await boundary._require_jetstream().subscribe(subject, cb=handled, manual_ack=True, **options))
     return tuple(subscriptions)
 
 
@@ -1839,7 +1851,7 @@ class NatsSynchronizationManagerCommunication:
         self._subscriptions = ()
 
     async def subscribe_commands(self) -> tuple[Subscription, Subscription]:
-        async def execute(message: Any) -> None:
+        async def execute(message: Any) -> RuntimeCommandResultMessage | None:
             command = RuntimeCommandMessage.from_dict(json.loads(message.data.decode("utf-8")))
             if command.target_id != self._boundary.component_id:
                 await message.ack()
@@ -1940,10 +1952,11 @@ class NatsSynchronizationManagerCommunication:
                 result = replace(result, payload={**result.payload, "request_nonce": command.payload["request_nonce"]})
             await self._boundary.publish_command_result(result, command.command_type)
             await message.ack()
+            return result
 
-        async def receive(message: Any) -> None:
+        async def receive(message: Any) -> RuntimeCommandResultMessage | None:
             async with self._command_lock:
-                await execute(message)
+                return await execute(message)
 
         self._subscriptions = await _subscribe_participant_commands(self._boundary, receive)
         return self._subscriptions
@@ -2164,4 +2177,5 @@ class NatsServiceMaintenanceCommunication:
                 result = await self._maintenance.execute_command(command)
             await self._boundary.publish_command_result(result, command.command_type)
             await message.ack()
+            return result
         return await _subscribe_participant_commands(self._boundary, receive)

@@ -1,8 +1,17 @@
 # Code Map
 
-## Accepted Manual Service CLI (Decisions 383-388; Not Implemented)
+## Manual Service CLI (Decisions 383-388; W061 Developer Implementation)
 
-One common CLI will reuse service initialization, NATS readiness and existing
+The common installed `lab-sync-acquisition` entry point now exposes the five
+logical role names. Only `ingestor` and `storage-manager` currently launch; both
+start the same shared pair, with explicit owner identities and existing
+constructor settings supplied as CLI arguments. The other roles fail clearly
+before startup: distributed framework-maintenance preservation dependencies and
+node installation composition remain unavailable. No hidden owners, configuration
+provisioning or remote administrative operator commands are supplied. This is
+developer implementation, not independent validation, audit or W061 closure.
+
+The accepted complete CLI scope reuses service initialization, NATS readiness and existing
 maintenance Stop/authorized Kill/Cancel, preserving Decision 376's paired process.
 Ctrl+C requests local Stop, automatically Cancels a blocked attempt and keeps
 running; it never offers interactive Kill or forced repeated-Ctrl+C exit. Separate
@@ -10,9 +19,28 @@ terminals address services directly without Controller. Confirmed maintenance an
 required final command-result handling precede process exit. Existing identities,
 temporary requesters, local OS administrator name and explicit remote administrator
 identity are not authentication infrastructure. Terminal feedback uses existing
-outcomes, with exit code 0 only for confirmed success. No launcher, provisioning,
-new public API or validation is claimed here; Q022 remains OPEN. See
+outcomes, with exit code 0 only for confirmed success. Complete role bootstrap and
+provisioning remain outstanding; Q022 remains OPEN. See
 installation_and_deployment.md and Decisions 383-388.
+
+## src/lab_sync_acquisition/service_launcher.py
+
+- ServiceLauncher(maintenance, boundaries, *, report=print): Hosts explicitly composed maintenance owners, accepting an independent owner or the required paired Ingestor/StorageManager process without creating service owners.
+- ServiceLauncher.exit_ready: Confirms every hosted owner has retired and its terminal maintenance result has been handled.
+- ServiceLauncher.request_interrupt(): Queues local Stop without cancellation, Kill authorization or forced exit, including repeated Ctrl+C.
+- ServiceLauncher.stop_locally(administrator_id): Executes existing Stop/Cancel contracts, using prepared StorageManager retirement around Ingestor stop for the shared pair.
+- ServiceLauncher.run(*, startup=None): Installs SIGINT protection before invoking an optional async startup callable, awaits interrupted initialization before local maintenance, retains cancelled/blocked/failed/unconfirmed processes, and drains communication only after confirmed retirement and result handling.
+- ServiceLauncher._feedback: Reports existing maintenance outcomes, identities, blockers and outstanding obligations without creating lifecycle evidence or outcome states.
+- ServiceLauncher._remote_handled: Validates request/result correlation using the exact published-and-acknowledged result and counts only confirmed retirement toward exit, never a cached success substituted by command ID.
+- launch_storage_services(*, servers, ingestor_id, storage_id, storage_root, recovery_journal_root, framework_journal, preservation_window_s, operational_dependents, report=print): Constructs the two existing paired owners with explicit existing Ingestor dependency callbacks, connects their NATS handlers/readiness and runs the shared lifetime.
+- main(argv=None): Parses explicit-role launcher arguments, rejects unavailable initialization paths and returns nonzero on unconfirmed startup.
+
+## tests/test_service_launcher.py
+
+- LauncherCommandTests: Exercises role/help visibility, explicit settings, unavailable launch diagnostics and invalid constructor arguments without starting services.
+- ServiceLauncherTests: Exercises real maintenance owners for local Stop/Cancel, failure/retention, repeated interrupts, paired startup/retirement and remote result-publication-before-exit.
+- ServiceLauncherTests.finish_task: Ends a deliberately retained test launcher through an injected reporter failure so fixture cleanup cannot hang on cancellation retention.
+- ServiceLauncherTests.check_startup_interruption: Exercises SIGINT or task cancellation after Session/evidence admission, confirming maintenance, binding/journal retention and no premature connection closure.
 
 ## Accepted Q022-A Installation Contracts (Not Implemented)
 
@@ -24,7 +52,7 @@ Existing constructors, `AcquisitionNode.declared_devices`/readiness,
 `SessionConfig.device_configurations`, adapter initialization, NATS inventory and
 readiness commands, `NatsServiceMaintenanceCommunication.start()` with configured
 participants, `Controller.reconcile_outcomes()`, and StorageManager endpoint/pull
-interfaces are reusable. There is no general role CLI, deployment file loader,
+interfaces are reusable. The bounded paired-role CLI is implemented above; there is no deployment file loader,
 generic adjustable-parameter inventory, or installation dummy-retrieval interface
 yet. Configuration validity is not hardware readiness; device smoke tests are
 recommended, not commissioning/runtime gates. Q019 remains CLOSED; Q022/Q024/Phase 16/M015
@@ -1001,6 +1029,7 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 
 - DurablePublicationError: Reports failed JetStream publication with message class, message identity, subject, intended stream, and reason while leaving the original message caller-owned.
 - NatsCommunicationBoundary: Owns a real nats-py connection, reports NATS availability through ServiceReadiness, creates accepted JetStream streams, and handles JSON serialization, durable publication acknowledgement, and Core NATS telemetry mechanics without domain semantics.
+- NatsCommunicationBoundary.maintenance_command_handled(command, result): Optional synchronous lifetime observer receiving the exact request and actual result only after publication and delivery ACK; it does not imply requester receipt, execute maintenance or authorize operational retirement.
 - NatsControllerCommunication: Publishes unicast or issuer-fanned group commands, consumes and aggregates addressed per-target command results over an issuer-defined window, records missing results as unresolved, and independently presents HealthInterpretationEvidence without relaying evidence.
 - NatsControllerCommunication.check_ready(): Returns required NATS communication readiness for launch gating.
 - NatsControllerCommunication.request_command(participant, command_type, session_id, payload, result_window_s, *, command_id=None): Publishes once and awaits the bounded correlated result; when startup integration is attached to the same boundary, it also informs the service owner of missing results or explicit readiness observations without inferring technical unreadiness or using stale subscription bindings.
@@ -1028,7 +1057,7 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 - NatsStorageManagerCommunication._execute_saved_session_attempt(command, *, retained_result=None): Validates complete operation-scoped history and same-nonce identity before execution or reuse, rejecting disagreement with a retained successful closure before current archive reconfirmation.
 - NatsStorageManagerCommunication._reconfirm_archive_closure(command, result): Requires matching current closed-archive preservation before reconfirming a retained or historical successful closure through the owner.
 - NatsStorageManagerCommunication._read_saved_session_result(record, operation): Validates persisted result correlation, subject/body routing and collection-evidence or closed-summary identity before matching.
-- _subscribe_participant_commands(boundary, receive, *, new_only=False): Subscribes to existing scoped/independent participant command subjects, optionally admitting only commands published after startup for StorageManager.
+- _subscribe_participant_commands(boundary, receive, *, new_only=False): Subscribes to existing scoped/independent participant command subjects with optional fresh-only admission, notifying an installed maintenance lifetime observer only after existing result publication and delivery ACK complete.
 - _validate_owner_request(boundary, command): Validates target, requester, command, Session, connectivity, and transient reply correlation for the bounded owner operations.
 - NatsControllerCommunication.request_persistence_command(participant, command_type, session_id, payload, result_window_s, *, command_id): Makes one bounded scoped owner request with fresh-only results and an echoed per-attempt nonce, preserving the stable command ID while rejecting historical and late retry confirmations.
 - Controller.collect_saved_session_artifacts_remote(session_id, *, evidence_id, communication, storage_participant, result_window_s): Coordinates explicit single saved-Session collection through NATS without local service references, requiring matching durable collection evidence and retaining failures or missing responses as unconfirmed.
