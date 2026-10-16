@@ -84,7 +84,9 @@ class ServiceMaintenanceInterface:
                  operational_dependents: Mapping[RuntimeParticipant, Callable[[], bool]] | None = None,
                  evidence_publisher: Callable[[RuntimeEvidenceMessage], Awaitable[None]] | None = None,
                  retire_resources: Callable[[bool], Awaitable[bool]] | None = None,
-                 dependency_participants: Iterable[RuntimeParticipant] = ()):
+                 dependency_participants: Iterable[RuntimeParticipant] = (),
+                 framework_communication=None, framework_ingestor: RuntimeParticipant | None = None,
+                 framework_storage: RuntimeParticipant | None = None):
         if getattr(service, "_maintenance", None) is not None:
             raise ValueError("Service already has an administrative interface")
         if participant.component_type not in {"controller", "acquisition_node", "ingestor", "storage_manager", "synchronization_manager"}:
@@ -109,6 +111,20 @@ class ServiceMaintenanceInterface:
         self.retire_resources = retire_resources
         self.preservation_window_s = preservation_window_s
         self.evidence_publisher = evidence_publisher
+        if framework_communication is not None:
+            if (ingestor is not None or storage_manager is not None
+                    or participant.component_type in {"ingestor", "storage_manager"}
+                    or not isinstance(framework_ingestor, RuntimeParticipant)
+                    or framework_ingestor.component_type != "ingestor"
+                    or not isinstance(framework_storage, RuntimeParticipant)
+                    or framework_storage.component_type != "storage_manager" or evidence_publisher is None):
+                raise ValueError("Distributed maintenance requires an explicit remote Ingestor, publisher and no local persistence owners")
+        elif framework_ingestor is not None or framework_storage is not None:
+            raise ValueError("Remote Ingestor requires communication")
+        self._framework_communication = framework_communication
+        self._framework_ingestor = framework_ingestor
+        self._framework_storage = framework_storage
+        self._remote_preserved_evidence = {}
         self.operational_dependents = dict(operational_dependents or {})
         if self.operational_dependents and participant.component_type != "ingestor":
             raise ValueError("Operational Ingestor dependencies belong to Ingestor")
@@ -163,6 +179,26 @@ class ServiceMaintenanceInterface:
         """Current confirmed reports; None means unknown, not technical unreadiness."""
         with self._admission_lock:
             return dict(self._dependency_readiness)
+
+    def evidence_preserved(self, message) -> bool:
+        """Verify exact owner-confirmed coverage for a retained producer message."""
+        if self._framework_communication is None:
+            return self.ingestor is not None and self.ingestor.has_durable_runtime_evidence(message)
+        return self._remote_preserved_evidence.get((message.session_id, message.evidence_id)) == message.to_dict()
+
+    def required_evidence(self):
+        """Snapshot this service's persistent evidence without admitting new obligations."""
+        messages = (*self._evidence, *(self.service.maintenance_evidence()
+                                      if self._framework_communication is not None else ()))
+        unique = {}
+        for message in messages:
+            if not message.is_persistent:
+                continue
+            key = (message.session_id, message.evidence_id)
+            if key in unique and unique[key].to_dict() != message.to_dict():
+                raise RuntimeError("Conflicting producer evidence identity")
+            unique[key] = message
+        return tuple(RuntimeEvidenceMessage.from_dict(deepcopy(m.to_dict())) for m in unique.values())
 
     @property
     def last_known_dependency_readiness(self) -> dict[RuntimeParticipant, ServiceReadiness | None]:
@@ -648,6 +684,12 @@ class ServiceMaintenanceInterface:
 
     @contextmanager
     def _prepared_preservation_guard(self, *, force=False):
+        if self._framework_communication is not None:
+            with self._admission_lock:
+                if not force and any(not self.evidence_preserved(m) for m in self.required_evidence()):
+                    raise RuntimeError("Prepared producer evidence boundary is unconfirmed")
+                yield {"runtime_evidence": [m.to_dict() for m in self.required_evidence()]}
+            return
         # Preparation already confirmed journal acceptance. Recheck current durable
         # contents through retirement commit without requiring retired Ingestor intake.
         preservation = (nullcontext(None) if force else
@@ -754,6 +796,15 @@ class ServiceMaintenanceInterface:
 
     @contextmanager
     def _orderly_preservation_guard(self):
+        if self._framework_communication is not None:
+            with self._admission_lock:
+                if any(not self.evidence_preserved(m) for m in self.required_evidence()):
+                    raise RuntimeError("Producer evidence boundary changed or preservation is unconfirmed")
+                blockers = self._closeout_blockers()
+                if blockers:
+                    raise RuntimeError("Closeout obligations changed: " + "; ".join(blockers))
+                yield {"runtime_evidence": [m.to_dict() for m in self.required_evidence()]}
+            return
         # Same intake -> storage -> admission order as the existing synchronous commit.
         with self.ingestor._intake_lock, self.ingestor.framework_preservation_guard(self.storage_manager) as confirmation, self._admission_lock:
             archived = {message["evidence_id"]: message for message in confirmation["runtime_evidence"]}
@@ -778,6 +829,29 @@ class ServiceMaintenanceInterface:
         with self._admission_lock:
             if not any(retained is message for retained in self._evidence):
                 self._evidence.append(message)
+        if self._framework_communication is not None:
+            boundary = self.required_evidence()
+            for required in boundary:
+                if not self.evidence_preserved(required):
+                    await self.evidence_publisher(required)
+            if status is not None:
+                status["publication_confirmed"] = True
+            if not archive:
+                raise RuntimeError("Archival is unconfirmed; remote recovery is not automatic")
+            result = await self._framework_communication.request_persistence_command(
+                self._framework_ingestor, "preserve_service_evidence", None,
+                {"evidence": [m.to_dict() for m in boundary], "acceptance_window_s": self.preservation_window_s},
+                self.preservation_window_s, command_id=uuid4().hex)
+            if (result is None or not result.success or result.payload.get("acceptance_confirmed") is not True
+                    or result.payload.get("archival_confirmed") is not True
+                    or result.payload.get("storage_participant") != self._framework_storage.to_dict()
+                    or result.payload.get("evidence") != [m.to_dict() for m in boundary]):
+                raise RuntimeError("Authoritative producer evidence preservation is unconfirmed")
+            with self._admission_lock:
+                self._remote_preserved_evidence = {(m.session_id, m.evidence_id): m.to_dict() for m in boundary}
+            if status is not None:
+                status.update(acceptance_confirmed=True, archival_confirmed=True)
+            return
         if self.evidence_publisher is None:
             if self.ingestor is None:
                 raise RuntimeError("Framework Ingestor is unavailable")

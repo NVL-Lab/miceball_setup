@@ -116,20 +116,25 @@ verification was blocked by Windows asyncio startup. Q022 remains OPEN.
 
 ## Overview
 
-### Manual Service Launcher (W061 Closed)
+### Manual Service Launcher (W061-W063 Closed)
 
 `lab-sync-acquisition --help` (or `python -m lab_sync_acquisition.service_launcher --help`)
-lists the five logical roles. Currently only `ingestor` and `storage-manager`
-launch, both as the required shared process with explicit existing constructor
-settings and an explicit declaration of no external operational dependents.
-Other roles report unavailable maintenance/installation composition
-without creating hidden services. Ctrl+C uses existing local Stop/Cancel, never
+lists the five logical roles. W061 supplies the required shared `ingestor` /
+`storage-manager` process with explicit settings and operational dependencies.
+W063 closes the three independent launch paths with remote producer-specific
+preservation and node installation loading after independent IPython validation
+(60/60) and independent architectural audit PASS with no confirmed P0-P3 findings.
+No hidden service owners are created. Ctrl+C uses existing local Stop/Cancel, never
 implicit Kill; remote retirement waits for final result publication/handling.
 See [launcher usage and limitations](docs/installation_and_deployment.md#common-launcher-w061-closed)
 and [W061](docs/validated_workflows.md#w061---common-service-launcher-and-local-graceful-shutdown).
 W061 is CLOSED after independent IPython validation (22/22) and focused re-audit
 PASS following two P2 corrections. No live JetStream, actual OS signal-delivery,
 hardware or full five-role deployment validation is claimed. Q022 remains OPEN.
+
+See [independent role startup](docs/installation_and_deployment.md#independent-role-startup-w063-closed)
+for required identities, known-node registration, dependency settings, supported
+adapter configuration and the remaining deployment limitations.
 
 Remote addressed maintenance is CLOSED in W062 after independent validation and
 focused re-audit PASS: `lab-sync-acquisition stop|kill|cancel` uses explicit servers,
@@ -142,7 +147,12 @@ confirmed retirement. See [remote maintenance usage](docs/installation_and_deplo
 and [W062](docs/validated_workflows.md#w062---remote-service-maintenance-cli) for the
 41/41 then 42/42 validation and initial FAIL/correction/final PASS history.
 No live JetStream, real OS-signal, hardware or full deployment validation is
-claimed. Unsupported role launch paths remain unchanged; Q022 remains OPEN.
+claimed for W062 or W063. W063 is CLOSED within the documented scope; Q022
+remains OPEN for configuration/provisioning, installation verification and
+remaining deployment/integration work. See
+[W063](docs/validated_workflows.md#w063---independent-service-launch-paths-and-distributed-retirement-preservation)
+for validation evidence and the distinction between controlled coroutine checks
+and normal asynchronous execution.
 
 
 

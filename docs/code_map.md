@@ -1,13 +1,14 @@
 # Code Map
 
-## Manual Service CLI (Decisions 383-388; W061-W062 Closed)
+## Manual Service CLI (Decisions 383-388; W061-W063 Closed)
 
-The common installed `lab-sync-acquisition` entry point now exposes the five
-logical role names. Only `ingestor` and `storage-manager` currently launch; both
-start the same shared pair, with explicit owner identities and existing
-constructor settings supplied as CLI arguments. The other roles fail clearly
-before startup: distributed framework-maintenance preservation dependencies and
-node installation composition remain unavailable. No hidden owners or configuration
+The common installed `lab-sync-acquisition` entry point exposes five logical roles.
+W063 closes independent Controller, AcquisitionNode and SynchronizationManager
+launching with service-specific NATS preservation, explicit dependencies and node
+installation loading after independent IPython validation (60/60) and independent
+architectural audit PASS with no confirmed P0-P3 findings.
+`ingestor` and `storage-manager` still start the same shared pair, with explicit
+owner identities and constructor settings. No hidden owners or configuration
 provisioning are supplied. Remote administrative issuance below is CLOSED in W062
 after independent IPython validation (42/42) and focused re-audit PASS following
 the interrupted-Kill feedback P3 correction. W061 is
@@ -23,8 +24,9 @@ terminals address services directly without Controller. Confirmed maintenance an
 required final command-result handling precede process exit. Existing identities,
 temporary requesters, local OS administrator name and explicit remote administrator
 identity are not authentication infrastructure. Terminal feedback uses existing
-outcomes, with exit code 0 only for confirmed success. Complete role bootstrap and
-provisioning remain outstanding; Q022 remains OPEN. See
+outcomes, with exit code 0 only for confirmed success. General configuration,
+installation verification and broader deployment integration remain outstanding;
+Q022 remains OPEN. See
 installation_and_deployment.md and Decisions 383-388.
 
 ## src/lab_sync_acquisition/service_launcher.py
@@ -38,6 +40,20 @@ installation_and_deployment.md and Decisions 383-388.
 - ServiceLauncher._remote_handled: Validates request/result correlation using the exact published-and-acknowledged result and counts only confirmed retirement toward exit, never a cached success substituted by command ID.
 - launch_storage_services(*, servers, ingestor_id, storage_id, storage_root, recovery_journal_root, framework_journal, preservation_window_s, operational_dependents, report=print): Constructs the two existing paired owners with explicit existing Ingestor dependency callbacks, connects their NATS handlers/readiness and runs the shared lifetime.
 - main(argv=None): Parses explicit-role launching or addressed remote Stop/Kill/Cancel, requires explicit administrative settings and returns nonzero for unconfirmed or unsuccessful commands.
+
+## src/lab_sync_acquisition/service_startup.py
+
+- load_acquisition_node(path, synchronization_source_id): Validates a deployment-local JSON hardware installation, constructs explicitly selected supported adapters without opening hardware, and supplies persistent identity, local paths and per-device initialization baselines to the real node.
+- launch_independent_service(*, role, servers, service_id, ingestor_id, storage_id, preservation_window_s, result_window_s, synchronization_id=None, known_nodes=None, node_config=None, report=print): Constructs one independent owner with explicit remote evidence dependencies, fresh command handlers, readiness/reconciliation and the existing protected ServiceLauncher lifetime.
+
+## tests/test_independent_service_startup.py
+
+- NodeInstallationTests: Covers explicit adapter configuration, invalid installations and successive Session use of the deployment baseline without physical hardware.
+- IndependentRoleCommandTests: Covers common CLI dispatch and explicit Controller node-registration requirements for the three independent roles.
+- RetainedCommandsBroker: Extends the existing durable-result broker with command-history delivery to exercise restart without replaying historical Stop requests.
+- IndependentServiceTests: Covers authoritative remote producer preservation, unrelated intake, stale/incomplete confirmation, corruption, identity conflicts, idempotency, role composition, command freshness, startup interruption and remote retirement handling.
+- IndependentServiceTests.backend(): Attaches real shared-process evidence owners to the broker double.
+- IndependentServiceTests.service(kind, *, storage_id="storage"): Composes a real independent owner and launcher with an explicit expected remote StorageManager identity.
 
 ## src/lab_sync_acquisition/service_maintenance_cli.py
 
@@ -55,7 +71,7 @@ installation_and_deployment.md and Decisions 383-388.
 
 ## tests/test_service_launcher.py
 
-- LauncherCommandTests: Exercises role/help visibility, explicit settings, unavailable launch diagnostics and invalid constructor arguments without starting services.
+- LauncherCommandTests: Exercises role/help visibility, required independent-role settings, explicit paired-owner settings and invalid constructor arguments without starting services.
 - ServiceLauncherTests: Exercises real maintenance owners for local Stop/Cancel, failure/retention, repeated interrupts, paired startup/retirement and remote result-publication-before-exit.
 - ServiceLauncherTests.finish_task: Ends a deliberately retained test launcher through an injected reporter failure so fixture cleanup cannot hang on cancellation retention.
 - ServiceLauncherTests.check_startup_interruption: Exercises SIGINT or task cancellation after Session/evidence admission, confirming maintenance, binding/journal retention and no premature connection closure.
@@ -70,7 +86,8 @@ Existing constructors, `AcquisitionNode.declared_devices`/readiness,
 `SessionConfig.device_configurations`, adapter initialization, NATS inventory and
 readiness commands, `NatsServiceMaintenanceCommunication.start()` with configured
 participants, `Controller.reconcile_outcomes()`, and StorageManager endpoint/pull
-interfaces are reusable. The bounded paired-role CLI is implemented above; there is no deployment file loader,
+interfaces are reusable. The paired-role CLI is closed in W061 and W063 closes
+the remaining roles plus node hardware JSON loading; there is no general-service file loader,
 generic adjustable-parameter inventory, or installation dummy-retrieval interface
 yet. Configuration validity is not hardware readiness; device smoke tests are
 recommended, not commissioning/runtime gates. Q019 remains CLOSED; Q022/Q024/Phase 16/M015
@@ -843,7 +860,8 @@ guarantee remain deferred. M014/W034 retain completed Slice 27 scope and status.
 - AcquisitionIterationSummary(iteration_index, collections_seen, scientific_observations): Reports device collections and scientific observations accepted by LocalStorageManager, without envelope counters or per-iteration durability claims.
 - AcquisitionNode: Owns bounded acquisition runtime execution and timestamping, stores separate active Experiment timing and health context, and emits explicitly linked ExperimentScopedHealthObservation and HealthInterpretationEvidence records without executing framework actions.
 - AcquisitionNode.status(): Includes existing local cleanup confirmation as `cleanup_confirmed` for safe Session-binding release, alongside runtime, reservation, and active-context status.
-- AcquisitionNode.__init__(session_id=None, device_manager=None, synchronization_manager=None, ingestor=None, node_id=None, role=None, acquisition_health_policies=(), error_evidence_location=None, *, default_local_storage_root=None, device_declarations=None, synchronization_source_id=None): Configures local development synchronization or an explicit remote NATS timing authority (never both), local product inventory/storage and optional in-process operational intake.
+- AcquisitionNode.__init__(session_id=None, device_manager=None, synchronization_manager=None, ingestor=None, node_id=None, role=None, acquisition_health_policies=(), error_evidence_location=None, *, default_local_storage_root=None, device_declarations=None, synchronization_source_id=None, deployment_device_configurations=None): Configures local development synchronization or an explicit remote timing authority, local product inventory/storage and optional explicit installation baselines for every adapter.
+- AcquisitionNode.maintenance_evidence(): Returns retained node operational, health and manifest evidence required at service retirement.
 - AcquisitionNode.declared_devices: Returns the node's declared DeviceDeclaration/ScientificProductDeclaration inventory independently of Session selection and device availability.
 - AcquisitionNode.reserved_for_session_id: Returns the current exclusive Session reservation or None under the node-owned lock.
 - AcquisitionNode.reserve(session_id): Atomically acquires an unreserved node, confirms the same owner's reservation idempotently, or rejects another owner without changing state.
@@ -897,6 +915,8 @@ scientific/runtime timing is rejected rather than silently rewritten.
 - DeviceDeclaration.from_dict: Reconstructs device declarations and their scientific products, treating absent products in older representations as an empty collection.
 
 ## src/lab_sync_acquisition/controller.py
+
+- Controller.maintenance_evidence(): Collects retained framework reconciliation and owned Session decisions, rejection evidence and completion markers for service retirement.
 
 Slice 21 implementation note (Decision 239): the preparation gate produces
 persistent rejection evidence through existing Ingestor intake, with the same
@@ -993,6 +1013,8 @@ is complete; W030 records manual validation, focused tests, and audit reassessme
 
 ## src/lab_sync_acquisition/ingestor.py
 
+- InMemoryIngestor.preserve_service_evidence(messages, source_id, acceptance_window_s): Verifies a unique producer-owned persistent boundary through journals and paired StorageManager guards, preserving current framework products without repairing corruption or rewriting Session archives.
+
 - InMemoryIngestor: Receives operational runtime evidence and manifests, journals/reconstructs the evidence view for a known Session, deduplicates evidence_id content, and compiles persistent evidence without scientific-observation intake.
 - InMemoryIngestor.__init__(storage_manager=None, *, session_id=None, recovery_journal_path=None, component_id="ingestor", recovery_journal_root=None, framework_recovery_journal_path=None, evidence_scope="session"): Preserves known-Session intake and optionally creates a deployment-scoped framework partition using the same Ingestor implementation without a Session binding.
 - InMemoryIngestor.prepare_framework_evidence(recovery_journal_path): Configures framework journal-backed intake once, retaining accepted messages and original duplicate/rejected intake audit across recovery independently of Session release.
@@ -1075,9 +1097,9 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 - NatsStorageManagerCommunication._execute_saved_session_attempt(command, *, retained_result=None): Validates complete operation-scoped history and same-nonce identity before execution or reuse, rejecting disagreement with a retained successful closure before current archive reconfirmation.
 - NatsStorageManagerCommunication._reconfirm_archive_closure(command, result): Requires matching current closed-archive preservation before reconfirming a retained or historical successful closure through the owner.
 - NatsStorageManagerCommunication._read_saved_session_result(record, operation): Validates persisted result correlation, subject/body routing and collection-evidence or closed-summary identity before matching.
-- _subscribe_participant_commands(boundary, receive, *, new_only=False): Subscribes to existing scoped/independent participant command subjects with optional fresh-only admission, notifying an installed maintenance lifetime observer only after existing result publication and delivery ACK complete.
+- _subscribe_participant_commands(boundary, receive): Subscribes fresh-only to existing participant command subjects, notifying an installed maintenance lifetime observer only after exact result publication and delivery ACK complete.
 - _validate_owner_request(boundary, command): Validates target, requester, command, Session, connectivity, and transient reply correlation for the bounded owner operations.
-- NatsControllerCommunication.request_persistence_command(participant, command_type, session_id, payload, result_window_s, *, command_id): Makes one bounded scoped owner request with fresh-only results and an echoed per-attempt nonce, preserving the stable command ID while rejecting historical and late retry confirmations.
+- NatsControllerCommunication.request_persistence_command(participant, command_type, session_id, payload, result_window_s, *, command_id): Makes a scoped owner request with fresh-only nonce-correlated results, including Session-independent preserve_service_evidence; Session operations still require their real Session identity.
 - Controller.collect_saved_session_artifacts_remote(session_id, *, evidence_id, communication, storage_participant, result_window_s): Coordinates explicit single saved-Session collection through NATS without local service references, requiring matching durable collection evidence and retaining failures or missing responses as unconfirmed.
 - Controller.close_saved_session_archive_remote(session_id, *, communication, storage_participant, result_window_s): Explicitly requests permanent closure of one saved Evidence Archive through NATS, requiring matching owner-verified closure and summary without Session completion or resource release.
 - NatsSynchronizationManagerCommunication(boundary, synchronization_manager): Routes measured synchronization, readiness, Session preparation and timing closeout over existing command/result streams while retaining timing authority in SynchronizationManager.
@@ -1111,7 +1133,9 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 
 ## src/lab_sync_acquisition/service_maintenance.py
 
-- ServiceMaintenanceInterface(service, participant, *, ingestor, storage_manager, preservation_window_s, close_resources, operational_dependents=None, evidence_publisher=None, retire_resources=None, dependency_participants=()): Attaches one service-owned administrative interface with existing maintenance callbacks and an explicit caller-provided tuple of dependency identities, without discovery or a deployment-file model.
+- ServiceMaintenanceInterface(service, participant, *, ingestor, storage_manager, preservation_window_s, close_resources, operational_dependents=None, evidence_publisher=None, retire_resources=None, dependency_participants=(), framework_communication=None, framework_ingestor=None, framework_storage=None): Attaches one service-owned administrative interface with local paired persistence or explicit remote Ingestor/StorageManager-confirmed producer preservation, existing callbacks and configured dependencies.
+- ServiceMaintenanceInterface.required_evidence(): Returns detached persistent evidence for the complete retained producer boundary, rejecting conflicting identities.
+- ServiceMaintenanceInterface.evidence_preserved(message): Checks exact current local acceptance or authoritative remote coverage for one retained producer message, never a transport ACK.
 - ServiceMaintenanceInterface.execute_command(command): Serializes/deduplicates existing maintenance and concrete owner-specific recovery commands; prepared retirement still requires complete retained Ingestor evidence/all-audit coverage through commitment without invoking retired intake or repeating cleanup.
 - ServiceMaintenanceInterface._require_recovery_authorization: Requires exact obligation/operation/command/participant correlation and durable journal acceptance of an existing resume decision, rejecting a later matching drop.
 - ServiceMaintenanceInterface._execute_authorized_recovery: Journals a specific attempt before owner execution under intake/persistence/admission guards and records actual succeeded/failed/refused outcomes separately from archival confirmation.
@@ -1284,6 +1308,8 @@ recovery is introduced. Phase 16 and M015 remain open.
 - Principal-service _close_maintenance_resources(force): Reuses each target's existing resource cleanup without clearing evidence, deleting journals, or cascading closeout to other services.
 
 ## src/lab_sync_acquisition/synchronization.py
+
+- SynchronizationManager.maintenance_evidence(): Returns retained timing/mapping and framework evidence with stable producer identities for service retirement.
 
 - SynchronizationMapping: Stores the accepted immutable local-to-Session mapping fields with a plain-data round trip.
 - AcquisitionNodeLocalTimeReport: Stores one immutable AcquisitionNode local-time report as plain data without representing SynchronizationObservation evidence.

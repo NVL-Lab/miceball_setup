@@ -1340,8 +1340,9 @@ Q019 and W001-W058 remain CLOSED with historical records unchanged.
 
 ## Accepted Manual Service CLI Architecture (Decisions 383-388)
 
-**Status:** Bounded launcher/local graceful shutdown CLOSED in W061; complete
-role composition remains outstanding. Remote administrative issuance is CLOSED
+**Status:** Bounded launcher/local graceful shutdown CLOSED in W061; remaining
+independent role launch paths and service-specific retirement preservation CLOSED
+in W063 after independent validation and audit PASS. Remote administrative issuance is CLOSED
 in W062 after independent validation and focused re-audit PASS.
 One common CLI reuses service launch/readiness/maintenance,
 with local Ctrl+C Stop and automatic Cancel when blocked, direct addressed remote
@@ -1352,12 +1353,43 @@ feedback and exit codes distinguish unconfirmed results from success. Decision
 supervision, forced exit or new lifecycle state is accepted. This is not
 completion of Q022. W061 records independent IPython 18/18 initially and 22/22
 after two P2 corrections, followed by focused independent re-audit PASS with no
-confirmed P0-P3 findings. Counts overlap and are not additive. Only the shared
-Ingestor/StorageManager launch path is supported; other roles reject startup.
+confirmed P0-P3 findings. Counts overlap and are not additive. W061 validated only
+the shared pair; W063 now implements the independent roles without extending that
+historical validation claim.
 Sandbox asynchronous runs stalled before setup; synchronous tests and controlled
 probes passed. No live JetStream, actual OS signal delivery, hardware or complete
-five-role deployment validation is claimed. W001-W062 and Q019 remain CLOSED;
+five-role deployment validation is claimed. W001-W063 and Q019 remain CLOSED;
 Q022, Q006, Q018, Q024, Phase 16 and M015 remain OPEN.
+
+### Completed Independent Service Launch Paths (W063)
+
+**Status:** CLOSED - Controller, AcquisitionNode and SynchronizationManager
+launch independently through the common CLI, reusing readiness/reconciliation,
+runtime NATS commands and W061/W062 local/remote maintenance. Ingestor and
+StorageManager retain separate ownership within their required shared process.
+AcquisitionNode loads installation JSON and constructs the existing OpenCV
+adapter without premature hardware access or configuration provisioning.
+
+Authoritative Ingestor acceptance and paired StorageManager preservation confirm
+the retiring service's exact stable evidence boundary. Local admission/retirement
+guards prevent newer obligations from using older proof, without freezing unrelated
+framework intake. Existing Stop/Kill/Cancel semantics and final-result handling
+remain unchanged; publication, preservation, resource release and OS exit remain
+distinct guarantees.
+
+Independent user-run IPython validation: 60/60 PASS, zero failures/errors/skips.
+Independent architectural audit: PASS, no confirmed P0-P3 findings. Audit checks
+included 10 synchronous tests, seven controlled coroutine workflows and two
+targeted probes, recorded separately rather than summed. One normal async
+concurrency attempt stalled before setup in Windows asyncio socket-pair
+initialization; controlled execution is not normal async scheduling validation.
+See W063 in validated_workflows.md for scope and evidence details.
+
+No live JetStream, actual OS signal delivery, hardware operation or complete
+multi-process deployment validation is established. General configuration/
+provisioning, installation verification and remaining deployment/integration work
+keep Q022 OPEN. Q019 and W001-W062 remain CLOSED; Q006/Q018, Q024, Phase 16 and
+M015 remain OPEN. No next slice is selected by this closure.
 
 ### Completed Remote Service Maintenance CLI (W062)
 
@@ -1378,8 +1410,10 @@ unconfirmed activity/retirement, with permanent coverage. Focused independent
 re-audit PASS found no confirmed P0-P3 findings. Executable sandbox checks passed;
 Windows asyncio socket-pair initialization blocked normal asynchronous runs.
 No live JetStream, OS-signal, hardware or full deployment validation is claimed.
-The three unsupported role launch paths, configuration, installation and broader
-Q022 integration remain open; W062 does not complete Q022 or Q024.
+W062 did not implement the other role launch paths; W063 closes their bounded
+implementation and validation as described above.
+General configuration, installation and broader Q022 integration remain open;
+W062 does not complete Q022 or Q024.
 
 ## Completed Q022 Distributed Session Closeout (W060)
 

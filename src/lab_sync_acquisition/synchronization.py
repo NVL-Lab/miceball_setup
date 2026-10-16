@@ -735,6 +735,15 @@ class SynchronizationManager:
             archive=storage._framework_evidence_write_safe(), require_existing_archive=True)
         return {"findings": findings, **status, "unchanged": False}
 
+    def maintenance_evidence(self):
+        """Return retained timing and framework evidence for service closeout."""
+        interface = getattr(self, "_maintenance", None)
+        if interface is not None and interface._framework_communication is not None:
+            for session_id in {update.session_id for update in self._mapping_update_evidence}:
+                self.session_timing_evidence(session_id, interface.participant.component_id)
+        return (*self._timing_reconciliation_evidence, *self._distributed_evidence,
+                *self._mapping_publication_evidence.values())
+
     def maintenance_blockers(self, ingestor, storage_manager) -> list[str]:
         """Report only timing, mapping, and synchronization evidence obligations."""
         blockers = []
@@ -748,17 +757,22 @@ class SynchronizationManager:
         if any(report["active_session"] and report["continuity_gap"] for report in latest.values()):
             blockers.append("Active Session timing continuity is unresolved")
         if self._timing_reconciliation_evidence:
-            confirmation = storage_manager.get_framework_preservation_confirmation()
-            if (confirmation is None or any(not ingestor.has_durable_runtime_evidence(message)
-                    or message.to_dict() not in confirmation["runtime_evidence"]
-                    for message in self._timing_reconciliation_evidence)):
+            if storage_manager is None:
+                unpreserved = any(not self._maintenance.evidence_preserved(m) for m in self._timing_reconciliation_evidence)
+            else:
+                confirmation = storage_manager.get_framework_preservation_confirmation()
+                unpreserved = confirmation is None or any(
+                    not ingestor.has_durable_runtime_evidence(message) or message.to_dict() not in confirmation["runtime_evidence"]
+                    for message in self._timing_reconciliation_evidence)
+            if unpreserved:
                 blockers.append("Unpreserved synchronization reconciliation evidence")
-        available = ingestor.accepted_runtime_evidence
-        if any(not ingestor.has_durable_runtime_evidence(message) for message in self._distributed_evidence):
+        available = ingestor.accepted_runtime_evidence if ingestor else self.maintenance_evidence()
+        preserved = ingestor.has_durable_runtime_evidence if ingestor else self._maintenance.evidence_preserved
+        if any(not preserved(message) for message in self._distributed_evidence):
             blockers.append("Unpreserved synchronization quality evidence")
         for update in self._mapping_update_evidence:
             if not any(message.is_persistent and message.evidence_type == MAPPING_UPDATE_EVIDENCE_TYPE
-                       and message.payload == update.to_dict() and ingestor.has_durable_runtime_evidence(message)
+                       and message.payload == update.to_dict() and preserved(message)
                        for message in available):
                 blockers.append("Unpreserved mapping evidence")
                 break
@@ -774,7 +788,7 @@ class SynchronizationManager:
             updates = self._mapping_update_evidence
             scopes = {key[0] for key in self._active_mappings}
         interface = getattr(self, "_maintenance", None)
-        available = ingestor.accepted_runtime_evidence
+        available = ingestor.accepted_runtime_evidence if ingestor else self.maintenance_evidence()
         blockers = self.maintenance_blockers(ingestor, storage_manager)
         if blockers:
             scopes.update(update.session_id for update in updates)
@@ -791,7 +805,8 @@ class SynchronizationManager:
                 "update_type": update.update_type,
                 "handoff_outcome": "completed" if any(message.is_persistent
                     and message.evidence_type == MAPPING_UPDATE_EVIDENCE_TYPE
-                    and message.payload == update.to_dict() and ingestor.has_durable_runtime_evidence(message)
+                    and message.payload == update.to_dict() and (ingestor.has_durable_runtime_evidence(message)
+                        if ingestor else interface.evidence_preserved(message))
                     for message in available) else "unresolved"}
                 for update in updates],
             "restricted_timing_scopes": sorted(scopes) if blockers else [],

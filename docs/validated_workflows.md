@@ -4754,6 +4754,97 @@ architectural decisions are unchanged.
 
 ---
 
+# W063 - Independent Service Launch Paths and Distributed Retirement Preservation
+
+**Status:** CLOSED - implemented, independently validated and independently
+audited PASS under Decisions 311, 316, 319, 324, 375-376 and 383-388, including
+the accepted service-specific evidence-boundary clarification.
+
+## Implemented scope
+
+The common `lab-sync-acquisition` launcher now supports independent Controller,
+AcquisitionNode and SynchronizationManager roles, each constructing only its
+intended local owner and required adapters. Explicit identities, dependencies,
+Controller known-node registration, existing NATS readiness/reconciliation and
+runtime command handlers are reused. No hidden persistence owners, discovery,
+supervision or new lifecycle states are introduced. Ingestor and StorageManager
+remain separate authoritative owners in their required shared process and lifetime
+under Decision 376; their local communication is not replaced by extra owners.
+
+`load_acquisition_node(path, synchronization_source_id)` loads deployment-local
+JSON installation settings from an explicit path or the CLI's default location.
+It reuses device/product declarations and the existing OpenCV adapter, constructing
+adapters without opening hardware. Persistent node identity, node-owned storage
+paths and device initialization baselines remain separate from Session overrides;
+baselines are reused across Sessions. Loading is not configuration provisioning
+or proof of hardware readiness, and installation changes require restart.
+
+`ServiceMaintenanceInterface` snapshots the retiring owner's required persistent
+evidence and sends it through existing NATS evidence publication and the new
+`preserve_service_evidence` request. Ingestor verifies exact journal-backed
+acceptance; the paired StorageManager preserves and reads back framework products
+under existing locks. Existing Session products require verified Stage A coverage
+and are not rewritten or repaired by this operation. Results identify the actual
+StorageManager and exact evidence boundary. Stable identities, fresh reply
+correlation and complete scoped-result-history checks prevent stale, conflicting
+or incomplete confirmations from authorizing retirement. Identical preserved
+boundaries reuse durable products without rewriting them.
+
+The service closes new-work admission and rechecks its current required evidence
+and obligations under its local retirement guard. New owned evidence cannot use
+an older confirmation; unrelated framework producers may continue without
+invalidating the service-specific boundary. No global archive freeze is required.
+Publication alone is not durable acceptance or preservation, and preservation is
+not scientific acquisition receipt, artifact-release authorization or OS exit.
+Missing confirmation or corrupt history retains obligations and blocks orderly
+Stop; authorized Kill retains its existing explicit authorization and uncertainty.
+
+W061 protected startup, local Ctrl+C Stop/Cancel and process-retention rules and
+W062 addressed remote Stop/Kill/Cancel are reused. Fresh command subscriptions
+prevent automatic replay of historical Stop or Session-launch commands. Final
+remote maintenance handling notifies the launcher only after exact result
+publication and command acknowledgment; operational retirement remains distinct
+from process exit and requester receipt.
+
+## Validation and audit evidence
+
+- Independent user-run IPython validation: **60/60 PASS**, zero failures, errors
+  or skips across `tests.test_independent_service_startup`,
+  `tests.test_service_launcher` and `tests.test_service_maintenance_cli`.
+- Independent read-only architectural audit: **PASS**, no confirmed P0-P3
+  findings; W063 was assessed as eligible for documentation closure.
+- Audit execution: **10 focused synchronous tests passed** and **seven selected
+  workflows passed controlled coroutine execution**. Two additional targeted
+  probes passed: a prior successful boundary cannot mask current archive
+  corruption; cancellation before preservation confirmation retains evidence and
+  prevents retirement. Counts are separate verification sets, not additive totals.
+- A normal async concurrency test was attempted but stalled before setup in
+  Windows asyncio socket-pair initialization. No runtime pass is claimed for that
+  attempt. Controlled coroutine execution does not establish normal asynchronous
+  scheduling, task/deadline behavior or OS signal delivery.
+
+No implementation tests or independent audit were performed during this
+documentation-only closure. Historical W001-W062 results remain unchanged.
+
+## Limitations and status
+
+W063 does not establish verified live JetStream, actual OS signal delivery,
+physical hardware operation, multi-host timing, power-loss guarantees or complete
+multi-process distributed deployment. The existing OpenCV adapter is the supported
+installation-loader adapter, not a general camera assumption. General-service
+file configuration, configuration provisioning, installation verification and
+broader deployment/integration remain outstanding. Actual paired-process
+operational dependents must still be configured through the existing callback
+interface; an explicit no-dependents CLI declaration cannot stand in for them.
+Broader maintenance/recovery and saved-Session enumeration/batch integration are
+not completed by this slice. No next implementation slice is selected here.
+
+W063 is CLOSED. W061/W062, Q019 and W001-W062 remain CLOSED with historical
+records preserved. Q022 remains OPEN. Q006, Q018, Q024, Phase 16 and M015 remain
+OPEN; accepted architectural decision bodies are unchanged.
+
+---
+
 # Future Workflows
 
 The following workflows are expected to be added as the framework evolves.

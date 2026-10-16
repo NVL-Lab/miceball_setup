@@ -243,7 +243,7 @@ class RuntimeCommandMessage:
     payload: dict[str, Any]
 
     def __post_init__(self) -> None:
-        if self.session_id is None and self.command_type not in ({"check_readiness", "get_inventory", "stop", "kill", "cancel", "check_stop_readiness", "prepare_stop"} | SERVICE_RECOVERY_COMMAND_TYPES):
+        if self.session_id is None and self.command_type not in ({"check_readiness", "get_inventory", "stop", "kill", "cancel", "check_stop_readiness", "prepare_stop", "preserve_service_evidence"} | SERVICE_RECOVERY_COMMAND_TYPES):
             raise ValueError("Session-specific command requires session_id")
         if self.session_id is not None:
             _validate_subject_token("session_id", self.session_id)

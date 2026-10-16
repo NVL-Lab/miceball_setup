@@ -379,7 +379,7 @@ class NatsControllerCommunication:
         return self._boundary.check_ready()
 
     async def request_persistence_command(
-        self, participant: RuntimeParticipant, command_type: str, session_id: str,
+        self, participant: RuntimeParticipant, command_type: str, session_id: str | None,
         payload: dict[str, Any], result_window_s: float, *, command_id: str,
     ) -> RuntimeCommandResultMessage | None:
         """Request current owner readback without accepting history or an earlier attempt's reply."""
@@ -389,10 +389,12 @@ class NatsControllerCommunication:
                      "ingestor": {"compile_session_evidence", "verify_acquisition_receipt",
                                   "read_runtime_evidence_acceptance", "admit_session_kill",
                                   "preserve_session_acquisition", "read_session_closeout",
-                                  "preserve_session_terminal_record", "release_session"}}
+                                  "preserve_session_terminal_record", "release_session", "preserve_service_evidence"}}
         if (not isinstance(participant, RuntimeParticipant)
                 or command_type not in supported.get(participant.component_type, set())
-                or "request_nonce" in payload):
+                or "request_nonce" in payload
+                or (command_type == "preserve_service_evidence" and session_id is not None)
+                or (command_type != "preserve_service_evidence" and (not isinstance(session_id, str) or not session_id))):
             raise ValueError("Unsupported scoped persistence request")
         nonce = uuid4().hex
         requests = NatsControllerCommunication(self._boundary)
@@ -800,13 +802,17 @@ class NatsAcquisitionNodeCommunication:
                 logger.info("command_result_published command_id=%s status=%s",
                             result.command_id, result.status)
                 await message.ack()
+                observer = self._boundary.maintenance_command_handled
+                if observer is not None and command.session_id is None and command.command_type in {"stop", "kill", "cancel", "prepare_stop"}:
+                    observer(command, result)
             except Exception:
                 logger.exception("command_delivery_processing_failed")
                 raise
 
         subscriptions = []
         for subject in subjects:
-            subscriptions.append(await self._boundary._require_jetstream().subscribe(subject, cb=receive, manual_ack=True))
+            subscriptions.append(await self._boundary._require_jetstream().subscribe(subject, cb=receive, manual_ack=True,
+                config=ConsumerConfig(deliver_policy=DeliverPolicy.NEW)))
         return tuple(subscriptions)
 
     def execute_command(
@@ -1113,7 +1119,7 @@ class NatsIngestorCommunication:
                 return
             result = (await self._execute_evidence_readback(command)
                       if command.command_type in {"compile_session_evidence", "verify_acquisition_receipt",
-                                                 "read_runtime_evidence_acceptance"} else
+                                                 "read_runtime_evidence_acceptance", "preserve_service_evidence"} else
                       await _execute_maintenance_command(self._boundary, self._ingestor, command)
                       if command.command_type in ({"stop", "kill", "cancel", "prepare_stop", "check_stop_readiness"} | SERVICE_RECOVERY_COMMAND_TYPES) else
                       _execute_service_command(self._boundary, self._ingestor, command, self._results_by_command_id))
@@ -1135,7 +1141,7 @@ class NatsIngestorCommunication:
             await self._boundary.publish_command_result(result, command.command_type)
             await message.ack()
             return result
-        return await _subscribe_participant_commands(self._boundary, receive, new_only=True)
+        return await _subscribe_participant_commands(self._boundary, receive)
 
     async def _execute_closeout_command(self, command):
         nonce = command.payload.get("request_nonce")
@@ -1218,6 +1224,63 @@ class NatsIngestorCommunication:
     async def _execute_evidence_readback(self, command):
         nonce = command.payload.get("request_nonce")
         try:
+            if command.command_type == "preserve_service_evidence":
+                if (command.session_id is not None or command.target_id != self._boundary.component_id
+                        or self._boundary.component_id != self._ingestor._component_id
+                        or any(not isinstance(v, str) or not v for v in
+                               (nonce, command.command_id, command.source_id))
+                        or set(command.payload) != {"evidence", "acceptance_window_s", "request_nonce"}
+                        or not self._boundary.check_ready().ready):
+                    raise ValueError("Producer preservation requires exact framework request identities")
+                window = command.payload["acceptance_window_s"]
+                from math import isfinite
+                if type(window) not in {int, float} or not isfinite(window) or window < 0:
+                    raise ValueError("A finite nonnegative acceptance window is required")
+
+                def validate(record):
+                    previous = RuntimeCommandResultMessage.from_dict(json.loads(record.data))
+                    request = previous.payload.get("request_payload")
+                    previous_nonce = previous.payload.get("request_nonce")
+                    if (record.subject != build_runtime_subject(None, "command_result", "ingestor",
+                            self._boundary.component_id, command.command_type)
+                            or previous.session_id is not None or previous.source_id != self._boundary.component_id
+                            or any(not isinstance(v, str) or not v for v in
+                                   (previous.result_id, previous.command_id, previous.target_id, previous_nonce))
+                            or type(previous.success) is not bool or previous.status not in {"succeeded", "failed"}
+                            or previous.success != (previous.status == "succeeded")
+                            or not isinstance(request, dict) or request.get("request_nonce") != previous_nonce):
+                        raise ValueError("Producer preservation history correlation is unconfirmed")
+                    if previous.command_id == command.command_id:
+                        if (previous.target_id != command.source_id or
+                                {k: v for k, v in request.items() if k != "request_nonce"} !=
+                                {k: v for k, v in command.payload.items() if k != "request_nonce"}):
+                            raise ValueError("Conflicting producer preservation command identity")
+                    if previous.success and (previous.payload.get("acceptance_confirmed") is not True
+                            or previous.payload.get("archival_confirmed") is not True
+                            or previous.payload.get("evidence") != request.get("evidence")):
+                        raise ValueError("Producer history lacks exact preservation coverage")
+                    return previous
+
+                async with self._closeout_lock:
+                    for retained in self._pending_closeout_results.values():
+                        if retained.session_id is None and retained.payload.get("request_nonce") == nonce and (
+                                retained.command_id != command.command_id or retained.target_id != command.source_id
+                                or retained.payload.get("request_payload") != command.payload):
+                            raise ValueError("Retained producer preservation conflicts with request identity")
+                    matched = await read_scoped_result_history(self._boundary, command, validate)
+                    key = json.dumps(command.to_dict(), sort_keys=True)
+                    pending = self._pending_closeout_results.get(key)
+                    if pending is not None and matched is not None and pending.to_dict() != matched.to_dict():
+                        raise ValueError("Producer preservation history conflicts with retained result")
+                    previous = matched if matched is not None else pending
+                    if previous is not None and not previous.success:
+                        return previous
+                    payload = await self._ingestor.preserve_service_evidence(
+                        command.payload["evidence"], command.source_id, window)
+                    result = previous if previous is not None else _participant_result(self._boundary, command, True, None,
+                        {**payload, "request_nonce": nonce, "request_payload": deepcopy(command.payload)})
+                    self._pending_closeout_results[key] = deepcopy(result)
+                    return result
             _validate_owner_request(self._boundary, command)
             if self._boundary.component_id != self._ingestor._component_id:
                 raise ValueError("Ingestor communication identity differs from its owner")
@@ -1260,7 +1323,9 @@ class NatsIngestorCommunication:
             return _participant_result(self._boundary, command, confirmed,
                 None if confirmed else proof.get("reason"), {**proof, "request_nonce": nonce})
         except Exception as error:
-            return _participant_result(self._boundary, command, False, str(error), {"request_nonce": nonce})
+            return _participant_result(self._boundary, command, False, str(error),
+                {"request_nonce": nonce, **({"request_payload": deepcopy(command.payload)}
+                    if command.command_type == "preserve_service_evidence" else {})})
 
     async def subscribe_evidence(
         self,
@@ -1544,7 +1609,7 @@ class NatsStorageManagerCommunication:
                 await self._boundary.publish_command_result(result, command.command_type)
             await message.ack()
             return result
-        return await _subscribe_participant_commands(self._boundary, receive, new_only=True)
+        return await _subscribe_participant_commands(self._boundary, receive)
 
     def _validate_saved_session_request(self, command):
         _validate_owner_request(self._boundary, command)
@@ -1755,8 +1820,7 @@ def _execute_service_command(boundary: NatsCommunicationBoundary, service: Any,
     return result
 
 
-async def _subscribe_participant_commands(boundary: NatsCommunicationBoundary, receive: Callable,
-                                         *, new_only: bool = False) -> tuple[Subscription, Subscription]:
+async def _subscribe_participant_commands(boundary: NatsCommunicationBoundary, receive: Callable) -> tuple[Subscription, Subscription]:
     async def handled(message):
         result = await receive(message)
         observer = getattr(boundary, "maintenance_command_handled", None)
@@ -1769,7 +1833,7 @@ async def _subscribe_participant_commands(boundary: NatsCommunicationBoundary, r
     subscriptions = []
     for subject in (f"messages.*.command.{boundary.component_type}.{boundary.component_id}.*",
                     f"messages.command.{boundary.component_type}.{boundary.component_id}.*"):
-        options = {"config": ConsumerConfig(deliver_policy=DeliverPolicy.NEW)} if new_only else {}
+        options = {"config": ConsumerConfig(deliver_policy=DeliverPolicy.NEW)}
         subscriptions.append(await boundary._require_jetstream().subscribe(subject, cb=handled, manual_ack=True, **options))
     return tuple(subscriptions)
 

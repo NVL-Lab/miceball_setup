@@ -2,9 +2,10 @@
 
 ## Status And Scope
 
-Q022-A Decisions 367-378 are accepted and synchronized. Full configuration/role
-bootstrap and independent-service adaptation remain pending; bounded shared-process
-launching is closed in W061. The bounded owner
+Q022-A Decisions 367-378 are accepted and synchronized. Bounded shared-process
+launching is closed in W061, remote maintenance in W062 and the remaining
+independent role launch paths in W063. Full configuration/provisioning,
+installation verification and deployment/integration remain pending. The bounded owner
 persistence/readback foundation below is independently validated and audited
 after correction (W051). This is the initial manual installation contract and a
 current-interface reference, not a working installer or deployment certification.
@@ -27,7 +28,9 @@ bootstrap/launch composition is not implemented in this bounded persistence slic
 ## Accepted Manual Service Entry Points (Decisions 383-388)
 
 The bounded W061 launcher below is independently validated and audited PASS;
-full role composition remains outstanding. W062 remote administrative issuance
+W063 closes the remaining role launch paths and node configuration loading after
+independent IPython validation (60/60) and independent architectural audit PASS.
+W062 remote administrative issuance
 below is CLOSED after independent validation and focused re-audit PASS. One
 common CLI launches/administers the existing Controller, AcquisitionNode,
 Ingestor, StorageManager and SynchronizationManager capabilities. Decision 376's
@@ -79,11 +82,10 @@ Do not use that declaration when producers depend on Ingestor. The reusable
 `launch_storage_services()` interface accepts the existing explicit
 `operational_dependents` callbacks; configuring distributed dependencies through
 the CLI is unavailable, not replaced by discovery or fabricated availability.
-Controller, AcquisitionNode and SynchronizationManager commands fail before startup
-with an actionable diagnostic: their distributed framework-maintenance preservation
-dependencies are not yet composed, and node installation requires explicit devices
-and adapters. No extra local persistence owner substitutes for those dependencies.
-Do not interpret help visibility as verified launch coverage for these roles.
+W063 adds Controller, AcquisitionNode and SynchronizationManager startup below.
+These roles use remote authoritative preservation, never extra local persistence
+owners. Their bounded validation and audit are recorded in W063; this does not
+establish full deployment verification.
 
 The paired process uses the existing service-owned NATS command handlers, framework
 evidence intake and journal, StorageManager preservation, and startup/readiness
@@ -133,6 +135,110 @@ asyncio socket-pair initialization and are not claimed as passes. No live
 JetStream, actual OS signal-delivery, physical hardware, full five-role deployment
 or power-loss validation is established. See W061 in validated_workflows.md for
 the complete record. Q022 remains OPEN.
+
+### Independent Role Startup (W063 Closed)
+
+All three independent roles reuse `ServiceLauncher` and existing runtime,
+readiness and maintenance handlers. Examples with explicitly chosen settings:
+
+```text
+lab-sync-acquisition controller --server nats://HOST:4222 --service-id CONTROL_ID --ingestor-id INTAKE_ID --storage-id STORAGE_ID --synchronization-id CLOCK_ID --known-node NODE_ID --preservation-window-s SECONDS --result-window-s SECONDS
+lab-sync-acquisition synchronization-manager --server nats://HOST:4222 --service-id CLOCK_ID --ingestor-id INTAKE_ID --storage-id STORAGE_ID --preservation-window-s SECONDS --result-window-s SECONDS
+lab-sync-acquisition acquisition-node --server nats://HOST:4222 --ingestor-id INTAKE_ID --storage-id STORAGE_ID --synchronization-id CLOCK_ID --config PATH --preservation-window-s SECONDS --result-window-s SECONDS
+```
+
+Controller requires repeated `--known-node` entries or explicit `--no-known-nodes`;
+it performs existing startup reconciliation without restoring Sessions or stopping
+active acquisition. Other roles check their explicitly configured dependencies
+using existing readiness requests. Missing dependencies remain unknown; no
+registry, discovery, heartbeat or automatic restart is added. Both time windows
+must be positive and finite. Ingestor/StorageManager remain a shared process.
+Configure their actual operational-dependent callbacks through the existing
+`launch_storage_services()` API when dependencies exist; the paired CLI's
+`--no-operational-dependents` declaration must not be used for such a deployment.
+
+AcquisitionNode defaults to `~/.config/lab-sync-acquisition/acquisition-node.json`
+or uses `--config`. This is runtime loading, not provisioning. A local file has
+the following shape (illustrative values only; actual configuration stays outside
+Git). Paths are absolute or relative to the file's directory:
+
+```json
+{
+  "node_id": "NODE_ID",
+  "role": "acquisition",
+  "local_storage_root": "SCIENTIFIC_STORAGE_PATH",
+  "error_evidence_location": "ERROR_EVIDENCE_PATH",
+  "devices": [{
+    "adapter": "seeed_imx219_opencv",
+    "declaration": {
+      "device_id": "DEVICE_ID", "device_type": "camera",
+      "enabled": true, "required": true,
+      "declared_capabilities": ["frames"], "scientific_products": []
+    },
+    "configuration": {"camera_source": 0, "api_preference": 0, "frames_per_collect": 1}
+  }]
+}
+```
+
+Declarations reuse `DeviceDeclaration`/`ScientificProductDeclaration`; configure
+the products actually supported by the installed adapter. The empty product list
+above declares no scientific products; Experiments select from declared products.
+The concrete OpenCV adapter is currently the
+only production adapter implemented in this repository, not a general camera
+assumption or automatic hardware discovery. Unsupported adapter names fail
+explicitly. Loading constructs declared adapters without opening hardware;
+actual initialization and readiness remain with the adapter during Session
+preparation. Installation baselines are supplied explicitly to AcquisitionNode
+and reused across Sessions, separate from Session overrides. An optional
+`--service-id` for a node must match its persisted `node_id`. Restart is required
+to load installation or registered-node changes; there is no live reload.
+
+Distributed maintenance publishes retained operational evidence over existing
+NATS subjects, then requests `preserve_service_evidence` from the configured
+Ingestor. The paired owners verify exact journal-backed acceptance, preserve and
+read back framework evidence/audit/summary under their own locks, and identify
+the actual StorageManager in the result. Existing Session products are verified,
+never rewritten or implicitly repaired. Identical already-preserved boundaries
+do not rewrite products. Fresh nonce-correlated replies, complete scoped result
+history and retained-result checks reject stale, incomplete or conflicting
+confirmations. This operation is not scientific acquisition receipt, Stage B
+collection, recovery, hardware release authorization or OS process-exit proof.
+
+The producer checks its complete required evidence and current local obligations
+again under its admission lock before retirement. Changed owned evidence cannot
+use an older confirmation; unrelated producers may keep operating and appending
+evidence. Missing confirmation or corrupt products block orderly Stop without
+discarding retained obligations. Explicit Kill retains existing uncertainty and
+authorization semantics. No global freeze or new maintenance lifecycle is added.
+Command subscribers request fresh delivery so restart cannot replay historical
+Stop or Session-launch commands. Node maintenance notifies the launcher only
+after the exact result is published and the command acknowledged.
+
+Startup runs under W061 interrupt protection. Partial admission and blocked or
+unconfirmed Stop retain the process; W062 remote administration remains available.
+General service configuration files, configuration provisioning, installation
+checks and broader distributed maintenance/recovery integration remain outside
+W063. Interrupted/corrupt archives still require existing authorized recovery;
+startup does not repair them. W063 is CLOSED; Q022 remains OPEN for remaining
+configuration/provisioning, installation verification and deployment/integration.
+
+Independent user-run IPython validation passed 60/60 tests with zero failures,
+errors or skips. Independent read-only architectural audit PASS found no confirmed
+P0-P3 findings. The audit passed 10 focused synchronous tests, seven controlled
+coroutine workflows and two additional targeted probes (current corruption after
+prior confirmation, and cancellation before confirmation). These are separate
+verification sets, not an additive total. A normal async concurrency attempt
+stalled before setup during Windows asyncio socket-pair initialization; controlled
+execution does not establish normal asynchronous scheduling. No live JetStream,
+actual OS signal delivery, hardware operation, complete multi-process deployment,
+multi-host timing or power-loss validation is established by W063. See its
+validated_workflows.md record for consolidated evidence and limitations.
+
+Focused tests:
+
+```text
+python -B -m unittest tests.test_independent_service_startup tests.test_service_launcher tests.test_service_maintenance_cli -v
+```
 
 ### Remote Service Maintenance (W062 Closed)
 
@@ -194,8 +300,8 @@ the preserved audit sequence. Executable sandbox checks passed, but Windows
 asyncio socket-pair initialization limited normal asynchronous runs; no blocked
 run is claimed as a pass. Controlled checks are not live JetStream, actual
 OS-signal delivery, hardware, multi-host or full deployment validation. Q022
-remains OPEN; the three unsupported launch paths and broader deployment work
-are unchanged.
+remains OPEN. W062 did not implement the remaining launch paths; W063 closes
+their bounded implementation above, not the broader deployment work.
 
 ## Scientific Data And Operational Evidence Boundary
 
@@ -813,7 +919,20 @@ Counts are not additive. Q022 remains OPEN; W001-W058 history is unchanged.
 
 ### Framework Maintenance, Recovery, And Reconciliation
 
+**LLC clarification under Decisions 311, 316, 319 and 324:** Before orderly
+retirement each service closes new-work admission, resolves its obligations and
+establishes a complete stable boundary for its required evidence. Authoritative
+Ingestor acceptance and StorageManager preservation must cover that boundary.
+The boundary is service-specific: unrelated producers may continue, and their
+later evidence does not invalidate this confirmation. Local admission and
+retirement guards still apply; a transport ACK is not preservation. This requires
+no global archive freeze, new lifecycle state or separate reliability subsystem.
+
 **Each service's maintenance interface -> Ingestor/StorageManager:**
+W063 now implements the producer-specific startup/Stop preservation path through
+`preserve_service_evidence`, retaining local owner locks and remote source-boundary
+verification. The earlier direct-call dependency assessment below still applies
+to broader maintenance/recovery operations not adapted by this slice.
 `_preserve_message()`, `_require_recovery_authorization()`, retirement guards,
 and owner diagnostics directly await journal acceptance, inspect archive safety,
 compile/write/read archives, and share intake/persistence locks. Controller

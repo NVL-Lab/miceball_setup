@@ -11021,10 +11021,13 @@ points, not supervision, automatic restart, discovery or NATS process management
 
 **Implementation status:** Bounded common launcher and shared-process
 Ingestor/StorageManager launching are independently validated and re-audited PASS
-after correction (W061, CLOSED). The other three role paths reject startup;
+after correction (W061, CLOSED). The other three role paths with service-specific
+remote preservation and node installation loading are independently validated
+(IPython 60/60) and independently audited PASS with no confirmed P0-P3 findings
+(W063, CLOSED);
 addressed remote maintenance is independently validated and re-audited PASS
-after the feedback correction (W062, CLOSED). Complete role composition and
-provisioning remain outstanding under Q022.
+after the feedback correction (W062, CLOSED). General configuration/provisioning
+and broader deployment integration remain outstanding under Q022.
 
 ---
 

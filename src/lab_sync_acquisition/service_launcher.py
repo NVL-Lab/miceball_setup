@@ -291,6 +291,11 @@ def main(argv=None):
     parser.add_argument("--result-window-s", type=float)
     parser.add_argument("--stop-attempt-id")
     parser.add_argument("--authorize-kill", action="store_true")
+    parser.add_argument("--service-id")
+    parser.add_argument("--synchronization-id")
+    parser.add_argument("--known-node", action="append")
+    parser.add_argument("--no-known-nodes", action="store_true")
+    parser.add_argument("--config", type=Path)
     parser.add_argument("--server", action="append", help="Explicit NATS server URL; repeat for multiple servers")
     parser.add_argument("--ingestor-id")
     parser.add_argument("--storage-id")
@@ -331,9 +336,26 @@ def main(argv=None):
             print(f"Remote maintenance unconfirmed: {type(error).__name__}: {error}", file=sys.stderr)
             return 1
     if args.role not in {"ingestor", "storage-manager"}:
-        parser.error(f"{args.role} launch unavailable: distributed framework-maintenance preservation "
-                     "dependencies are not composed yet; AcquisitionNode also requires installed devices/adapters. "
-                     "No hidden local Ingestor/StorageManager owners will be created.")
+        from lab_sync_acquisition.service_startup import launch_independent_service
+        required = ("server", "ingestor_id", "storage_id", "preservation_window_s", "result_window_s")
+        for field in required:
+            if getattr(args, field) is None:
+                parser.error("Independent service startup requires explicit --" + field.replace("_", "-"))
+        if args.role != "acquisition-node" and not args.service_id:
+            parser.error("Independent service startup requires --service-id")
+        if args.role in {"controller", "acquisition-node"} and not args.synchronization_id:
+            parser.error("Configured --synchronization-id is required")
+        if args.role == "controller" and (bool(args.known_node) == args.no_known_nodes):
+            parser.error("Controller requires --known-node entries or explicit --no-known-nodes")
+        try:
+            return asyncio.run(launch_independent_service(role=args.role, servers=args.server,
+                service_id=args.service_id, ingestor_id=args.ingestor_id, storage_id=args.storage_id,
+                preservation_window_s=args.preservation_window_s, result_window_s=args.result_window_s,
+                synchronization_id=args.synchronization_id, known_nodes=tuple(args.known_node or ()),
+                node_config=args.config or Path.home() / ".config" / "lab-sync-acquisition" / "acquisition-node.json"))
+        except Exception as error:
+            print(f"Startup unconfirmed: {type(error).__name__}: {error}", file=sys.stderr)
+            return 1
     required = ("server", "ingestor_id", "storage_id", "storage_root", "recovery_journal_root", "framework_journal", "preservation_window_s")
     for field in required:
         if getattr(args, field) is None:

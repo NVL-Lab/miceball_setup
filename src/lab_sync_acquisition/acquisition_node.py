@@ -69,6 +69,7 @@ class AcquisitionNode:
         default_local_storage_root: str | Path | None = None,
         device_declarations: Iterable[DeviceDeclaration] | None = None,
         synchronization_source_id: str | None = None,
+        deployment_device_configurations: dict[str, Any] | None = None,
     ) -> None:
         self._session_id = session_id
         self._service_operation_lock = RLock()
@@ -92,6 +93,10 @@ class AcquisitionNode:
             adapter.device_id: deepcopy(adapter.initialization_config)
             for adapter in device_manager.adapters
         }
+        if deployment_device_configurations is not None:
+            if set(deployment_device_configurations) != set(self._deployment_device_configurations):
+                raise ValueError("Installation configuration must identify every installed adapter exactly")
+            self._deployment_device_configurations = deepcopy(deployment_device_configurations)
         self._runtime_device_manager = device_manager
         self._reservation_lock = RLock()
         self._reserved_for_session_id: str | None = None
@@ -983,6 +988,10 @@ class AcquisitionNode:
             "aborted": True,
         }
 
+    def maintenance_evidence(self):
+        """Return retained operational evidence required before service retirement."""
+        return (*self._runtime_evidence, *self._health_runtime_evidence, *self._artifact_manifest_evidence)
+
     def maintenance_blockers(self, ingestor, storage_manager) -> list[str]:
         """Report node-owned runtime, local persistence, evidence, and device obligations."""
         blockers = []
@@ -999,7 +1008,8 @@ class AcquisitionNode:
         if self._local_storage_manager is not None and any(
                 m.lifecycle_state != "finalized" for m in self._local_storage_manager.manifests):
             blockers.append("Unfinished scientific streams")
-        if any(not ingestor.has_durable_runtime_evidence(m) for m in self._artifact_manifest_evidence):
+        if any(not (ingestor.has_durable_runtime_evidence(m) if ingestor is not None
+                    else self._maintenance.evidence_preserved(m)) for m in self._artifact_manifest_evidence):
             blockers.append("Unpreserved artifact evidence")
         return blockers
 
@@ -1107,7 +1117,8 @@ class AcquisitionNode:
                 "local_finalization_outcome": "completed" if m.lifecycle_state == "finalized" else "unresolved"}
                 for m in self._local_storage_manager.manifests] if self._local_storage_manager else [],
             "manifest_handoffs": [{"evidence_id": m.evidence_id, "session_id": m.session_id,
-                "handoff_outcome": "completed" if ingestor.has_durable_runtime_evidence(m) else "unresolved"}
+                "handoff_outcome": "completed" if (ingestor.has_durable_runtime_evidence(m)
+                    if ingestor else interface.evidence_preserved(m)) else "unresolved"}
                 for m in self._artifact_manifest_evidence],
             "restricted_resources": "node participation and device reuse" if blockers else None,
             "blocking_conditions": blockers,

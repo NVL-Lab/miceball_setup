@@ -2385,6 +2385,20 @@ class Controller:
             "last_released_session": self._last_released_session,
         }
 
+    def maintenance_evidence(self):
+        """Return retained Controller evidence required at the service boundary."""
+        scopes = {m.session_id for m in self._controller_action_decision_evidence}
+        if self._session is not None:
+            scopes.add(self._session.session_id)
+        if self._acquisition_marker is not None:
+            scopes.add(self._acquisition_marker.session_id)
+        for result in self._command_results:
+            if isinstance(result.details, Mapping) and isinstance(result.details.get("rejection_evidence"), dict):
+                scopes.add(result.details["rejection_evidence"].get("session_id"))
+        return (*self._reconciliation_evidence, *(RuntimeEvidenceMessage.from_dict(message)
+            for scope in scopes if scope is not None
+            for message in self._controller_owned_session_evidence_snapshot(scope).values()))
+
     def maintenance_blockers(self, ingestor, storage_manager) -> list[str]:
         """Report Controller-owned obligations without stopping other services."""
         blockers = []
@@ -2397,8 +2411,12 @@ class Controller:
                 blockers.append("Unconfirmed final Session persistence")
             if self._controller_action_decision_evidence:
                 try:
-                    with storage_manager.session_preservation_guard(self._session.session_id) as confirmation:
-                        self._require_controller_decision_archival(self._session.session_id, confirmation)
+                    if storage_manager is None:
+                        if any(not self._maintenance.evidence_preserved(m) for m in self._controller_action_decision_evidence):
+                            raise RuntimeError("Current Controller decisions lack remote archival confirmation")
+                    else:
+                        with storage_manager.session_preservation_guard(self._session.session_id) as confirmation:
+                            self._require_controller_decision_archival(self._session.session_id, confirmation)
                 except Exception as error:
                     blockers.append(f"Controller decision preservation: {error}")
         if self._artifact_collection_in_progress or self._active_experiment_id is not None:
@@ -2409,10 +2427,14 @@ class Controller:
             if active is None or active.get("framework_stop_attempt_id") != self._framework_shutdown_attempt_id:
                 blockers.append("Unfinished framework shutdown coordination")
         if self._reconciliation_evidence:
-            confirmation = storage_manager.get_framework_preservation_confirmation()
-            if (confirmation is None or any(not ingestor.has_durable_runtime_evidence(message)
-                    or message.to_dict() not in confirmation["runtime_evidence"]
-                    for message in self._reconciliation_evidence)):
+            if storage_manager is None:
+                unpreserved = any(not self._maintenance.evidence_preserved(m) for m in self._reconciliation_evidence)
+            else:
+                confirmation = storage_manager.get_framework_preservation_confirmation()
+                unpreserved = confirmation is None or any(
+                    not ingestor.has_durable_runtime_evidence(message) or message.to_dict() not in confirmation["runtime_evidence"]
+                    for message in self._reconciliation_evidence)
+            if unpreserved:
                 blockers.append("Unpreserved Controller reconciliation evidence")
         return blockers
 
@@ -2532,7 +2554,8 @@ class Controller:
                     "publication_confirmed": False, "acceptance_confirmed": False,
                     "archival_confirmed": False, "preservation_warning": "Controller framework evidence interface is not configured"}
         # Publishing new findings must not silently repair an unconfirmed archive.
-        framework_safe = bool(storage_manager and storage_manager._framework_evidence_write_safe())
+        framework_safe = bool(storage_manager and storage_manager._framework_evidence_write_safe()
+                              or interface._framework_communication is not None)
         status = await interface._record_framework_evidence(message, archive=framework_safe, require_existing_archive=True)
         return {"findings": findings, **status, "unchanged": False}
 

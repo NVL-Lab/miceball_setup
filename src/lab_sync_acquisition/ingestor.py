@@ -164,6 +164,46 @@ class InMemoryIngestor:
                 raise RuntimeError("Current framework intake is not durably archived")
             yield confirmation
 
+    @service_operation()
+    async def preserve_service_evidence(self, messages, source_id, acceptance_window_s):
+        """Confirm a producer boundary using authoritative journals and paired storage."""
+        messages = tuple(RuntimeEvidenceMessage.from_dict(m) for m in messages)
+        if (not messages or any(m.source_id != source_id or not m.is_persistent for m in messages)
+                or len({(m.session_id, m.evidence_id) for m in messages}) != len(messages)):
+            raise ValueError("A unique persistent evidence boundary for the requesting producer is required")
+        storage = self._storage_manager
+        if storage is None or self._framework_ingestor is None:
+            raise RuntimeError("Framework journal and paired StorageManager are required")
+        for message in messages:
+            if message.session_id is None:
+                if not await self.await_durable_runtime_evidence(message, acceptance_window_s):
+                    raise RuntimeError("Producer framework evidence lacks journal-backed acceptance")
+            else:
+                # Session products remain immutable; this operation cannot repair or
+                # append to their Stage A baseline or collect scientific artifacts.
+                self.read_session_closeout(message.session_id)
+                saved = storage.get_persisted_session_preservation_confirmation(message.session_id)
+                if (saved is None or message.to_dict() not in saved["runtime_evidence"]
+                        or message.evidence_id not in saved["compilation_summary"]["runtime_evidence_origins"]["ingestor"]):
+                    raise RuntimeError("Producer Session evidence lacks verified Stage A preservation")
+        intake = self._framework_ingestor
+        with self._intake_lock, intake._intake_lock, storage._preservation_lock:
+            if not storage._framework_evidence_write_safe():
+                raise RuntimeError("Framework archive requires authorized recovery")
+            if any(not self.has_durable_runtime_evidence(m) for m in messages if m.session_id is None):
+                raise RuntimeError("Framework journal changed during boundary verification")
+            compiled = self.compile_framework_runtime_evidence()
+            current = storage.get_framework_preservation_confirmation()
+            if current is None or any(current[name] != [m.to_dict() for m in compiled[name]]
+                                      for name in ("runtime_evidence", "ingest_audit")):
+                storage.write_framework_evidence_archive(compiled)
+            with self.framework_preservation_guard(storage) as archive:
+                if any(m.to_dict() not in archive["runtime_evidence"] for m in messages if m.session_id is None):
+                    raise RuntimeError("Framework preservation does not cover the producer boundary")
+                return {"acceptance_confirmed": True, "archival_confirmed": True,
+                        "evidence": [m.to_dict() for m in messages],
+                        "storage_participant": {"component_type": "storage_manager", "component_id": storage._component_id}}
+
     def _initialize_recovery_journal(self) -> None:
         if self._recovery_journal_path is not None:
             if self._recovery_journal_path.exists():

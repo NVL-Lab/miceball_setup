@@ -29,14 +29,14 @@ class LauncherCommandTests(unittest.TestCase):
         for role in ("controller", "acquisition-node", "ingestor", "storage-manager", "synchronization-manager"):
             self.assertIn(role, output.getvalue())
 
-    def test_unavailable_roles_fail_without_constructing_hidden_owners(self):
+    def test_independent_roles_require_explicit_startup_settings(self):
         for role in ("controller", "acquisition-node", "synchronization-manager"):
             with self.subTest(role=role), patch("lab_sync_acquisition.service_launcher.asyncio.run") as run:
                 output = io.StringIO()
                 with redirect_stderr(output), self.assertRaises(SystemExit) as stopped:
                     main([role])
                 self.assertNotEqual(stopped.exception.code, 0)
-                self.assertIn("launch unavailable", output.getvalue())
+                self.assertIn("requires explicit", output.getvalue())
                 run.assert_not_called()
 
     def test_pair_requires_explicit_constructor_settings(self):

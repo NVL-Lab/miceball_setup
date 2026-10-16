@@ -971,17 +971,21 @@ confirmed success. No forced repeated-Ctrl+C exit or interactive Kill is accepte
 This resolves manual CLI behavior, not configuration provisioning or Q024 recovery.
 Bounded common launching/local graceful shutdown is CLOSED in W061 after
 independent IPython validation (22/22) and focused re-audit PASS following two P2
-corrections. Only the shared Ingestor/StorageManager launch path is supported;
-the other three roles explicitly reject startup. Complete role composition and
-configuration provisioning remain outstanding. Addressed remote Stop/Kill/Cancel
+corrections. W063 closes the remaining Controller, AcquisitionNode and
+SynchronizationManager launch paths using service-specific remote evidence
+preservation after independent IPython validation (60/60, zero failures/errors/
+skips) and independent architectural audit PASS with no confirmed P0-P3 findings. The LLC
+confirmed existing architecture is sufficient: unrelated producers may continue
+after a retiring service establishes its own stable evidence boundary. General
+configuration provisioning remains outstanding. Addressed remote Stop/Kill/Cancel
 issuance is CLOSED in W062 after independent IPython validation (41/41 initially,
 42/42 after correction; overlapping sets) and focused independent re-audit PASS.
 The initial audit's interrupted-Kill feedback P3 is resolved without changing
 authorization or maintenance semantics. This adds no service launch paths or
-Controller dependency; unsupported Controller, AcquisitionNode and
-SynchronizationManager bootstrap, configuration/installation, remote enumeration/
-batch integration and broader maintenance/recovery remain outside this slice.
-Q022 remains OPEN. Q019 and W001-W062 remain CLOSED. Existing Q006/Q018, Q024,
+Controller dependency. W063 is CLOSED; general configuration/provisioning,
+installation verification, remote enumeration/batch integration and broader
+maintenance/recovery and deployment integration remain outside this slice.
+Q022 remains OPEN. Q019 and W001-W063 remain CLOSED. Existing Q006/Q018, Q024,
 Phase 16 and M015 statuses are unchanged. See installation_and_deployment.md for
 the supported entry points and validated_workflows.md for verification limitations.
 
