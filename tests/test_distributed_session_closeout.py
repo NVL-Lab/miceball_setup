@@ -81,12 +81,13 @@ class DistributedSessionCloseoutTests(unittest.IsolatedAsyncioTestCase):
     async def test_normal_stop_preserves_science_and_releases_independent_services(self):
         await self.running()
         f = self.fixture
+        local = f.node.local_storage_manager
         result = await self.stop()
         self.assertTrue(result.succeeded, result.error)
         self.assertEqual(f.controller.get_status()["session_state"], "completed")
         self.assertTrue(result.details["acquisition_preservation_eligible"])
         self.assertFalse(result.details["compilation_summary"]["archive_closed"])
-        manifest, = f.node.local_storage_manager.manifests
+        manifest, = local.manifests
         self.assertEqual(len(Path(manifest.local_storage_path).read_text().splitlines()), 1)
         before = self.archive()
         self.assertTrue((await self.stop()).succeeded)
