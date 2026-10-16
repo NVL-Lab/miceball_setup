@@ -250,6 +250,37 @@ class RemoteSavedCollectionTests(unittest.IsolatedAsyncioTestCase):
     async def test_persisted_source_mismatch_cannot_reactivate_rejected_collection(self):
         await self._reject_corrupted_result(lambda data: data.update(source_id="different-owner"))
 
+    async def test_same_nonce_destination_conflict_blocks_rejected_replay(self):
+        await self._reject_corrupted_result(lambda data: data.update(target_id="different-controller"))
+
+    async def test_same_nonce_command_conflict_blocks_rejected_replay(self):
+        await self._reject_corrupted_result(lambda data: data.update(
+            command_id=json.dumps(["session", "different-evidence"], separators=(",", ":"))))
+
+    async def test_same_nonce_conflicts_after_matching_history_block_collection(self):
+        self.selection.terminal("session", "stopping")
+        self.assertFalse((await self.collect()).succeeded)
+        original = RuntimeCommandMessage.from_dict(self.broker.commands[-1])
+        boundary = _Boundary("storage_manager", "storage", self.broker)
+        for evidence_id in ("unrelated-first", "unrelated-second"):
+            result = RuntimeCommandResultMessage("unrelated-result", json.dumps(
+                ["session", evidence_id], separators=(",", ":")), "session", "storage",
+                "controller", "failed", False, "rejected", {"request_nonce": "unrelated-attempt"})
+            await boundary.publish_command_result(result, "collect_saved_artifacts")
+        history = {seq: record.data for seq, record in self.broker.result_history.records.items()}
+        self.selection.terminal("session", "completed")
+        before = self.fixture.products()
+        await self.subscribe(self.fixture.new_storage())
+        transport, _ = self.fixture.retrieval.ssh(self.fixture.sftp)
+        with transport:
+            await self.communication.publish_command(original, "storage_manager")
+        self.assertFalse(self.broker.results[-1]["success"])
+        self.assertIn("conflicting", self.broker.results[-1]["reason"])
+        self.assertEqual(self.fixture.sftp.opened, [])
+        self.assertEqual(self.fixture.products(), before)
+        for seq, content in history.items():
+            self.assertEqual(self.broker.result_history.records[seq].data, content)
+
     async def test_invalid_result_correlation_blocks_collection(self):
         changes = [
             lambda data: data["payload"].update(request_nonce=None),

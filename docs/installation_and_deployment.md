@@ -495,7 +495,10 @@ and nonce, final status/success consistency, subject/body Session/source/operati
 and canonical Session/evidence command identity. Payload Session/status and any
 collection evidence must agree with those identities; success requires confirmed
 collection preservation. Every record in the scoped scan is checked, even after
-finding a matching attempt, and conflicting resolutions fail closed. Valid
+finding a matching attempt, and conflicting resolutions fail closed. Within the
+Session/owner/operation scope, the nonce identifies the attempt: differing command
+or destination identities for that nonce block admission rather than making the
+attempt appear absent. Valid
 unrelated attempts remain isolated; other Sessions remain outside the scoped
 readback. Invalid history blocks collection without rewriting the offending
 records or producing new collection evidence. A normal failed command reply may

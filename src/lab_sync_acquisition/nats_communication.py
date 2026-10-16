@@ -1363,16 +1363,15 @@ class NatsStorageManagerCommunication:
                     previous = self._read_collection_result(record)
                 except (ValueError, TypeError, KeyError, AttributeError) as error:
                     raise ValueError(f"Collection result history has invalid persisted correlation: {error}") from error
-                identity = (previous.command_id, previous.target_id, previous.payload["request_nonce"])
+                identity = previous.payload["request_nonce"]
                 content = previous.to_dict()
                 if identity in resolutions and resolutions[identity] != content:
                     raise ValueError("Collection result history contains conflicting attempt resolutions")
                 resolutions[identity] = content
-                if (previous.command_id == command.command_id
-                        and previous.session_id == command.session_id
-                        and previous.source_id == self._boundary.component_id
-                        and previous.target_id == command.source_id
-                        and previous.payload.get("request_nonce") == command.payload["request_nonce"]):
+                if identity == command.payload["request_nonce"]:
+                    if (previous.command_id != command.command_id
+                            or previous.target_id != command.source_id):
+                        raise ValueError("Collection result history contains conflicting same-attempt identity")
                     matched = previous
                 sequence = record.seq + 1
             current = await jetstream.stream_info("LAB_COMMAND_RESULTS")
