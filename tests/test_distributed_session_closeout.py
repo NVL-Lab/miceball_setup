@@ -373,7 +373,7 @@ class JetStreamSessionCloseoutTests(unittest.IsolatedAsyncioTestCase):
         before = self.products()
         journal = self.root / "journals" / f"session_{self.sid}.jsonl"
         original_journal = journal.read_bytes()
-        original = next(json.loads(line) for line in before["evidence/runtime_evidence.jsonl"].splitlines()
+        original = next(json.loads(line) for line in before[str(Path("evidence") / "runtime_evidence.jsonl")].splitlines()
                         if json.loads(line)["source_id"] == "node")
         producer = NatsCommunicationBoundary("acquisition_node", "node", servers=[self.url])
         await producer.connect()
