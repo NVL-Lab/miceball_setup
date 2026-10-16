@@ -1575,3 +1575,13 @@ automatic. Kill integration and overall closeout validation remain deferred.
 - DistributedSessionCloseoutTests.acknowledge: Delivers the retained publication interval through the existing evidence consumer.
 - DistributedSessionCloseoutTests.stop: Requests Normal Stop through the public remote Controller API.
 - DistributedSessionCloseoutTests.archive: Snapshots saved archive bytes to verify preservation and retry immutability.
+- run_closeout_owner(url, directory, lost_reply, ready, stop): Runs one shared Ingestor/StorageManager process against real JetStream with an optional single lost terminal-preservation result.
+- JetStreamSessionCloseoutTests: Exercises Normal Stop, late/duplicate discard, independent release, uncertain Kill and lost-confirmation/restart reconciliation across real participant processes.
+- JetStreamSessionCloseoutTests.start_worker: Starts an existing spawn-compatible participant worker and waits for its readiness handshake.
+- JetStreamSessionCloseoutTests.stop_worker: Requests bounded process-fixture shutdown and makes unsuccessful cleanup observable.
+- JetStreamSessionCloseoutTests.stop_workers: Stops and closes every registered worker before temporary server and directory cleanup.
+- JetStreamSessionCloseoutTests.running: Launches separate node/clock/shared-intake processes and acquires one scientific observation through Controller NATS APIs.
+- JetStreamSessionCloseoutTests.wait_for_receipt: Waits for Session-specific server-confirmed evidence acknowledgment before immutable-product assertions.
+- JetStreamSessionCloseoutTests.normal_stop: Requests Normal Stop and permits an explicit retry only when complete receipt is not yet confirmed.
+- JetStreamSessionCloseoutTests.products: Snapshots all saved archive products for byte-for-byte comparison.
+- JetStreamSessionCloseoutTests.reconcile: Requires successful authoritative saved preservation readback from an explicitly supplied or active Controller.
