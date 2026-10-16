@@ -44,6 +44,25 @@ class CloseoutBroker(PublicationBroker):
         return await super().publish(subject, data, stream)
 
 
+class ReleaseSubscription:
+    """Wrap broker interest with non-idempotent unsubscribe and controlled failures."""
+
+    def __init__(self, subscription):
+        self.subscription = subscription
+        self.attempts = 0
+        self.released = False
+        self.before_unsubscribe = None
+
+    async def unsubscribe(self):
+        self.attempts += 1
+        if self.released:
+            raise RuntimeError("Subscription already unsubscribed")
+        if self.before_unsubscribe is not None:
+            await self.before_unsubscribe()
+        await self.subscription.unsubscribe()
+        self.released = True
+
+
 class DistributedSessionCloseoutTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.fixture = timing.DistributedSynchronizationTests()
@@ -85,6 +104,12 @@ class DistributedSessionCloseoutTests(unittest.IsolatedAsyncioTestCase):
 
     def archive(self):
         return {str(p): p.read_bytes() for p in (self.fixture.root / f"session_{self.fixture.sid}").rglob("*") if p.is_file()}
+
+    def release_subscriptions(self):
+        subscriptions = tuple(ReleaseSubscription(s) for s in self.fixture.controller._launch_subscriptions)
+        self.fixture.controller._launch_subscriptions = subscriptions
+        self.assertGreaterEqual(len(subscriptions), 2)
+        return subscriptions
 
     async def test_normal_stop_preserves_science_and_releases_independent_services(self):
         await self.running()
@@ -340,6 +365,7 @@ class DistributedSessionCloseoutTests(unittest.IsolatedAsyncioTestCase):
         result = await self.stop()
         self.assertTrue(result.succeeded, result.error)
         before = self.archive()
+        subscriptions = self.release_subscriptions()
         reached, resume = asyncio.Event(), asyncio.Event()
         reads = 0
 
@@ -368,6 +394,90 @@ class DistributedSessionCloseoutTests(unittest.IsolatedAsyncioTestCase):
         released = await f.controller.release_session(communication=f.communication, result_window_s=0.05)
         self.assertTrue(released.succeeded, released.error)
         self.assertEqual(self.archive(), before)
+        self.assertTrue(all(s.released and s.attempts == 1 for s in subscriptions))
+
+    async def test_missing_final_readback_retries_without_repeating_unsubscribe(self):
+        await self.running()
+        f = self.fixture
+        result = await self.stop()
+        self.assertTrue(result.succeeded, result.error)
+        before = self.archive()
+        subscriptions = self.release_subscriptions()
+        reads = 0
+
+        async def lose_final_readback(subject, payload):
+            nonlocal reads
+            if payload.get("command_type") == "read_session_closeout":
+                reads += 1
+                if reads == 2:
+                    f.broker.drop_results.add(("ingestor", "read_session_closeout"))
+
+        f.broker.before_publication = lose_final_readback
+        try:
+            result = await f.controller.release_session(communication=f.communication, result_window_s=0.05)
+        finally:
+            f.broker.before_publication = None
+            f.broker.drop_results.clear()
+        self.assertFalse(result.succeeded)
+        self.assertEqual(reads, 2)
+        self.assertIn("missing response", result.error)
+        self.assertIsNone(f.ingestor.session_id)
+        self.assertTrue(all(s.released and s.attempts == 1 for s in subscriptions))
+        self.assertEqual(f.controller.get_status()["session_state"], "completed")
+        self.assertEqual(self.archive(), before)
+        result = await f.controller.release_session(communication=f.communication, result_window_s=0.05)
+        self.assertTrue(result.succeeded, result.error)
+        self.assertTrue(all(s.attempts == 1 for s in subscriptions))
+        self.assertIsNone(f.controller.get_status()["session_state"])
+        self.assertEqual(self.archive(), before)
+
+    async def check_interrupted_unsubscribe(self, *, cancelled):
+        await self.running()
+        f = self.fixture
+        result = await self.stop()
+        self.assertTrue(result.succeeded, result.error)
+        before = self.archive()
+        subscriptions = self.release_subscriptions()
+        reached, resume = asyncio.Event(), asyncio.Event()
+
+        async def interrupt():
+            reached.set()
+            if cancelled:
+                await resume.wait()
+            raise RuntimeError("Unsubscribe unavailable")
+
+        subscriptions[1].before_unsubscribe = interrupt
+        task = asyncio.create_task(f.controller.release_session(
+            communication=f.communication, result_window_s=0.05))
+        try:
+            await asyncio.wait_for(reached.wait(), 2)
+            if cancelled:
+                task.cancel()
+                with self.assertRaises(asyncio.CancelledError):
+                    await task
+            else:
+                self.assertFalse((await task).succeeded)
+        finally:
+            if not task.done():
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+        self.assertTrue(subscriptions[0].released)
+        self.assertFalse(subscriptions[1].released)
+        self.assertEqual(f.controller.get_status()["session_state"], "completed")
+        self.assertEqual(self.archive(), before)
+        subscriptions[1].before_unsubscribe = None
+        result = await f.controller.release_session(communication=f.communication, result_window_s=0.05)
+        self.assertTrue(result.succeeded, result.error)
+        self.assertEqual(subscriptions[0].attempts, 1)
+        self.assertEqual(subscriptions[1].attempts, 2)
+        self.assertTrue(all(s.released for s in subscriptions))
+        self.assertEqual(self.archive(), before)
+
+    async def test_failed_unsubscribe_retries_only_pending_release_work(self):
+        await self.check_interrupted_unsubscribe(cancelled=False)
+
+    async def test_cancelled_unsubscribe_retries_only_pending_release_work(self):
+        await self.check_interrupted_unsubscribe(cancelled=True)
 
     async def test_cancelled_preservation_keeps_binding_and_allows_explicit_retry(self):
         await self.running()

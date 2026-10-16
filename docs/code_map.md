@@ -871,7 +871,7 @@ is complete; W030 records manual validation, focused tests, and audit reassessme
 - Controller._closeout_owner_request: Requires a current correlated closeout result and unchanged Controller binding after each owner request.
 - Controller._require_remote_preservation: Checks receiving/storage identity, accepted configuration and applicable finalized-marker provenance before using remote preservation.
 - Controller._close_session_remote: Connects remote Normal Stop or Kill, durable preservation and Controller-owned terminal lifecycle publication without shared owner objects.
-- Controller._release_session_remote: Revalidates terminal preservation and independent participant cleanup/release confirmations before retiring Controller state.
+- Controller._release_session_remote: Revalidates terminal preservation and independent participant release, retaining confirmed unsubscribe progress and unresolved obligations across explicit retries before retiring Controller state.
 - Controller._retire_session_binding: Retires only a confirmed Controller binding while preserving its terminal outcome and service lifetime.
 - Controller._preserve_kill_closeout(session): Confirms current journal-backed partial archive and handoff under intake, persistence, and admission guards without claiming complete receipt.
 - Controller._complete_preserved_acquisition(session): Rechecks current journal, Stage A operational evidence/all-audit coverage, final Session Record, owned evidence, marker and handoff under intake/storage/admission locks before completion without replacing an unconfirmed baseline.
@@ -1576,6 +1576,13 @@ automatic. Kill integration and overall closeout validation remain deferred.
 - DistributedSessionCloseoutTests.acknowledge: Delivers the retained publication interval through the existing evidence consumer.
 - DistributedSessionCloseoutTests.stop: Requests Normal Stop through the public remote Controller API.
 - DistributedSessionCloseoutTests.archive: Snapshots saved archive bytes to verify preservation and retry immutability.
+- ReleaseSubscription: Wraps broker subscriptions with non-idempotent unsubscribe and deterministic failure/cancellation coordination.
+- ReleaseSubscription.unsubscribe: Removes broker interest once, rejecting duplicate removal and retaining unfinished operations for retry.
+- DistributedSessionCloseoutTests.release_subscriptions: Installs strict subscription behavior for public Controller release workflows.
+- DistributedSessionCloseoutTests.check_interrupted_unsubscribe: Verifies failed or cancelled unsubscribe retains pending work without repeating completed removals or changing archive products.
+- DistributedSessionCloseoutTests.test_missing_final_readback_retries_without_repeating_unsubscribe: Retries release after missing final preservation confirmation without repeating successful subscription removal.
+- DistributedSessionCloseoutTests.test_failed_unsubscribe_retries_only_pending_release_work: Retries unresolved subscription failure while preserving completed release progress.
+- DistributedSessionCloseoutTests.test_cancelled_unsubscribe_retries_only_pending_release_work: Retains unfinished unsubscribe obligations across cancellation and explicit retry.
 - run_closeout_owner(url, directory, lost_reply, ready, stop): Runs one shared Ingestor/StorageManager process against real JetStream with an optional single lost terminal-preservation result.
 - JetStreamSessionCloseoutTests: Exercises Normal Stop, late/duplicate discard, independent release, uncertain Kill and lost-confirmation/restart reconciliation across real participant processes.
 - JetStreamSessionCloseoutTests.start_worker: Starts an existing spawn-compatible participant worker and waits for its readiness handshake.

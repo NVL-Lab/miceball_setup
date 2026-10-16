@@ -2176,9 +2176,12 @@ class Controller:
             self._require_controller_owned_evidence(session.session_id, preserved)
             for subscription in self._launch_subscriptions:
                 await subscription.unsubscribe()
-                if self._session is not session:
-                    raise RuntimeError("Controller Session changed during subscription release")
-                self._require_controller_owned_evidence(session.session_id, preserved)
+                with self._service_operation_lock:
+                    if self._session is not session:
+                        raise RuntimeError("Controller Session changed during subscription release")
+                    self._launch_subscriptions = tuple(
+                        pending for pending in self._launch_subscriptions if pending is not subscription)
+                    self._require_controller_owned_evidence(session.session_id, preserved)
             preserved = await self._closeout_owner_request(session, intake, "read_session_closeout", {}, window)
             outcome = {"session_id": session.session_id, "session_state": session.current_state.value,
                        "final_session_status": deepcopy(session.final_status)}
