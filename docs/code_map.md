@@ -20,8 +20,9 @@ Decision 376 revises Decision 375: Ingestor and StorageManager share one process
 startup/shutdown/restart lifetime, and permitted local calls while retaining distinct
 ownership. Controller, SynchronizationManager, and nodes remain independently
 deployed; all process-crossing interactions, including Controller access to both
-components, use NATS. Current Controller/Ingestor/StorageManager closeout,
-collection, release, and maintenance/recovery paths
+components, use NATS. Bounded remote single saved-Session collection is closed in
+W058; remaining Controller/Ingestor/StorageManager closeout,
+enumeration/batch collection, release, and maintenance/recovery paths
 still use development-time direct collaborators and cross-owner guards; these
 are not deployed remote interfaces. Reuse existing command/result envelopes,
 participant identities, correlated requests, evidence publication, receipt proof,
@@ -42,6 +43,21 @@ does not authorize artifact release. Subject consistency is not authentication;
 optional callbacks are not a durable retry queue. Broader Controller/recovery
 and deployment integration remain open, as do Q022, Q006/Q018, Q024, Phase 16 and
 M015. Q019 and W001-W056 closure records are unchanged.
+
+## Remote Saved-Session Collection (Closed, W058)
+
+`Controller.collect_saved_session_artifacts_remote()` uses
+`NatsControllerCommunication.request_persistence_command()` and
+`NatsStorageManagerCommunication.subscribe_commands()` for one explicitly selected
+saved Session without local owner references. StorageManager's
+`get_saved_session_collection_status()` and `collect_saved_artifacts()` retain
+eligibility, preservation, locking and retrieval authority. Fresh-only commands,
+complete scoped result-history checks and same-nonce identity conflict rejection
+resolve all three P2 findings; exact durable outcomes permit retry/restart reuse
+without refetch. Independent IPython validation and final audit PASS of d788d2e
+are recorded in W058. This is not full remote closeout, enumeration/batch,
+closure/release or maintenance/recovery. Scientific observations stay node-local;
+Stage B evidence stays StorageManager-owned. Q022 remains OPEN.
 
 ## Distributed Synchronization And Experiment NATS Integration (Complete, W056)
 

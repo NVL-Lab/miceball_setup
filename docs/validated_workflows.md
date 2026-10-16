@@ -4323,6 +4323,104 @@ OPEN. Accepted architectural decision substance and numbering are unchanged.
 
 ---
 
+# W058 - Controller Remote Saved-Session Collection over NATS
+
+**Status:** CLOSED - bounded Q022 Slice 4; independently validated and audited.
+
+## Implemented scope and interfaces
+
+`Controller.collect_saved_session_artifacts_remote(session_id, *, evidence_id,
+communication, storage_participant, result_window_s)` requests collection for one
+explicitly selected saved Session without local Ingestor/StorageManager references.
+Existing NATS command/results communicate with the separate shared
+Ingestor/StorageManager process. StorageManager retains authority over eligibility,
+availability, locks, retrieval and durable Stage B evidence through existing
+`get_saved_session_collection_status()` and `collect_saved_artifacts()` methods.
+Eligibility and preservation are revalidated under owner collection guards.
+
+The command identity is the canonical compact JSON pair `[session_id, evidence_id]`.
+Each explicit retry has a fresh request nonce; redelivery retains the old attempt
+identity. Fresh-only StorageManager subscriptions prevent automatic execution of
+retained commands after restart. Commands published while the owner is offline
+remain unconfirmed and require an explicit retry. Collection attempts are
+serialized through result publication; unpublished resolutions are retained in
+memory until publication succeeds. Exact durable `LAB_COMMAND_RESULTS` readback
+supports restart-safe reuse, while existing durable collection evidence permits
+retry without refetching scientific files.
+
+Complete scoped result history is validated before admission, including records
+after a matching result. Missing, unavailable, detectably incomplete, malformed,
+inconsistent or conflicting history fails closed without retrieval, new collection
+evidence or history repair. Within the Session/owner/operation scope, the nonce
+identifies the attempt; conflicting command or destination identities block
+admission. Valid unrelated nonces, other Sessions and other operations remain
+isolated. Normal failure replies may still be appended; this is not history repair.
+Success requires matching Session/evidence identity, confirmed collection-evidence
+preservation and successful scientific collection. Missing replies and unconfirmed
+outcomes remain uncertain, not successful.
+
+Publication, operational intake acceptance, W041 complete receipt, Stage A/B
+preservation and release authorization remain distinct. Scientific observations
+remain AcquisitionNode-local; Stage B evidence is archived directly by
+StorageManager. Existing local APIs, handoff, recovery, historical preservation,
+permanent closure and release protections are unchanged.
+
+## Validation and correction history
+
+Earlier independent audits returned FAIL with three successive P2 findings:
+
+- P2-A: A historical collection rejection could execute after restart when
+  eligibility changed. Fresh-only subscriptions and durable attempt-result
+  matching prevent replay; fresh explicit retries remain possible.
+- P2-B: Malformed persisted correlation could make rejection appear absent.
+  Complete scoped-history validation now fails closed on missing nonce,
+  subject/source inconsistency and other invalid correlation.
+- P2-C: The original nonce with changed command/destination identity could appear
+  unrelated. Nonce-scoped matching and identity consistency checks reject it,
+  including conflicting records after a matching resolution.
+
+All three findings were corrected and independently verified.
+
+- Developer verification: **39 targeted tests PASS**, covering admission,
+  duplicates, concurrency, retries, cancellation, malformed history, evidence
+  readback and preservation integration, including actual local JetStream
+  separate-process restart scenarios.
+- Independent user-run IPython: **3/3 PASS** for same-nonce destination conflict,
+  same-nonce canonical command conflict, and a valid distinct attempt succeeding.
+  These identity fault injections used controlled broker-history fixtures.
+- Final independent read-only audit of **d788d2e: PASS**, no confirmed P0-P3
+  findings. Audit execution included **39 targeted tests PASS** and three
+  additional fault-injection checks for destination, command and conflicting
+  history after a matching resolution. Rejections caused zero retrievals and
+  preserved historical products/results.
+- Actual local JetStream verification passed with a separate shared
+  Ingestor/StorageManager process: restart-only replay prevention, old rejected
+  nonce rejection, fresh explicit retry and durable-outcome reuse without refetch.
+
+These verification runs overlap and are not additive. The additional audit probe
+run stalled under sandbox execution and passed outside it; no application defect
+was established. No software tests or new audit were performed during this
+documentation-only closure.
+
+## Limitations and remaining boundaries
+
+This is single saved-Session collection, not full cross-process Normal Stop/Kill,
+Stage A receipt/handoff orchestration, automatic saved-Session enumeration or batch
+collection, permanent closure, or resource-release orchestration. Configuration,
+explicit-role launching, broader maintenance/recovery and deployment integration
+remain outside this slice. Existing owner-local closure functionality is unchanged.
+
+Retained-result-history scanning is linear and depends on required history being
+available and intact. Unpublished in-memory results are not a new durable store.
+SFTP was simulated; physical SSH/SFTP, hardware, multi-host production and
+power-loss guarantees were not validated.
+
+W058 and bounded Q022 Slice 4 are CLOSED. Q022 overall remains OPEN. Q019 and
+W001-W057 remain CLOSED with historical records preserved. Q006, Q018, Q024,
+Phase 16 and M015 remain OPEN. No accepted architectural decision is changed.
+
+---
+
 # Future Workflows
 
 The following workflows are expected to be added as the framework evolves.

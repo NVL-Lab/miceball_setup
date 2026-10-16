@@ -80,6 +80,16 @@ optional callbacks are not a durable retry queue. Multi-host, hardware and
 power-loss guarantees remain unverified; broader Q022 deployment integration
 remains OPEN. See [W057](docs/validated_workflows.md#w057---acquisitionnode-to-ingestor-durable-operational-evidence-over-nats).
 
+Q022 Slice 4 is CLOSED in
+[W058](docs/validated_workflows.md#w058---controller-remote-saved-session-collection-over-nats):
+Controller can explicitly collect one saved Session through NATS without local
+Ingestor/StorageManager references. StorageManager retains eligibility, collection
+and persistence authority. All three replay/result-correlation P2 findings are
+resolved; independent validation and final audit PASS of d788d2e confirm bounded
+retry/restart behavior. Local JetStream used separate processes and simulated SFTP.
+Full cross-process closeout, enumeration/batch selection, closure/release,
+configuration/launching and broader deployment remain outstanding; Q022 stays OPEN.
+
 
 
 ## Overview

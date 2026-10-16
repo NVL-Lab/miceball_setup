@@ -439,11 +439,11 @@ replacement-handoff operation.
 
 ### Saved-Session Collection And Permanent Closure
 
-**Controller -> StorageManager:** Single/multi-Session collection directly calls
+**Controller -> StorageManager:** Existing local single/multi-Session collection calls
 `get_saved_session_collection_status()` and `collect_saved_artifacts()`; listing,
 handoff readback, and `close_session_evidence_archive()` are local StorageManager
-APIs rather than remote service operations. Reuse those APIs through scoped NATS
-owner requests/results. StorageManager independently enumerates/validates saved
+APIs; W058 adds bounded remote single-Session collection as described below.
+Remote enumeration/batch and closure remain unimplemented. StorageManager independently enumerates/validates saved
 products, rechecks eligibility/availability under collection guards, and retains
 stable per-Session evidence IDs and durable outcomes before direct Stage B archival.
 Do not send Stage B evidence through Ingestor merely to archive it. Preserve
@@ -454,8 +454,8 @@ StorageManager persistence mechanism under Decision 373, not a Python call to an
 AcquisitionNode service owner. Depends on preserved baselines/handoffs, but not
 restoration of old Session runtime bindings.
 
-**Current bounded Slice 4 implementation (developer-tested; independent validation
-and audit pending):** Controller can explicitly request one saved Session's
+**Current bounded Slice 4 implementation (CLOSED, W058; independent validation
+and final audit PASS of d788d2e):** Controller can explicitly request one saved Session's
 collection with `await collect_saved_session_artifacts_remote(session_id,
 evidence_id=..., communication=..., storage_participant=..., result_window_s=...)`
 without local Ingestor or StorageManager references. The existing
@@ -487,7 +487,8 @@ unavailable, malformed or detectably incomplete history before collection; the
 scan rechecks stream continuity before admitting work. This conservative check
 and linear result-history scan are operational limitations, not new power-loss or
 broker-history restoration guarantees. Existing storage locks are never held
-across NATS readback. Independent correction validation and re-audit remain pending.
+across NATS readback. All three replay/correlation P2 findings are resolved and
+independently verified; W058 preserves the failed audits and corrective history.
 
 Persisted collection-result correlation is validated before an attempt can be
 treated as unrelated or absent: required result fields/types, nonempty identities
@@ -566,8 +567,10 @@ architecture or claims of implementation/validation:
    context/finalization and publication-before-completion. This does not close
    broader deployment obligations; operational-evidence transport is separately
    closed in W057.
-3. Adapt Q019 Controller Normal Stop/Kill, Stage A/handoff, completion/release,
-   saved collection, and explicit closure coordination. Test current coverage,
+3. Bounded remote single saved-Session collection is CLOSED in W058 after
+   independent validation and final audit PASS. Remaining adaptation includes
+   Q019 Controller Normal Stop/Kill, Stage A/handoff, completion/release,
+   saved-Session enumeration/batch collection, and explicit closure coordination. Test current coverage,
    network-wait races, late intake, partial Kill, restart readback, batch isolation,
    idempotency, and archive immutability using independently owned services.
 4. Adapt framework startup evidence, reconciliation, maintenance and authorized

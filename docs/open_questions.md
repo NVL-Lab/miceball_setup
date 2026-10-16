@@ -903,6 +903,16 @@ complete receipt, archival preservation and artifact-release authorization.
 Remaining Controller orchestration, recovery and deployment integration are not
 closed by W057; Q022 remains OPEN.
 
+Bounded Slice 4 remote single saved-Session collection is CLOSED in W058 after
+independent IPython validation and final audit PASS of d788d2e. All three P2
+replay/result-correlation defects are resolved, including same-nonce identity
+conflicts. Controller uses NATS without local owner references; StorageManager
+revalidates eligibility/preservation and reuses durable outcomes without refetch.
+Full cross-process Normal Stop/Kill, Stage A receipt/handoff, completion/release,
+saved-Session enumeration/batch coordination, explicit closure, broader authorized
+recovery, configuration/role launching and installation verification remain open.
+This closes only the implemented Slice 4 boundary, not Q022.
+
 ### Q022-A accepted scope
 
 One installed package is launched with an explicit service role. Installation uses

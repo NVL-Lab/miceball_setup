@@ -10616,7 +10616,12 @@ synchronization runtime integration is complete in W056. AcquisitionNode-to-Inge
 durable operational evidence transport and exact journal-backed acceptance readback
 are complete with independent validation and audit PASS in W057 (880b108), without
 reintroducing scientific intake or conflating publication, acceptance, complete
-receipt and archival preservation. Broader preservation, collection, release,
+receipt and archival preservation. Bounded Controller-driven single saved-Session
+collection over NATS is complete with independent validation and final audit PASS
+of d788d2e (W058), after three replay/result-correlation P2 corrections. Remote
+collection reuses owner eligibility/persistence guards and verified durable outcomes;
+it does not implement full closeout, remote enumeration/batch selection or closure.
+Broader preservation, collection, release,
 and maintenance/recovery still contain development-time
 direct-object dependencies. Establish the required service-owned NATS interfaces
 before enabling deployment launch paths that depend on them. Historical accepted

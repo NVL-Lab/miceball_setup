@@ -1293,6 +1293,26 @@ Controller/recovery/deployment integration remains outside the closed slice.
 Q019 and W001-W056 remain closed with historical records unchanged. Q022, Q006,
 Q018, Q024, Phase 16 and M015 remain OPEN.
 
+## Completed Q022 Slice 4 Remote Saved-Session Collection (W058)
+
+**Status:** CLOSED - bounded single saved-Session NATS collection, independent
+IPython validation and final read-only audit PASS of d788d2e; no confirmed P0-P3
+findings. Controller needs no local Ingestor/StorageManager; the shared receiving
+process retains separate component authority, owner eligibility/collection guards
+and direct Stage B persistence. Fresh-only subscriptions, complete scoped history
+validation and nonce-associated command/destination consistency resolve all three
+P2 replay/correlation findings. Durable outcomes support retries without refetch;
+publication, acceptance, receipt, archival and release remain separate.
+
+W058 records 39 developer tests, independent IPython 3/3 PASS, 39 audit tests and
+three additional fault-injection checks. Counts overlap. Actual local JetStream
+separate-process restart/retry verification passed with simulated SFTP; no
+multi-host, physical hardware/SFTP or power-loss validation is claimed.
+Full cross-process closeout, Stage A/handoff, completion/release, saved-Session
+enumeration/batch selection, explicit closure, broader recovery and deployment
+configuration/launching/installation verification remain outside this slice.
+Q019 and W001-W057 remain CLOSED. Q022, Q006, Q018, Q024, Phase 16 and M015 remain OPEN.
+
 ## Completed Session-binding release slice validation
 
 **Status:** Complete - narrow software implementation, manual IPython validation,
