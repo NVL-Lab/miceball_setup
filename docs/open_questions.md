@@ -989,14 +989,17 @@ Q022 remains OPEN. Q019 and W001-W066 remain CLOSED. Existing Q006/Q018, Q024,
 Phase 16 and M015 statuses are unchanged. See installation_and_deployment.md for
 the supported entry points and validated_workflows.md for verification limitations.
 
-### Manual installation integration (W067 OPEN)
+### Manual installation integration (W067 CLOSED)
 
 W067 integrates the existing W061-W066 interfaces into the installation guide's
 operator runbook and typed placeholder examples, without provisioning software or
 new configuration fields. It covers machine preparation, separate service/hardware
 files, SSH trust/permissions and independent dummy-byte comparison, manual startup,
 fresh registered-node communication checks, recommended device tests and planned
-node additions/replacements. It remains OPEN pending independent validation/audit.
+node additions/replacements. W067 is CLOSED after independent user-run validation
+(4/4 tests PASS, zero failures/errors) and independent architectural audit PASS,
+with no confirmed P0-P3 findings. The five examples and documented CLI procedure
+match existing interfaces within their explicitly bounded scope.
 
 A concrete remaining implementation gap prevents claiming complete file-driven
 deployment: the shared Ingestor/StorageManager CLI accepts only a truthful explicit
@@ -1007,7 +1010,9 @@ W067 does not implement that substantial integration or select another slice.
 Real network/SSH, hardware/backend/permissions, OS signals and complete deployment
 remain operator verification. Other accepted outstanding requirements, including
 adjustable-parameter exposure and deployment integration, remain OPEN under Q022.
-Q019 and W001-W066 remain CLOSED; unrelated question/milestone statuses are unchanged.
+Q022 remains OPEN for the external-dependent callback composition and remaining
+accepted deployment obligations. Q019 and W001-W067 remain CLOSED; unrelated
+question/milestone statuses are unchanged. See W067 in validated_workflows.md.
 
 ### Q022-A accepted scope
 

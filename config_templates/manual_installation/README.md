@@ -2,7 +2,7 @@
 
 These are editable examples, not runnable laboratory configuration, credentials,
 an installer or an installation certificate. Follow the
-[manual runbook](../../docs/installation_and_deployment.md#manual-installation-runbook-w067-open).
+[manual runbook](../../docs/installation_and_deployment.md#manual-installation-runbook-w067-closed).
 Copy needed files outside Git and replace every uppercase placeholder there.
 No environment-variable substitution is performed by the loaders.
 

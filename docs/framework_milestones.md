@@ -1363,9 +1363,10 @@ Q022, Q006, Q018, Q024, Phase 16 and M015 remain OPEN.
 
 ### Manual Installation And Provisioning Integration (W067)
 
-**Status:** OPEN - manual runbook, typed placeholder examples and four focused
-synchronous example/CLI checks implemented; independent validation/audit and
-closure remain outstanding. Existing W061-W066 capabilities are integrated without
+**Status:** CLOSED - manual runbook, five typed JSON examples and guidance validated
+against existing strict loaders and CLI interfaces. Independent user-run validation:
+4/4 tests PASS, zero failures/errors. Independent architectural audit: PASS, no
+confirmed P0-P3 findings. Existing W061-W066 capabilities are integrated without
 an installer, new configuration authority or production API change.
 
 The procedure separates computer/account preparation, service/hardware/Session
@@ -1376,7 +1377,10 @@ the existing shared-pair no-external-dependents restriction: actual dependents
 require existing maintenance callbacks that the CLI cannot compose from files.
 This substantial integration gap is documented, not bypassed or implemented here.
 Real network, SSH/SFTP, hardware, OS signals and complete deployment are unverified.
-W001-W066 and Q019 remain CLOSED; Q022 and unrelated open statuses are unchanged.
+External-dependent callback composition remains an explicit Q022 implementation
+obligation; the runbook alone does not enable complete distributed deployment.
+W001-W067 and Q019 remain CLOSED; Q022 remains OPEN and unrelated open statuses
+are unchanged. See W067 in validated_workflows.md for evidence and limitations.
 
 ### Completed Installation Node Communication Verification (W066)
 

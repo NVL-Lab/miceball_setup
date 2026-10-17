@@ -1,6 +1,6 @@
 # Code Map
 
-## Manual Installation Integration (W067 Open)
+## Manual Installation Integration (W067 Closed)
 
 - `config_templates/manual_installation/`: Typed service/hardware examples with placeholder installation values, a selected-product-capable camera declaration and an explicitly isolated-only shared-storage example.
 - `tests/test_manual_installation.py::ManualInstallationTests`: Exercises example loading through public configuration/startup interfaces, identity consistency, CLI dispatch and standalone retrieval configuration without network or hardware.
@@ -8,7 +8,10 @@
 The installation guide integrates package/runtime preparation, manual SSH trust and
 permissions, existing launch/verification commands, device checks and node changes.
 It retains the unresolved shared-pair external-dependent callback composition gap;
-examples are not an installer or deployment certification. No runtime API changes.
+examples are not an installer or deployment certification. Independent user-run
+validation passed 4/4 tests; independent architectural audit PASS found no confirmed
+P0-P3 findings. Q022 remains OPEN for callback composition and remaining deployment
+obligations. No runtime API changes. See W067 in validated_workflows.md.
 
 ## Manual Service CLI (Decisions 383-388; W061-W063 Closed)
 

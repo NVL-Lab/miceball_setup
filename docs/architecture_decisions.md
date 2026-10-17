@@ -10575,9 +10575,13 @@ validated and finally re-audited PASS (W066, CLOSED), without another Controller
 owner or scientific lifecycle changes. Both partial-client ownership and interrupted
 cleanup P2 findings are resolved; 17/17 communication and 11/11 connection tests
 passed independent IPython runs. Controlled cleanup concurrency is not live NATS,
-real-socket or normal Windows scheduling validation. Parameter-definition exposure, applicable manual
-installation provisioning/integration, actual deployment checks and broader deployment
-integration remain outstanding; configuration validity is not readiness.
+real-socket or normal Windows scheduling validation. Bounded manual runbook and
+five configuration examples are independently validated (4/4 tests) and audited
+PASS with no confirmed P0-P3 findings (W067, CLOSED). This does not establish
+physical provisioning or full distributed deployment: shared-storage external-dependent
+maintenance callback composition remains an explicit implementation obligation.
+Parameter-definition exposure, actual deployment checks and remaining integration
+remain outstanding; configuration validity is not readiness.
 Q019 remains CLOSED; Q022, Q024, Phase 16, and M015 remain OPEN. General framework
 support remains separate from first-deployment/device-specific validation.
 
@@ -11041,8 +11045,12 @@ remote preservation and node installation loading are independently validated
 addressed remote maintenance is independently validated and re-audited PASS
 after the feedback correction (W062, CLOSED). Deployment-local service-file loading
 and startup integration are independently validated and audited PASS (W064, CLOSED).
-Applicable provisioning, installation verification and broader deployment integration
-remain outstanding under Q022.
+The bounded manual installation runbook/examples are independently validated and
+audited PASS (W067, CLOSED); W065/W066 separately close retrieval/communication
+verification tooling. Actual provisioning, live deployment verification and
+shared-storage external-dependent maintenance callback composition remain
+outstanding under Q022. The isolated-only declaration must not bypass actual
+dependency obligations.
 
 ---
 

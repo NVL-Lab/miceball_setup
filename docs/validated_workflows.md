@@ -5067,6 +5067,76 @@ closure, and no subsequent slice is selected here.
 
 ---
 
+# W067 - Manual Installation and Provisioning Integration
+
+**Status:** CLOSED - bounded manual workflow implemented, independently validated
+and independently audited PASS under Decisions 367-376 and 383-388.
+
+## Implemented scope
+
+The operator runbook in `installation_and_deployment.md` integrates existing
+W061-W066 capabilities: package/runtime and computer preparation, explicit service
+identities and dependencies, deployment-local service files, separate AcquisitionNode
+hardware settings, node-owned scientific/error-evidence paths, SSH/SFTP provisioning,
+host-key trust and permissions, manual service startup and node additions/replacements.
+Session-specific configuration remains separate. The common storage role aliases
+retain one shared Ingestor/StorageManager process with distinct authoritative owners.
+
+Five JSON examples in `config_templates/manual_installation/` cover Controller,
+SynchronizationManager, AcquisitionNode service settings, its separate hardware
+declarations and the shared storage pair. Guidance identifies placeholders, local
+path/reference requirements, illustrative settings and the storage example's
+isolated-only restriction. They conform to existing strict loaders and maintain
+consistent peer identities, NATS addresses, synchronization authority, node
+registration/retrieval mapping and camera configuration. They are not production
+credentials or a complete concurrently launchable distributed deployment.
+
+The runbook integrates W065 `verify-retrieval` with independently expected exact
+bytes and bounded temporary storage, and W066 `verify-node` with fresh correlated
+readiness responses. Communication success is not hardware/scientific readiness.
+Device acquisition checks remain strongly recommended, not certification or runtime
+gates. No installer, orchestrator, discovery, GUI, new lifecycle/configuration
+authority, standalone StorageManager deployment or secret-management system is added.
+No production code or public APIs changed.
+
+## Independent validation and audit
+
+- Independent user-run validation: **4/4 permanent tests PASS**, zero failures or
+  errors, in `tests/test_manual_installation.py`.
+- Independent read-only architectural audit: **PASS**, no confirmed P0-P3 findings.
+  It inspected actual loaders, CLI dispatch, launch composition, startup reconciliation
+  and SSH/SFTP interfaces. Documented commands, flags, dependencies and guidance
+  match those interfaces within the explicitly bounded supported scope.
+- Additional read-only audit checks: **PASS** for cross-file identity/address/
+  registration/product-shape consistency, sequential W001-W066 workflow numbering,
+  open-status tracking and runbook link targets. The established four-test validation
+  was not rerun by the auditor; these checks are not an additive test total.
+
+The four tests exercise public example loading/identity relationships, CLI dispatch
+and help, and standalone retrieval settings without a false no-dependents declaration.
+Dispatch tests replace runtime startup and do not establish running services.
+
+## Limitations and remaining Q022 obligations
+
+Physical provisioning, live networking/NATS, SSH/SFTP, hardware operation, OS signals
+and full distributed deployment remain unverified. Manual operator actions and
+recommended device checks are not automated installation certification.
+
+The shared Ingestor/StorageManager CLI cannot compose the external-dependent
+maintenance callbacks required for full distributed deployment. Its file/flag path
+supports only a truthful absence of external operational dependents. The runbook
+does not resolve that implementation gap; never use an empty callback map or false
+no-dependents declaration to bypass it. Existing callback interfaces remain required
+for actual dependents. This remains an explicit Q022 implementation obligation.
+
+W067 is CLOSED. Q022 remains OPEN for that callback composition and other accepted
+deployment requirements not yet implemented. Q019 and W001-W066 remain CLOSED;
+Q006/Q018, Q024, Phase 16 and M015 remain OPEN. Accepted decision bodies and prior
+validation history are preserved. No tests or additional audit were run solely for
+this documentation closure, and no subsequent slice is selected.
+
+---
+
 # Future Workflows
 
 The following workflows are expected to be added as the framework evolves.

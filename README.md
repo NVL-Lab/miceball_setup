@@ -178,9 +178,10 @@ It checks only the selected registered node, without launching a Controller or
 changing scientific operation. A current response can confirm communication even
 when hardware is unready. See
 [node communication verification](docs/installation_and_deployment.md#installation-node-communication-check-w066-closed).
-W067 integrates an operator-run [manual installation runbook](docs/installation_and_deployment.md#manual-installation-runbook-w067-open)
+W067 integrates an operator-run [manual installation runbook](docs/installation_and_deployment.md#manual-installation-runbook-w067-closed)
 and [typed local-file examples](config_templates/manual_installation/README.md).
-It remains OPEN, with no installer or complete distributed-deployment claim:
+It is CLOSED after independent 4/4 validation and architectural audit PASS, with
+no installer or complete distributed-deployment claim:
 the shared-pair CLI cannot yet compose required external-dependent maintenance
 callbacks. Never substitute a false no-dependents declaration.
 W066 is CLOSED after independent validation and final re-audit PASS, including both

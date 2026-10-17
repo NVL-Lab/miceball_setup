@@ -7,7 +7,7 @@ launching is closed in W061, remote maintenance in W062 and the remaining
 independent role launch paths in W063. Deployment-local service JSON loading and
 startup integration are independently validated and audited PASS (W064, CLOSED).
 W065/W066 installation checks are closed; W067 integrates the manual runbook and
-typed examples below (OPEN pending independent validation/audit). Actual manual
+typed examples below (CLOSED after independent validation and audit PASS). Actual manual
 provisioning and deployment/integration remain operator work, with the shared-pair
 external-dependent callback gap explicitly retained. The bounded owner
 persistence/readback foundation below is independently validated and audited
@@ -640,11 +640,16 @@ are validated as plain saved data without an active legacy writer. W055 records
 final combined implementation acceptance, including functional integration and
 the initial obsolete-fixture finding, correction and targeted verification.
 
-## Manual Installation Runbook (W067 Open)
+## Manual Installation Runbook (W067 Closed)
 
 This integrates W061-W066 capabilities, not a deployment orchestrator or proof of
-a working laboratory installation. W067 remains OPEN pending independent
-validation/audit. Follow the steps for a new deployment; use the node-change
+a working laboratory installation. W067 is CLOSED after independent user-run
+validation (4/4 tests, zero failures/errors) and independent architectural audit
+PASS with no confirmed P0-P3 findings. The five examples conform to existing strict
+loaders, with consistent identities/settings and documented CLI interfaces.
+Physical provisioning, live networks/SSH, hardware and full deployment remain
+unverified; the external-dependent callback gap below remains Q022 implementation
+work. See W067 in validated_workflows.md. Follow the steps for a new deployment; use the node-change
 procedure at the end for additions/replacements. Four focused synchronous checks
 validate the examples with actual loaders, identity relationships, CLI dispatch/
 help and standalone retrieval configuration. Dispatch tests replace runtime startup;
