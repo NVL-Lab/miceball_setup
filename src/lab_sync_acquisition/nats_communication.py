@@ -579,6 +579,7 @@ class NatsControllerCommunication:
         result_filter: Callable[[RuntimeCommandResultMessage], bool] | None = None,
         participant: RuntimeParticipant | None = None,
         command_type: str | None = None,
+        invalid_result_callback: Callable[[str], None] | None = None,
     ) -> Subscription:
         """Consume durable results addressed to this command issuer."""
 
@@ -590,10 +591,19 @@ class NatsControllerCommunication:
                                             participant.component_id, command_type)
 
         async def receive(message: Any) -> None:
-            result = RuntimeCommandResultMessage.from_dict(
-                json.loads(message.data.decode("utf-8"))
-            )
+            try:
+                result = RuntimeCommandResultMessage.from_dict(
+                    json.loads(message.data.decode("utf-8"))
+                )
+            except (ValueError, TypeError, KeyError, AttributeError):
+                if invalid_result_callback is None:
+                    raise
+                invalid_result_callback("Malformed command result")
+                await message.ack()
+                return
             if result.target_id != self._boundary.component_id:
+                if invalid_result_callback is not None:
+                    invalid_result_callback("Command result addressed to another requester")
                 await message.ack()
                 return
             if result_filter is not None and not result_filter(result):

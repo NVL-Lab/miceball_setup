@@ -991,6 +991,17 @@ the supported entry points and validated_workflows.md for verification limitatio
 
 ### Q022-A accepted scope
 
+W066 implements an explicit `verify-node` installation communication check through
+the existing Controller deployment file and NATS `check_readiness` contract, with
+fresh node/operation-scoped replies and complete request correlation. It constructs
+no Controller owner and performs no reconciliation or scientific lifecycle work.
+Current hardware-unready reports may confirm communication without establishing
+scientific readiness. W066 remains OPEN pending independent validation and audit;
+normal async execution was blocked in the Windows sandbox, and controlled checks
+do not establish normal scheduling or live deployment verification. Q022 remains
+OPEN for that validation, applicable manual provisioning/installation integration
+and remaining accepted deployment requirements.
+
 W065 implements explicit installation-time SSH/SFTP dummy-file retrieval and exact
 comparison through the common CLI and StorageManager's existing endpoint/transport
 interfaces. The expected file is independently established; bounded temporary

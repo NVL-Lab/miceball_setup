@@ -172,6 +172,14 @@ W065 is CLOSED after independent IPython validation and audit PASS; simulated
 SSH/SFTP checks do not establish live installation or hardware readiness. Q022
 remains OPEN for remaining installation and deployment work.
 
+W066 adds `lab-sync-acquisition verify-node --deployment-config PATH --node-id NODE_ID`
+using the Controller service file and existing NATS readiness request/response.
+It checks only the selected registered node, without launching a Controller or
+changing scientific operation. A current response can confirm communication even
+when hardware is unready. See
+[node communication verification](docs/installation_and_deployment.md#installation-node-communication-check-w066-implementation-open).
+W066 remains OPEN pending independent validation and audit; Q022 remains OPEN.
+
 
 
 This repository is developing a hardware-agnostic framework for:

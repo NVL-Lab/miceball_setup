@@ -42,7 +42,22 @@ installation_and_deployment.md and Decisions 383-388.
 - ServiceLauncher._feedback: Reports existing maintenance outcomes, identities, blockers and outstanding obligations without creating lifecycle evidence or outcome states.
 - ServiceLauncher._remote_handled: Validates request/result correlation using the exact published-and-acknowledged result and counts only confirmed retirement toward exit, never a cached success substituted by command ID.
 - launch_storage_services(*, servers, ingestor_id, storage_id, storage_root, recovery_journal_root, framework_journal, preservation_window_s, operational_dependents, report=print, global_artifact_root=None, retrieval_endpoints=None): Constructs the two existing paired owners with configured storage/retrieval and existing Ingestor dependency callbacks, connects their NATS handlers/readiness and runs the shared lifetime.
-- main(argv=None): Parses explicit-role startup, addressed remote maintenance or the installation-only verify-retrieval action, returning nonzero for unconfirmed or unsuccessful commands without merging configuration inputs.
+- main(argv=None): Parses explicit-role startup, addressed remote maintenance or installation-only verify-retrieval/verify-node actions, returning nonzero for unconfirmed or unsuccessful commands without merging configuration inputs.
+
+## src/lab_sync_acquisition/installation_communication.py
+
+- verify_node_communication(deployment_config, node_id, *, report=print): Uses the existing Controller configuration and NATS readiness command to verify one registered node with a fresh bounded correlated response, report technical readiness separately, and clean temporary communication without constructing a Controller owner.
+- _valid_node_readiness(data, node_id): Validates the existing node readiness payload for identity, reservation and device/service field types without deciding readiness or changing state.
+
+## tests/test_installation_communication.py
+
+- controller_configuration(directory, **changes): Writes an explicit temporary Controller deployment file for installation-check examples.
+- NodeVerificationCommandTests: Covers the common CLI's installation-check dispatch and rejection of missing settings or conflicting input modes.
+- NodeCommunicationTests: Exercises the public installation check through real node handlers and a broker double for readiness/unreadiness, fresh correlation, timeout, malformed replies, transport failure, cancellation and resource cleanup without scientific lifecycle changes.
+- NodeCommunicationTests.terminal(kind, identity, servers): Substitutes terminal connectivity while keeping the real command/result adapter.
+- NodeCommunicationTests.serve(): Attaches the actual AcquisitionNode command receiver to the broker fixture.
+- NodeCommunicationTests.verify(node="node", factory=None): Invokes the public verification operation with the temporary Controller file and captures terminal feedback.
+- NodeCommunicationTests.assert_cleaned(): Checks that verification result subscriptions and terminal connections were released.
 
 ## src/lab_sync_acquisition/deployment_configuration.py
 
@@ -1105,7 +1120,7 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 - NatsControllerCommunication.check_ready(): Returns required NATS communication readiness for launch gating.
 - NatsControllerCommunication.request_command(participant, command_type, session_id, payload, result_window_s, *, command_id=None): Publishes once and awaits the bounded correlated result; when startup integration is attached to the same boundary, it also informs the service owner of missing results or explicit readiness observations without inferring technical unreadiness or using stale subscription bindings.
 - NatsControllerCommunication.request_runtime_command(participant, command_type, session_id, payload, result_window_s, *, command_id=None): Uses a fresh-only per-attempt result subscription and nonce for Session runtime work, retaining owner command identity independently of delivery attempts.
-- NatsControllerCommunication.subscribe_command_results(session_id, callback=None, *, new_only=False, result_filter=None, participant=None, command_type=None): Preserves historical result consumption by default and optionally limits delivery/filtering for current requests, with an exact owner/operation subject when both scoping arguments are supplied.
+- NatsControllerCommunication.subscribe_command_results(session_id, callback=None, *, new_only=False, result_filter=None, participant=None, command_type=None, invalid_result_callback=None): Preserves historical result consumption by default, optionally scopes current replies to an owner/operation, and optionally reports malformed or misaddressed results without accepting them.
 - NatsControllerCommunication.session_acquisition_completion(participant, session_id): Reads the successful result for this issuer's latest exactly correlated stop_runtime request, not an unrelated or historical response.
 - NatsControllerCommunication.confirm_session_health_processing(session_id, controller): Reads retained Session health publications against completed bound subscription callbacks, refusing unknown history or unfinished inputs without processing/replaying them.
 - NatsControllerCommunication.publish_evidence(message): Retains Controller-owned publication failures and requires the existing durable stream acknowledgment, rejecting conflicting retained identities.

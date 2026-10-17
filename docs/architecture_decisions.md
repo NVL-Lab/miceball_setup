@@ -10569,9 +10569,11 @@ Session configuration and the shared Ingestor/StorageManager process. File-based
 shared-storage launching still requires explicit no external operational dependents;
 actual dependents require existing maintenance callbacks. Explicit installation
 dummy-file retrieval/content comparison is independently validated and audited PASS
-(W065, CLOSED), using simulated SSH/SFTP. Parameter-definition exposure, applicable
-manual installation provisioning/integration, Controller-to-node installation
-communication verification, actual deployment checks and broader deployment
+(W065, CLOSED), using simulated SSH/SFTP. W066 implements explicit Controller-to-node
+installation communication verification through existing NATS readiness requests,
+pending independent validation/audit (OPEN), without another Controller owner or
+scientific lifecycle changes. Parameter-definition exposure, applicable manual
+installation provisioning/integration, actual deployment checks and broader deployment
 integration remain outstanding; configuration validity is not readiness.
 Q019 remains CLOSED; Q022, Q024, Phase 16, and M015 remain OPEN. General framework
 support remains separate from first-deployment/device-specific validation.

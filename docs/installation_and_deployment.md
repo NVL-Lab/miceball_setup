@@ -439,6 +439,56 @@ not claimed as passing. See W065 in validated_workflows.md. Q022 remains OPEN fo
 Controller-to-node installation communication verification, applicable manual
 provisioning/installation integration and remaining accepted deployment work.
 
+### Installation Node Communication Check (W066 Implementation, Open)
+
+Use the existing Controller deployment-local service file and an explicitly
+registered node identity:
+
+```text
+lab-sync-acquisition verify-node --deployment-config PATH_TO_CONTROLLER_JSON --node-id NODE_ID
+```
+
+Start the target AcquisitionNode and the deployment's existing NATS/JetStream
+infrastructure first. The check reads the Controller file through the same strict
+loader as startup, including `servers`, `known_nodes` and `result_window_s`; it
+does not merge command-line connection/window overrides or alter registration.
+Unknown nodes and duplicate configured identities fail before connection. Only
+the selected node must respond; other registered nodes need not be online.
+
+The terminal creates a temporary requester connection, not another Controller
+service. It uses `NatsControllerCommunication` to issue the existing Session-free
+`check_readiness` command. A fresh-only result subscription is scoped to the node
+and operation; command, requester, source, Session and per-request nonce must
+match. Historical announcements, cached reports, publication acknowledgment and
+other operations are not current communication proof. The command does not
+provision or change NATS streams.
+
+JSON output reports `node_id`, `outcome`, `communication_confirmed`,
+`node_readiness` and `failure_reason`. Exit 0/PASS requires a valid current response
+and successful verification-resource cleanup. Hardware/device unreadiness or
+node-level `ready: false` does not fail communication verification: the existing
+readiness report is retained separately for inspection, including reservation
+and individual device/service reports. A rejected request, invalid/stale/mismatched
+reply, timeout, configuration/transport failure or unconfirmed cleanup returns
+nonzero. Timeout means current availability is unknown, not that acquisition has
+stopped. If a valid response arrives after an invalid one within the window,
+the current valid response may establish communication. Interruption leaves the
+verification unconfirmed and attempts bounded subscription/connection cleanup.
+No automatic maintenance, recovery or retry follows.
+
+The check does not initialize/open hardware, reserve devices, launch a Session,
+modify scientific/Session products or perform Controller reconciliation. It does
+not certify hardware/scientific readiness, Ingestor evidence acceptance or complete
+installation. Subject/identity consistency is not sender authentication. Ordinary
+Controller registration changes still require Controller restart.
+
+W066 remains OPEN pending independent validation and audit. Automated fixtures
+use simulated NATS with real AcquisitionNode command/readiness handling; no live
+NATS, hardware or actual OS-signal verification is claimed. Normal async execution
+stalled in the Windows sandbox; controlled coroutine checks are not normal
+asynchronous scheduling validation. Q022 remains OPEN for applicable manual
+installation/provisioning and remaining accepted deployment integration.
+
 ### Remote Service Maintenance (W062 Closed)
 
 An independent terminal can address an existing service owner without a running
@@ -588,7 +638,9 @@ the initial obsolete-fixture finding, correction and targeted verification.
    Ingestor and StorageManager together in their combined process. Verify node NATS connectivity and
    Controller-to-node readiness request/response through existing communication.
    Historical announcements are not current readiness; missing replies mean
-   unknown availability, not confirmed failure or stopped acquisition.
+   unknown availability, not confirmed failure or stopped acquisition. Use the
+   explicit `verify-node` command above with Controller's deployment file to check
+   one registered node without starting another Controller or running reconciliation.
 7. Strongly recommend a device-appropriate acquisition smoke check: communicate,
    acquire representative data, inspect output/local persistence, stop safely,
    release resources, and record results. This is not a mandatory runtime gate,
@@ -616,7 +668,7 @@ alone does not establish durable Ingestor acceptance or Q019 completeness.
 | Local configuration | W064 JSON loader/templates, startup validation; W063 node hardware loader/default and explicit paths | Configuration provisioning and external-dependent callback composition through files |
 | Node/device setup | Existing declarations/adapters and W063 file-to-object construction; W064 reuses hardware prevalidation | Additional supported adapters as required by deployments |
 | Operator parameters | `SessionConfig.device_configurations`, node initialization overrides, adapter `initialize(config)` and concrete validation | Generic adapter-defined parameter constraints, inventory exposure, Controller readback |
-| Readiness/startup | Existing reports, NATS requests/announcements and reconciliation consume W064 configured known-node identities | Live deployment verification |
+| Readiness/startup | Existing reports, NATS requests/announcements and reconciliation consume W064 configured known-node identities; W066 adds explicit installation `verify-node` using existing readiness requests (OPEN pending independent validation/audit) | Independent W066 validation/audit and live deployment verification |
 | Scientific retrieval | Existing endpoint mapping/pull and host-key checks; W064 local validation; W065 explicit installation dummy retrieval and exact comparison CLOSED after independent validation/audit PASS with simulated SSH/SFTP | Actual installation verification and live deployment validation |
 
 Current demos and optional manual hardware checks are not a general installer.

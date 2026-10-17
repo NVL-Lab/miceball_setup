@@ -286,7 +286,7 @@ async def launch_storage_services(*, servers, ingestor_id, storage_id, storage_r
 def main(argv=None):
     """Common installed CLI; unavailable role composition fails before startup."""
     parser = argparse.ArgumentParser(description="Launch existing services; Ctrl+C requests maintenance Stop.")
-    parser.add_argument("role", choices=("controller", "acquisition-node", "ingestor", "storage-manager", "synchronization-manager", "stop", "kill", "cancel", "verify-retrieval"))
+    parser.add_argument("role", choices=("controller", "acquisition-node", "ingestor", "storage-manager", "synchronization-manager", "stop", "kill", "cancel", "verify-retrieval", "verify-node"))
     parser.add_argument("--node-id")
     parser.add_argument("--source-path")
     parser.add_argument("--expected-file", type=Path)
@@ -314,6 +314,28 @@ def main(argv=None):
     parser.add_argument("--no-operational-dependents", action="store_true",
         help="Explicitly declare no external operational dependents; other dependency composition is unavailable here")
     args = parser.parse_args(argv)
+    if args.role == "verify-node":
+        forbidden = ("server", "service_id", "ingestor_id", "storage_id", "synchronization_id",
+                     "known_node", "no_known_nodes", "config", "storage_root", "recovery_journal_root",
+                     "framework_journal", "preservation_window_s", "result_window_s", "no_operational_dependents",
+                     "target_type", "target_id", "administrator_id", "stop_attempt_id", "authorize_kill",
+                     "source_path", "expected_file", "max_bytes")
+        if (args.deployment_config is None or not args.node_id
+                or any(getattr(args, field) is not None and getattr(args, field) is not False for field in forbidden)):
+            parser.error("verify-node requires only --deployment-config (Controller service file) and --node-id")
+        from lab_sync_acquisition.installation_communication import verify_node_communication
+        operation = verify_node_communication(args.deployment_config, args.node_id)
+        try:
+            return asyncio.run(operation)
+        except KeyboardInterrupt:
+            print("Installation communication interrupted; success is unconfirmed.", file=sys.stderr)
+            return 1
+        except Exception as error:
+            print(json.dumps({"node_id": args.node_id, "outcome": "FAIL", "communication_confirmed": False,
+                "node_readiness": None, "failure_reason": f"Verification execution unconfirmed ({type(error).__name__})"}, sort_keys=True))
+            return 1
+        finally:
+            operation.close()
     if args.role == "verify-retrieval":
         forbidden = ("server", "service_id", "ingestor_id", "storage_id", "synchronization_id",
                      "known_node", "no_known_nodes", "config", "storage_root", "recovery_journal_root",
@@ -342,7 +364,7 @@ def main(argv=None):
         print(json.dumps(result, sort_keys=True))
         return 0 if result["outcome"] == "PASS" else 1
     if any(value is not None for value in (args.node_id, args.source_path, args.expected_file, args.max_bytes)):
-        parser.error("Dummy-file verification arguments require the verify-retrieval action")
+        parser.error("Installation verification arguments require verify-node or verify-retrieval")
     if args.deployment_config is not None:
         if args.role in {"stop", "kill", "cancel"}:
             parser.error("--deployment-config is for service startup, not administrative commands")
