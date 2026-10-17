@@ -1,5 +1,15 @@
 # Code Map
 
+## Manual Installation Integration (W067 Open)
+
+- `config_templates/manual_installation/`: Typed service/hardware examples with placeholder installation values, a selected-product-capable camera declaration and an explicitly isolated-only shared-storage example.
+- `tests/test_manual_installation.py::ManualInstallationTests`: Exercises example loading through public configuration/startup interfaces, identity consistency, CLI dispatch and standalone retrieval configuration without network or hardware.
+
+The installation guide integrates package/runtime preparation, manual SSH trust and
+permissions, existing launch/verification commands, device checks and node changes.
+It retains the unresolved shared-pair external-dependent callback composition gap;
+examples are not an installer or deployment certification. No runtime API changes.
+
 ## Manual Service CLI (Decisions 383-388; W061-W063 Closed)
 
 The common installed `lab-sync-acquisition` entry point exposes five logical roles.

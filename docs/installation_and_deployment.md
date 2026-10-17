@@ -6,7 +6,10 @@ Q022-A Decisions 367-378 are accepted and synchronized. Bounded shared-process
 launching is closed in W061, remote maintenance in W062 and the remaining
 independent role launch paths in W063. Deployment-local service JSON loading and
 startup integration are independently validated and audited PASS (W064, CLOSED).
-Provisioning, installation verification and deployment/integration remain pending. The bounded owner
+W065/W066 installation checks are closed; W067 integrates the manual runbook and
+typed examples below (OPEN pending independent validation/audit). Actual manual
+provisioning and deployment/integration remain operator work, with the shared-pair
+external-dependent callback gap explicitly retained. The bounded owner
 persistence/readback foundation below is independently validated and audited
 after correction (W051). This is the initial manual installation contract and a
 current-interface reference, not a working installer or deployment certification.
@@ -637,12 +640,227 @@ are validated as plain saved data without an active legacy writer. W055 records
 final combined implementation acceptance, including functional integration and
 the initial obsolete-fixture finding, correction and targeted verification.
 
+## Manual Installation Runbook (W067 Open)
+
+This integrates W061-W066 capabilities, not a deployment orchestrator or proof of
+a working laboratory installation. W067 remains OPEN pending independent
+validation/audit. Follow the steps for a new deployment; use the node-change
+procedure at the end for additions/replacements. Four focused synchronous checks
+validate the examples with actual loaders, identity relationships, CLI dispatch/
+help and standalone retrieval configuration. Dispatch tests replace runtime startup;
+they do not demonstrate services running. From a checkout with the package installed:
+
+```text
+python -B -m unittest tests.test_manual_installation -v
+```
+
+### Prepare Computers And Accounts
+
+Use Python **3.12** (`>=3.12,<3.13` in `pyproject.toml`) in an operator-managed
+virtual environment on each service computer. From a locally obtained checkout
+at the chosen deployment revision:
+
+```text
+python -m venv VENV_PATH
+VENV_PYTHON -m pip install .
+VENV_PYTHON -m pip check
+VENV_PYTHON -m lab_sync_acquisition.service_launcher --help
+```
+
+`VENV_PYTHON` means the environment's actual executable (`VENV_PATH/bin/python`
+on POSIX or `VENV_PATH/Scripts/python.exe` on Windows); activate that environment
+for the `lab-sync-acquisition` commands below. Record the chosen revision and
+dependency versions in operator installation notes, not a new framework state.
+Core dependencies are nats-py, NumPy and h5py; pip installs their declared ranges.
+The shared storage computer additionally installs `VENV_PYTHON -m pip install
+".[artifact-retrieval]"` for Paramiko. Camera computers need a platform-appropriate
+OpenCV build providing `cv2`, camera drivers/backends and device permissions;
+these are manual platform requirements, not installed by the core package.
+
+| Computer responsibility | Local owners and operator preparation |
+| --- | --- |
+| Controller | One Controller process; service identity, known nodes and peer identities |
+| Shared storage | One process containing distinct Ingestor and StorageManager owners; writable Session/journal/global artifact paths, retrieval credentials and maintenance callbacks for actual dependents |
+| Synchronization | One SynchronizationManager process and its configured peers; scientific synchronization policy stays Session-specific |
+| Each node | One AcquisitionNode process; installed adapters, hardware permissions, scientific storage/error-evidence paths and SSH/SFTP account |
+| Existing NATS infrastructure | Operator-provided reachable JetStream, suitable stream permissions, storage/retention and network/security configuration |
+
+Compatible roles may share a physical computer but remain separate processes,
+except for the mandatory shared Ingestor/StorageManager process. Do not run both
+storage role aliases simultaneously. This framework does not install/start NATS,
+manage remote processes, create accounts, change firewalls or supervise services.
+
+### Prepare Deployment-Local Files
+
+Copy the relevant files from
+[`config_templates/manual_installation`](../config_templates/manual_installation/README.md)
+into an operator-chosen directory **outside Git** on each computer. The original
+top-level templates remain deliberately incomplete skeletons; the manual examples
+provide typed values and show all required file relationships. Replace uppercase
+placeholders manually; the loader does not expand environment variables. Choose
+the illustrated windows, camera backend/source, shape/dtype and collection settings
+explicitly for the installation; these values are not scientific timing defaults.
+
+Keep `CONTROLLER_ID`, `INGESTOR_ID`, `STORAGE_ID`, `SYNCHRONIZATION_ID` and each
+persistent `ACQUISITION_NODE_ID` consistent across files. The node identity must
+match its Controller `known_nodes` entry and StorageManager retrieval mapping key.
+Give every installed device a stable distinct device identity and declare its
+supported scientific products. The hardware example currently uses the file
+loader's supported `seeed_imx219_opencv` adapter; it is not a general camera
+assumption or authorization for unsupported adapters.
+
+General-service relative paths resolve beside that service file; hardware-file
+scientific/error paths resolve beside the hardware file. Choose writable storage
+and error-evidence locations and check capacity/permissions under the actual
+service account. Keep keys and private values outside Git and portable Session
+products. Do not reuse private example directories as scientific output.
+Configuration changes take effect after restart, with no live reload.
+
+Validate each edited service file locally without connecting or opening hardware:
+
+```text
+python -c "from lab_sync_acquisition.deployment_configuration import load_service_configuration; load_service_configuration('CONTROLLER_JSON', 'controller'); print('configuration valid; readiness untested')"
+```
+
+Use the same public call with `synchronization-manager`, `acquisition-node`,
+`ingestor` or `storage-manager` and its file path as appropriate. Node service
+validation reads its separate hardware file; it does not construct an adapter.
+SSH key/known-host references must already exist for storage validation. Missing
+or invalid values must be corrected before startup; do not suppress diagnostics
+or combine file inputs with explicit launch-setting flags.
+
+**Deployment integration limit:** the file/flag CLI for the shared pair supports
+only a truthful declaration that no external operational dependents exist.
+The example `no_operational_dependents: true` is for an isolated pair only, not a
+shortcut for an installation with dependent Controller, synchronization or node
+services. Such installations require actual callbacks supplied through existing
+`launch_storage_services(operational_dependents=...)`. The CLI cannot compose those
+callbacks from files today. Do not launch a full distributed installation with
+an empty dependency map. Completing that composition is substantial remaining
+integration work, outside W067; no dummy callbacks or new provisioning API are
+provided here. Standalone installation checks below remain available.
+
+### Provision And Verify Retrieval
+
+On the node, the administrator enables an existing SSH server with SFTP, creates
+or selects the retrieval account, and authorizes the approved public key. The
+account needs traversal/read permissions on the chosen dummy path and, later,
+node-owned artifact paths; it need not own or alter scientific output. On the
+storage computer protect the corresponding private key and verify the node host
+fingerprint through a trusted channel before adding it to the trusted known-hosts
+file. Do not disable host-key verification or assume an interactive passphrase
+prompt is supported by this transport. Use the configured, lab-approved usable
+key reference; this procedure adds no secret-management mechanism.
+
+Follow the exact binary dummy-file and independently prepared expected-file
+instructions in [Installation Retrieval Check](#installation-retrieval-check-w065-closed),
+then on the StorageManager computer run:
+
+```text
+lab-sync-acquisition verify-retrieval --deployment-config STORAGE_JSON --node-id NODE_ID --source-path REMOTE_FILE --expected-file EXPECTED_FILE --max-bytes 65536
+```
+
+This check needs the SSH/SFTP endpoint and optional retrieval dependency, not a
+running Controller, NATS or shared service process. Its subset configuration
+reader does not require a false no-dependents declaration. PASS requires exact
+independently expected bytes and successful cleanup within bounded temporary
+storage. Authentication/host trust, missing file, size, transfer, permission or
+content failures need operator correction and an explicit rerun. Do not derive
+expected bytes from the download. Remove only operator-created scratch files
+afterward, never scientific artifacts. This does not deeply verify scientific
+artifact contents or authorize their release.
+
+### Launch And Verify Communication
+
+With NATS/JetStream already available and the shared pair's **actual dependency
+composition resolved**, start the pair first, then SynchronizationManager, nodes,
+and Controller in separate terminals under their service accounts. These are
+manual entry points, not an automatic dependency-ordering mechanism:
+
+```text
+lab-sync-acquisition ingestor --deployment-config STORAGE_JSON
+lab-sync-acquisition synchronization-manager --deployment-config SYNC_JSON
+lab-sync-acquisition acquisition-node --deployment-config NODE_SERVICE_JSON
+lab-sync-acquisition controller --deployment-config CONTROLLER_JSON
+```
+
+The first command applies only to the supported isolated/no-dependents case; use
+the existing correctly composed shared launcher for actual external dependents,
+not that command with a false declaration. `storage-manager` is an alias for the
+same pair, never a second process. Startup diagnostics/readiness distinguish local
+configuration, NATS connectivity and peer availability. A process staying alive
+is not evidence of readiness or successful Session initialization. StorageManager
+validates retrieval settings without requiring remote SSH nodes online.
+Controller checks configured peers with bounded waits; **all registered nodes
+need not be online to start Controller**. Unreachable peers remain unknown, not
+failed or stopped. No hardware initialization or Session launch is implied here.
+
+Once the selected node's command handler and NATS are available, run in a separate
+terminal with the Controller deployment file:
+
+```text
+lab-sync-acquisition verify-node --deployment-config CONTROLLER_JSON --node-id NODE_ID
+```
+
+No Controller process is required for this check. Inspect `communication_confirmed`
+separately from `node_readiness`: a valid hardware-unready reply may PASS
+communication. Timeout/mismatched/unconfirmed replies return nonzero and mean
+availability is unknown, never stopped acquisition. Diagnose addressing,
+registration, permissions and connectivity, then rerun explicitly. Current replies,
+not historical announcements, establish communication.
+
+For retirement, Ctrl+C requests existing maintenance Stop, automatically Cancels
+a blocked attempt and keeps running. Failed/unconfirmed Stop also retains the
+process. Repeated interrupts do not authorize Kill. Use the existing
+[remote maintenance commands](#remote-service-maintenance-w062-closed) for addressed
+Stop, explicit authorized Kill continuation or Cancel; maintenance is not Session
+Normal Stop, and one owner's retirement is not proof the shared process exited.
+
+### Recommended Device Check And Node Changes
+
+Strongly recommend a representative acquisition/inspection/cleanup check for each
+new device, recorded manually, without adding a certification state or runtime
+gate. There is no general Session/Experiment operator CLI or universal device-test
+command. Use existing public Session/Experiment interfaces with explicit product
+selection, or a supported device-specific manual script. For the current camera,
+`python scripts/manual_opencv_camera_smoke.py --help` describes the existing
+hardware smoke workflow from a checkout. It constructs a local demonstration
+composition, not independent production services: run it only with exclusive
+camera access, outside an active node reservation, and choose an output directory
+outside Git. Install its device/backend dependencies first. Select scientific
+recording explicitly and inspect finalized observations, timing/provenance and
+manifests; stop and release the hardware safely. Other hardware may require vendor
+tools/manual actions until its adapter and installation loader are supported.
+No success from the communication check substitutes for this device assessment.
+
+For an added node, repeat package/account/path/SSH/hardware preparation on its
+computer, assign a unique persistent identity, and add the matching endpoint and
+Controller `known_nodes` entry in their local files. Plan affected service restarts
+only after existing cleanup, preservation and maintenance obligations permit them;
+endpoint-file edits also require restarting the shared pair. Repeat retrieval and
+communication checks and the recommended device check. Do not restart unrelated
+nodes, interrupt their acquisition, or treat a Controller restart as a Stop command.
+Controller must restart to load registration changes and use existing current
+readiness/reconciliation, not runtime registration or polling. If a safe maintenance
+window is unavailable, defer the change rather than force termination.
+
+For replacement, do not reuse an identity while the old node may still be active
+or has unresolved reservations/artifact obligations. Retire it through existing
+maintenance and preserve its scientific files, manifests and historical retrieval
+access. If a new host/path cannot provide access to the old node-owned artifacts,
+use a new persistent identity and retain the old endpoint as needed; do not redirect
+historical retrieval silently. Host replacement requires newly verified host-key
+trust. Do not manually repair journals, rewrite history or invent migration/recovery
+semantics as part of installation. Retain operator notes of configuration choices
+and results; actual network, SSH, hardware, signals and complete deployment remain
+laboratory verification, not claims of W067 validation.
+
 ## Accepted Manual Procedure
 
 1. Install the common software package and dependencies needed by the chosen
    supported devices/services. Select the service role explicitly at launch;
-   configuration does not implicitly start services. Final role CLI syntax is
-   not yet implemented or prescribed.
+   configuration does not implicitly start services. Use the existing CLI and
+   deployment files in the manual runbook below.
 2. Create installation-local configuration outside the Git repository from
    committed templates/definitions. Keep NATS/service storage/retrieval settings
    distinct from node hardware settings. Credentials and private keys stay outside
@@ -672,8 +890,10 @@ the initial obsolete-fixture finding, correction and targeted verification.
 
 Installation changes require service restart; live reload/registration is not
 required. AcquisitionNode startup supports both a default local configuration
-location and an explicit path. Exact syntax, file format, and default location
-remain ordinary implementation choices. Future setup utilities must use the same
+location and an explicit path: the flag-only path defaults to
+`~/.config/lab-sync-acquisition/acquisition-node.json`, or accepts `--config PATH`.
+File mode instead requires `node_config` in `--deployment-config PATH` and cannot
+be mixed with `--config`. Future setup utilities must use the same
 runtime file-loading/validation mechanism; no interactive installer is required.
 
 Valid configuration is not proof of hardware readiness. Invalid/missing node

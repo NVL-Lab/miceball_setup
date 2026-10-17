@@ -1,0 +1,10 @@
+{
+  "servers": ["nats://NATS_HOST:4222"],
+  "service_id": "CONTROLLER_ID",
+  "ingestor_id": "INGESTOR_ID",
+  "storage_id": "STORAGE_ID",
+  "synchronization_id": "SYNCHRONIZATION_ID",
+  "known_nodes": ["ACQUISITION_NODE_ID"],
+  "preservation_window_s": 30,
+  "result_window_s": 10
+}

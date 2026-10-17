@@ -989,6 +989,26 @@ Q022 remains OPEN. Q019 and W001-W066 remain CLOSED. Existing Q006/Q018, Q024,
 Phase 16 and M015 statuses are unchanged. See installation_and_deployment.md for
 the supported entry points and validated_workflows.md for verification limitations.
 
+### Manual installation integration (W067 OPEN)
+
+W067 integrates the existing W061-W066 interfaces into the installation guide's
+operator runbook and typed placeholder examples, without provisioning software or
+new configuration fields. It covers machine preparation, separate service/hardware
+files, SSH trust/permissions and independent dummy-byte comparison, manual startup,
+fresh registered-node communication checks, recommended device tests and planned
+node additions/replacements. It remains OPEN pending independent validation/audit.
+
+A concrete remaining implementation gap prevents claiming complete file-driven
+deployment: the shared Ingestor/StorageManager CLI accepts only a truthful explicit
+absence of external operational dependents. Actual dependent installations require
+existing maintenance callbacks; composing those through deployment files is not
+implemented. Do not use an empty callback map or false declaration to proceed.
+W067 does not implement that substantial integration or select another slice.
+Real network/SSH, hardware/backend/permissions, OS signals and complete deployment
+remain operator verification. Other accepted outstanding requirements, including
+adjustable-parameter exposure and deployment integration, remain OPEN under Q022.
+Q019 and W001-W066 remain CLOSED; unrelated question/milestone statuses are unchanged.
+
 ### Q022-A accepted scope
 
 W066 implements an explicit `verify-node` installation communication check through

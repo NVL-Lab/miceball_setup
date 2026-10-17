@@ -1361,6 +1361,23 @@ probes passed. No live JetStream, actual OS signal delivery, hardware or complet
 five-role deployment validation is claimed. W001-W065 and Q019 remain CLOSED;
 Q022, Q006, Q018, Q024, Phase 16 and M015 remain OPEN.
 
+### Manual Installation And Provisioning Integration (W067)
+
+**Status:** OPEN - manual runbook, typed placeholder examples and four focused
+synchronous example/CLI checks implemented; independent validation/audit and
+closure remain outstanding. Existing W061-W066 capabilities are integrated without
+an installer, new configuration authority or production API change.
+
+The procedure separates computer/account preparation, service/hardware/Session
+configuration, manual SSH trust/permissions, exact dummy retrieval, existing
+role launch commands, fresh registered-node checks, recommended device acquisition
+and node additions/replacements. File-driven full deployment remains limited by
+the existing shared-pair no-external-dependents restriction: actual dependents
+require existing maintenance callbacks that the CLI cannot compose from files.
+This substantial integration gap is documented, not bypassed or implemented here.
+Real network, SSH/SFTP, hardware, OS signals and complete deployment are unverified.
+W001-W066 and Q019 remain CLOSED; Q022 and unrelated open statuses are unchanged.
+
 ### Completed Installation Node Communication Verification (W066)
 
 **Status:** CLOSED - independently validated and finally re-audited PASS, with no

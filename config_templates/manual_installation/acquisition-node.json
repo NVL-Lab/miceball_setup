@@ -1,0 +1,29 @@
+{
+  "node_id": "ACQUISITION_NODE_ID",
+  "role": "acquisition",
+  "local_storage_root": "SCIENTIFIC_STORAGE_PATH",
+  "error_evidence_location": "ERROR_EVIDENCE_PATH",
+  "devices": [{
+    "adapter": "seeed_imx219_opencv",
+    "declaration": {
+      "device_id": "DEVICE_ID",
+      "device_type": "camera",
+      "enabled": true,
+      "required": true,
+      "declared_capabilities": ["camera_frames"],
+      "scientific_products": [{
+        "data_product_id": "frames",
+        "product_type": "camera_frames",
+        "schema": {"frame_shape": [480, 640, 3], "frame_dtype": "uint8"},
+        "storage_format": "hdf5"
+      }]
+    },
+    "configuration": {
+      "camera_source": "CAMERA_SOURCE_PATH",
+      "api_preference": 0,
+      "frames_per_collect": 1,
+      "frame_width": 640,
+      "frame_height": 480
+    }
+  }]
+}

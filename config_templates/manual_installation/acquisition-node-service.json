@@ -1,0 +1,9 @@
+{
+  "servers": ["nats://NATS_HOST:4222"],
+  "ingestor_id": "INGESTOR_ID",
+  "storage_id": "STORAGE_ID",
+  "synchronization_id": "SYNCHRONIZATION_ID",
+  "node_config": "acquisition-node.json",
+  "preservation_window_s": 30,
+  "result_window_s": 10
+}
