@@ -4,8 +4,8 @@
 
 Q022-A Decisions 367-378 are accepted and synchronized. Bounded shared-process
 launching is closed in W061, remote maintenance in W062 and the remaining
-independent role launch paths in W063. W064 implements deployment-local service
-JSON loading and startup integration, pending independent validation/audit.
+independent role launch paths in W063. Deployment-local service JSON loading and
+startup integration are independently validated and audited PASS (W064, CLOSED).
 Provisioning, installation verification and deployment/integration remain pending. The bounded owner
 persistence/readback foundation below is independently validated and audited
 after correction (W051). This is the initial manual installation contract and a
@@ -241,7 +241,7 @@ Focused tests:
 python -B -m unittest tests.test_independent_service_startup tests.test_service_launcher tests.test_service_maintenance_cli -v
 ```
 
-### Deployment-Local Service Files (W064 Implementation, Open)
+### Deployment-Local Service Files (W064 Closed)
 
 Decisions 367-373 and 376 remain authoritative. The role is always selected on
 the command line, never inferred from a file. The existing launchers accept an
@@ -317,10 +317,21 @@ hardware readiness, scientific readiness or installation certification. Session
 IDs, device overrides and scientific timing policies are not general-service
 settings and unknown Session-specific fields are rejected.
 
-W064 and Q022 remain OPEN pending the established validation/audit workflow.
-Provisioning, dummy SSH/SFTP retrieval verification, complete multi-computer
-deployment and broader recovery/integration remain outside this slice. Focused
-checks: `python -B -m unittest tests.test_deployment_configuration -v`.
+W064 is CLOSED. Independent IPython validation passed 9/9 configuration tests and
+the configured shared-storage startup integration. Independent read-only audit
+PASS found no confirmed P0-P3 defects or unresolved architectural blockers:
+12 focused synchronous tests, controlled startup/graceful retirement and two
+additional configuration probes passed. Counts overlap and are not additive;
+controlled execution does not establish normal async scheduling. No live NATS/
+JetStream, actual SSH/SFTP retrieval, hardware operation, OS-signal handling or
+full multi-computer deployment verification is claimed. See W064 in
+validated_workflows.md for the consolidated evidence and environment limitations.
+
+Q022 remains OPEN for applicable installation provisioning, installation
+verification including Controller-to-node communication and SSH/SFTP dummy-file
+retrieval/content comparison, and remaining deployment integration. Broader
+recovery is not completed by this slice. Focused checks:
+`python -B -m unittest tests.test_deployment_configuration -v`.
 
 ### Remote Service Maintenance (W062 Closed)
 

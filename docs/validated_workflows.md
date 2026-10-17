@@ -4845,6 +4845,96 @@ OPEN; accepted architectural decision bodies are unchanged.
 
 ---
 
+# W064 - Deployment-Local Configuration and Service Startup Integration
+
+**Status:** CLOSED - implemented, independently validated and independently
+audited PASS under Decisions 367-376 and 383-388, preserving W061-W063 lifecycle
+and maintenance contracts.
+
+## Implemented scope
+
+The existing common CLI accepts `--deployment-config PATH` for Controller,
+AcquisitionNode, SynchronizationManager, Ingestor and StorageManager. The role
+remains an explicit command-line choice, not a configuration decision. Both
+storage role names launch the existing shared Ingestor/StorageManager process
+with separate authoritative owners and a shared lifetime under Decision 376.
+No alternate launcher, configuration authority or additional service owner is
+introduced.
+
+`load_service_configuration(path, role)` validates deployment-local general-service
+JSON and returns arguments for the existing launchers. File inputs and explicit
+constructor flags cannot be combined; there is no silent override, fallback or
+live reload, and existing flag-based launch behavior remains supported. Committed
+templates contain placeholders, not actual machine values or credentials. Local
+configuration changes take effect on restart.
+
+General-service configuration supplies connection/identity settings, Controller
+known-node registration, storage/journal paths and retrieval endpoints. The
+AcquisitionNode's separate installation file retains persistent node identity,
+installed devices, explicit adapters, physical connection settings and node-owned
+scientific storage. The existing hardware reader validates this file without
+constructing another owner or opening hardware. Session participant selection,
+device overrides and scientific timing policy remain Session-specific; they are
+not moved into general-service files.
+
+Validation rejects malformed JSON, duplicate/unknown general-service fields,
+missing settings, invalid identities/URLs/windows, duplicate registered nodes,
+invalid local references and invalid hardware configuration before operational
+startup. Relative paths use the containing configuration file's directory.
+StorageManager receives existing `SshRetrievalEndpoint` objects and the global
+artifact root through its existing constructor. Validation checks local endpoint
+settings and key/known-host file references, not connectivity or authentication;
+offline nodes do not prevent startup. Valid configuration is not hardware,
+scientific or installation readiness.
+
+The existing shared-storage CLI's explicit `no_operational_dependents=true`
+restriction remains mandatory for file launches. It is never inferred from an
+omitted list, and must not be used where external operational dependents exist.
+Those installations still require their actual maintenance callbacks through
+`launch_storage_services(operational_dependents=...)`; file-based callback
+composition is not supplied. W061-W063 Stop/Kill/Cancel, closeout, preservation
+and process-exit safeguards remain authoritative and unchanged.
+
+## Validation and audit evidence
+
+- Independent user-run IPython validation: **9/9 deployment-configuration tests
+  PASS**; configured shared Ingestor/StorageManager startup integration **PASS**.
+- Independent read-only architectural audit: **PASS**, no confirmed P0-P3 defects
+  and no unresolved architectural blockers; the bounded implementation was
+  assessed as eligible for documentation closure.
+- Audit execution: **12 focused synchronous tests passed** (nine configuration
+  tests and three affected node-loader regressions). Configured shared-owner
+  startup with an offline retrieval endpoint and graceful retirement passed
+  controlled coroutine execution. This is not normal asynchronous scheduling
+  verification and is separate from independent IPython execution.
+- Two additional configuration probes passed: a missing key reference prevents
+  startup without creating storage/journal products; relative paths resolve
+  against the configuration file rather than the process working directory.
+
+These verification sets overlap and are not additive totals. The implementation's
+normal async startup test attempt stalled before setup during Windows asyncio
+socket-pair initialization; no runtime pass is claimed for that attempt. No
+implementation tests or another independent audit were performed during this
+documentation-only closure.
+
+## Limitations and status
+
+W064 does not establish live NATS/JetStream communication, actual SSH/SFTP
+retrieval, real hardware operation, OS-signal handling, normal task scheduling
+through controlled execution, full multi-computer deployment or power-loss
+guarantees. It does not provision installations, verify Controller-to-node
+communication in a deployment, or retrieve/compare an installation dummy file.
+Existing external-dependent maintenance callback requirements are not waived.
+
+W064 is CLOSED. Q022 remains OPEN for applicable accepted installation provisioning,
+installation verification (including Controller-to-node communication and
+SSH/SFTP dummy-file retrieval/content comparison) and remaining deployment
+integration. Q019 and W001-W063 remain CLOSED with their records preserved.
+Q006, Q018, Q024, Phase 16 and M015 remain OPEN. No next slice or architectural
+decision is selected by this closure.
+
+---
+
 # Future Workflows
 
 The following workflows are expected to be added as the framework evolves.

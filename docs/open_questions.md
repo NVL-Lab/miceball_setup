@@ -985,7 +985,7 @@ authorization or maintenance semantics. This adds no service launch paths or
 Controller dependency. W063 is CLOSED; general configuration/provisioning,
 installation verification, remote enumeration/batch integration and broader
 maintenance/recovery and deployment integration remain outside this slice.
-Q022 remains OPEN. Q019 and W001-W063 remain CLOSED. Existing Q006/Q018, Q024,
+Q022 remains OPEN. Q019 and W001-W064 remain CLOSED. Existing Q006/Q018, Q024,
 Phase 16 and M015 statuses are unchanged. See installation_and_deployment.md for
 the supported entry points and validated_workflows.md for verification limitations.
 
@@ -997,9 +997,13 @@ Explicit file mode does not merge with constructor flags or alter existing flag
 launching. Local retrieval settings are passed to StorageManager without checking
 remote connectivity. The existing explicit no-external-dependents limitation of
 the paired CLI remains; nonempty callback composition is not fabricated from a
-file. W064 is OPEN pending independent validation and audit. Configuration
-provisioning, installation verification and broader deployment integration remain
-outstanding; no broader question or milestone is closed here.
+file. W064 is CLOSED after independent IPython validation (9/9 configuration tests
+and shared-storage startup integration PASS) and independent architectural audit
+PASS with no confirmed P0-P3 findings or unresolved architectural blockers.
+Q022 remains OPEN for applicable installation provisioning, installation
+verification, Controller-to-node communication verification, SSH/SFTP dummy-file
+retrieval/content comparison and remaining deployment integration. No broader
+question or milestone is closed here; see W064 for verification limitations.
 
 One installed package is launched with an explicit service role. Installation uses
 local files outside Git, derived from committed templates, with general service

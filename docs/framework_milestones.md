@@ -1358,8 +1358,38 @@ the shared pair; W063 now implements the independent roles without extending tha
 historical validation claim.
 Sandbox asynchronous runs stalled before setup; synchronous tests and controlled
 probes passed. No live JetStream, actual OS signal delivery, hardware or complete
-five-role deployment validation is claimed. W001-W063 and Q019 remain CLOSED;
+five-role deployment validation is claimed. W001-W064 and Q019 remain CLOSED;
 Q022, Q006, Q018, Q024, Phase 16 and M015 remain OPEN.
+
+### Completed Deployment-Local Configuration and Startup Integration (W064)
+
+**Status:** CLOSED - independently validated and audited PASS under Decisions
+367-376 and 383-388. Explicit `--deployment-config` service files feed the existing
+Controller, AcquisitionNode, SynchronizationManager and shared Ingestor/StorageManager
+launchers; roles are not inferred from configuration. General-service settings,
+node hardware installation and Session-specific settings remain separate.
+Validation precedes operational startup without hardware access or remote
+retrieval checks, preserving W061-W063 maintenance and lifecycle safeguards.
+
+File-based shared-storage launching still requires explicit
+`no_operational_dependents=true`; deployments with actual external dependents
+require their existing maintenance callbacks and are not supported by that
+declaration. No configuration authority, provisioning system or launcher is added.
+
+Independent IPython validation: 9/9 configuration tests and configured shared
+storage startup integration PASS. Independent read-only audit: PASS, no confirmed
+P0-P3 findings or unresolved architectural blockers. Audit checks passed 12
+synchronous tests, controlled startup/graceful retirement and two configuration
+probes. These overlapping sets are not additive; controlled execution is not
+normal async scheduling validation. W064 records the sandbox initialization
+limitation without treating a blocked run as a pass.
+
+No live NATS/JetStream, actual SSH/SFTP retrieval, real hardware, OS-signal or
+full multi-computer deployment validation is established. Q022 remains OPEN for
+applicable installation provisioning/verification, Controller-to-node communication
+verification, SSH/SFTP dummy retrieval/content comparison and remaining deployment
+integration. Q019 and W001-W063 remain CLOSED; Q006/Q018, Q024, Phase 16 and M015
+remain OPEN. No next workflow is selected here.
 
 ### Completed Independent Service Launch Paths (W063)
 

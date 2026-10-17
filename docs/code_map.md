@@ -24,8 +24,8 @@ terminals address services directly without Controller. Confirmed maintenance an
 required final command-result handling precede process exit. Existing identities,
 temporary requesters, local OS administrator name and explicit remote administrator
 identity are not authentication infrastructure. Terminal feedback uses existing
-outcomes, with exit code 0 only for confirmed success. W064 implements explicit
-deployment-local service-file inputs, pending independent validation and audit;
+outcomes, with exit code 0 only for confirmed success. W064 closes explicit
+deployment-local service-file inputs after independent validation and audit PASS;
 provisioning, installation verification and broader deployment integration remain outstanding;
 Q022 remains OPEN. See
 installation_and_deployment.md and Decisions 383-388.
@@ -103,8 +103,9 @@ Existing constructors, `AcquisitionNode.declared_devices`/readiness,
 readiness commands, `NatsServiceMaintenanceCommunication.start()` with configured
 participants, `Controller.reconcile_outcomes()`, and StorageManager endpoint/pull
 interfaces are reusable. The paired-role CLI is closed in W061 and W063 closes
-the remaining roles plus node hardware JSON loading. W064 adds general service
-JSON loading and local endpoint validation, pending independent validation/audit.
+the remaining roles plus node hardware JSON loading. W064 closes general service
+JSON loading/startup integration and local endpoint validation after independent
+validation and audit PASS, retaining the shared CLI's explicit no-dependents restriction.
 Generic adjustable-parameter inventory, provisioning and installation dummy
 retrieval remain outstanding. Configuration validity is not hardware readiness; device smoke tests are
 recommended, not commissioning/runtime gates. Q019 remains CLOSED; Q022/Q024/Phase 16/M015

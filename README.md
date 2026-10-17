@@ -156,9 +156,13 @@ and normal asynchronous execution.
 
 W064 adds explicit `--deployment-config PATH` service-file input to the same
 launchers, with separate node hardware configuration and local retrieval settings.
-See [service-file usage](docs/installation_and_deployment.md#deployment-local-service-files-w064-implementation-open)
-and `config_templates/`. W064 remains OPEN pending independent validation/audit;
-this is not configuration provisioning or complete deployment verification.
+See [service-file usage](docs/installation_and_deployment.md#deployment-local-service-files-w064-closed)
+and `config_templates/`. W064 is CLOSED after independent IPython validation and
+architectural audit PASS. Shared-storage file launches still require an explicit
+no-external-dependents declaration; actual dependents need their existing
+maintenance callbacks. This is not installation provisioning or complete
+deployment verification; Q022 remains OPEN. See
+[W064](docs/validated_workflows.md#w064---deployment-local-configuration-and-service-startup-integration).
 
 
 

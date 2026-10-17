@@ -10560,11 +10560,17 @@ subject to ordinary readiness, initialization, and safety requirements. No GUI,
 graphical installer, installation service, discovery, or unnecessary deployment
 machinery is accepted. A future utility may automate the same file-based workflow.
 
-**Q022-A implementation status (Decisions 367-374):** Accepted and synchronized,
-not implemented or independently validated. Existing package, constructor settings,
-inventory, Session overrides, readiness, startup reconciliation, NATS communication,
-and SSH/SFTP retrieval are reusable foundations. Role launching, local file loading,
-parameter-definition exposure, and installation verification still need integration.
+**Q022-A implementation status (Decisions 367-374):** Accepted and synchronized.
+Bounded common launching, remote maintenance and remaining independent launch paths
+are closed in W061-W063. Deployment-local general-service configuration loading,
+validation and startup integration for all five logical roles are independently
+validated and audited PASS (W064, CLOSED), preserving separate node hardware and
+Session configuration and the shared Ingestor/StorageManager process. File-based
+shared-storage launching still requires explicit no external operational dependents;
+actual dependents require existing maintenance callbacks. Parameter-definition
+exposure, applicable installation provisioning/verification, Controller-to-node
+communication verification, SSH/SFTP dummy retrieval/content comparison and broader
+deployment integration remain outstanding; configuration validity is not readiness.
 Q019 remains CLOSED; Q022, Q024, Phase 16, and M015 remain OPEN. General framework
 support remains separate from first-deployment/device-specific validation.
 
@@ -11026,8 +11032,10 @@ remote preservation and node installation loading are independently validated
 (IPython 60/60) and independently audited PASS with no confirmed P0-P3 findings
 (W063, CLOSED);
 addressed remote maintenance is independently validated and re-audited PASS
-after the feedback correction (W062, CLOSED). General configuration/provisioning
-and broader deployment integration remain outstanding under Q022.
+after the feedback correction (W062, CLOSED). Deployment-local service-file loading
+and startup integration are independently validated and audited PASS (W064, CLOSED).
+Applicable provisioning, installation verification and broader deployment integration
+remain outstanding under Q022.
 
 ---
 
