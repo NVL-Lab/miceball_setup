@@ -1358,8 +1358,30 @@ the shared pair; W063 now implements the independent roles without extending tha
 historical validation claim.
 Sandbox asynchronous runs stalled before setup; synchronous tests and controlled
 probes passed. No live JetStream, actual OS signal delivery, hardware or complete
-five-role deployment validation is claimed. W001-W064 and Q019 remain CLOSED;
+five-role deployment validation is claimed. W001-W065 and Q019 remain CLOSED;
 Q022, Q006, Q018, Q024, Phase 16 and M015 remain OPEN.
+
+### Completed Installation Retrieval Verification (W065)
+
+**Status:** CLOSED - independently validated and audited PASS. The explicit
+`verify-retrieval` CLI reuses deployment-local StorageManager endpoints and existing
+SSH/SFTP transport to compare a remote dummy file with independently established
+expected bytes. PASS requires exact contents and successful temporary cleanup;
+storage is bounded and failures omit raw authentication exception details. No
+scientific artifacts, Session records, Evidence Archives or lifecycle state change.
+
+Independent IPython validation: 11/11 tests PASS, zero failures/errors. Independent
+read-only audit: PASS, no confirmed P0-P3 findings or architectural blockers;
+12 focused tests and two probes passed (cumulative size overflow despite a matching
+prefix, and cleanup failure preventing PASS). Counts overlap and are not additive.
+SSH/SFTP was simulated; no live infrastructure, hardware or actual OS-signal
+verification was performed. Two existing collection hard-link regressions were
+blocked by Windows sandbox permissions (WinError 5), not claimed as passing.
+
+Q022 remains OPEN for Controller-to-AcquisitionNode installation communication
+verification, applicable manual installation/provisioning integration and remaining
+accepted deployment requirements. Q019 and W001-W064 remain CLOSED; Q006/Q018,
+Q024, Phase 16 and M015 remain OPEN. This closes no other workflow or question.
 
 ### Completed Deployment-Local Configuration and Startup Integration (W064)
 

@@ -26,7 +26,9 @@ temporary requesters, local OS administrator name and explicit remote administra
 identity are not authentication infrastructure. Terminal feedback uses existing
 outcomes, with exit code 0 only for confirmed success. W064 closes explicit
 deployment-local service-file inputs after independent validation and audit PASS;
-provisioning, installation verification and broader deployment integration remain outstanding;
+W065 closes explicit installation dummy-file retrieval/exact comparison after
+independent validation and audit PASS using simulated SSH/SFTP. Applicable manual
+provisioning, installation communication checks and broader deployment integration remain outstanding;
 Q022 remains OPEN. See
 installation_and_deployment.md and Decisions 383-388.
 
@@ -114,8 +116,11 @@ interfaces are reusable. The paired-role CLI is closed in W061 and W063 closes
 the remaining roles plus node hardware JSON loading. W064 closes general service
 JSON loading/startup integration and local endpoint validation after independent
 validation and audit PASS, retaining the shared CLI's explicit no-dependents restriction.
-Generic adjustable-parameter inventory, provisioning and installation dummy
-retrieval remain outstanding. Configuration validity is not hardware readiness; device smoke tests are
+W065 closes the explicit installation dummy retrieval/exact-comparison command,
+with independent expected bytes, bounded temporary storage and cleanup-before-PASS.
+Generic adjustable-parameter inventory, applicable manual provisioning/installation
+integration, Controller-to-node installation communication checks and actual live
+deployment verification remain outstanding. Configuration validity is not hardware readiness; device smoke tests are
 recommended, not commissioning/runtime gates. Q019 remains CLOSED; Q022/Q024/Phase 16/M015
 remain OPEN.
 

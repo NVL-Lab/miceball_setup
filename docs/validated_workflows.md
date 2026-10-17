@@ -4935,6 +4935,68 @@ decision is selected by this closure.
 
 ---
 
+# W065 - SSH/SFTP Installation Retrieval Verification
+
+**Status:** CLOSED - implemented, independently validated and independently
+audited PASS under the accepted Q022 installation/retrieval architecture, including
+Decisions 247, 298 and 367-376. No new architectural decision is introduced.
+
+## Implemented scope
+
+The explicit installation command is:
+
+```text
+lab-sync-acquisition verify-retrieval --deployment-config PATH --node-id NODE_ID --source-path REMOTE_FILE --expected-file EXPECTED_FILE --max-bytes 65536
+```
+
+The command uses StorageManager's existing deployment-local retrieval endpoint
+mapping and SSH/SFTP transport through
+`PersistentStorageManager.verify_installation_retrieval(...)`. Expected bytes come
+from an independently established local file, not the downloaded content. Exact
+content matching and successful temporary-resource cleanup are both required
+before PASS; cumulative size enforcement bounds temporary storage and cannot
+accept truncated content merely because a prefix matches. Invalid configuration,
+unknown nodes, missing files, authentication/transfer failures, mismatches and
+interruption cannot establish successful verification. Failure reports omit raw
+authentication exception details.
+
+The operation does not modify scientific artifacts, Session records, Evidence
+Archives or lifecycle state. It is explicit installation verification, not a new
+certification state, runtime gate, scientific-artifact policy or service launch.
+It preserves existing collection and shared-process ownership. Reading retrieval
+configuration does not waive operational launchers' external-dependent maintenance
+callback requirements.
+
+## Independent validation and audit
+
+- Independent user-run IPython validation: **11/11 installation-retrieval tests
+  PASS**, zero failures or errors.
+- Independent read-only architectural audit: **PASS**, no confirmed P0-P3 findings
+  and no unresolved architectural blockers; eligible for documentation closure.
+- Audit execution: **12 focused tests PASS**, including the installation tests and
+  one directly affected configuration check. These overlap with the independent
+  validation and are not an additive total.
+- Two additional independent probes passed: cumulative size overflow cannot be
+  concealed by a matching prefix, and cleanup failure cannot authorize PASS.
+
+## Limitations and status
+
+SSH/SFTP was simulated. No live infrastructure, hardware or actual OS-signal
+verification was performed. Two existing collection regressions were blocked at
+hard-link promotion by Windows sandbox permissions (`os.link`, WinError 5); they
+were not claimed as passing and this environment limitation is not a confirmed
+W065 defect. No implementation tests or additional audit were run for this
+documentation-only closure.
+
+W065 is CLOSED. Q022 remains OPEN for Controller-to-AcquisitionNode installation
+communication verification, applicable manual installation/provisioning integration
+and any other accepted deployment requirements not yet implemented. Actual live
+installation checks remain distinct from the validated simulated procedure.
+Q019 and W001-W064 remain CLOSED with historical records preserved. Q006/Q018,
+Q024, Phase 16 and M015 remain OPEN. No subsequent slice is selected here.
+
+---
+
 # Future Workflows
 
 The following workflows are expected to be added as the framework evolves.

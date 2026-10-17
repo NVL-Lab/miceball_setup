@@ -333,7 +333,7 @@ retrieval/content comparison, and remaining deployment integration. Broader
 recovery is not completed by this slice. Focused checks:
 `python -B -m unittest tests.test_deployment_configuration -v`.
 
-### Installation Retrieval Check (W065 Implementation, Open)
+### Installation Retrieval Check (W065 Closed)
 
 Decision 373 requires successful SSH/SFTP setup and dummy-file retrieval/content
 comparison when installing a node. W065 adds an explicitly invoked installation
@@ -428,8 +428,16 @@ successful verification; it never issues service Kill. A PASS verifies only this
 tested retrieval path and contents at that time. It proves neither ongoing
 reachability, scientific completeness, hardware readiness nor Session readiness.
 Controller-to-node NATS installation verification remains separate. Automated
-checks use simulated SSH/SFTP, not a live installation. W065 and Q022 remain OPEN
-pending independent validation/audit and remaining installation/deployment work.
+checks use simulated SSH/SFTP, not a live installation. W065 is CLOSED after
+independent IPython validation (11/11 PASS) and independent audit PASS with no
+confirmed P0-P3 findings or architectural blockers. The audit passed 12 focused
+tests and two additional probes for cumulative overflow and cleanup failure;
+these overlapping verification counts are not additive. No live infrastructure,
+hardware or actual OS-signal verification was performed. Two existing collection
+hard-link regressions were blocked by Windows sandbox permissions (WinError 5),
+not claimed as passing. See W065 in validated_workflows.md. Q022 remains OPEN for
+Controller-to-node installation communication verification, applicable manual
+provisioning/installation integration and remaining accepted deployment work.
 
 ### Remote Service Maintenance (W062 Closed)
 
@@ -609,7 +617,7 @@ alone does not establish durable Ingestor acceptance or Q019 completeness.
 | Node/device setup | Existing declarations/adapters and W063 file-to-object construction; W064 reuses hardware prevalidation | Additional supported adapters as required by deployments |
 | Operator parameters | `SessionConfig.device_configurations`, node initialization overrides, adapter `initialize(config)` and concrete validation | Generic adapter-defined parameter constraints, inventory exposure, Controller readback |
 | Readiness/startup | Existing reports, NATS requests/announcements and reconciliation consume W064 configured known-node identities | Live deployment verification |
-| Scientific retrieval | Existing endpoint mapping/pull and host-key checks; W064 local validation; W065 explicit installation dummy retrieval and exact comparison implemented, pending independent validation/audit | Actual installation verification and live deployment validation |
+| Scientific retrieval | Existing endpoint mapping/pull and host-key checks; W064 local validation; W065 explicit installation dummy retrieval and exact comparison CLOSED after independent validation/audit PASS with simulated SSH/SFTP | Actual installation verification and live deployment validation |
 
 Current demos and optional manual hardware checks are not a general installer.
 Concrete camera configuration is an adapter example, not the generic parameter

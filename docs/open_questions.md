@@ -985,7 +985,7 @@ authorization or maintenance semantics. This adds no service launch paths or
 Controller dependency. W063 is CLOSED; general configuration/provisioning,
 installation verification, remote enumeration/batch integration and broader
 maintenance/recovery and deployment integration remain outside this slice.
-Q022 remains OPEN. Q019 and W001-W064 remain CLOSED. Existing Q006/Q018, Q024,
+Q022 remains OPEN. Q019 and W001-W065 remain CLOSED. Existing Q006/Q018, Q024,
 Phase 16 and M015 statuses are unchanged. See installation_and_deployment.md for
 the supported entry points and validated_workflows.md for verification limitations.
 
@@ -996,10 +996,13 @@ comparison through the common CLI and StorageManager's existing endpoint/transpo
 interfaces. The expected file is independently established; bounded temporary
 downloads are cleaned without scientific/Session writes. Reading retrieval inputs
 does not waive the paired operational launcher's external-dependent callbacks.
-W065 remains OPEN pending independent validation and audit. This is not live
-installation verification, a certification system or a runtime gate. Controller-
-to-node NATS verification and remaining provisioning/deployment integration stay
-outside this slice.
+W065 is CLOSED after independent IPython validation (11/11 PASS) and independent
+audit PASS with no confirmed P0-P3 findings or architectural blockers. The audit
+passed 12 focused tests and two additional probes; overlapping counts are not
+additive. This is not live installation verification, a certification system or
+a runtime gate. Controller-to-node installation communication verification,
+applicable manual provisioning/installation integration and remaining accepted
+deployment requirements remain open under Q022.
 
 W064 implements deployment-local general-service JSON loading, validation and
 integration with all existing launch paths, separate from the node hardware file.

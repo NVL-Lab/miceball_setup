@@ -167,9 +167,10 @@ deployment verification; Q022 remains OPEN. See
 W065 adds an explicit `lab-sync-acquisition verify-retrieval` installation check
 using the StorageManager service file, a configured node, a remote dummy file and
 independent local expected bytes. See
-[retrieval verification](docs/installation_and_deployment.md#installation-retrieval-check-w065-implementation-open).
-This implementation remains OPEN pending independent validation/audit; simulated
-SSH/SFTP checks do not establish live installation or hardware readiness.
+[retrieval verification](docs/installation_and_deployment.md#installation-retrieval-check-w065-closed).
+W065 is CLOSED after independent IPython validation and audit PASS; simulated
+SSH/SFTP checks do not establish live installation or hardware readiness. Q022
+remains OPEN for remaining installation and deployment work.
 
 
 

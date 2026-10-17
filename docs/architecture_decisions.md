@@ -10567,10 +10567,12 @@ validation and startup integration for all five logical roles are independently
 validated and audited PASS (W064, CLOSED), preserving separate node hardware and
 Session configuration and the shared Ingestor/StorageManager process. File-based
 shared-storage launching still requires explicit no external operational dependents;
-actual dependents require existing maintenance callbacks. Parameter-definition
-exposure, applicable installation provisioning/verification, Controller-to-node
-communication verification, SSH/SFTP dummy retrieval/content comparison and broader
-deployment integration remain outstanding; configuration validity is not readiness.
+actual dependents require existing maintenance callbacks. Explicit installation
+dummy-file retrieval/content comparison is independently validated and audited PASS
+(W065, CLOSED), using simulated SSH/SFTP. Parameter-definition exposure, applicable
+manual installation provisioning/integration, Controller-to-node installation
+communication verification, actual deployment checks and broader deployment
+integration remain outstanding; configuration validity is not readiness.
 Q019 remains CLOSED; Q022, Q024, Phase 16, and M015 remain OPEN. General framework
 support remains separate from first-deployment/device-specific validation.
 
