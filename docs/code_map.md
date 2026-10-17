@@ -40,11 +40,13 @@ installation_and_deployment.md and Decisions 383-388.
 - ServiceLauncher._feedback: Reports existing maintenance outcomes, identities, blockers and outstanding obligations without creating lifecycle evidence or outcome states.
 - ServiceLauncher._remote_handled: Validates request/result correlation using the exact published-and-acknowledged result and counts only confirmed retirement toward exit, never a cached success substituted by command ID.
 - launch_storage_services(*, servers, ingestor_id, storage_id, storage_root, recovery_journal_root, framework_journal, preservation_window_s, operational_dependents, report=print, global_artifact_root=None, retrieval_endpoints=None): Constructs the two existing paired owners with configured storage/retrieval and existing Ingestor dependency callbacks, connects their NATS handlers/readiness and runs the shared lifetime.
-- main(argv=None): Parses explicit-role startup from constructor flags or a separate --deployment-config file without merging, or addressed remote Stop/Kill/Cancel, returning nonzero for unconfirmed or unsuccessful commands.
+- main(argv=None): Parses explicit-role startup, addressed remote maintenance or the installation-only verify-retrieval action, returning nonzero for unconfirmed or unsuccessful commands without merging configuration inputs.
 
 ## src/lab_sync_acquisition/deployment_configuration.py
 
 - load_service_configuration(path, role): Reads and validates deployment-local JSON for an explicitly selected service role, returning existing launcher arguments without connecting, constructing owners or opening hardware.
+- load_retrieval_configuration(path): Reads StorageManager identity/root and the existing endpoint mapping from the same deployment file for installation verification without launching services or making a no-dependents declaration.
+- _parse_retrieval_endpoints(directory, endpoints): Shares strict endpoint/port/key-reference validation between service startup and installation retrieval, returning existing SshRetrievalEndpoint objects.
 - _unique_object(pairs): Rejects duplicate JSON fields instead of silently selecting a value.
 - _local_path(directory, value, field): Resolves an explicit local path relative to its configuration file without creating it.
 - _identity(value, kind, field): Validates configured participant identities through the existing runtime subject contract.
@@ -55,6 +57,12 @@ installation_and_deployment.md and Decisions 383-388.
 - DeploymentConfigurationTests: Covers role-specific file loading, invalid configuration, node prevalidation, explicit input modes, Session separation and common CLI dispatch.
 - DeploymentConfigurationTests.load(role, data=None): Supplies a temporary service file to the public configuration loader.
 - ConfiguredStorageStartupTests: Exercises configured shared-owner startup/readiness and graceful maintenance with offline retrieval endpoints using existing broker fixtures.
+
+## tests/test_installation_retrieval.py
+
+- InstallationRetrievalTests: Exercises the public installation command through the existing simulated SSH/SFTP client for exact matching, failures, identity/configuration, bounded temporary cleanup and unchanged scientific/Session products.
+- InstallationRetrievalTests.invoke(*, node="node", max_bytes=1024): Calls the common CLI using independent expected contents and the temporary deployment file, returning its exit code and JSON report.
+- InstallationRetrievalTests.snapshot(): Captures fixture-file bytes and modification times to verify non-destructive installation checks.
 
 ## src/lab_sync_acquisition/service_startup.py
 
@@ -1252,6 +1260,9 @@ recovery is introduced. Phase 16 and M015 remain open.
 
 - PersistentStorageManager: Owns durable Session Records, Evidence Archives, saved-Session selection, recovery and global scientific-artifact collection without scientific-envelope persistence.
 - PersistentStorageManager(storage_root, *, global_artifact_root=None, retrieval_endpoints=None, evidence_publisher=None, component_id="storage"): Uses an explicit directory root for existing Session/framework products, retaining node-keyed retrieval settings and collection-evidence publication.
+- PersistentStorageManager.verify_installation_retrieval(node_id, source_path, expected_content, *, max_bytes): Retrieves one explicitly designated dummy file through existing SSH/SFTP into a bounded auto-cleaned temporary destination and reports exact comparison with independent expected bytes without creating Session or artifact evidence.
+- _BoundedVerificationWriter(output, max_bytes): Limits installation-only temporary file writes while retaining the existing SFTP copy implementation.
+- _BoundedVerificationWriter.write(content): Rejects oversized or incomplete local writes instead of allowing a false successful comparison.
 - PersistentStorageManager.storage_root: Returns the configured directory root, not a scientific-envelope record file.
 - PersistentStorageManager._require_historical_session_intake(record, session_id): Validates any historical envelope/audit fields as plain saved data without recreating legacy writers or accepting incomplete/cross-Session history.
 - PersistentStorageManager.write_session_record: Serializes and durably writes caller-supplied Session Record evidence under the preservation lock, refusing managed final-record mutation after archive closure.

@@ -45,6 +45,46 @@ def load_service_configuration(path, role):
         raise ValueError(f"Deployment configuration {path}: {error}") from error
 
 
+def load_retrieval_configuration(path):
+    """Read only installation retrieval inputs from the existing StorageManager service file."""
+    path = Path(path).absolute()
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=_unique_object)
+        if not isinstance(data, dict):
+            raise ValueError("Expected the StorageManager deployment configuration object")
+        _identity(data["storage_id"], "storage_manager", "storage_id")
+        return {"storage_root": _local_path(path.parent, data["storage_root"], "storage_root"),
+                "component_id": data["storage_id"],
+                "retrieval_endpoints": _parse_retrieval_endpoints(path.parent, data["retrieval_endpoints"])}
+    except (OSError, ValueError, TypeError, KeyError) as error:
+        raise ValueError(f"Deployment retrieval configuration {path}: {error}") from error
+
+
+def _parse_retrieval_endpoints(directory, endpoints):
+    if not isinstance(endpoints, dict):
+        raise ValueError("retrieval_endpoints requires an explicit node-to-endpoint object")
+    parsed = {}
+    for node_id, endpoint in endpoints.items():
+        _identity(node_id, "acquisition_node", "retrieval_endpoints node")
+        if (not isinstance(endpoint, dict) or not {"host", "username", "key_filename"} <= endpoint.keys()
+                or endpoint.keys() - {"host", "username", "port", "key_filename", "known_hosts_path"}):
+            raise ValueError("Retrieval endpoints require host, username and key_filename; only port and known_hosts_path are optional")
+        if any(not isinstance(endpoint[k], str) or not endpoint[k].strip() for k in ("host", "username")):
+            raise ValueError("Retrieval host and username must be nonempty strings")
+        port = endpoint.get("port", 22)
+        if type(port) is not int or not 1 <= port <= 65535:
+            raise ValueError("Retrieval port must be an integer in 1..65535")
+        endpoint = dict(endpoint)
+        for field in ("key_filename", "known_hosts_path"):
+            if field in endpoint:
+                reference = _local_path(directory, endpoint[field], f"retrieval {field}")
+                if not reference.is_file():
+                    raise ValueError(f"Retrieval {field} must reference an existing local file")
+                endpoint[field] = str(reference)
+        parsed[node_id] = SshRetrievalEndpoint(**endpoint)
+    return parsed
+
+
 def _validate_service_configuration(data, directory, role):
     pair = role in {"ingestor", "storage-manager"}
     common = {"servers", "ingestor_id", "storage_id", "preservation_window_s"}
@@ -114,28 +154,6 @@ def _validate_service_configuration(data, directory, role):
             data[field] = _local_path(directory, data[field], field)
             if data[field].exists() and (data[field].is_dir() if field == "framework_journal" else not data[field].is_dir()):
                 raise ValueError(f"{field} has the wrong local file/directory type")
-        endpoints = data["retrieval_endpoints"]
-        if not isinstance(endpoints, dict):
-            raise ValueError("retrieval_endpoints requires an explicit node-to-endpoint object")
-        parsed = {}
-        for node_id, endpoint in endpoints.items():
-            _identity(node_id, "acquisition_node", "retrieval_endpoints node")
-            if (not isinstance(endpoint, dict) or not {"host", "username", "key_filename"} <= endpoint.keys()
-                    or endpoint.keys() - {"host", "username", "port", "key_filename", "known_hosts_path"}):
-                raise ValueError("Retrieval endpoints require host, username and key_filename; only port and known_hosts_path are optional")
-            if any(not isinstance(endpoint[k], str) or not endpoint[k].strip() for k in ("host", "username")):
-                raise ValueError("Retrieval host and username must be nonempty strings")
-            port = endpoint.get("port", 22)
-            if type(port) is not int or not 1 <= port <= 65535:
-                raise ValueError("Retrieval port must be an integer in 1..65535")
-            endpoint = dict(endpoint)
-            for field in ("key_filename", "known_hosts_path"):
-                if field in endpoint:
-                    reference = _local_path(directory, endpoint[field], f"retrieval {field}")
-                    if not reference.is_file():
-                        raise ValueError(f"Retrieval {field} must reference an existing local file")
-                    endpoint[field] = str(reference)
-            parsed[node_id] = SshRetrievalEndpoint(**endpoint)
-        data["retrieval_endpoints"] = parsed
+        data["retrieval_endpoints"] = _parse_retrieval_endpoints(directory, data["retrieval_endpoints"])
         data["operational_dependents"] = {}
     return data

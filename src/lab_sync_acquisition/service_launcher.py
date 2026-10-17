@@ -286,7 +286,11 @@ async def launch_storage_services(*, servers, ingestor_id, storage_id, storage_r
 def main(argv=None):
     """Common installed CLI; unavailable role composition fails before startup."""
     parser = argparse.ArgumentParser(description="Launch existing services; Ctrl+C requests maintenance Stop.")
-    parser.add_argument("role", choices=("controller", "acquisition-node", "ingestor", "storage-manager", "synchronization-manager", "stop", "kill", "cancel"))
+    parser.add_argument("role", choices=("controller", "acquisition-node", "ingestor", "storage-manager", "synchronization-manager", "stop", "kill", "cancel", "verify-retrieval"))
+    parser.add_argument("--node-id")
+    parser.add_argument("--source-path")
+    parser.add_argument("--expected-file", type=Path)
+    parser.add_argument("--max-bytes", type=int)
     parser.add_argument("--target-type", choices=("controller", "acquisition_node", "ingestor", "storage_manager", "synchronization_manager"))
     parser.add_argument("--target-id")
     parser.add_argument("--administrator-id")
@@ -310,6 +314,35 @@ def main(argv=None):
     parser.add_argument("--no-operational-dependents", action="store_true",
         help="Explicitly declare no external operational dependents; other dependency composition is unavailable here")
     args = parser.parse_args(argv)
+    if args.role == "verify-retrieval":
+        forbidden = ("server", "service_id", "ingestor_id", "storage_id", "synchronization_id",
+                     "known_node", "no_known_nodes", "config", "storage_root", "recovery_journal_root",
+                     "framework_journal", "preservation_window_s", "result_window_s", "no_operational_dependents",
+                     "target_type", "target_id", "administrator_id", "stop_attempt_id", "authorize_kill")
+        if (args.deployment_config is None or not args.node_id or not args.source_path
+                or args.expected_file is None or args.max_bytes is None or args.max_bytes <= 0
+                or any(getattr(args, field) is not None and getattr(args, field) is not False for field in forbidden)):
+            parser.error("verify-retrieval requires only --deployment-config, --node-id, --source-path, --expected-file and positive --max-bytes")
+        result = {"node_id": args.node_id, "outcome": "FAIL", "retrieval_succeeded": False,
+                  "content_match": None, "failure_reason": None}
+        try:
+            from lab_sync_acquisition.deployment_configuration import load_retrieval_configuration
+            settings = load_retrieval_configuration(args.deployment_config)
+            with args.expected_file.open("rb") as reference:
+                expected = reference.read(args.max_bytes + 1)
+            if len(expected) > args.max_bytes:
+                raise ValueError("Expected dummy file exceeds max_bytes")
+            storage = PersistentStorageManager(**settings)
+            result = storage.verify_installation_retrieval(args.node_id, args.source_path, expected,
+                                                         max_bytes=args.max_bytes)
+        except KeyboardInterrupt:
+            result["failure_reason"] = "Installation verification interrupted; success is not confirmed"
+        except Exception as error:
+            result["failure_reason"] = f"Local verification inputs failed ({type(error).__name__}); check configuration, expected file and max_bytes"
+        print(json.dumps(result, sort_keys=True))
+        return 0 if result["outcome"] == "PASS" else 1
+    if any(value is not None for value in (args.node_id, args.source_path, args.expected_file, args.max_bytes)):
+        parser.error("Dummy-file verification arguments require the verify-retrieval action")
     if args.deployment_config is not None:
         if args.role in {"stop", "kill", "cancel"}:
             parser.error("--deployment-config is for service startup, not administrative commands")

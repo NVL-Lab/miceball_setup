@@ -333,6 +333,104 @@ retrieval/content comparison, and remaining deployment integration. Broader
 recovery is not completed by this slice. Focused checks:
 `python -B -m unittest tests.test_deployment_configuration -v`.
 
+### Installation Retrieval Check (W065 Implementation, Open)
+
+Decision 373 requires successful SSH/SFTP setup and dummy-file retrieval/content
+comparison when installing a node. W065 adds an explicitly invoked installation
+operation, not a Session command, long-lived service, certification registry or
+continuously enforced runtime gate. It reuses StorageManager's existing
+`_pull_sftp_file()` and the same deployment-local `retrieval_endpoints` mapping.
+
+1. On the StorageManager computer install the optional retrieval dependency:
+   `pip install -e ".[artifact-retrieval]"` for an editable checkout. Use a
+   lab-approved SSH key pair and have the AcquisitionNode administrator authorize
+   its public key for a dedicated retrieval account. Keep the private key local,
+   readable only by its intended account; never commit it or put it in Session
+   configuration. This command provisions neither keys nor accounts and adds no
+   passphrase/secret-management system.
+2. Verify the node SSH host-key fingerprint through a trusted channel and arrange
+   trusted system host keys or a deployment-local `known_hosts_path`. Do not disable
+   host checking or automatically trust an unverified key. The existing client
+   loads system keys, optionally the configured host-key file, and retains its
+   normal rejection behavior for untrusted hosts.
+3. Configure the logical node's `host`, `username`, `port` and `key_filename` in
+   the StorageManager general-service file, optionally `known_hosts_path`. Paths
+   resolve relative to that file. The installation reader validates the same
+   endpoint definitions as W064, reading only StorageManager identity/root and
+   retrieval settings. It does not start the shared service pair or evaluate
+   operational dependencies. Do not falsely set `no_operational_dependents=true`
+   to run this check; the operational-launch restriction remains unchanged.
+4. On the AcquisitionNode, choose a scratch path outside scientific artifacts
+   and create a small known-content file. For example, on a Linux node:
+
+   ```text
+   python -c "from pathlib import Path; Path('/tmp/lab-sync-install-check.bin').write_bytes(b'lab-sync-install-check-v1\n')"
+   ```
+
+   On the StorageManager computer, in a deployment-local scratch directory
+   outside Git, independently create the expected bytes from the same literal:
+
+   ```text
+   python -c "from pathlib import Path; Path('retrieval-expected.bin').write_bytes(b'lab-sync-install-check-v1\n')"
+   ```
+
+   Use binary writes to avoid platform newline/encoding differences. Do not make
+   the expected file from the download being tested. The node administrator, not
+   Controller, chooses the scratch path; node scientific storage ownership is
+   unchanged.
+5. On the StorageManager computer invoke:
+
+   ```text
+   lab-sync-acquisition verify-retrieval --deployment-config PATH --node-id NODE_ID --source-path /tmp/lab-sync-install-check.bin --expected-file retrieval-expected.bin --max-bytes 65536
+   ```
+
+   The action reads the expected file independently, uses a short-lived
+   StorageManager installation operation without operational service startup,
+   and opens the remote file read-only using the configured SSH/SFTP transport.
+   `--max-bytes` is an explicit positive bound for expected bytes and temporary
+   downloaded bytes; oversized files fail rather than filling a scientific
+   destination. Download files are automatically closed/deleted on success,
+   transfer failure, mismatch or interruption. No source file, artifact manifest,
+   Session record, evidence archive or journal is modified. The command does not
+   create an unsupported standalone StorageManager service under Decision 376.
+6. Inspect the JSON result: logical `node_id`, `retrieval_succeeded`,
+   `content_match`, `outcome` and `failure_reason`. Only completed retrieval with
+   exact byte equality and successful temporary cleanup reports `PASS`/exit 0.
+   Retrieval failure or mismatch reports `FAIL`/exit 1; invalid command arguments
+   return a nonzero usage error. Successful retrieval of truncated/wrong bytes
+   still fails comparison. Exceptions report categories rather than raw transport
+   text, which could contain sensitive data. Record the result in local
+   installation notes. Remove only your designated scratch fixture/expected file
+   manually afterward; the command never deletes remote files.
+
+Common failures:
+
+- Unknown node: correct the logical identity or its deployment-local mapping.
+- Missing local reference/expected file: check the service-file paths and read
+  permissions; no remote retrieval is attempted for invalid local inputs.
+- Authentication/permission error: verify the configured username, authorized
+  public key and supported private-key authentication setup, plus remote-file
+  read permissions. Do not add private-key material or passphrases to reports.
+- Host-key error: verify the fingerprint with the administrator before correcting
+  trusted host keys; never bypass verification to obtain a PASS.
+- Connection error: check hostname, port, SSH server, network routing and firewall.
+- Missing source: verify the exact scratch path on the node, not an artifact path
+  inferred by Controller.
+- Mismatch or size limit: check the independently known literal, binary newline
+  handling, truncation and the chosen limit; recreate only the designated dummy
+  fixture if needed. A failed transfer may have written partial temporary bytes,
+  but they are not promoted or reported as successful verification.
+- `ModuleNotFoundError`: install the optional `artifact-retrieval` dependency.
+
+This operation uses the existing client's connection behavior, not a new timeout
+or retry protocol. Ctrl+C aborts the check, cleans temporary files and reports no
+successful verification; it never issues service Kill. A PASS verifies only this
+tested retrieval path and contents at that time. It proves neither ongoing
+reachability, scientific completeness, hardware readiness nor Session readiness.
+Controller-to-node NATS installation verification remains separate. Automated
+checks use simulated SSH/SFTP, not a live installation. W065 and Q022 remain OPEN
+pending independent validation/audit and remaining installation/deployment work.
+
 ### Remote Service Maintenance (W062 Closed)
 
 An independent terminal can address an existing service owner without a running
@@ -511,7 +609,7 @@ alone does not establish durable Ingestor acceptance or Q019 completeness.
 | Node/device setup | Existing declarations/adapters and W063 file-to-object construction; W064 reuses hardware prevalidation | Additional supported adapters as required by deployments |
 | Operator parameters | `SessionConfig.device_configurations`, node initialization overrides, adapter `initialize(config)` and concrete validation | Generic adapter-defined parameter constraints, inventory exposure, Controller readback |
 | Readiness/startup | Existing reports, NATS requests/announcements and reconciliation consume W064 configured known-node identities | Live deployment verification |
-| Scientific retrieval | Existing endpoint mapping/pull and host-key checks; W064 validates local settings before construction without connectivity checks | Explicit verified installation dummy retrieval |
+| Scientific retrieval | Existing endpoint mapping/pull and host-key checks; W064 local validation; W065 explicit installation dummy retrieval and exact comparison implemented, pending independent validation/audit | Actual installation verification and live deployment validation |
 
 Current demos and optional manual hardware checks are not a general installer.
 Concrete camera configuration is an adapter example, not the generic parameter

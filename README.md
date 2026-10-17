@@ -164,6 +164,13 @@ maintenance callbacks. This is not installation provisioning or complete
 deployment verification; Q022 remains OPEN. See
 [W064](docs/validated_workflows.md#w064---deployment-local-configuration-and-service-startup-integration).
 
+W065 adds an explicit `lab-sync-acquisition verify-retrieval` installation check
+using the StorageManager service file, a configured node, a remote dummy file and
+independent local expected bytes. See
+[retrieval verification](docs/installation_and_deployment.md#installation-retrieval-check-w065-implementation-open).
+This implementation remains OPEN pending independent validation/audit; simulated
+SSH/SFTP checks do not establish live installation or hardware readiness.
+
 
 
 This repository is developing a hardware-agnostic framework for:

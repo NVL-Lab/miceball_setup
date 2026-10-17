@@ -991,6 +991,16 @@ the supported entry points and validated_workflows.md for verification limitatio
 
 ### Q022-A accepted scope
 
+W065 implements explicit installation-time SSH/SFTP dummy-file retrieval and exact
+comparison through the common CLI and StorageManager's existing endpoint/transport
+interfaces. The expected file is independently established; bounded temporary
+downloads are cleaned without scientific/Session writes. Reading retrieval inputs
+does not waive the paired operational launcher's external-dependent callbacks.
+W065 remains OPEN pending independent validation and audit. This is not live
+installation verification, a certification system or a runtime gate. Controller-
+to-node NATS verification and remaining provisioning/deployment integration stay
+outside this slice.
+
 W064 implements deployment-local general-service JSON loading, validation and
 integration with all existing launch paths, separate from the node hardware file.
 Explicit file mode does not merge with constructor flags or alter existing flag

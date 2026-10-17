@@ -11,7 +11,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from numbers import Integral
 from pathlib import Path, PurePosixPath, PureWindowsPath
-from tempfile import NamedTemporaryFile
+from tempfile import NamedTemporaryFile, TemporaryFile
 from threading import RLock
 from time import time
 from typing import Any, Iterable, Iterator, Mapping
@@ -109,6 +109,26 @@ class _VerificationReader:
         self._call("flush", None)
 
 
+class _BoundedVerificationWriter:
+    """Cap installation-only temporary writes without changing the SFTP transport."""
+
+    def __init__(self, output, max_bytes):
+        self.output = output
+        self.max_bytes = max_bytes
+        self.written = 0
+        self.limit_exceeded = False
+
+    def write(self, content):
+        if self.written + len(content) > self.max_bytes:
+            self.limit_exceeded = True
+            raise ValueError("Installation dummy-file size limit exceeded")
+        count = self.output.write(content)
+        if count != len(content):
+            raise OSError("Incomplete installation verification write")
+        self.written += count
+        return count
+
+
 class PersistentStorageManager:
     """Owns Session records, Evidence Archives, and global artifact collection."""
 
@@ -140,6 +160,53 @@ class PersistentStorageManager:
             Path(global_artifact_root) if global_artifact_root is not None else None
         )
         self._retrieval_endpoints = dict(retrieval_endpoints or {})
+
+    @service_operation(new_work=True)
+    def verify_installation_retrieval(self, node_id, source_path, expected_content, *, max_bytes):
+        """Read a designated dummy file and compare independent expected bytes, without Session writes."""
+        result = {"node_id": node_id, "outcome": "FAIL", "retrieval_succeeded": False,
+                  "content_match": None, "failure_reason": None}
+        if not isinstance(node_id, str) or not node_id.strip():
+            result["failure_reason"] = "An explicit logical AcquisitionNode identity is required"
+            return result
+        endpoint = self._retrieval_endpoints.get(node_id)
+        if not isinstance(endpoint, SshRetrievalEndpoint):
+            result["failure_reason"] = "No retrieval endpoint configured for this node"
+            return result
+        if not isinstance(source_path, str) or not source_path.strip() or "\x00" in source_path:
+            result["failure_reason"] = "An explicit remote dummy-file path is required"
+            return result
+        if type(max_bytes) is not int or max_bytes <= 0 or not isinstance(expected_content, bytes):
+            result["failure_reason"] = "Expected bytes and a positive integer max_bytes are required"
+            return result
+        if len(expected_content) > max_bytes:
+            result["failure_reason"] = "Expected dummy contents exceed max_bytes"
+            return result
+        writer = None
+        try:
+            with TemporaryFile(mode="w+b") as downloaded:
+                writer = _BoundedVerificationWriter(downloaded, max_bytes)
+                self._pull_sftp_file(endpoint, source_path, writer)
+                downloaded.flush()
+                downloaded.seek(0)
+                received = downloaded.read(max_bytes + 1)
+                result["retrieval_succeeded"] = True
+                result["content_match"] = received == expected_content
+            if result["content_match"]:
+                result["outcome"] = "PASS"
+            else:
+                result["failure_reason"] = "Retrieved contents do not exactly match the independent expected contents"
+        except Exception as error:
+            # Transport exceptions may include deployment credentials or key text.
+            # Report the error category, never the raw exception message.
+            if writer is not None and writer.limit_exceeded:
+                result["failure_reason"] = "Retrieved dummy file exceeds max_bytes"
+            elif isinstance(error, FileNotFoundError):
+                result["failure_reason"] = "Dummy file or configured local authentication reference was not found"
+            else:
+                result["failure_reason"] = (f"Verification failed ({type(error).__name__}); check SSH authentication, "
+                    "host keys, connectivity, source permissions and the dummy-file path")
+        return result
 
     @service_operation(new_work=True)
     def collect_artifacts(self, handoff: dict[str, Any]) -> ArtifactCollectionResult:
