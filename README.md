@@ -177,8 +177,11 @@ using the Controller service file and existing NATS readiness request/response.
 It checks only the selected registered node, without launching a Controller or
 changing scientific operation. A current response can confirm communication even
 when hardware is unready. See
-[node communication verification](docs/installation_and_deployment.md#installation-node-communication-check-w066-implementation-open).
-W066 remains OPEN pending independent validation and audit; Q022 remains OPEN.
+[node communication verification](docs/installation_and_deployment.md#installation-node-communication-check-w066-closed).
+W066 is CLOSED after independent validation and final re-audit PASS, including both
+NATS cleanup P2 corrections. Verification used simulated I/O, not live NATS, real
+sockets, hardware or OS signals. Q022 remains OPEN for applicable manual
+installation/provisioning integration and remaining accepted deployment work.
 
 
 

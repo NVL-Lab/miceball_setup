@@ -27,8 +27,10 @@ identity are not authentication infrastructure. Terminal feedback uses existing
 outcomes, with exit code 0 only for confirmed success. W064 closes explicit
 deployment-local service-file inputs after independent validation and audit PASS;
 W065 closes explicit installation dummy-file retrieval/exact comparison after
-independent validation and audit PASS using simulated SSH/SFTP. Applicable manual
-provisioning, installation communication checks and broader deployment integration remain outstanding;
+independent validation and audit PASS using simulated SSH/SFTP. W066 closes explicit
+registered-node communication verification after independent validation and final
+re-audit PASS, including partial-client ownership and cancellation-safe cleanup.
+Applicable manual provisioning and broader deployment integration remain outstanding;
 Q022 remains OPEN. See
 installation_and_deployment.md and Decisions 383-388.
 
@@ -66,8 +68,9 @@ installation_and_deployment.md and Decisions 383-388.
 - HandshakeWriter(reader): Records real transport close/wait-closed calls and supplies PONG replies for successful flush/drain checks.
 - HandshakeWriter.write(content), writelines(contents), drain(): Model outbound stream I/O without replacing nats-py connection or cleanup methods.
 - HandshakeWriter.close(), wait_closed(): Record whether partial and established transports were actually closed and awaited.
-- NatsConnectionTests: Exercises real nats-py handshake failure/cancellation, repeated installation attempts, successful connection/flush/drain and reconnecting the same boundary after failed startup with simulated stream I/O.
+- NatsConnectionTests: Exercises real nats-py handshake and cleanup interruption, repeated installation attempts, unconfirmed cleanup failure, successful flush/drain and subsequent boundary reuse with simulated stream I/O.
 - NatsConnectionTests.open_stream(**settings): Supplies a fresh simulated reader/writer pair for each real TCP transport connection attempt.
+- NatsConnectionTests.assert_interrupted_verification(mode): Coordinates real verification and cleanup through explicit checkpoints, repeatedly cancels the caller and verifies underlying transport closure before a failed result is returned.
 
 ## src/lab_sync_acquisition/deployment_configuration.py
 
@@ -143,8 +146,10 @@ JSON loading/startup integration and local endpoint validation after independent
 validation and audit PASS, retaining the shared CLI's explicit no-dependents restriction.
 W065 closes the explicit installation dummy retrieval/exact-comparison command,
 with independent expected bytes, bounded temporary storage and cleanup-before-PASS.
+W066 closes Controller-to-node installation communication checks through existing
+NATS readiness contracts; see validated_workflows.md for validation limitations.
 Generic adjustable-parameter inventory, applicable manual provisioning/installation
-integration, Controller-to-node installation communication checks and actual live
+integration and actual live
 deployment verification remain outstanding. Configuration validity is not hardware readiness; device smoke tests are
 recommended, not commissioning/runtime gates. Q019 remains CLOSED; Q022/Q024/Phase 16/M015
 remain OPEN.
@@ -1125,8 +1130,8 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 
 - DurablePublicationError: Reports failed JetStream publication with message class, message identity, subject, intended stream, and reason while leaving the original message caller-owned.
 - NatsCommunicationBoundary: Owns a real nats-py connection, reports NATS availability through ServiceReadiness, creates accepted JetStream streams, and handles JSON serialization, durable publication acknowledgement, and Core NATS telemetry mechanics without domain semantics.
-- NatsCommunicationBoundary.connect(): Retains the nats-py client before connection/handshake, closes partial startup on failure or cancellation, and preserves explicit non-reconnecting startup behavior.
-- NatsCommunicationBoundary.close(): Gracefully drains an initialized connection or directly closes an incomplete handshake before clearing owned references.
+- NatsCommunicationBoundary.connect(): Retains the nats-py client before handshake, refuses to replace an owned client, and finishes partial-startup cleanup on failure/cancellation without adding reconnect policy.
+- NatsCommunicationBoundary.close(): Joins one boundary-owned shielded drain/close task through caller cancellations, releases references only on successful cleanup and then propagates cancellation; failed cleanup remains owned and unconfirmed.
 - NatsCommunicationBoundary.maintenance_command_handled(command, result): Optional synchronous lifetime observer receiving the exact request and actual result only after publication and delivery ACK; it does not imply requester receipt, execute maintenance or authorize operational retirement.
 - NatsControllerCommunication: Publishes unicast or issuer-fanned group commands, consumes and aggregates addressed per-target command results over an issuer-defined window, records missing results as unresolved, and independently presents HealthInterpretationEvidence without relaying evidence.
 - NatsControllerCommunication.check_ready(): Returns required NATS communication readiness for launch gating.

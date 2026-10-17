@@ -1361,6 +1361,31 @@ probes passed. No live JetStream, actual OS signal delivery, hardware or complet
 five-role deployment validation is claimed. W001-W065 and Q019 remain CLOSED;
 Q022, Q006, Q018, Q024, Phase 16 and M015 remain OPEN.
 
+### Completed Installation Node Communication Verification (W066)
+
+**Status:** CLOSED - independently validated and finally re-audited PASS, with no
+confirmed remaining P0-P3 findings. `verify-node --deployment-config PATH --node-id
+NODE_ID` uses the Controller service file, explicit node registration and existing
+NATS `check_readiness` contract without constructing a Controller owner. Only a
+fresh correctly correlated response and successful cleanup establish communication
+success; hardware/scientific readiness remains separate. No hardware initialization,
+Session modification, reservation or maintenance is performed.
+
+Independent IPython validation passed 17/17 installation communication tests and
+11/11 connection regressions (separate runs). Preserve the audit sequence: initial
+FAIL for partial client ownership (P2-A), first re-audit FAIL with P2-A resolved
+but interrupted cleanup (P2-B), then final focused re-audit PASS with both resolved.
+The boundary retains the pre-handshake client and joins one shielded cleanup task,
+including repeated cancellation, without trusting `is_closed` alone. An additional
+controlled concurrency probe passed with actual asyncio tasks/shield and actual
+nats-py/TcpTransport cleanup using simulated I/O, not normal Windows scheduling.
+See W066 for the complete evidence and limitations.
+
+No live NATS, real sockets, hardware, OS-signal or complete installation
+certification is claimed. Q022 remains OPEN for applicable manual installation/
+provisioning integration and remaining accepted deployment requirements. Q019 and
+W001-W065 remain CLOSED; Q006/Q018, Q024, Phase 16 and M015 remain OPEN.
+
 ### Completed Installation Retrieval Verification (W065)
 
 **Status:** CLOSED - independently validated and audited PASS. The explicit

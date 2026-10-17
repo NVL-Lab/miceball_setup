@@ -4997,6 +4997,76 @@ Q024, Phase 16 and M015 remain OPEN. No subsequent slice is selected here.
 
 ---
 
+# W066 - Controller-to-AcquisitionNode Installation Communication Verification
+
+**Status:** CLOSED - implemented, independently validated and independently
+re-audited PASS under the accepted Q022 installation and NATS contracts.
+
+## Implemented scope
+
+```text
+lab-sync-acquisition verify-node --deployment-config PATH --node-id NODE_ID
+```
+
+The command reads the existing Controller deployment-local configuration and
+explicitly registered AcquisitionNode identities. It uses existing NATS transport
+and the Session-free `check_readiness` command, not another Controller owner.
+Communication confirmation requires a fresh node/operation-scoped response with
+matching requester, command, source, Session scope and attempt nonce. Historical
+announcements, publication acknowledgments and stale or mismatched responses
+cannot establish success. A valid hardware-unready response confirms communication,
+not scientific readiness. Offline/unconfirmed responses do not classify the node
+as failed or stopped.
+
+Verification does not initialize hardware, reserve devices, create or modify
+Sessions, reconcile Controller state or invoke maintenance. Temporary subscriptions
+and connections must be cleaned before PASS. The boundary owns its client before
+the handshake and joins one owned cleanup task despite repeated caller cancellation;
+it does not treat nats-py's early `is_closed` flag as transport-closure proof.
+Cleanup failures remain unconfirmed, retain ownership and prevent replacing an
+unresolved client. Successful connections preserve flush, graceful drain,
+`allow_reconnect=False` and existing public signatures/subscription behavior.
+
+## Independent validation and audit history
+
+- Independent user-run IPython validation: **17/17 installation communication
+  tests PASS** and **11/11 NATS connection regression tests PASS**. These are
+  separate reported runs, not a combined validation total.
+- Initial independent audit: **FAIL**, P2-A. Partially initialized clients could
+  escape cleanup when handshake failure/cancellation preceded client acquisition.
+  The correction acquires the client before awaiting connection establishment.
+- First focused re-audit: **FAIL**, P2-A resolved but P2-B confirmed. Repeated
+  cancellation could interrupt cleanup after the client reported closed but before
+  its transport closed. The second correction retains and shields one cleanup
+  operation, joins it before propagating caller cancellation and clears references
+  only after successful cleanup.
+- Final focused independent re-audit: **PASS**, both P2 findings resolved, no
+  confirmed remaining P0-P3 findings. Source inspection included installed nats-py
+  2.16.0 client/transport cleanup and Python `asyncio.shield` behavior.
+- An additional controlled, socket-free concurrency probe **PASS** used actual
+  asyncio tasks/shield and nats-py/TcpTransport cleanup with simulated I/O. Two
+  concurrent close callers shared one operation; three caller cancellations did
+  not interrupt transport closure. Writer close and wait-closed each completed
+  once before cancellation propagated; no cleanup task was detached.
+
+## Limitations and status
+
+IPython validation used its running event loop. Controlled coroutine checks and
+the controlled I/O-free event-loop probe are not normal Windows asynchronous
+scheduling validation; normal async execution previously stalled during Windows
+socket-pair initialization. No live NATS server, real sockets, physical hardware
+or OS-signal validation was performed. Cleanup can delay cancellation while the
+underlying close finishes. This workflow is not complete installation
+certification, a runtime gate or a new connection-recovery policy.
+
+W066 is CLOSED. Q022 remains OPEN for applicable manual installation/provisioning
+integration and other accepted deployment requirements not yet implemented.
+Q019 and W001-W065 remain CLOSED; Q006/Q018, Q024, Phase 16 and M015 remain OPEN.
+No implementation tests or additional audit were run for this documentation-only
+closure, and no subsequent slice is selected here.
+
+---
+
 # Future Workflows
 
 The following workflows are expected to be added as the framework evolves.

@@ -439,7 +439,7 @@ not claimed as passing. See W065 in validated_workflows.md. Q022 remains OPEN fo
 Controller-to-node installation communication verification, applicable manual
 provisioning/installation integration and remaining accepted deployment work.
 
-### Installation Node Communication Check (W066 Implementation, Open)
+### Installation Node Communication Check (W066 Closed)
 
 Use the existing Controller deployment-local service file and an explicitly
 registered node identity:
@@ -479,10 +479,17 @@ No automatic maintenance, recovery or retry follows.
 The partial-connection P2 correction retains the nats-py client before awaiting
 connection establishment. Handshake failure or cancellation closes that owned
 client and its transport; an incomplete startup is closed directly rather than
-drained. Successful connections retain the existing graceful drain behavior and
+drained. The interrupted-cleanup correction retains one boundary-owned cleanup
+task: caller cancellation does not cancel that operation, and repeated close
+calls join the same operation rather than trusting nats-py's early `is_closed`
+flag. Cancellation is propagated only after cleanup completes; a failed cleanup
+retains its owned references and remains unconfirmed. A new connection cannot
+replace an owned client. Cancellation reporting can therefore wait for the
+library cleanup to finish; no cleanup task is intentionally detached from its
+awaiting owner. Successful connections retain the existing graceful drain behavior and
 `allow_reconnect=False`. The correction does not add retry policy or change the
-readiness protocol. W066 remains OPEN pending corrective independent verification
-and audit; no live connection or real-socket validation is claimed.
+readiness protocol. Both cleanup P2 findings are resolved by final focused
+independent re-audit PASS; no live connection or real-socket validation is claimed.
 
 The check does not initialize/open hardware, reserve devices, launch a Session,
 modify scientific/Session products or perform Controller reconciliation. It does
@@ -490,12 +497,21 @@ not certify hardware/scientific readiness, Ingestor evidence acceptance or compl
 installation. Subject/identity consistency is not sender authentication. Ordinary
 Controller registration changes still require Controller restart.
 
-W066 remains OPEN pending independent validation and audit. Automated fixtures
-use simulated NATS with real AcquisitionNode command/readiness handling; no live
-NATS, hardware or actual OS-signal verification is claimed. Normal async execution
-stalled in the Windows sandbox; controlled coroutine checks are not normal
-asynchronous scheduling validation. Q022 remains OPEN for applicable manual
-installation/provisioning and remaining accepted deployment integration.
+W066 is CLOSED. Independent user-run IPython validation passed 17/17 installation
+communication tests and 11/11 connection regressions (separate runs). The audit
+history is initial FAIL for partial-client ownership (P2-A), first re-audit FAIL
+with P2-A resolved but interrupted cleanup (P2-B), then final focused PASS with
+both resolved and no remaining confirmed P0-P3 findings. An additional controlled
+concurrency probe passed using actual asyncio tasks/shield and nats-py/TcpTransport
+cleanup with simulated I/O: concurrent close callers joined one operation despite
+repeated caller cancellation, and actual writer close/wait-closed each completed
+once. Automated fixtures use simulated NATS with real AcquisitionNode command/
+readiness handling. No live NATS, real sockets, hardware or actual OS-signal
+verification is claimed. Normal async execution stalled in the Windows sandbox;
+IPython's running loop and controlled execution do not establish normal Windows
+asynchronous scheduling validation. See W066 in validated_workflows.md. Q022 remains
+OPEN for applicable manual installation/provisioning and remaining accepted
+deployment integration; this is not complete installation certification.
 
 ### Remote Service Maintenance (W062 Closed)
 
@@ -676,7 +692,7 @@ alone does not establish durable Ingestor acceptance or Q019 completeness.
 | Local configuration | W064 JSON loader/templates, startup validation; W063 node hardware loader/default and explicit paths | Configuration provisioning and external-dependent callback composition through files |
 | Node/device setup | Existing declarations/adapters and W063 file-to-object construction; W064 reuses hardware prevalidation | Additional supported adapters as required by deployments |
 | Operator parameters | `SessionConfig.device_configurations`, node initialization overrides, adapter `initialize(config)` and concrete validation | Generic adapter-defined parameter constraints, inventory exposure, Controller readback |
-| Readiness/startup | Existing reports, NATS requests/announcements and reconciliation consume W064 configured known-node identities; W066 adds explicit installation `verify-node` using existing readiness requests (OPEN pending independent validation/audit) | Independent W066 validation/audit and live deployment verification |
+| Readiness/startup | Existing reports, NATS requests/announcements and reconciliation consume W064 configured known-node identities; W066 explicit installation `verify-node` using existing readiness requests is CLOSED after independent validation and final re-audit PASS | Applicable manual installation integration and live deployment verification |
 | Scientific retrieval | Existing endpoint mapping/pull and host-key checks; W064 local validation; W065 explicit installation dummy retrieval and exact comparison CLOSED after independent validation/audit PASS with simulated SSH/SFTP | Actual installation verification and live deployment validation |
 
 Current demos and optional manual hardware checks are not a general installer.

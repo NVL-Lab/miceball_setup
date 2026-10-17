@@ -94,6 +94,7 @@ class NatsCommunicationBoundary:
         self.servers = servers
         self._client: NATS | None = None
         self._jetstream: JetStreamContext | None = None
+        self._close_task: asyncio.Task[None] | None = None
         self._dependency_result_observer = None
         self.maintenance_command_handled: Callable[[RuntimeCommandMessage, RuntimeCommandResultMessage], None] | None = None
 
@@ -118,6 +119,8 @@ class NatsCommunicationBoundary:
     async def connect(self) -> None:
         """Connect to NATS without adding reconnect or recovery policy."""
 
+        if self._client is not None:
+            raise RuntimeError("Close the owned NATS client before starting another connection")
         # Own the client before its handshake can open a transport or be cancelled.
         self._client = NATS()
         self._jetstream = None
@@ -131,15 +134,33 @@ class NatsCommunicationBoundary:
             raise
 
     async def close(self) -> None:
-        """Drain an initialized connection or close an incomplete startup directly."""
+        """Finish owned cleanup before releasing references or propagating cancellation."""
 
-        if self._client is not None and not self._client.is_closed:
-            if self._jetstream is None:
-                await self._client.close()
-            else:
-                await self._client.drain()
-        self._client = None
-        self._jetstream = None
+        client = self._client
+        if client is None:
+            return
+        if self._close_task is None:
+            operation = client.close if self._jetstream is None or client.is_closed else client.drain
+            self._close_task = asyncio.create_task(operation())
+        task = self._close_task
+        cancellation = None
+        # nats-py sets is_closed before closing its transport. Join the original
+        # operation, including after repeated caller cancellation, rather than
+        # starting a second close that would return early on that flag.
+        while True:
+            try:
+                await asyncio.shield(task)
+                break
+            except asyncio.CancelledError as error:
+                if task.cancelled():
+                    raise
+                cancellation = error
+        if self._close_task is task and self._client is client:
+            self._client = None
+            self._jetstream = None
+            self._close_task = None
+        if cancellation is not None:
+            raise cancellation
 
     async def flush(self) -> None:
         """Synchronize pending Core NATS protocol operations with the server."""

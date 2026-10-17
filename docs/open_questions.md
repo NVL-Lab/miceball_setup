@@ -985,7 +985,7 @@ authorization or maintenance semantics. This adds no service launch paths or
 Controller dependency. W063 is CLOSED; general configuration/provisioning,
 installation verification, remote enumeration/batch integration and broader
 maintenance/recovery and deployment integration remain outside this slice.
-Q022 remains OPEN. Q019 and W001-W065 remain CLOSED. Existing Q006/Q018, Q024,
+Q022 remains OPEN. Q019 and W001-W066 remain CLOSED. Existing Q006/Q018, Q024,
 Phase 16 and M015 statuses are unchanged. See installation_and_deployment.md for
 the supported entry points and validated_workflows.md for verification limitations.
 
@@ -996,11 +996,16 @@ the existing Controller deployment file and NATS `check_readiness` contract, wit
 fresh node/operation-scoped replies and complete request correlation. It constructs
 no Controller owner and performs no reconciliation or scientific lifecycle work.
 Current hardware-unready reports may confirm communication without establishing
-scientific readiness. W066 remains OPEN pending independent validation and audit;
-normal async execution was blocked in the Windows sandbox, and controlled checks
-do not establish normal scheduling or live deployment verification. Q022 remains
-OPEN for that validation, applicable manual provisioning/installation integration
-and remaining accepted deployment requirements.
+scientific readiness. W066 is CLOSED after independent IPython validation (17/17
+communication tests and 11/11 connection regressions, separate runs) and final
+focused re-audit PASS with no remaining confirmed P0-P3 findings. Initial audits
+found partial client ownership (P2-A), then interrupted cleanup (P2-B); both are
+resolved. Cleanup retains the owned client/task until completion despite repeated
+caller cancellation. A controlled concurrency probe passed using actual asyncio
+tasks/shield and nats-py/TcpTransport with simulated I/O. Controlled execution is
+not normal Windows scheduling validation; no live NATS, real sockets, hardware or
+OS-signal validation is claimed. Q022 remains OPEN for applicable manual
+provisioning/installation integration and remaining accepted deployment requirements.
 
 W065 implements explicit installation-time SSH/SFTP dummy-file retrieval and exact
 comparison through the common CLI and StorageManager's existing endpoint/transport
@@ -1011,9 +1016,9 @@ W065 is CLOSED after independent IPython validation (11/11 PASS) and independent
 audit PASS with no confirmed P0-P3 findings or architectural blockers. The audit
 passed 12 focused tests and two additional probes; overlapping counts are not
 additive. This is not live installation verification, a certification system or
-a runtime gate. Controller-to-node installation communication verification,
-applicable manual provisioning/installation integration and remaining accepted
-deployment requirements remain open under Q022.
+a runtime gate. Controller-to-node installation communication verification is
+separately closed in W066; applicable manual provisioning/installation integration
+and remaining accepted deployment requirements remain open under Q022.
 
 W064 implements deployment-local general-service JSON loading, validation and
 integration with all existing launch paths, separate from the node hardware file.

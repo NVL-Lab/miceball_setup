@@ -83,6 +83,103 @@ class NatsConnectionTests(unittest.IsolatedAsyncioTestCase):
         self.stream_opened.set()
         return reader, writer
 
+    async def assert_interrupted_verification(self, mode):
+        self.mode = mode
+        self.stream_opened.clear()
+        config = controller_configuration(self.enterContext(tempfile.TemporaryDirectory()), result_window_s=2)
+        paused, resume = asyncio.Event(), asyncio.Event()
+        rearmed = asyncio.Queue()
+        sleep, shield = asyncio.sleep, asyncio.shield
+        boundaries, reports = [], []
+
+        async def pause_cleanup(delay, result=None):
+            if delay == 0 and not paused.is_set():
+                paused.set()
+                await resume.wait()
+            return await sleep(delay, result)
+
+        def observe_shield(task):
+            rearmed.put_nowait(None)
+            return shield(task)
+
+        def boundary(*args):
+            instance = NatsCommunicationBoundary(*args)
+            boundaries.append(instance)
+            return instance
+
+        with patch("asyncio.sleep", pause_cleanup), patch("asyncio.shield", observe_shield), patch(
+                "lab_sync_acquisition.installation_communication.NatsCommunicationBoundary", boundary):
+            task = asyncio.create_task(verify_node_communication(config, "node", report=reports.append))
+            try:
+                if mode == "paused":
+                    await asyncio.wait_for(self.stream_opened.wait(), 1)
+                    task.cancel()
+                await asyncio.wait_for(paused.wait(), 1)
+                await asyncio.wait_for(rearmed.get(), 1)
+                writer = self.writers[-1]
+                self.assertEqual(writer.close_count, 0)
+                for _ in range(3):
+                    task.cancel()
+                    # A new shield wait proves each cancellation was processed;
+                    # no elapsed-time sleeps determine test ordering.
+                    await asyncio.wait_for(rearmed.get(), 1)
+                    self.assertFalse(task.done())
+                    self.assertEqual(writer.close_count, 0)
+                    with self.assertRaisesRegex(RuntimeError, "owned NATS client"):
+                        await boundaries[0].connect()
+                resume.set()
+                code = await asyncio.wait_for(task, 2)
+            finally:
+                resume.set()
+                if not task.done():
+                    task.cancel()
+                    try:
+                        await task
+                    except asyncio.CancelledError:
+                        pass
+        self.assertEqual(code, 1)
+        self.assertFalse(json.loads(reports[-1])["communication_confirmed"])
+        self.assertEqual(json.loads(reports[-1])["outcome"], "FAIL")
+        self.assertEqual(writer.close_count, 1)
+        self.assertEqual(writer.wait_closed_count, 1)
+        await boundaries[0].close()
+        self.assertEqual(writer.close_count, 1)
+
+    async def test_invalid_info_then_repeated_cleanup_cancellation_closes_transport(self):
+        await self.assert_interrupted_verification("invalid")
+
+    async def test_handshake_cancel_then_repeated_cleanup_cancellation_closes_transport(self):
+        await self.assert_interrupted_verification("paused")
+
+    async def test_repeated_interrupted_verifications_close_every_transport(self):
+        for mode in ("invalid", "paused", "invalid"):
+            await self.assert_interrupted_verification(mode)
+        self.assertEqual(len(self.writers), 3)
+        self.assertTrue(all(w.close_count == 1 and w.wait_closed_count == 1 for w in self.writers))
+
+    async def test_failed_cleanup_remains_unconfirmed_even_when_client_reports_closed(self):
+        config = controller_configuration(self.enterContext(tempfile.TemporaryDirectory()))
+        boundary = NatsCommunicationBoundary("terminal", "requester", ("nats://example:4222",))
+        client = SimpleNamespace(connect=AsyncMock(side_effect=OSError("handshake failed")), is_closed=False)
+
+        async def fail_cleanup():
+            client.is_closed = True
+            raise OSError("cleanup failed before transport closure")
+
+        client.close = AsyncMock(side_effect=fail_cleanup)
+        reports = []
+        with patch("lab_sync_acquisition.nats_communication.NATS", return_value=client), patch(
+                "lab_sync_acquisition.installation_communication.NatsCommunicationBoundary", return_value=boundary):
+            code = await verify_node_communication(config, "node", report=reports.append)
+        self.assertEqual(code, 1)
+        self.assertFalse(json.loads(reports[-1])["communication_confirmed"])
+        self.assertIn("cleanup unconfirmed", json.loads(reports[-1])["failure_reason"])
+        with self.assertRaisesRegex(OSError, "cleanup failed"):
+            await boundary.close()
+        with self.assertRaisesRegex(RuntimeError, "owned NATS client"):
+            await boundary.connect()
+        client.close.assert_awaited_once()
+
     async def test_task_cancellation_during_info_closes_open_transport(self):
         self.mode = "paused"
         boundary = NatsCommunicationBoundary("terminal", "requester", ("nats://example:4222",))
