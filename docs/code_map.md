@@ -59,6 +59,16 @@ installation_and_deployment.md and Decisions 383-388.
 - NodeCommunicationTests.verify(node="node", factory=None): Invokes the public verification operation with the temporary Controller file and captures terminal feedback.
 - NodeCommunicationTests.assert_cleaned(): Checks that verification result subscriptions and terminal connections were released.
 
+## tests/test_nats_connection.py
+
+- HandshakeReader(mode): Supplies cancelled/invalid INFO or valid INFO/PONG handshake lines and queued stream input to real nats-py transport code without sockets.
+- HandshakeReader.readline(), read(size), at_eof(): Provide the simulated stream reader protocol used by nats-py handshake and background reads.
+- HandshakeWriter(reader): Records real transport close/wait-closed calls and supplies PONG replies for successful flush/drain checks.
+- HandshakeWriter.write(content), writelines(contents), drain(): Model outbound stream I/O without replacing nats-py connection or cleanup methods.
+- HandshakeWriter.close(), wait_closed(): Record whether partial and established transports were actually closed and awaited.
+- NatsConnectionTests: Exercises real nats-py handshake failure/cancellation, repeated installation attempts, successful connection/flush/drain and reconnecting the same boundary after failed startup with simulated stream I/O.
+- NatsConnectionTests.open_stream(**settings): Supplies a fresh simulated reader/writer pair for each real TCP transport connection attempt.
+
 ## src/lab_sync_acquisition/deployment_configuration.py
 
 - load_service_configuration(path, role): Reads and validates deployment-local JSON for an explicitly selected service role, returning existing launcher arguments without connecting, constructing owners or opening hardware.
@@ -1115,6 +1125,8 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 
 - DurablePublicationError: Reports failed JetStream publication with message class, message identity, subject, intended stream, and reason while leaving the original message caller-owned.
 - NatsCommunicationBoundary: Owns a real nats-py connection, reports NATS availability through ServiceReadiness, creates accepted JetStream streams, and handles JSON serialization, durable publication acknowledgement, and Core NATS telemetry mechanics without domain semantics.
+- NatsCommunicationBoundary.connect(): Retains the nats-py client before connection/handshake, closes partial startup on failure or cancellation, and preserves explicit non-reconnecting startup behavior.
+- NatsCommunicationBoundary.close(): Gracefully drains an initialized connection or directly closes an incomplete handshake before clearing owned references.
 - NatsCommunicationBoundary.maintenance_command_handled(command, result): Optional synchronous lifetime observer receiving the exact request and actual result only after publication and delivery ACK; it does not imply requester receipt, execute maintenance or authorize operational retirement.
 - NatsControllerCommunication: Publishes unicast or issuer-fanned group commands, consumes and aggregates addressed per-target command results over an issuer-defined window, records missing results as unresolved, and independently presents HealthInterpretationEvidence without relaying evidence.
 - NatsControllerCommunication.check_ready(): Returns required NATS communication readiness for launch gating.

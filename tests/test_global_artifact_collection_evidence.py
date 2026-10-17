@@ -41,7 +41,7 @@ class EvidenceBrokerDouble(EvidenceReceiptBroker):
         if self.failure is not None:
             raise self.failure
         if self.callback is not None and self.deliver_immediately:
-            await self.callback(SimpleNamespace(data=data, ack=AsyncMock(), ack_sync=AsyncMock()))
+            await self.callback(SimpleNamespace(subject=subject, data=data, ack=AsyncMock(), ack_sync=AsyncMock()))
         return SimpleNamespace(stream=stream)
 
 
@@ -53,9 +53,9 @@ class GlobalArtifactCollectionEvidenceTests(unittest.IsolatedAsyncioTestCase):
         self.retrieval = retrieval_tests.ArtifactRetrievalTests()
         self.writer = hdf5_tests.HDF5ScientificPersistenceTests()
         self.broker = EvidenceBrokerDouble()
-        client = SimpleNamespace(is_connected=True, jetstream=lambda: self.broker)
+        client = SimpleNamespace(is_connected=True, jetstream=lambda: self.broker, connect=AsyncMock())
         self.boundary = NatsCommunicationBoundary("storage_manager", "storage-001")
-        with patch("lab_sync_acquisition.nats_communication.nats.connect", AsyncMock(return_value=client)):
+        with patch("lab_sync_acquisition.nats_communication.NATS", return_value=client):
             await self.boundary.connect()
         self.ingestor = InMemoryIngestor(session_id="session", recovery_journal_path=self.root / "session-recovery.jsonl")
         await NatsIngestorCommunication(self.boundary, self.ingestor).subscribe_evidence("session")

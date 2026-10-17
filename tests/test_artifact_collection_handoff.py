@@ -107,17 +107,17 @@ class ArtifactCollectionHandoffTests(unittest.TestCase):
                 for filter_subject, callback in tuple(subscriptions.items()):
                     if (".evidence." in subject and ".evidence." in filter_subject
                             or ".command." in subject and ".command." in filter_subject):
-                        await callback(SimpleNamespace(data=data, ack=AsyncMock(), ack_sync=AsyncMock()))
+                        await callback(SimpleNamespace(subject=subject, data=data, ack=AsyncMock(), ack_sync=AsyncMock()))
                 return SimpleNamespace(stream=stream)
 
             jetstream = SimpleNamespace(subscribe=subscribe, publish=publish,
                                         stream_info=receipt.stream_info, consumer_info=receipt.consumer_info)
-            client = SimpleNamespace(jetstream=lambda: jetstream, is_connected=True)
+            client = SimpleNamespace(jetstream=lambda: jetstream, is_connected=True, connect=AsyncMock())
             boundary = NatsCommunicationBoundary("acquisition_node", "node-001")
             sender = NatsCommunicationBoundary("controller", "controller")
             receiver_boundary = NatsCommunicationBoundary("ingestor", "receiver")
             receiver = InMemoryIngestor(session_id="session-001", recovery_journal_path=Path(root) / "receiver-recovery.jsonl")
-            with patch("lab_sync_acquisition.nats_communication.nats.connect", AsyncMock(return_value=client)):
+            with patch("lab_sync_acquisition.nats_communication.NATS", return_value=client):
                 for connection in (boundary, sender, receiver_boundary):
                     await connection.connect()
                 await NatsIngestorCommunication(receiver_boundary, receiver).subscribe_evidence("session-001")

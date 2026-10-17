@@ -476,6 +476,14 @@ the current valid response may establish communication. Interruption leaves the
 verification unconfirmed and attempts bounded subscription/connection cleanup.
 No automatic maintenance, recovery or retry follows.
 
+The partial-connection P2 correction retains the nats-py client before awaiting
+connection establishment. Handshake failure or cancellation closes that owned
+client and its transport; an incomplete startup is closed directly rather than
+drained. Successful connections retain the existing graceful drain behavior and
+`allow_reconnect=False`. The correction does not add retry policy or change the
+readiness protocol. W066 remains OPEN pending corrective independent verification
+and audit; no live connection or real-socket validation is claimed.
+
 The check does not initialize/open hardware, reserve devices, launch a Session,
 modify scientific/Session products or perform Controller reconciliation. It does
 not certify hardware/scientific readiness, Ingestor evidence acceptance or complete

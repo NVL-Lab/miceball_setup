@@ -13,7 +13,6 @@ from time import get_clock_info, monotonic
 from typing import Any
 from uuid import uuid4
 
-import nats
 from nats.aio.client import Client as NATS
 from nats.aio.subscription import Subscription
 from nats.js.api import AckPolicy, ConsumerConfig, DeliverPolicy, RetentionPolicy, StorageType, StreamConfig
@@ -119,17 +118,26 @@ class NatsCommunicationBoundary:
     async def connect(self) -> None:
         """Connect to NATS without adding reconnect or recovery policy."""
 
+        # Own the client before its handshake can open a transport or be cancelled.
+        self._client = NATS()
+        self._jetstream = None
         try:
-            self._client = await nats.connect(servers=list(self.servers), allow_reconnect=False)
-        except Exception as error:
-            raise ConnectionError(f"NATS startup connection failed: {error}") from error
-        self._jetstream = self._client.jetstream()
+            await self._client.connect(servers=list(self.servers), allow_reconnect=False)
+            self._jetstream = self._client.jetstream()
+        except BaseException as error:
+            await self.close()
+            if isinstance(error, Exception):
+                raise ConnectionError(f"NATS startup connection failed: {error}") from error
+            raise
 
     async def close(self) -> None:
-        """Drain and close the current NATS connection."""
+        """Drain an initialized connection or close an incomplete startup directly."""
 
         if self._client is not None and not self._client.is_closed:
-            await self._client.drain()
+            if self._jetstream is None:
+                await self._client.close()
+            else:
+                await self._client.drain()
         self._client = None
         self._jetstream = None
 

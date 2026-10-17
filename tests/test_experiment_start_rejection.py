@@ -160,17 +160,17 @@ class ExperimentStartRejectionTests(unittest.TestCase):
                 self.assertEqual(stream, "LAB_EVIDENCE")
                 self.assertEqual(subject, "messages.session-001.evidence.controller.controller.experiment_start_rejected")
                 for callback in callbacks:
-                    await callback(SimpleNamespace(data=data, ack=AsyncMock(), ack_sync=AsyncMock()))
+                    await callback(SimpleNamespace(subject=subject, data=data, ack=AsyncMock(), ack_sync=AsyncMock()))
                 return SimpleNamespace(stream=stream)
 
             jetstream = SimpleNamespace(subscribe=subscribe, publish=publish,
                                         stream_info=receipt.stream_info, consumer_info=receipt.consumer_info)
-            client = SimpleNamespace(jetstream=lambda: jetstream, is_connected=True)
+            client = SimpleNamespace(jetstream=lambda: jetstream, is_connected=True, connect=AsyncMock())
             publisher = NatsCommunicationBoundary("controller", "controller")
             consumer_boundary = NatsCommunicationBoundary("ingestor", "ingestor")
             ingestor = InMemoryIngestor(PersistentStorageManager(self.enterContext(tempfile.TemporaryDirectory())), session_id=message.session_id,
                                        recovery_journal_path=Path(root) / "rejection-recovery.jsonl")
-            with patch("lab_sync_acquisition.nats_communication.nats.connect", AsyncMock(return_value=client)):
+            with patch("lab_sync_acquisition.nats_communication.NATS", return_value=client):
                 await publisher.connect()
                 await consumer_boundary.connect()
                 await NatsIngestorCommunication(consumer_boundary, ingestor).subscribe_evidence(message.session_id)

@@ -1151,11 +1151,14 @@ class SessionLaunchTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_nats_startup_failure_is_explicit_and_not_ready(self):
         boundary = NatsCommunicationBoundary("controller", "controller")
-        with patch("lab_sync_acquisition.nats_communication.nats.connect", new=AsyncMock(side_effect=OSError("broker unavailable"))) as connect:
+        client = SimpleNamespace(connect=AsyncMock(side_effect=OSError("broker unavailable")),
+                                 close=AsyncMock(), is_closed=False)
+        with patch("lab_sync_acquisition.nats_communication.NATS", return_value=client):
             with self.assertRaisesRegex(ConnectionError, "NATS startup connection failed"):
                 await boundary.connect()
         self.assertFalse(boundary.check_ready().ready)
-        self.assertEqual(connect.await_count, 1)
+        client.connect.assert_awaited_once_with(servers=["nats://127.0.0.1:4222"], allow_reconnect=False)
+        client.close.assert_awaited_once()
 
 
 if __name__ == "__main__":
