@@ -4,8 +4,9 @@
 
 Q022-A Decisions 367-378 are accepted and synchronized. Bounded shared-process
 launching is closed in W061, remote maintenance in W062 and the remaining
-independent role launch paths in W063. Full configuration/provisioning,
-installation verification and deployment/integration remain pending. The bounded owner
+independent role launch paths in W063. W064 implements deployment-local service
+JSON loading and startup integration, pending independent validation/audit.
+Provisioning, installation verification and deployment/integration remain pending. The bounded owner
 persistence/readback foundation below is independently validated and audited
 after correction (W051). This is the initial manual installation contract and a
 current-interface reference, not a working installer or deployment certification.
@@ -240,6 +241,87 @@ Focused tests:
 python -B -m unittest tests.test_independent_service_startup tests.test_service_launcher tests.test_service_maintenance_cli -v
 ```
 
+### Deployment-Local Service Files (W064 Implementation, Open)
+
+Decisions 367-373 and 376 remain authoritative. The role is always selected on
+the command line, never inferred from a file. The existing launchers accept an
+explicit general-service file:
+
+```text
+lab-sync-acquisition controller --deployment-config PATH
+lab-sync-acquisition acquisition-node --deployment-config PATH
+lab-sync-acquisition synchronization-manager --deployment-config PATH
+lab-sync-acquisition ingestor --deployment-config PATH
+lab-sync-acquisition storage-manager --deployment-config PATH
+```
+
+The last two commands still launch the same shared-process pair. No independent
+Ingestor-only or StorageManager-only process is added. `--deployment-config` is
+an alternative input mode: combining it with constructor-setting flags (including
+`--config`) is rejected, not merged. There is no CLI/file override precedence,
+environment-variable fallback, automatic general-file search or live reload.
+Without this option all previously supported explicit flag commands remain
+available; the node's existing default hardware-file path and `--config` behavior
+are unchanged. Remote administrative commands retain their explicit W062 inputs.
+
+Committed `config_templates/` files are definitions/examples, not usable deployment
+values or an installer. Copy the applicable templates outside Git and explicitly
+fill the placeholders, including time windows currently set to `null`. Actual
+machine values, credentials and keys must remain outside Git. The AcquisitionNode
+service template references a separate hardware installation file; its example
+uses the existing supported OpenCV adapter, not a framework-wide camera assumption.
+
+All general files require `servers`, `ingestor_id`, `storage_id` and
+`preservation_window_s`. Role-specific required fields are:
+
+| Selected role | Additional required fields |
+| --- | --- |
+| Controller | `service_id`, `synchronization_id`, `known_nodes`, `result_window_s` |
+| SynchronizationManager | `service_id`, `result_window_s` |
+| AcquisitionNode | `synchronization_id`, `node_config`, `result_window_s`; optional `service_id` must match the hardware file's persistent `node_id` |
+| Ingestor or StorageManager shared pair | `storage_root`, `global_artifact_root`, `recovery_journal_root`, `framework_journal`, `retrieval_endpoints`, `no_operational_dependents` |
+
+`known_nodes` is an explicit unique list, possibly empty, for existing startup
+reconciliation; it does not select Session participants. Time windows follow
+existing launch contracts: positive finite values for independent roles,
+nonnegative finite preservation window for the shared pair. Paths resolve
+relative to the file containing them, or may be absolute. Node hardware paths
+remain relative to the separate hardware file. Settings are read at startup and
+are not watched; changes take effect on explicit restart.
+
+`retrieval_endpoints` explicitly maps logical node IDs to the existing
+`SshRetrievalEndpoint`: required `host`, `username`, `key_filename`, optional
+`port` (existing SSH default 22) and `known_hosts_path`. Key/known-host references
+must be existing local files; ports and nonempty endpoint fields are validated.
+The loader does not parse private keys, authenticate, contact nodes or retrieve
+files. The StorageManager receives these settings and `global_artifact_root`
+through its existing constructor; host-key checking and connectivity remain
+retrieval-time responsibilities. An empty mapping explicitly configures no
+retrieval endpoints; later collection from an unconfigured node fails normally.
+Offline nodes do not block startup, and valid paths do not prove SSH access.
+
+The existing paired CLI cannot represent callback-based external-dependent
+configuration. File launching therefore requires `no_operational_dependents`
+to be explicitly `true`, never inferred from an omitted list. The template leaves
+this unset. Do not set it for a deployment with actual dependents; compose the
+existing `launch_storage_services(operational_dependents=...)` callbacks instead.
+W064 does not replace that integration boundary with cached readiness, a registry
+or an assumed dependency graph.
+
+The loader rejects malformed JSON, duplicate or unknown fields, missing settings,
+invalid identities/URLs/windows, duplicate registered nodes, invalid local
+references and invalid hardware configuration before operational startup.
+Hardware prevalidation reuses the existing reader without constructing another
+service owner or opening hardware. Valid configuration is not service connectivity,
+hardware readiness, scientific readiness or installation certification. Session
+IDs, device overrides and scientific timing policies are not general-service
+settings and unknown Session-specific fields are rejected.
+
+W064 and Q022 remain OPEN pending the established validation/audit workflow.
+Provisioning, dummy SSH/SFTP retrieval verification, complete multi-computer
+deployment and broader recovery/integration remain outside this slice. Focused
+checks: `python -B -m unittest tests.test_deployment_configuration -v`.
+
 ### Remote Service Maintenance (W062 Closed)
 
 An independent terminal can address an existing service owner without a running
@@ -413,12 +495,12 @@ alone does not establish durable Ingestor acceptance or Q019 completeness.
 
 | Boundary | Existing foundation | Missing integration |
 | --- | --- | --- |
-| Package/launch | `pyproject.toml` builds one `lab-sync-acquisition` package, Python 3.12, with optional `artifact-retrieval`; scripts demonstrate manual startup | General explicit-role entry point and supported configuration bootstrap |
-| Local configuration | Constructors accept NATS servers, journals, storage roots, retrieval endpoints, and node declarations | File loader, templates/definitions, startup validation, default/explicit node paths |
-| Node/device setup | `AcquisitionNode`, `DeviceDeclaration`, `DeviceManager`, concrete adapters and retained deployment device settings | File-to-object construction and explicit supported adapter selection |
+| Package/launch | W061-W063 common explicit-role entry point; W064 integrates general service files with the same launchers | Complete deployment integration and verification |
+| Local configuration | W064 JSON loader/templates, startup validation; W063 node hardware loader/default and explicit paths | Configuration provisioning and external-dependent callback composition through files |
+| Node/device setup | Existing declarations/adapters and W063 file-to-object construction; W064 reuses hardware prevalidation | Additional supported adapters as required by deployments |
 | Operator parameters | `SessionConfig.device_configurations`, node initialization overrides, adapter `initialize(config)` and concrete validation | Generic adapter-defined parameter constraints, inventory exposure, Controller readback |
-| Readiness/startup | Existing node/service reports, NATS `check_readiness`/`get_inventory`, fresh announcements, `Controller.reconcile_outcomes()` | Load known-node identities from local files and integrate configuration diagnostics |
-| Scientific retrieval | `SshRetrievalEndpoint`, configured node-to-endpoint mapping, StorageManager SSH/SFTP pull with host-key checks | Startup-local endpoint validation and explicit verified installation dummy retrieval |
+| Readiness/startup | Existing reports, NATS requests/announcements and reconciliation consume W064 configured known-node identities | Live deployment verification |
+| Scientific retrieval | Existing endpoint mapping/pull and host-key checks; W064 validates local settings before construction without connectivity checks | Explicit verified installation dummy retrieval |
 
 Current demos and optional manual hardware checks are not a general installer.
 Concrete camera configuration is an adapter example, not the generic parameter

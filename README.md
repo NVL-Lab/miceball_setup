@@ -154,6 +154,12 @@ remaining deployment/integration work. See
 for validation evidence and the distinction between controlled coroutine checks
 and normal asynchronous execution.
 
+W064 adds explicit `--deployment-config PATH` service-file input to the same
+launchers, with separate node hardware configuration and local retrieval settings.
+See [service-file usage](docs/installation_and_deployment.md#deployment-local-service-files-w064-implementation-open)
+and `config_templates/`. W064 remains OPEN pending independent validation/audit;
+this is not configuration provisioning or complete deployment verification.
+
 
 
 This repository is developing a hardware-agnostic framework for:

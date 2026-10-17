@@ -219,12 +219,14 @@ class ServiceLauncher:
 
 async def launch_storage_services(*, servers, ingestor_id, storage_id, storage_root,
                                   recovery_journal_root, framework_journal,
-                                  preservation_window_s, operational_dependents, report=print):
+                                  preservation_window_s, operational_dependents, report=print,
+                                  global_artifact_root=None, retrieval_endpoints=None):
     """Launch the existing paired owners with explicit constructor settings."""
     servers = tuple(servers)
     if not servers or any(not isinstance(server, str) or not server.strip() for server in servers):
         raise ValueError("Explicit nonempty NATS servers are required")
-    storage = PersistentStorageManager(storage_root, component_id=storage_id)
+    storage = PersistentStorageManager(storage_root, component_id=storage_id,
+        global_artifact_root=global_artifact_root, retrieval_endpoints=retrieval_endpoints)
     intake = InMemoryIngestor(storage, component_id=ingestor_id,
         recovery_journal_root=recovery_journal_root,
         framework_recovery_journal_path=framework_journal)
@@ -296,6 +298,8 @@ def main(argv=None):
     parser.add_argument("--known-node", action="append")
     parser.add_argument("--no-known-nodes", action="store_true")
     parser.add_argument("--config", type=Path)
+    parser.add_argument("--deployment-config", type=Path,
+        help="Explicit deployment-local JSON service settings; not combined with launch-setting flags")
     parser.add_argument("--server", action="append", help="Explicit NATS server URL; repeat for multiple servers")
     parser.add_argument("--ingestor-id")
     parser.add_argument("--storage-id")
@@ -306,6 +310,28 @@ def main(argv=None):
     parser.add_argument("--no-operational-dependents", action="store_true",
         help="Explicitly declare no external operational dependents; other dependency composition is unavailable here")
     args = parser.parse_args(argv)
+    if args.deployment_config is not None:
+        if args.role in {"stop", "kill", "cancel"}:
+            parser.error("--deployment-config is for service startup, not administrative commands")
+        fields = ("server", "service_id", "ingestor_id", "storage_id", "synchronization_id",
+                  "known_node", "no_known_nodes", "config", "storage_root", "recovery_journal_root",
+                  "framework_journal", "preservation_window_s", "result_window_s", "no_operational_dependents",
+                  "target_type", "target_id", "administrator_id", "stop_attempt_id", "authorize_kill")
+        if any(getattr(args, field) is not None and getattr(args, field) is not False for field in fields):
+            parser.error("--deployment-config cannot be combined with explicit launch or maintenance settings; no override precedence is applied")
+        try:
+            from lab_sync_acquisition.deployment_configuration import load_service_configuration
+            settings = load_service_configuration(args.deployment_config, args.role)
+            if args.role in {"ingestor", "storage-manager"}:
+                operation = launch_storage_services(**settings)
+            else:
+                from lab_sync_acquisition.service_startup import launch_independent_service
+                settings.setdefault("service_id", None)
+                operation = launch_independent_service(role=args.role, **settings)
+            return asyncio.run(operation)
+        except Exception as error:
+            print(f"Startup unconfirmed: {type(error).__name__}: {error}", file=sys.stderr)
+            return 1
     if args.role in {"stop", "kill", "cancel"}:
         from lab_sync_acquisition.communication import build_runtime_subject
         from lab_sync_acquisition.service_maintenance_cli import request_service_maintenance

@@ -991,6 +991,16 @@ the supported entry points and validated_workflows.md for verification limitatio
 
 ### Q022-A accepted scope
 
+W064 implements deployment-local general-service JSON loading, validation and
+integration with all existing launch paths, separate from the node hardware file.
+Explicit file mode does not merge with constructor flags or alter existing flag
+launching. Local retrieval settings are passed to StorageManager without checking
+remote connectivity. The existing explicit no-external-dependents limitation of
+the paired CLI remains; nonempty callback composition is not fabricated from a
+file. W064 is OPEN pending independent validation and audit. Configuration
+provisioning, installation verification and broader deployment integration remain
+outstanding; no broader question or milestone is closed here.
+
 One installed package is launched with an explicit service role. Installation uses
 local files outside Git, derived from committed templates, with general service
 settings distinct from AcquisitionNode hardware configuration. Node configuration

@@ -21,8 +21,8 @@ from lab_sync_acquisition.service_maintenance import ServiceMaintenanceInterface
 from lab_sync_acquisition.synchronization import SynchronizationManager
 
 
-def load_acquisition_node(path, synchronization_source_id):
-    """Load installation declarations and explicit supported adapters without opening hardware."""
+def read_acquisition_node_configuration(path):
+    """Validate installation settings without constructing an owner or opening hardware."""
     path = Path(path)
     data = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(data, dict) or set(data) != {"node_id", "role", "local_storage_root", "error_evidence_location", "devices"}:
@@ -33,7 +33,7 @@ def load_acquisition_node(path, synchronization_source_id):
         if not isinstance(data[key], str) or not data[key].strip():
             raise ValueError(f"Node installation requires nonempty {key}")
     build_runtime_subject(None, "command", "acquisition_node", data["node_id"], "stop")
-    adapters, declarations, configurations = [], [], {}
+    configurations = {}
     for item in data["devices"]:
         if not isinstance(item, dict) or set(item) != {"adapter", "declaration", "configuration"}:
             raise ValueError("Each installed device requires adapter, declaration and configuration")
@@ -59,10 +59,18 @@ def load_acquisition_node(path, synchronization_source_id):
                 or config.fps is not None and (type(config.fps) not in {int, float}
                                               or not isfinite(config.fps) or config.fps <= 0)):
             raise ValueError("Invalid explicit OpenCV installation connection or capture settings")
-        adapters.append(SeeedIMX219OpenCVCameraAdapter(declaration.device_id, declaration.device_type,
-            declaration.declared_capabilities, declaration.required))
-        declarations.append(declaration)
         configurations[declaration.device_id] = item["configuration"]
+    return data
+
+
+def load_acquisition_node(path, synchronization_source_id):
+    """Load installation declarations and explicit supported adapters without opening hardware."""
+    path = Path(path)
+    data = read_acquisition_node_configuration(path)
+    declarations = [DeviceDeclaration.from_dict(item["declaration"]) for item in data["devices"]]
+    adapters = [SeeedIMX219OpenCVCameraAdapter(d.device_id, d.device_type,
+        d.declared_capabilities, d.required) for d in declarations]
+    configurations = {item["declaration"]["device_id"]: item["configuration"] for item in data["devices"]}
     return AcquisitionNode(device_manager=DeviceManager(adapters), node_id=data["node_id"], role=data["role"],
         synchronization_source_id=synchronization_source_id, device_declarations=declarations,
         default_local_storage_root=path.parent / data["local_storage_root"],

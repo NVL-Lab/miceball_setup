@@ -1,0 +1,22 @@
+{
+  "node_id": "ACQUISITION_NODE_ID",
+  "role": "acquisition",
+  "local_storage_root": "SCIENTIFIC_STORAGE_PATH",
+  "error_evidence_location": "ERROR_EVIDENCE_PATH",
+  "devices": [{
+    "adapter": "seeed_imx219_opencv",
+    "declaration": {
+      "device_id": "DEVICE_ID",
+      "device_type": "camera",
+      "enabled": true,
+      "required": true,
+      "declared_capabilities": ["frames"],
+      "scientific_products": []
+    },
+    "configuration": {
+      "camera_source": null,
+      "api_preference": null,
+      "frames_per_collect": null
+    }
+  }]
+}

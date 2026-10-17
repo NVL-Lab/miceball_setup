@@ -1,0 +1,19 @@
+{
+  "servers": ["nats://NATS_HOST:4222"],
+  "ingestor_id": "INGESTOR_ID",
+  "storage_id": "STORAGE_ID",
+  "storage_root": "SESSION_STORAGE_PATH",
+  "global_artifact_root": "GLOBAL_SCIENTIFIC_STORAGE_PATH",
+  "recovery_journal_root": "SESSION_JOURNAL_PATH",
+  "framework_journal": "FRAMEWORK_JOURNAL_PATH",
+  "preservation_window_s": null,
+  "no_operational_dependents": null,
+  "retrieval_endpoints": {
+    "ACQUISITION_NODE_ID": {
+      "host": "ACQUISITION_NODE_HOST",
+      "username": "SSH_USERNAME",
+      "key_filename": "SSH_PRIVATE_KEY_PATH",
+      "known_hosts_path": "SSH_KNOWN_HOSTS_PATH"
+    }
+  }
+}

@@ -24,8 +24,9 @@ terminals address services directly without Controller. Confirmed maintenance an
 required final command-result handling precede process exit. Existing identities,
 temporary requesters, local OS administrator name and explicit remote administrator
 identity are not authentication infrastructure. Terminal feedback uses existing
-outcomes, with exit code 0 only for confirmed success. General configuration,
-installation verification and broader deployment integration remain outstanding;
+outcomes, with exit code 0 only for confirmed success. W064 implements explicit
+deployment-local service-file inputs, pending independent validation and audit;
+provisioning, installation verification and broader deployment integration remain outstanding;
 Q022 remains OPEN. See
 installation_and_deployment.md and Decisions 383-388.
 
@@ -38,11 +39,26 @@ installation_and_deployment.md and Decisions 383-388.
 - ServiceLauncher.run(*, startup=None): Installs SIGINT protection before invoking an optional async startup callable, awaits interrupted initialization before local maintenance, retains cancelled/blocked/failed/unconfirmed processes, and drains communication only after confirmed retirement and result handling.
 - ServiceLauncher._feedback: Reports existing maintenance outcomes, identities, blockers and outstanding obligations without creating lifecycle evidence or outcome states.
 - ServiceLauncher._remote_handled: Validates request/result correlation using the exact published-and-acknowledged result and counts only confirmed retirement toward exit, never a cached success substituted by command ID.
-- launch_storage_services(*, servers, ingestor_id, storage_id, storage_root, recovery_journal_root, framework_journal, preservation_window_s, operational_dependents, report=print): Constructs the two existing paired owners with explicit existing Ingestor dependency callbacks, connects their NATS handlers/readiness and runs the shared lifetime.
-- main(argv=None): Parses explicit-role launching or addressed remote Stop/Kill/Cancel, requires explicit administrative settings and returns nonzero for unconfirmed or unsuccessful commands.
+- launch_storage_services(*, servers, ingestor_id, storage_id, storage_root, recovery_journal_root, framework_journal, preservation_window_s, operational_dependents, report=print, global_artifact_root=None, retrieval_endpoints=None): Constructs the two existing paired owners with configured storage/retrieval and existing Ingestor dependency callbacks, connects their NATS handlers/readiness and runs the shared lifetime.
+- main(argv=None): Parses explicit-role startup from constructor flags or a separate --deployment-config file without merging, or addressed remote Stop/Kill/Cancel, returning nonzero for unconfirmed or unsuccessful commands.
+
+## src/lab_sync_acquisition/deployment_configuration.py
+
+- load_service_configuration(path, role): Reads and validates deployment-local JSON for an explicitly selected service role, returning existing launcher arguments without connecting, constructing owners or opening hardware.
+- _unique_object(pairs): Rejects duplicate JSON fields instead of silently selecting a value.
+- _local_path(directory, value, field): Resolves an explicit local path relative to its configuration file without creating it.
+- _identity(value, kind, field): Validates configured participant identities through the existing runtime subject contract.
+- _validate_service_configuration(data, directory, role): Validates existing role-specific constructor settings, separate node installation references and local SSH/SFTP endpoint references.
+
+## tests/test_deployment_configuration.py
+
+- DeploymentConfigurationTests: Covers role-specific file loading, invalid configuration, node prevalidation, explicit input modes, Session separation and common CLI dispatch.
+- DeploymentConfigurationTests.load(role, data=None): Supplies a temporary service file to the public configuration loader.
+- ConfiguredStorageStartupTests: Exercises configured shared-owner startup/readiness and graceful maintenance with offline retrieval endpoints using existing broker fixtures.
 
 ## src/lab_sync_acquisition/service_startup.py
 
+- read_acquisition_node_configuration(path): Validates the existing hardware JSON contract without constructing an owner or adapter, for both deployment prevalidation and node construction.
 - load_acquisition_node(path, synchronization_source_id): Validates a deployment-local JSON hardware installation, constructs explicitly selected supported adapters without opening hardware, and supplies persistent identity, local paths and per-device initialization baselines to the real node.
 - launch_independent_service(*, role, servers, service_id, ingestor_id, storage_id, preservation_window_s, result_window_s, synchronization_id=None, known_nodes=None, node_config=None, report=print): Constructs one independent owner with explicit remote evidence dependencies, fresh command handlers, readiness/reconciliation and the existing protected ServiceLauncher lifetime.
 
@@ -76,7 +92,7 @@ installation_and_deployment.md and Decisions 383-388.
 - ServiceLauncherTests.finish_task: Ends a deliberately retained test launcher through an injected reporter failure so fixture cleanup cannot hang on cancellation retention.
 - ServiceLauncherTests.check_startup_interruption: Exercises SIGINT or task cancellation after Session/evidence admission, confirming maintenance, binding/journal retention and no premature connection closure.
 
-## Accepted Q022-A Installation Contracts (Not Implemented)
+## Accepted Q022-A Installation Contracts (Partially Implemented)
 
 Decisions 367-378 accept one installed package with explicit role launching,
 file-based local service/node configuration, explicit adapters and persistent node
@@ -87,9 +103,10 @@ Existing constructors, `AcquisitionNode.declared_devices`/readiness,
 readiness commands, `NatsServiceMaintenanceCommunication.start()` with configured
 participants, `Controller.reconcile_outcomes()`, and StorageManager endpoint/pull
 interfaces are reusable. The paired-role CLI is closed in W061 and W063 closes
-the remaining roles plus node hardware JSON loading; there is no general-service file loader,
-generic adjustable-parameter inventory, or installation dummy-retrieval interface
-yet. Configuration validity is not hardware readiness; device smoke tests are
+the remaining roles plus node hardware JSON loading. W064 adds general service
+JSON loading and local endpoint validation, pending independent validation/audit.
+Generic adjustable-parameter inventory, provisioning and installation dummy
+retrieval remain outstanding. Configuration validity is not hardware readiness; device smoke tests are
 recommended, not commissioning/runtime gates. Q019 remains CLOSED; Q022/Q024/Phase 16/M015
 remain OPEN.
 
