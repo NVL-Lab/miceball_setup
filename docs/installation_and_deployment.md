@@ -781,11 +781,25 @@ If a blocked shared-pair Stop is cancelled, Cancel ends that attempt without
 reopening resources already cleaned up. A later explicit Stop uses a fresh attempt
 and can complete once the dependent obligations are authoritatively released.
 
-Confirmed releases remain usable after the dependent exits. Following shared-owner
-restart, journal history alone is not archive confirmation: callbacks remain blocked
-until existing authoritative archive verification/recovery establishes coverage.
-W068 does not repair archives or implement Q024 recovery. Local legacy callbacks
-remain supported for development; deployed communication uses NATS.
+Confirmed releases remain usable after the dependent exits. Decision 390 requires
+ordinary startup to reconcile an intact historical framework archive before
+restoring eligible dependent releases: Ingestor reconstructs its journal and
+compilation; StorageManager verifies archive integrity, internal consistency and
+exact historical-prefix agreement with recovered evidence and applicable intake
+audit. Existing archival mechanisms may then preserve additional accepted recovery
+evidence, with complete current-compilation verification before confirmation.
+Journal history or historical confirmation alone is insufficient. Decision 389's
+instance, attempt, freshness, contradiction and supersession checks still apply.
+
+This ordinary continuation integration is accepted but not yet implemented or
+validated in W068. Until current preservation is confirmed, callbacks remain
+blocked. Missing, conflicting, corrupted or unverifiable history and failed
+continuation cannot authorize release, conflicting overwrite, journal truncation
+or silent repair. Actual interrupted-write recovery remains separately subject to
+Decisions 339/342/347 and applicable administrator authorization; ordinary restart
+is not automatically such recovery. No new recovery subsystem is introduced.
+Local legacy callbacks remain supported for development; deployed communication
+uses NATS.
 
 Focused regression entry point (no live infrastructure required):
 

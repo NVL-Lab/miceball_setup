@@ -11222,6 +11222,58 @@ W001-W067 remain CLOSED. Q006/Q018, Q024, Phase 16 and M015 remain OPEN.
 
 ---
 
+## Decision 390: Ordinary framework archive continuation after restart
+
+**Status:** Accepted
+
+This records the user-approved LLC clarification for W068. It supplements
+Decisions 323, 376 and 389 while preserving the interrupted-write recovery
+requirements of Decisions 339, 342 and 347.
+
+### Ordinary continuation and verification
+
+Ordinary restart with an intact historical framework Evidence Archive and newly
+accepted Ingestor recovery evidence is normal archival continuation, not
+automatically interrupted-write recovery.
+
+Ingestor reconstructs its authoritative journal and compilation. StorageManager
+verifies that the existing durable archive is intact, internally consistent, and
+an exact valid historical prefix of the recovered authoritative evidence and
+applicable intake audit. Historical confirmation alone is insufficient.
+
+After successful prefix verification, existing compilation and archival mechanisms
+may preserve additional accepted recovery evidence. StorageManager must verify
+the complete current compilation before confirming preservation.
+
+### Startup and dependent-release restoration
+
+Integrate reconciliation into ordinary startup before restoring eligible
+dependent-release state. Ingestor and StorageManager retain their authoritative
+responsibilities and Decision 376's shared-process deployment requirements.
+
+W068 may reconsider previously confirmed external-dependent releases only after
+current archival confirmation. All Decision 389 identity, operational-instance,
+maintenance-attempt, freshness, contradiction and supersession requirements remain
+mandatory; archival continuation does not independently establish release.
+
+### Failure behavior and boundaries
+
+Missing, inconsistent, unverifiable or corrupted history, failed continuation, or
+unavailable current confirmation retains the dependency blocker. Never infer
+success, overwrite conflicting evidence, truncate the journal, or silently invoke
+interrupted-write repair.
+
+Actual interrupted-write recovery remains governed by Decisions 339, 342 and 347,
+including applicable administrator authorization. No new recovery manager,
+evidence subsystem, supervisor or lifecycle authority is authorized.
+
+**Implementation status:** Accepted and synchronized; ordinary-startup prefix
+verification and continuation integration remain to be implemented and validated
+in W068. W068 and Q022 remain OPEN; existing closed workflow and question statuses
+are unchanged.
+
+---
+
 # Accepted Architectural Principles
 
 The following principles summarize the accepted decisions so far.

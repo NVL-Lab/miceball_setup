@@ -1382,8 +1382,12 @@ instance before new work; restart cannot reuse prior-instance release. Controlle
 explicitly releases its dependency only at its preserved final checkpoint, while
 remaining operational for the prepared retirement sequence. Missing or conflicting
 confirmation retains blockers/processes and explicit retries reuse completed
-cleanup. Current framework preservation must be independently available after
-shared-owner restart; no automatic archive repair is introduced.
+cleanup. Decision 390 additionally requires ordinary-startup verification of an
+intact archive as an exact valid historical prefix of recovered authoritative
+evidence and applicable intake audit, followed by archival continuation and
+complete current confirmation before eligible release restoration. This
+integration remains unimplemented and unvalidated; it is not automatic
+interrupted-write repair under Decisions 339/342/347.
 Focused simulated-communication tests are provided; controlled execution is not
 normal Windows I/O scheduling, live NATS or physical deployment verification.
 W068/Q022 remain OPEN for independent validation/audit and remaining integration;

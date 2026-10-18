@@ -1017,11 +1017,16 @@ cannot create further Ingestor-dependent work. It remains able to coordinate
 subsequent retirement commands and retires last.
 
 The truthful isolated path remains supported; no false no-dependents declaration
-is needed or permitted for external mode. Shared-owner restart does not bless
-unverified framework archive history; unavailable current preservation keeps
-blockers and existing verification/recovery obligations intact. No automatic
-repair or Q024 recovery mechanism is added. W068 and Q022 remain OPEN pending
-independent validation/audit and remaining deployment integration. W001-W067 and
+is needed or permitted for external mode. Decision 390 resolves ordinary
+shared-owner restart: an intact archive must be verified as an internally
+consistent exact historical prefix of recovered authoritative evidence and
+applicable intake audit before additional accepted recovery evidence is archived.
+Complete current confirmation precedes reconsideration of Decision 389 releases.
+This startup integration remains unimplemented and unvalidated. Unavailable or
+invalid history/confirmation retains blockers; actual interrupted-write repair
+remains under Decisions 339/342/347, not silent continuation. No new recovery
+mechanism or authority is introduced. W068 and Q022 remain OPEN pending this
+integration, independent validation/audit and remaining deployment work. W001-W067 and
 Q019 remain CLOSED. No live networking, hardware, OS signals or full physical
 deployment verification is claimed.
 

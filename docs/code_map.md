@@ -26,6 +26,12 @@ is not retired. W068 remains OPEN pending independent validation/audit; isolated
 and configured-external shared CLI paths are both supported. See architecture_decisions.md
 and installation_and_deployment.md for the accepted contract and current limitation.
 
+Decision 390 requires ordinary-startup historical-prefix verification and current
+framework archival continuation before restoring eligible Decision 389 releases.
+That integration remains unimplemented/unvalidated; retained blockers on restart
+are not proof of completed recovery integration. Interrupted-write repair retains
+its separate authorization requirements.
+
 ## Manual Service CLI (Decisions 383-388; W061-W063 Closed)
 
 The common installed `lab-sync-acquisition` entry point exposes five logical roles.
