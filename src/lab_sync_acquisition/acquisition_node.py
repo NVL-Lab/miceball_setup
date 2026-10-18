@@ -159,6 +159,15 @@ class AcquisitionNode:
         """Deployment inventory, independent of Session selections and availability."""
         return self._declared_devices
 
+    def get_inventory(self) -> dict[str, Any]:
+        """Return installed declarations and adapter-owned Session parameter definitions."""
+        declared_ids = {d.device_id for d in self.declared_devices}
+        return {"devices": [d.to_dict() for d in self.declared_devices],
+                "synchronization_source_id": self.synchronization_source_id,
+                "session_parameter_definitions": {
+                    adapter.device_id: deepcopy(adapter.get_session_parameter_definitions())
+                    for adapter in self._device_manager.adapters if adapter.device_id in declared_ids}}
+
     @property
     def reserved_for_session_id(self) -> str | None:
         with self._reservation_lock:
@@ -249,11 +258,14 @@ class AcquisitionNode:
                     raise ValueError("Session cannot redefine declared scientific products")
                 selected_adapters.append(adapters[declaration.device_id])
             self._runtime_device_manager = DeviceManager(selected_adapters)
+            configurations = {
+                adapter.device_id: adapter.resolve_session_configuration(
+                    self._deployment_device_configurations[adapter.device_id],
+                    (device_configurations or {}).get(adapter.device_id))
+                for adapter in selected_adapters}
             for adapter in selected_adapters:
                 self._initialization_touched_adapters.append(adapter)
-                configuration = (device_configurations or {}).get(adapter.device_id)
-                if configuration is None:
-                    configuration = deepcopy(self._deployment_device_configurations[adapter.device_id])
+                configuration = configurations[adapter.device_id]
                 if (adapter.state in {DeviceAdapterState.INITIALIZED, DeviceAdapterState.READY}
                         and configuration != adapter.initialization_config):
                     adapter.shutdown()

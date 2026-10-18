@@ -715,16 +715,16 @@ class SessionLaunchTests(unittest.IsolatedAsyncioTestCase):
         self.participants.append(participant)
         snapshots = []
         session_ids = []
-        for index, source in enumerate((1, 2)):
+        for index in range(2):
             readiness = await self.communication.request_command(participant, "check_readiness", None, {}, 0.01)
             self.assertTrue(readiness.payload["acquisition_node_readiness"]["device_readiness"][0]["ready"])
             self.config["device_configurations"] = {"camera": {
-                "camera_source": source, "api_preference": 0, "frames_per_collect": index + 1}}
+                "frames_per_collect": index + 1}}
             launched = await self.launch({"node-a": [declaration]})
             self.assertTrue(launched.succeeded, launched.error)
             sid = launched.details["session_id"]
             session_ids.append(sid)
-            self.assertEqual(camera.initialization_config.camera_source, source)
+            self.assertEqual(camera.initialization_config.camera_source, 0)
             self.assertEqual(camera.initialization_config.frames_per_collect, index + 1)
             self.assertTrue((await self.controller.start_launched_session()).succeeded)
             eid = "experiment-" + str(index)
@@ -774,13 +774,14 @@ class SessionLaunchTests(unittest.IsolatedAsyncioTestCase):
                         if message.payload["artifact_manifest_id"] == manifest.artifact_manifest_id]
             self.assertEqual(len(evidence), 2)
             self.assertTrue(all(message.session_id == manifest.session_id for message in evidence))
-        self.assertEqual([capture.source for capture in cv2.captures], [0, 1, 2])
+        self.assertEqual([capture.source for capture in cv2.captures], [0, 0])
         inventory = await self.communication.request_command(participant, "get_inventory", None, {}, 0.01)
         self.assertTrue(inventory.success)
         self.assertTrue(node.check_node_readiness().device_readiness.all_ready)
 
     async def test_confirmed_abort_reuses_deployment_configuration_not_previous_session_settings(self):
         node, declaration, adapter = await self.node()
+        adapter.get_session_parameter_definitions = lambda: {"session_setting": {"type": "string"}}
         participant = RuntimeParticipant("acquisition_node", "node-a")
         for sid, configuration in (("session-a", {"node-a-device": {"session_setting": "A"}}), ("session-b", {})):
             await self.communication.subscribe_command_results(sid)
@@ -802,7 +803,7 @@ class SessionLaunchTests(unittest.IsolatedAsyncioTestCase):
         node = AcquisitionNode(device_manager=DeviceManager([camera]), synchronization_manager=SynchronizationManager(),
             ingestor=InMemoryIngestor(), node_id="node-a", role="acquisition",
             error_evidence_location=str(self.root / "errors"), default_local_storage_root=self.root / "node-a",
-            device_declarations=[declaration])
+            device_declarations=[declaration], deployment_device_configurations={"camera": OpenCVCameraConfig(1, 0, 1)})
         handler = NatsAcquisitionNodeCommunication(_Boundary("acquisition_node", "node-a", self.broker), node)
         await handler.subscribe_commands()
         participant = RuntimeParticipant("acquisition_node", "node-a")
@@ -814,7 +815,7 @@ class SessionLaunchTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(node, "prepare_local_storage", side_effect=OSError("storage preparation failed")):
             prepared = await command("initialize_session", "session-a", {
                 "selected_devices": [declaration.to_dict()], "device_configurations": {"camera": {
-                    "camera_source": 1, "api_preference": 0, "frames_per_collect": 1}}})
+                    "frames_per_collect": 1}}})
         self.assertFalse(prepared.success)
         capture = cv2.captures[0]
         with patch.object(capture, "release", side_effect=OSError("release failed")) as release:
@@ -837,8 +838,8 @@ class SessionLaunchTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue((await command("reserve", "session-b")).success)
         self.assertTrue((await command("initialize_session", "session-b", {
             "selected_devices": [declaration.to_dict()], "device_configurations": {"camera": {
-                "camera_source": 2, "api_preference": 0, "frames_per_collect": 1}}})).success)
-        self.assertEqual(cv2.captures[-1].source, 2)
+                "frames_per_collect": 1}}})).success)
+        self.assertEqual(cv2.captures[-1].source, 1)
         self.assertTrue((await command("start_runtime", "session-b")).success)
         self.assertTrue((await command("run_one_iteration", "session-b")).success)
         self.assertTrue((await command("stop_runtime", "session-b")).success)
@@ -859,7 +860,8 @@ class SessionLaunchTests(unittest.IsolatedAsyncioTestCase):
                         device_manager=DeviceManager([camera]), synchronization_manager=SynchronizationManager(),
                         ingestor=InMemoryIngestor(), node_id=node_id, role="acquisition",
                         error_evidence_location=str(self.root / "errors"),
-                        default_local_storage_root=self.root / node_id, device_declarations=[declaration])
+                        default_local_storage_root=self.root / node_id, device_declarations=[declaration],
+                        deployment_device_configurations={"camera": OpenCVCameraConfig(0, 0, 1)})
                     handler = NatsAcquisitionNodeCommunication(
                         _Boundary("acquisition_node", node_id, self.broker), node)
                     await handler.subscribe_commands()
@@ -880,7 +882,6 @@ class SessionLaunchTests(unittest.IsolatedAsyncioTestCase):
                             initialized = await command("initialize_session", session_a, {
                                 "selected_devices": [declaration.to_dict()],
                                 "device_configurations": {"camera": {
-                                    "camera_source": 0, "api_preference": 0,
                                     "frames_per_collect": 1, "frame_width": 640}}})
                         self.assertFalse(initialized.success)
                         self.assertEqual(camera.state, DeviceAdapterState.FAILED)
@@ -924,9 +925,9 @@ class SessionLaunchTests(unittest.IsolatedAsyncioTestCase):
                     initialized = await command("initialize_session", session_b, {
                         "selected_devices": [declaration.to_dict()],
                         "device_configurations": {"camera": {
-                            "camera_source": 1, "api_preference": 0, "frames_per_collect": 1}}})
+                            "frames_per_collect": 1}}})
                     self.assertTrue(initialized.success, initialized.reason)
-                    self.assertEqual(camera.initialization_config.camera_source, 1)
+                    self.assertEqual(camera.initialization_config.camera_source, 0)
                     self.assertTrue((await command("start_runtime", session_b)).success)
                     self.assertTrue((await command("run_one_iteration", session_b)).success)
                     self.assertTrue((await command("stop_runtime", session_b)).success)

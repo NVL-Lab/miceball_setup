@@ -832,6 +832,40 @@ and further Ingestor-dependent evidence; it can continue the existing prepared
 retirement sequence without writing through retired Ingestor. W068 is CLOSED;
 Q022 remains OPEN and no full physical deployment verification is claimed.
 
+### DeviceAdapter Session Parameters (W069 Open)
+
+`AcquisitionNode.get_inventory()` and the existing NATS `get_inventory` command
+return `session_parameter_definitions`, keyed by installed device ID alongside
+unchanged `devices` declarations/products and synchronization authority.
+`await controller.get_node_inventory(participant, communication=communication,
+result_window_s=...)` retrieves a fresh correlated snapshot for clients without
+creating a Session, reserving devices or opening hardware. Availability of
+definitions is not acquisition readiness. No GUI or additional transport is added.
+
+Each adapter implements `get_session_parameter_definitions()` as a mapping from
+parameter names to plain-data constraints. Supported `type` values are `integer`,
+`number`, `boolean` and `string`; constraints use `allowed_values`, `minimum`,
+`maximum`, `exclusive_minimum`, and `nullable` (absent means false). Bounds and
+choices are adapter-owned, not a universal camera parameter set. Adapters exposing
+no Session-adjustable settings return an empty mapping.
+
+Use the existing `SessionConfig.device_configurations` mapping for partial
+per-device overrides, for example `{"camera": {"frames_per_collect": 2, "fps": 30}}`.
+Omitted device overrides, empty mappings and omitted parameter keys preserve the
+deployment baseline. Explicit null is accepted only for a nullable parameter.
+Unknown/installation-only keys, wrong types, booleans used as numbers, nonfinite
+numbers and constraint violations are rejected without coercion before applying
+Session settings. Configuration selection is not permission to alter installation
+connections. The OpenCV adapter exposes `frames_per_collect` (integer >= 1),
+nullable `frame_width`/`frame_height` (positive integers), and nullable `fps`
+(positive finite number); `camera_source` and `api_preference` remain installation
+settings. Existing hardware setup/readiness remains adapter-owned.
+
+Node preparation resolves each Session against detached deployment defaults, not
+the previous Session's active configuration. Successful shutdown returns adapters
+to DECLARED under Decision 302; existing failed-cleanup/reservation protections
+still prevent unsafe reuse. W069 remains OPEN pending independent validation/audit.
+
 ### Provision And Verify Retrieval
 
 On the node, the administrator enables an existing SSH server with SFTP, creates
@@ -1003,7 +1037,7 @@ alone does not establish durable Ingestor acceptance or Q019 completeness.
 | Package/launch | W061-W063 common explicit-role entry point; W064 integrates general service files with the same launchers | Complete deployment integration and verification |
 | Local configuration | W064 JSON loader/templates, startup validation; W063 node hardware loader/default and explicit paths; W068 external-dependent composition, instance-confirmation and ordinary continuation CLOSED after independent manual validation/audit | Actual provisioning and remaining deployment integration |
 | Node/device setup | Existing declarations/adapters and W063 file-to-object construction; W064 reuses hardware prevalidation | Additional supported adapters as required by deployments |
-| Operator parameters | `SessionConfig.device_configurations`, node initialization overrides, adapter `initialize(config)` and concrete validation | Generic adapter-defined parameter constraints, inventory exposure, Controller readback |
+| Operator parameters | W069 implements adapter-defined constraints, existing node/NATS inventory exposure, Controller readback and validated partial Session overrides | Independent W069 manual validation/audit and actual device verification |
 | Readiness/startup | Existing reports, NATS requests/announcements and reconciliation consume W064 configured known-node identities; W066 explicit installation `verify-node` using existing readiness requests is CLOSED after independent validation and final re-audit PASS | Applicable manual installation integration and live deployment verification |
 | Scientific retrieval | Existing endpoint mapping/pull and host-key checks; W064 local validation; W065 explicit installation dummy retrieval and exact comparison CLOSED after independent validation/audit PASS with simulated SSH/SFTP | Actual installation verification and live deployment validation |
 

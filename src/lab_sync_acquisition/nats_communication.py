@@ -902,8 +902,9 @@ class NatsAcquisitionNodeCommunication:
             if command.command_type not in {"check_readiness", "get_inventory", "reserve", "release_reservation", "initialize_session", "abort_session_initialization"} and command.session_id != self._acquisition_node.status()["session_id"]:
                 raise RuntimeError("Command session_id does not match AcquisitionNode")
             if command.command_type == "get_inventory":
-                payload = {"devices": [d.to_dict() for d in self._acquisition_node.declared_devices],
-                           "synchronization_source_id": self._acquisition_node.synchronization_source_id}
+                payload = self._acquisition_node.get_inventory()
+                if "request_nonce" in command.payload:
+                    payload["request_nonce"] = command.payload["request_nonce"]
             elif command.command_type == "read_local_time":
                 payload = {"received_local_time_s": monotonic(), "sent_local_time_s": monotonic(),
                            "acquisition_node_id": self._boundary.component_id,

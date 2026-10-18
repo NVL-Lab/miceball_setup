@@ -66,8 +66,8 @@ class SeeedIMX219OpenCVCameraAdapter(DeviceAdapter):
             config = OpenCVCameraConfig(**config)
         if not isinstance(config, OpenCVCameraConfig):
             raise TypeError("SeeedIMX219OpenCVCameraAdapter requires OpenCVCameraConfig")
-        if config.frames_per_collect < 1:
-            raise ValueError("frames_per_collect must be at least 1")
+        self.validate_session_parameters({name: getattr(config, name)
+                                          for name in self.get_session_parameter_definitions()})
 
         super().initialize(config=config)
         self._camera_config = config
@@ -85,6 +85,15 @@ class SeeedIMX219OpenCVCameraAdapter(DeviceAdapter):
             self._set_state(DeviceAdapterState.FAILED)
             self._release_capture()
             raise
+
+    def get_session_parameter_definitions(self) -> dict[str, dict[str, Any]]:
+        """Expose acquisition settings, never installation source or backend selection."""
+        return {
+            "frames_per_collect": {"type": "integer", "minimum": 1},
+            "frame_width": {"type": "integer", "minimum": 1, "nullable": True},
+            "frame_height": {"type": "integer", "minimum": 1, "nullable": True},
+            "fps": {"type": "number", "exclusive_minimum": 0, "nullable": True},
+        }
 
     def check_ready(self) -> DeviceReadiness:
         """Report declared eligibility or verify that an initialized capture is open."""

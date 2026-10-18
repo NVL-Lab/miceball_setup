@@ -1,5 +1,17 @@
 # Code Map
 
+## DeviceAdapter Adjustable Parameters (Decision 370; W069 Open)
+
+Adapters expose plain-data Session parameter definitions through existing node
+inventory and NATS `get_inventory`; Controller retrieves them without a Session or
+device-specific controls. Session overrides are partial, validated before device
+application and resolved against unchanged deployment defaults. W069 is implemented
+pending independent manual validation/audit; Q022 remains OPEN.
+
+- `tests/test_device_parameters.py::AdjustableAdapter`: Test-only event adapter exposing numeric, choice and boolean constraints independently of camera parameters.
+- `tests/test_device_parameters.py::DeviceParameterTests`: Exercises adapter validation, installation-only rejection, detached inventory and successive Session configuration isolation through actual node preparation.
+- `tests/test_device_parameters.py::DeviceParameterInventoryTests`: Exercises fresh Controller/NATS inventory retrieval, unavailable/stale replies and remote invalid-override rejection without hardware access.
+
 ## Manual Installation Integration (W067 Closed)
 
 - `config_templates/manual_installation/`: Typed service/hardware examples with placeholder installation values, a selected-product-capable camera declaration and explicitly configured shared-storage external dependents under W068.
@@ -962,6 +974,7 @@ guarantee remain deferred. M014/W034 retain completed Slice 27 scope and status.
 - AcquisitionNode.__init__(session_id=None, device_manager=None, synchronization_manager=None, ingestor=None, node_id=None, role=None, acquisition_health_policies=(), error_evidence_location=None, *, default_local_storage_root=None, device_declarations=None, synchronization_source_id=None, deployment_device_configurations=None): Configures local development synchronization or an explicit remote timing authority, local product inventory/storage and optional explicit installation baselines for every adapter.
 - AcquisitionNode.maintenance_evidence(): Returns retained node operational, health and manifest evidence required at service retirement.
 - AcquisitionNode.declared_devices: Returns the node's declared DeviceDeclaration/ScientificProductDeclaration inventory independently of Session selection and device availability.
+- AcquisitionNode.get_inventory(): Returns existing installed device/product declarations, synchronization authority and detached adapter-owned Session parameter definitions without hardware initialization or Session selection.
 - AcquisitionNode.reserved_for_session_id: Returns the current exclusive Session reservation or None under the node-owned lock.
 - AcquisitionNode.reserve(session_id): Atomically acquires an unreserved node, confirms the same owner's reservation idempotently, or rejects another owner without changing state.
 - AcquisitionNode.release_reservation(session_id): Clears only the owner's confirmed-clean, nonrunning, locally finalized binding without deleting artifacts or waiting for global retrieval.
@@ -1036,6 +1049,7 @@ is complete; W030 records manual validation, focused tests, and audit reassessme
 - Controller: Sequentially coordinates one Session with optional keyword-only `component_id="controller"` for producer identity, preserves existing ownership, and orchestrates preparation, lifecycle, runtime cleanup, and final persistence.
 - Controller.__init__(acquisition_node=None, ingestor=None, storage_manager=None, session_record_path=None, synchronization_manager=None, *, component_id="controller"): Supports Controller creation before Session and without remote participant references while retaining existing local collaborators.
 - Controller.launch_session(selections, *, communication, participants, config_parameters, result_window_s, scientific_outputs=()): Asynchronously allocates a fresh intended Session ID, resolves node-scoped device selections, reserves resources, constructs final SessionConfig, confirms participant preparation, and returns operational success or cleanup-aware rollback diagnostics.
+- Controller.get_node_inventory(participant, *, communication, result_window_s): Retrieves fresh nonce-correlated installed-device/Session-parameter inventory over existing NATS get_inventory with bounded waiting and temporary response-subscription cleanup.
 - Controller.shutdown_framework(participants, *, communication, stop_attempt_id, administrator_id, result_window_s, authorize_kill=None): Surveys an explicit Session-independent scope and coordinates progressive W036 retirement with StorageManager/Controller preparation, exact pre-Ingestor archival, separately bounded per-service authorization, and retained later confirmations in ControllerCommandResult.details.
 - Controller.start_launched_session(): Establishes configured remote synchronization before starting reserved nodes through correlated NATS commands, returning ControllerCommandResult and attempting cleanup if startup fails.
 - Controller.stop_launched_session(reason=None): Stops and locally finalizes all reserved nodes through NATS, releases only confirmed-clean reservations, records the Controller-owned end of any active Experiment without refinalizing node files, and stops the Session without waiting for global collection.
@@ -1090,6 +1104,9 @@ is complete; W030 records manual validation, focused tests, and audit reassessme
 - DeviceAdapter.shutdown: Completes adapter-specific cleanup after initialization/readiness/failure or normal stop, then returns to DECLARED; failed cleanup retains FAILED and completed shutdown is idempotent.
 - DeviceAdapter._shutdown_resources: Adapter-specific resource-release hook executed before the generic successful-cleanup transition.
 - DeviceAdapter.initialize(config): Requires DECLARED and applies fresh configuration for the next initialization without a reset operation.
+- DeviceAdapter.get_session_parameter_definitions(): Returns adapter-defined plain-data constraints for operator-adjustable Session parameters; the base adapter explicitly exposes none.
+- DeviceAdapter.validate_session_parameters(parameters): Rejects unsupported keys, wrong types/nonfinite values and violations of adapter-defined choices or numeric bounds without coercion.
+- DeviceAdapter.resolve_session_configuration(deployment_config, overrides=None): Validates partial overrides and returns a detached mapping or dataclass configuration without changing the installation baseline; adapters with other configuration types own their resolution.
 - DeviceAdapter.check_ready: Reports declared eligibility without opening hardware or changing state, while initialized acquisition readiness remains concrete-adapter-owned.
 - DeviceStatus.shutdown: Reports completed device cleanup even when the reusable adapter state is DECLARED, resetting on subsequent initialization.
 - _PartialScientificCollectionError: Retains completed product rows and separate operational messages alongside the original acquisition exception.
@@ -1340,6 +1357,7 @@ recovery is introduced. Phase 16 and M015 remain open.
 - SeeedIMX219OpenCVCameraAdapter: Opens a camera, reports readiness, acquires selected scientific frame products only, and releases the capture during shutdown.
 - SeeedIMX219OpenCVCameraAdapter.shutdown(): Uses generic shutdown to report FAILED and retain the capture after release failure, returning to DECLARED only after successful release with idempotent subsequent shutdown.
 - SeeedIMX219OpenCVCameraAdapter.initialize(config): Accepts OpenCVCameraConfig or its plain-data mapping through the existing DECLARED lifecycle, owning each capture before fallible setup and retaining FAILED plus the capture if initialization cleanup cannot release it.
+- SeeedIMX219OpenCVCameraAdapter.get_session_parameter_definitions(): Exposes frame-count, optional positive integer dimensions and optional positive finite FPS, excluding installation-only camera source/backend selection.
 - SeeedIMX219OpenCVCameraAdapter.check_ready(): Reports declared eligibility without opening capture, and checks initialized capture readiness separately.
 - SeeedIMX219OpenCVCameraAdapter.collect_products(products, *, session_id, experiment_id, acquisition_node_id): Reads selected camera products only, retaining ordered NumPy frames with their available per-frame metadata and completed partial rows without repeated reads or fabricated timestamps.
 

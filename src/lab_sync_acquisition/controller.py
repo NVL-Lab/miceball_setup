@@ -1021,6 +1021,37 @@ class Controller:
                         self._framework_shutdown_attempt_id = None
 
     @service_operation(new_work=True)
+    async def get_node_inventory(self, participant, *, communication, result_window_s):
+        """Read fresh installed-device and adjustable-parameter definitions without a Session."""
+        from math import isfinite
+        if (not isinstance(participant, RuntimeParticipant) or participant.component_type != "acquisition_node"
+                or type(result_window_s) not in {int, float} or not isfinite(result_window_s) or result_window_s <= 0):
+            raise ValueError("Explicit AcquisitionNode and positive inventory result window are required")
+        nonce = uuid4().hex
+        subscription = await communication.subscribe_command_results(None, new_only=True,
+            participant=participant, command_type="get_inventory",
+            result_filter=lambda result: result.payload.get("request_nonce") == nonce)
+        try:
+            result = await asyncio.wait_for(communication.request_command(participant, "get_inventory", None,
+                {"request_nonce": nonce}, result_window_s), result_window_s)
+            if (result is None or result.success is not True or result.status != "succeeded"
+                    or result.payload.get("request_nonce") != nonce
+                    or result.session_id is not None or result.source_id != participant.component_id):
+                raise RuntimeError("AcquisitionNode inventory is unconfirmed")
+            inventory = deepcopy(result.payload)
+            declarations = [DeviceDeclaration.from_dict(data) for data in inventory["devices"]]
+            identities = [d.device_id for d in declarations]
+            definitions = inventory["session_parameter_definitions"]
+            if (len(set(identities)) != len(identities) or not isinstance(definitions, dict)
+                    or not set(definitions).issubset(identities)
+                    or any(not isinstance(value, dict) for value in definitions.values())):
+                raise ValueError("Invalid installed-device parameter inventory")
+            inventory.pop("request_nonce", None)
+            return inventory
+        finally:
+            await subscription.unsubscribe()
+
+    @service_operation(new_work=True)
     async def launch_session(
         self,
         selections: Mapping[str, Iterable[DeviceDeclaration]],

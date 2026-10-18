@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, is_dataclass, replace
+from collections.abc import Mapping
+from copy import deepcopy
+from math import isfinite
 from enum import Enum
 from typing import Any, Iterable
 
@@ -137,6 +140,47 @@ class DeviceAdapter:
         self._shutdown_completed = False
         self._initialization_config = config
         self._set_state(DeviceAdapterState.INITIALIZED)
+
+    def get_session_parameter_definitions(self) -> dict[str, dict[str, Any]]:
+        """Describe operator-adjustable parameters; an empty mapping exposes none."""
+        return {}
+
+    def validate_session_parameters(self, parameters: Mapping[str, Any]) -> None:
+        """Reject unsupported overrides and values outside adapter-owned constraints."""
+        if not isinstance(parameters, Mapping):
+            raise TypeError("Session device parameters must be a mapping")
+        definitions = self.get_session_parameter_definitions()
+        for name, value in parameters.items():
+            if name not in definitions:
+                raise ValueError(f"Unsupported Session parameter: {name}")
+            definition = definitions[name]
+            if value is None and definition.get("nullable", False):
+                continue
+            kind = definition["type"]
+            valid = {"integer": type(value) is int,
+                     "number": type(value) in {int, float},
+                     "boolean": type(value) is bool,
+                     "string": type(value) is str}.get(kind, False)
+            if not valid or (type(value) in {int, float} and not isfinite(value)):
+                raise ValueError(f"Invalid type or nonfinite value for Session parameter: {name}")
+            if ("allowed_values" in definition and value not in definition["allowed_values"]
+                    or "minimum" in definition and value < definition["minimum"]
+                    or "maximum" in definition and value > definition["maximum"]
+                    or "exclusive_minimum" in definition and value <= definition["exclusive_minimum"]):
+                raise ValueError(f"Session parameter violates adapter constraints: {name}")
+
+    def resolve_session_configuration(self, deployment_config: Any, overrides=None) -> Any:
+        """Validate partial Session overrides without changing installation defaults."""
+        if overrides is None:
+            return deepcopy(deployment_config)
+        self.validate_session_parameters(overrides)
+        if not overrides:
+            return deepcopy(deployment_config)
+        if is_dataclass(deployment_config) and not isinstance(deployment_config, type):
+            return replace(deepcopy(deployment_config), **deepcopy(dict(overrides)))
+        if deployment_config is None or isinstance(deployment_config, Mapping):
+            return {**deepcopy(dict(deployment_config or {})), **deepcopy(dict(overrides))}
+        raise TypeError("Adapter must resolve its non-mapping installation configuration")
 
     def check_ready(self) -> DeviceReadiness:
         """Report declared eligibility or concrete initialized acquisition readiness."""

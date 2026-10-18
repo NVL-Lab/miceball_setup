@@ -1055,10 +1055,27 @@ and audit. Do not use an empty callback map or false declaration to proceed.
 W067's historical validation does not validate W068's new implementation.
 Real network/SSH, hardware/backend/permissions, OS signals and complete deployment
 remain operator verification. Other accepted outstanding requirements, including
-adjustable-parameter exposure and deployment integration, remain OPEN under Q022.
+independent W069 parameter-exposure validation/audit and deployment integration,
+remain OPEN under Q022.
 Q022 remains OPEN for remaining accepted
 deployment obligations. Q019 and W001-W067 remain CLOSED; unrelated
 question/milestone statuses are unchanged. See W067 in validated_workflows.md.
+
+### DeviceAdapter adjustable-parameter exposure (W069 OPEN)
+
+Decision 370's bounded implementation now exposes adapter-owned Session parameter
+definitions in existing AcquisitionNode/NATS `get_inventory` responses under
+`session_parameter_definitions`, keyed by installed device identity. Controller
+`get_node_inventory(...)` retrieves fresh correlated definitions without creating
+a Session or initializing devices. `SessionConfig.device_configurations` remains
+the operator-selection path; node preparation validates partial overrides against
+adapter definitions and resolves them against unchanged installation defaults.
+The OpenCV adapter exposes acquisition settings, not camera source/backend
+connection overrides. Successful cleanup and later initialization preserve
+Decision 302's Session isolation. This does not implement a GUI, discovery or a
+new configuration authority. W069 and Q022 remain OPEN pending independent manual
+validation/audit and remaining accepted deployment work; no live NATS or hardware
+validation is claimed.
 
 ### Q022-A accepted scope
 
