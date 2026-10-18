@@ -5244,6 +5244,64 @@ for this documentation closure, and no next slice is selected.
 
 ---
 
+# W069 - DeviceAdapter Adjustable-Parameter Exposure
+
+**Status:** CLOSED - bounded Decision 370 implementation independently validated
+through IPython and independently architecturally audited PASS, with no confirmed
+P0-P3 findings.
+
+## Implemented scope
+
+DeviceAdapters define the parameters operators may adjust for a Session and their
+applicable constraints. Existing AcquisitionNode inventory and NATS `get_inventory`
+expose those definitions alongside installed device identities and scientific
+products. Controller retrieves fresh nonce-correlated inventory for future clients
+without device-specific controls, hardware initialization, reservations or a
+Session. No GUI, discovery service, registry or additional transport is introduced.
+
+Operator selections continue through `SessionConfig.device_configurations` and
+existing Session initialization. Adapters validate partial overrides before
+application, rejecting unsupported keys, installation-only overrides, invalid
+types and constraint violations without silently ignoring or coercing values.
+Omitted overrides preserve deployment defaults; detached configuration resolution
+and existing cleanup protect successive-Session isolation under Decision 302.
+Installation-only connections remain separate under Decisions 368-369. Scientific
+product, readiness, reservation, lifecycle and evidence ownership are unchanged.
+
+## Independent validation and audit
+
+- Independent IPython Part 1: **6/6 PASS**, covering parameter constraints,
+  partial overrides, Session configuration isolation, installation-only settings,
+  inventory serialization and absence of hardware initialization.
+- Independent IPython Part 2: **9/9 PASS**, covering Controller inventory retrieval,
+  request nonce correlation, response identity, malformed/unsuccessful response
+  rejection and subscription cleanup.
+- Additional boundary probe: the selected adapter received its Session override;
+  the unselected adapter remained DECLARED and uninitialized. The probe then
+  encountered unrelated missing local-storage configuration. Only that observed
+  selection boundary is confirmed; the probe does not establish successful full
+  Session initialization.
+- Independent architectural audit: **PASS**, no confirmed P0-P3 findings.
+
+These are reported independent results, not tests newly executed for closure.
+Earlier implementation verification reported 80 focused automated tests PASS and
+four overlapping synchronous checks PASS; those runs are not additive to the
+independent validation counts and do not replace validation or audit.
+
+## Limitations and status
+
+No live NATS, camera hardware or normal Windows asynchronous scheduling validation
+is claimed. Simulated transport/controlled execution does not establish complete
+physical deployment or actual hardware support for particular requested settings.
+
+W069 is CLOSED. Q022 remains OPEN for remaining accepted deployment integration
+and installation/operator verification. W001-W068 and Q019 remain CLOSED;
+Q006/Q018, Q024, Phase 16 and M015 retain their OPEN statuses. Accepted decisions
+and historical workflow records are unchanged. No implementation tests or further
+audit were run for this documentation-only closure; no new slice is selected.
+
+---
+
 # Future Workflows
 
 The following workflows are expected to be added as the framework evolves.

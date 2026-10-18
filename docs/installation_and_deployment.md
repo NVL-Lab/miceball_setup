@@ -832,7 +832,7 @@ and further Ingestor-dependent evidence; it can continue the existing prepared
 retirement sequence without writing through retired Ingestor. W068 is CLOSED;
 Q022 remains OPEN and no full physical deployment verification is claimed.
 
-### DeviceAdapter Session Parameters (W069 Open)
+### DeviceAdapter Session Parameters (W069 Closed)
 
 `AcquisitionNode.get_inventory()` and the existing NATS `get_inventory` command
 return `session_parameter_definitions`, keyed by installed device ID alongside
@@ -864,7 +864,12 @@ settings. Existing hardware setup/readiness remains adapter-owned.
 Node preparation resolves each Session against detached deployment defaults, not
 the previous Session's active configuration. Successful shutdown returns adapters
 to DECLARED under Decision 302; existing failed-cleanup/reservation protections
-still prevent unsafe reuse. W069 remains OPEN pending independent validation/audit.
+still prevent unsafe reuse. W069 is CLOSED after independent IPython validation
+(6/6 and 9/9 PASS) and architectural audit PASS with no confirmed P0-P3 findings.
+The additional selection-boundary probe did not complete full initialization
+because of unrelated missing local-storage configuration. No live NATS, camera
+hardware or normal Windows asynchronous scheduling validation is claimed; see
+W069 in validated_workflows.md. Q022 remains OPEN for remaining deployment work.
 
 ### Provision And Verify Retrieval
 
@@ -1037,7 +1042,7 @@ alone does not establish durable Ingestor acceptance or Q019 completeness.
 | Package/launch | W061-W063 common explicit-role entry point; W064 integrates general service files with the same launchers | Complete deployment integration and verification |
 | Local configuration | W064 JSON loader/templates, startup validation; W063 node hardware loader/default and explicit paths; W068 external-dependent composition, instance-confirmation and ordinary continuation CLOSED after independent manual validation/audit | Actual provisioning and remaining deployment integration |
 | Node/device setup | Existing declarations/adapters and W063 file-to-object construction; W064 reuses hardware prevalidation | Additional supported adapters as required by deployments |
-| Operator parameters | W069 implements adapter-defined constraints, existing node/NATS inventory exposure, Controller readback and validated partial Session overrides | Independent W069 manual validation/audit and actual device verification |
+| Operator parameters | W069 CLOSED: adapter-defined constraints, existing node/NATS inventory exposure, Controller readback and validated partial Session overrides after independent validation/audit | Actual device and deployment verification |
 | Readiness/startup | Existing reports, NATS requests/announcements and reconciliation consume W064 configured known-node identities; W066 explicit installation `verify-node` using existing readiness requests is CLOSED after independent validation and final re-audit PASS | Applicable manual installation integration and live deployment verification |
 | Scientific retrieval | Existing endpoint mapping/pull and host-key checks; W064 local validation; W065 explicit installation dummy retrieval and exact comparison CLOSED after independent validation/audit PASS with simulated SSH/SFTP | Actual installation verification and live deployment validation |
 

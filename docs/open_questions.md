@@ -1054,14 +1054,13 @@ now closes callback composition under Decisions 389/390 after separate validatio
 and audit. Do not use an empty callback map or false declaration to proceed.
 W067's historical validation does not validate W068's new implementation.
 Real network/SSH, hardware/backend/permissions, OS signals and complete deployment
-remain operator verification. Other accepted outstanding requirements, including
-independent W069 parameter-exposure validation/audit and deployment integration,
-remain OPEN under Q022.
+remain operator verification. W069's parameter-exposure validation/audit is CLOSED;
+remaining accepted deployment integration obligations remain OPEN under Q022.
 Q022 remains OPEN for remaining accepted
 deployment obligations. Q019 and W001-W067 remain CLOSED; unrelated
 question/milestone statuses are unchanged. See W067 in validated_workflows.md.
 
-### DeviceAdapter adjustable-parameter exposure (W069 OPEN)
+### DeviceAdapter adjustable-parameter exposure (W069 CLOSED)
 
 Decision 370's bounded implementation now exposes adapter-owned Session parameter
 definitions in existing AcquisitionNode/NATS `get_inventory` responses under
@@ -1073,9 +1072,13 @@ adapter definitions and resolves them against unchanged installation defaults.
 The OpenCV adapter exposes acquisition settings, not camera source/backend
 connection overrides. Successful cleanup and later initialization preserve
 Decision 302's Session isolation. This does not implement a GUI, discovery or a
-new configuration authority. W069 and Q022 remain OPEN pending independent manual
-validation/audit and remaining accepted deployment work; no live NATS or hardware
-validation is claimed.
+new configuration authority. W069 is CLOSED after independent IPython validation
+(Part 1: 6/6 PASS; Part 2: 9/9 PASS) and independent architectural audit PASS with
+no confirmed P0-P3 findings. A separate probe confirmed selected/unselected adapter
+isolation but subsequently failed on unrelated missing local-storage configuration;
+it does not prove full Session initialization. Q022 remains OPEN for remaining
+accepted deployment work. No live NATS, camera hardware or normal Windows
+asynchronous scheduling validation is claimed. See W069 in validated_workflows.md.
 
 ### Q022-A accepted scope
 
@@ -1344,6 +1347,37 @@ Q024-B service-specific operator-authorized execution architecture
 is accepted in Decisions 339-348; supported cases have automated implementation
 coverage and are complete with independent manual validation and final independent
 re-audit PASS after correction, documented in W039. Q024 remains OPEN.
+
+### Accepted Controller restart and bounded reconnection policy
+
+Decision 391 supplements Decisions 345, 346, 351 and 352. Recovery is best-effort:
+scientific integrity, operational safety and simplicity take priority over
+recovering an interrupted Session. Restart uses existing participant status,
+readiness, reservations and durable evidence; safely recording AcquisitionNodes
+must not be stopped automatically.
+
+Experimenter-requested reconnection to the original Session is permitted only
+when Controller can automatically establish safety and scientific validity. The
+experimenter may decline but cannot override failed safety requirements. Partial
+reconnection is limited to operations proven safe without unreachable participants;
+their identities and obligations remain unresolved. Preserve original Session
+identity, recordings and timestamps, documenting supervision gaps and timing
+uncertainty. Complete historical replay/event-by-event Controller reconstruction
+is not required.
+
+If safe reconnection cannot be established simply, prefer existing safe
+termination/abort and partial-data preservation under existing authority and
+safety guards, not automatic interruption of safely recording nodes. Abandonment
+does not delete recordings or release unconfirmed resources. No elaborate recovery
+subsystem, registry, extensive replay or substantial new infrastructure is
+authorized solely for rare reconnection cases.
+
+**ICC preliminary implementation assessment (not an architectural decision):**
+ICC recommends deferring operational reconnection because a small, safe
+implementation boundary has not been established. This is implementation planning,
+not a new architectural restriction or evidence of implementation. Operational
+reconnection is not implemented, tested or validated. Q024 remains OPEN; W039/W040
+and all other historical validation outcomes are unchanged.
 
 ### Why this matters
 

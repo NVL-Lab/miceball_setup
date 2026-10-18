@@ -937,6 +937,25 @@ restoration or zero-based restart. Healthy mapping updates remain unchanged.
 
 ## Remaining Q024 architecture and startup implementation progress
 
+Decision 391 records the accepted best-effort Controller restart/bounded Session
+reconnection clarification of Decisions 345/346/351/352. Existing status,
+readiness, reservations and durable evidence support reconciliation without
+automatically stopping safely recording nodes. Experimenter-requested original-
+Session reconnection requires Controller-established safety and scientific
+validity; partial operations require proven safety without unreachable participants,
+whose identities and obligations remain unresolved. Preserve original recordings,
+timestamps and Session identity and document supervision/timing gaps. No extensive
+historical replay or substantial new recovery infrastructure is required or
+authorized solely for rare reconnection. Existing safe termination/abort and
+partial-data preservation remain the fallback when reconnection cannot be safely
+established simply; abandonment implies neither data deletion nor resource release.
+
+**ICC preliminary implementation assessment (not an architectural decision):**
+defer operational reconnection because a small, safe implementation boundary has
+not been established. This recommendation is not an implementation or validation
+result. Operational reconnection remains unimplemented, untested and unvalidated;
+Q024 remains OPEN. Historical W039/W040 results below are not reconnection validation.
+
 Decisions 349-355 accept Ingestor-owned conditional temporary-journal retirement,
 informed operator-authorized terminal loss of identified unrecoverable temporary
 evidence, Controller startup reconciliation of known observable participants,
@@ -1360,6 +1379,20 @@ Sandbox asynchronous runs stalled before setup; synchronous tests and controlled
 probes passed. No live JetStream, actual OS signal delivery, hardware or complete
 five-role deployment validation is claimed. W001-W065 and Q019 remain CLOSED;
 Q022, Q006, Q018, Q024, Phase 16 and M015 remain OPEN.
+
+### DeviceAdapter Adjustable-Parameter Exposure (W069)
+
+**Status:** CLOSED - Decision 370's adapter-owned constraints, existing node/NATS
+inventory exposure, Controller retrieval and validated partial Session overrides
+are independently IPython-validated (Part 1: 6/6 PASS; Part 2: 9/9 PASS) and
+independently architecturally audited PASS with no confirmed P0-P3 findings.
+Installation-only settings and Decision 302 Session isolation remain protected.
+The additional probe confirmed selected/unselected adapter behavior only; unrelated
+missing local-storage configuration prevented full initialization in that probe.
+No live NATS, camera hardware or normal Windows asynchronous scheduling validation
+is claimed. See W069 in validated_workflows.md. Q022 remains OPEN for remaining
+accepted deployment obligations; all unrelated workflow/question statuses remain
+unchanged. No new implementation slice or architecture is introduced.
 
 ### Shared-Storage External-Dependent Maintenance Integration (W068)
 

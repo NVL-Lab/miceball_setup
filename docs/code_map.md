@@ -1,12 +1,17 @@
 # Code Map
 
-## DeviceAdapter Adjustable Parameters (Decision 370; W069 Open)
+## DeviceAdapter Adjustable Parameters (Decision 370; W069 Closed)
 
 Adapters expose plain-data Session parameter definitions through existing node
 inventory and NATS `get_inventory`; Controller retrieves them without a Session or
 device-specific controls. Session overrides are partial, validated before device
-application and resolved against unchanged deployment defaults. W069 is implemented
-pending independent manual validation/audit; Q022 remains OPEN.
+application and resolved against unchanged deployment defaults. W069 is CLOSED
+after independent IPython validation (6/6 and 9/9 PASS) and architectural audit
+PASS with no confirmed P0-P3 findings. An additional selected/unselected adapter
+probe confirmed only that boundary, not full initialization because local-storage
+configuration was missing. No live NATS, camera hardware or normal Windows
+asynchronous scheduling validation is claimed. Q022 remains OPEN; see W069 in
+validated_workflows.md for evidence and limitations.
 
 - `tests/test_device_parameters.py::AdjustableAdapter`: Test-only event adapter exposing numeric, choice and boolean constraints independently of camera parameters.
 - `tests/test_device_parameters.py::DeviceParameterTests`: Exercises adapter validation, installation-only rejection, detached inventory and successive Session configuration isolation through actual node preparation.

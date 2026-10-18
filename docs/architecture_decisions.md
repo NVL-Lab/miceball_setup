@@ -11274,6 +11274,62 @@ are unchanged.
 
 ---
 
+## Decision 391: Best-effort Controller restart and bounded Session reconnection
+
+**Status:** Accepted
+
+This records the user-approved Q024 clarification of Decisions 345, 346, 351 and
+352. It preserves their historical reconciliation, timing and reservation
+contracts while defining the bounds for experimenter-requested reconnection.
+
+### Priorities and restart reconciliation
+
+Recovery is best-effort. Scientific integrity, operational safety and simplicity
+take priority over recovering an interrupted Session. Controller restart uses
+existing participant status, readiness, reservation and durable evidence
+mechanisms. Controller must not automatically stop AcquisitionNodes that continue
+recording safely. Read-only reconciliation remains distinct from operational
+reconnection; complete historical replay or event-by-event Controller
+reconstruction is not required.
+
+### Bounded experimenter-requested reconnection
+
+Reconnection to the original Session is permitted only at the experimenter's
+request and only when Controller can automatically establish operational safety
+and scientific validity. The experimenter may decline reconnection but cannot
+override failed safety requirements. Existing authorization and service-owned
+safety/release conditions remain applicable; a reconnection request does not
+authorize unrelated recovery actions.
+
+Partial reconnection is permitted only for operations proven safe without
+unreachable participants. Their identities and obligations remain unresolved;
+absence of a response does not establish safety or completion.
+
+Preserve the original Session identity, scientific recordings and timestamps.
+Document supervision gaps and timing uncertainty through existing evidence
+mechanisms, retaining SynchronizationManager authority and historical timing
+protections under Decision 346. Reconnection does not justify rewriting timestamps
+or inventing missing scientific or operational history.
+
+### Safe fallback and scope limits
+
+When safe reconnection cannot be established simply, prefer existing safe
+termination/abort and partial-data preservation mechanisms under their existing
+authorization and safety conditions. This is not permission to automatically stop
+safely recording nodes. Abandonment does not imply deletion of recordings or
+release of unconfirmed resources.
+
+No elaborate recovery subsystem, new registry, extensive event replay or
+substantial new infrastructure is authorized solely for rare reconnection
+scenarios. This clarification does not implement operational reconnection or
+change existing lifecycle or service ownership.
+
+**Implementation status:** Accepted and synchronized only. Bounded operational
+Session reconnection is not implemented, tested or validated. Q024 remains OPEN;
+existing accepted decisions and completed workflow records remain unchanged.
+
+---
+
 # Accepted Architectural Principles
 
 The following principles summarize the accepted decisions so far.
