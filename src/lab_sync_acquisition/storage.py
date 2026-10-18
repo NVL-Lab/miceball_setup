@@ -1621,6 +1621,52 @@ class PersistentStorageManager:
             self._unfinished_archive_scopes.discard(None)
             return paths
 
+    @service_operation()
+    def continue_framework_evidence_archive(self, compiled_runtime_evidence) -> dict[str, Any] | None:
+        """Verify an intact historical prefix before normal post-restart archival."""
+        with self._preservation_lock:
+            if None in self._unfinished_archive_scopes:
+                raise RuntimeError("Framework archive requires authorized interrupted-write recovery")
+            expected = {name: [_to_plain_data(item) for item in compiled_runtime_evidence[name]]
+                        for name in ("runtime_evidence", "ingest_audit")}
+            directory = self._storage_root / "framework" / "evidence"
+            paths = tuple(directory / name for name in (
+                "runtime_evidence.jsonl", "ingest_audit.jsonl", "compilation_summary.json"))
+            if not any(os.path.lexists(path) for path in paths):
+                if any(expected.values()):
+                    raise RuntimeError("Recovered framework history has no historical archive")
+                return None
+            self._framework_archive_confirmation = None
+            historical = self._read_archive_products(directory)
+            evidence, audit = historical["runtime_evidence"], historical["ingest_audit"]
+            if (not isinstance(evidence, list) or not isinstance(audit, list)
+                    or any(json.dumps(historical[name], sort_keys=True, allow_nan=False)
+                           != json.dumps(expected[name][:len(historical[name])], sort_keys=True, allow_nan=False)
+                           for name in expected)):
+                raise ValueError("Framework archive is not an exact historical prefix")
+            summary = {"session_id": None, "runtime_evidence_count": len(evidence),
+                "ingest_audit_count": len(audit),
+                "runtime_evidence_ids": [item["evidence_id"] for item in evidence],
+                "ingest_audit_evidence_ids": [item["evidence_id"] for item in audit]}
+            # Both products must represent the same intake boundary, not unrelated prefixes.
+            persistent_ids = {item["evidence_id"] for item in expected["runtime_evidence"]}
+            covered = list(dict.fromkeys(item["evidence_id"] for item in audit
+                if item["accepted"] and item["evidence_id"] in persistent_ids))
+            if (json.dumps(historical["compilation_summary"], sort_keys=True, allow_nan=False)
+                    != json.dumps(summary, sort_keys=True, allow_nan=False)
+                    or covered != summary["runtime_evidence_ids"]
+                    or any(item["session_id"] is not None for item in evidence)):
+                raise ValueError("Framework archive summary or intake boundary is inconsistent")
+            if any(historical[name] != expected[name] for name in expected):
+                self.write_framework_evidence_archive(compiled_runtime_evidence)
+            else:
+                self._framework_archive_confirmation = historical
+            confirmation = self.get_framework_preservation_confirmation()
+            if confirmation is None or any(confirmation[name] != expected[name] for name in expected):
+                self._framework_archive_confirmation = None
+                raise RuntimeError("Current framework archival continuation is unconfirmed")
+            return confirmation
+
     def get_framework_preservation_confirmation(self) -> dict[str, Any] | None:
         """Confirm exact current durable products, not a historical publication result."""
         with self._preservation_lock:

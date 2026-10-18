@@ -28,9 +28,10 @@ and installation_and_deployment.md for the accepted contract and current limitat
 
 Decision 390 requires ordinary-startup historical-prefix verification and current
 framework archival continuation before restoring eligible Decision 389 releases.
-That integration remains unimplemented/unvalidated; retained blockers on restart
-are not proof of completed recovery integration. Interrupted-write repair retains
-its separate authorization requirements.
+The paired startup now invokes the continuation methods listed below before
+release restoration; independent validation/audit remain pending. Failed
+verification retains blockers. Interrupted-write repair retains its separate
+authorization requirements.
 
 ## Manual Service CLI (Decisions 383-388; W061-W063 Closed)
 
@@ -1113,6 +1114,7 @@ is complete; W030 records manual validation, focused tests, and audit reassessme
 - InMemoryIngestor.__init__(storage_manager=None, *, session_id=None, recovery_journal_path=None, component_id="ingestor", recovery_journal_root=None, framework_recovery_journal_path=None, evidence_scope="session"): Preserves known-Session intake and optionally creates a deployment-scoped framework partition using the same Ingestor implementation without a Session binding.
 - InMemoryIngestor.prepare_framework_evidence(recovery_journal_path): Configures framework journal-backed intake once, retaining accepted messages and original duplicate/rejected intake audit across recovery independently of Session release.
 - InMemoryIngestor.compile_framework_runtime_evidence(): Returns only producer-marked persistent framework messages and all framework intake audit records through the existing compilation mechanism.
+- InMemoryIngestor.continue_framework_evidence_archive(): Verifies recovered framework compilation against the current durable journal and delegates ordinary historical-prefix continuation to its paired StorageManager before release restoration.
 - InMemoryIngestor.await_durable_runtime_evidence(evidence, timeout_s): Boundedly observes exact local journal-backed acceptance using futures, without polling, retrying, or equating JetStream publication with acceptance.
 - InMemoryIngestor.framework_preservation_guard(storage_manager): Holds framework intake and StorageManager preservation steady while checking exact current persistent-message/all-audit coverage, without a Session Record.
 - InMemoryIngestor.maintenance_blockers(ingestor, storage_manager): Reports unresolved journal integrity or incompletely preserved Session intake without deciding lifecycle or inferring dependencies.
@@ -1403,6 +1405,7 @@ recovery is introduced. Phase 16 and M015 remain open.
 - PersistentStorageManager._recover_artifact_transfer: Makes one authorized fresh complete transfer from the original failed collection and authoritative handoff through existing destination/source/verification mechanisms, retaining normal global collection evidence.
 - PersistentStorageManager.session_preservation_guard(session_id): Synchronous context manager yielding current confirmation while holding the archive/final-record write lock through the caller's release commit; callers must not await or acquire a new Ingestor intake lock while holding it.
 - PersistentStorageManager.write_framework_evidence_archive(compiled_runtime_evidence): Writes and flushes/fsyncs existing evidence/audit/summary products under storage_root/framework/evidence, invalidating previous confirmation before a rewrite.
+- PersistentStorageManager.continue_framework_evidence_archive(compiled_runtime_evidence): Verifies intact historical evidence/audit prefixes and summary consistency before ordinary continuation, returning only exact current readback without invoking interrupted-write repair.
 - PersistentStorageManager.get_framework_preservation_confirmation(): Compares all three current durable framework products with the exact successful compilation, without requiring a Session Record or accepting stale/partial writes.
 - PersistentStorageManager.framework_preservation_guard(*, require_closeout=False): Holds the existing storage lock through a synchronous preservation check and retirement commit, optionally requiring exact final Ingestor evidence/all-audit coverage retained before its retirement; archive rewrites do not replace that requirement.
 - PersistentStorageManager._retain_framework_closeout_compilation(compilation): Retains detached final Ingestor coverage within the existing confirmation mechanism without writing new archive products or interpreting evidence.

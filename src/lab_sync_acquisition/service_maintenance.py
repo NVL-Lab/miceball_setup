@@ -300,8 +300,13 @@ class ServiceMaintenanceInterface:
         archived = self.storage_manager.get_framework_preservation_confirmation()
         if archived is None:
             return
+        try:
+            with self.ingestor.framework_preservation_guard(self.storage_manager):
+                compiled = self.ingestor.compile_framework_runtime_evidence()
+        except RuntimeError:
+            return
         confirmations = dict(confirmations)
-        for message in self.ingestor.compile_framework_runtime_evidence()["runtime_evidence"]:
+        for message in compiled["runtime_evidence"]:
             data = message.to_dict()
             if data["source_id"] != self.participant.component_id or "dependent_maintenance" not in data["payload"]:
                 continue
@@ -333,7 +338,7 @@ class ServiceMaintenanceInterface:
             message = RuntimeEvidenceMessage(uuid4().hex, None, "service_maintenance_evidence",
                 self.participant.component_id, {"dependent_maintenance": state}, True)
             self._dependent_state_messages[key] = message
-        await self._preserve_message(message)
+        await self._preserve_message(message, require_existing_archive=True)
         self._dependent_state_messages.pop(key, None)
 
     async def register_ingestor_dependency(self):

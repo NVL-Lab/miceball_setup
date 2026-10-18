@@ -64,6 +64,10 @@ class ExternalDependentMaintenanceTests(unittest.IsolatedAsyncioTestCase):
         self.storage = PersistentStorageManager(self.root / "storage", component_id="storage")
         self.intake = InMemoryIngestor(self.storage, component_id="intake",
             framework_recovery_journal_path=self.root / "framework.jsonl")
+        try:
+            self.intake.continue_framework_evidence_archive()
+        except (OSError, ValueError, TypeError, KeyError, RuntimeError):
+            pass  # Production startup retains blockers when continuation is unconfirmed.
         self.intake_boundary = _Boundary("ingestor", "intake", self.broker)
         self.storage_boundary = _Boundary("storage_manager", "storage", self.broker)
         self.intake_interface = ServiceMaintenanceInterface(self.intake, RuntimeParticipant("ingestor", "intake"),
@@ -187,15 +191,161 @@ class ExternalDependentMaintenanceTests(unittest.IsolatedAsyncioTestCase):
             await self.producer()
         self.assertFalse(self.intake_interface.terminated)
 
-    async def test_receiver_restart_does_not_substitute_unverified_archive_history(self):
+    async def test_receiver_restart_continues_archive_before_restoring_release(self):
         await self.backend()
         _, _, launcher, _ = await self.producer()
         self.assertTrue(await launcher.stop_locally("operator"))
         for subscription in self.broker.subscriptions:
             await subscription.unsubscribe()
         await self.backend()
+        self.assertFalse(self.intake_interface.operational_dependents[self.dependent]())
+        self.assertTrue((await self.status()).payload["ready"])
+        with self.intake.framework_preservation_guard(self.storage) as archive:
+            self.assertTrue(any(m["evidence_type"] == "ingestor_recovery_evidence"
+                                for m in archive["runtime_evidence"]))
+
+    async def test_repeated_receiver_restart_preserves_each_recovery_and_release(self):
+        await self.backend()
+        _, _, launcher, _ = await self.producer()
+        self.assertTrue(await launcher.stop_locally("operator"))
+        previous = self.storage.get_framework_preservation_confirmation()
+        for _ in range(2):
+            for subscription in self.broker.subscriptions:
+                await subscription.unsubscribe()
+            await self.backend()
+            current = self.storage.get_framework_preservation_confirmation()
+            self.assertEqual(current["runtime_evidence"][:-1], previous["runtime_evidence"])
+            self.assertEqual(current["runtime_evidence"][-1]["evidence_type"], "ingestor_recovery_evidence")
+            self.assertFalse(self.intake_interface.operational_dependents[self.dependent]())
+            previous = current
+
+    async def test_restart_rejects_inexact_evidence_audit_and_summary_without_rewriting(self):
+        for product in ("runtime_evidence.jsonl", "ingest_audit.jsonl", "compilation_summary.json"):
+            with self.subTest(product=product):
+                # Separate deployment paths avoid treating a prior corruption as a baseline.
+                self.root = self.root / product
+                self.root.mkdir()
+                self.broker = _Broker()
+                await self.backend()
+                _, _, launcher, _ = await self.producer()
+                self.assertTrue(await launcher.stop_locally("operator"))
+                path = self.root / "storage/framework/evidence" / product
+                rows = path.read_text().splitlines()
+                if product == "compilation_summary.json":
+                    data = json.loads(path.read_text())
+                    data["runtime_evidence_count"] += 1
+                    path.write_text(json.dumps(data))
+                else:
+                    data = json.loads(rows[0])
+                    data["source_id" if product == "runtime_evidence.jsonl" else "reason"] = "conflict"
+                    rows[0] = json.dumps(data)
+                    path.write_text("\n".join(rows) + "\n")
+                before = {p: p.read_bytes() for p in path.parent.iterdir()}
+                for subscription in self.broker.subscriptions:
+                    await subscription.unsubscribe()
+                await self.backend()
+                self.assertTrue(self.intake_interface.operational_dependents[self.dependent]())
+                self.assertIsNone(self.storage.get_framework_preservation_confirmation())
+                self.assertEqual(before, {p: p.read_bytes() for p in path.parent.iterdir()})
+
+    async def test_corrupt_or_missing_history_cannot_be_continued(self):
+        await self.backend()
+        _, _, launcher, _ = await self.producer()
+        self.assertTrue(await launcher.stop_locally("operator"))
+        directory = self.root / "storage/framework/evidence"
+        path = directory / "runtime_evidence.jsonl"
+        path.write_text("not-json\n")
+        for subscription in self.broker.subscriptions:
+            await subscription.unsubscribe()
+        await self.backend()
         self.assertTrue(self.intake_interface.operational_dependents[self.dependent]())
-        self.assertFalse((await self.status()).payload["ready"])
+        self.assertEqual(path.read_text(), "not-json\n")
+        path.unlink()
+        with self.assertRaises(OSError):
+            self.intake.continue_framework_evidence_archive()
+        self.assertIsNone(self.storage.get_framework_preservation_confirmation())
+
+    async def test_failed_continuation_retains_blocker_and_unconfirmed_archive(self):
+        await self.backend()
+        _, _, launcher, _ = await self.producer()
+        self.assertTrue(await launcher.stop_locally("operator"))
+        before = self.storage.get_framework_preservation_confirmation()
+        for subscription in self.broker.subscriptions:
+            await subscription.unsubscribe()
+        with patch.object(PersistentStorageManager, "write_framework_evidence_archive", side_effect=OSError("disk failed")):
+            await self.backend()
+        self.assertTrue(self.intake_interface.operational_dependents[self.dependent]())
+        self.assertIsNone(self.storage.get_framework_preservation_confirmation())
+        self.assertGreater(len(self.intake.compile_framework_runtime_evidence()["runtime_evidence"]),
+                           len(before["runtime_evidence"]))
+
+    async def test_current_verified_archive_continuation_does_not_rewrite(self):
+        await self.backend()
+        _, _, launcher, _ = await self.producer()
+        self.assertTrue(await launcher.stop_locally("operator"))
+        before = self.storage.get_framework_preservation_confirmation()
+        with patch.object(self.storage, "write_framework_evidence_archive", wraps=self.storage.write_framework_evidence_archive) as write:
+            self.assertEqual(self.intake.continue_framework_evidence_archive(), before)
+            write.assert_not_called()
+
+    async def test_mismatched_prefix_boundaries_cannot_authorize_continuation(self):
+        await self.backend()
+        _, _, launcher, _ = await self.producer()
+        self.assertTrue(await launcher.stop_locally("operator"))
+        directory = self.root / "storage/framework/evidence"
+        evidence_path = directory / "runtime_evidence.jsonl"
+        evidence = [json.loads(line) for line in evidence_path.read_text().splitlines()][:-1]
+        evidence_path.write_text("".join(json.dumps(m) + "\n" for m in evidence))
+        summary_path = directory / "compilation_summary.json"
+        summary = json.loads(summary_path.read_text())
+        summary["runtime_evidence_count"] = len(evidence)
+        summary["runtime_evidence_ids"] = [m["evidence_id"] for m in evidence]
+        summary_path.write_text(json.dumps(summary))
+        before = {p: p.read_bytes() for p in directory.iterdir()}
+        for subscription in self.broker.subscriptions:
+            await subscription.unsubscribe()
+        await self.backend()
+        self.assertTrue(self.intake_interface.operational_dependents[self.dependent]())
+        self.assertIsNone(self.storage.get_framework_preservation_confirmation())
+        self.assertEqual(before, {p: p.read_bytes() for p in directory.iterdir()})
+
+    async def test_unconfirmed_final_readback_cannot_restore_release(self):
+        await self.backend()
+        _, _, launcher, _ = await self.producer()
+        self.assertTrue(await launcher.stop_locally("operator"))
+        for subscription in self.broker.subscriptions:
+            await subscription.unsubscribe()
+        with patch.object(PersistentStorageManager, "get_framework_preservation_confirmation", return_value=None):
+            await self.backend()
+        self.assertTrue(self.intake_interface.operational_dependents[self.dependent]())
+        self.assertIsNone(self.storage.get_framework_preservation_confirmation())
+
+    async def test_absent_archive_cannot_replace_recovered_history(self):
+        await self.backend()
+        _, _, launcher, _ = await self.producer()
+        self.assertTrue(await launcher.stop_locally("operator"))
+        directory = self.root / "storage/framework/evidence"
+        for path in directory.iterdir():
+            path.unlink()
+        for subscription in self.broker.subscriptions:
+            await subscription.unsubscribe()
+        await self.backend()
+        self.assertTrue(self.intake_interface.operational_dependents[self.dependent]())
+        self.assertEqual(list(directory.iterdir()), [])
+
+    async def test_superseded_registration_remains_a_blocker_after_receiver_restart(self):
+        await self.backend()
+        _, _, launcher, _ = await self.producer()
+        self.assertTrue(await launcher.stop_locally("operator"))
+        for subscription in self.broker.subscriptions:
+            if ".command.controller.control." in subscription.subject:
+                await subscription.unsubscribe()
+        await self.producer()
+        for subscription in self.broker.subscriptions:
+            await subscription.unsubscribe()
+        await self.backend()
+        self.assertIsNotNone(self.storage.get_framework_preservation_confirmation())
+        self.assertTrue(self.intake_interface.operational_dependents[self.dependent]())
 
     async def test_restart_replaces_prior_instance_and_rejects_old_confirmation(self):
         await self.backend()
@@ -321,6 +471,11 @@ class ExternalDependentMaintenanceTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse((await self.send_confirmation(boundary, bad)).success)
         self.assertFalse((await self.send_confirmation(boundary, good)).success)
         self.assertTrue(self.intake_interface.operational_dependents[self.dependent]())
+        for subscription in self.broker.subscriptions:
+            await subscription.unsubscribe()
+        await self.backend()
+        self.assertIsNotNone(self.storage.get_framework_preservation_confirmation())
+        self.assertTrue(self.intake_interface.operational_dependents[self.dependent]())
 
     async def test_incorrect_attempt_correlation_cannot_remove_blocker(self):
         await self.backend()
@@ -434,6 +589,35 @@ class ExternalDependentMaintenanceTests(unittest.IsolatedAsyncioTestCase):
                 ServiceLauncher, "run", run):
             self.assertEqual(await launch_storage_services(servers=("nats://example:4222",), ingestor_id="intake",
                 storage_id="storage", storage_root=self.root / "storage", recovery_journal_root=self.root / "journal",
+                framework_journal=self.root / "framework.jsonl", preservation_window_s=0.02,
+                operational_dependents={}, external_dependents=(self.dependent,), result_window_s=0.02,
+                report=lambda text: None), 0)
+
+    async def test_shared_launcher_reconciles_before_restoring_dependent_release(self):
+        await self.backend()
+        _, _, producer, _ = await self.producer()
+        self.assertTrue(await producer.stop_locally("operator"))
+        historical = self.storage.get_framework_preservation_confirmation()
+
+        def boundary(kind, identity, servers):
+            value = _Boundary(kind, identity, self.broker)
+            value.connect = AsyncMock()
+            value.ensure_streams = AsyncMock()
+            value.close = AsyncMock()
+            return value
+
+        async def run(launcher, *, startup):
+            intake = launcher.maintenance[0]
+            self.assertFalse(intake.operational_dependents[self.dependent]())
+            with intake.ingestor.framework_preservation_guard(intake.storage_manager) as archive:
+                self.assertEqual(archive["runtime_evidence"][:-1], historical["runtime_evidence"])
+                self.assertEqual(archive["runtime_evidence"][-1]["evidence_type"], "ingestor_recovery_evidence")
+            return 0
+
+        with patch("lab_sync_acquisition.service_launcher.NatsCommunicationBoundary", side_effect=boundary), patch.object(
+                ServiceLauncher, "run", run):
+            self.assertEqual(await launch_storage_services(servers=("nats://example:4222",), ingestor_id="intake",
+                storage_id="storage", storage_root=self.root / "storage", recovery_journal_root=self.root / "journals",
                 framework_journal=self.root / "framework.jsonl", preservation_window_s=0.02,
                 operational_dependents={}, external_dependents=(self.dependent,), result_window_s=0.02,
                 report=lambda text: None), 0)

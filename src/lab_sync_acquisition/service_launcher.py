@@ -250,6 +250,10 @@ async def launch_storage_services(*, servers, ingestor_id, storage_id, storage_r
     intake = InMemoryIngestor(storage, component_id=ingestor_id,
         recovery_journal_root=recovery_journal_root,
         framework_recovery_journal_path=framework_journal)
+    try:
+        intake.continue_framework_evidence_archive()
+    except (OSError, ValueError, TypeError, KeyError, RuntimeError) as error:
+        report(f"Framework archive continuation unconfirmed: {error}; dependent blockers retained.")
     boundaries = tuple(NatsCommunicationBoundary(kind, identity, tuple(servers)) for kind, identity in (
         ("ingestor", ingestor_id), ("storage_manager", storage_id)))
 

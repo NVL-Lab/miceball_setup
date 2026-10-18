@@ -115,6 +115,45 @@ class InMemoryIngestor:
             raise RuntimeError("Framework recovery journal is not configured")
         return self._framework_ingestor.compile_persistent_runtime_evidence()
 
+    def continue_framework_evidence_archive(self):
+        """Reconcile recovered journal-backed compilation through paired StorageManager."""
+        intake = self._framework_ingestor
+        if intake is None or self._storage_manager is None:
+            raise RuntimeError("Framework journal and paired StorageManager are required")
+        with self._intake_lock, intake._intake_lock:
+            if intake._journal_failed or intake._recovery_journal_path is None:
+                raise RuntimeError("Framework journal integrity is unconfirmed")
+            evidence, audits = {}, []
+            with intake._recovery_journal_path.open("rb") as journal:
+                before = os.fstat(journal.fileno())
+                for line in journal:
+                    entry = json.loads(line)
+                    audits.append(entry["ingest_audit"])
+                    if entry["runtime_evidence"] is not None:
+                        message = RuntimeEvidenceMessage.from_dict(entry["runtime_evidence"])
+                        content = intake._evidence_content(message)
+                        if (not entry["ingest_audit"]["accepted"]
+                                or entry["ingest_audit"]["evidence_id"] != message.evidence_id
+                                or evidence.get(message.evidence_id, content) != content):
+                            raise ValueError("Framework journal has inconsistent evidence or audit")
+                        evidence.setdefault(message.evidence_id, content)
+                    elif entry["ingest_audit"]["accepted"]:
+                        raise ValueError("Framework journal acceptance lacks evidence")
+                after = os.fstat(journal.fileno())
+                current = intake._recovery_journal_path.stat()
+            if (list(evidence.items()) != list(intake._accepted_evidence_content.items())
+                    or audits != [item.to_dict() for item in intake._runtime_evidence_audit]
+                    or any(getattr(before, name) != getattr(after, name)
+                           or getattr(before, name) != getattr(current, name)
+                           for name in ("st_dev", "st_ino", "st_size", "st_mtime_ns"))):
+                raise RuntimeError("Recovered framework compilation differs from current durable journal")
+            compiled = self.compile_framework_runtime_evidence()
+            confirmation = self._storage_manager.continue_framework_evidence_archive(compiled)
+            if confirmation is not None:
+                with self.framework_preservation_guard(self._storage_manager):
+                    pass
+            return confirmation
+
     async def await_durable_runtime_evidence(self, evidence: RuntimeEvidenceMessage, timeout_s: float) -> bool:
         """Boundedly observe exact journal-backed acceptance without polling or transport acknowledgments."""
         from math import isfinite
