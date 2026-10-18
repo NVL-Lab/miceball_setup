@@ -66,7 +66,9 @@ class FrameworkEvidenceTests(unittest.TestCase):
     def test_framework_archive_has_exact_products_and_no_session_record(self):
         self.ingestor.receive_runtime_evidence(self.message())
         paths = self.archive()
-        directory = self.root / "framework" / "evidence"
+        directory = paths["runtime_evidence"].parent
+        self.assertEqual(directory.parent, self.root / "framework" / "evidence")
+        self.assertRegex(directory.name, r"^\d{4}-\d{2}$")
         self.assertEqual(set(paths.values()), {directory / "runtime_evidence.jsonl", directory / "ingest_audit.jsonl", directory / "compilation_summary.json"})
         self.assertFalse(list(self.root.glob("session_*")))
         with self.ingestor.framework_preservation_guard(self.storage) as confirmation:
@@ -94,6 +96,7 @@ class FrameworkEvidenceTests(unittest.TestCase):
     def test_partial_rewrite_invalidates_previous_confirmation(self):
         self.ingestor.receive_runtime_evidence(self.message())
         self.archive()
+        self.ingestor.receive_runtime_evidence(self.message("new-before-interruption"))
         original = Path.open
         def fail_summary(path, *args, **kwargs):
             if path.name == "compilation_summary.json" and args and args[0] == "w":
@@ -112,13 +115,14 @@ class FrameworkEvidenceTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             self.ingestor.receive_runtime_evidence(self.message("new"))
 
-    def test_preservation_guard_serializes_archive_rewrite_through_commit(self):
+    def test_preservation_guard_serializes_later_intake_and_archival_through_commit(self):
         self.ingestor.receive_runtime_evidence(self.message())
         self.archive()
         started, finished = Event(), Event()
         def rewrite():
             started.set()
-            self.storage.write_framework_evidence_archive({"runtime_evidence": (), "ingest_audit": ()})
+            self.ingestor.receive_runtime_evidence(self.message("later"))
+            self.archive()
             finished.set()
         with ThreadPoolExecutor(max_workers=1) as executor:
             with self.ingestor.framework_preservation_guard(self.storage):
@@ -126,9 +130,8 @@ class FrameworkEvidenceTests(unittest.TestCase):
                 self.assertTrue(started.wait(2))
                 self.assertFalse(finished.is_set())
             future.result(timeout=2)
-        with self.assertRaises(RuntimeError):
-            with self.ingestor.framework_preservation_guard(self.storage):
-                pass
+        with self.ingestor.framework_preservation_guard(self.storage) as confirmation:
+            self.assertEqual(len(confirmation["runtime_evidence"]), 2)
 
     def test_framework_intake_survives_session_release_and_successive_binding(self):
         ingestor = InMemoryIngestor(recovery_journal_root=self.root / "sessions", framework_recovery_journal_path=self.root / "binding-framework.jsonl")

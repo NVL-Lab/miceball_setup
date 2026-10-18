@@ -1119,8 +1119,10 @@ and M015 remain OPEN; W035-W038 retain their historical validation records.
 
 Additional Q024 architecture is accepted in Decisions 349-355. Supported startup
 reconciliation under Decisions 351-352 is complete, independently manually validated
-and independently re-audited PASS after correction (W040). Decisions 349-350 and
-353-355 remain unimplemented. The architecture assigns conditional temporary-journal
+and independently re-audited PASS after correction (W040). Bounded Decision 349/393
+retirement is CLOSED in W070B; Decision 354 has bounded monthly implementation
+pending independent validation/audit, while Decisions 350 and 353/355 remain
+unimplemented. The architecture assigns conditional temporary-journal
 retirement to Ingestor,
 permits explicitly informed terminal deletion of identified unrecoverable temporary
 evidence, requires Controller startup reconciliation of observable known participants,
@@ -1152,14 +1154,20 @@ cross-process, or Jetson validation. Broader Phase 16 and M015 remain OPEN.
 
 Decision 354 supersedes Decision 323's shared permanent framework archive layout
 with `<storage_root>/framework/evidence/YYYY-MM/`, using the existing evidence,
-intake-audit, and compilation-summary files. Current implementation still uses the
-shared layout. Monthly partitioning does not rotate temporary journals, alter
+intake-audit, and compilation-summary files. Bounded monthly implementation now
+assigns new evidence/audit using StorageManager's system clock at archival write
+time with UTC month boundaries; older partitions are not rewritten and existing
+shared-layout history stays read-only. Cumulative confirmation and existing
+journals preserve cross-month identities and recovery information. Independent
+validation/audit remain pending. Monthly partitioning does not rotate temporary journals, alter
 Session archives/scientific artifacts, or change historical timestamps.
 Decision 355 distinguishes immutable finalized archives from archives confirmed
 safe to delete: deletion must not affect later operation or recovery. Permanent
 archives are never automatically deleted. Cross-month confirmation/maintenance
-dependencies, unavailable-evidence auditing, memory limits, and Q019-dependent
-closure remain open contracts; no replacement recovery infrastructure is chosen.
+deletion independence, unavailable-evidence auditing and memory limits remain
+outstanding; no archive is declared safe to delete by this slice. Incomplete
+historical writes fail closed rather than being implicitly repaired or reassigned.
+No replacement recovery infrastructure is chosen.
 Q024-B/W039 completion is unchanged. Q019 is CLOSED in W050; Q024, Q022, Phase 16, and M015 remain OPEN.
 
 Decision 322 accepts persistence for every ControllerActionDecision, including

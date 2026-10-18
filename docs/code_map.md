@@ -570,24 +570,25 @@ Session-binding release and coordinated framework shutdown; W036 records its
 completed software validation and independent audit.
 
 Decision 354 now supersedes that shared framework layout architecturally with
-`framework/evidence/YYYY-MM/` partitions; implementation still uses the shared
-path. Bounded Decision 349/393 journal retirement is CLOSED in W070B after
+`framework/evidence/YYYY-MM/` partitions; bounded monthly implementation uses
+StorageManager's UTC archival-write month and leaves older/shared-layout products
+unchanged, pending independent validation/audit. Bounded Decision 349/393 journal retirement is CLOSED in W070B after
 independent ICC validation and source audit PASS. Decision 350 and Decisions
-353-355 remain accepted but unimplemented; Q024 remains OPEN.
+353/355 remain accepted but unimplemented; Q024 remains OPEN.
 Supported Decisions 351-352 startup reconciliation is complete, independently
 manually validated and independently re-audited PASS after correction in W040.
 Q024-B remains complete in W039 and Decision 336 remains partially implemented.
 
 The existing `InMemoryIngestor.compile_framework_runtime_evidence()` and
 `framework_preservation_guard()` operate on cumulative retained evidence/audit.
-`PersistentStorageManager.write_framework_evidence_archive()` rewrites the shared
-products; `get_framework_preservation_confirmation()` reads and compares their
-entire current contents. Maintenance preservation guards and Controller
-reconciliation depend on those confirmations. Monthly archival and safe historical
-deletion therefore require clarified cross-month coverage/lookup dependencies;
-current code does not establish independence from deletable history. Q024 records
-these gaps without specifying a new recovery subsystem or API. Q019 final closure,
-Q022, Phase 16, and M015 remain open.
+`PersistentStorageManager.write_framework_evidence_archive()` writes only new
+evidence/audit suffixes into the current UTC month (updating only that month's
+open products); `get_framework_preservation_confirmation()` verifies cumulative
+coverage across retained partitions for existing callers. Maintenance and Controller
+lookups still require those historical products, so no archive is declared safe
+to delete and cumulative read/memory cost remains. Q024 records the remaining
+deletion-independence work without a new recovery subsystem or public API. Q019
+is CLOSED; Q024, Q022, Phase 16 and M015 remain OPEN.
 
 ### Decisions 351-352 startup integration (complete, independently validated and audited)
 
@@ -1438,6 +1439,8 @@ recovery is introduced. Phase 16 and M015 remain open.
 - PersistentStorageManager.get_session_preservation_confirmation(session_id): Canonically compares current archive products, including the retained complete compilation summary, and final Session Record with successful write inputs, returning detached confirmation including the summary or None; the snapshot alone does not guard commitment.
 - PersistentStorageManager._write_record_contents: Writes serialized Session Record or Stage A summary contents with flush/fsync and supported directory durability, without creating lifecycle evidence.
 - PersistentStorageManager._read_archive_products: Reads the existing evidence/audit/summary products for exact current-write confirmation, without interpreting evidence meaning.
+- PersistentStorageManager._framework_summary(evidence, audit): Builds the existing exact framework product counts and identities for partition or cumulative coverage.
+- PersistentStorageManager._read_framework_archive_history(*, excluded_target=None): Validates retained monthly products, offsets, evidence uniqueness and audit coverage, including read-only shared-layout prefixes, returning cumulative confirmation inputs without rewriting history.
 - PersistentStorageManager._framework_evidence_write_safe: Allows ordinary framework archival only for a pristine target with no rejected continuation or a currently confirmed archive, never implicit repair of unfinished or rejected history.
 - PersistentStorageManager._recover_archive_write: Uses existing journal-backed authorization/attempt admission to recover either legacy compiled archival or an identified durable Stage B outcome append without refetching scientific artifacts or requiring the old Session intake.
 - PersistentStorageManager._recover_archive_write_contents: Retains the existing repair contracts and partial Kill provenance for explicit interrupted-write recovery without refreshing a handoff or executing artifact transfer.
@@ -1445,10 +1448,10 @@ recovery is introduced. Phase 16 and M015 remain open.
 - PersistentStorageManager._recover_artifact_transfer: Makes one authorized fresh complete transfer from the original failed collection and authoritative handoff through existing destination/source/verification mechanisms, retaining normal global collection evidence.
 - PersistentStorageManager.session_preservation_guard(session_id): Synchronous context manager yielding current confirmation while holding the archive/final-record write lock through the caller's release commit; callers must not await or acquire a new Ingestor intake lock while holding it.
 - PersistentStorageManager.write_framework_evidence_archive(compiled_runtime_evidence): Enforces framework write safety for every ordinary caller before writing and flushing/fsyncing existing products, without granting repair authority.
-- PersistentStorageManager._write_framework_evidence_archive(compiled_runtime_evidence): Performs the shared physical write only after ordinary write safety, historical-prefix validation, or existing authorized-repair checks.
+- PersistentStorageManager._write_framework_evidence_archive(compiled_runtime_evidence, *, authorized_recovery=False): Appends unarchived suffixes to the administrative UTC write-month partition with exact readback, allowing only existing authorized same-month interrupted-target repair and never rewriting earlier history.
 - PersistentStorageManager._continue_framework_evidence_archive(compiled_runtime_evidence): Validates the historical prefix under the storage lock before continuation; the public entry point retains rejection and clears confirmation on failure.
 - PersistentStorageManager.continue_framework_evidence_archive(compiled_runtime_evidence): Verifies intact historical evidence/audit prefixes and summary consistency before ordinary continuation, returning only exact current readback without invoking interrupted-write repair.
-- PersistentStorageManager.get_framework_preservation_confirmation(): Compares all three current durable framework products with the exact successful compilation, without requiring a Session Record or accepting stale/partial writes.
+- PersistentStorageManager.get_framework_preservation_confirmation(): Compares cumulative retained monthly/archive products with the exact successful compilation, without requiring a Session Record or accepting missing, stale, duplicate or partial history.
 - PersistentStorageManager.framework_preservation_guard(*, require_closeout=False): Holds the existing storage lock through a synchronous preservation check and retirement commit, optionally requiring exact final Ingestor evidence/all-audit coverage retained before its retirement; archive rewrites do not replace that requirement.
 - PersistentStorageManager._retain_framework_closeout_compilation(compilation): Retains detached final Ingestor coverage within the existing confirmation mechanism without writing new archive products or interpreting evidence.
 - PersistentStorageManager.maintenance_blockers(ingestor, storage_manager): Reports failed persistence or unpreserved owned collection evidence, while active operations are separately tracked and future collections are not blockers.

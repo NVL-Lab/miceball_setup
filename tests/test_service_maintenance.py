@@ -431,7 +431,7 @@ class ServiceMaintenanceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(calls, ["write", "cleanup", "write", "write", "retire"])
         self.assertTrue(interface.terminated)
         self.assertEqual(len(interface.evidence), 3)
-        archived = [json.loads(line) for line in (self.root / "framework" / "evidence" / "runtime_evidence.jsonl").read_text().splitlines()]
+        archived = self.storage.get_framework_preservation_confirmation()["runtime_evidence"]
         self.assertEqual(archived, [message.to_dict() for message in interface.evidence])
 
     async def test_orderly_cleanup_failure_preserves_failure_and_skips_retirement(self):
@@ -656,8 +656,7 @@ class ServiceMaintenanceTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("forced_resources_closed", kill.payload["attempt"]["actions"])
             self.assertIn("Unfinished service operations", kill.payload["attempt"]["remaining_obligations"])
             self.assertEqual(interface.evidence[0].to_dict(), original)
-            with (self.root / "framework" / "evidence" / "runtime_evidence.jsonl").open() as source:
-                evidence = [json.loads(line) for line in source]
+            evidence = storage.get_framework_preservation_confirmation()["runtime_evidence"]
             attempt = [message["payload"] for message in evidence
                        if message["payload"]["stop_attempt_id"] == "attempt-1"]
             self.assertNotIn("completed", [item["outcome"] for item in attempt])

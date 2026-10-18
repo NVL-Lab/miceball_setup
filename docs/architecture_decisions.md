@@ -9650,6 +9650,61 @@ checks and archive-dependent maintenance lookups do not yet establish cross-mont
 dependency independence. The missing operational contracts remain identified under
 Q024 for clarification; this decision introduces no cross-month recovery subsystem.
 
+### Accepted LLC clarification: monthly archives and cross-month continuity
+
+An operation may begin in one calendar month and finish in another without
+splitting the operation or rewriting historical archives. Evidence belongs in
+its appropriate monthly partition and is correlated using existing operation
+identities.
+
+Services must retain the operational information necessary for unfinished work
+independently of finalized historical archives. Once a historical archive is
+declared safe to delete, future recovery must not depend on that archive. Reuse
+existing persistence and operation identities; no new recovery database, registry
+or elaborate reconstruction mechanism is authorized.
+
+This accepted clarification supplements Decisions 353-355 without replacing
+their historical text or assigning a new decision number. It does not specify
+the authoritative timestamp or timezone for monthly partition assignment; Decision
+354's explicit deferral of calendar-timezone rules remains unresolved. Q024 tracks
+that implementation prerequisite separately from the accepted continuity rule.
+
+### Accepted LLC clarification: administrative UTC archival month
+
+Framework Evidence Archive monthly partitions are administrative, not scientific
+timing records. StorageManager assigns evidence using its local system clock at
+archival write time, with UTC calendar-month boundaries. Original event, receipt,
+Session, node and synchronization timestamps remain unchanged. Delayed and
+recovered evidence belongs to the month of its actual archival write, not its
+historical event time. SynchronizationManager participation and synchronization
+quality are not required.
+
+Invalid or unavailable clock information fails closed: retain evidence, report
+failure and permit safe retry. Interrupted or uncertain writes require
+reconciliation before retry, without duplicate evidence across monthly partitions.
+Unconfirmed writes do not establish preservation. Historical archives remain
+immutable; cross-month operations retain their existing identities and necessary
+operational recovery state. No new time authority, synchronization dependency,
+archive registry or recovery subsystem is authorized.
+
+This subsequent accepted clarification resolves the timestamp/timezone deferral
+recorded above and in Decision 354 without renumbering or rewriting earlier
+decisions. Decision 355's independent recovery and deletion-safety requirements
+remain mandatory.
+
+**Current bounded implementation progress:** Monthly framework writes and
+cross-month cumulative confirmation are implemented through the existing
+StorageManager APIs, pending independent validation and audit. New evidence/audit
+suffixes use administrative UTC write-time partitions; older products are not
+rewritten. Existing shared-layout archives remain verified read-only prefixes.
+Existing framework journals retain operational reconstruction/deduplication state.
+No historical archive is declared safe to delete: confirmation and maintenance
+lookup still depend on retained archives. Decision 355 deletion eligibility and
+Decision 353 memory retirement are not established by this slice. Incomplete
+partitions fail closed; existing authorized repair supports an identified
+same-month interrupted target, not automatic repair or reassignment of an older
+or unidentified interrupted partition. Q024 remains OPEN.
+
 **Implementation status for Decisions 349-355:** Accepted architecture synchronized
 with supported Decisions 351-352 startup reconciliation implemented for explicitly
 known participants through existing NATS startup/readiness and owner diagnostics.

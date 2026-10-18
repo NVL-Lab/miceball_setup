@@ -1,6 +1,7 @@
 """Shared storage and independent owners coordinate existing maintenance over NATS."""
 
 import asyncio
+from datetime import datetime, timezone
 from copy import deepcopy
 import json
 from pathlib import Path
@@ -148,6 +149,33 @@ class ExternalDependentMaintenanceTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(await producer.stop_locally("operator"))
         self.assertTrue(await self.pair.stop_locally("operator"))
 
+    async def test_blocked_stop_and_cancel_span_months_without_rewriting_or_losing_dependency(self):
+        december = datetime(2025, 12, 31, tzinfo=timezone.utc).timestamp()
+        january = datetime(2026, 1, 1, tzinfo=timezone.utc).timestamp()
+        with patch("lab_sync_acquisition.storage.time", return_value=december) as clock:
+            await self.backend()
+            await self.producer()
+            payload = {"stop_attempt_id": "cross-month-attempt", "administrator_id": "operator"}
+            blocked = await self.intake_interface.execute_command(RuntimeCommandMessage(
+                "stop-cross-month", None, "stop", "operator", "intake", payload))
+            self.assertFalse(blocked.success)
+            directory = self.root / "storage/framework/evidence/2025-12"
+            before = {p.name: p.read_bytes() for p in directory.iterdir()}
+            clock.return_value = january
+            cancelled = await self.intake_interface.execute_command(RuntimeCommandMessage(
+                "cancel-cross-month", None, "cancel", "operator", "intake", payload))
+            self.assertFalse(cancelled.success)
+            self.assertEqual(cancelled.payload["attempt"]["stop_attempt_id"], "cross-month-attempt")
+            self.assertEqual(before, {p.name: p.read_bytes() for p in directory.iterdir()})
+            for subscription in self.broker.subscriptions:
+                await subscription.unsubscribe()
+            await self.backend()
+            self.assertTrue(self.intake_interface.operational_dependents[self.dependent]())
+            self.assertIsNotNone(self.storage.get_framework_preservation_confirmation())
+            self.assertTrue(any(m.payload.get("stop_attempt_id") == "cross-month-attempt"
+                                for m in self.intake.compile_framework_runtime_evidence()["runtime_evidence"]))
+            self.assertEqual(before, {p.name: p.read_bytes() for p in directory.iterdir()})
+
     async def test_retirement_reaches_ingestor_before_exit_and_survives_producer_disappearance(self):
         await self.backend()
         _, interface, launcher, _ = await self.producer()
@@ -241,7 +269,7 @@ class ExternalDependentMaintenanceTests(unittest.IsolatedAsyncioTestCase):
                 await self.backend()
                 _, _, launcher, _ = await self.producer()
                 self.assertTrue(await launcher.stop_locally("operator"))
-                path = self.root / "storage/framework/evidence" / product
+                path = next((self.root / "storage/framework/evidence").glob("????-??")) / product
                 rows = path.read_text().splitlines()
                 if product == "compilation_summary.json":
                     data = json.loads(path.read_text())
@@ -264,7 +292,7 @@ class ExternalDependentMaintenanceTests(unittest.IsolatedAsyncioTestCase):
         await self.backend()
         _, _, launcher, _ = await self.producer()
         self.assertTrue(await launcher.stop_locally("operator"))
-        directory = self.root / "storage/framework/evidence"
+        directory = next((self.root / "storage/framework/evidence").glob("????-??"))
         path = directory / "runtime_evidence.jsonl"
         path.write_text("not-json\n")
         for subscription in self.broker.subscriptions:
@@ -304,7 +332,7 @@ class ExternalDependentMaintenanceTests(unittest.IsolatedAsyncioTestCase):
         await self.backend()
         _, _, launcher, _ = await self.producer()
         self.assertTrue(await launcher.stop_locally("operator"))
-        directory = self.root / "storage/framework/evidence"
+        directory = next((self.root / "storage/framework/evidence").glob("????-??"))
         evidence_path = directory / "runtime_evidence.jsonl"
         evidence = [json.loads(line) for line in evidence_path.read_text().splitlines()][:-1]
         evidence_path.write_text("".join(json.dumps(m) + "\n" for m in evidence))
@@ -336,7 +364,7 @@ class ExternalDependentMaintenanceTests(unittest.IsolatedAsyncioTestCase):
         await self.backend()
         _, _, launcher, _ = await self.producer()
         self.assertTrue(await launcher.stop_locally("operator"))
-        directory = self.root / "storage/framework/evidence"
+        directory = next((self.root / "storage/framework/evidence").glob("????-??"))
         for path in directory.iterdir():
             path.unlink()
         for subscription in self.broker.subscriptions:
@@ -640,7 +668,7 @@ class ExternalDependentMaintenanceTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(await producer.stop_locally("operator"))
         for subscription in self.broker.subscriptions:
             await subscription.unsubscribe()
-        directory = self.root / "storage/framework/evidence"
+        directory = next((self.root / "storage/framework/evidence").glob("????-??"))
         if damage == "missing":
             for path in directory.iterdir():
                 path.unlink()

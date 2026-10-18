@@ -1007,6 +1007,31 @@ Ingestor journals are not monthly-rotated. Decision 355 requires safe-to-delete
 archives to be independent of every later operation/recovery, distinct from being
 finalized. Permanent archives are never automatically deleted.
 
+The accepted LLC clarification under Decisions 353-355 permits one operation to
+span months with existing identities, without splitting it or rewriting historical
+archives. Unfinished-work recovery information must remain independent of finalized
+history, and archives declared safe to delete cannot be future recovery inputs.
+The subsequent accepted clarification resolves assignment using StorageManager's
+local system clock at write time with UTC month boundaries, without scientific
+retimestamping or a synchronization dependency. Bounded monthly persistence now
+appends new evidence/audit suffixes and verifies cumulative coverage across intact
+partitions; existing journals preserve operational state and identities across
+restart. Shared-layout historical products remain read-only. Clock failures,
+backward month assignment, conflicting history and incomplete writes fail closed.
+Complete uncertain writes require current durable reconciliation before reuse;
+identified same-month interrupted writes retain existing authorized repair.
+Older/unidentified incomplete targets remain unsupported and blocked.
+Independent validation/audit and closure are pending; Q024 remains OPEN.
+
+Focused implementation verification passed 59 distinct checks: 35 synchronous
+and 24 controlled asynchronous, including 19 new permanent regressions. Controlled
+coroutines used an explicit test event loop without socket-pair initialization;
+this is not a normal Windows asynchronous scheduling campaign. Default sandbox
+temporary paths were inaccessible; successful runs used temporary directories in
+the permitted repository workspace. No live NATS, real sockets, OS signals,
+hardware or physical power-loss validation is claimed. Historical workflow
+records are unchanged and no new workflow is marked validated or closed.
+
 Supported Decisions 351-352 startup reconciliation is complete, independently
 manually validated and independently re-audited PASS after correction (W040),
 through the existing NATS service startup path, explicit known identities,
@@ -1018,10 +1043,11 @@ re-audit PASS with 132 focused tests, two independent probes, and two negative
 controls. Codex post-correction testing: 676 run, 669 passed, 7 optional rendering
 skips, zero failures. No validation was performed during documentation closure.
 Bounded Decision 349/393 journal retirement is complete in W070B; Decision 350
-and Decisions 353-355 remain unimplemented.
-Existing shared-archive confirmation and maintenance lookup dependencies require cross-month
-operational clarification before safe deletion can be confirmed. Q019 still owns
-unresolved Session-wide final evidence consumption/closure; unavailable auditing
+and Decisions 353/355 remain unimplemented; Decision 354 has bounded monthly
+implementation pending independent validation/audit. Cumulative confirmation and
+maintenance lookup still require retained historical products, so no historical
+archive is declared safe to delete. Broader deletion independence remains outside
+this slice. Q019 is CLOSED in W050; unavailable auditing
 for terminal deletion is an architectural conflict, not an accepted exception.
 Remaining memory/idempotency limits and application-wide discovery/restoration
 remain open. No new implementation milestone or recovery subsystem is introduced.
@@ -1190,7 +1216,8 @@ confirmation. W041 does not establish producer confirmations, Session completion
 or archive preservation. No weaker closeout guarantee is substituted.
 W033/M013, W035, W039, and W040 remain historically complete; Decision
 336 remains partial; bounded Decision 349/393 is complete in W070B, while Decision
-350 and Decisions 353-355 remain unimplemented, and Q024,
+350 and Decisions 353/355 remain unimplemented, bounded monthly Decision 354
+implementation awaits independent validation/audit, and Q024,
 Q022, Phase 16, and M015 remain OPEN.
 
 ## Completed NATS persistence boundary slice validation

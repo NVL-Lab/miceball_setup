@@ -294,6 +294,34 @@ relative to the file containing them, or may be absolute. Node hardware paths
 remain relative to the separate hardware file. Settings are read at startup and
 are not watched; changes take effect on explicit restart.
 
+### Framework Evidence Archive Months (Implementation Pending Independent Validation)
+
+New permanent framework evidence and intake audit use
+`<storage_root>/framework/evidence/YYYY-MM/` with the existing three archive
+products. StorageManager samples its local system clock at archival write time
+and assigns the administrative UTC month. Event/receipt/scientific timestamps are
+unchanged; delayed and recovered evidence is not backdated. No SynchronizationManager
+or new configuration is required. Earlier partitions are not rewritten, and
+existing shared-layout products remain read-only verified history.
+
+Keep the framework recovery journal and all historical partitions. Existing
+confirmation/maintenance lookups still need retained history; this implementation
+does not establish safe-to-delete eligibility, delete archives, or retire framework
+journals. Per-partition summaries retain the month and cumulative evidence/audit
+start offsets for continuity and duplicate detection, not a separate registry.
+Confirmation still verifies all retained products and has cumulative read/memory
+cost; bounded-memory retirement is not implemented.
+
+Clock failure or invalid values retain accepted evidence and report failure.
+An uncertain write cannot be retried as an ordinary new-month write. Restart
+reconciliation verifies intact prefixes against the journal and confirms durable
+readback before appending new recovery evidence. Incomplete/corrupt histories
+remain blocked without implicit repair. Existing administrator-authorized repair
+can reconstruct an identified same-month interrupted target; older or unidentified
+interrupted targets remain unsupported, retained and unconfirmed. Do not remove
+or recreate missing products to force startup. No live deployment or power-loss
+validation is claimed; independent validation/audit of this slice remain pending.
+
 W070A / Decision 392 adds Ingestor-owned `closed_sessions/records.json` and
 `closed_sessions.initialized` beneath `recovery_journal_root` (or beside an
 explicit known-Session journal when no deployment root is supplied). These are

@@ -1342,7 +1342,8 @@ monthly framework archives, and deletion-safety boundaries. Supported Decisions
 351-352 startup reconciliation is complete with independent manual validation and
 final independent re-audit PASS after correction in W040. Bounded Decision 349/393
 journal retirement is CLOSED in W070B after independent ICC validation and source
-audit PASS; Decision 350 and Decisions 353-355 remain unimplemented.
+audit PASS. Decision 354 has bounded monthly implementation pending independent
+validation/audit; Decision 350 and Decisions 353/355 remain unimplemented.
 Remaining implementation and unresolved operational contracts keep Q024 OPEN.
 Q024-B service-specific operator-authorized execution architecture
 is accepted in Decisions 339-348; supported cases have automated implementation
@@ -1554,7 +1555,8 @@ infrastructure. Broader Q019 is CLOSED in W050; Q024, Q022, Phase 16, and M015 r
 The following ownership and behavioral questions are resolved architecturally in
 Decisions 349-355. Supported Decisions 351-352 are complete, independently manually
 validated and independently re-audited PASS after correction (W040); Decisions
-350 and 353-355 remain unimplemented; bounded Decision 349/393 retirement is
+350 and 353/355 remain unimplemented; bounded monthly Decision 354 implementation
+awaits independent validation/audit, and bounded Decision 349/393 retirement is
 complete and independently validated/audited in W070B:
 
 - Ingestor owns conditional temporary-journal retirement; uncertain obligations,
@@ -1587,12 +1589,34 @@ complete and independently validated/audited in W070B:
   in W070B. Eligible canonical closed-Session journals require current permanent
   closeout proof and released bindings; local acceptance alone is insufficient.
   Legacy archives lacking required receipt provenance remain journal-dependent.
-- **Cross-month preservation and lookup:** Current Ingestor framework compilation
-  and `framework_preservation_guard()` compare cumulative evidence/audit against one
-  archive; StorageManager writes/reads that shared archive, and maintenance/Controller
-  lookups require its records. How will exact coverage and authorization/outcome
-  lookup remain valid across monthly partitions without rewriting closed archives
-  or making safe-to-delete history an operational recovery dependency?
+- **Accepted cross-month continuity clarification:** An operation may begin in
+  one calendar month and finish in another without splitting its identity or
+  rewriting historical archives. Evidence belongs in the appropriate monthly
+  partition using existing operation correlations. Services retain unfinished-work
+  recovery information independently of finalized historical archives; future
+  recovery cannot depend on archives declared safe to delete. The accepted
+  clarification under Decisions 353-355 authorizes no new recovery database,
+  registry or elaborate reconstruction mechanism.
+- **Monthly assignment (resolved architecturally):** The subsequent accepted
+  clarification of Decision 354 uses StorageManager's local system clock at
+  archival write time and UTC calendar-month boundaries. Partitions are
+  administrative; delayed/recovered evidence is not backdated, and scientific or
+  receipt timestamps are unchanged. No synchronization service is required.
+  Invalid/unavailable clocks fail closed; uncertain writes require reconciliation
+  before retry without duplicate cross-partition evidence. Unconfirmed writes
+  never establish preservation. Decision 355 remains authoritative.
+- **Cross-month implementation (pending independent validation/audit):** Existing
+  StorageManager framework APIs now append newly archived evidence/audit to UTC
+  write-month partitions and verify exact cumulative coverage for existing guards
+  and maintenance callers. Older partitions and shared-layout historical prefixes
+  remain unchanged. Existing framework journals reconstruct operational evidence,
+  deduplication and audit independently of archive payloads. No archive is declared
+  safe to delete: preservation confirmation and maintenance lookup still require
+  retained historical products. Broader deletion independence remains outstanding.
+  Incomplete/corrupt partitions block continuation and maintenance; existing
+  authorized repair is limited to identified same-month interrupted targets.
+  Repair/reassignment of an older or unidentified interrupted partition is not
+  implemented. Missing clock information retains journaled evidence for safe retry.
 - **Deletion-safety confirmation:** What existing owner-held recovery/safety
   information independently preserves unfinished and cross-month obligations,
   deduplication, and unsafe-command-reexecution protection, and what establishes that
@@ -1612,14 +1636,14 @@ complete and independently validated/audited in W070B:
   remain deferred. Multiple unfinished Sessions may be reported only from existing
   trustworthy evidence; this does not establish a registry or restoration mechanism.
 
-Calendar-timezone rules and additional monthly-partition configuration have not
-been accepted and must not be invented. Scientific/institutional retention remains
+UTC write-time assignment is now accepted; no additional monthly-partition
+configuration is introduced. Scientific/institutional retention remains
 separate from technical deletion safety; safe permanent-archive deletion is manual.
 
 ### Blocks
 
-* Implementation of accepted Decision 350 and Decisions 353-355 outside W070B's bounded journal retirement
-* Cross-month preservation/lookup and historical deletion-safety contracts
+* Decision 350, Decisions 353/355, and remaining Decision 354 work outside the bounded monthly implementation
+* Remaining cross-month deletion independence, older/unidentified interrupted-target repair support and historical deletion-safety contracts
 * Unavailable-evidence auditing conflict and remaining memory-retirement limits
 * Application-wide discovery/restoration and unsupported recovery procedures
 
@@ -1667,9 +1691,10 @@ the concrete archive-location dependency; it does not resolve Q019 or Q024 or
 by itself establish implementation or validation.
 
 Decision 354 now explicitly supersedes only that shared framework layout with
-permanent calendar-month partitions. Current code and W036-W040 validation still
-use the shared layout; the newly accepted monthly/deletion-safety contracts are
-not implemented and do not reopen Q025's resolved maintenance/shutdown boundaries.
+permanent calendar-month partitions. Current code has bounded UTC write-month
+implementation pending independent validation/audit; historical W036-W040 results
+remain shared-layout validation, not monthly validation. Safe historical deletion
+is not implemented and Q025's resolved boundaries are unchanged.
 
 ### Resolved low-level contracts
 
@@ -1752,7 +1777,7 @@ The roadmap distinguishes accepted architecture from implemented milestones:
 Phase 13 — Global StorageManager (Evidence)
 Phase 14 — Global StorageManager (Finalized Scientific Data)
 Phase 15 — Controller-owned Session Launch & Runtime Assembly (launch path and Decision 302 sequential reuse implemented; independent validation/audit and M015 closure pending)
-Phase 16 — Operational Service Lifetime and Framework Stop/Kill (Decisions 304-366 accepted; Q025 resolved architecturally; narrow Session-binding release under Decisions 313/322 complete, manually software-validated and independently audited PASS in W035; individual-service maintenance complete, manually software-validated and independently audited PASS in W036; progressive two-phase coordinated shutdown complete, manually software-validated and independently re-audited PASS in W037; startup/return under Decisions 327-331 complete, independently manually software-validated and independently re-audited PASS after correction in W038; supported Q024-B cases under Decisions 339-348 complete with automated coverage, independent manual validation, and final independent re-audit PASS after correction in W039; supported Decisions 351-352 startup reconciliation/reservation protection complete, independently manually validated and independently re-audited PASS after correction in W040; bounded Decision 349/393 is CLOSED in W070B after independent ICC validation and source audit PASS; Decision 350 and Decisions 353-355 remain unimplemented; Decision 361 receiving foundation and routing prerequisite complete with automated testing, independent manual validation, and final independent re-audit PASS after correction in W041; Decision 366's supported producer/marker prerequisite is complete with automated coverage, independent manual validation, and targeted independent re-audit PASS after correction in W042; bounded Stage A under Decision 362 is complete with automated testing, independent manual validation, and independent audit PASS in W043; bounded Decision 364 durable handoff is complete with automated testing, independent manual validation, and independent audit PASS (W044); bounded Stage B collection/Decision 363 evidence persistence is complete with independent manual validation and final targeted re-audit PASS after correction (W045); W046 explicit permanent closure is complete with independent manual validation and targeted independent re-audit PASS after correction; bounded Normal Stop integration is complete with independent validation and targeted re-audit PASS after correction (W047); Bounded Kill Session integration is complete in W048; eligible-Session selection is complete with independent validation and final audit PASS after correction (W049), and overall Q019 software integration validation is complete in W050; Q019 is CLOSED in W050; Q024, Q022, Phase 16, and M015 remain open)
+Phase 16 — Operational Service Lifetime and Framework Stop/Kill (Decisions 304-366 accepted; Q025 resolved architecturally; narrow Session-binding release under Decisions 313/322 complete, manually software-validated and independently audited PASS in W035; individual-service maintenance complete, manually software-validated and independently audited PASS in W036; progressive two-phase coordinated shutdown complete, manually software-validated and independently re-audited PASS in W037; startup/return under Decisions 327-331 complete, independently manually software-validated and independently re-audited PASS after correction in W038; supported Q024-B cases under Decisions 339-348 complete with automated coverage, independent manual validation, and final independent re-audit PASS after correction in W039; supported Decisions 351-352 startup reconciliation/reservation protection complete, independently manually validated and independently re-audited PASS after correction in W040; bounded Decision 349/393 is CLOSED in W070B after independent ICC validation and source audit PASS; Decision 354 has bounded monthly implementation pending independent validation/audit; Decision 350 and Decisions 353/355 remain unimplemented; Decision 361 receiving foundation and routing prerequisite complete with automated testing, independent manual validation, and final independent re-audit PASS after correction in W041; Decision 366's supported producer/marker prerequisite is complete with automated coverage, independent manual validation, and targeted independent re-audit PASS after correction in W042; bounded Stage A under Decision 362 is complete with automated testing, independent manual validation, and independent audit PASS in W043; bounded Decision 364 durable handoff is complete with automated testing, independent manual validation, and independent audit PASS (W044); bounded Stage B collection/Decision 363 evidence persistence is complete with independent manual validation and final targeted re-audit PASS after correction (W045); W046 explicit permanent closure is complete with independent manual validation and targeted independent re-audit PASS after correction; bounded Normal Stop integration is complete with independent validation and targeted re-audit PASS after correction (W047); Bounded Kill Session integration is complete in W048; eligible-Session selection is complete with independent validation and final audit PASS after correction (W049), and overall Q019 software integration validation is complete in W050; Q019 is CLOSED in W050; Q024, Q022, Phase 16, and M015 remain open)
 Phase 17 — Device Acceptance / Validation
 Phase 18 — End-to-End Demo Architecture
 

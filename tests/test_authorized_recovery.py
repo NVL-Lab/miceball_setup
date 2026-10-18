@@ -1,6 +1,7 @@
 """Explicit service-owned recovery through existing administrative commands."""
 
 import asyncio
+from datetime import datetime, timezone
 from pathlib import Path
 import tempfile
 import unittest
@@ -56,7 +57,7 @@ class AuthorizedRecoveryTests(unittest.IsolatedAsyncioTestCase):
             command = await self.authorize("recover_archive_write", {"session_id": None})
         original = self.storage._write_framework_evidence_archive
         writes = []
-        def verify_acceptance(compiled):
+        def verify_acceptance(compiled, **kwargs):
             messages = self.ingestor.compile_framework_runtime_evidence()["runtime_evidence"]
             auth = next(m for m in messages if m.evidence_id == command.payload["authorization_evidence_id"])
             attempt = next(m for m in messages if m.evidence_type == "service_recovery_evidence"
@@ -64,7 +65,7 @@ class AuthorizedRecoveryTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(self.ingestor.has_durable_runtime_evidence(auth))
             self.assertTrue(self.ingestor.has_durable_runtime_evidence(attempt))
             writes.append(compiled)
-            return original(compiled)
+            return original(compiled, **kwargs)
         with patch.object(self.storage, "_write_framework_evidence_archive", side_effect=verify_acceptance):
             with self.assertLogs("lab_sync_acquisition.service_maintenance", level="WARNING"):
                 result = await self.interface.execute_command(command)
@@ -86,6 +87,21 @@ class AuthorizedRecoveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.payload["actual_outcome"], "refused")
         writer.assert_not_called()
         self.assertIn(None, self.storage.maintenance_diagnostics(self.ingestor, self.storage)["unfinished_archive_scopes"])
+
+    async def test_prior_month_interrupted_write_is_not_implicitly_reassigned_by_authorized_retry(self):
+        with patch("lab_sync_acquisition.storage.time", return_value=datetime(2025, 12, 1, tzinfo=timezone.utc).timestamp()):
+            self.interrupt_archive()
+        with patch("lab_sync_acquisition.storage.time", return_value=datetime(2026, 1, 1, tzinfo=timezone.utc).timestamp()):
+            with self.assertLogs("lab_sync_acquisition.service_maintenance", level="WARNING"):
+                command = await self.authorize("recover_archive_write", {"session_id": None})
+            with self.assertLogs("lab_sync_acquisition.service_maintenance", level="WARNING"):
+                result = await self.interface.execute_command(command)
+        self.assertFalse(result.success)
+        self.assertIsNone(self.storage.get_framework_preservation_confirmation())
+        self.assertFalse((self.root / "framework/evidence/2026-01").exists())
+        self.assertTrue(self.ingestor.has_durable_runtime_evidence(next(
+            m for m in self.ingestor.compile_framework_runtime_evidence()["runtime_evidence"]
+            if m.evidence_id == "original")))
 
     async def test_mismatched_scope_and_command_authorization_cannot_write(self):
         self.interrupt_archive(framework=False)
