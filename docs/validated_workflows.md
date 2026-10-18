@@ -5374,6 +5374,70 @@ documentation-only closure, and no next slice is selected.
 
 ---
 
+# W070B - Conditional Ingestor Recovery Journal Retirement
+
+**Status:** CLOSED - bounded Decisions 349/393 implementation independently
+validated by ICC through IPython and independently source-audited PASS, with no
+confirmed P0-P3 findings.
+
+## Implemented scope
+
+Post-release `read_session_closeout()` can verify closed Sessions independently of
+their temporary recovery journal using the permanent Session Evidence Archive,
+complete intake audit, compilation summary, terminal Session Record, artifact
+handoff and current StorageManager confirmation. Normal finalization retains the
+original verified receipt as `acquisition_evidence_completion.receipt` in the
+existing summary; partial Kill uses existing authoritative preservation and
+uncertainty evidence without claiming complete receipt. No duplicate closeout
+record or evidence store is created. Legacy normal archives lacking the required
+receipt provenance retain journal-backed verification and are not retirement-eligible.
+
+Ingestor owns explicit `retire_recovery_journal(session_id)` for the identified
+canonical deployment journal, not arbitrary paths or directory sweeps. Eligibility
+requires durable closed-Session admission protection under Decision 392, completed
+binding release, current permanent preservation/finality proof and no remaining
+journal need for reconstruction or deduplication. A present journal must be intact
+and match permanent proof. Existing root/storage guards span proof and deletion.
+Uncertainty retains journals; a retry after interrupted deletion re-verifies proof
+even if the journal is already absent. No framework evidence, permanent closed-
+Session records, scientific artifacts, Evidence Archives or Session Records are
+deleted. Administrative abandonment does not authorize retirement.
+
+## Validation evidence
+
+- Gate A journal-independent closeout verification passed before retirement was
+  enabled. Final implementation verification passed **69 distinct checks**:
+  **11 Gate A**, **20 Gate B** and **38 affected existing checks**. These comprise
+  64 synchronous and five controlled asynchronous checks, not normal Windows
+  asynchronous scheduling validation. Overlapping earlier runs are not additive.
+- Coverage includes normal/partial-Kill proof, missing/corrupt/conflicting permanent
+  evidence, active/unreleased retention, restart, duplicate/late admission rejection,
+  publication/deletion failure, interruption, repeated retirement, Controller
+  reconciliation and unrelated Session isolation.
+- Independent ICC manual IPython validation: **9/9 probes PASS**.
+- Independent ICC source audit: **PASS**, no confirmed P0-P3 findings.
+
+These are reported completed results, not tests or audits rerun for documentation
+closure. Implementation checks do not replace independent validation or audit.
+
+## Limitations and remaining scope
+
+Three existing integration checks were blocked at hard-link handoff publication
+by Windows sandbox permissions and are not claimed as passing: terminal Stage A
+closure in `test_closed_session_admission`, and normal/partial-Kill restart
+readback in `test_finalized_intake`. Focused fixtures used a valid pre-existing
+empty handoff. No live NATS, real sockets, hardware, actual OS-signal, physical
+power-loss or normal Windows asynchronous scheduling campaign is claimed.
+
+W070B and W070A are CLOSED. Q024 remains OPEN: Decision 350 terminal-loss deletion,
+Decisions 353-355 memory retirement/monthly archives/deletion safety, and associated
+cross-month lookup, deletion-safety and unavailable-audit contracts remain outside
+this bounded closure. Decision 336 remains partial and Decision 391 operational
+reconnection remains explicitly deferred. No new implementation slice is selected.
+Q019 and historical W001-W069 remain CLOSED; unrelated statuses are unchanged.
+
+---
+
 # Future Workflows
 
 The following workflows are expected to be added as the framework evolves.

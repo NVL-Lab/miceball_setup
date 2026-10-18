@@ -11405,8 +11405,12 @@ passed before retirement was enabled; final focused verification passed 11 Gate 
 checks, 20 Gate B checks and 38 affected existing checks (distinct, not additive
 to earlier overlapping runs). Three existing hard-link integration checks were
 blocked by Windows sandbox permissions and are not claimed as passing.
-Independent manual validation and audit remain pending. W070B and Q024 remain
-OPEN; W070A remains CLOSED. Historical normal archives without permanent receipt
+W070B is CLOSED following independent ICC IPython validation (9/9 probes PASS)
+and independent source audit PASS with no confirmed P0-P3 findings. No live NATS
+or physical power-loss testing is claimed; controlled asynchronous checks are
+not a normal Windows scheduling campaign. See W070B in validated_workflows.md.
+Q024 remains OPEN for outstanding recovery obligations; W070A remains CLOSED.
+Historical normal archives without permanent receipt
 provenance retain their journal-based verification and are not retirement-eligible.
 
 ---

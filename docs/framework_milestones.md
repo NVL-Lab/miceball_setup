@@ -954,7 +954,7 @@ W070B / Decision 349 implementation is tracked below under Decision 393. Decisio
 deletion and Decisions 353-355 remain outside this slice. Q024 remains OPEN and all unrelated
 milestone statuses are unchanged.
 
-W070B (OPEN) implements Decision 393 journal-independent post-release closeout
+W070B (CLOSED) implements Decision 393 journal-independent post-release closeout
 using permanent Session evidence, complete intake audit, final record and handoff,
 with original verified receipt provenance added only to the existing compilation
 summary. Gate A passed before enabling Ingestor-owned retirement. Retirement
@@ -963,7 +963,14 @@ release and an intact matching journal when present; root/storage guards span
 verification and deletion. Retries reverify proof even when unlink already took
 effect. Missing provenance, damaged journals, unconfirmed preservation and active
 bindings retain journals. No framework evidence or permanent products are deleted.
-Independent manual validation and audit remain pending; no W070B closure is claimed.
+Independent ICC IPython validation passed 9/9 probes; independent source audit
+passed with no confirmed P0-P3 findings. Implementation verification passed 69
+distinct checks (11 Gate A, 20 Gate B and 38 affected existing checks); three
+hard-link integration checks were blocked by sandbox permissions, not passed.
+No live NATS, physical power-loss or normal Windows asynchronous scheduling
+campaign is claimed. See the W070B closure record in validated_workflows.md.
+Q024 remains OPEN: Decision 350, Decisions 353-355 and their unresolved operational
+contracts are not completed by this bounded Decision 349/393 workflow.
 
 Decision 391 records the accepted best-effort Controller restart/bounded Session
 reconnection clarification of Decisions 345/346/351/352. Existing status,
@@ -1010,7 +1017,8 @@ the failed source audit's P2/P3 findings, correction revalidation (25/25), and f
 re-audit PASS with 132 focused tests, two independent probes, and two negative
 controls. Codex post-correction testing: 676 run, 669 passed, 7 optional rendering
 skips, zero failures. No validation was performed during documentation closure.
-Decisions 349-350 and 353-355 remain unimplemented.
+Bounded Decision 349/393 journal retirement is complete in W070B; Decision 350
+and Decisions 353-355 remain unimplemented.
 Existing shared-archive confirmation and maintenance lookup dependencies require cross-month
 operational clarification before safe deletion can be confirmed. Q019 still owns
 unresolved Session-wide final evidence consumption/closure; unavailable auditing
@@ -1181,7 +1189,8 @@ global stream history from sequence 1; unrelated older history loss can prevent
 confirmation. W041 does not establish producer confirmations, Session completion,
 or archive preservation. No weaker closeout guarantee is substituted.
 W033/M013, W035, W039, and W040 remain historically complete; Decision
-336 remains partial, Decisions 349-350 and 353-355 remain unimplemented, and Q024,
+336 remains partial; bounded Decision 349/393 is complete in W070B, while Decision
+350 and Decisions 353-355 remain unimplemented, and Q024,
 Q022, Phase 16, and M015 remain OPEN.
 
 ## Completed NATS persistence boundary slice validation

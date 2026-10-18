@@ -344,9 +344,13 @@ must reverify proof before confirming retirement. Corrupt journals are retained,
 not repaired or treated as Decision 350 terminal loss. Framework journals and
 closed-Session records are never targets. Explicit custom journal paths without
 the deployment journal root are outside this bounded retirement API.
-W070B remains OPEN pending independent validation/audit. Focused tests seed a valid
+W070B is CLOSED following independent ICC IPython validation (9/9 probes PASS)
+and independent source audit PASS with no confirmed P0-P3 findings. Q024 remains
+OPEN for remaining recovery obligations. Focused tests seed a valid
 empty artifact handoff and use simulated communication; they do not verify initial
 hard-link handoff publication, live NATS, hardware, or physical crash/power loss.
+Three existing hard-link integration checks were sandbox-blocked and are not
+claimed as passing; no normal Windows asynchronous scheduling campaign is claimed.
 
 `retrieval_endpoints` explicitly maps logical node IDs to the existing
 `SshRetrievalEndpoint`: required `host`, `username`, `key_filename`, optional

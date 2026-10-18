@@ -571,7 +571,9 @@ completed software validation and independent audit.
 
 Decision 354 now supersedes that shared framework layout architecturally with
 `framework/evidence/YYYY-MM/` partitions; implementation still uses the shared
-path. Decisions 349-350 and 353-355 are accepted, not implemented or validated.
+path. Bounded Decision 349/393 journal retirement is CLOSED in W070B after
+independent ICC validation and source audit PASS. Decision 350 and Decisions
+353-355 remain accepted but unimplemented; Q024 remains OPEN.
 Supported Decisions 351-352 startup reconciliation is complete, independently
 manually validated and independently re-audited PASS after correction in W040.
 Q024-B remains complete in W039 and Decision 336 remains partially implemented.
