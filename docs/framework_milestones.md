@@ -937,15 +937,33 @@ restoration or zero-based restart. Healthy mapping updates remain unchanged.
 
 ## Remaining Q024 architecture and startup implementation progress
 
-W070A implements Decision 392's independently durable Ingestor closed-Session
+W070A is CLOSED for Decision 392's independently durable Ingestor closed-Session
 admission protection before terminal binding release, preserving existing
 StorageManager confirmation and journal-integrity guards. Construction,
 preparation and intake reject closed identities after restart independently of
 temporary journal retention. Empty initialization release remains distinct.
-Focused implementation tests are present; independent manual validation and
-architectural audit are pending. W070A is OPEN, not a validated workflow closure.
-Decision 349 journal retirement, Decision 350 deletion and Decisions 353-355 remain
-outside this slice. Q024 and all unrelated milestone statuses are unchanged.
+W070A-A1's P2 cross-instance admission/publication race is corrected by holding
+the existing root exclusion through admission and release commit. Post-correction
+verification passed 60 distinct checks (54 synchronous, six controlled async);
+independent manual IPython validation passed 16/16 and final source audit passed
+with no remaining confirmed P0-P3 findings. The initial 6/6 manual result and
+subsequent P2 finding remain recorded in W070A in validated_workflows.md; counts
+are not additive. No live NATS, independent-process deployment, hardware, actual
+OS-signal, power-loss or normal Windows asyncio scheduling campaign is claimed.
+W070B / Decision 349 implementation is tracked below under Decision 393. Decision 350
+deletion and Decisions 353-355 remain outside this slice. Q024 remains OPEN and all unrelated
+milestone statuses are unchanged.
+
+W070B (OPEN) implements Decision 393 journal-independent post-release closeout
+using permanent Session evidence, complete intake audit, final record and handoff,
+with original verified receipt provenance added only to the existing compilation
+summary. Gate A passed before enabling Ingestor-owned retirement. Retirement
+requires current permanent proof, durable closed admission, completed binding
+release and an intact matching journal when present; root/storage guards span
+verification and deletion. Retries reverify proof even when unlink already took
+effect. Missing provenance, damaged journals, unconfirmed preservation and active
+bindings retain journals. No framework evidence or permanent products are deleted.
+Independent manual validation and audit remain pending; no W070B closure is claimed.
 
 Decision 391 records the accepted best-effort Controller restart/bounded Session
 reconnection clarification of Decisions 345/346/351/352. Existing status,

@@ -316,8 +316,37 @@ sync on POSIX, and readback before clearing the binding. Failed publication or
 readback retains the binding; explicit retry reconfirms closure. Empty aborted
 initialization release is not terminal closure. W070A deletes no journals, and
 memory-only intake cannot confirm terminal release without durable closure storage.
-Independent validation/audit are pending; no power-loss or live deployment
-guarantee is claimed by these implementation checks.
+W070A is CLOSED after the W070A-A1 concurrency correction, independent manual
+IPython validation (16/16 PASS) and final independent source audit PASS with no
+remaining confirmed P0-P3 findings. Implementation verification passed 60 distinct
+checks; see W070A in validated_workflows.md for the initial audit/correction history
+and limits. No live NATS, independent-process deployment, hardware, actual OS-signal,
+physical crash, power-loss or normal Windows asyncio scheduling validation is
+claimed. W070B implementation is described below; Q024 remains OPEN.
+
+W070B / Decision 393 adds `ingestor.retire_recovery_journal(session_id)` for an
+explicitly identified `recovery_journal_root/session_SESSION_ID.jsonl`, not an
+arbitrary path or directory sweep. The paired StorageManager must currently verify
+the permanent evidence/audit/summary, terminal Session Record and handoff, and the
+Session must be durably closed with its Ingestor binding released. Permanent Normal
+Stop readback uses the original verified receipt retained as
+`acquisition_evidence_completion.receipt` in the existing compilation summary;
+partial Kill uses its existing explicit preservation/uncertainty evidence without
+claiming complete receipt. Original evidence and audit are not duplicated into a
+new closeout product. Historical normal archives missing receipt provenance remain
+journal-dependent and are not automatically rewritten or retirement-eligible.
+
+The method returns `True` only after verified retirement/absence and applicable
+directory synchronization; failed proof, publication or deletion raises rather
+than reporting success. If interruption occurs after unlink, the journal may
+already be absent, but permanent closeout remains verifiable and an explicit retry
+must reverify proof before confirming retirement. Corrupt journals are retained,
+not repaired or treated as Decision 350 terminal loss. Framework journals and
+closed-Session records are never targets. Explicit custom journal paths without
+the deployment journal root are outside this bounded retirement API.
+W070B remains OPEN pending independent validation/audit. Focused tests seed a valid
+empty artifact handoff and use simulated communication; they do not verify initial
+hard-link handoff publication, live NATS, hardware, or physical crash/power loss.
 
 `retrieval_endpoints` explicitly maps logical node IDs to the existing
 `SshRetrievalEndpoint`: required `host`, `username`, `key_filename`, optional

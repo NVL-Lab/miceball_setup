@@ -5302,6 +5302,78 @@ audit were run for this documentation-only closure; no new slice is selected.
 
 ---
 
+# W070A - Durable Closed-Session Enforcement
+
+**Status:** CLOSED - bounded Decision 392 implementation and W070A-A1 correction
+independently validated through IPython and independently source-audited PASS,
+with no remaining confirmed P0-P3 findings.
+
+## Implemented scope
+
+Ingestor establishes independently durable closed-Session admission records before
+releasing authoritatively terminal, preserved Session intake. StorageManager
+remains authoritative for preservation confirmation, not closed-Session admission.
+Existing terminal-state, journal-integrity, archival coverage and applicable Q019
+handoff checks remain required. Empty initialization-binding release is distinct
+from terminal Session closure.
+
+The deployment-local `closed_sessions/records.json` and
+`closed_sessions.initialized` survive independently of temporary recovery journals.
+Construction/recovery, preparation and new or redelivered Session evidence reject
+closed identities after restart. Missing, corrupt, conflicting or unreadable
+closure information fails closed. Closure uses flush/fsync, atomic replacement,
+POSIX directory synchronization and current readback; failure or interruption
+cannot be reported as successful release.
+
+The existing root-local `publication.lock` now spans admission checks through
+actual recovery/preparation, journal acceptance/checkpoints, or release validation,
+closure publication/readback and binding retirement across Ingestor instances.
+Same-instance recovery intake is reentrant. Contention and stale locks fail
+closed without expiration or automatic reclamation. Session-independent framework
+intake remains separate, and existing ownership/deployment boundaries are unchanged.
+
+## Validation and correction history
+
+- The initial implementation passed **6/6 independent manual IPython checks**.
+  Subsequent source audit identified **P2 W070A-A1**: another root-sharing instance
+  could publish closure between an admission ledger check and actual preparation
+  or ingestion. The initial audit therefore did not authorize closure.
+- The correction extends the same root-local exclusion through the complete
+  admission/release commit. Seven permanent concurrency/interruption regressions
+  cover paused constructor/preparation/intake checks, publication pending readback,
+  stale locks, cancelled admission and cancelled closure with explicit retry.
+- Post-correction Codex verification: **60 distinct checks PASS**, comprising
+  **54 synchronous checks** and **six controlled asynchronous checks**. The seven
+  new regressions are included, not additional. Three interleaving regressions
+  also detected the original defect against pre-correction source loaded in memory.
+- Final independent manual IPython validation: **16/16 checks PASS**.
+- Final independent source audit: **PASS**, no remaining confirmed P0-P3 findings.
+
+These are reported completed results, not checks newly executed for documentation
+closure. The initial and final manual runs and overlapping implementation runs
+are separate evidence, not additive validation totals. Automated verification
+does not replace independent manual validation or audit.
+
+## Limitations and remaining scope
+
+Concurrency regressions used independent Ingestor instances, real temporary disk
+files and controlled thread interleavings. Controlled asynchronous execution is
+not normal Windows asyncio scheduling validation. No live NATS, independent-process
+deployment, hardware, real OS-signal, physical crash or power-loss validation is
+claimed. Three previously sandbox-hard-link-blocked Stage A/handoff integration
+checks were not rerun for the correction and are not claimed as passing.
+
+W070A is CLOSED. W070B / Decision 349 conditional temporary journal retirement is
+not implemented; W070A deletes no journals, Evidence Archives or scientific
+recordings. Decision 350 terminal deletion, Decisions 353-355 cleanup and Decision
+391 Controller reconnection are outside this closure; operational reconnection
+remains deferred. Q024 and Q022 remain OPEN; Q019 and W001-W069 remain CLOSED.
+All unrelated question/milestone statuses and accepted architectural contracts
+are unchanged. No implementation tests or additional audit were run for this
+documentation-only closure, and no next slice is selected.
+
+---
+
 # Future Workflows
 
 The following workflows are expected to be added as the framework evolves.

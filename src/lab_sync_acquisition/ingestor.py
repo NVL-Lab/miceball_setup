@@ -12,6 +12,7 @@ import json
 import os
 from pathlib import Path
 import re
+import stat
 from tempfile import NamedTemporaryFile
 from threading import RLock
 from time import time
@@ -597,6 +598,79 @@ class InMemoryIngestor:
                     "artifact_collection_handoff": current["artifact_collection_handoff"]})
 
     def _read_saved_closeout(self, session_id: str) -> dict:
+        """Use permanent proof for closed intake, retaining journals when proof is absent."""
+        self._validate_session_identity(session_id)
+        with self._session_admission_guard():
+            if session_id in self._read_closed_sessions():
+                with self._storage_manager.session_preservation_guard(session_id):
+                    current = self._storage_manager.get_persisted_session_preservation_confirmation(session_id)
+                    if current is None:
+                        raise RuntimeError("Saved preservation is unconfirmed")
+                    summary = current["compilation_summary"]
+                    # Existing archives without permanent receipt provenance still
+                    # require their journal; never backfill or rewrite them here.
+                    if (summary.get("stage_a_complete") is False
+                            or "receipt" in summary.get("acquisition_evidence_completion", {})):
+                        return self._read_permanent_closeout(session_id)
+            return self._read_journal_closeout(session_id)
+
+    def _read_permanent_closeout(self, session_id: str) -> dict:
+        """Verify closed terminal intake solely from current permanent Session products."""
+        self._validate_session_identity(session_id)
+        with self._session_admission_guard():
+            if session_id not in self._read_closed_sessions() or self._session_id == session_id:
+                raise RuntimeError("Terminal Ingestor binding release is unconfirmed")
+            storage = self._storage_manager
+            if not isinstance(storage, PersistentStorageManager):
+                raise RuntimeError("Paired StorageManager preservation is required")
+            with storage.session_preservation_guard(session_id):
+                current = storage.get_persisted_session_preservation_confirmation(session_id)
+                if current is None:
+                    raise RuntimeError("Permanent closeout preservation is unconfirmed")
+                record = current["session_record"]
+                state = (record.get("final_session_status") or {}).get("state")
+                lifecycle = record.get("session_lifecycle_evidence", [])
+                if (state not in {"completed", "failed", "aborted"}
+                        or not lifecycle or lifecycle[-1].get("to_state") != state):
+                    raise RuntimeError("Permanent terminal Session state is unconfirmed")
+                summary = current["compilation_summary"]
+                normal = summary.get("stage_a_complete") is True
+                finality = None
+                if normal:
+                    provenance = summary.get("acquisition_evidence_completion", {})
+                    receipt = provenance.get("receipt")
+                    markers = [m for m in current["runtime_evidence"]
+                               if m["evidence_id"] == provenance.get("evidence_id")
+                               and m["evidence_type"] == "acquisition_evidence_completion"]
+                    if (len(markers) != 1 or summary.get("kill_preservation") is not None
+                            or not isinstance(receipt, dict)
+                            or receipt.get("session_id") != session_id
+                            or receipt.get("evidence_id") != markers[0]["evidence_id"]
+                            or receipt.get("durable_receipt_confirmed") is not True
+                            or type(receipt.get("marker_stream_sequence")) is not int
+                            or receipt["marker_stream_sequence"] <= 0
+                            or receipt["marker_stream_sequence"] != provenance.get("marker_stream_sequence")):
+                        raise RuntimeError("Permanent normal-finalization provenance is unconfirmed")
+                    audit = current["ingest_audit"]
+                    finality = {"kind": "acquisition_finality", "session_id": session_id,
+                        "marker": markers[0], "receipt": receipt,
+                        "evidence_ids": list(dict.fromkeys(a["evidence_id"] for a in audit if a["accepted"])),
+                        "ingest_audit": audit}
+                else:
+                    kill = summary.get("kill_preservation", {})
+                    if (state not in {"aborted", "failed"} or summary.get("stage_a_complete") is not False
+                            or summary.get("acquisition_evidence_completion") is not None
+                            or kill.get("preservation_confirmed") is not True
+                            or kill.get("complete_receipt_confirmed") is not False
+                            or not isinstance(kill.get("uncertainties"), list)):
+                        raise RuntimeError("Permanent partial-Kill preservation is unconfirmed")
+                return deepcopy({"session_id": session_id, "storage_id": storage._component_id,
+                    "preservation_confirmed": True, "acquisition_preservation_eligible": normal,
+                    "finalized_intake": finality, "compilation_summary": summary,
+                    "runtime_evidence": current["runtime_evidence"], "session_record": record,
+                    "artifact_collection_handoff": current["artifact_collection_handoff"]})
+
+    def _read_journal_closeout(self, session_id: str) -> dict:
         """Verify a known saved scope without restoring an active Session or adding recovery intake."""
         if self._recovery_journal_root is None or not isinstance(session_id, str) or not session_id:
             raise RuntimeError("Known-Session journal configuration is required for restart readback")
@@ -658,6 +732,40 @@ class InMemoryIngestor:
                 "finalized_intake": finality, "compilation_summary": summary,
                 "runtime_evidence": current["runtime_evidence"], "session_record": current["session_record"],
                 "artifact_collection_handoff": current["artifact_collection_handoff"]})
+
+    @service_operation()
+    def retire_recovery_journal(self, session_id: str) -> bool:
+        """Retire one released terminal Session journal only after permanent verification."""
+        self._validate_session_identity(session_id)
+        with self._session_admission_guard():
+            if self._evidence_scope != "session" or self._recovery_journal_root is None:
+                raise RuntimeError("Session journal retirement requires the deployment journal root")
+            storage = self._storage_manager
+            if not isinstance(storage, PersistentStorageManager):
+                raise RuntimeError("Journal retirement requires the paired StorageManager")
+            with storage.session_preservation_guard(session_id):
+                permanent = self._read_permanent_closeout(session_id)
+                path = self._recovery_journal_root / f"session_{session_id}.jsonl"
+                if os.path.lexists(path):
+                    before = path.lstat()
+                    if (not stat.S_ISREG(before.st_mode) or before.st_nlink != 1
+                            or path.resolve().parent != self._recovery_journal_root.resolve()):
+                        raise RuntimeError("Retirement target is not an isolated local Session journal")
+                    # Corruption or mismatching history is not ordinary retirement
+                    # and must not silently become Decision 350 terminal deletion.
+                    if self._read_journal_closeout(session_id) != permanent:
+                        raise RuntimeError("Journal and permanent closeout proof conflict")
+                    after = path.lstat()
+                    if any(getattr(before, key) != getattr(after, key) for key in
+                           ("st_dev", "st_ino", "st_size", "st_mtime_ns", "st_mode", "st_nlink")):
+                        raise RuntimeError("Journal changed before retirement")
+                    path.unlink()
+                # A retry after unlink but failed synchronization must reverify
+                # all permanent proof before confirming the already-absent file.
+                self._sync_closed_session_directory(self._recovery_journal_root)
+                if os.path.lexists(path):
+                    raise RuntimeError("Journal retirement is unconfirmed")
+                return True
 
     def preserve_terminal_session_record(self, session_id: str, session_record: dict) -> dict:
         """Persist Controller-owned terminal lifecycle without changing acquisition evidence."""

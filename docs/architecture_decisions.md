@@ -11352,10 +11352,62 @@ journal deletion, terminal deletion, Controller reconnection, new Session states
 or Decisions 353-355 cleanup. Existing accepted architecture remains unchanged.
 Independent validation and audit are required before implementation closure.
 
-**Implementation status:** Durable admission enforcement is implemented with
-focused regression coverage in W070A; independent manual validation and audit
-remain pending. Decision 349 journal retirement is not implemented. Q024 remains
-OPEN, and Decision 391 operational reconnection remains deferred.
+**Implementation status:** W070A is CLOSED after correction of P2 W070A-A1's
+cross-instance admission/publication race, 60 distinct implementation checks PASS,
+independent manual IPython validation 16/16 PASS and final independent source audit
+PASS with no remaining confirmed P0-P3 findings. Scope, historical audit sequence
+and verification limitations are recorded in W070A in validated_workflows.md.
+W070B / Decision 349 implementation is tracked under Decision 393. Q024 remains OPEN,
+and Decision 391 operational reconnection remains deferred.
+
+---
+
+## Decision 393: W070B closeout verification and journal retirement
+
+**Status:** Accepted
+
+Post-release closeout verification must remain available independently of temporary
+Ingestor recovery journals. Reuse the permanent Session Evidence Archive,
+compilation summary, final Session Record, artifact collection handoff and current
+StorageManager preservation confirmation. Extend the existing compilation summary
+only for finality/receipt provenance unavailable from those permanent products;
+do not create another persistent closeout record or duplicate evidence/audit files.
+
+Preserve permanent runtime evidence and complete intake-audit coverage,
+authoritative finalization receipt provenance, terminal Session state, preservation
+consistency, existing Controller response semantics and the distinction between
+normal finalization and partial Kill. The original complete accepted-message-ID
+list, including nonpersistent identities, need not be reconstructed solely for
+historical deduplication after closure. Existing `kill_preservation` evidence may
+support partial-Kill verification only where it authoritatively establishes the
+required state. Missing, corrupt, incomplete or conflicting proof fails closed.
+
+Ingestor may retire only an identified eligible temporary Session journal after
+confirming terminal closure, completed Ingestor binding release, current durable
+StorageManager preservation, applicable normal-finalization or partial-Kill proof,
+successful journal-independent closeout verification, and no remaining journal
+requirement for crash reconstruction or deduplication. Decision 392's independently
+durable closed-Session rejection remains mandatory. Establish journal-independent
+verification before enabling retirement, and preserve safe retry/reconciliation
+after interruption around deletion without claiming unverifiable success.
+
+Uncertainty retains journals. Closed-Session records, framework evidence,
+scientific artifacts, Evidence Archives and Session Records are not retirement
+targets. No age-based expiry, automatic rotation, abandonment-based deletion or
+Decision 350 terminal-loss policy change is authorized. Decisions 276-280 and 349,
+existing ownership and Controller closeout guarantees remain authoritative. No new
+service, database, generic cleanup framework, Controller reconnection or Decisions
+353-355 cleanup is authorized.
+
+**Implementation status:** W070B implements permanent post-release closeout
+readback and guarded retirement of identified canonical Session journals. Gate A
+passed before retirement was enabled; final focused verification passed 11 Gate A
+checks, 20 Gate B checks and 38 affected existing checks (distinct, not additive
+to earlier overlapping runs). Three existing hard-link integration checks were
+blocked by Windows sandbox permissions and are not claimed as passing.
+Independent manual validation and audit remain pending. W070B and Q024 remain
+OPEN; W070A remains CLOSED. Historical normal archives without permanent receipt
+provenance retain their journal-based verification and are not retirement-eligible.
 
 ---
 

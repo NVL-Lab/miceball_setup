@@ -368,6 +368,20 @@ class PersistentStorageManager:
                 or not any(item["evidence_id"] == marker["evidence_id"]
                            and item.get("evidence_type") == "acquisition_evidence_completion" for item in evidence)):
             raise ValueError("Acquisition receipt provenance is unconfirmed")
+        if isinstance(marker, dict) and "receipt" in marker:
+            receipt = marker["receipt"]
+            if (not isinstance(receipt, dict) or receipt.get("session_id") != session_id
+                    or receipt.get("evidence_id") != marker.get("evidence_id")
+                    or receipt.get("durable_receipt_confirmed") is not True
+                    or type(receipt.get("marker_stream_sequence")) is not int
+                    or receipt["marker_stream_sequence"] != marker.get("marker_stream_sequence")
+                    or ("acknowledged_stream_sequence" in receipt and (
+                        type(receipt["acknowledged_stream_sequence"]) is not int
+                        or receipt["acknowledged_stream_sequence"] < marker["marker_stream_sequence"]))
+                    or ("acknowledged_consumer_sequence" in receipt and (
+                        type(receipt["acknowledged_consumer_sequence"]) is not int
+                        or receipt["acknowledged_consumer_sequence"] <= 0))):
+                raise ValueError("Permanent finalization receipt is inconsistent")
         record = self._read_preservation_json(raw["session_record"])
         if (not isinstance(record, dict) or not isinstance(record.get("accepted_session_config"), dict)
                 or record["accepted_session_config"].get("session_id") != session_id
@@ -1257,6 +1271,12 @@ class PersistentStorageManager:
                     or receipt.get("session_id") != session_id
                     or not isinstance(marker_id, str) or not marker_id
                     or type(sequence) is not int or sequence <= 0
+                    or ("acknowledged_stream_sequence" in receipt and (
+                        type(receipt["acknowledged_stream_sequence"]) is not int
+                        or receipt["acknowledged_stream_sequence"] < sequence))
+                    or ("acknowledged_consumer_sequence" in receipt and (
+                        type(receipt["acknowledged_consumer_sequence"]) is not int
+                        or receipt["acknowledged_consumer_sequence"] <= 0))
                     or not any(item.get("evidence_id") == marker_id for item in evidence)
                     or any(item.get("session_id") != session_id for item in evidence)):
                 raise ValueError("Matching verified acquisition receipt and compilation are required")
@@ -1312,7 +1332,8 @@ class PersistentStorageManager:
                         "uncertainties": deepcopy(uncertainties), "complete_receipt_confirmed": False}
                 else:
                     summary["acquisition_evidence_completion"] = {
-                        "evidence_id": marker_id, "marker_stream_sequence": sequence}
+                        "evidence_id": marker_id, "marker_stream_sequence": sequence,
+                        "receipt": deepcopy(dict(receipt))}
                 self._write_record_contents(paths["compilation_summary"], json.dumps(summary, indent=2))
                 self._archive_confirmation["compilation_summary"] = summary
                 if (self.get_session_preservation_confirmation(session_id) is None

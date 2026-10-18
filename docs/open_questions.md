@@ -1381,23 +1381,46 @@ and all other historical validation outcomes are unchanged.
 
 ### Why this matters
 
-**W070A / Decision 392 (implementation, not validation closure):** Ingestor now
+**W070A / Decision 392 (CLOSED):** Ingestor now
 persists closed Session identities before releasing terminal, exactly preserved
 intake. Deployment-local closed-Session records are independent of temporary
 journals and reject construction, preparation and late/redelivered intake across
 restart. Missing/corrupt/unreadable closure information fails closed. Empty
 initialization-binding release is not terminal Session closure. StorageManager
-still confirms preservation, not admission. Independent manual validation and
-audit remain pending; W070A and Q024 remain OPEN. No journal retirement, terminal
-deletion, Decision 353-355 cleanup or Controller reconnection is implemented here.
+still confirms preservation, not admission. W070A is independently validated and
+audited PASS; Q024 remains OPEN. W070B / Decision 349 conditional journal retirement
+implementation is tracked under Decision 393 below. No terminal deletion, Decision 353-355 cleanup or Controller
+reconnection is implemented here.
 
 The initial W070A implementation passed 6/6 independent manual scenarios, but
 source audit identified P2 W070A-A1: publication exclusion did not span actual
 admission across root-sharing Ingestor instances. The bounded correction holds
 the existing root-local exclusion through admission/recovery/acceptance and
 release validation/publication, retaining stale-lock uncertainty and independent
-framework routing. Deterministic concurrency and interruption regressions are
-added; correction-specific independent validation and audit remain pending.
+framework routing. Post-correction Codex verification passed 60 distinct checks
+(54 synchronous and six controlled asynchronous), including seven new deterministic
+concurrency/interruption regressions. Final independent manual IPython validation
+passed 16/16 checks and final source audit passed with no remaining confirmed
+P0-P3 findings. These runs are not additive to the initial manual count. No live
+NATS, independent-process deployment, hardware, real OS-signal, physical crash,
+power-loss or normal Windows asyncio scheduling validation is claimed. See W070A
+in validated_workflows.md. Remaining Q024 recovery work and deferred Decision 391
+operational reconnection are unchanged.
+
+**W070B / Decision 393 (OPEN):** The accepted LLC clarification makes post-release
+closeout verifiable from existing permanent Session products rather than requiring
+the temporary journal. The implementation retains the verified finalization
+receipt in the existing compilation summary, derives marker/audit response fields
+from permanent products and preserves normal versus partial-Kill semantics.
+Gate A passed before enabling `InMemoryIngestor.retire_recovery_journal(session_id)`.
+That explicit operation requires durable closed admission and completed binding
+release, current paired-StorageManager preservation, valid terminal/finality proof,
+and intact matching journal contents before deletion under shared root exclusion.
+Unconfirmed or interrupted outcomes never substitute for success; retries verify
+permanent proof again. Historical normal archives without the necessary receipt
+provenance retain their journal; no archive backfill or new closeout store is added.
+Independent manual validation and audit remain pending. W070B/Q024 remain OPEN,
+W070A remains CLOSED, and all historical workflow records are preserved.
 
 Decisions 276-280 accept Ingestor crash recovery for an already-known Session;
 Decision 349 now settles conditional journal retirement ownership without
