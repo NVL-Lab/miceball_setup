@@ -301,10 +301,14 @@ durable admission records, not temporary journals or Evidence Archive products.
 Keep the same deployment-local root across restart and preserve both products;
 do not remove them during journal cleanup or recreate an uncertain store as empty.
 Missing, inconsistent or unreadable initialized records block affected admission.
-An interrupted closure publication may leave `closed_sessions/publication.lock`;
-this retains admission uncertainty rather than authorizing automatic repair.
-The supported topology retains one authoritative Ingestor owner, not overlapping
-independently deployed owners of the same journal root.
+`closed_sessions/publication.lock` excludes closure and Session admission across
+all Ingestor instances sharing the root. It is held from the admission check
+through constructor recovery, preparation, journal acceptance/checkpoints, or
+release preservation checks and binding retirement. Contention fails closed
+without waiting or automatic retry. A lock left by an interrupted process is
+never expired, reclaimed, or treated as evidence that the Session remains open.
+Session-independent framework intake remains separate from this root exclusion.
+These safeguards do not change the accepted service deployment/ownership topology.
 
 Terminal release retains current archival/terminal-state/journal checks and writes
 closure through a flushed/fsynced temporary file, atomic replacement, directory

@@ -96,10 +96,9 @@ class InMemoryIngestor:
             closure_root / "closed_sessions" / "records.json"
             if evidence_scope == "session" and closure_root is not None else None
         )
+        self._session_admission_depth = 0
         if self._closed_sessions_path is not None:
             self._initialize_closed_sessions()
-        if session_id is not None:
-            self._require_open_session(session_id)
         self._journal_failed = False
         self._accepted_evidence_content: dict[str, str] = {}
         self._durable_evidence_waiters = {}
@@ -107,7 +106,10 @@ class InMemoryIngestor:
         self._runtime_evidence_audit: tuple[RuntimeEvidenceAuditRecord, ...] = ()
         if evidence_scope == "framework" and self._recovery_journal_path is not None:
             self._recovery_journal_path.parent.mkdir(parents=True, exist_ok=True)
-        self._initialize_recovery_journal()
+        with self._session_admission_guard():
+            if session_id is not None:
+                self._require_open_session(session_id)
+            self._initialize_recovery_journal()
         if framework_recovery_journal_path is not None:
             self.prepare_framework_evidence(framework_recovery_journal_path)
 
@@ -341,27 +343,41 @@ class InMemoryIngestor:
             if temporary is not None:
                 temporary.unlink(missing_ok=True)
 
+    @contextmanager
+    def _session_admission_guard(self) -> Iterator[None]:
+        """Exclude root-sharing admission and closure through their full commit."""
+        with self._intake_lock:
+            # Recovery calls normal intake; only this instance's owning thread
+            # can reenter while its intake lock and root exclusion remain held.
+            if self._closed_sessions_path is None or self._session_admission_depth:
+                yield
+                return
+            lock = self._closed_sessions_path.parent / "publication.lock"
+            try:
+                handle = lock.open("xb")
+            except FileExistsError as error:
+                raise RuntimeError("Closed Session admission/publication is unresolved") from error
+            self._session_admission_depth = 1
+            try:
+                yield
+            finally:
+                self._session_admission_depth = 0
+                handle.close()
+                lock.unlink()
+
     def _require_open_session(self, session_id: str) -> None:
         self._validate_session_identity(session_id)
-        if (self._closed_sessions_path is not None
-                and (self._closed_sessions_path.parent / "publication.lock").exists()):
-            raise RuntimeError("Closed Session publication is unresolved")
+        if self._closed_sessions_path is not None and not self._session_admission_depth:
+            raise RuntimeError("Session admission requires root exclusion")
         if session_id in self._read_closed_sessions():
             raise RuntimeError("Session is durably closed/released")
 
     def _close_session_admission(self, session_id: str) -> None:
         if self._closed_sessions_path is None:
             raise RuntimeError("Durable closed Session storage is not configured")
-        # Exclude overlapping closure writers, including another local owner.
-        # An interrupted writer leaves the lock in place: uncertainty fails closed.
-        lock = self._closed_sessions_path.parent / "publication.lock"
-        handle = lock.open("xb")
-        try:
+        with self._session_admission_guard():
             sessions = self._read_closed_sessions()
             self._write_closed_sessions(sorted(set(sessions) | {session_id}))
-        finally:
-            handle.close()
-            lock.unlink()
 
     def _initialize_recovery_journal(self) -> None:
         if self._recovery_journal_path is not None:
@@ -397,7 +413,7 @@ class InMemoryIngestor:
     @service_operation(new_work=True)
     def prepare_session(self, session_id: str) -> ServiceReadiness:
         """Prepare known-Session intake using deployment-local journal configuration."""
-        with self._intake_lock:
+        with self._session_admission_guard():
             if self._evidence_scope != "session":
                 raise RuntimeError("Framework intake has no Session binding")
             if not isinstance(session_id, str) or not session_id:
@@ -448,7 +464,9 @@ class InMemoryIngestor:
 
     def admit_kill_closeout(self, session_id: str) -> None:
         """Durably retain Kill preservation obligations before participant shutdown."""
-        with self._intake_lock:
+        with self._session_admission_guard():
+            if self._session_id is not None:
+                self._require_open_session(self._session_id)
             if self._session_id != session_id or self._finalized_intake is not None:
                 raise RuntimeError("Kill admission requires the current unfinalized Session")
             if not self._kill_handoff_required:
@@ -460,7 +478,9 @@ class InMemoryIngestor:
 
     def finalize_acquisition_intake(self, marker: RuntimeEvidenceMessage, receipt: dict) -> dict:
         """Freeze exact acquisition intake after owner-side complete receipt verification."""
-        with self._intake_lock:
+        with self._session_admission_guard():
+            if self._session_id is not None:
+                self._require_open_session(self._session_id)
             if self._finalized_intake is not None:
                 if self._finalized_intake["marker"] != marker.to_dict():
                     raise RuntimeError("A different completion marker cannot replace finalized intake")
@@ -675,7 +695,7 @@ class InMemoryIngestor:
         self, session_id: str, *, storage_manager: PersistentStorageManager | None = None,
     ) -> bool:
         """Release confirmed terminal evidence, or an empty binding, without deleting its journal."""
-        with self._intake_lock, ExitStack() as preservation:
+        with self._session_admission_guard(), ExitStack() as preservation:
             if not isinstance(session_id, str) or not session_id:
                 raise ValueError("Session release requires session_id")
             if self._session_id != session_id:
@@ -691,7 +711,8 @@ class InMemoryIngestor:
                     or partial_kill or confirmation is not None):
                 if not isinstance(storage, PersistentStorageManager):
                     raise RuntimeError("Evidence preservation confirmation is required before release")
-                # Lock order is intake -> storage; retain both through state retirement.
+                # Lock order is intake -> root exclusion -> storage; retain all
+                # through preservation validation, closure and binding retirement.
                 if confirmation is None:
                     raise RuntimeError("Evidence preservation confirmation is unavailable")
                 if self._kill_handoff_required and confirmation["compilation_summary"].get("kill_preservation") is None:
@@ -1030,11 +1051,12 @@ class InMemoryIngestor:
     ) -> RuntimeEvidenceAuditRecord:
         """Journal new evidence before acceptance when configured; deduplicate intake."""
 
-        with self._intake_lock:
+        with self._intake_lock, ExitStack() as admission:
             if evidence.session_id is None and self._evidence_scope == "session":
                 if self._framework_ingestor is None:
                     raise RuntimeError("Framework recovery journal is not configured")
                 return self._framework_ingestor.receive_runtime_evidence(evidence)
+            admission.enter_context(self._session_admission_guard())
             if self._evidence_scope == "session" and evidence.session_id:
                 self._require_open_session(evidence.session_id)
             if self._finalized_intake is not None:

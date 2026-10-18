@@ -1,10 +1,13 @@
 """Released terminal Sessions cannot be reopened, independently of their journals."""
 
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
 import os
 from pathlib import Path
 import tempfile
+from threading import Event, get_ident
 import unittest
 from unittest.mock import patch
 
@@ -269,3 +272,163 @@ class ClosedSessionAdmissionTests(unittest.TestCase):
         fresh.prepare_session("empty")
         self.assertTrue(fresh.release_session("empty"))
         self.assertTrue(fresh.prepare_session("empty").ready)
+
+    def pause_admission_before_commit(self, operation, *, skip_reads=0):
+        """Hold a real ledger read after its snapshot, before public admission commits."""
+        checked, resume = Event(), Event()
+        main_thread = get_ident()
+        original = Path.read_text
+        remaining = skip_reads
+        journal_before = self.journal.read_bytes()
+        ledger_before = self.ledger.read_bytes()
+
+        def pause(path, *args, **kwargs):
+            nonlocal remaining
+            content = original(path, *args, **kwargs)
+            if path == self.ledger and get_ident() != main_thread:
+                if remaining:
+                    remaining -= 1
+                elif not checked.is_set():
+                    checked.set()
+                    if not resume.wait(5):
+                        raise AssertionError("Admission was not resumed")
+            return content
+
+        with ThreadPoolExecutor(max_workers=1) as workers, patch.object(Path, "read_text", new=pause):
+            pending = workers.submit(operation)
+            try:
+                self.assertTrue(checked.wait(5), "Admission never reached its ledger check")
+                with self.assertRaisesRegex(RuntimeError, "unresolved"):
+                    self.intake.release_session("saved")
+                self.assertEqual(self.intake.session_id, "saved")
+                self.assertEqual(self.journal.read_bytes(), journal_before)
+                self.assertEqual(self.ledger.read_bytes(), ledger_before)
+            finally:
+                resume.set()
+            return pending.result(timeout=5)
+
+    def test_preparation_excludes_closure_between_ledger_check_and_recovery(self):
+        self.preserve_terminal()
+        other = InMemoryIngestor(self.storage, recovery_journal_root=self.journals)
+        result = self.pause_admission_before_commit(lambda: other.prepare_session("saved"))
+        self.assertTrue(result.ready)
+        self.assertEqual(other.session_id, "saved")
+        # Newly recovered evidence must now be covered before closure can proceed.
+        with self.assertRaisesRegex(RuntimeError, "journal coverage"):
+            self.intake.release_session("saved")
+
+    def test_constructor_excludes_closure_through_recovery_evidence_acceptance(self):
+        self.preserve_terminal()
+        other = self.pause_admission_before_commit(
+            lambda: InMemoryIngestor(self.storage, session_id="saved", recovery_journal_path=self.journal),
+            skip_reads=1)  # Skip the initial store-integrity read, not the admission check.
+        self.assertEqual(other.session_id, "saved")
+        self.assertEqual(other.accepted_runtime_evidence[-1].evidence_type, "ingestor_recovery_evidence")
+        with self.assertRaisesRegex(RuntimeError, "journal coverage"):
+            self.intake.release_session("saved")
+
+    def test_intake_excludes_closure_between_ledger_check_and_journal_acceptance(self):
+        other = self.intake
+        self.intake = InMemoryIngestor(self.storage, session_id="saved", recovery_journal_path=self.journal)
+        self.preserve_terminal()
+        message = RuntimeEvidenceMessage("concurrent", "saved", "health", "node", {}, True)
+        result = self.pause_admission_before_commit(lambda: other.receive_runtime_evidence(message))
+        self.assertTrue(result.accepted)
+        self.assertIn(message, other.accepted_runtime_evidence)
+        with self.assertRaisesRegex(RuntimeError, "journal coverage"):
+            self.intake.release_session("saved")
+
+    def test_published_closure_excludes_other_owners_until_readback_and_release_complete(self):
+        other = self.intake
+        other.prepare_framework_evidence(self.root / "framework.jsonl")
+        self.intake = InMemoryIngestor(self.storage, session_id="saved", recovery_journal_path=self.journal)
+        self.preserve_terminal()
+        before = self.journal.read_bytes()
+        published, resume = Event(), Event()
+        original = os.replace
+
+        def pause(source, destination):
+            original(source, destination)
+            if Path(destination) == self.ledger:
+                published.set()
+                if not resume.wait(5):
+                    raise AssertionError("Closure was not resumed")
+
+        late = RuntimeEvidenceMessage("late", "saved", "health", "node", {}, True)
+        with ThreadPoolExecutor(max_workers=1) as workers, \
+                patch("lab_sync_acquisition.ingestor.os.replace", side_effect=pause):
+            closing = workers.submit(self.intake.release_session, "saved")
+            try:
+                self.assertTrue(published.wait(5), "Closure was not published")
+                for operation in (
+                    lambda: other.receive_runtime_evidence(late),
+                    lambda: other.prepare_session("saved"),
+                    lambda: other.admit_kill_closeout("saved"),
+                    lambda: InMemoryIngestor(session_id="saved", recovery_journal_path=self.journal),
+                ):
+                    with self.subTest(operation=operation), self.assertRaisesRegex(RuntimeError, "unresolved"):
+                        operation()
+                framework = RuntimeEvidenceMessage("framework", None, "health", "node", {}, True)
+                self.assertTrue(other.receive_runtime_evidence(framework).accepted)
+                self.assertEqual(self.journal.read_bytes(), before)
+            finally:
+                resume.set()
+            self.assertTrue(closing.result(timeout=5))
+        for message in (late, self.message):
+            with self.assertRaisesRegex(RuntimeError, "closed"):
+                other.receive_runtime_evidence(message)
+        with self.assertRaisesRegex(RuntimeError, "closed"):
+            other.prepare_session("saved")
+        fresh = InMemoryIngestor(recovery_journal_root=self.journals)
+        self.assertTrue(fresh.prepare_session("next").ready)
+        self.assertEqual(self.journal.read_bytes(), before)
+
+    def test_stale_root_lock_is_never_reclaimed_by_admission_or_release(self):
+        self.preserve_terminal()
+        self.intake.prepare_framework_evidence(self.root / "framework.jsonl")
+        lock = self.ledger.parent / "publication.lock"
+        lock.write_bytes(b"interrupted owner")
+        ledger_before = self.ledger.read_bytes()
+        for operation in (
+            lambda: self.intake.prepare_session("saved"),
+            lambda: self.intake.receive_runtime_evidence(self.message),
+            lambda: self.intake.release_session("saved"),
+            lambda: InMemoryIngestor(session_id="saved", recovery_journal_path=self.journal),
+        ):
+            with self.subTest(operation=operation), self.assertRaisesRegex(RuntimeError, "unresolved"):
+                operation()
+        self.assertEqual(lock.read_bytes(), b"interrupted owner")
+        self.assertEqual(self.ledger.read_bytes(), ledger_before)
+        self.assertEqual(self.journal.read_bytes(), self.before)
+        self.assertEqual(self.intake.session_id, "saved")
+        framework = RuntimeEvidenceMessage("framework", None, "health", "node", {}, True)
+        self.assertTrue(self.intake.receive_runtime_evidence(framework).accepted)
+        unrelated = InMemoryIngestor(recovery_journal_root=self.root / "unrelated")
+        self.assertTrue(unrelated.prepare_session("other").ready)
+
+    def test_cancelled_admission_releases_its_own_exclusion_without_changing_journal(self):
+        self.preserve_terminal()
+        original = Path.read_text
+
+        def interrupt(path, *args, **kwargs):
+            if path == self.ledger:
+                raise asyncio.CancelledError
+            return original(path, *args, **kwargs)
+
+        with patch.object(Path, "read_text", new=interrupt):
+            with self.assertRaises(asyncio.CancelledError):
+                self.intake.receive_runtime_evidence(self.message)
+        self.assertFalse((self.ledger.parent / "publication.lock").exists())
+        self.assertEqual(self.journal.read_bytes(), self.before)
+        self.assertEqual(self.intake.session_id, "saved")
+        self.assertTrue(self.intake.release_session("saved"))
+
+    def test_cancelled_closure_retains_binding_and_allows_explicit_retry(self):
+        self.preserve_terminal()
+        with patch("lab_sync_acquisition.ingestor.os.replace", side_effect=asyncio.CancelledError):
+            with self.assertRaises(asyncio.CancelledError):
+                self.intake.release_session("saved")
+        self.assertFalse((self.ledger.parent / "publication.lock").exists())
+        self.assertEqual(self.journal.read_bytes(), self.before)
+        self.assertEqual(self.intake.session_id, "saved")
+        self.assertTrue(self.intake.release_session("saved"))

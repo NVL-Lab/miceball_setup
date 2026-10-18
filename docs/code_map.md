@@ -1152,8 +1152,9 @@ is complete; W030 records manual validation, focused tests, and audit reassessme
 - InMemoryIngestor._write_closed_sessions: Flushes/fsyncs and atomically replaces the closure records with POSIX directory synchronization and current readback.
 - InMemoryIngestor._sync_closed_session_directory: Applies existing POSIX directory durability conventions to closure-store publication.
 - InMemoryIngestor._validate_session_identity: Rejects identities unsafe for deployment-local journal filenames before Session admission.
-- InMemoryIngestor._require_open_session: Rejects closed identities and unresolved closure publication before constructor recovery, preparation or evidence intake.
-- InMemoryIngestor._close_session_admission: Publishes independently durable terminal Session admission closure under an exclusive local publication lock before relinquishing the binding.
+- InMemoryIngestor._session_admission_guard: Holds intake locking and the existing root-local exclusive publication file through constructor recovery, preparation, journal acceptance/checkpoints or release, with same-instance reentrancy and fail-closed contention/stale-lock handling.
+- InMemoryIngestor._require_open_session: Validates identity and rejects closed Sessions while the caller retains root exclusion through actual admission, rather than treating a separate lock-file check as synchronization.
+- InMemoryIngestor._close_session_admission: Publishes independently durable terminal Session closure under the same root exclusion held through release preservation checks and binding retirement.
 - InMemoryIngestor.admit_kill_closeout(session_id): Journals an admitted Kill obligation before asynchronous shutdown, including empty intake.
 - InMemoryIngestor.finalize_acquisition_intake(marker, receipt): Durably freezes exact accepted evidence identities and intake audit after matching owner-verified complete receipt.
 - InMemoryIngestor.finalized_acquisition_intake(session_id): Returns detached finality only when the existing journal still matches the frozen interval.

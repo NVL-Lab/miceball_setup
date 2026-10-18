@@ -1391,6 +1391,14 @@ still confirms preservation, not admission. Independent manual validation and
 audit remain pending; W070A and Q024 remain OPEN. No journal retirement, terminal
 deletion, Decision 353-355 cleanup or Controller reconnection is implemented here.
 
+The initial W070A implementation passed 6/6 independent manual scenarios, but
+source audit identified P2 W070A-A1: publication exclusion did not span actual
+admission across root-sharing Ingestor instances. The bounded correction holds
+the existing root-local exclusion through admission/recovery/acceptance and
+release validation/publication, retaining stale-lock uncertainty and independent
+framework routing. Deterministic concurrency and interruption regressions are
+added; correction-specific independent validation and audit remain pending.
+
 Decisions 276-280 accept Ingestor crash recovery for an already-known Session;
 Decision 349 now settles conditional journal retirement ownership without
 changing their journal-before-ACK or deduplication guarantees. Q020's scientific
