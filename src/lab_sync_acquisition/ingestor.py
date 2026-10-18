@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from contextlib import ExitStack, contextmanager
@@ -11,6 +12,7 @@ import json
 import os
 from pathlib import Path
 import re
+from tempfile import NamedTemporaryFile
 from threading import RLock
 from time import time
 from typing import Any
@@ -87,6 +89,17 @@ class InMemoryIngestor:
         self._recovery_journal_path = (
             Path(recovery_journal_path) if recovery_journal_path is not None else None
         )
+        closure_root = self._recovery_journal_root
+        if closure_root is None and self._recovery_journal_path is not None:
+            closure_root = self._recovery_journal_path.parent
+        self._closed_sessions_path = (
+            closure_root / "closed_sessions" / "records.json"
+            if evidence_scope == "session" and closure_root is not None else None
+        )
+        if self._closed_sessions_path is not None:
+            self._initialize_closed_sessions()
+        if session_id is not None:
+            self._require_open_session(session_id)
         self._journal_failed = False
         self._accepted_evidence_content: dict[str, str] = {}
         self._durable_evidence_waiters = {}
@@ -243,6 +256,113 @@ class InMemoryIngestor:
                         "evidence": [m.to_dict() for m in messages],
                         "storage_participant": {"component_type": "storage_manager", "component_id": storage._component_id}}
 
+    def _initialize_closed_sessions(self) -> None:
+        """An existing directory without its ledger is uncertain, not a fresh store."""
+        directory = self._closed_sessions_path.parent
+        directory.parent.mkdir(parents=True, exist_ok=True)
+        initialized = directory.parent / "closed_sessions.initialized"
+        if initialized.exists():
+            self._read_closed_sessions()
+            return
+        try:
+            directory.mkdir()
+        except FileExistsError:
+            self._read_closed_sessions()
+        else:
+            self._write_closed_sessions([])
+            with initialized.open("xb") as output:
+                output.write(b"closed-sessions-v1\n")
+                output.flush()
+                os.fsync(output.fileno())
+            self._sync_closed_session_directory(directory.parent)
+            self._read_closed_sessions()
+
+    @staticmethod
+    def _validate_session_identity(session_id: str) -> None:
+        if (not isinstance(session_id, str) or not session_id
+                or session_id in {".", ".."}
+                or any(character in session_id for character in '/\\\x00:<>"|?*')
+                or session_id.endswith((".", " "))):
+            raise ValueError("Session identity is not safe for deployment-local journals")
+
+    def _read_closed_sessions(self) -> list[str]:
+        if self._closed_sessions_path is None:
+            return []
+        try:
+            initialized = self._closed_sessions_path.parent.parent / "closed_sessions.initialized"
+            if initialized.read_bytes() != b"closed-sessions-v1\n":
+                raise ValueError("Closed Session store identity is unconfirmed")
+            data = json.loads(self._closed_sessions_path.read_text(encoding="utf-8"))
+            if not isinstance(data, dict) or set(data) != {"version", "sessions", "sha256"}:
+                raise ValueError("Invalid closed Session records")
+            sessions = data["sessions"]
+            if type(data["version"]) is not int or data["version"] != 1 or not isinstance(sessions, list):
+                raise ValueError("Invalid closed Session records")
+            for identity in sessions:
+                self._validate_session_identity(identity)
+            if sessions != sorted(set(sessions)):
+                raise ValueError("Conflicting closed Session records")
+            content = json.dumps(sessions, ensure_ascii=True, separators=(",", ":"))
+            if data["sha256"] != hashlib.sha256(content.encode("ascii")).hexdigest():
+                raise ValueError("Closed Session record integrity is unconfirmed")
+            return sessions
+        except (OSError, ValueError, TypeError) as error:
+            raise RuntimeError("Closed Session status is unconfirmed") from error
+
+    @staticmethod
+    def _sync_closed_session_directory(directory: Path) -> None:
+        if os.name == "posix":
+            descriptor = os.open(directory, os.O_RDONLY)
+            try:
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+
+    def _write_closed_sessions(self, sessions: list[str]) -> None:
+        content = json.dumps(sessions, ensure_ascii=True, separators=(",", ":"))
+        data = {"version": 1, "sessions": sessions,
+                "sha256": hashlib.sha256(content.encode("ascii")).hexdigest()}
+        temporary = None
+        try:
+            with NamedTemporaryFile(dir=self._closed_sessions_path.parent,
+                                    prefix=".incomplete-", delete=False) as output:
+                temporary = Path(output.name)
+                output.write(json.dumps(data, sort_keys=True).encode("utf-8"))
+                output.flush()
+                os.fsync(output.fileno())
+            os.replace(temporary, self._closed_sessions_path)
+            temporary = None
+            self._sync_closed_session_directory(self._closed_sessions_path.parent)
+            # Initial publication precedes the independent initialization marker.
+            if ((self._closed_sessions_path.parent.parent / "closed_sessions.initialized").exists()
+                    and self._read_closed_sessions() != sessions):
+                raise RuntimeError("Closed Session publication is unconfirmed")
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
+
+    def _require_open_session(self, session_id: str) -> None:
+        self._validate_session_identity(session_id)
+        if (self._closed_sessions_path is not None
+                and (self._closed_sessions_path.parent / "publication.lock").exists()):
+            raise RuntimeError("Closed Session publication is unresolved")
+        if session_id in self._read_closed_sessions():
+            raise RuntimeError("Session is durably closed/released")
+
+    def _close_session_admission(self, session_id: str) -> None:
+        if self._closed_sessions_path is None:
+            raise RuntimeError("Durable closed Session storage is not configured")
+        # Exclude overlapping closure writers, including another local owner.
+        # An interrupted writer leaves the lock in place: uncertainty fails closed.
+        lock = self._closed_sessions_path.parent / "publication.lock"
+        handle = lock.open("xb")
+        try:
+            sessions = self._read_closed_sessions()
+            self._write_closed_sessions(sorted(set(sessions) | {session_id}))
+        finally:
+            handle.close()
+            lock.unlink()
+
     def _initialize_recovery_journal(self) -> None:
         if self._recovery_journal_path is not None:
             if self._recovery_journal_path.exists():
@@ -282,6 +402,7 @@ class InMemoryIngestor:
                 raise RuntimeError("Framework intake has no Session binding")
             if not isinstance(session_id, str) or not session_id:
                 raise ValueError("Session preparation requires a real Session identity")
+            self._require_open_session(session_id)
             if self._session_id == session_id:
                 if self._journal_failed or self._recovery_journal_path is None:
                     raise RuntimeError("Session journal is not ready")
@@ -566,7 +687,8 @@ class InMemoryIngestor:
                             if isinstance(storage, PersistentStorageManager) else None)
             partial_kill = (self._kill_handoff_required or (confirmation is not None
                             and confirmation["compilation_summary"].get("kill_preservation") is not None))
-            if self._accepted_runtime_evidence or self._runtime_evidence_audit or partial_kill:
+            if (self._accepted_runtime_evidence or self._runtime_evidence_audit
+                    or partial_kill or confirmation is not None):
                 if not isinstance(storage, PersistentStorageManager):
                     raise RuntimeError("Evidence preservation confirmation is required before release")
                 # Lock order is intake -> storage; retain both through state retirement.
@@ -590,6 +712,13 @@ class InMemoryIngestor:
                     if json.dumps(storage.read_artifact_collection_handoff(session_id), sort_keys=True) != json.dumps(
                             self.compile_artifact_collection_handoff(session_id), sort_keys=True):
                         raise RuntimeError("Durable artifact handoff does not cover current Session manifests")
+                if self._recovery_journal_path is not None:
+                    with self.durable_runtime_evidence_history_guard(
+                            session_id, self._recovery_journal_path,
+                            self._accepted_runtime_evidence) as confirmed:
+                        if not confirmed:
+                            raise RuntimeError("Session release journal coverage is unconfirmed")
+                self._close_session_admission(session_id)
             self._session_prepared = False
             self._session_id = None
             self._kill_handoff_required = False
@@ -906,6 +1035,8 @@ class InMemoryIngestor:
                 if self._framework_ingestor is None:
                     raise RuntimeError("Framework recovery journal is not configured")
                 return self._framework_ingestor.receive_runtime_evidence(evidence)
+            if self._evidence_scope == "session" and evidence.session_id:
+                self._require_open_session(evidence.session_id)
             if self._finalized_intake is not None:
                 return RuntimeEvidenceAuditRecord(0, time(), evidence.evidence_id, False, "acquisition_intake_finalized")
             if self._evidence_scope == "session" and self._requires_prepared_session and not self._session_prepared:

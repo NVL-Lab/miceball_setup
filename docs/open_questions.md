@@ -1381,6 +1381,16 @@ and all other historical validation outcomes are unchanged.
 
 ### Why this matters
 
+**W070A / Decision 392 (implementation, not validation closure):** Ingestor now
+persists closed Session identities before releasing terminal, exactly preserved
+intake. Deployment-local closed-Session records are independent of temporary
+journals and reject construction, preparation and late/redelivered intake across
+restart. Missing/corrupt/unreadable closure information fails closed. Empty
+initialization-binding release is not terminal Session closure. StorageManager
+still confirms preservation, not admission. Independent manual validation and
+audit remain pending; W070A and Q024 remain OPEN. No journal retirement, terminal
+deletion, Decision 353-355 cleanup or Controller reconnection is implemented here.
+
 Decisions 276-280 accept Ingestor crash recovery for an already-known Session;
 Decision 349 now settles conditional journal retirement ownership without
 changing their journal-before-ACK or deduplication guarantees. Q020's scientific

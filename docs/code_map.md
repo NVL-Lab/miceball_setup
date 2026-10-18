@@ -1137,16 +1137,23 @@ is complete; W030 records manual validation, focused tests, and audit reassessme
 - InMemoryIngestor.preserve_service_evidence(messages, source_id, acceptance_window_s): Verifies a unique producer-owned persistent boundary through journals and paired StorageManager guards, preserving current framework products without repairing corruption or rewriting Session archives.
 
 - InMemoryIngestor: Receives operational runtime evidence and manifests, journals/reconstructs the evidence view for a known Session, deduplicates evidence_id content, and compiles persistent evidence without scientific-observation intake.
-- InMemoryIngestor.__init__(storage_manager=None, *, session_id=None, recovery_journal_path=None, component_id="ingestor", recovery_journal_root=None, framework_recovery_journal_path=None, evidence_scope="session"): Preserves known-Session intake and optionally creates a deployment-scoped framework partition using the same Ingestor implementation without a Session binding.
+- InMemoryIngestor.__init__(storage_manager=None, *, session_id=None, recovery_journal_path=None, component_id="ingestor", recovery_journal_root=None, framework_recovery_journal_path=None, evidence_scope="session"): Checks deployment-local durable closed-Session admission before known-Session reconstruction and optionally creates a separate framework partition without a Session binding.
 - InMemoryIngestor.prepare_framework_evidence(recovery_journal_path): Configures framework journal-backed intake once, retaining accepted messages and original duplicate/rejected intake audit across recovery independently of Session release.
 - InMemoryIngestor.compile_framework_runtime_evidence(): Returns only producer-marked persistent framework messages and all framework intake audit records through the existing compilation mechanism.
 - InMemoryIngestor.continue_framework_evidence_archive(): Verifies recovered framework compilation against the current durable journal and delegates ordinary historical-prefix continuation to its paired StorageManager before release restoration.
 - InMemoryIngestor.await_durable_runtime_evidence(evidence, timeout_s): Boundedly observes exact local journal-backed acceptance using futures, without polling, retrying, or equating JetStream publication with acceptance.
 - InMemoryIngestor.framework_preservation_guard(storage_manager): Holds framework intake and StorageManager preservation steady while checking exact current persistent-message/all-audit coverage, without a Session Record.
 - InMemoryIngestor.maintenance_blockers(ingestor, storage_manager): Reports unresolved journal integrity or incompletely preserved Session intake without deciding lifecycle or inferring dependencies.
-- InMemoryIngestor.prepare_session(session_id): Creates or reconstructs the intended Session recovery journal from its deployment root before confirming evidence intake preparation.
+- InMemoryIngestor.prepare_session(session_id): Rejects durably closed or uncertain Session identities before creating/reconstructing the intended recovery journal and confirming intake preparation.
 - InMemoryIngestor.abort_session_initialization(session_id): Disables prepared intake while preserving durable journal entries and accepted evidence, clearing empty preparation bindings without deleting files.
-- InMemoryIngestor.release_session(session_id, *, storage_manager=None): Releases a matching healthy binding only after exact archive/terminal-record preservation and matching Q019 durable handoff coverage for completion-marker archives or admitted Kill obligations, including empty intake and unavailable confirmation, retaining intake/storage guards through retirement without deleting journals.
+- InMemoryIngestor.release_session(session_id, *, storage_manager=None): Releases terminal intake only after exact archive/terminal-record preservation, applicable Q019 handoff and journal coverage, and independently durable Session closure; empty initialization release stays distinct and journals are never deleted.
+- InMemoryIngestor._initialize_closed_sessions: Initializes deployment-local durable admission records once, rejecting missing or inconsistent initialized stores rather than recreating empty history.
+- InMemoryIngestor._read_closed_sessions: Validates the independent initialization marker, strict closure payload and content checksum before admission or closure publication.
+- InMemoryIngestor._write_closed_sessions: Flushes/fsyncs and atomically replaces the closure records with POSIX directory synchronization and current readback.
+- InMemoryIngestor._sync_closed_session_directory: Applies existing POSIX directory durability conventions to closure-store publication.
+- InMemoryIngestor._validate_session_identity: Rejects identities unsafe for deployment-local journal filenames before Session admission.
+- InMemoryIngestor._require_open_session: Rejects closed identities and unresolved closure publication before constructor recovery, preparation or evidence intake.
+- InMemoryIngestor._close_session_admission: Publishes independently durable terminal Session admission closure under an exclusive local publication lock before relinquishing the binding.
 - InMemoryIngestor.admit_kill_closeout(session_id): Journals an admitted Kill obligation before asynchronous shutdown, including empty intake.
 - InMemoryIngestor.finalize_acquisition_intake(marker, receipt): Durably freezes exact accepted evidence identities and intake audit after matching owner-verified complete receipt.
 - InMemoryIngestor.finalized_acquisition_intake(session_id): Returns detached finality only when the existing journal still matches the frozen interval.
@@ -1161,7 +1168,7 @@ is complete; W030 records manual validation, focused tests, and audit reassessme
 - InMemoryIngestor.session_id: Returns the configured known Session identity or None for legacy in-memory use.
 - InMemoryIngestor.recovery_journal_path: Returns the caller-supplied journal Path or None for legacy in-memory use.
 - RuntimeEvidenceAuditRecord: Records intake order, receive time, evidence identity, acceptance, and reason for one durable RuntimeEvidenceMessage.
-- InMemoryIngestor.receive_runtime_evidence: Validates evidence, durably journals new messages before working-state acceptance when configured, audits intake, acknowledges identical content as already accepted, and raises on conflicting evidence_id content.
+- InMemoryIngestor.receive_runtime_evidence: Rejects durably closed or uncertain Session admission, journals valid new messages before acceptance, audits intake, deduplicates exact identities and rejects conflicting content while keeping framework routing independent.
 - InMemoryIngestor._sync_journal_directory: Durably records initial journal creation in its parent directory on POSIX systems.
 - InMemoryIngestor._evidence_content: Validates message identity and configured Session scope and serializes full content for journal storage and deduplication.
 - InMemoryIngestor._append_runtime_evidence: Appends one complete UTF-8 JSONL message and flushes/fsyncs before acceptance, refusing further new intake after a failed append until restart.

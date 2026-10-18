@@ -294,6 +294,27 @@ relative to the file containing them, or may be absolute. Node hardware paths
 remain relative to the separate hardware file. Settings are read at startup and
 are not watched; changes take effect on explicit restart.
 
+W070A / Decision 392 adds Ingestor-owned `closed_sessions/records.json` and
+`closed_sessions.initialized` beneath `recovery_journal_root` (or beside an
+explicit known-Session journal when no deployment root is supplied). These are
+durable admission records, not temporary journals or Evidence Archive products.
+Keep the same deployment-local root across restart and preserve both products;
+do not remove them during journal cleanup or recreate an uncertain store as empty.
+Missing, inconsistent or unreadable initialized records block affected admission.
+An interrupted closure publication may leave `closed_sessions/publication.lock`;
+this retains admission uncertainty rather than authorizing automatic repair.
+The supported topology retains one authoritative Ingestor owner, not overlapping
+independently deployed owners of the same journal root.
+
+Terminal release retains current archival/terminal-state/journal checks and writes
+closure through a flushed/fsynced temporary file, atomic replacement, directory
+sync on POSIX, and readback before clearing the binding. Failed publication or
+readback retains the binding; explicit retry reconfirms closure. Empty aborted
+initialization release is not terminal closure. W070A deletes no journals, and
+memory-only intake cannot confirm terminal release without durable closure storage.
+Independent validation/audit are pending; no power-loss or live deployment
+guarantee is claimed by these implementation checks.
+
 `retrieval_endpoints` explicitly maps logical node IDs to the existing
 `SshRetrievalEndpoint`: required `host`, `username`, `key_filename`, optional
 `port` (existing SSH default 22) and `known_hosts_path`. Key/known-host references

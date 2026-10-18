@@ -937,6 +937,16 @@ restoration or zero-based restart. Healthy mapping updates remain unchanged.
 
 ## Remaining Q024 architecture and startup implementation progress
 
+W070A implements Decision 392's independently durable Ingestor closed-Session
+admission protection before terminal binding release, preserving existing
+StorageManager confirmation and journal-integrity guards. Construction,
+preparation and intake reject closed identities after restart independently of
+temporary journal retention. Empty initialization release remains distinct.
+Focused implementation tests are present; independent manual validation and
+architectural audit are pending. W070A is OPEN, not a validated workflow closure.
+Decision 349 journal retirement, Decision 350 deletion and Decisions 353-355 remain
+outside this slice. Q024 and all unrelated milestone statuses are unchanged.
+
 Decision 391 records the accepted best-effort Controller restart/bounded Session
 reconnection clarification of Decisions 345/346/351/352. Existing status,
 readiness, reservations and durable evidence support reconciliation without

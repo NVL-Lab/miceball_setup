@@ -11330,6 +11330,35 @@ existing accepted decisions and completed workflow records remain unchanged.
 
 ---
 
+## Decision 392: Ingestor durably enforces closed Session admission
+
+**Status:** Accepted
+
+Once a Session is authoritatively finalized and released, Ingestor permanently
+rejects subsequent ingestion, preparation and reopening of that Session identity.
+Ingestor owns independently durable closed-Session records, which may reside
+alongside deployment-local recovery journals and must survive process and
+deployment restarts independently of those temporary journals. Journal retirement
+must never delete closed-Session records.
+
+Establish durable closure before relinquishing the Session binding, retaining
+existing preservation, terminal-state, journal-integrity and release-safety
+requirements. If closure status cannot be reliably determined, affected operations
+fail closed. StorageManager remains authoritative for preservation confirmation,
+not closed-Session admission.
+
+W070A is bounded to this admission protection; it does not authorize temporary
+journal deletion, terminal deletion, Controller reconnection, new Session states,
+or Decisions 353-355 cleanup. Existing accepted architecture remains unchanged.
+Independent validation and audit are required before implementation closure.
+
+**Implementation status:** Durable admission enforcement is implemented with
+focused regression coverage in W070A; independent manual validation and audit
+remain pending. Decision 349 journal retirement is not implemented. Q024 remains
+OPEN, and Decision 391 operational reconnection remains deferred.
+
+---
+
 # Accepted Architectural Principles
 
 The following principles summarize the accepted decisions so far.
