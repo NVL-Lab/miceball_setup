@@ -54,7 +54,7 @@ class AuthorizedRecoveryTests(unittest.IsolatedAsyncioTestCase):
         self.interrupt_archive()
         with self.assertLogs("lab_sync_acquisition.service_maintenance", level="WARNING"):
             command = await self.authorize("recover_archive_write", {"session_id": None})
-        original = self.storage.write_framework_evidence_archive
+        original = self.storage._write_framework_evidence_archive
         writes = []
         def verify_acceptance(compiled):
             messages = self.ingestor.compile_framework_runtime_evidence()["runtime_evidence"]
@@ -65,7 +65,7 @@ class AuthorizedRecoveryTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(self.ingestor.has_durable_runtime_evidence(attempt))
             writes.append(compiled)
             return original(compiled)
-        with patch.object(self.storage, "write_framework_evidence_archive", side_effect=verify_acceptance):
+        with patch.object(self.storage, "_write_framework_evidence_archive", side_effect=verify_acceptance):
             with self.assertLogs("lab_sync_acquisition.service_maintenance", level="WARNING"):
                 result = await self.interface.execute_command(command)
         self.assertTrue(result.success, result.reason)

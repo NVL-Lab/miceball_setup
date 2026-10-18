@@ -147,6 +147,7 @@ class PersistentStorageManager:
         self._preservation_lock = RLock()
         self._archive_confirmation: dict[str, Any] | None = None
         self._framework_archive_confirmation: dict[str, Any] | None = None
+        self._framework_continuation_rejected = False
         self._framework_closeout_compilation: dict[str, Any] | None = None
         self._unfinished_archive_scopes: set[str | None] = set()
         self._unfinished_record_paths: set[Path] = set()
@@ -1584,6 +1585,13 @@ class PersistentStorageManager:
     def write_framework_evidence_archive(self, compiled_runtime_evidence: dict[str, Iterable[Any]]) -> dict[str, Path]:
         """Persist deployment-scoped evidence/audit/summary without a Session Record."""
         with self._preservation_lock:
+            if not self._framework_evidence_write_safe():
+                raise RuntimeError("Framework archive is unconfirmed; ordinary writes cannot repair history")
+            return self._write_framework_evidence_archive(compiled_runtime_evidence)
+
+    def _write_framework_evidence_archive(self, compiled_runtime_evidence):
+        """Write only after ordinary-write, prefix, or authorized-repair validation."""
+        with self._preservation_lock:
             self._framework_archive_confirmation = None
             self._unfinished_archive_scopes.add(None)
             evidence = deepcopy([_to_plain_data(item) for item in compiled_runtime_evidence.get("runtime_evidence", ())])
@@ -1618,12 +1626,25 @@ class PersistentStorageManager:
                     finally:
                         os.close(descriptor)
             self._framework_archive_confirmation = contents
+            self._framework_continuation_rejected = False
             self._unfinished_archive_scopes.discard(None)
             return paths
 
     @service_operation()
     def continue_framework_evidence_archive(self, compiled_runtime_evidence) -> dict[str, Any] | None:
         """Verify an intact historical prefix before normal post-restart archival."""
+        with self._preservation_lock:
+            try:
+                result = self._continue_framework_evidence_archive(compiled_runtime_evidence)
+            except BaseException:
+                self._framework_continuation_rejected = True
+                self._framework_archive_confirmation = None
+                raise
+            self._framework_continuation_rejected = False
+            return result
+
+    def _continue_framework_evidence_archive(self, compiled_runtime_evidence):
+        """Validate historical products without granting ordinary writers repair authority."""
         with self._preservation_lock:
             if None in self._unfinished_archive_scopes:
                 raise RuntimeError("Framework archive requires authorized interrupted-write recovery")
@@ -1658,7 +1679,7 @@ class PersistentStorageManager:
                     or any(item["session_id"] is not None for item in evidence)):
                 raise ValueError("Framework archive summary or intake boundary is inconsistent")
             if any(historical[name] != expected[name] for name in expected):
-                self.write_framework_evidence_archive(compiled_runtime_evidence)
+                self._write_framework_evidence_archive(compiled_runtime_evidence)
             else:
                 self._framework_archive_confirmation = historical
             confirmation = self.get_framework_preservation_confirmation()
@@ -1705,7 +1726,7 @@ class PersistentStorageManager:
     def _framework_evidence_write_safe(self) -> bool:
         """Permit initial creation or append to confirmed products, never implicit repair."""
         with self._preservation_lock:
-            if None in self._unfinished_archive_scopes:
+            if self._framework_continuation_rejected or None in self._unfinished_archive_scopes:
                 return False
             if self._framework_archive_confirmation is not None:
                 return self.get_framework_preservation_confirmation() is not None
@@ -1813,7 +1834,7 @@ class PersistentStorageManager:
                     if candidate.get("collection_started"):
                         raise RuntimeError("Collection-started partial archive cannot be reconstructed")
                     partial_summary = candidate
-        paths = (self.write_framework_evidence_archive(compiled) if scope is None
+        paths = (self._write_framework_evidence_archive(compiled) if scope is None
                  else self._write_session_evidence_archive(scope, compiled, authorized_recovery=True))
         actual = self._read_archive_products(paths["runtime_evidence"].parent)
         expected = {name: [_to_plain_data(item) for item in compiled[name]]

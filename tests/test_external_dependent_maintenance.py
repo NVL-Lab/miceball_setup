@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, patch
 
 from lab_sync_acquisition import (
     AcquisitionNode, DeviceManager, Controller, InMemoryIngestor, PersistentStorageManager, RuntimeCommandMessage,
-    RuntimeParticipant, ServiceMaintenanceInterface, SynchronizationManager,
+    RuntimeParticipant, RuntimeEvidenceMessage, ServiceMaintenanceInterface, SynchronizationManager,
 )
 from lab_sync_acquisition.deployment_configuration import load_service_configuration
 from lab_sync_acquisition.nats_communication import (
@@ -23,6 +23,16 @@ from tests.fakes import ReadyFakeAdapter
 
 
 class ExternalDependentConfigurationTests(unittest.TestCase):
+    def test_initial_framework_archive_creation_remains_available(self):
+        with tempfile.TemporaryDirectory() as directory:
+            storage = PersistentStorageManager(Path(directory) / "storage")
+            intake = InMemoryIngestor(storage, framework_recovery_journal_path=Path(directory) / "framework.jsonl")
+            self.assertIsNone(intake.continue_framework_evidence_archive())
+            intake.receive_runtime_evidence(RuntimeEvidenceMessage("initial", None, "warning", "source", {}, True))
+            storage.write_framework_evidence_archive(intake.compile_framework_runtime_evidence())
+            with intake.framework_preservation_guard(storage) as archive:
+                self.assertEqual(archive["runtime_evidence"][0]["evidence_id"], "initial")
+
     def test_shared_file_names_actual_dependents_instead_of_declaring_none(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "storage.json"
@@ -203,6 +213,8 @@ class ExternalDependentMaintenanceTests(unittest.IsolatedAsyncioTestCase):
         with self.intake.framework_preservation_guard(self.storage) as archive:
             self.assertTrue(any(m["evidence_type"] == "ingestor_recovery_evidence"
                                 for m in archive["runtime_evidence"]))
+        self.assertTrue(await self.pair.stop_locally("operator"))
+        self.assertTrue(self.pair.exit_ready)
 
     async def test_repeated_receiver_restart_preserves_each_recovery_and_release(self):
         await self.backend()
@@ -272,7 +284,7 @@ class ExternalDependentMaintenanceTests(unittest.IsolatedAsyncioTestCase):
         before = self.storage.get_framework_preservation_confirmation()
         for subscription in self.broker.subscriptions:
             await subscription.unsubscribe()
-        with patch.object(PersistentStorageManager, "write_framework_evidence_archive", side_effect=OSError("disk failed")):
+        with patch.object(PersistentStorageManager, "_write_framework_evidence_archive", side_effect=OSError("disk failed")):
             await self.backend()
         self.assertTrue(self.intake_interface.operational_dependents[self.dependent]())
         self.assertIsNone(self.storage.get_framework_preservation_confirmation())
@@ -612,6 +624,109 @@ class ExternalDependentMaintenanceTests(unittest.IsolatedAsyncioTestCase):
             with intake.ingestor.framework_preservation_guard(intake.storage_manager) as archive:
                 self.assertEqual(archive["runtime_evidence"][:-1], historical["runtime_evidence"])
                 self.assertEqual(archive["runtime_evidence"][-1]["evidence_type"], "ingestor_recovery_evidence")
+            return 0
+
+        with patch("lab_sync_acquisition.service_launcher.NatsCommunicationBoundary", side_effect=boundary), patch.object(
+                ServiceLauncher, "run", run):
+            self.assertEqual(await launch_storage_services(servers=("nats://example:4222",), ingestor_id="intake",
+                storage_id="storage", storage_root=self.root / "storage", recovery_journal_root=self.root / "journals",
+                framework_journal=self.root / "framework.jsonl", preservation_window_s=0.02,
+                operational_dependents={}, external_dependents=(self.dependent,), result_window_s=0.02,
+                report=lambda text: None), 0)
+
+    async def rejected_restart(self, damage="corrupt"):
+        await self.backend()
+        _, _, producer, _ = await self.producer()
+        self.assertTrue(await producer.stop_locally("operator"))
+        for subscription in self.broker.subscriptions:
+            await subscription.unsubscribe()
+        directory = self.root / "storage/framework/evidence"
+        if damage == "missing":
+            for path in directory.iterdir():
+                path.unlink()
+        elif damage == "partial":
+            (directory / "ingest_audit.jsonl").unlink()
+        else:
+            (directory / "runtime_evidence.jsonl").write_bytes(b"CORRUPTED-HISTORY\n")
+        before = {path.name: path.read_bytes() for path in directory.iterdir()}
+        await self.backend()
+        self.assertTrue(self.intake_interface.operational_dependents[self.dependent]())
+        self.assertIsNone(self.storage.get_framework_preservation_confirmation())
+        return directory, before
+
+    async def test_local_stop_cannot_repair_rejected_history(self):
+        directory, before = await self.rejected_restart()
+        self.assertFalse(await self.pair.stop_locally("operator"))
+        self.assertFalse(self.pair.exit_ready)
+        self.assertTrue(self.intake_interface.operational_dependents[self.dependent]())
+        self.assertIsNone(self.storage.get_framework_preservation_confirmation())
+        self.assertEqual(before, {path.name: path.read_bytes() for path in directory.iterdir()})
+
+    async def test_prepare_stop_cannot_replace_missing_or_partial_history(self):
+        for damage in ("missing", "partial", "corrupt"):
+            with self.subTest(damage=damage):
+                self.root = self.root / damage
+                self.root.mkdir()
+                self.broker = _Broker()
+                directory, before = await self.rejected_restart(damage)
+                result = await self.storage_interface.execute_command(RuntimeCommandMessage(
+                    "prepare", None, "prepare_stop", "operator", "storage",
+                    {"stop_attempt_id": "prepare", "framework_stop_attempt_id": "framework", "administrator_id": "operator"}))
+                self.assertFalse(result.success)
+                self.assertFalse(self.storage_interface.prepared)
+                self.assertFalse(self.pair.exit_ready)
+                self.assertTrue(self.intake_interface.operational_dependents[self.dependent]())
+                self.assertIsNone(self.storage.get_framework_preservation_confirmation())
+                self.assertEqual(before, {path.name: path.read_bytes() for path in directory.iterdir()})
+
+    async def test_maintenance_cannot_repair_rejected_archive(self):
+        for operation in ("cancel", "kill", "readiness", "administrator"):
+            with self.subTest(operation=operation):
+                self.root = self.root / operation
+                self.root.mkdir()
+                self.broker = _Broker()
+                directory, before = await self.rejected_restart()
+                payload = {"stop_attempt_id": "blocked", "administrator_id": "operator"}
+                if operation in {"cancel", "kill"}:
+                    blocked = await self.intake_interface.execute_command(RuntimeCommandMessage(
+                        "stop", None, "stop", "operator", "intake", payload))
+                    self.assertFalse(blocked.success)
+                    await self.intake_interface.execute_command(RuntimeCommandMessage(
+                        operation, None, operation, "operator", "intake", {**payload, "authorized": True}))
+                elif operation == "readiness":
+                    with self.assertLogs("lab_sync_acquisition.service_maintenance", level="WARNING"):
+                        status = await self.intake_interface.announce_readiness(startup=True)
+                    self.assertFalse(status["archival_confirmed"])
+                else:
+                    with self.assertLogs("lab_sync_acquisition.service_maintenance", level="WARNING"):
+                        status = await self.intake_interface.record_administrator_decision("operator", "resume", {})
+                    self.assertFalse(status["archival_confirmed"])
+                self.assertTrue(self.intake_interface.operational_dependents[self.dependent]())
+                self.assertFalse(self.pair.exit_ready)
+                self.assertIsNone(self.storage.get_framework_preservation_confirmation())
+                self.assertEqual(before, {path.name: path.read_bytes() for path in directory.iterdir()})
+
+    async def test_production_restart_and_stop_leave_rejected_archive_unchanged(self):
+        directory, before = await self.rejected_restart()
+        for subscription in self.broker.subscriptions:
+            await subscription.unsubscribe()
+
+        def boundary(kind, identity, servers):
+            value = _Boundary(kind, identity, self.broker)
+            value.connect = AsyncMock()
+            value.ensure_streams = AsyncMock()
+            value.close = AsyncMock()
+            return value
+
+        async def run(launcher, *, startup):
+            with self.assertLogs("lab_sync_acquisition.service_maintenance", level="WARNING"):
+                await startup()
+            self.assertFalse(await launcher.stop_locally("operator"))
+            self.assertFalse(launcher.exit_ready)
+            intake = launcher.maintenance[0]
+            self.assertTrue(intake.operational_dependents[self.dependent]())
+            self.assertIsNone(intake.storage_manager.get_framework_preservation_confirmation())
+            self.assertEqual(before, {path.name: path.read_bytes() for path in directory.iterdir()})
             return 0
 
         with patch("lab_sync_acquisition.service_launcher.NatsCommunicationBoundary", side_effect=boundary), patch.object(
