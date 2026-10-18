@@ -9,7 +9,8 @@ startup integration are independently validated and audited PASS (W064, CLOSED).
 W065/W066 installation checks are closed; W067 integrates the manual runbook and
 typed examples below (CLOSED after independent validation and audit PASS). Actual manual
 provisioning and deployment/integration remain operator work, with the shared-pair
-external-dependent callback gap explicitly retained. The bounded owner
+external-dependent integration now implemented in W068 under Decision 389, pending
+independent validation/audit (OPEN). The bounded owner
 persistence/readback foundation below is independently validated and audited
 after correction (W051). This is the initial manual installation contract and a
 current-interface reference, not a working installer or deployment certification.
@@ -80,12 +81,13 @@ Every setting above is required; server arguments may be repeated. These argumen
 pass existing constructor settings, not a new configuration-file schema or a
 provisioning mechanism. No credentials or machine-specific settings are committed.
 Retrieval-endpoint configuration and installation checks are not supplied here.
-The CLI currently supports only an explicitly declared absence of external
-operational dependents; it does not silently assume the dependency set is empty.
-Do not use that declaration when producers depend on Ingestor. The reusable
-`launch_storage_services()` interface accepts the existing explicit
-`operational_dependents` callbacks; configuring distributed dependencies through
-the CLI is unavailable, not replaced by discovery or fabricated availability.
+W068 additionally supports explicitly configured external operational dependents
+through `--external-dependent TYPE/ID` entries and positive `--result-window-s`,
+or the service-file mode below. The isolated declaration is never inferred and
+must not be used when producers depend on Ingestor. `launch_storage_services()`
+retains existing direct `operational_dependents` callbacks for in-process use and
+adds `external_dependents` with `result_window_s` for distributed composition.
+Neither path discovers dependents or fabricates their availability.
 W063 adds Controller, AcquisitionNode and SynchronizationManager startup below.
 These roles use remote authoritative preservation, never extra local persistence
 owners. Their bounded validation and audit are recorded in W063; this does not
@@ -282,7 +284,7 @@ All general files require `servers`, `ingestor_id`, `storage_id` and
 | Controller | `service_id`, `synchronization_id`, `known_nodes`, `result_window_s` |
 | SynchronizationManager | `service_id`, `result_window_s` |
 | AcquisitionNode | `synchronization_id`, `node_config`, `result_window_s`; optional `service_id` must match the hardware file's persistent `node_id` |
-| Ingestor or StorageManager shared pair | `storage_root`, `global_artifact_root`, `recovery_journal_root`, `framework_journal`, `retrieval_endpoints`, `no_operational_dependents` |
+| Ingestor or StorageManager shared pair | `storage_root`, `global_artifact_root`, `recovery_journal_root`, `framework_journal`, `retrieval_endpoints`; choose `no_operational_dependents: true` OR a nonempty `external_dependents` list plus positive `result_window_s` |
 
 `known_nodes` is an explicit unique list, possibly empty, for existing startup
 reconciliation; it does not select Session participants. Time windows follow
@@ -303,13 +305,15 @@ retrieval-time responsibilities. An empty mapping explicitly configures no
 retrieval endpoints; later collection from an unconfigured node fails normally.
 Offline nodes do not block startup, and valid paths do not prove SSH access.
 
-The existing paired CLI cannot represent callback-based external-dependent
-configuration. File launching therefore requires `no_operational_dependents`
-to be explicitly `true`, never inferred from an omitted list. The template leaves
-this unset. Do not set it for a deployment with actual dependents; compose the
-existing `launch_storage_services(operational_dependents=...)` callbacks instead.
-W064 does not replace that integration boundary with cached readiness, a registry
-or an assumed dependency graph.
+W068 represents each external dependent as an existing RuntimeParticipant object:
+`{"component_type": "acquisition_node", "component_id": "NODE_ID"}`. Supported
+external roles are Controller, AcquisitionNode and SynchronizationManager, using
+`controller`, `acquisition_node` and `synchronization_manager` respectively. IDs
+must be unique within their role. The external list and isolated declaration are
+mutually exclusive; missing, empty or invalid declarations fail before startup.
+The original template remains an isolated-mode skeleton; the manual-installation
+storage example now demonstrates external dependents. No registry or discovery is
+introduced. W064's historical validation does not validate W068's new integration.
 
 The loader rejects malformed JSON, duplicate or unknown fields, missing settings,
 invalid identities/URLs/windows, duplicate registered nodes, invalid local
@@ -648,8 +652,8 @@ validation (4/4 tests, zero failures/errors) and independent architectural audit
 PASS with no confirmed P0-P3 findings. The five examples conform to existing strict
 loaders, with consistent identities/settings and documented CLI interfaces.
 Physical provisioning, live networks/SSH, hardware and full deployment remain
-unverified; the external-dependent callback gap below remains Q022 implementation
-work. See W067 in validated_workflows.md. Follow the steps for a new deployment; use the node-change
+unverified. W068 implements the external-dependent integration below but remains
+OPEN for independent validation/audit. See W067 in validated_workflows.md. Follow the steps for a new deployment; use the node-change
 procedure at the end for additions/replacements. Four focused synchronous checks
 validate the examples with actual loaders, identity relationships, CLI dispatch/
 help and standalone retrieval configuration. Dispatch tests replace runtime startup;
@@ -734,16 +738,79 @@ SSH key/known-host references must already exist for storage validation. Missing
 or invalid values must be corrected before startup; do not suppress diagnostics
 or combine file inputs with explicit launch-setting flags.
 
-**Deployment integration limit:** the file/flag CLI for the shared pair supports
-only a truthful declaration that no external operational dependents exist.
-The example `no_operational_dependents: true` is for an isolated pair only, not a
-shortcut for an installation with dependent Controller, synchronization or node
-services. Such installations require actual callbacks supplied through existing
-`launch_storage_services(operational_dependents=...)`. The CLI cannot compose those
-callbacks from files today. Do not launch a full distributed installation with
-an empty dependency map. Completing that composition is substantial remaining
-integration work, outside W067; no dummy callbacks or new provisioning API are
-provided here. Standalone installation checks below remain available.
+**W068 external-dependent maintenance (OPEN):** configure actual dependents, not
+an empty callback map or a false isolated declaration. For example:
+
+```json
+{
+"external_dependents": [
+  {"component_type": "controller", "component_id": "CONTROLLER_ID"},
+  {"component_type": "synchronization_manager", "component_id": "SYNCHRONIZATION_ID"},
+  {"component_type": "acquisition_node", "component_id": "ACQUISITION_NODE_ID"}
+],
+"result_window_s": 10
+}
+```
+
+Merge these fields into the existing complete storage JSON; this fragment omits
+the other required storage settings and is not a standalone service file.
+Alternatively append repeated `--external-dependent controller/CONTROLLER_ID`,
+`--external-dependent synchronization_manager/SYNCHRONIZATION_ID` and
+`--external-dependent acquisition_node/ACQUISITION_NODE_ID` plus explicit positive
+`--result-window-s SECONDS` to the flag-based shared-pair command, replacing
+`--no-operational-dependents`. Both storage role names still launch one process.
+
+Each deployed owner has a new operational-instance ID while keeping its persistent
+RuntimeParticipant identity. Existing maintenance handlers are available during
+startup; unrelated operational work remains closed until the current instance is
+registered with the configured Ingestor. The Ingestor validates fresh owner readback
+and retains instance-scoped callback state using its existing framework journal
+and StorageManager archive. A new instance reestablishes the blocker before its
+operational admission. Unconfigured identities are rejected, not discovered.
+
+After actual Stop or authorized Kill retirement, the owner delivers its exact
+command/result/attempt confirmation to Ingestor. Ingestor verifies fresh owner
+readback and preserves its acceptance before confirming. The launcher cannot exit
+until this exchange and existing final-result handling complete. Lost replies,
+cancellation or unavailable participants leave exit unconfirmed; explicit retry
+reuses the retained retirement result without repeating cleanup. Unknown/malformed,
+stale or contradictory confirmation keeps the blocker. There is no automatic
+dependent shutdown, Kill escalation, polling or restart.
+
+If a blocked shared-pair Stop is cancelled, Cancel ends that attempt without
+reopening resources already cleaned up. A later explicit Stop uses a fresh attempt
+and can complete once the dependent obligations are authoritatively released.
+
+Confirmed releases remain usable after the dependent exits. Following shared-owner
+restart, journal history alone is not archive confirmation: callbacks remain blocked
+until existing authoritative archive verification/recovery establishes coverage.
+W068 does not repair archives or implement Q024 recovery. Local legacy callbacks
+remain supported for development; deployed communication uses NATS.
+
+Focused regression entry point (no live infrastructure required):
+
+```text
+python -B -m unittest tests.test_external_dependent_maintenance -v
+```
+
+Codex verification uses controlled socket-free scheduling with actual asyncio
+tasks; it does not establish normal Windows socket-pair scheduling, actual OS
+signals, live JetStream or separate-machine behavior. Independent validation/audit
+are still required before W068 closure.
+
+Decision 389 now resolves W068's confirmation architecture: each dependent owns
+its retirement/release, and Ingestor requires correctly correlated operational
+instance/attempt confirmation delivered before the dependent launcher exits.
+Only Controller's specifically authorized dependency release at the final archival
+checkpoint, with preserved obligations and no further Ingestor-dependent work,
+allows its dependency to be released while Controller remains operational.
+Missing/stale/contradictory confirmation retains the blocker; preparation,
+disappearance and publication acknowledgment are insufficient. This is accepted
+implemented by the bounded W068 path, not a new lifecycle state or retirement
+authority. Controller's coordinated release additionally freezes its own new work
+and further Ingestor-dependent evidence; it can continue the existing prepared
+retirement sequence without writing through retired Ingestor. W068 and Q022 remain
+OPEN; no full physical deployment verification is claimed.
 
 ### Provision And Verify Retrieval
 
@@ -777,8 +844,8 @@ artifact contents or authorize their release.
 
 ### Launch And Verify Communication
 
-With NATS/JetStream already available and the shared pair's **actual dependency
-composition resolved**, start the pair first, then SynchronizationManager, nodes,
+With NATS/JetStream already available and the shared pair's **actual external
+dependents configured**, start the pair first, then SynchronizationManager, nodes,
 and Controller in separate terminals under their service accounts. These are
 manual entry points, not an automatic dependency-ordering mechanism:
 
@@ -789,9 +856,8 @@ lab-sync-acquisition acquisition-node --deployment-config NODE_SERVICE_JSON
 lab-sync-acquisition controller --deployment-config CONTROLLER_JSON
 ```
 
-The first command applies only to the supported isolated/no-dependents case; use
-the existing correctly composed shared launcher for actual external dependents,
-not that command with a false declaration. `storage-manager` is an alias for the
+The first command uses either the explicit external-dependent file mode or the
+truthful isolated mode above. Never use a false declaration. `storage-manager` is an alias for the
 same pair, never a second process. Startup diagnostics/readiness distinguish local
 configuration, NATS connectivity and peer availability. A process staying alive
 is not evidence of readiness or successful Session initialization. StorageManager
@@ -839,8 +905,9 @@ tools/manual actions until its adapter and installation loader are supported.
 No success from the communication check substitutes for this device assessment.
 
 For an added node, repeat package/account/path/SSH/hardware preparation on its
-computer, assign a unique persistent identity, and add the matching endpoint and
-Controller `known_nodes` entry in their local files. Plan affected service restarts
+computer, assign a unique persistent identity, and add the matching retrieval
+endpoint, shared-file `external_dependents` AcquisitionNode participant and
+Controller `known_nodes` entry. Plan affected service restarts
 only after existing cleanup, preservation and maintenance obligations permit them;
 endpoint-file edits also require restarting the shared pair. Repeat retrieval and
 communication checks and the recommended device check. Do not restart unrelated
@@ -914,7 +981,7 @@ alone does not establish durable Ingestor acceptance or Q019 completeness.
 | Boundary | Existing foundation | Missing integration |
 | --- | --- | --- |
 | Package/launch | W061-W063 common explicit-role entry point; W064 integrates general service files with the same launchers | Complete deployment integration and verification |
-| Local configuration | W064 JSON loader/templates, startup validation; W063 node hardware loader/default and explicit paths | Configuration provisioning and external-dependent callback composition through files |
+| Local configuration | W064 JSON loader/templates, startup validation; W063 node hardware loader/default and explicit paths; W068 external-dependent composition and instance-confirmation integration implemented, OPEN pending independent validation/audit | Actual provisioning, W068 independent verification and remaining deployment integration |
 | Node/device setup | Existing declarations/adapters and W063 file-to-object construction; W064 reuses hardware prevalidation | Additional supported adapters as required by deployments |
 | Operator parameters | `SessionConfig.device_configurations`, node initialization overrides, adapter `initialize(config)` and concrete validation | Generic adapter-defined parameter constraints, inventory exposure, Controller readback |
 | Readiness/startup | Existing reports, NATS requests/announcements and reconciliation consume W064 configured known-node identities; W066 explicit installation `verify-node` using existing readiness requests is CLOSED after independent validation and final re-audit PASS | Applicable manual installation integration and live deployment verification |

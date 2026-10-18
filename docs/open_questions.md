@@ -989,6 +989,42 @@ Q022 remains OPEN. Q019 and W001-W066 remain CLOSED. Existing Q006/Q018, Q024,
 Phase 16 and M015 statuses are unchanged. See installation_and_deployment.md for
 the supported entry points and validated_workflows.md for verification limitations.
 
+### Shared-storage external-dependent maintenance (W068 OPEN)
+
+Decision 389 records the accepted LLC External-Dependent Retirement Confirmation
+clarification and resolves W068's architectural blocker. Ingestor removes a
+dependent blocker only on confirmed retirement for the identified operational
+instance/maintenance attempt, or Controller's specifically authorized dependency
+release at the coordinated final archival checkpoint. Confirmation must be
+delivered and available to Ingestor before the dependent launcher exits; missing,
+stale, contradictory or incorrectly correlated confirmation retains the blocker.
+Preparation, disappearance and publication acknowledgment alone are insufficient.
+
+Controller's release confirms preserved Ingestor-dependent obligations and no
+further such work; it is not Controller retirement. Existing Stop/Kill/Cancel,
+Decision 324 final-confirmation authority and Decision 326 ordering remain intact.
+Minimal representation/correlation extensions are implementation choices, not a
+new lifecycle authority or retirement-evidence subsystem.
+
+W068 now implements explicit external-dependent participants in storage service
+files/CLI, service-owned instance IDs and startup admission registration, scoped
+NATS confirmation/readback and existing-framework-journal/archive-backed callback
+state. Deployed owners retain their process until Ingestor confirms their exact
+retirement result; explicit retry does not repeat cleanup. New dependent instances
+reestablish blockers before unrelated operational admission. Prepared Controller
+releases only its dependency at the coordinated final archival checkpoint and
+cannot create further Ingestor-dependent work. It remains able to coordinate
+subsequent retirement commands and retires last.
+
+The truthful isolated path remains supported; no false no-dependents declaration
+is needed or permitted for external mode. Shared-owner restart does not bless
+unverified framework archive history; unavailable current preservation keeps
+blockers and existing verification/recovery obligations intact. No automatic
+repair or Q024 recovery mechanism is added. W068 and Q022 remain OPEN pending
+independent validation/audit and remaining deployment integration. W001-W067 and
+Q019 remain CLOSED. No live networking, hardware, OS signals or full physical
+deployment verification is claimed.
+
 ### Manual installation integration (W067 CLOSED)
 
 W067 integrates the existing W061-W066 interfaces into the installation guide's
@@ -1001,17 +1037,16 @@ node additions/replacements. W067 is CLOSED after independent user-run validatio
 with no confirmed P0-P3 findings. The five examples and documented CLI procedure
 match existing interfaces within their explicitly bounded scope.
 
-A concrete remaining implementation gap prevents claiming complete file-driven
-deployment: the shared Ingestor/StorageManager CLI accepts only a truthful explicit
-absence of external operational dependents. Actual dependent installations require
-existing maintenance callbacks; composing those through deployment files is not
-implemented. Do not use an empty callback map or false declaration to proceed.
-W067 does not implement that substantial integration or select another slice.
+At W067 closure the shared CLI's isolated-only restriction prevented complete
+file-driven deployment. W067 documented rather than bypassed that gap; W068 above
+now implements callback composition under Decision 389, pending independent
+validation/audit. Do not use an empty callback map or false declaration to proceed.
+W067's historical validation does not validate W068's new implementation.
 Real network/SSH, hardware/backend/permissions, OS signals and complete deployment
 remain operator verification. Other accepted outstanding requirements, including
 adjustable-parameter exposure and deployment integration, remain OPEN under Q022.
-Q022 remains OPEN for the external-dependent callback composition and remaining
-accepted deployment obligations. Q019 and W001-W067 remain CLOSED; unrelated
+Q022 remains OPEN for independent W068 verification and remaining accepted
+deployment obligations. Q019 and W001-W067 remain CLOSED; unrelated
 question/milestone statuses are unchanged. See W067 in validated_workflows.md.
 
 ### Q022-A accepted scope
@@ -1049,9 +1084,9 @@ W064 implements deployment-local general-service JSON loading, validation and
 integration with all existing launch paths, separate from the node hardware file.
 Explicit file mode does not merge with constructor flags or alter existing flag
 launching. Local retrieval settings are passed to StorageManager without checking
-remote connectivity. The existing explicit no-external-dependents limitation of
-the paired CLI remains; nonempty callback composition is not fabricated from a
-file. W064 is CLOSED after independent IPython validation (9/9 configuration tests
+remote connectivity. W064 retained the paired CLI's explicit no-external-dependents
+limitation; W068 now implements configured external composition without claiming
+it was covered by W064 validation. W064 is CLOSED after independent IPython validation (9/9 configuration tests
 and shared-storage startup integration PASS) and independent architectural audit
 PASS with no confirmed P0-P3 findings or unresolved architectural blockers.
 Q022 remains OPEN for applicable installation provisioning, installation

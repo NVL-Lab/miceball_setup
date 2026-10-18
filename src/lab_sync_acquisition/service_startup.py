@@ -143,14 +143,17 @@ async def launch_independent_service(*, role, servers, service_id, ingestor_id, 
             startup_interface = NatsServiceMaintenanceCommunication(boundary, maintenance,
                 startup_participants=dependencies if role == "controller" else None,
                 startup_result_window_s=result_window_s if role == "controller" else None)
-            status = await startup_interface.start()
-            if role != "controller":
-                for dependency in dependencies:
-                    await startup_interface.check_dependency_readiness(dependency, result_window_s)
+            # Existing handlers remain available for maintenance/instance readback;
+            # service-owned new-work admission stays closed until registration.
             if runtime is None:
                 await startup_interface.subscribe_commands()
             else:
                 await runtime.subscribe_commands()
+            await maintenance.register_ingestor_dependency()
+            status = await startup_interface.start()
+            if role != "controller":
+                for dependency in dependencies:
+                    await startup_interface.check_dependency_readiness(dependency, result_window_s)
             report(json.dumps({"target": maintenance.participant.to_dict(), "startup": status}, sort_keys=True))
         except asyncio.CancelledError:
             raise

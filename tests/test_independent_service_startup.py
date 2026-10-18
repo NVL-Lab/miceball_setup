@@ -142,12 +142,18 @@ class IndependentServiceTests(unittest.IsolatedAsyncioTestCase):
 
     async def backend(self):
         self.intake_boundary = _Boundary("ingestor", "intake", self.broker)
+        interface = ServiceMaintenanceInterface(self.intake, RuntimeParticipant("ingestor", "intake"),
+            ingestor=self.intake, storage_manager=self.storage, preservation_window_s=0.1,
+            close_resources=AsyncMock(return_value=True))
+        interface.configure_external_dependents((RuntimeParticipant("controller", "control"),
+            RuntimeParticipant("synchronization_manager", "sync"), RuntimeParticipant("acquisition_node", "node")),
+            NatsControllerCommunication(self.intake_boundary), 0.1)
         handler = NatsIngestorCommunication(self.intake_boundary, self.intake)
         await handler.subscribe_evidence(None)
         await handler.subscribe_commands()
         await NatsStorageManagerCommunication(_Boundary("storage_manager", "storage", self.broker), self.storage).subscribe_commands()
 
-    def service(self, kind, *, storage_id="storage"):
+    async def service(self, kind, *, storage_id="storage", start_commands=True):
         identity = {"controller": "control", "synchronization_manager": "sync", "acquisition_node": "node"}[kind]
         if kind == "controller":
             owner = Controller(component_id=identity)
@@ -164,13 +170,20 @@ class IndependentServiceTests(unittest.IsolatedAsyncioTestCase):
             framework_communication=NatsControllerCommunication(boundary),
             framework_ingestor=RuntimeParticipant("ingestor", "intake"),
             framework_storage=RuntimeParticipant("storage_manager", storage_id), evidence_publisher=boundary.publish_evidence)
-        return owner, interface, ServiceLauncher((interface,), (boundary,), report=self.reports.append), cleanup, boundary
+        launcher = ServiceLauncher((interface,), (boundary,), report=self.reports.append)
+        if start_commands:
+            handlers = {"controller": NatsServiceMaintenanceCommunication,
+                        "acquisition_node": NatsAcquisitionNodeCommunication,
+                        "synchronization_manager": NatsSynchronizationManagerCommunication}
+            await handlers[kind](boundary, interface if kind == "controller" else owner).subscribe_commands()
+            await interface.register_ingestor_dependency()
+        return owner, interface, launcher, cleanup, boundary
 
     async def test_each_independent_owner_stops_with_remote_preservation(self):
         await self.backend()
         for kind in ("controller", "synchronization_manager", "acquisition_node"):
             with self.subTest(kind=kind):
-                owner, interface, launcher, cleanup, _ = self.service(kind)
+                owner, interface, launcher, cleanup, _ = await self.service(kind)
                 self.assertTrue(await launcher.stop_locally("operator"), self.reports)
                 self.assertTrue(interface.terminated)
                 cleanup.assert_awaited_once_with(False)
@@ -181,7 +194,7 @@ class IndependentServiceTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_unrelated_intake_does_not_invalidate_retiring_producer(self):
         await self.backend()
-        _, interface, launcher, _, _ = self.service("controller")
+        _, interface, launcher, _, _ = await self.service("controller")
 
         def another_producer(operation, result):
             if operation == "preserve_service_evidence" and result["success"]:
@@ -197,7 +210,7 @@ class IndependentServiceTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_corrupted_archive_blocks_orderly_stop_without_repair(self):
         await self.backend()
-        _, interface, launcher, cleanup, _ = self.service("controller")
+        _, interface, launcher, cleanup, _ = await self.service("controller")
         await interface.announce_readiness(startup=True)
         summary = next(self.root.rglob("compilation_summary.json"))
         summary.write_text("{broken", encoding="utf-8")
@@ -209,7 +222,7 @@ class IndependentServiceTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_conflicting_preservation_command_cannot_change_history(self):
         await self.backend()
-        _, interface, _, _, boundary = self.service("controller")
+        _, interface, _, _, boundary = await self.service("controller")
         await interface.announce_readiness(startup=True)
         requests = NatsControllerCommunication(boundary)
         payload = {"evidence": [m.to_dict() for m in interface.required_evidence()], "acceptance_window_s": 0.1}
@@ -225,7 +238,7 @@ class IndependentServiceTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_incomplete_confirmation_cannot_retire_owner(self):
         await self.backend()
-        _, interface, launcher, cleanup, _ = self.service("controller")
+        _, interface, launcher, cleanup, _ = await self.service("controller")
         self.broker.change_result = lambda operation, result: ({**result,
             "payload": {**result["payload"], "evidence": []}}
             if operation == "preserve_service_evidence" else result)
@@ -235,7 +248,7 @@ class IndependentServiceTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_identical_boundary_retry_reuses_durable_products(self):
         await self.backend()
-        _, interface, _, _, boundary = self.service("controller")
+        _, interface, _, _, boundary = await self.service("controller")
         await interface.announce_readiness(startup=True)
         requests = NatsControllerCommunication(boundary)
         payload = {"evidence": [m.to_dict() for m in interface.required_evidence()], "acceptance_window_s": 0.1}
@@ -252,7 +265,7 @@ class IndependentServiceTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_different_storage_owner_cannot_confirm_retirement(self):
         await self.backend()
-        _, interface, launcher, cleanup, _ = self.service("controller", storage_id="another-storage")
+        _, interface, launcher, cleanup, _ = await self.service("controller", storage_id="another-storage")
         self.assertFalse(await launcher.stop_locally("operator"))
         self.assertFalse(interface.terminated)
         cleanup.assert_not_awaited()
@@ -264,7 +277,7 @@ class IndependentServiceTests(unittest.IsolatedAsyncioTestCase):
                     "acquisition_node": NatsAcquisitionNodeCommunication,
                     "synchronization_manager": NatsSynchronizationManagerCommunication}
         for kind, handler_type in handlers.items():
-            owner, interface, launcher, _, boundary = self.service(kind)
+            owner, interface, launcher, _, boundary = await self.service(kind, start_commands=False)
             old = RuntimeCommandMessage("old-" + kind, None, "stop", "old-terminal", interface.participant.component_id,
                 {"stop_attempt_id": "old-attempt", "administrator_id": "operator"})
             await self.broker.publish(build_runtime_subject(None, "command", kind, interface.participant.component_id, "stop"),
@@ -276,7 +289,7 @@ class IndependentServiceTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_missing_confirmation_blocks_retirement_and_retains_evidence(self):
         await self.backend()
-        _, interface, launcher, cleanup, _ = self.service("controller")
+        _, interface, launcher, cleanup, _ = await self.service("controller")
         self.broker.drop_results.add(("intake", "preserve_service_evidence"))
         self.assertFalse(await launcher.stop_locally("operator"))
         self.assertFalse(interface.terminated)
@@ -285,7 +298,7 @@ class IndependentServiceTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_new_evidence_during_confirmation_cannot_use_older_boundary(self):
         await self.backend()
-        _, interface, launcher, cleanup, _ = self.service("controller")
+        _, interface, launcher, cleanup, _ = await self.service("controller")
         reached, resume = asyncio.Event(), asyncio.Event()
         original = self.intake_boundary.publish_command_result
         first = True
@@ -320,8 +333,7 @@ class IndependentServiceTests(unittest.IsolatedAsyncioTestCase):
                     "acquisition_node": NatsAcquisitionNodeCommunication,
                     "synchronization_manager": NatsSynchronizationManagerCommunication}
         for kind, handler_type in handlers.items():
-            owner, interface, launcher, _, boundary = self.service(kind)
-            await handler_type(boundary, interface if kind == "controller" else owner).subscribe_commands()
+            owner, interface, launcher, _, boundary = await self.service(kind)
             requester = NatsControllerCommunication(_Boundary("terminal", "admin-" + kind, self.broker))
             subscription = await requester.subscribe_command_results(None, new_only=True,
                 participant=interface.participant, command_type="stop")
@@ -390,17 +402,22 @@ class IndependentServiceTests(unittest.IsolatedAsyncioTestCase):
             value.close = AsyncMock()
             return value
 
-        async def paused_subscription(handler):
-            captured[0].maintenance[0].service.start()
-            reached.set()
-            await asyncio.Event().wait()
+        check = NatsServiceMaintenanceCommunication.check_dependency_readiness
+
+        async def paused_check(handler, participant, window):
+            result = await check(handler, participant, window)
+            if participant.component_type == "storage_manager":
+                captured[0].maintenance[0].service.start()
+                reached.set()
+                await asyncio.Event().wait()
+            return result
 
         def report(message):
             self.reports.append(message)
             if message.startswith("{") and json.loads(message).get("command") == "cancel":
                 blocked.set()
 
-        with patch("lab_sync_acquisition.service_startup.NatsCommunicationBoundary", boundary), patch("lab_sync_acquisition.service_startup.ServiceLauncher", capture), patch.object(NatsSynchronizationManagerCommunication, "subscribe_commands", paused_subscription):
+        with patch("lab_sync_acquisition.service_startup.NatsCommunicationBoundary", boundary), patch("lab_sync_acquisition.service_startup.ServiceLauncher", capture), patch.object(NatsServiceMaintenanceCommunication, "check_dependency_readiness", paused_check):
             task = asyncio.create_task(launch_independent_service(role="synchronization-manager",
                 servers=("nats://example:4222",), service_id="sync", ingestor_id="intake", storage_id="storage",
                 preservation_window_s=0.1, result_window_s=0.1, report=report))

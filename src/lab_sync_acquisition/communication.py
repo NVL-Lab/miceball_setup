@@ -16,6 +16,9 @@ COMMAND_RESULT_STATUSES = frozenset(
 RUNTIME_CONTROL_COMMAND_RESULT_STATUSES = frozenset({"succeeded", "failed"})
 ARTIFACT_MANIFEST_EVIDENCE_TYPE = "artifact_manifest"
 MAPPING_UPDATE_EVIDENCE_TYPE = "mapping_update_evidence"
+DEPENDENT_MAINTENANCE_COMMANDS = frozenset({
+    "read_operational_instance", "register_operational_dependent", "confirm_dependent_release",
+})
 
 LAB_COMMANDS = "messages.*.command.>"
 LAB_COMMAND_RESULTS = "messages.*.command_result.>"
@@ -243,7 +246,7 @@ class RuntimeCommandMessage:
     payload: dict[str, Any]
 
     def __post_init__(self) -> None:
-        if self.session_id is None and self.command_type not in ({"check_readiness", "get_inventory", "stop", "kill", "cancel", "check_stop_readiness", "prepare_stop", "preserve_service_evidence"} | SERVICE_RECOVERY_COMMAND_TYPES):
+        if self.session_id is None and self.command_type not in ({"check_readiness", "get_inventory", "stop", "kill", "cancel", "check_stop_readiness", "prepare_stop", "preserve_service_evidence"} | SERVICE_RECOVERY_COMMAND_TYPES | DEPENDENT_MAINTENANCE_COMMANDS):
             raise ValueError("Session-specific command requires session_id")
         if self.session_id is not None:
             _validate_subject_token("session_id", self.session_id)

@@ -11154,6 +11154,74 @@ Unsupported role launch paths and full deployment remain outside these closures.
 
 ---
 
+## Decision 389: External-dependent retirement confirmation
+
+**Status:** Accepted
+
+This records the user-approved LLC clarification "External-Dependent Retirement
+Confirmation" for W068. It supplements Decisions 316, 324-326, 375-376 and
+383-388 without rewriting their historical requirements or changing service
+ownership, individual maintenance semantics or coordinated shutdown order.
+
+### Authority and communication
+
+Ingestor removes a configured external-dependent blocker only after confirmed
+operational retirement of that dependent, or Controller's specifically authorized
+dependency release during coordinated shutdown. Each service owns its retirement
+and dependency-release conditions. Ingestor consumes authoritative confirmation;
+it does not become another service's retirement authority.
+
+Reuse existing NATS maintenance commands, results, RuntimeParticipant identities
+and request/result correlation. Retirement confirmation must be delivered and
+available to Ingestor before the dependent launcher exits. Publication
+acknowledgment alone does not establish that requirement. Preserve Decision 324's
+initiating-interface authority for determining actual final outcomes, and
+Decision 386's distinction between operational retirement and OS process exit.
+
+### Instance scope, freshness and failure behavior
+
+Confirmations identify the dependent RuntimeParticipant, operational instance,
+maintenance attempt and final outcome. A prior-instance confirmation cannot
+authorize removal of a blocker after that service restarts. Handle duplicates
+and retries safely without allowing contradictory results to authorize release.
+
+Missing, stale, contradictory, incorrectly correlated or unavailable confirmation
+retains the blocker. Timeout, readiness failure, disappearance, preparation alone
+and publication acknowledgment are insufficient. Do not infer completed retirement
+or dependency release from technical unreadiness or lack of a current response.
+
+### Prepared Controller
+
+Controller remains operational after `prepare_stop`. Its specifically authorized
+dependency release during coordinated shutdown requires explicit confirmation
+that all required Ingestor-dependent obligations are durably preserved, the final
+archival checkpoint has been reached, and no further Ingestor-dependent work will
+be created. Preparation alone does not establish these conditions.
+
+This releases only the dependency; it does not establish Controller retirement.
+Preserve Decision 326's preparation, final archival boundary and operational
+retirement ordering, including Controller retiring last. No anticipated retirement
+may be represented as completed.
+
+### Implementation discretion and boundaries
+
+Implementation may select minimal representations and correlation extensions
+consistent with these existing contracts. This clarification does not prescribe
+a new message schema, identifier encoding or independent evidence store.
+
+Preserve existing Stop, explicitly authorized Kill and Cancel semantics. No new
+supervisor, registry, independent lifecycle authority, automatic restart, rollback
+or parallel retirement-evidence subsystem is introduced. Decision 376's shared
+Ingestor/StorageManager process and distinct ownership remain unchanged.
+
+**Implementation status:** Accepted and synchronized; this resolves W068's
+external-dependent confirmation architecture blocker. Callback composition,
+instance-correlated confirmation delivery and launcher-exit integration remain
+unimplemented and unvalidated in W068. W068 and Q022 remain OPEN; Q019 and
+W001-W067 remain CLOSED. Q006/Q018, Q024, Phase 16 and M015 remain OPEN.
+
+---
+
 # Accepted Architectural Principles
 
 The following principles summarize the accepted decisions so far.

@@ -182,8 +182,11 @@ W067 integrates an operator-run [manual installation runbook](docs/installation_
 and [typed local-file examples](config_templates/manual_installation/README.md).
 It is CLOSED after independent 4/4 validation and architectural audit PASS, with
 no installer or complete distributed-deployment claim:
-the shared-pair CLI cannot yet compose required external-dependent maintenance
-callbacks. Never substitute a false no-dependents declaration.
+W068 now implements explicit external-dependent callback composition and
+instance/attempt-correlated confirmation under Decision 389, pending independent
+validation and audit (OPEN). Configure `external_dependents` and `result_window_s`
+in the shared storage file; never substitute a false no-dependents declaration.
+The runbook alone is not physical deployment verification.
 W066 is CLOSED after independent validation and final re-audit PASS, including both
 NATS cleanup P2 corrections. Verification used simulated I/O, not live NATS, real
 sockets, hardware or OS signals. Q022 remains OPEN for applicable manual

@@ -1361,6 +1361,34 @@ probes passed. No live JetStream, actual OS signal delivery, hardware or complet
 five-role deployment validation is claimed. W001-W065 and Q019 remain CLOSED;
 Q022, Q006, Q018, Q024, Phase 16 and M015 remain OPEN.
 
+### Shared-Storage External-Dependent Maintenance Integration (W068)
+
+**Status:** OPEN - bounded Decision 389 callback/confirmation integration is
+implemented, pending independent validation and audit. Explicit storage-file/CLI
+participants replace the isolated-only deployment restriction without discovery.
+
+Each service retains retirement/release authority. Ingestor requires authoritative
+instance/attempt-correlated retirement confirmation available before dependent
+launcher exit, or Controller's specifically authorized dependency release after
+the final archival checkpoint and confirmation of no further Ingestor-dependent
+work. Prepared Controller remains operational; dependency release is not retirement.
+Unconfirmed, stale or contradictory results retain blockers. Stop/Kill/Cancel and
+Decisions 324/326 remain authoritative. Existing NATS and minimal correlation
+extensions are reused, not a new registry, supervisor or evidence subsystem.
+
+Shared-pair callbacks now consume instance/attempt-correlated owner readback and
+preserved confirmations before launcher exit. Dependent startup registers its
+instance before new work; restart cannot reuse prior-instance release. Controller
+explicitly releases its dependency only at its preserved final checkpoint, while
+remaining operational for the prepared retirement sequence. Missing or conflicting
+confirmation retains blockers/processes and explicit retries reuse completed
+cleanup. Current framework preservation must be independently available after
+shared-owner restart; no automatic archive repair is introduced.
+Focused simulated-communication tests are provided; controlled execution is not
+normal Windows I/O scheduling, live NATS or physical deployment verification.
+W068/Q022 remain OPEN for independent validation/audit and remaining integration;
+W001-W067 and Q019 remain CLOSED; unrelated open statuses are unchanged.
+
 ### Manual Installation And Provisioning Integration (W067)
 
 **Status:** CLOSED - manual runbook, five typed JSON examples and guidance validated
@@ -1372,13 +1400,15 @@ an installer, new configuration authority or production API change.
 The procedure separates computer/account preparation, service/hardware/Session
 configuration, manual SSH trust/permissions, exact dummy retrieval, existing
 role launch commands, fresh registered-node checks, recommended device acquisition
-and node additions/replacements. File-driven full deployment remains limited by
-the existing shared-pair no-external-dependents restriction: actual dependents
-require existing maintenance callbacks that the CLI cannot compose from files.
-This substantial integration gap is documented, not bypassed or implemented here.
+and node additions/replacements. At W067 closure, file-driven deployment remained
+limited by the shared-pair no-external-dependents restriction; actual dependents
+required callbacks unavailable through files. W067 documented rather than bypassed
+that gap. W068 above now implements the bounded integration, pending independent
+validation/audit; W067's historical validation does not validate those new paths.
 Real network, SSH/SFTP, hardware, OS signals and complete deployment are unverified.
-External-dependent callback composition remains an explicit Q022 implementation
-obligation; the runbook alone does not enable complete distributed deployment.
+That callback-composition obligation is addressed by the W068 implementation above,
+pending independent validation/audit; the runbook alone does not establish physical
+distributed-deployment readiness.
 W001-W067 and Q019 remain CLOSED; Q022 remains OPEN and unrelated open statuses
 are unchanged. See W067 in validated_workflows.md for evidence and limitations.
 

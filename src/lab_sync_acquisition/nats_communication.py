@@ -45,6 +45,7 @@ from lab_sync_acquisition.synchronization import SynchronizationManager
 from lab_sync_acquisition.experiment_runtime import ActiveExperimentRuntimeContext, ExperimentRuntimeHealthMapping
 from lab_sync_acquisition.service_readiness import ServiceReadiness
 from lab_sync_acquisition.service_maintenance import service_operation
+from lab_sync_acquisition.communication import DEPENDENT_MAINTENANCE_COMMANDS
 from lab_sync_acquisition.storage import PersistentStorageManager
 
 
@@ -97,6 +98,7 @@ class NatsCommunicationBoundary:
         self._close_task: asyncio.Task[None] | None = None
         self._dependency_result_observer = None
         self.maintenance_command_handled: Callable[[RuntimeCommandMessage, RuntimeCommandResultMessage], None] | None = None
+        self._pending_dependent_deliveries = {}
 
     @property
     def connected(self) -> bool:
@@ -432,6 +434,25 @@ class NatsControllerCommunication:
         try:
             return await requests.request_command(participant, command_type, session_id,
                 {**deepcopy(payload), "request_nonce": nonce}, result_window_s, command_id=command_id)
+        finally:
+            await subscription.unsubscribe()
+
+    async def request_maintenance_readback(self, participant, operation, payload, result_window_s):
+        """Request fresh instance/dependency confirmation through existing scoped command/results."""
+        from math import isfinite
+        if (operation not in DEPENDENT_MAINTENANCE_COMMANDS or "request_nonce" in payload
+                or type(result_window_s) not in {int, float} or not isfinite(result_window_s) or result_window_s <= 0):
+            raise ValueError("Unsupported dependent maintenance request")
+        nonce = uuid4().hex
+        requests = NatsControllerCommunication(self._boundary)
+        subscription = await requests.subscribe_command_results(None, new_only=True,
+            participant=participant, command_type=operation,
+            result_filter=lambda result: result.payload.get("request_nonce") == nonce)
+        try:
+            return await asyncio.wait_for(requests.request_command(participant, operation, None,
+                {**deepcopy(payload), "request_nonce": nonce}, result_window_s), result_window_s)
+        except TimeoutError:
+            return None
         finally:
             await subscription.unsubscribe()
 
@@ -828,7 +849,7 @@ class NatsAcquisitionNodeCommunication:
                     await message.ack()
                     return
                 result = (await _execute_maintenance_command(self._boundary, self._acquisition_node, command)
-                          if command.command_type in ({"stop", "kill", "cancel", "prepare_stop", "check_stop_readiness"} | SERVICE_RECOVERY_COMMAND_TYPES) else self.execute_command(command))
+                          if command.command_type in ({"stop", "kill", "cancel", "prepare_stop", "check_stop_readiness"} | SERVICE_RECOVERY_COMMAND_TYPES | DEPENDENT_MAINTENANCE_COMMANDS) else self.execute_command(command))
                 await self.publish_new_artifact_manifest_evidence()
                 if command.session_id is not None:
                     await self.publish_new_runtime_evidence()
@@ -841,9 +862,7 @@ class NatsAcquisitionNodeCommunication:
                 logger.info("command_result_published command_id=%s status=%s",
                             result.command_id, result.status)
                 await message.ack()
-                observer = self._boundary.maintenance_command_handled
-                if observer is not None and command.session_id is None and command.command_type in {"stop", "kill", "cancel", "prepare_stop"}:
-                    observer(command, result)
+                await _complete_maintenance_delivery(self._boundary, command, result)
             except Exception:
                 logger.exception("command_delivery_processing_failed")
                 raise
@@ -1160,7 +1179,7 @@ class NatsIngestorCommunication:
                       if command.command_type in {"compile_session_evidence", "verify_acquisition_receipt",
                                                  "read_runtime_evidence_acceptance", "preserve_service_evidence"} else
                       await _execute_maintenance_command(self._boundary, self._ingestor, command)
-                      if command.command_type in ({"stop", "kill", "cancel", "prepare_stop", "check_stop_readiness"} | SERVICE_RECOVERY_COMMAND_TYPES) else
+                      if command.command_type in ({"stop", "kill", "cancel", "prepare_stop", "check_stop_readiness"} | SERVICE_RECOVERY_COMMAND_TYPES | DEPENDENT_MAINTENANCE_COMMANDS) else
                       _execute_service_command(self._boundary, self._ingestor, command, self._results_by_command_id))
             if result.success and command.command_type == "initialize_session" and command.session_id not in self._evidence_subscriptions:
                 try:
@@ -1643,7 +1662,7 @@ class NatsStorageManagerCommunication:
             else:
                 result = (await _execute_maintenance_command(self._boundary, self._storage_manager, command)
                           if command.command_type in ({"stop", "kill", "cancel", "prepare_stop", "check_stop_readiness"}
-                                                     | SERVICE_RECOVERY_COMMAND_TYPES)
+                                                     | SERVICE_RECOVERY_COMMAND_TYPES | DEPENDENT_MAINTENANCE_COMMANDS)
                           else self.execute_command(command))
                 await self._boundary.publish_command_result(result, command.command_type)
             await message.ack()
@@ -1859,15 +1878,31 @@ def _execute_service_command(boundary: NatsCommunicationBoundary, service: Any,
     return result
 
 
+async def _complete_maintenance_delivery(boundary, command, result):
+    """Join dependent confirmation only for the exact result already published and ACKed."""
+    if (command.session_id is not None or command.target_id != boundary.component_id
+            or command.command_type not in {"stop", "kill", "cancel", "prepare_stop"}):
+        return
+    interface = getattr(boundary, "_maintenance_owner", None)
+    if (interface is not None and result is not None and result.success
+            and command.command_type in {"stop", "kill"}
+            and result.payload.get("termination_confirmed") is True):
+        boundary._pending_dependent_deliveries[command.command_id] = (command, result)
+        await interface.deliver_dependency_release(command, result)
+    observer = getattr(boundary, "maintenance_command_handled", None)
+    if observer is not None:
+        observer(command, result)
+    retained = boundary._pending_dependent_deliveries.get(command.command_id)
+    if (retained is not None and result is not None and retained[0].to_dict() == command.to_dict()
+            and retained[1].to_dict() == result.to_dict()):
+        boundary._pending_dependent_deliveries.pop(command.command_id, None)
+
+
 async def _subscribe_participant_commands(boundary: NatsCommunicationBoundary, receive: Callable) -> tuple[Subscription, Subscription]:
     async def handled(message):
         result = await receive(message)
-        observer = getattr(boundary, "maintenance_command_handled", None)
-        if observer is not None:
-            command = RuntimeCommandMessage.from_dict(json.loads(message.data.decode("utf-8")))
-            if (command.session_id is None and command.target_id == boundary.component_id
-                    and command.command_type in {"stop", "kill", "cancel", "prepare_stop"}):
-                observer(command, result)
+        command = RuntimeCommandMessage.from_dict(json.loads(message.data.decode("utf-8")))
+        await _complete_maintenance_delivery(boundary, command, result)
 
     subscriptions = []
     for subject in (f"messages.*.command.{boundary.component_type}.{boundary.component_id}.*",
@@ -2052,7 +2087,7 @@ class NatsSynchronizationManagerCommunication:
                                                      {"preparation": report})
                     else:
                         result = (await _execute_maintenance_command(self._boundary, owner, command)
-                            if command.command_type in ({"stop", "kill", "cancel", "prepare_stop", "check_stop_readiness"} | SERVICE_RECOVERY_COMMAND_TYPES)
+                            if command.command_type in ({"stop", "kill", "cancel", "prepare_stop", "check_stop_readiness"} | SERVICE_RECOVERY_COMMAND_TYPES | DEPENDENT_MAINTENANCE_COMMANDS)
                             else _execute_service_command(self._boundary, owner, command, self._results_by_command_id))
                     self._results_by_command_id[command.command_id] = result
                     self._commands_by_id[command.command_id] = deepcopy(identity)
@@ -2074,6 +2109,8 @@ class NatsSynchronizationManagerCommunication:
 
 async def _execute_maintenance_command(boundary, service, command):
     interface = getattr(service, "_maintenance", None)
+    if interface is not None:
+        boundary._maintenance_owner = interface
     if interface is None:
         from uuid import uuid4
         return RuntimeCommandResultMessage(uuid4().hex, command.command_id, command.session_id,
@@ -2095,6 +2132,7 @@ class NatsServiceMaintenanceCommunication:
             raise ValueError("Maintenance participant does not match communication boundary")
         self._boundary = boundary
         self._maintenance = maintenance
+        boundary._maintenance_owner = maintenance
         self._readiness_subscriptions = ()
         self._request_subscription = None
         self._requests = NatsControllerCommunication(boundary)

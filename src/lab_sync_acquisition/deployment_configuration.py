@@ -7,7 +7,7 @@ from math import isfinite
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from lab_sync_acquisition.communication import build_runtime_subject
+from lab_sync_acquisition.communication import RuntimeParticipant, build_runtime_subject
 from lab_sync_acquisition.storage import SshRetrievalEndpoint
 
 
@@ -93,13 +93,15 @@ def _validate_service_configuration(data, directory, role):
         "synchronization-manager": {"service_id", "result_window_s"},
         "acquisition-node": {"synchronization_id", "node_config", "result_window_s"},
         "ingestor": {"storage_root", "global_artifact_root", "retrieval_endpoints",
-                     "recovery_journal_root", "framework_journal", "no_operational_dependents"},
+                     "recovery_journal_root", "framework_journal"},
     }
     specific["storage-manager"] = specific["ingestor"]
     if role not in specific:
         raise ValueError("Configuration requires an explicitly selected service role")
     required = common | specific[role]
     optional = {"service_id"} if role == "acquisition-node" else set()
+    if pair:
+        optional |= {"no_operational_dependents", "external_dependents", "result_window_s"}
     if not isinstance(data, dict):
         raise ValueError("Expected a JSON object")
     missing, unknown = required - data.keys(), data.keys() - required - optional
@@ -147,9 +149,27 @@ def _validate_service_configuration(data, directory, role):
             raise ValueError("service_id conflicts with the persistent node_id in node_config")
         data.setdefault("service_id", node["node_id"])
     if pair:
-        if data.pop("no_operational_dependents") is not True:
-            raise ValueError("This file launch path requires explicit no_operational_dependents=true; "
-                             "actual dependents require the existing configured maintenance callbacks")
+        isolated = data.pop("no_operational_dependents", None)
+        dependents = data.pop("external_dependents", None)
+        if dependents is None:
+            if isolated is not True or "result_window_s" in data:
+                raise ValueError("Explicit no_operational_dependents=true or external_dependents with result_window_s is required; actual dependents must be configured")
+        else:
+            if isolated is not None or not isinstance(dependents, list) or not dependents:
+                raise ValueError("external_dependents requires a nonempty list, without no_operational_dependents")
+            parsed = []
+            for item in dependents:
+                if (not isinstance(item, dict) or set(item) != {"component_type", "component_id"}
+                        or item["component_type"] not in {"controller", "acquisition_node", "synchronization_manager"}):
+                    raise ValueError("Invalid external dependent participant")
+                _identity(item["component_id"], item["component_type"], "external dependent")
+                parsed.append(RuntimeParticipant.from_dict(item))
+            if len(set(parsed)) != len(parsed):
+                raise ValueError("Duplicate external dependent identity")
+            window = data.get("result_window_s")
+            if type(window) not in {int, float} or not isfinite(window) or window <= 0:
+                raise ValueError("External dependents require positive finite result_window_s")
+            data["external_dependents"] = tuple(parsed)
         for field in ("storage_root", "global_artifact_root", "recovery_journal_root", "framework_journal"):
             data[field] = _local_path(directory, data[field], field)
             if data[field].exists() and (data[field].is_dir() if field == "framework_journal" else not data[field].is_dir()):

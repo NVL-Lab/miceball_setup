@@ -837,10 +837,15 @@ class Controller:
                     or infrastructure["controller"].component_id != self._component_id
                     or maintenance.ingestor is not self._ingestor or maintenance.storage_manager is not self._storage_manager):
                 raise ValueError("Controller maintenance and evidence dependencies must match the explicit scope")
-            for kind, service in (("ingestor", self._ingestor), ("storage_manager", self._storage_manager)):
-                interface = getattr(service, "_maintenance", None)
-                if interface is None or interface.participant != infrastructure[kind]:
-                    raise ValueError(f"Configured {kind} evidence dependency must match shutdown scope")
+            if maintenance._framework_communication is not None:
+                if (maintenance._framework_ingestor != infrastructure["ingestor"]
+                        or maintenance._framework_storage != infrastructure["storage_manager"]):
+                    raise ValueError("Remote evidence dependencies must match shutdown scope")
+            else:
+                for kind, service in (("ingestor", self._ingestor), ("storage_manager", self._storage_manager)):
+                    interface = getattr(service, "_maintenance", None)
+                    if interface is None or interface.participant != infrastructure[kind]:
+                        raise ValueError(f"Configured {kind} evidence dependency must match shutdown scope")
             if authorize_kill is not None and not callable(authorize_kill):
                 raise ValueError("Kill authorization must be an explicit callable")
             with self._service_operation_lock:
@@ -966,8 +971,10 @@ class Controller:
             await turn(infrastructure["storage_manager"], "prepare_stop")
             await turn(infrastructure["controller"], "prepare_stop")
             await preserve("final_archival_checkpoint")
-            with self._ingestor.framework_preservation_guard(self._storage_manager):
-                pass
+            if maintenance._framework_communication is None:
+                with self._ingestor.framework_preservation_guard(self._storage_manager):
+                    pass
+            await maintenance.release_ingestor_dependency(stop_attempt_id)
             # Ingestor's own W036 stop preserves its cleanup and last readiness.
             # After dispatch, even a missing result cannot prove its intake is live.
             archival_boundary_crossed = True

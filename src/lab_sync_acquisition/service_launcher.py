@@ -56,6 +56,7 @@ class ServiceLauncher:
         self._wake = asyncio.Event()
         self._interrupt = False
         self._handled_retirements = set()
+        self._local_retirements = {}
         for maintenance, boundary in zip(self.maintenance, self.boundaries):
             boundary.maintenance_command_handled = lambda command, result, owner=maintenance: self._remote_handled(owner, command, result)
 
@@ -115,6 +116,8 @@ class ServiceLauncher:
                 self._feedback(owner, command, result)
                 if (result.success and result.payload.get("outcome") == "completed"
                         and result.payload.get("termination_confirmed") is True and owner.terminated):
+                    self._local_retirements[owner.participant] = (command, result)
+                    await owner.deliver_dependency_release(command, result)
                     self._handled_retirements.add(owner.participant)
                 return result
             except Exception as error:
@@ -131,6 +134,22 @@ class ServiceLauncher:
             plan = [(self.maintenance[0], "stop")]
         for owner, operation in plan:
             if owner.terminated:
+                boundary = next(b for b in self.boundaries if b.component_id == owner.participant.component_id
+                                and b.component_type == owner.participant.component_type)
+                for command_id, pair in tuple(boundary._pending_dependent_deliveries.items()):
+                    try:
+                        await owner.deliver_dependency_release(*pair)
+                        self._remote_handled(owner, *pair)
+                        boundary._pending_dependent_deliveries.pop(command_id, None)
+                    except Exception as error:
+                        self._report(f"Acknowledged retirement delivery remains unconfirmed: {error}; process retained.")
+                pending_local = self._local_retirements.get(owner.participant)
+                if pending_local is not None and owner.participant not in self._handled_retirements:
+                    try:
+                        await owner.deliver_dependency_release(*pending_local)
+                        self._handled_retirements.add(owner.participant)
+                    except Exception as error:
+                        self._report(f"Dependent confirmation remains unconfirmed: {error}; process retained.")
                 if owner.participant not in self._handled_retirements:
                     self._report(json.dumps({"target": owner.participant.to_dict(), "outcome": "unconfirmed",
                         "remaining_obligations": ["Final maintenance command-result publication/handling"],
@@ -220,7 +239,8 @@ class ServiceLauncher:
 async def launch_storage_services(*, servers, ingestor_id, storage_id, storage_root,
                                   recovery_journal_root, framework_journal,
                                   preservation_window_s, operational_dependents, report=print,
-                                  global_artifact_root=None, retrieval_endpoints=None):
+                                  global_artifact_root=None, retrieval_endpoints=None,
+                                  external_dependents=(), result_window_s=None):
     """Launch the existing paired owners with explicit constructor settings."""
     servers = tuple(servers)
     if not servers or any(not isinstance(server, str) or not server.strip() for server in servers):
@@ -249,6 +269,10 @@ async def launch_storage_services(*, servers, ingestor_id, storage_id, storage_r
         operational_dependents=operational_dependents if owner is intake else None,
         evidence_publisher=lambda message, b=boundary: publish(b, message))
         for owner, boundary in zip((intake, storage), boundaries))
+    if external_dependents:
+        from lab_sync_acquisition.nats_communication import NatsControllerCommunication
+        interfaces[0].configure_external_dependents(external_dependents,
+            NatsControllerCommunication(boundaries[0]), result_window_s)
     launcher = ServiceLauncher(interfaces, boundaries, report=report)
     connected = []
 
@@ -312,8 +336,12 @@ def main(argv=None):
     parser.add_argument("--framework-journal", type=Path)
     parser.add_argument("--preservation-window-s", type=float)
     parser.add_argument("--no-operational-dependents", action="store_true",
-        help="Explicitly declare no external operational dependents; other dependency composition is unavailable here")
+        help="Explicitly declare no external operational dependents")
+    parser.add_argument("--external-dependent", action="append", metavar="TYPE/ID",
+        help="Configured external Ingestor dependent; repeat for each actual dependent")
     args = parser.parse_args(argv)
+    if args.external_dependent and args.role not in {"ingestor", "storage-manager"}:
+        parser.error("--external-dependent applies only to the shared storage process")
     if args.role == "verify-node":
         forbidden = ("server", "service_id", "ingestor_id", "storage_id", "synchronization_id",
                      "known_node", "no_known_nodes", "config", "storage_root", "recovery_journal_root",
@@ -371,7 +399,7 @@ def main(argv=None):
         fields = ("server", "service_id", "ingestor_id", "storage_id", "synchronization_id",
                   "known_node", "no_known_nodes", "config", "storage_root", "recovery_journal_root",
                   "framework_journal", "preservation_window_s", "result_window_s", "no_operational_dependents",
-                  "target_type", "target_id", "administrator_id", "stop_attempt_id", "authorize_kill")
+                  "target_type", "target_id", "administrator_id", "stop_attempt_id", "authorize_kill", "external_dependent")
         if any(getattr(args, field) is not None and getattr(args, field) is not False for field in fields):
             parser.error("--deployment-config cannot be combined with explicit launch or maintenance settings; no override precedence is applied")
         try:
@@ -444,14 +472,29 @@ def main(argv=None):
     if (not isfinite(args.preservation_window_s) or args.preservation_window_s < 0
             or any(not value.strip() for value in (*args.server, args.ingestor_id, args.storage_id))):
         parser.error("Explicit nonempty connection/owner identities and a finite nonnegative preservation window are required")
-    if not args.no_operational_dependents:
-        parser.error("Explicit dependency configuration is required: this bounded CLI supports only "
-                     "--no-operational-dependents. Deployments with dependents require existing configured maintenance interfaces.")
+    if bool(args.external_dependent) == args.no_operational_dependents:
+        parser.error("Explicit dependency configuration is required: choose --external-dependent entries or --no-operational-dependents")
+    external_dependents = []
+    for value in args.external_dependent or ():
+        try:
+            kind, identity = value.split("/", 1)
+            participant = RuntimeParticipant(kind, identity)
+            from lab_sync_acquisition.communication import build_runtime_subject
+            if kind not in {"controller", "acquisition_node", "synchronization_manager"}:
+                raise ValueError("Unsupported dependent type")
+            build_runtime_subject(None, "command", kind, identity, "stop")
+            external_dependents.append(participant)
+        except ValueError as error:
+            parser.error(f"Invalid external dependent: {error}")
+    if external_dependents and (len(set(external_dependents)) != len(external_dependents)
+            or args.result_window_s is None or not isfinite(args.result_window_s) or args.result_window_s <= 0):
+        parser.error("External dependents require unique identities and positive --result-window-s")
     try:
         return asyncio.run(launch_storage_services(servers=args.server, ingestor_id=args.ingestor_id,
             storage_id=args.storage_id, storage_root=args.storage_root, recovery_journal_root=args.recovery_journal_root,
             framework_journal=args.framework_journal, preservation_window_s=args.preservation_window_s,
-            operational_dependents={}))
+            operational_dependents={}, **({"external_dependents": tuple(external_dependents),
+                "result_window_s": args.result_window_s} if external_dependents else {})))
     except Exception as error:
         print(f"Startup unconfirmed: {type(error).__name__}: {error}", file=sys.stderr)
         return 1

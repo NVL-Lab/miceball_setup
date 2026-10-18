@@ -2,16 +2,29 @@
 
 ## Manual Installation Integration (W067 Closed)
 
-- `config_templates/manual_installation/`: Typed service/hardware examples with placeholder installation values, a selected-product-capable camera declaration and an explicitly isolated-only shared-storage example.
+- `config_templates/manual_installation/`: Typed service/hardware examples with placeholder installation values, a selected-product-capable camera declaration and explicitly configured shared-storage external dependents under W068.
 - `tests/test_manual_installation.py::ManualInstallationTests`: Exercises example loading through public configuration/startup interfaces, identity consistency, CLI dispatch and standalone retrieval configuration without network or hardware.
 
 The installation guide integrates package/runtime preparation, manual SSH trust and
 permissions, existing launch/verification commands, device checks and node changes.
-It retains the unresolved shared-pair external-dependent callback composition gap;
+Its historical shared-pair external-dependent gap is now addressed by W068 below;
 examples are not an installer or deployment certification. Independent user-run
 validation passed 4/4 tests; independent architectural audit PASS found no confirmed
-P0-P3 findings. Q022 remains OPEN for callback composition and remaining deployment
+P0-P3 findings. Q022 remains OPEN for independent W068 verification and remaining deployment
 obligations. No runtime API changes. See W067 in validated_workflows.md.
+
+## Shared-Storage Dependent Confirmation (Decision 389; W068 Open)
+
+- `tests/test_external_dependent_maintenance.py::ExternalDependentConfigurationTests`: Validates explicit shared-process dependent files and CLI dispatch without assuming an empty dependency set.
+- `tests/test_external_dependent_maintenance.py::ExternalDependentMaintenanceTests`: Exercises real maintenance owners and NATS adapters through a broker double for retirement delivery, restart freshness, retries, conflicts, prepared Controller release and shared lifetime.
+
+Decision 389's bounded implementation composes existing maintenance callbacks,
+NATS command/results and launcher exit gating with instance/attempt-correlated authoritative retirement
+confirmation available to Ingestor before dependent exit, or Controller's
+specifically authorized final-checkpoint dependency release. Prepared Controller
+is not retired. W068 remains OPEN pending independent validation/audit; isolated
+and configured-external shared CLI paths are both supported. See architecture_decisions.md
+and installation_and_deployment.md for the accepted contract and current limitation.
 
 ## Manual Service CLI (Decisions 383-388; W061-W063 Closed)
 
@@ -56,7 +69,8 @@ installation_and_deployment.md and Decisions 383-388.
 - ServiceLauncher.run(*, startup=None): Installs SIGINT protection before invoking an optional async startup callable, awaits interrupted initialization before local maintenance, retains cancelled/blocked/failed/unconfirmed processes, and drains communication only after confirmed retirement and result handling.
 - ServiceLauncher._feedback: Reports existing maintenance outcomes, identities, blockers and outstanding obligations without creating lifecycle evidence or outcome states.
 - ServiceLauncher._remote_handled: Validates request/result correlation using the exact published-and-acknowledged result and counts only confirmed retirement toward exit, never a cached success substituted by command ID.
-- launch_storage_services(*, servers, ingestor_id, storage_id, storage_root, recovery_journal_root, framework_journal, preservation_window_s, operational_dependents, report=print, global_artifact_root=None, retrieval_endpoints=None): Constructs the two existing paired owners with configured storage/retrieval and existing Ingestor dependency callbacks, connects their NATS handlers/readiness and runs the shared lifetime.
+- ServiceLauncher._local_retirements: Retains local completed command/results for explicit dependent-delivery retry without repeating cleanup or substituting an unpublished remote result.
+- launch_storage_services(*, servers, ingestor_id, storage_id, storage_root, recovery_journal_root, framework_journal, preservation_window_s, operational_dependents, report=print, global_artifact_root=None, retrieval_endpoints=None, external_dependents=(), result_window_s=None): Constructs only the paired owners, composing either existing local callbacks or explicit remote dependent confirmations through existing NATS handlers and shared process lifetime.
 - main(argv=None): Parses explicit-role startup, addressed remote maintenance or installation-only verify-retrieval/verify-node actions, returning nonzero for unconfirmed or unsuccessful commands without merging configuration inputs.
 
 ## src/lab_sync_acquisition/installation_communication.py
@@ -1174,6 +1188,8 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 - NatsStorageManagerCommunication._reconfirm_archive_closure(command, result): Requires matching current closed-archive preservation before reconfirming a retained or historical successful closure through the owner.
 - NatsStorageManagerCommunication._read_saved_session_result(record, operation): Validates persisted result correlation, subject/body routing and collection-evidence or closed-summary identity before matching.
 - _subscribe_participant_commands(boundary, receive): Subscribes fresh-only to existing participant command subjects, notifying an installed maintenance lifetime observer only after exact result publication and delivery ACK complete.
+- _complete_maintenance_delivery(boundary, command, result): Retains the exact published/ACKed retirement while awaiting Ingestor confirmation, then notifies launcher exit gating without substituting cached results from another request.
+- NatsControllerCommunication.request_maintenance_readback(participant, operation, payload, result_window_s): Reuses existing Session-independent commands with fresh owner/operation-scoped nonce correlation, bounded waiting and temporary-subscription cleanup for dependent registration and confirmation.
 - _validate_owner_request(boundary, command): Validates target, requester, command, Session, connectivity, and transient reply correlation for the bounded owner operations.
 - NatsControllerCommunication.request_persistence_command(participant, command_type, session_id, payload, result_window_s, *, command_id): Makes a scoped owner request with fresh-only nonce-correlated results, including Session-independent preserve_service_evidence; Session operations still require their real Session identity.
 - Controller.collect_saved_session_artifacts_remote(session_id, *, evidence_id, communication, storage_participant, result_window_s): Coordinates explicit single saved-Session collection through NATS without local service references, requiring matching durable collection evidence and retaining failures or missing responses as unconfirmed.
@@ -1210,6 +1226,15 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 ## src/lab_sync_acquisition/service_maintenance.py
 
 - ServiceMaintenanceInterface(service, participant, *, ingestor, storage_manager, preservation_window_s, close_resources, operational_dependents=None, evidence_publisher=None, retire_resources=None, dependency_participants=(), framework_communication=None, framework_ingestor=None, framework_storage=None): Attaches one service-owned administrative interface with local paired persistence or explicit remote Ingestor/StorageManager-confirmed producer preservation, existing callbacks and configured dependencies.
+- ServiceMaintenanceInterface.operational_instance_id: Read-only identity for one owner lifetime, separate from persistent RuntimeParticipant identity.
+- ServiceMaintenanceInterface.configure_external_dependents(participants, communication, result_window_s): Composes explicit Ingestor callback blockers from current owner confirmations and existing verified framework history.
+- ServiceMaintenanceInterface.register_ingestor_dependency(): Registers the deployed instance through fresh scoped NATS readback before unrelated operational admission.
+- ServiceMaintenanceInterface.deliver_dependency_release(command, result): Delivers exact authoritative retirement to Ingestor before launcher exit, with explicit retry retaining original command/result identity.
+- ServiceMaintenanceInterface.release_ingestor_dependency(framework_attempt_id): Confirms only a prepared Controller's final preserved coordinated-shutdown boundary, prohibiting further Ingestor-dependent work without claiming retirement.
+- ServiceMaintenanceInterface._restore_dependent_confirmations(): Reads existing journal records only when current StorageManager preservation confirms them, leaving unknown archive history blocked without repair.
+- ServiceMaintenanceInterface._record_dependent_state(registration, confirmation=None, *, conflicting=False): Persists callback acceptance/conflict state through existing framework evidence and archive ownership before confirmation.
+- ServiceMaintenanceInterface._receive_dependent_command(command): Validates current participant/instance/attempt and exact owner readback before changing an Ingestor callback blocker.
+- ServiceMaintenanceInterface._read_operational_instance(command): Returns current owner identity and exact retained retirement or authorized Controller-release readback without admitting new work.
 - ServiceMaintenanceInterface.required_evidence(): Returns detached persistent evidence for the complete retained producer boundary, rejecting conflicting identities.
 - ServiceMaintenanceInterface.evidence_preserved(message): Checks exact current local acceptance or authoritative remote coverage for one retained producer message, never a transport ACK.
 - ServiceMaintenanceInterface.execute_command(command): Serializes/deduplicates existing maintenance and concrete owner-specific recovery commands; prepared retirement still requires complete retained Ingestor evidence/all-audit coverage through commitment without invoking retired intake or repeating cleanup.

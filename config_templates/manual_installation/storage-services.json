@@ -7,7 +7,12 @@
   "recovery_journal_root": "SESSION_JOURNAL_PATH",
   "framework_journal": "FRAMEWORK_JOURNAL_PATH/framework.jsonl",
   "preservation_window_s": 30,
-  "no_operational_dependents": true,
+  "external_dependents": [
+    {"component_type": "controller", "component_id": "CONTROLLER_ID"},
+    {"component_type": "synchronization_manager", "component_id": "SYNCHRONIZATION_ID"},
+    {"component_type": "acquisition_node", "component_id": "ACQUISITION_NODE_ID"}
+  ],
+  "result_window_s": 10,
   "retrieval_endpoints": {
     "ACQUISITION_NODE_ID": {
       "host": "ACQUISITION_NODE_HOST",

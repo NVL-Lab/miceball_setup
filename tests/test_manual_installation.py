@@ -67,7 +67,7 @@ class ManualInstallationTests(unittest.TestCase):
         path.write_text(json.dumps(data), encoding="utf-8")
         settings = load_retrieval_configuration(path)
         self.assertIn("ACQUISITION_NODE_ID", settings["retrieval_endpoints"])
-        with self.assertRaisesRegex(ValueError, "actual dependents"):
+        with self.assertRaisesRegex(ValueError, "no_operational_dependents"):
             load_service_configuration(path, "ingestor")
 
     def test_installation_commands_expose_the_documented_flags(self):

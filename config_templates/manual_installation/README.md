@@ -14,13 +14,15 @@ No environment-variable substitution is performed by the loaders.
 | `acquisition-node.json` | Separate node hardware file referenced by its service file |
 | `storage-services.json` | Shared Ingestor/StorageManager computer / either storage role |
 
-The storage example's `no_operational_dependents: true` is valid **only for an
-isolated pair with no external operational dependents**. Do not use it to launch
-a pair serving Controller, SynchronizationManager or nodes that depend on it.
-The existing file launcher cannot compose their required maintenance callbacks;
-this is an outstanding deployment integration gap, not permission to omit them.
-`verify-retrieval` can read the endpoint settings without launching the pair or
-evaluating this declaration. No complete distributed launch is claimed here.
+The storage example explicitly lists the Controller, SynchronizationManager and
+node as external dependents. Keep this list consistent with the actual deployment;
+it is not inferred from traffic or Controller registration. W068 composes existing
+maintenance callbacks from these identities and requires positive `result_window_s`
+for current confirmation. It remains OPEN pending independent validation/audit.
+For a genuinely isolated pair only, remove `external_dependents` and `result_window_s`
+and use `no_operational_dependents: true`; never combine the modes or falsely declare
+absence of dependents. `verify-retrieval` can read the endpoint settings without
+launching the pair. Complete physical distributed deployment remains unverified.
 
 Identity placeholders must agree across files: the node's `node_id`, Controller
 `known_nodes` entry and StorageManager endpoint key refer to the same persistent
