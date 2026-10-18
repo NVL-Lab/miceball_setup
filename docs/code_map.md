@@ -10,10 +10,10 @@ permissions, existing launch/verification commands, device checks and node chang
 Its historical shared-pair external-dependent gap is now addressed by W068 below;
 examples are not an installer or deployment certification. Independent user-run
 validation passed 4/4 tests; independent architectural audit PASS found no confirmed
-P0-P3 findings. Q022 remains OPEN for independent W068 verification and remaining deployment
+P0-P3 findings. W068 is separately CLOSED; Q022 remains OPEN for remaining deployment
 obligations. No runtime API changes. See W067 in validated_workflows.md.
 
-## Shared-Storage Dependent Confirmation (Decision 389; W068 Open)
+## Shared-Storage Dependent Confirmation (Decisions 389-390; W068 Closed)
 
 - `tests/test_external_dependent_maintenance.py::ExternalDependentConfigurationTests`: Validates explicit shared-process dependent files and CLI dispatch without assuming an empty dependency set.
 - `tests/test_external_dependent_maintenance.py::ExternalDependentMaintenanceTests`: Exercises real maintenance owners and NATS adapters through a broker double for retirement delivery, restart freshness, retries, conflicts, prepared Controller release and shared lifetime.
@@ -22,16 +22,20 @@ Decision 389's bounded implementation composes existing maintenance callbacks,
 NATS command/results and launcher exit gating with instance/attempt-correlated authoritative retirement
 confirmation available to Ingestor before dependent exit, or Controller's
 specifically authorized final-checkpoint dependency release. Prepared Controller
-is not retired. W068 remains OPEN pending independent validation/audit; isolated
+is not retired. W068 is CLOSED after independent manual validation and audit PASS; isolated
 and configured-external shared CLI paths are both supported. See architecture_decisions.md
 and installation_and_deployment.md for the accepted contract and current limitation.
 
 Decision 390 requires ordinary-startup historical-prefix verification and current
 framework archival continuation before restoring eligible Decision 389 releases.
 The paired startup now invokes the continuation methods listed below before
-release restoration; independent validation/audit remain pending. Failed
+release restoration. The P2 maintenance-write bypass was corrected with a central
+ordinary-write guard retaining rejected history; final audit found no remaining
+confirmed P0-P3 findings. Independent manual validation passed 3/3 scenarios across
+two executions after a harness correction. Failed
 verification retains blockers. Interrupted-write repair retains its separate
-authorization requirements.
+authorization requirements. See W068 in validated_workflows.md for the separate
+83-test implementation run, 41-test/two-probe audit and verification limitations.
 
 ## Manual Service CLI (Decisions 383-388; W061-W063 Closed)
 

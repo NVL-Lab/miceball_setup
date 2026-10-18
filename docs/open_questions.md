@@ -989,7 +989,7 @@ Q022 remains OPEN. Q019 and W001-W066 remain CLOSED. Existing Q006/Q018, Q024,
 Phase 16 and M015 statuses are unchanged. See installation_and_deployment.md for
 the supported entry points and validated_workflows.md for verification limitations.
 
-### Shared-storage external-dependent maintenance (W068 OPEN)
+### Shared-storage external-dependent maintenance (W068 CLOSED)
 
 Decision 389 records the accepted LLC External-Dependent Retirement Confirmation
 clarification and resolves W068's architectural blocker. Ingestor removes a
@@ -1022,11 +1022,17 @@ shared-owner restart: an intact archive must be verified as an internally
 consistent exact historical prefix of recovered authoritative evidence and
 applicable intake audit before additional accepted recovery evidence is archived.
 Complete current confirmation precedes reconsideration of Decision 389 releases.
-This startup integration remains unimplemented and unvalidated. Unavailable or
+This startup integration is implemented and validated. Unavailable or
 invalid history/confirmation retains blockers; actual interrupted-write repair
 remains under Decisions 339/342/347, not silent continuation. No new recovery
-mechanism or authority is introduced. W068 and Q022 remain OPEN pending this
-integration, independent validation/audit and remaining deployment work. W001-W067 and
+mechanism or authority is introduced. W068 is CLOSED after the P2 ordinary
+maintenance-write bypass correction, independent manual IPython validation (3/3
+scenarios PASS across two executions, after a harness correction), and final audit
+PASS with no remaining confirmed P0-P3 findings. Implementation verification: 83
+focused tests PASS; final audit: 41 targeted tests and two independent probe
+workflows PASS. Earlier Decision 390 disk validation: 5/5 PASS. Runs overlap and
+are not additive; see W068 in validated_workflows.md for the complete history.
+Q022 remains OPEN for remaining accepted deployment work. W001-W067 and
 Q019 remain CLOSED. No live networking, hardware, OS signals or full physical
 deployment verification is claimed.
 
@@ -1044,13 +1050,13 @@ match existing interfaces within their explicitly bounded scope.
 
 At W067 closure the shared CLI's isolated-only restriction prevented complete
 file-driven deployment. W067 documented rather than bypassed that gap; W068 above
-now implements callback composition under Decision 389, pending independent
-validation/audit. Do not use an empty callback map or false declaration to proceed.
+now closes callback composition under Decisions 389/390 after separate validation
+and audit. Do not use an empty callback map or false declaration to proceed.
 W067's historical validation does not validate W068's new implementation.
 Real network/SSH, hardware/backend/permissions, OS signals and complete deployment
 remain operator verification. Other accepted outstanding requirements, including
 adjustable-parameter exposure and deployment integration, remain OPEN under Q022.
-Q022 remains OPEN for independent W068 verification and remaining accepted
+Q022 remains OPEN for remaining accepted
 deployment obligations. Q019 and W001-W067 remain CLOSED; unrelated
 question/milestone statuses are unchanged. See W067 in validated_workflows.md.
 

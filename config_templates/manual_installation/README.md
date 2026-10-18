@@ -18,7 +18,9 @@ The storage example explicitly lists the Controller, SynchronizationManager and
 node as external dependents. Keep this list consistent with the actual deployment;
 it is not inferred from traffic or Controller registration. W068 composes existing
 maintenance callbacks from these identities and requires positive `result_window_s`
-for current confirmation. It remains OPEN pending independent validation/audit.
+for current confirmation. W068 is CLOSED after independent manual validation and
+final audit PASS, including ordinary archive continuation and the maintenance-write
+guard correction; see W068 in `docs/validated_workflows.md`.
 For a genuinely isolated pair only, remove `external_dependents` and `result_window_s`
 and use `no_operational_dependents: true`; never combine the modes or falsely declare
 absence of dependents. `verify-retrieval` can read the endpoint settings without

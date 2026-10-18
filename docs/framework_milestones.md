@@ -1363,8 +1363,8 @@ Q022, Q006, Q018, Q024, Phase 16 and M015 remain OPEN.
 
 ### Shared-Storage External-Dependent Maintenance Integration (W068)
 
-**Status:** OPEN - bounded Decision 389 callback/confirmation integration is
-implemented, pending independent validation and audit. Explicit storage-file/CLI
+**Status:** CLOSED - bounded Decisions 389/390 integration is implemented,
+independently manually validated and independently audited PASS. Explicit storage-file/CLI
 participants replace the isolated-only deployment restriction without discovery.
 
 Each service retains retirement/release authority. Ingestor requires authoritative
@@ -1386,11 +1386,21 @@ cleanup. Decision 390 additionally requires ordinary-startup verification of an
 intact archive as an exact valid historical prefix of recovered authoritative
 evidence and applicable intake audit, followed by archival continuation and
 complete current confirmation before eligible release restoration. This
-integration remains unimplemented and unvalidated; it is not automatic
+integration is implemented and validated; it is not automatic
 interrupted-write repair under Decisions 339/342/347.
 Focused simulated-communication tests are provided; controlled execution is not
 normal Windows I/O scheduling, live NATS or physical deployment verification.
-W068/Q022 remain OPEN for independent validation/audit and remaining integration;
+The initial audit FAIL identified a P2 maintenance-write bypass after rejected
+continuation. StorageManager's ordinary-write guard now retains rejection across
+all maintenance callers while preserving valid initial creation and authorized
+repair. Final independent audit PASS found no remaining confirmed P0-P3 findings.
+Implementation: 83 focused tests PASS. Final audit: 41 targeted tests and two
+independent probe workflows PASS. Independent manual IPython: 3/3 scenarios PASS
+across two executions, after correcting a harness error. Earlier Decision 390 disk
+validation passed 5/5; these overlapping runs are not additive. See W068 in
+validated_workflows.md for the full history and limitations, including no live
+NATS, hardware, real OS signals, power-loss or normal Windows scheduling campaign.
+W068 is CLOSED; Q022 remains OPEN for remaining accepted deployment obligations.
 W001-W067 and Q019 remain CLOSED; unrelated open statuses are unchanged.
 
 ### Manual Installation And Provisioning Integration (W067)
@@ -1407,12 +1417,11 @@ role launch commands, fresh registered-node checks, recommended device acquisiti
 and node additions/replacements. At W067 closure, file-driven deployment remained
 limited by the shared-pair no-external-dependents restriction; actual dependents
 required callbacks unavailable through files. W067 documented rather than bypassed
-that gap. W068 above now implements the bounded integration, pending independent
-validation/audit; W067's historical validation does not validate those new paths.
+that gap. W068 above separately validates and closes the bounded integration;
+W067's historical validation does not validate those new paths.
 Real network, SSH/SFTP, hardware, OS signals and complete deployment are unverified.
-That callback-composition obligation is addressed by the W068 implementation above,
-pending independent validation/audit; the runbook alone does not establish physical
-distributed-deployment readiness.
+That callback-composition obligation is closed by W068 above; the runbook alone
+does not establish physical distributed-deployment readiness.
 W001-W067 and Q019 remain CLOSED; Q022 remains OPEN and unrelated open statuses
 are unchanged. See W067 in validated_workflows.md for evidence and limitations.
 

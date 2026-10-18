@@ -5137,6 +5137,113 @@ this documentation closure, and no subsequent slice is selected.
 
 ---
 
+# W068 - Shared-Storage External-Dependent Maintenance Integration
+
+**Status:** CLOSED - implemented under Decisions 376, 389 and 390, independently
+manually validated and independently audited PASS, with no remaining confirmed
+P0-P3 findings.
+
+Synchronization-time implementation-status notes in Decisions 389/390 remain
+historical; this record establishes current closure without altering accepted
+decision bodies.
+
+## Implemented scope
+
+The shared Ingestor/StorageManager launcher accepts explicitly configured external
+RuntimeParticipant dependents through service files or CLI settings, retaining the
+truthful isolated path without discovery or a false no-dependents declaration.
+The two authoritative components retain their shared process lifetime and separate
+state, locks and responsibilities. Independently deployed services use existing
+NATS maintenance commands/results and journal/archive mechanisms.
+
+Dependent instances register before new operational work. Exact service-owned
+retirement confirmation identifies participant, operational instance, maintenance
+attempt and actual outcome; Ingestor verifies and preserves acceptance before the
+dependent launcher may exit. Missing, stale, contradictory or incorrectly
+correlated confirmation retains blockers. New instances supersede old release
+evidence; duplicates and explicit retries do not repeat completed cleanup.
+
+Prepared Controller remains operational. Only its specifically authorized
+dependency release at the preserved final archival checkpoint, with no further
+Ingestor-dependent work permitted, removes that dependency before infrastructure
+retirement. Controller continues the accepted coordination and retires last.
+Stop, explicitly authorized Kill and Cancel remain distinct; publication alone
+does not establish preservation, dependency release or OS process exit.
+
+Decision 390 continuation runs before eligible dependent-release restoration.
+Ingestor verifies recovered journal/compilation agreement. StorageManager verifies
+intact historical products, exact evidence and applicable audit prefixes, a common
+intake boundary and summary consistency; existing archival mechanisms then preserve
+additional recovery evidence and verify complete current readback. Repeated
+ordinary restarts are supported without silently invoking interrupted-write repair.
+Archival coverage alone does not substitute for Decision 389 release requirements.
+
+## Correction and audit history
+
+Investigation found ordinary restart lacked the connected historical-prefix
+verification/current archival continuation needed to restore eligible releases.
+Accepted Decision 390 resolved that boundary; implementation and focused restart,
+integrity and preservation-failure regressions followed.
+
+The subsequent independent audit returned **FAIL**, identifying one confirmed P2:
+after startup rejected corrupted archive history, maintenance preservation could
+overwrite it, restore an older dependent release and authorize coordinated exit.
+The audit reproduced this through actual owners/disk persistence and production
+launching with simulated NATS boundaries.
+
+The correction enforces write safety at StorageManager's public framework archive
+writer for all ordinary callers. Rejected continuation remains distinct from a
+pristine target, including missing products; ordinary Stop/prepare_stop, Cancel,
+Kill evidence, readiness and administrator-decision preservation cannot repair
+rejected history. Legitimate initial creation remains available. Physical writes
+follow ordinary safety checks, verified continuation, or the existing authorized
+interrupted-write recovery checks under Decisions 339, 342 and 347.
+
+Final independent read-only post-correction audit: **PASS**, no remaining confirmed
+P0-P3 findings. The original P2 was independently confirmed resolved.
+
+## Validation evidence
+
+These reported runs overlap and are not an additive test total:
+
+- Earlier independent Decision 390 disk validation: **5/5 PASS**, covering normal
+  restart, three consecutive restarts, archive corruption, exact-prefix mismatch
+  and injected archival write failure. This preceded the final maintenance guard.
+- Final implementation verification: **83 focused tests PASS**, covering dependent
+  maintenance, launcher/CLI behavior and affected authorized-recovery contracts.
+- Final audit verification: **41 targeted tests PASS** and **two independent probe
+  workflows PASS**. Production-launcher probes covered corrupted, missing and
+  partial history with repeated Stop; products stayed byte-for-byte unchanged,
+  preservation remained unconfirmed, dependents remained blocked and exit stayed
+  disabled. Deleting products after rejection remained blocked. An injected
+  archive fsync failure left ordinary retry/continuation refused and failed
+  products unmodified by subsequent operations.
+- Independent manual IPython validation: **3/3 scenarios PASS across two
+  executions**, covering corrupted archive restart followed by local Stop, valid
+  archive continuation and legitimate initial creation. A manual harness error was
+  corrected before the third scenario passed; it was not a production defect.
+
+The manual result completes the independent-validation requirement that remained
+outstanding at the first documentation-closure check. Audit probes and Codex tests
+are not substitutes for that separate stage.
+
+## Limitations and remaining scope
+
+Verification used simulated NATS and controlled socket-free asyncio execution,
+real temporary disk persistence, and independent IPython scenarios. Controlled
+execution is not a normal Windows asynchronous scheduling campaign. No live NATS,
+hardware, real OS-signal, power-loss or full physical deployment validation is
+claimed. Existing authorized repair is not broadened into automatic recovery.
+
+W068 is CLOSED. Q022 remains OPEN for remaining accepted deployment integration,
+applicable adapter-defined parameter constraints/inventory/Controller readback,
+and installation/operator verification. No complete distributed deployment or new
+architecture is established. Q019 and W001-W067 remain CLOSED; Q006/Q018, Q024,
+Phase 16 and M015 remain OPEN. No implementation tests or audit were rerun solely
+for this documentation closure, and no next slice is selected.
+
+---
+
 # Future Workflows
 
 The following workflows are expected to be added as the framework evolves.

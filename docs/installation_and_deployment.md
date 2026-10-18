@@ -9,8 +9,8 @@ startup integration are independently validated and audited PASS (W064, CLOSED).
 W065/W066 installation checks are closed; W067 integrates the manual runbook and
 typed examples below (CLOSED after independent validation and audit PASS). Actual manual
 provisioning and deployment/integration remain operator work, with the shared-pair
-external-dependent integration now implemented in W068 under Decision 389, pending
-independent validation/audit (OPEN). The bounded owner
+external-dependent integration CLOSED in W068 under Decisions 389/390 after
+independent manual validation and audit PASS. The bounded owner
 persistence/readback foundation below is independently validated and audited
 after correction (W051). This is the initial manual installation contract and a
 current-interface reference, not a working installer or deployment certification.
@@ -652,8 +652,8 @@ validation (4/4 tests, zero failures/errors) and independent architectural audit
 PASS with no confirmed P0-P3 findings. The five examples conform to existing strict
 loaders, with consistent identities/settings and documented CLI interfaces.
 Physical provisioning, live networks/SSH, hardware and full deployment remain
-unverified. W068 implements the external-dependent integration below but remains
-OPEN for independent validation/audit. See W067 in validated_workflows.md. Follow the steps for a new deployment; use the node-change
+unverified. W068 closes the external-dependent integration below after separate
+validation/audit. See W067/W068 in validated_workflows.md. Follow the steps for a new deployment; use the node-change
 procedure at the end for additions/replacements. Four focused synchronous checks
 validate the examples with actual loaders, identity relationships, CLI dispatch/
 help and standalone retrieval configuration. Dispatch tests replace runtime startup;
@@ -738,7 +738,7 @@ SSH key/known-host references must already exist for storage validation. Missing
 or invalid values must be corrected before startup; do not suppress diagnostics
 or combine file inputs with explicit launch-setting flags.
 
-**W068 external-dependent maintenance (OPEN):** configure actual dependents, not
+**W068 external-dependent maintenance (CLOSED):** configure actual dependents, not
 an empty callback map or a false isolated declaration. For example:
 
 ```json
@@ -791,8 +791,10 @@ evidence, with complete current-compilation verification before confirmation.
 Journal history or historical confirmation alone is insufficient. Decision 389's
 instance, attempt, freshness, contradiction and supersession checks still apply.
 
-This ordinary continuation integration is accepted but not yet implemented or
-validated in W068. Until current preservation is confirmed, callbacks remain
+This ordinary continuation integration is implemented and validated in W068.
+StorageManager's ordinary-write guard also prevents maintenance from overwriting
+history rejected by continuation, while preserving legitimate initial creation.
+Until current preservation is confirmed, callbacks remain
 blocked. Missing, conflicting, corrupted or unverifiable history and failed
 continuation cannot authorize release, conflicting overwrite, journal truncation
 or silent repair. Actual interrupted-write recovery remains separately subject to
@@ -809,8 +811,12 @@ python -B -m unittest tests.test_external_dependent_maintenance -v
 
 Codex verification uses controlled socket-free scheduling with actual asyncio
 tasks; it does not establish normal Windows socket-pair scheduling, actual OS
-signals, live JetStream or separate-machine behavior. Independent validation/audit
-are still required before W068 closure.
+signals, live JetStream or separate-machine behavior. W068 is CLOSED after
+independent manual IPython validation (3/3 scenarios across two executions after
+correction of a harness error) and final independent audit PASS with no remaining
+confirmed P0-P3 findings. The initial P2 maintenance-write bypass was corrected
+and independently confirmed resolved. See W068 in validated_workflows.md for
+overlapping verification runs and limitations; no power-loss validation is claimed.
 
 Decision 389 now resolves W068's confirmation architecture: each dependent owns
 its retirement/release, and Ingestor requires correctly correlated operational
@@ -819,12 +825,12 @@ Only Controller's specifically authorized dependency release at the final archiv
 checkpoint, with preserved obligations and no further Ingestor-dependent work,
 allows its dependency to be released while Controller remains operational.
 Missing/stale/contradictory confirmation retains the blocker; preparation,
-disappearance and publication acknowledgment are insufficient. This is accepted
+disappearance and publication acknowledgment are insufficient. This is
 implemented by the bounded W068 path, not a new lifecycle state or retirement
 authority. Controller's coordinated release additionally freezes its own new work
 and further Ingestor-dependent evidence; it can continue the existing prepared
-retirement sequence without writing through retired Ingestor. W068 and Q022 remain
-OPEN; no full physical deployment verification is claimed.
+retirement sequence without writing through retired Ingestor. W068 is CLOSED;
+Q022 remains OPEN and no full physical deployment verification is claimed.
 
 ### Provision And Verify Retrieval
 
@@ -995,7 +1001,7 @@ alone does not establish durable Ingestor acceptance or Q019 completeness.
 | Boundary | Existing foundation | Missing integration |
 | --- | --- | --- |
 | Package/launch | W061-W063 common explicit-role entry point; W064 integrates general service files with the same launchers | Complete deployment integration and verification |
-| Local configuration | W064 JSON loader/templates, startup validation; W063 node hardware loader/default and explicit paths; W068 external-dependent composition and instance-confirmation integration implemented, OPEN pending independent validation/audit | Actual provisioning, W068 independent verification and remaining deployment integration |
+| Local configuration | W064 JSON loader/templates, startup validation; W063 node hardware loader/default and explicit paths; W068 external-dependent composition, instance-confirmation and ordinary continuation CLOSED after independent manual validation/audit | Actual provisioning and remaining deployment integration |
 | Node/device setup | Existing declarations/adapters and W063 file-to-object construction; W064 reuses hardware prevalidation | Additional supported adapters as required by deployments |
 | Operator parameters | `SessionConfig.device_configurations`, node initialization overrides, adapter `initialize(config)` and concrete validation | Generic adapter-defined parameter constraints, inventory exposure, Controller readback |
 | Readiness/startup | Existing reports, NATS requests/announcements and reconciliation consume W064 configured known-node identities; W066 explicit installation `verify-node` using existing readiness requests is CLOSED after independent validation and final re-audit PASS | Applicable manual installation integration and live deployment verification |
