@@ -119,8 +119,7 @@ class AcquisitionNode:
         self._prepared_scientific_outputs: dict[str, tuple[ScientificOutputSelection, ...]] = {}
         self._experiment_configurations: dict[str, ExperimentConfiguration] = {}
         self._experiment_deadline: dict[str, Any] | None = None
-        self._session_device_configurations: dict[str, Any] = {
-            a.device_id: deepcopy(a.initialization_config) for a in device_manager.adapters}
+        self._session_device_configurations: dict[str, Any] | None = None
         self._ended_experiment_ids: set[str] = set()
         self._artifact_manifest_evidence: list[RuntimeEvidenceMessage] = []
         self._role = role
@@ -205,6 +204,7 @@ class AcquisitionNode:
             self._session_prepared = False
             self._local_storage_manager = None
             self._device_declarations = ()
+            self._session_device_configurations = None
             self._active_synchronization_mapping = None
             self._synchronization_quality = None
             self.clear_experiment_runtime_context()
@@ -434,16 +434,21 @@ class AcquisitionNode:
             if capacity["ready"] is not True:
                 raise RuntimeError(str(capacity))
             for adapter, parameters in self._experiment_device_parameters(configuration):
-                if parameters != adapter.initialization_config:
-                    was_running = adapter.state == DeviceAdapterState.RUNNING
-                    if was_running:
+                if (parameters != adapter.initialization_config or adapter.state not in {
+                        DeviceAdapterState.INITIALIZED, DeviceAdapterState.READY, DeviceAdapterState.RUNNING}):
+                    if adapter.state == DeviceAdapterState.RUNNING:
                         adapter.stop()
-                    adapter.shutdown()
+                    if adapter.state != DeviceAdapterState.DECLARED:
+                        adapter.shutdown()
                     adapter.initialize(parameters)
-                    if not adapter.check_ready().ready:
-                        raise RuntimeError(f"Experiment device configuration is unready: {adapter.device_id}")
-                    if was_running:
-                        adapter.start()
+                readiness = adapter.check_ready()
+                if (not isinstance(readiness, DeviceReadiness) or readiness.device_id != adapter.device_id
+                        or readiness.ready is not True):
+                    raise RuntimeError(f"Experiment device configuration is unready: {adapter.device_id}")
+                if self._running and adapter.state == DeviceAdapterState.READY:
+                    adapter.start()
+                if self._running and adapter.state != DeviceAdapterState.RUNNING:
+                    raise RuntimeError(f"Experiment device is not running: {adapter.device_id}")
             self._experiment_configurations[experiment_id] = deepcopy(configuration)
             if outputs and not experiment_id:
                 raise ValueError("experiment_id is required")
@@ -504,8 +509,9 @@ class AcquisitionNode:
                                 True, True, "ready")
 
     def _experiment_device_parameters(self, configuration):
-        if not self._experiment_configurations:
-            # Local DeviceManager initialization may follow node construction.
+        if self._session_device_configurations is None:
+            # Capture initialized local settings once, before any Experiment can
+            # partially reconfigure a device; failed preparation cannot replace them.
             self._session_device_configurations = {
                 a.device_id: deepcopy(a.initialization_config)
                 for a in self._runtime_device_manager.adapters}
@@ -817,6 +823,9 @@ class AcquisitionNode:
             configuration = self._experiment_configurations.get(context.experiment_id)
             if configuration is None or context.duration_s != configuration.duration_s:
                 raise RuntimeError("Experiment deadline requires the exact prepared duration")
+            if (not self._running or not self._runtime_device_manager.check_readiness().all_ready
+                    or any(a.state != DeviceAdapterState.RUNNING for a in self._runtime_device_manager.adapters)):
+                raise RuntimeError("Experiment activation requires ready, running devices")
             if self._active_experiment_runtime_context is not None:
                 if (self._active_experiment_runtime_context != context
                         or self._active_experiment_runtime_health_mapping != mapping):

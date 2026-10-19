@@ -1364,6 +1364,13 @@ Later mapping replacement does not invalidate otherwise valid delayed proof.
 For local initialization, the first Experiment resolves settings from the actual
 initialized DeviceManager adapters, not their earlier construction-time state;
 subsequent overrides remain isolated from the Session baseline.
+The baseline is retained independently of whether an Experiment preparation
+succeeds. A rejected preparation may leave a partially transitioned adapter, but
+does not authorize acquisition or redefine Session defaults. A later explicit
+preparation uses existing adapter cleanup/initialization/readiness/start methods
+to establish the requested settings and running state; unresolved failures remain
+rejections. Activation rechecks readiness and running state before confirmation.
+This is explicit re-preparation, not automatic rollback or a new recovery service.
 
 Local `Controller.start_experiment(..., configuration=configuration)` uses the same
 capacity/activation contracts. Its bounded iteration reconciles available expiry
@@ -1396,6 +1403,19 @@ asyncio execution, not normal Windows asynchronous scheduling, live NATS,
 hardware, OS signals or power-loss validation. Overlapping runs are not additive.
 G2 remains OPEN pending independent validation and separate re-audit; this is not
 documentation closure.
+
+The subsequent failed-preparation P2 correction retains the Session baseline
+across unsuccessful device transitions and requires ready/running devices before
+activation. Its implementation verification passed 43 distinct methods: 27 G2
+capacity/expiry checks, ten G3 checks and six directly affected bounded-persistence
+and distributed-synchronization checks. Three new regression methods cover the
+original first-readiness-failure sequence, explicit retries with baseline or
+different overrides across initialization/readiness/start failures, and readiness
+lost between preparation and activation. Scientific frames and finalized HDF5
+products were checked after recovery. These are controlled software checks using
+simulated camera/NATS I/O, not independent validation, normal Windows asynchronous
+scheduling, hardware or live deployment verification. Earlier overlapping runs
+are not additive, and G2 remains OPEN for ICC validation and separate re-audit.
 
 ### Timing And Synchronization
 

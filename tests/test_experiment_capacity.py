@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 from lab_sync_acquisition import ExperimentConfiguration, ScientificProductDeclaration, ScientificOutputSelection
 from lab_sync_acquisition import RuntimeEvidenceMessage, PersistentStorageManager
+from lab_sync_acquisition.device_adapter import DeviceReadiness
 from lab_sync_acquisition.local_storage import inspect_storage_capacity, validate_storage_capacity
 from tests import test_sustained_acquisition as sustained
 from tests import test_scientific_acquisition_persistence as scientific
@@ -162,6 +163,103 @@ class ExperimentPreflightWorkflows(unittest.IsolatedAsyncioTestCase):
             result = await self.start("second", ExperimentConfiguration(60, {"node": 1000000}, 1000))
             self.assertTrue(result.succeeded, result.error)
             self.assertIsNone(f.adapter.initialization_config.fps)
+
+    async def failed_preparation_then_record(self, phase, next_fps, identity):
+        """Retry explicitly after a device transition fails, using public Experiment commands."""
+        f = self.fixture
+        reopen = f.camera.VideoCapture
+        initialize = f.adapter.initialize
+        start = f.adapter.start
+        ready = f.adapter.check_ready
+
+        def open_camera(*args):
+            f.camera.capture.opened = True
+            f.camera.capture.released = False
+            return reopen(*args)
+
+        def initialize_device(parameters):
+            if phase == "initialize_before":
+                raise OSError("Injected initialization failure")
+            initialize(parameters)
+            if phase == "initialize_after":
+                raise OSError("Injected failure after initialization")
+
+        def check_ready():
+            if phase == "readiness":
+                return DeviceReadiness("camera", False, "Injected readiness failure", ("camera_frames",))
+            return ready()
+
+        def start_device():
+            if phase == "start_before":
+                raise OSError("Injected start failure")
+            if phase != "start_without_running":
+                start()
+            if phase == "start_after":
+                raise OSError("Injected failure after start")
+
+        with patch.object(f.camera, "VideoCapture", side_effect=open_camera):
+            count = f.camera.capture.read_count
+            with patch.object(f.adapter, "initialize", side_effect=initialize_device), \
+                 patch.object(f.adapter, "check_ready", side_effect=check_ready), \
+                 patch.object(f.adapter, "start", side_effect=start_device):
+                result = await self.start(identity + "-failed", ExperimentConfiguration(60,
+                    {"node": 1000000}, 1000, {"node": {"camera": {"fps": 5}}}))
+            self.assertFalse(result.succeeded)
+            self.assertIsNone(f.controller.get_status()["active_experiment_id"])
+            self.assertFalse(f.node.scientific_acquisition_active)
+            self.assertEqual(f.camera.capture.read_count, count)
+            overrides = None if next_fps is None else {"node": {"camera": {"fps": next_fps}}}
+            count = f.camera.capture.read_count
+            result = await self.start(identity + "-recovered", ExperimentConfiguration(60,
+                {"node": 1000000}, 1000, overrides))
+            self.assertTrue(result.succeeded, result.error)
+            self.assertEqual(f.adapter.initialization_config.fps, next_fps)
+            self.assertEqual(f.adapter.state.value, "running")
+            await f.until(lambda: f.camera.capture.read_count >= count + 2)
+            self.assertTrue((await f.controller.stop_launched_experiment(identity + "-recovered")).succeeded)
+            frames, rows = f.saved(identity + "-recovered")
+            self.assertGreaterEqual(len(frames), 2)
+            self.assertTrue(all(row["experiment_id"] == identity + "-recovered" for row in rows))
+
+    async def test_failed_first_override_cannot_replace_session_baseline(self):
+        self.assertIsNone(self.fixture.adapter.initialization_config.fps)
+        await self.failed_preparation_then_record("readiness", None, "baseline")
+
+    async def test_explicit_repreparation_recovers_device_transition_failures(self):
+        for phase in ("initialize_before", "initialize_after", "readiness",
+                      "start_before", "start_after", "start_without_running"):
+            for next_fps in (None, 7):
+                with self.subTest(phase=phase, next_fps=next_fps):
+                    await self.failed_preparation_then_record(phase, next_fps, f"{phase}-{next_fps}")
+        # Successful recovery overrides still must not become Session defaults.
+        await self.failed_preparation_then_record("readiness", None, "final-baseline")
+
+    async def test_activation_rechecks_readiness_after_preparation(self):
+        f = self.fixture
+        ready = f.adapter.check_ready
+        activating = False
+
+        def on_command(command):
+            nonlocal activating
+            if command["command_type"] == "activate_experiment_runtime":
+                activating = True
+
+        def check_ready():
+            if activating:
+                return DeviceReadiness("camera", False, "Readiness lost after preparation", ("camera_frames",))
+            return ready()
+
+        f.broker.on_command = on_command
+        try:
+            with patch.object(f.adapter, "check_ready", side_effect=check_ready):
+                result = await self.start(configuration=ExperimentConfiguration(60, {"node": 1000000}, 1000))
+        finally:
+            f.broker.on_command = None
+        self.assertFalse(result.succeeded)
+        self.assertFalse(f.node.scientific_acquisition_active)
+        self.assertIsNone(f.controller.get_status()["active_experiment_id"])
+        self.assertTrue(all(m.lifecycle_state == "finalized" for m in f.local.manifests))
+        self.assertEqual(f.camera.capture.read_count, 0)
 
     async def test_failed_expiry_finalization_is_not_canonical_completion(self):
         f = self.fixture

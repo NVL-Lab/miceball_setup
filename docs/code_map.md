@@ -14,13 +14,13 @@
 - PersistentStorageManager.check_experiment_capacity(required_bytes): Returns readiness and concrete destination reports for its evidence root and configured scientific-artifact root without asserting archival completion; constructor unchanged.
 - local_storage._accumulate_storage_capacity(report, groups): Adds one concrete destination's required write budget to shared-filesystem accounting.
 - AcquisitionNode.check_experiment_capacity(scientific_outputs, configuration): Resolves selected operating settings and checks declared estimates or an explicit node budget; constructor unchanged.
-- AcquisitionNode.prepare_experiment_scientific_outputs(experiment_id, scientific_outputs, *, configuration=None): Requires configured capacity before applying device overrides or creating scientific streams.
+- AcquisitionNode.prepare_experiment_scientific_outputs(experiment_id, scientific_outputs, *, configuration=None): Requires capacity and ready/running devices, using explicit re-preparation to recover partial lifecycle transitions without replacing the Session baseline.
 - AcquisitionNode.experiment_runtime_active: Includes timed idle Experiments in service-owned expiry enforcement.
 - AcquisitionNode.experiment_deadline_remaining_s: Reports remaining captured local monotonic time independently of later mapping/communication availability.
 - AcquisitionNode.expire_experiment_if_due(): Finalizes the affected Experiment and retains exact expiry/failure evidence without ending the Session.
 - AcquisitionNode.read_experiment_expiry(experiment_id): Reads detached retained owner proof without fabricating missing outcomes.
-- AcquisitionNode._experiment_device_parameters(configuration): Captures current initialized adapter settings before the first Experiment and resolves overrides against that unchanged Session baseline.
-- AcquisitionNode.activate_experiment_runtime(context, health_mapping): Returns a detached copy of the established deadline and mapping, including for identical activation retries; constructor and arguments unchanged.
+- AcquisitionNode._experiment_device_parameters(configuration): Retains explicit Session settings or captures initialized local settings once, independently of preparation success, and resolves isolated Experiment overrides.
+- AcquisitionNode.activate_experiment_runtime(context, health_mapping): Rechecks ready/running devices and returns a detached established deadline/mapping, including for identical activation retries; constructor and arguments unchanged.
 - SynchronizationManager.local_deadline_for_session_time(session_time_s): Translates a deadline for co-located users of its running authoritative clock; constructor unchanged.
 - Controller.start_launched_experiment(..., configuration=None, storage_participant=None): Requires per-Experiment capacity and synchronized common-deadline activation over existing NATS boundaries; constructor unchanged.
 - Controller.start_experiment(..., configuration=None): Applies explicit configuration and capacity to the bounded local workflow.
@@ -63,6 +63,10 @@
 - test_preservation_roots_on_one_filesystem_sum_distinct_writes: Sums evidence and scientific-preservation writes without multiplying shared free space.
 - test_delayed_expiry_uses_activation_mapping_after_resynchronization: Reconciles delayed proof against the original captured deadline rather than a replacement mapping.
 - test_activation_deadline_must_use_authorized_synchronization_mapping: Rejects internally consistent but unauthorized activation mapping readback and finalizes prepared products.
+- ExperimentPreflightWorkflows.failed_preparation_then_record(phase, next_fps, identity): Exercises explicit recovery after injected initialization/readiness/start failures and verifies subsequent scientific recording and finalization.
+- test_failed_first_override_cannot_replace_session_baseline: Rejects a first override preparation and records the next Experiment using the original Session settings.
+- test_explicit_repreparation_recovers_device_transition_failures: Recovers with baseline or different overrides after partial device transitions, without accepting a start that leaves the adapter nonrunning.
+- test_activation_rechecks_readiness_after_preparation: Rejects readiness lost between preparation and activation before any scientific reads occur.
 - ScientificAcquisitionPersistenceTests.workflow(..., initialize_after_node=False): Supports the existing bounded-science fixture with optional DeviceManager initialization after node construction.
 
 ## DeviceAdapter Adjustable Parameters (Decision 370; W069 Closed)
