@@ -55,6 +55,15 @@ scoped retry can obtain the owner's idempotent outcome without repeating device
 cleanup. Controller rechecks all producer confirmations immediately before marker
 admission, after the awaited closing publications. This does not claim knowledge
 of replies not yet received or change finalized intake.
+Controller also compares the exact admitted producer confirmations after awaiting
+marker publication, before confirming that publication for closeout. Invalidation
+or a superseding attempt during that await leaves closeout unconfirmed, even if
+the broker accepted the marker. Its identity and existing evidence/receipts remain
+retained; explicit retry reuses that same marker rather than creating a replacement.
+Cached publication confirmation likewise cannot bypass currently invalid producer
+proof. Once exact Stop-attempt correlation is established, malformed/non-comparable
+resolutions invalidate confirmation before returning from result handling; stale
+or unrelated malformed replies remain isolated.
 
 ### Existing Deployment Status
 

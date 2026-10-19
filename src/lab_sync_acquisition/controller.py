@@ -733,21 +733,25 @@ class Controller:
                 if (communication._boundary.component_id != self._component_id
                         or communication._boundary.component_type != "controller"):
                     raise ValueError("Controller publication identity mismatch")
-                if self._acquisition_marker_session is session and self._acquisition_marker_confirmed:
-                    return self._record_successful_command("publish_acquisition_evidence_completion",
-                        {"marker": self._acquisition_marker.to_dict(), "publication_confirmed": True})
                 self._acquisition_publication_active = admitted = True
             participants = session.configuration.expected_runtime_participants
             nodes = tuple(p for p in participants if p.component_type == "acquisition_node")
             if self._acquisition_node is not None and not any(
                     p.component_id == self._acquisition_node.node_id for p in nodes):
                 nodes += (RuntimeParticipant("acquisition_node", self._acquisition_node.node_id),)
-            for participant in nodes:
-                if communication.session_acquisition_completion(participant, session.session_id) is None:
-                    raise RuntimeError(f"Acquisition publication unconfirmed: {participant.component_id}")
             synchronization = [p for p in participants if p.component_type == "synchronization_manager"]
             if len(synchronization) != 1:
                 raise RuntimeError("One authoritative Session synchronization participant is required")
+            if self._acquisition_marker_session is session and self._acquisition_marker_confirmed:
+                if any(communication.session_acquisition_completion(p, session.session_id) is None
+                       for p in (*nodes, synchronization[0])):
+                    self._acquisition_marker_confirmed = False
+                    raise RuntimeError("Published marker producer confirmation is unconfirmed")
+                return self._record_successful_command("publish_acquisition_evidence_completion",
+                    {"marker": self._acquisition_marker.to_dict(), "publication_confirmed": True})
+            for participant in nodes:
+                if communication.session_acquisition_completion(participant, session.session_id) is None:
+                    raise RuntimeError(f"Acquisition publication unconfirmed: {participant.component_id}")
             result = await communication.request_runtime_command(synchronization[0], "stop_runtime",
                 session.session_id, {}, result_window_s)
             if result is None or result.status != "succeeded" or result.success is not True:
@@ -787,8 +791,9 @@ class Controller:
                 if self._session is not session:
                     raise RuntimeError("Controller Session binding changed during publication")
                 required = self._controller_owned_session_evidence_snapshot(session.session_id)
-                if any(communication.session_acquisition_completion(participant, session.session_id) is None
-                       for participant in (*nodes, synchronization[0])):
+                producer_confirmations = tuple((p, communication.session_acquisition_completion(p, session.session_id))
+                                               for p in (*nodes, synchronization[0]))
+                if any(confirmation is None for _, confirmation in producer_confirmations):
                     raise RuntimeError("Producer publication confirmation changed before the marker")
                 required.pop(getattr(self._acquisition_marker, "evidence_id", None), None)
                 if any(unique.get(identity) is None or unique[identity].to_dict() != contents
@@ -797,10 +802,16 @@ class Controller:
                 if self._acquisition_marker is None:
                     self._acquisition_marker = RuntimeEvidenceMessage(uuid4().hex,
                         session.session_id, "acquisition_evidence_completion", self._component_id, {}, True)
-            await communication.publish_evidence(self._acquisition_marker)
+                marker = self._acquisition_marker
+            await communication.publish_evidence(marker)
             with self._service_operation_lock:
                 if self._session is not session:
                     raise RuntimeError("Controller Session binding changed during publication")
+                if (self._acquisition_marker is not marker or any(
+                        communication.session_acquisition_completion(p, session.session_id) != confirmation
+                        for p, confirmation in producer_confirmations)):
+                    self._acquisition_marker_confirmed = False
+                    raise RuntimeError("Producer confirmation changed during marker publication; retained marker requires retry")
                 self._acquisition_marker_confirmed = True
                 return self._record_successful_command("publish_acquisition_evidence_completion",
                     {"marker": self._acquisition_marker.to_dict(), "publication_confirmed": True})

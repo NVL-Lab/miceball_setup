@@ -860,8 +860,12 @@ class NatsControllerCommunication:
                 or result.target_id != command.source_id
                 or result.payload.get("request_nonce") != command.payload.get("request_nonce")):
             return None
-        resolutions = {json.dumps([reply.status, reply.success, reply.reason, reply.payload],
-            sort_keys=True, separators=(",", ":"), allow_nan=False) for reply in (accepted, result)}
+        try:
+            resolutions = {json.dumps([reply.status, reply.success, reply.reason, reply.payload],
+                sort_keys=True, separators=(",", ":"), allow_nan=False) for reply in (accepted, result)}
+        except (TypeError, ValueError):
+            self._runtime_stop_confirmations[key] = None
+            return
         if len(resolutions) != 1:
             self._runtime_stop_confirmations[key] = None
 
