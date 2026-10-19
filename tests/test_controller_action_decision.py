@@ -8,6 +8,7 @@ from lab_sync_acquisition import (
     ControllerActionDecision,
     DeviceDeclaration,
     DeviceManager,
+    ExperimentConfiguration,
     HealthInterpretationEvidence,
     InMemoryIngestor,
     PersistentStorageManager,
@@ -134,7 +135,8 @@ class ControllerActionDecisionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             controller, node, storage, manager = self._running_controller(root)
-            started = controller.start_experiment("experiment-001")
+            started = controller.start_experiment("experiment-001",
+                configuration=ExperimentConfiguration(60, {}, 1000000))
             self.assertTrue(started.succeeded)
             decision = controller.process_health_interpretation(
                 self._evidence(1, "experiment_failure")
@@ -197,7 +199,8 @@ class ControllerActionDecisionTests(unittest.TestCase):
     def test_normal_experiment_stop_remains_normal_completion(self):
         with tempfile.TemporaryDirectory() as directory:
             controller, _, _, _ = self._running_controller(Path(directory))
-            controller.start_experiment("experiment-001")
+            controller.start_experiment("experiment-001",
+                configuration=ExperimentConfiguration(60, {}, 1000000))
 
             result = controller.stop_experiment("experiment-001")
 
@@ -256,6 +259,8 @@ class ControllerActionDecisionTests(unittest.TestCase):
             device_manager=manager,
             synchronization_manager=synchronization,
             ingestor=ingestor,
+            default_local_storage_root=root / "local",
+            node_id="node",
             error_evidence_location=str(root / "errors"),
         )
         controller = Controller(
@@ -266,6 +271,8 @@ class ControllerActionDecisionTests(unittest.TestCase):
             synchronization_manager=synchronization,
         )
         manager.initialize_all(config={"mode": "phase-8b"})
+        node.prepare_local_storage("controller-action-session", (
+            DeviceDeclaration("source-001", "fake", True, True, ("stream",)),))
         readiness = node.check_ready()
         created = controller.create_session(
             SessionConfig(

@@ -15,7 +15,7 @@ from lab_sync_acquisition import (
     HealthInterpretationEvidence, NatsAcquisitionNodeCommunication,
     NatsCommunicationBoundary, NatsControllerCommunication, NatsIngestorCommunication,
     NatsSynchronizationManagerCommunication, RuntimeEvidenceMessage, RuntimeParticipant,
-    ScientificOutputSelection, ServiceReadiness,
+    ScientificOutputSelection, ServiceReadiness, ExperimentConfiguration,
 )
 from tests.evidence_receipt_fixtures import EvidenceReceiptBroker
 from tests.nats_server_fixture import NATS_SERVER, temporary_jetstream_server
@@ -82,7 +82,9 @@ class ProducerPublicationCompletionTests(unittest.IsolatedAsyncioTestCase):
             for node_id, declarations in selections.items():
                 result = await f.communication.request_command(RuntimeParticipant("acquisition_node", node_id),
                     "prepare_experiment_scientific_outputs", sid,
-                    {"experiment_id": "experiment", "scientific_outputs": [
+                    {"experiment_id": "experiment",
+                     "configuration": ExperimentConfiguration(60, {node_id: 1000000}, 1000000).to_dict(),
+                     "scientific_outputs": [
                         ScientificOutputSelection(declarations[0].device_id, node_id, "events").to_dict()]}, 1)
                 self.assertTrue(result.success, result.reason)
         return sid

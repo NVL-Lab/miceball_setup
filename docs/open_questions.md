@@ -392,6 +392,16 @@ producer messages. It does not resolve this publication-recovery question.
 
 ## Q013: What further framework behavior follows ControllerActionDecision execution?
 
+**G4 implementation update (not validated/closed):** Launched Controller Sessions
+now subscribe to health/timing interpretations and invoke
+`execute_launched_controller_action_decision()` without a local AcquisitionNode.
+Non-mutating actions remain non-mutating. Experiment failure reuses remote
+scientific finalization and canonical lifecycle ownership; Session failure attempts
+each remote runtime stop and retains the failed Session binding and archival
+obligations. Missing/failed confirmations remain explicit rather than successful
+cleanup or preservation. Independent validation and audit remain pending. This
+adds no notification, escalation, maintenance Kill, or recovery policy.
+
 ### Why this matters
 
 Decisions 103-114 establish the runtime health evidence chain and normalized local Controller decision execution. `record_only`, `record_warning`, `record_recoverable_failure`, and `operator_required` succeed without lifecycle mutation; `experiment_fail` and `session_fail` use their accepted lifecycle owners. Remaining architecture concerns any future behavior beyond these local semantics.

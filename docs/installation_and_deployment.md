@@ -2,6 +2,32 @@
 
 ## Status And Scope
 
+### G4 Remote Health Actions (Implementation Pending Independent Validation)
+
+Distributed `Controller.launch_session()` now attaches the existing health
+interpretation subscription to
+`await controller.execute_launched_controller_action_decision(decision)`.
+The Controller may have no local AcquisitionNode. Acquisition-health and timing
+interpretations use the same executor and existing runtime command/result path.
+Non-mutating decisions remain evidence-only. Experiment failure confirms node
+scientific finalization/publication and current Session Time before canonical
+`experiment_fail`; missing confirmation retains unresolved active context for
+explicit retry. Existing normal Experiment stop reuses that same finalization path.
+
+Session failure attempts every reserved node and the synchronization owner,
+records canonical failure rather than successful completion or authorized Kill,
+and reports each cleanup outcome. Its successful action result confirms the
+requested lifecycle action and reported cleanup only: `preservation_confirmed`
+remains false and the binding is retained. Existing durable intake, Stage A,
+artifact handoff and independent release obligations are not waived or inferred
+from command publication. This bounded action integration does not automatically
+archive/release failed Sessions or add partial-failure archival semantics.
+No maintenance Kill or notification/escalation mechanism is introduced. G2/G3
+deadlines and autonomous acquisition remain node-owned. G4 is not closed and no
+live NATS, hardware or complete deployment validation is claimed.
+
+### Existing Deployment Status
+
 Q022-A Decisions 367-378 are accepted and synchronized. Bounded shared-process
 launching is closed in W061, remote maintenance in W062 and the remaining
 independent role launch paths in W063. Deployment-local service JSON loading and

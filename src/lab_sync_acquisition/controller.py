@@ -1238,6 +1238,8 @@ class Controller:
             self._reserved_participants = tuple(acquired)
             subscriptions.append(await communication.subscribe_experiment_expiry_evidence(session_id, self))
             self._launch_result_window_s = result_window_s
+            subscriptions.append(await communication.subscribe_health_interpretation_evidence(
+                session_id, self, self.execute_launched_controller_action_decision))
             self._launch_subscriptions = tuple(subscriptions)
             return self._record_successful_command("launch_session", {"session_id": session_id,
                 "session_state": self._session.current_state.value, "configuration": config.to_dict(),
@@ -1628,29 +1630,37 @@ class Controller:
                                        details: dict[str, Any] | None = None) -> ControllerCommandResult:
         """Confirm node finalization/publication before recording canonical Experiment stop."""
         async with self._experiment_operation_lock:
-            try:
-                session = self._require_session()
-                if session.current_state != SessionState.RUNNING or self._active_experiment_id != experiment_id:
-                    raise RuntimeError("Requested Experiment is not active in this running Session")
-                failures = []
-                for participant in self._reserved_participants:
-                    try:
-                        await self._request_launched_runtime(participant, "finalize_experiment_scientific_outputs",
-                                                             {"experiment_id": experiment_id})
-                    except Exception as error:
-                        failures.append(error)
-                if failures:
-                    raise ExceptionGroup("Experiment finalization is unconfirmed", failures)
-                clock = await self._request_launched_runtime(self._synchronization_participant(), "read_session_time", {})
-                if session.current_state != SessionState.RUNNING:
-                    raise RuntimeError("Session ended during Experiment finalization")
-                evidence = session.record_experiment_lifecycle(experiment_id, "experiment_stop",
-                                                               clock.payload["session_time_s"], details)
-                self._active_experiment_id = None
-                self._active_experiment_runtime_health_mapping = ()
-                return self._record_successful_command("stop_experiment", evidence.to_dict())
-            except Exception as error:
-                return self._record_failed_command("stop_experiment", error)
+            return await self._end_launched_experiment(experiment_id, details, "experiment_stop")
+
+    async def _end_launched_experiment(self, experiment_id, details, event_type):
+        name = "stop_experiment" if event_type == "experiment_stop" else "execute_controller_action_decision"
+        try:
+            session = self._require_session()
+            if session.current_state != SessionState.RUNNING or self._active_experiment_id != experiment_id:
+                raise RuntimeError("Requested Experiment is not active in this running Session")
+            failures = []
+            for participant in self._reserved_participants:
+                try:
+                    result = await asyncio.wait_for(self._request_launched_runtime(
+                        participant, "finalize_experiment_scientific_outputs", {"experiment_id": experiment_id}),
+                        self._launch_result_window_s)
+                    if result.payload.get("confirmed") is not True or result.payload.get("experiment_id") != experiment_id:
+                        raise RuntimeError("Experiment finalization result identity is unconfirmed")
+                except Exception as error:
+                    failures.append(error)
+            if failures:
+                raise ExceptionGroup("Experiment finalization is unconfirmed", failures)
+            clock = await asyncio.wait_for(self._request_launched_runtime(
+                self._synchronization_participant(), "read_session_time", {}), self._launch_result_window_s)
+            if session.current_state != SessionState.RUNNING:
+                raise RuntimeError("Session ended during Experiment finalization")
+            evidence = session.record_experiment_lifecycle(experiment_id, event_type,
+                                                           clock.payload["session_time_s"], details)
+            self._active_experiment_id = None
+            self._active_experiment_runtime_health_mapping = ()
+            return self._record_successful_command(name, evidence.to_dict())
+        except Exception as error:
+            return self._record_failed_command(name, error, {"outcome_unconfirmed": True})
 
     @property
     def controller_action_decisions(self) -> tuple[ControllerActionDecision, ...]:
@@ -1714,7 +1724,7 @@ class Controller:
             raise ValueError("Timing interpretation does not match this Session's participants")
         decisions = {"informational": "record_only", "warning": "record_warning",
             "recoverable_failure": "record_recoverable_failure", "experiment_failure": "experiment_fail",
-            "session_failure": "session_fail", "operator_required": "record_operator_required",
+            "session_failure": "session_fail", "operator_required": "operator_required",
             "uninterpreted": "record_only"}
         label = message.payload["interpretation_label"]
         if label not in decisions:
@@ -1802,6 +1812,82 @@ class Controller:
         if any(json.dumps(archived.get(identity), sort_keys=True) != json.dumps(contents, sort_keys=True)
                for identity, contents in owned.items()):
             raise RuntimeError("Current Evidence Archive does not preserve required Controller-owned evidence")
+
+    @service_operation()
+    async def execute_launched_controller_action_decision(
+        self, decision: ControllerActionDecision | dict[str, Any],
+    ) -> ControllerCommandResult:
+        """Execute an accepted health/timing decision through the launched owners."""
+        name = "execute_controller_action_decision"
+        session = self._require_session()
+        outcomes = []
+        try:
+            if self._launch_communication is None:
+                raise RuntimeError("A launched Session communication binding is required")
+            payload = decision.to_dict() if isinstance(decision, ControllerActionDecision) else deepcopy(decision)
+            action = payload["controller_decision"]
+            if payload["session_id"] != session.session_id or action not in {
+                    "record_only", "record_warning", "record_recoverable_failure",
+                    "operator_required", "experiment_fail", "session_fail"}:
+                raise ValueError("Invalid Controller action scope or consequence")
+            if isinstance(decision, ControllerActionDecision):
+                self._record_action_decision(decision)
+            elif not any(m.payload == payload for m in self.controller_action_decision_evidence):
+                raise ValueError("Timing action has not been recorded by this Controller")
+            if action not in {"experiment_fail", "session_fail"}:
+                return self._record_successful_command(name,
+                    {"controller_decision": action, "lifecycle_mutated": False})
+            async with self._experiment_operation_lock:
+                if self._session is not session or self._normal_stop_task is not None:
+                    raise RuntimeError("Session closeout or binding changed during health execution")
+                if action == "experiment_fail":
+                    experiment_id = payload.get("experiment_id")
+                    if session.current_state != SessionState.RUNNING or self._active_experiment_id != experiment_id:
+                        raise RuntimeError("Health decision does not match the active Experiment")
+                    result = await self._end_launched_experiment(experiment_id, payload, "experiment_fail")
+                    return result
+                if session.current_state not in {SessionState.RUNNING, SessionState.STOPPING, SessionState.FAILED}:
+                    raise RuntimeError("Session lifecycle does not permit health failure")
+                if (session.current_state != SessionState.FAILED
+                        and payload.get("experiment_id") not in {None, self._active_experiment_id}):
+                    raise RuntimeError("Session health decision belongs to another Experiment")
+                self._runtime_cleanup_confirmed = False
+                # Attempt every owner even when another owner fails. Never release
+                # reservations or admit Kill as a consequence of a health policy.
+                for participant in (*self._reserved_participants, self._synchronization_participant()):
+                    try:
+                        await asyncio.wait_for(self._request_launched_runtime(participant, "stop_runtime", {}),
+                                               self._launch_result_window_s)
+                        outcomes.append({"participant": participant.to_dict(), "cleanup_confirmed": True})
+                    except Exception as error:
+                        outcomes.append({"participant": participant.to_dict(), "cleanup_confirmed": False,
+                                         "error": str(error)})
+                if (self._session is not session or self._normal_stop_task is not None
+                        or session.current_state not in {SessionState.RUNNING, SessionState.STOPPING, SessionState.FAILED}):
+                    raise RuntimeError("Session health action was superseded during remote cleanup")
+                if self._active_experiment_id is not None:
+                    session.record_experiment_lifecycle(self._active_experiment_id, "experiment_fail", None,
+                        {**payload, "timing_unconfirmed": True, "participant_outcomes": outcomes})
+                    self._active_experiment_id = None
+                    self._active_experiment_runtime_health_mapping = ()
+                if session.current_state == SessionState.RUNNING:
+                    session.stop("ControllerActionDecision requested Session failure")
+                if session.current_state == SessionState.STOPPING:
+                    session.fail("ControllerActionDecision requested Session failure")
+                self._runtime_cleanup_confirmed = bool(outcomes) and all(o["cleanup_confirmed"] for o in outcomes)
+                details = {"controller_decision": action, "session_state": session.current_state.value,
+                    "participant_outcomes": outcomes, "cleanup_confirmed": self._runtime_cleanup_confirmed,
+                    "preservation_confirmed": False, "binding_retained": True}
+                if not self._runtime_cleanup_confirmed:
+                    return self._record_failed_command(name, RuntimeError("Remote cleanup is unconfirmed"), details)
+                return self._record_successful_command(name, details)
+        except asyncio.CancelledError:
+            self._record_failed_command(name, RuntimeError("Health action interrupted; remote outcome unconfirmed"),
+                {"participant_outcomes": outcomes, "outcome_unconfirmed": True})
+            raise
+        except Exception as error:
+            return self._record_failed_command(name, error,
+                {"participant_outcomes": outcomes, "outcome_unconfirmed": True})
 
     @service_operation()
     def execute_controller_action_decision(

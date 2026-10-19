@@ -51,7 +51,7 @@ from lab_sync_acquisition.storage import PersistentStorageManager
 
 RuntimeResultCallback = Callable[[RuntimeCommandResultMessage], Awaitable[None]]
 RuntimeEvidenceCallback = Callable[[RuntimeEvidenceMessage], Awaitable[None]]
-ControllerDecisionCallback = Callable[[ControllerActionDecision], Awaitable[None]]
+ControllerDecisionCallback = Callable[[ControllerActionDecision | dict[str, Any]], Awaitable[Any]]
 RuntimeTelemetryCallback = Callable[[RuntimeTelemetryMessage], Awaitable[None]]
 
 logger = logging.getLogger(__name__)
@@ -705,7 +705,10 @@ class NatsControllerCommunication:
 
         subject = f"messages.{session_id}.evidence.*.*.*"
         state = {"controller": controller, "session": controller._session,
-                 "processed": {}, "active": 0}
+                 "processed": {}, "inflight": {}, "active": 0}
+        state["decisions"] = next((receiver["decisions"]
+            for receiver in self._health_receivers.get(session_id, ())
+            if receiver["controller"] is controller and receiver["session"] is controller._session), {})
         self._health_receivers.setdefault(session_id, []).append(state)
 
         async def receive(message: Any) -> None:
@@ -717,26 +720,44 @@ class NatsControllerCommunication:
                 return
             if evidence_message.session_id != session_id or controller._session is not state["session"]:
                 raise RuntimeError("Controller health subscription Session binding changed")
+            route = parse_runtime_subject(message.subject)
+            if (route["session_id"] != session_id
+                    or route["component_id"] != evidence_message.source_id
+                    or route["message_type"] != evidence_message.evidence_type):
+                raise ValueError("Controller health subject/body mismatch")
+            if controller._launch_communication is not None and (
+                    route["component_type"] != "acquisition_node"
+                    or evidence_message.source_id not in {p.component_id for p in controller._reserved_participants}):
+                raise ValueError("Health interpretation source is not a reserved AcquisitionNode")
             content = json.dumps(evidence_message.to_dict(), sort_keys=True,
                                  separators=(",", ":"), allow_nan=False)
-            previous = state["processed"].get(evidence_message.evidence_id)
+            previous = state["processed"].get(evidence_message.evidence_id,
+                state["inflight"].get(evidence_message.evidence_id))
             if previous is not None:
                 if previous != content:
                     raise ValueError("Conflicting Controller health evidence identity")
                 await message.ack()
                 return
             state["active"] += 1
+            state["inflight"][evidence_message.evidence_id] = content
             try:
-                if evidence_message.evidence_type == "timing_quality_interpretation":
+                recorded = state["decisions"].get(evidence_message.evidence_id)
+                if recorded is not None:
+                    if recorded[0] != content:
+                        raise ValueError("Conflicting Controller health evidence identity")
+                    decision = recorded[1]
+                elif evidence_message.evidence_type == "timing_quality_interpretation":
                     decision = controller.process_timing_quality_interpretation(evidence_message)
                 else:
                     interpretation = HealthInterpretationEvidence.from_dict(evidence_message.payload)
                     decision = controller.process_health_interpretation(interpretation)
+                state["decisions"][evidence_message.evidence_id] = (content, decision)
                 if callback is not None:
                     await callback(decision)
                 await message.ack()
                 state["processed"][evidence_message.evidence_id] = content
             finally:
+                state["inflight"].pop(evidence_message.evidence_id, None)
                 state["active"] -= 1
 
         return await self._boundary._require_jetstream().subscribe(
