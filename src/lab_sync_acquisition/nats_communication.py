@@ -484,12 +484,28 @@ class NatsControllerCommunication:
                     raise ValueError("Conflicting administrative command identity")
                 self._maintenance_requests.append(deepcopy(command.to_dict()))
             await self.publish_command(command, participant.component_type)
-            if not any(r.command_id == command_id for r in self._command_results):
-                await asyncio.wait_for(event.wait(), result_window_s)
-            result = next((r for r in self._command_results if r.command_id == command_id
-                and r.session_id == session_id and r.source_id == participant.component_id
-                and r.target_id == self._boundary.component_id and r.status in {"succeeded", "failed"}
-                and type(r.success) is bool and r.success == (r.status == "succeeded")), None)
+
+            def matches_attempt(reply):
+                return (reply.command_id == command_id and reply.session_id == session_id
+                    and reply.source_id == participant.component_id
+                    and reply.target_id == self._boundary.component_id
+                    and reply.payload.get("request_nonce") == payload.get("request_nonce")
+                    and reply.status in {"succeeded", "failed"})
+
+            deadline = asyncio.get_running_loop().time() + result_window_s
+            while not any(matches_attempt(reply) for reply in self._command_results):
+                event.clear()
+                await asyncio.wait_for(event.wait(), max(0, deadline - asyncio.get_running_loop().time()))
+            replies = [reply for reply in self._command_results if matches_attempt(reply)]
+            # Delivery/result IDs may differ on duplicate publication, but the
+            # owner's resolution of one attempt must remain identical.
+            resolutions = {json.dumps([reply.status, reply.success, reply.reason, reply.payload],
+                sort_keys=True, separators=(",", ":"), allow_nan=False) for reply in replies}
+            if (len(resolutions) != 1 or any(type(reply.success) is not bool
+                    or reply.success != (reply.status == "succeeded") for reply in replies)):
+                logger.warning("Conflicting or invalid command resolutions command_id=%s", command_id)
+                return None
+            result = replies[0]
             return result
         except TimeoutError:
             return None
@@ -507,6 +523,7 @@ class NatsControllerCommunication:
         nonce = uuid4().hex
         requests = NatsControllerCommunication(self._boundary)
         subscription = await requests.subscribe_command_results(session_id, new_only=True,
+            participant=participant, command_type=command_type,
             result_filter=lambda result: (result.payload.get("request_nonce") == nonce
                 and result.source_id == participant.component_id and result.session_id == session_id))
         try:

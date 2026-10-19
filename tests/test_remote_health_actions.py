@@ -2,6 +2,7 @@
 
 import asyncio
 from dataclasses import replace
+import json
 import unittest
 from unittest.mock import patch
 
@@ -168,3 +169,46 @@ class RemoteHealthActionTests(unittest.IsolatedAsyncioTestCase):
         await self.f.handler.publish_evidence(message)
         self.assertTrue(self.f.node.experiment_runtime_active)
         self.assertFalse(self.f.controller.get_status()["last_command"].details["lifecycle_mutated"])
+
+    async def test_readiness_reply_cannot_confirm_remote_session_cleanup(self):
+        original = self.f.broker.publish
+
+        async def redirected(subject, data, stream):
+            command = json.loads(data)
+            if (stream == "LAB_COMMANDS" and command["command_type"] == "stop_runtime"
+                    and command["target_id"] == "node"):
+                command["command_type"] = "check_readiness"
+                subject = subject.rsplit(".", 1)[0] + ".check_readiness"
+                data = json.dumps(command).encode()
+            return await original(subject, data, stream)
+
+        self.f.controller._launch_result_window_s = 0.05
+        with patch.object(self.f.broker, "publish", new=redirected):
+            result = await self.f.controller.execute_launched_controller_action_decision(self.decision("session_fail"))
+        self.assertFalse(result.succeeded)
+        self.assertFalse(result.details["cleanup_confirmed"])
+        self.assertFalse(result.details["preservation_confirmed"])
+        self.assertTrue(result.details["binding_retained"])
+        self.assertTrue(self.f.node.status()["is_running"])
+        self.assertTrue(self.f.node.experiment_runtime_active)
+
+    async def test_contradictory_stop_resolutions_prevent_cleanup_confirmation(self):
+        original = self.f.broker.publish
+
+        async def contradictory(subject, data, stream):
+            acknowledgment = await original(subject, data, stream)
+            if stream == "LAB_COMMAND_RESULTS" and subject.endswith(".node.stop_runtime"):
+                result = json.loads(data)
+                result.update(result_id="contradictory-result", status="failed", success=False,
+                              reason="Contradictory owner resolution")
+                await original(subject, json.dumps(result).encode(), stream)
+            return acknowledgment
+
+        local = self.f.node.local_storage_manager
+        with patch.object(self.f.broker, "publish", new=contradictory):
+            result = await self.f.controller.execute_launched_controller_action_decision(self.decision("session_fail"))
+        self.assertFalse(result.succeeded)
+        self.assertFalse(result.details["cleanup_confirmed"])
+        self.assertTrue(result.details["binding_retained"])
+        self.assertFalse(self.f.node.status()["is_running"])
+        self.assertTrue(all(manifest.lifecycle_state == "finalized" for manifest in local.manifests))
