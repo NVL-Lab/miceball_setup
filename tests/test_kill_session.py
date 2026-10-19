@@ -1,6 +1,7 @@
 """Explicit Kill preserves partial evidence independently of participant cleanup."""
 
 import asyncio
+import json
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import sys
@@ -103,14 +104,14 @@ class KillSessionTests(unittest.IsolatedAsyncioTestCase):
     async def test_cancelled_kill_retains_abort_binding_partial_evidence_and_command_identity(self):
         await self.running()
         entered, resume = asyncio.Event(), asyncio.Event()
-        original = self.fixture.communication.request_command
+        original = self.fixture.communication.request_runtime_command
         identities = []
         async def pause(*args, **kwargs):
             identities.append(kwargs.get("command_id"))
             entered.set()
             await resume.wait()
             return await original(*args, **kwargs)
-        with patch.object(self.fixture.communication, "request_command", side_effect=pause):
+        with patch.object(self.fixture.communication, "request_runtime_command", side_effect=pause):
             task = asyncio.create_task(self.kill())
             await asyncio.wait_for(entered.wait(), 2)
             self.assertFalse((await self.kill()).succeeded)
@@ -132,6 +133,31 @@ class KillSessionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.fixture.controller.get_status()["session_state"], "aborted")
         self.assertIsNone(self.baseline())
         self.assertFalse((await self.kill()).succeeded)
+
+    async def test_wrong_operation_cannot_confirm_kill_participant_cleanup(self):
+        await self.running()
+        original = self.fixture.broker.publish
+
+        async def redirect(subject, data, stream):
+            command = json.loads(data)
+            if (stream == "LAB_COMMANDS" and command["command_type"] == "stop_runtime"
+                    and command["target_id"] == "node-a"):
+                command["command_type"] = "check_readiness"
+                subject = subject.rsplit(".", 1)[0] + ".check_readiness"
+                data = json.dumps(command).encode()
+            return await original(subject, data, stream)
+
+        with patch.object(self.fixture.broker, "publish", new=redirect), \
+                patch("lab_sync_acquisition.storage._write_jsonl", side_effect=OSError("archive unavailable")):
+            result = await self.kill()
+        self.assertFalse(result.succeeded)
+        self.assertFalse(result.details["preservation_confirmed"])
+        self.assertEqual(self.fixture.controller.get_status()["session_state"], "aborted")
+        self.assertTrue(self.fixture.nodes["node-a"].status()["is_running"])
+        self.assertEqual(self.fixture.nodes["node-a"].reserved_for_session_id, self.sid)
+        self.assertIsNone(self.fixture.communication.session_acquisition_completion(
+            RuntimeParticipant("acquisition_node", "node-a"), self.sid))
+        self.assertFalse(self.fixture.controller._kill_closeout["participants"][0]["cleanup_confirmed"])
 
     async def test_handoff_publication_failure_retries_without_repeating_cleanup_or_archive(self):
         await self.running()

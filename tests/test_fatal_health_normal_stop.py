@@ -1,6 +1,7 @@
 """Fatal health accounting while the existing Normal Stop owns remote cleanup."""
 
 import asyncio
+import json
 from dataclasses import replace
 import unittest
 from unittest.mock import patch
@@ -25,7 +26,7 @@ class FatalHealthNormalStopTests(unittest.IsolatedAsyncioTestCase):
         self.missing_stop = False
         self.pause_operation = "stop_runtime"
         self.pause_component = "acquisition_node"
-        original = self.f.communication.request_command
+        original = self.f.communication.request_runtime_command
 
         async def pause(participant, operation, *args, **kwargs):
             if operation == self.pause_operation and participant.component_type == self.pause_component:
@@ -35,7 +36,7 @@ class FatalHealthNormalStopTests(unittest.IsolatedAsyncioTestCase):
                     return None
             return await original(participant, operation, *args, **kwargs)
 
-        self.patch = patch.object(self.f.communication, "request_command", new=pause)
+        self.patch = patch.object(self.f.communication, "request_runtime_command", new=pause)
         self.patch.start()
         self.addCleanup(self.patch.stop)
         self.addAsyncCleanup(self.finish_stop)
@@ -58,6 +59,93 @@ class FatalHealthNormalStopTests(unittest.IsolatedAsyncioTestCase):
     def node_stops(self):
         return [c for c in self.f.broker.commands
                 if c["target_id"] == "node" and c["command_type"] == "stop_runtime"]
+
+    async def reject_wrong_synchronization_reply(self, *, fatal):
+        original = self.f.broker.publish
+
+        async def redirect(subject, data, stream):
+            command = json.loads(data)
+            if (stream == "LAB_COMMANDS" and command["command_type"] == "stop_runtime"
+                    and command["target_id"] == "sync"):
+                command["command_type"] = "check_readiness"
+                subject = subject.rsplit(".", 1)[0] + ".check_readiness"
+                data = json.dumps(command).encode()
+            return await original(subject, data, stream)
+
+        with patch.object(self.f.sync, "complete_session_evidence_publication",
+                          wraps=self.f.sync.complete_session_evidence_publication) as publication:
+            with patch.object(self.f.broker, "publish", new=redirect):
+                await self.begin_stop()
+                if fatal:
+                    await self.fatal()
+                self.resume.set()
+                result = await self.stopping
+            publication.assert_not_awaited()
+            self.assertFalse(result.succeeded)
+            self.assertFalse(result.details["preservation_confirmed"])
+            self.assertFalse(self.f.controller._acquisition_marker_confirmed)
+            self.assertIsNone(self.f.controller._acquisition_marker)
+            self.assertIsNotNone(self.f.controller._session)
+            self.assertEqual(self.f.controller.get_status()["session_state"], "failed" if fatal else "stopping")
+            self.assertEqual(len(self.node_stops()), 1)
+            self.assertFalse(any(c["command_type"] == "kill" for c in self.f.broker.commands))
+            with patch.object(self.closeout.storage, "write_acquisition_stage", side_effect=OSError("archive unavailable")):
+                retried = await self.closeout.stop()
+            publication.assert_awaited_once()
+            self.assertTrue(self.f.controller._acquisition_marker_confirmed)
+            self.assertFalse(retried.succeeded)
+            self.assertFalse(retried.details["preservation_confirmed"])
+            self.assertEqual(len(self.node_stops()), 1)
+
+    async def test_wrong_synchronization_operation_cannot_confirm_normal_stop(self):
+        await self.reject_wrong_synchronization_reply(fatal=False)
+
+    async def test_wrong_synchronization_operation_cannot_confirm_fatal_closeout(self):
+        await self.reject_wrong_synchronization_reply(fatal=True)
+
+    async def test_contradictory_synchronization_results_prevent_marker(self):
+        original = self.f.broker.publish
+
+        async def conflict(subject, data, stream):
+            acknowledgment = await original(subject, data, stream)
+            if stream == "LAB_COMMAND_RESULTS" and subject.endswith(".sync.stop_runtime"):
+                reply = json.loads(data)
+                reply.update(result_id="conflicting-sync-result", status="failed", success=False,
+                             reason="Contradictory synchronization result")
+                await original(subject, json.dumps(reply).encode(), stream)
+            return acknowledgment
+
+        with patch.object(self.f.broker, "publish", new=conflict):
+            await self.begin_stop()
+            self.resume.set()
+            result = await self.stopping
+        self.assertFalse(result.succeeded)
+        self.assertFalse(result.details["preservation_confirmed"])
+        self.assertFalse(self.f.controller._acquisition_marker_confirmed)
+        self.assertIsNotNone(self.f.controller._session)
+
+    async def test_wrong_node_operation_cannot_authorize_reservation_release(self):
+        original = self.f.broker.publish
+
+        async def redirect(subject, data, stream):
+            command = json.loads(data)
+            if (stream == "LAB_COMMANDS" and command["command_type"] == "stop_runtime"
+                    and command["target_id"] == "node"):
+                command["command_type"] = "check_readiness"
+                subject = subject.rsplit(".", 1)[0] + ".check_readiness"
+                data = json.dumps(command).encode()
+            return await original(subject, data, stream)
+
+        with patch.object(self.f.broker, "publish", new=redirect):
+            await self.begin_stop()
+            self.resume.set()
+            result = await self.stopping
+        self.assertFalse(result.succeeded)
+        self.assertFalse(self.f.controller._runtime_cleanup_confirmed)
+        self.assertFalse(self.f.controller._acquisition_marker_confirmed)
+        self.assertTrue(self.f.node.status()["is_running"])
+        self.assertIsNotNone(self.f.controller._session)
+        self.assertFalse(any(c["command_type"] == "release_reservation" for c in self.f.broker.commands))
 
     async def test_durable_fatal_accounting_does_not_compete_with_cleanup(self):
         await self.begin_stop()

@@ -520,6 +520,8 @@ class NatsControllerCommunication:
         if (not isinstance(session_id, str) or not session_id or "request_nonce" in payload
                 or not isinstance(participant, RuntimeParticipant)):
             raise ValueError("An explicit Session, participant and caller payload are required")
+        if command_type == "stop_runtime":
+            self._runtime_stop_commands.pop((session_id, participant.component_type, participant.component_id), None)
         nonce = uuid4().hex
         requests = NatsControllerCommunication(self._boundary)
         subscription = await requests.subscribe_command_results(session_id, new_only=True,
@@ -530,6 +532,7 @@ class NatsControllerCommunication:
             result = await requests.request_command(participant, command_type, session_id,
                 {**deepcopy(payload), "request_nonce": nonce}, result_window_s, command_id=command_id)
             if result is not None:
+                self._runtime_stop_commands.update(requests._runtime_stop_commands)
                 self._command_results += (result,)
             return result
         finally:

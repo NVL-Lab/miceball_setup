@@ -46,6 +46,26 @@ class RuntimeCommandCorrelationTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue((await self.request()).success)
         self.assertTrue(all(not subscription.active for subscription in self.broker.subscriptions))
 
+    async def test_scoped_stop_completion_cannot_reuse_a_rejected_attempt(self):
+        subscription = await self.communication.subscribe_command_results("session")
+        try:
+            self.respond = self.emit
+            first = await self.request()
+            self.assertEqual(self.communication.session_acquisition_completion(self.participant, "session"), first)
+
+            async def wrong_operation(command):
+                await self.emit(command, operation="check_readiness")
+
+            self.respond = wrong_operation
+            self.assertIsNone(await self.request())
+            self.assertIsNone(self.communication.session_acquisition_completion(self.participant, "session"))
+            self.respond = self.emit
+            retried = await self.request()
+            self.assertIsNotNone(retried)
+            self.assertEqual(self.communication.session_acquisition_completion(self.participant, "session"), retried)
+        finally:
+            await subscription.unsubscribe()
+
     async def test_missing_reply_remains_unconfirmed_and_releases_subscription(self):
         self.assertIsNone(await self.request())
         self.assertTrue(all(not subscription.active for subscription in self.broker.subscriptions))

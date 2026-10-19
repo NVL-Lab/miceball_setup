@@ -40,6 +40,13 @@ confirmation retains the binding and preservation obligations for explicit retry
 Cancellation likewise does not discard the fatal consequence or authorize release.
 This overlap implementation remains pending independent validation and audit.
 
+Normal Stop confirms synchronization publication through the existing scoped
+runtime request contract, as do adjacent node Stop/reservation-release and
+local-owner Kill confirmations. Replies for another operation, owner/type or
+attempt cannot substitute for these operations. Missing or conflicting scoped
+results leave the relevant confirmation unestablished; a failed new Stop attempt
+cannot reuse an earlier successful producer-completion result.
+
 ### Existing Deployment Status
 
 Q022-A Decisions 367-378 are accepted and synchronized. Bounded shared-process

@@ -240,7 +240,7 @@ class Controller:
                     continue
                 outcome = {"participant": participant.to_dict(), "cleanup_confirmed": False}
                 try:
-                    result = await communication.request_command(participant, "stop_runtime",
+                    result = await communication.request_runtime_command(participant, "stop_runtime",
                         session.session_id, {}, result_window_s,
                         command_id=self._kill_closeout["command_ids"].setdefault(
                             (participant.component_type, participant.component_id), uuid4().hex))
@@ -748,7 +748,7 @@ class Controller:
             synchronization = [p for p in participants if p.component_type == "synchronization_manager"]
             if len(synchronization) != 1:
                 raise RuntimeError("One authoritative Session synchronization participant is required")
-            result = await communication.request_command(synchronization[0], "stop_runtime",
+            result = await communication.request_runtime_command(synchronization[0], "stop_runtime",
                 session.session_id, {}, result_window_s)
             if result is None or result.status != "succeeded" or result.success is not True:
                 raise RuntimeError("Synchronization evidence publication is unconfirmed")
@@ -1366,10 +1366,10 @@ class Controller:
                 outcomes.append({"participant": participant.to_dict(), "released": True})
                 continue
             try:
-                result = await self._launch_communication.request_command(participant, "stop_runtime", session.session_id, {}, self._launch_result_window_s)
+                result = await self._launch_communication.request_runtime_command(participant, "stop_runtime", session.session_id, {}, self._launch_result_window_s)
                 if result is None or result.success is not True:
                     raise RuntimeError("Node stop/local finalization unconfirmed")
-                release = await self._launch_communication.request_command(participant, "release_reservation", session.session_id, {}, self._launch_result_window_s)
+                release = await self._launch_communication.request_runtime_command(participant, "release_reservation", session.session_id, {}, self._launch_result_window_s)
                 if release is None or release.success is not True or release.payload.get("confirmed") is not True:
                     raise RuntimeError("Reservation release unconfirmed")
                 outcomes.append({"participant": participant.to_dict(), "released": True})

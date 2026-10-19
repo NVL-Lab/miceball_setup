@@ -302,7 +302,7 @@ class NormalStopTests(unittest.IsolatedAsyncioTestCase):
     async def test_cancellation_before_marker_cannot_fall_back_to_legacy_completion(self):
         await self.running()
         entered, proceed = asyncio.Event(), asyncio.Event()
-        request = self.fixture.communication.request_command
+        request = self.fixture.communication.request_runtime_command
 
         async def paused(participant, command_type, *args, **kwargs):
             if participant.component_type == "synchronization_manager" and command_type == "stop_runtime":
@@ -310,7 +310,7 @@ class NormalStopTests(unittest.IsolatedAsyncioTestCase):
                 await proceed.wait()
             return await request(participant, command_type, *args, **kwargs)
 
-        with patch.object(self.fixture.communication, "request_command", new=paused):
+        with patch.object(self.fixture.communication, "request_runtime_command", new=paused):
             task = asyncio.create_task(self.stop())
             await asyncio.wait_for(entered.wait(), 3)
             task.cancel()
