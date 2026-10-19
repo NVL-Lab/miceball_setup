@@ -392,6 +392,7 @@ class NatsControllerCommunication:
         self._maintenance_requests: list[dict[str, Any]] = []
         self._health_receivers: dict[str, list[dict[str, Any]]] = {}
         self._runtime_stop_commands: dict[tuple, RuntimeCommandMessage] = {}
+        self._runtime_stop_confirmations: dict[tuple, RuntimeCommandResultMessage | None] = {}
         self._unpublished_evidence: dict[str, RuntimeEvidenceMessage] = {}
 
     @property
@@ -521,7 +522,9 @@ class NatsControllerCommunication:
                 or not isinstance(participant, RuntimeParticipant)):
             raise ValueError("An explicit Session, participant and caller payload are required")
         if command_type == "stop_runtime":
-            self._runtime_stop_commands.pop((session_id, participant.component_type, participant.component_id), None)
+            key = (session_id, participant.component_type, participant.component_id)
+            self._runtime_stop_commands.pop(key, None)
+            self._runtime_stop_confirmations.pop(key, None)
         nonce = uuid4().hex
         requests = NatsControllerCommunication(self._boundary)
         subscription = await requests.subscribe_command_results(session_id, new_only=True,
@@ -533,10 +536,14 @@ class NatsControllerCommunication:
                 {**deepcopy(payload), "request_nonce": nonce}, result_window_s, command_id=command_id)
             if result is not None:
                 self._runtime_stop_commands.update(requests._runtime_stop_commands)
+                if command_type == "stop_runtime":
+                    self._runtime_stop_confirmations[key] = deepcopy(result) if result.success is True else None
                 self._command_results += (result,)
-            return result
         finally:
             await subscription.unsubscribe()
+        if command_type == "stop_runtime" and result is not None and result.success is True:
+            return self.session_acquisition_completion(participant, session_id)
+        return result
 
     @staticmethod
     async def _notify_dependency_result(observation, command_type, result):
@@ -679,6 +686,7 @@ class NatsControllerCommunication:
             if result_filter is not None and not result_filter(result):
                 await message.ack()
                 return
+            self._observe_runtime_stop_result(message.subject, result)
             self._command_results = self._command_results + (result,)
             event = self._command_result_events.get(result.command_id)
             if event is not None:
@@ -825,19 +833,37 @@ class NatsControllerCommunication:
 
     def session_acquisition_completion(self, participant: RuntimeParticipant,
                                        session_id: str) -> RuntimeCommandResultMessage | None:
-        """Read the successful result for this issuer's latest correlated runtime stop."""
-        command = self._runtime_stop_commands.get(
-            (session_id, participant.component_type, participant.component_id))
-        if command is None:
+        """Read only the scoped Stop resolution, unless a received conflict invalidated it."""
+        key = (session_id, participant.component_type, participant.component_id)
+        command = self._runtime_stop_commands.get(key)
+        result = self._runtime_stop_confirmations.get(key)
+        if (command is None or result is None or command.command_type != "stop_runtime"
+                or result.command_id != command.command_id or result.session_id != session_id
+                or result.source_id != participant.component_id or result.target_id != command.source_id
+                or result.payload.get("request_nonce") != command.payload.get("request_nonce")
+                or result.status != "succeeded" or result.success is not True):
             return None
-        results = [result for result in self._command_results
-                   if result.command_id == command.command_id
-                   and result.session_id == session_id
-                   and result.source_id == participant.component_id
-                   and result.target_id == command.source_id]
-        if not results or results[-1].status != "succeeded" or results[-1].success is not True:
+        return deepcopy(result)
+
+    def _observe_runtime_stop_result(self, subject, result):
+        """Invalidate an accepted scoped Stop when later delivery contradicts that attempt."""
+        try:
+            route = parse_runtime_subject(subject)
+        except ValueError:
+            return
+        key = (result.session_id, route["component_type"], route["component_id"])
+        command = self._runtime_stop_commands.get(key)
+        accepted = self._runtime_stop_confirmations.get(key)
+        if (command is None or accepted is None or result.status not in {"succeeded", "failed"}
+                or subject != build_runtime_subject(result.session_id, "command_result", key[1], key[2], "stop_runtime")
+                or result.command_id != command.command_id or result.source_id != command.target_id
+                or result.target_id != command.source_id
+                or result.payload.get("request_nonce") != command.payload.get("request_nonce")):
             return None
-        return results[-1]
+        resolutions = {json.dumps([reply.status, reply.success, reply.reason, reply.payload],
+            sort_keys=True, separators=(",", ":"), allow_nan=False) for reply in (accepted, result)}
+        if len(resolutions) != 1:
+            self._runtime_stop_confirmations[key] = None
 
     async def publish_evidence(self, message: RuntimeEvidenceMessage) -> None:
         """Publish Controller-owned evidence with the existing durable stream acknowledgment."""

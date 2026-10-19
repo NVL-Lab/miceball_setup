@@ -70,6 +70,49 @@ class RuntimeCommandCorrelationTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(await self.request())
         self.assertTrue(all(not subscription.active for subscription in self.broker.subscriptions))
 
+    async def test_owner_stop_rejection_remains_reportable_without_completion(self):
+        async def reject(command):
+            await self.emit(command, status="failed", success=False, reason="Device cleanup blocked")
+
+        self.respond = reject
+        result = await self.request()
+        self.assertIsNotNone(result)
+        self.assertFalse(result.success)
+        self.assertEqual(result.reason, "Device cleanup blocked")
+        self.assertIsNone(self.communication.session_acquisition_completion(self.participant, "session"))
+
+    async def test_pending_retry_cannot_be_confirmed_by_previous_nonce(self):
+        subscription = await self.communication.subscribe_command_results("session")
+        entered, resume = asyncio.Event(), asyncio.Event()
+        pending = None
+        commands = []
+
+        async def respond(command):
+            commands.append(command)
+            if len(commands) == 2:
+                entered.set()
+                await resume.wait()
+            await self.emit(command)
+
+        self.respond = respond
+        try:
+            self.assertIsNotNone(await self.request(command_id="same-stop"))
+            pending = asyncio.create_task(self.request(command_id="same-stop"))
+            await asyncio.wait_for(entered.wait(), 1)
+            self.assertIsNone(self.communication.session_acquisition_completion(self.participant, "session"))
+            await self.emit(commands[0])
+            self.assertIsNone(self.communication.session_acquisition_completion(self.participant, "session"))
+            resume.set()
+            current = await pending
+            self.assertIsNotNone(current)
+            await self.emit(commands[0], status="failed", success=False, reason="Stale failure")
+            self.assertEqual(self.communication.session_acquisition_completion(self.participant, "session"), current)
+        finally:
+            resume.set()
+            if pending is not None:
+                await asyncio.gather(pending, return_exceptions=True)
+            await subscription.unsubscribe()
+
     async def test_progress_does_not_hide_a_delayed_final_reply(self):
         async def respond(command):
             await self.emit(command, status="accepted", success=False)

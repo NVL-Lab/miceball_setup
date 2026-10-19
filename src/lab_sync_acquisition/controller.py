@@ -787,6 +787,9 @@ class Controller:
                 if self._session is not session:
                     raise RuntimeError("Controller Session binding changed during publication")
                 required = self._controller_owned_session_evidence_snapshot(session.session_id)
+                if any(communication.session_acquisition_completion(participant, session.session_id) is None
+                       for participant in (*nodes, synchronization[0])):
+                    raise RuntimeError("Producer publication confirmation changed before the marker")
                 required.pop(getattr(self._acquisition_marker, "evidence_id", None), None)
                 if any(unique.get(identity) is None or unique[identity].to_dict() != contents
                        for identity, contents in required.items()):

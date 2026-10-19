@@ -46,6 +46,15 @@ local-owner Kill confirmations. Replies for another operation, owner/type or
 attempt cannot substitute for these operations. Missing or conflicting scoped
 results leave the relevant confirmation unestablished; a failed new Stop attempt
 cannot reuse an earlier successful producer-completion result.
+Producer-completion readback retains the accepted scoped Stop resolution rather
+than selecting the last broad-history reply. Existing result subscriptions
+invalidate it on a correctly scoped same-attempt contradiction, including replies
+received after the request returns; duplicate success cannot restore it. Stale
+nonces and unrelated routes cannot replace that resolution. A fresh explicit
+scoped retry can obtain the owner's idempotent outcome without repeating device
+cleanup. Controller rechecks all producer confirmations immediately before marker
+admission, after the awaited closing publications. This does not claim knowledge
+of replies not yet received or change finalized intake.
 
 ### Existing Deployment Status
 
