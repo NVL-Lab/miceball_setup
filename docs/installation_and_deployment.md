@@ -294,7 +294,7 @@ relative to the file containing them, or may be absolute. Node hardware paths
 remain relative to the separate hardware file. Settings are read at startup and
 are not watched; changes take effect on explicit restart.
 
-### Framework Evidence Archive Months (Implementation Pending Independent Validation)
+### Framework Evidence Archive Months (W071 Closed)
 
 New permanent framework evidence and intake audit use
 `<storage_root>/framework/evidence/YYYY-MM/` with the existing three archive
@@ -320,7 +320,12 @@ remain blocked without implicit repair. Existing administrator-authorized repair
 can reconstruct an identified same-month interrupted target; older or unidentified
 interrupted targets remain unsupported, retained and unconfirmed. Do not remove
 or recreate missing products to force startup. No live deployment or power-loss
-validation is claimed; independent validation/audit of this slice remain pending.
+validation is claimed. W071 is CLOSED after 59 distinct Codex checks, independent
+ICC IPython validation (6/6 PASS) and independent implementation/source review PASS
+with no confirmed P0-P3 findings. No hardware, OS-signal or normal Windows
+asynchronous scheduling validation is claimed. See W071 in validated_workflows.md;
+Q024 remains OPEN for historical deletion independence/eligibility, broader memory
+retirement and other recovery obligations.
 
 W070A / Decision 392 adds Ingestor-owned `closed_sessions/records.json` and
 `closed_sessions.initialized` beneath `recovery_journal_root` (or beside an
@@ -1226,6 +1231,43 @@ Session-keyed reservations, terminal Experiment/file protections, device safety,
 and W042 publication-before-success with concurrency-safe evidence cursors. A
 timeout cannot prove cleanup or reservation release. Depends on receiving/timing
 interfaces below, not creation of node collaborators in Controller.
+
+### Sustained Acquisition Execution (G3 Implementation)
+
+The independent AcquisitionNode launcher enables sustained execution in its
+existing NATS adapter before command admission. Session runtime startup alone
+does not imply recording: an active Experiment must select scientific outputs.
+After `start_launched_experiment()` activates that context, one node-local task
+repeatedly calls the existing `AcquisitionNode.run_one_iteration()`; the PC does
+not send an iteration command for each frame. Repeated activation or scheduler
+enable does not create another recording task. An Experiment without scientific
+outputs remains idle. Finalizing an Experiment ends its task; later activation
+can begin another task while the Session runtime stays operational.
+
+Direct bounded Python callers retain the existing iteration API. A manually
+composed NATS service enables the same behavior with
+`await handler.start_acquisition_execution()` before admission. Its maintenance
+resource-cleanup callback calls `await handler.stop_acquisition_execution()`
+after the owner's device cleanup. Disabling the scheduler alone is not device
+cleanup, finalization, Session completion, or service retirement.
+
+Controller disconnection is not a stop trigger. Frames, timestamps, mapping
+provenance, and health evidence use the existing local scientific and operational
+paths. Publication failure retains existing evidence/cursors without stopping
+acquisition solely for that reason. A collection/storage failure follows the
+node's failure-evidence contract and attempts existing runtime stop/finalization;
+it does not independently transition the Controller's Session lifecycle.
+Blocked maintenance leaves existing acquisition obligations operational; Cancel
+does not authorize Kill. Authorized runtime stop/finalization quiesces execution,
+and service cleanup disables and joins the task before retirement can complete.
+
+Iterations remain bounded synchronous calls on the node service event loop and
+yield between collections. This adds no configured sampling cadence or read
+timeout: camera settings, `frames_per_collect`, and existing persistence batching
+remain authoritative. A blocking device read or evidence-publication wait can
+delay progress; no hard real-time or lossless-camera guarantee is established.
+G3 is implementation work awaiting independent validation/audit, not workflow
+closure or actual PC-Jetson hardware validation. Q022, M015 and Phase 16 remain OPEN.
 
 ### Timing And Synchronization
 

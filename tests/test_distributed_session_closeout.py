@@ -130,6 +130,34 @@ class DistributedSessionCloseoutTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(released.succeeded, released.error)
         self.assertIsNone(f.ingestor.session_id)
 
+    async def test_normal_stop_quiesces_sustained_recording_before_finalized_intake(self):
+        f = self.fixture
+        await f.handler.start_acquisition_execution()
+        self.addAsyncCleanup(f.handler.stop_acquisition_execution)
+        await self.running()
+        for _ in range(100):
+            if f.node.status()["iteration_count"] >= 4:
+                break
+            await asyncio.sleep(0)
+        self.assertGreaterEqual(f.node.status()["iteration_count"], 4)
+        local = f.node.local_storage_manager
+        result = await self.stop()
+        self.assertTrue(result.succeeded, result.error)
+        self.assertTrue(result.details["acquisition_preservation_eligible"])
+        self.assertEqual(f.controller.get_status()["session_state"], "completed")
+        self.assertFalse(f.handler.acquisition_execution_active)
+        manifest, = local.manifests
+        self.assertEqual(manifest.lifecycle_state, "finalized")
+        self.assertGreaterEqual(len(Path(manifest.local_storage_path).read_text().splitlines()), 4)
+        before = self.archive()
+        for _ in range(5):
+            await asyncio.sleep(0)
+        self.assertEqual(self.archive(), before)
+        self.assertTrue((await f.controller.release_session(
+            communication=f.communication, result_window_s=0.05)).succeeded)
+        self.assertIsNone(f.ingestor.session_id)
+        self.assertFalse(f.handler.acquisition_execution_active)
+
     async def test_finalized_intake_discards_late_and_duplicate_delivery_without_audit_changes(self):
         await self.running()
         f = self.fixture

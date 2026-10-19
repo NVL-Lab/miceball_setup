@@ -1021,7 +1021,10 @@ backward month assignment, conflicting history and incomplete writes fail closed
 Complete uncertain writes require current durable reconciliation before reuse;
 identified same-month interrupted writes retain existing authorized repair.
 Older/unidentified incomplete targets remain unsupported and blocked.
-Independent validation/audit and closure are pending; Q024 remains OPEN.
+This bounded monthly slice is CLOSED as W071 following independent ICC IPython
+validation (6/6 PASS) and independent implementation/source review PASS with no
+confirmed P0-P3 findings. Q024 remains OPEN; historical deletion independence and
+eligibility, broader memory retirement and other recovery obligations are not closed.
 
 Focused implementation verification passed 59 distinct checks: 35 synchronous
 and 24 controlled asynchronous, including 19 new permanent regressions. Controlled
@@ -1030,7 +1033,7 @@ this is not a normal Windows asynchronous scheduling campaign. Default sandbox
 temporary paths were inaccessible; successful runs used temporary directories in
 the permitted repository workspace. No live NATS, real sockets, OS signals,
 hardware or physical power-loss validation is claimed. Historical workflow
-records are unchanged and no new workflow is marked validated or closed.
+records are unchanged; see W071 in validated_workflows.md for the bounded closure.
 
 Supported Decisions 351-352 startup reconciliation is complete, independently
 manually validated and independently re-audited PASS after correction (W040),
@@ -1044,7 +1047,7 @@ controls. Codex post-correction testing: 676 run, 669 passed, 7 optional renderi
 skips, zero failures. No validation was performed during documentation closure.
 Bounded Decision 349/393 journal retirement is complete in W070B; Decision 350
 and Decisions 353/355 remain unimplemented; Decision 354 has bounded monthly
-implementation pending independent validation/audit. Cumulative confirmation and
+implementation independently validated/reviewed and CLOSED in W071. Cumulative confirmation and
 maintenance lookup still require retained historical products, so no historical
 archive is declared safe to delete. Broader deletion independence remains outside
 this slice. Q019 is CLOSED in W050; unavailable auditing
@@ -1217,7 +1220,7 @@ or archive preservation. No weaker closeout guarantee is substituted.
 W033/M013, W035, W039, and W040 remain historically complete; Decision
 336 remains partial; bounded Decision 349/393 is complete in W070B, while Decision
 350 and Decisions 353/355 remain unimplemented, bounded monthly Decision 354
-implementation awaits independent validation/audit, and Q024,
+implementation is CLOSED in W071 after independent ICC validation/review PASS, and Q024,
 Q022, Phase 16, and M015 remain OPEN.
 
 ## Completed NATS persistence boundary slice validation

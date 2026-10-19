@@ -359,6 +359,18 @@ class IndependentServiceTests(unittest.IsolatedAsyncioTestCase):
             return value
 
         seen = []
+        enabled = []
+        stopped = []
+        start_execution = NatsAcquisitionNodeCommunication.start_acquisition_execution
+        stop_execution = NatsAcquisitionNodeCommunication.stop_acquisition_execution
+
+        async def enable(handler):
+            enabled.append(handler)
+            await start_execution(handler)
+
+        async def stop(handler):
+            stopped.append(handler)
+            await stop_execution(handler)
 
         async def run(launcher, *, startup):
             self.assertIsInstance(launcher, real)
@@ -375,7 +387,7 @@ class IndependentServiceTests(unittest.IsolatedAsyncioTestCase):
 
         node = AcquisitionNode(device_manager=DeviceManager((ReadyFakeAdapter("device", "fake", (), True),)),
                                node_id="node", role="acquisition", synchronization_source_id="clock")
-        with patch("lab_sync_acquisition.service_startup.NatsCommunicationBoundary", boundary), patch.object(ServiceLauncher, "run", run), patch("lab_sync_acquisition.service_startup.load_acquisition_node", return_value=node):
+        with patch("lab_sync_acquisition.service_startup.NatsCommunicationBoundary", boundary), patch.object(ServiceLauncher, "run", run), patch("lab_sync_acquisition.service_startup.load_acquisition_node", return_value=node), patch.object(NatsAcquisitionNodeCommunication, "start_acquisition_execution", enable), patch.object(NatsAcquisitionNodeCommunication, "stop_acquisition_execution", stop):
             for role, identity in (("controller", "control"), ("synchronization-manager", "sync"), ("acquisition-node", "node")):
                 result = await launch_independent_service(role=role, servers=("nats://example:4222",),
                     service_id=identity, ingestor_id="intake", storage_id="storage", preservation_window_s=0.1,
@@ -383,6 +395,9 @@ class IndependentServiceTests(unittest.IsolatedAsyncioTestCase):
                     report=self.reports.append)
                 self.assertEqual(result, 0)
         self.assertEqual(seen, ["controller", "synchronization_manager", "acquisition_node"])
+        self.assertEqual(len(enabled), 1)
+        self.assertEqual(stopped, enabled)
+        self.assertFalse(enabled[0].acquisition_execution_active)
 
     async def test_partial_startup_interrupt_preserves_running_clock_until_explicit_stop(self):
         await self.backend()

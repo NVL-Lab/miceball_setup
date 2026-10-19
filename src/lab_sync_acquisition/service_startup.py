@@ -118,6 +118,8 @@ async def launch_independent_service(*, role, servers, service_id, ingestor_id, 
     runtime = handler_type(boundary, owner) if handler_type is not None else None
 
     async def cleaned(force):
+        if isinstance(runtime, NatsAcquisitionNodeCommunication):
+            await runtime.stop_acquisition_execution()
         if isinstance(runtime, NatsSynchronizationManagerCommunication) and runtime._assessment_task is not None:
             runtime._assessment_task.cancel()
             try:
@@ -145,6 +147,8 @@ async def launch_independent_service(*, role, servers, service_id, ingestor_id, 
                 startup_result_window_s=result_window_s if role == "controller" else None)
             # Existing handlers remain available for maintenance/instance readback;
             # service-owned new-work admission stays closed until registration.
+            if isinstance(runtime, NatsAcquisitionNodeCommunication):
+                await runtime.start_acquisition_execution()
             if runtime is None:
                 await startup_interface.subscribe_commands()
             else:

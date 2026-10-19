@@ -828,6 +828,69 @@ class NatsAcquisitionNodeCommunication:
         self._runtime_publication_lock = asyncio.Lock()
         self._artifact_manifest_publication_lock = asyncio.Lock()
         self._unpublished_evidence: dict[str, RuntimeEvidenceMessage] = {}
+        self._sustained_acquisition_enabled = False
+        self._acquisition_task: asyncio.Task | None = None
+        self._acquisition_execution_lock = asyncio.Lock()
+
+    @property
+    def acquisition_execution_active(self) -> bool:
+        """Whether this adapter owns an unfinished sustained acquisition task."""
+        return self._acquisition_task is not None and not self._acquisition_task.done()
+
+    async def start_acquisition_execution(self) -> None:
+        """Enable service-local iteration scheduling for active scientific Experiments."""
+        self._sustained_acquisition_enabled = True
+        await self._refresh_acquisition_execution()
+
+    async def stop_acquisition_execution(self) -> None:
+        """Disable scheduling and join its owned task; this does not finalize devices."""
+        self._sustained_acquisition_enabled = False
+        async with self._acquisition_execution_lock:
+            await self._finish_acquisition_execution()
+
+    async def _finish_acquisition_execution(self) -> None:
+        task = self._acquisition_task
+        if task is None:
+            return
+        task.cancel()
+        try:
+            await asyncio.gather(task, return_exceptions=True)
+        finally:
+            if task.done() and self._acquisition_task is task:
+                self._acquisition_task = None
+
+    async def _refresh_acquisition_execution(self) -> None:
+        async with self._acquisition_execution_lock:
+            if self._sustained_acquisition_enabled and self._acquisition_node.scientific_acquisition_active:
+                if not self.acquisition_execution_active:
+                    self._acquisition_task = asyncio.create_task(self._run_acquisition())
+            else:
+                await self._finish_acquisition_execution()
+
+    async def _run_acquisition(self) -> None:
+        # Bounded synchronous iterations and lifecycle commands share the service
+        # event loop: finalization cannot overlap a camera read or local append.
+        while self._sustained_acquisition_enabled and self._acquisition_node.scientific_acquisition_active:
+            failed = False
+            try:
+                self._acquisition_node.run_one_iteration()
+            except Exception:
+                failed = True
+                logger.exception("sustained_acquisition_failed")
+                try:
+                    self._acquisition_node.stop_runtime()
+                except Exception:
+                    logger.exception("sustained_acquisition_cleanup_unconfirmed")
+            try:
+                await self.publish_new_artifact_manifest_evidence()
+                await self.publish_new_runtime_evidence()
+            except Exception:
+                # Existing cursors and producer retention keep unconfirmed evidence;
+                # communication failure is not an acquisition-stop authorization.
+                logger.exception("sustained_acquisition_publication_unconfirmed")
+            if failed:
+                return
+            await asyncio.sleep(0)
 
     async def subscribe_commands(self) -> tuple[Subscription, Subscription]:
         """Consume commands routed to this AcquisitionNode instance."""
@@ -850,6 +913,7 @@ class NatsAcquisitionNodeCommunication:
                     return
                 result = (await _execute_maintenance_command(self._boundary, self._acquisition_node, command)
                           if command.command_type in ({"stop", "kill", "cancel", "prepare_stop", "check_stop_readiness"} | SERVICE_RECOVERY_COMMAND_TYPES | DEPENDENT_MAINTENANCE_COMMANDS) else self.execute_command(command))
+                await self._refresh_acquisition_execution()
                 await self.publish_new_artifact_manifest_evidence()
                 if command.session_id is not None:
                     await self.publish_new_runtime_evidence()

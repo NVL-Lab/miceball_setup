@@ -1121,7 +1121,7 @@ Additional Q024 architecture is accepted in Decisions 349-355. Supported startup
 reconciliation under Decisions 351-352 is complete, independently manually validated
 and independently re-audited PASS after correction (W040). Bounded Decision 349/393
 retirement is CLOSED in W070B; Decision 354 has bounded monthly implementation
-pending independent validation/audit, while Decisions 350 and 353/355 remain
+independently validated/reviewed and CLOSED in W071, while Decisions 350 and 353/355 remain
 unimplemented. The architecture assigns conditional temporary-journal
 retirement to Ingestor,
 permits explicitly informed terminal deletion of identified unrecoverable temporary
@@ -1158,8 +1158,12 @@ intake-audit, and compilation-summary files. Bounded monthly implementation now
 assigns new evidence/audit using StorageManager's system clock at archival write
 time with UTC month boundaries; older partitions are not rewritten and existing
 shared-layout history stays read-only. Cumulative confirmation and existing
-journals preserve cross-month identities and recovery information. Independent
-validation/audit remain pending. Monthly partitioning does not rotate temporary journals, alter
+journals preserve cross-month identities and recovery information. The bounded
+slice is CLOSED in W071 after 59 distinct Codex checks, independent ICC IPython
+validation (6/6 PASS) and implementation/source review PASS with no confirmed
+P0-P3 findings. See validated_workflows.md for limitations; no live NATS, hardware,
+OS-signal, physical power-loss or normal Windows asynchronous scheduling validation
+is claimed. Monthly partitioning does not rotate temporary journals, alter
 Session archives/scientific artifacts, or change historical timestamps.
 Decision 355 distinguishes immutable finalized archives from archives confirmed
 safe to delete: deletion must not affect later operation or recovery. Permanent

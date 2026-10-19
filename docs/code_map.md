@@ -153,7 +153,7 @@ installation_and_deployment.md and Decisions 383-388.
 
 - read_acquisition_node_configuration(path): Validates the existing hardware JSON contract without constructing an owner or adapter, for both deployment prevalidation and node construction.
 - load_acquisition_node(path, synchronization_source_id): Validates a deployment-local JSON hardware installation, constructs explicitly selected supported adapters without opening hardware, and supplies persistent identity, local paths and per-device initialization baselines to the real node.
-- launch_independent_service(*, role, servers, service_id, ingestor_id, storage_id, preservation_window_s, result_window_s, synchronization_id=None, known_nodes=None, node_config=None, report=print): Constructs one independent owner with explicit remote evidence dependencies, fresh command handlers, readiness/reconciliation and the existing protected ServiceLauncher lifetime.
+- launch_independent_service(*, role, servers, service_id, ingestor_id, storage_id, preservation_window_s, result_window_s, synchronization_id=None, known_nodes=None, node_config=None, report=print): Constructs one independent owner with remote evidence dependencies, readiness, protected maintenance and node-local sustained execution enabled before admission and joined during cleanup.
 
 ## tests/test_independent_service_startup.py
 
@@ -572,7 +572,9 @@ completed software validation and independent audit.
 Decision 354 now supersedes that shared framework layout architecturally with
 `framework/evidence/YYYY-MM/` partitions; bounded monthly implementation uses
 StorageManager's UTC archival-write month and leaves older/shared-layout products
-unchanged, pending independent validation/audit. Bounded Decision 349/393 journal retirement is CLOSED in W070B after
+unchanged. This bounded slice is CLOSED in W071 after independent ICC IPython
+validation (6/6 PASS) and implementation/source review PASS with no confirmed
+P0-P3 findings; see validated_workflows.md for limitations. Bounded Decision 349/393 journal retirement is CLOSED in W070B after
 independent ICC validation and source audit PASS. Decision 350 and Decisions
 353/355 remain accepted but unimplemented; Q024 remains OPEN.
 Supported Decisions 351-352 startup reconciliation is complete, independently
@@ -979,6 +981,7 @@ guarantee remain deferred. M014/W034 retain completed Slice 27 scope and status.
 - AcquisitionIterationSummary(iteration_index, collections_seen, scientific_observations): Reports device collections and scientific observations accepted by LocalStorageManager, without envelope counters or per-iteration durability claims.
 - AcquisitionNode: Owns bounded acquisition runtime execution and timestamping, stores separate active Experiment timing and health context, and emits explicitly linked ExperimentScopedHealthObservation and HealthInterpretationEvidence records without executing framework actions.
 - AcquisitionNode.status(): Includes existing local cleanup confirmation as `cleanup_confirmed` for safe Session-binding release, alongside runtime, reservation, and active-context status.
+- AcquisitionNode.scientific_acquisition_active: Reports a healthy running node with an active Experiment selecting scientific outputs, without claiming that hardware has delivered a frame.
 - AcquisitionNode.__init__(session_id=None, device_manager=None, synchronization_manager=None, ingestor=None, node_id=None, role=None, acquisition_health_policies=(), error_evidence_location=None, *, default_local_storage_root=None, device_declarations=None, synchronization_source_id=None, deployment_device_configurations=None): Configures local development synchronization or an explicit remote timing authority, local product inventory/storage and optional explicit installation baselines for every adapter.
 - AcquisitionNode.maintenance_evidence(): Returns retained node operational, health and manifest evidence required at service retirement.
 - AcquisitionNode.declared_devices: Returns the node's declared DeviceDeclaration/ScientificProductDeclaration inventory independently of Session selection and device availability.
@@ -1222,6 +1225,9 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 - NatsAcquisitionNodeCommunication.subscribe_commands(): Returns two addressed command subscriptions, publishing generated and retained scoped evidence before results so successful runtime completion confirms publication while keeping the handler reusable across bindings.
 - NatsAcquisitionNodeCommunication: Consumes targeted readiness, scientific-output preparation, or runtime commands, deduplicates by command_id, and publishes explicit outcomes without owning Experiment lifecycle.
 - NatsAcquisitionNodeCommunication.execute_command: Executes existing node commands and includes available owner diagnostics in readiness results while preserving readiness-only compatibility and scientific-output preparation behavior.
+- NatsAcquisitionNodeCommunication.start_acquisition_execution(): Enables the service-owned sustained task and idempotently schedules existing bounded iterations when scientific acquisition becomes active through NATS commands.
+- NatsAcquisitionNodeCommunication.stop_acquisition_execution(): Disables scheduling and cancels/joins the owned execution task without claiming device cleanup or scientific finalization.
+- NatsAcquisitionNodeCommunication.acquisition_execution_active: Reports whether an unfinished sustained execution task is still owned by the adapter.
 - NatsIngestorCommunication: Consumes durable RuntimeEvidenceMessage records and passes them to InMemoryIngestor for separate evidence intake and audit.
 - NatsIngestorCommunication.subscribe_commands(): Admits fresh readiness/preparation, evidence readback and serialized closeout commands, validating complete scoped resolution history and publishing owner results before command ACK.
 - NatsIngestorCommunication._execute_closeout_command(command): Executes durable Kill admission, complete/partial preservation, terminal-record persistence, restart reconciliation and guarded intake release through the existing paired owners.
@@ -1851,3 +1857,24 @@ automatic. Kill integration and overall closeout validation remain deferred.
 - DistributedSessionCloseoutTests.test_new_evidence_during_final_readback_blocks_retirement: Rechecks the current Controller evidence set after the final asynchronous owner readback.
 - DistributedSessionCloseoutTests.test_unconfirmed_release_readback_allows_explicit_verified_retry: Requires a fresh confirmed readback after a missing response and releases without rewriting archive products.
 - DistributedSessionCloseoutTests.test_cancelled_release_retries_with_fresh_verified_preservation: Retains Controller state after cancellation at final readback and verifies preservation again on explicit retry.
+- DistributedSessionCloseoutTests.test_normal_stop_quiesces_sustained_recording_before_finalized_intake: Requires sustained local collection to stop before complete Stage A preservation and independent Session release.
+
+## tests/test_sustained_acquisition.py
+
+- SustainedAcquisitionTests: Exercises remotely activated sustained recording with the actual camera adapter, simulated camera/NATS I/O and temporary scientific HDF5 storage.
+- SustainedAcquisitionTests.asyncSetUp: Prepares real node, clock and intake owners through existing Controller launch commands.
+- SustainedAcquisitionTests.asyncTearDown: Joins execution and closes devices, local streams and synchronization before removing temporary files.
+- SustainedAcquisitionTests.until: Waits a bounded number of cooperative turns for observable workflow progress.
+- SustainedAcquisitionTests.experiment: Activates selected camera output through the Controller's existing distributed Experiment API.
+- SustainedAcquisitionTests.request: Sends correlated Session-scoped commands through existing NATS request/result handling.
+- SustainedAcquisitionTests.saved: Reads finalized HDF5 frames and aligned scientific metadata through authoritative local manifests.
+- SustainedAcquisitionTests.test_single_activation_records_sequential_frames_without_iteration_commands: Preserves ordered frames, identities and timing after one remote Experiment activation.
+- SustainedAcquisitionTests.test_pc_disconnection_does_not_terminate_recording: Continues local recording while PC command publication is unavailable and finalizes after reconnection.
+- SustainedAcquisitionTests.test_identical_activation_and_repeated_enable_have_one_recording_writer: Reuses one recording writer across repeated enable and duplicate activation requests.
+- SustainedAcquisitionTests.test_experiment_gap_is_idle_and_next_experiment_resumes: Keeps acquisition idle between scientific Experiments and resumes with the next identity.
+- SustainedAcquisitionTests.test_rejected_runtime_stop_leaves_recording_active: Rejects another Session's stop without interrupting the active recording.
+- SustainedAcquisitionTests.test_experiment_without_selected_products_does_not_schedule_reads: Leaves an output-free Experiment idle without reading the camera.
+- SustainedAcquisitionTests.test_publication_failure_retains_timing_evidence_without_stopping_frames: Preserves degraded timing evidence across publication failure while recording continues and later intake deduplicates it.
+- SustainedAcquisitionTests.test_interrupted_scheduler_shutdown_can_be_retried_without_background_reads: Retains accountable shutdown across cancellation and permits explicit retry without further acquisition.
+- SustainedAcquisitionTests.test_acquisition_failure_preserves_partial_frames_and_cleans_devices: Finalizes completed frames and records failure without inventing a Controller lifecycle transition.
+- SustainedAcquisitionTests.test_blocked_stop_cancel_and_authorized_kill_preserve_existing_semantics: Continues existing acquisition during blocked maintenance/Cancel and joins execution after explicitly authorized Kill.

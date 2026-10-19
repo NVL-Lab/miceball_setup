@@ -9692,9 +9692,12 @@ recorded above and in Decision 354 without renumbering or rewriting earlier
 decisions. Decision 355's independent recovery and deletion-safety requirements
 remain mandatory.
 
-**Current bounded implementation progress:** Monthly framework writes and
+**Current bounded implementation status (W071 CLOSED):** Monthly framework writes and
 cross-month cumulative confirmation are implemented through the existing
-StorageManager APIs, pending independent validation and audit. New evidence/audit
+StorageManager APIs. Codex verification passed 59 distinct checks; independent ICC
+IPython validation passed 6/6 checks and independent implementation/source review
+passed with no confirmed P0-P3 findings. See W071 in validated_workflows.md for
+scope and validation limitations. New evidence/audit
 suffixes use administrative UTC write-time partitions; older products are not
 rewritten. Existing shared-layout archives remain verified read-only prefixes.
 Existing framework journals retain operational reconstruction/deduplication state.

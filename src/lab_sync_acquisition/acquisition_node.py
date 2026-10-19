@@ -1151,6 +1151,13 @@ class AcquisitionNode:
         if any(a.state != DeviceAdapterState.DECLARED for a in self._device_manager.adapters):
             raise RuntimeError("Device release remains unconfirmed")
 
+    @property
+    def scientific_acquisition_active(self) -> bool:
+        """Whether the running Experiment selects scientific products for collection."""
+        context = self._active_experiment_runtime_context
+        return bool(self._running and not self._failed and context is not None
+                    and self._prepared_scientific_outputs.get(context.experiment_id))
+
     def status(self) -> dict[str, Any]:
         """Return simple acquisition-side runtime status."""
 

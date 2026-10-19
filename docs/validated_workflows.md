@@ -5438,6 +5438,74 @@ Q019 and historical W001-W069 remain CLOSED; unrelated statuses are unchanged.
 
 ---
 
+# W071 - Monthly Framework Evidence Archives and Cross-Month Continuity
+
+**Status:** CLOSED - bounded Decision 354 implementation independently reviewed
+by ICC and validated through IPython, with no confirmed P0-P3 findings.
+
+## Implemented scope
+
+StorageManager assigns newly archived framework evidence and intake audit to
+`framework/evidence/YYYY-MM/` using its local system clock at archival write time
+with UTC calendar-month boundaries. These are administrative partitions, not
+scientific timing records. Original event, receipt, Session, node and synchronization
+timestamps remain unchanged. Delayed/recovered evidence is not backdated, and no
+SynchronizationManager participation or new configuration is required.
+
+Existing framework archive APIs append unarchived evidence/audit suffixes and
+verify cumulative preservation coverage. Cross-month operations keep existing
+operation identities. Historical partitions and existing shared-layout prefixes
+remain unchanged; framework journals retain accepted evidence, intake audit and
+operational reconstruction/deduplication information. Existing Session closeout,
+closed-Session admission and W070B journal-retirement contracts remain intact.
+
+Invalid/unavailable clocks, backward month assignment, duplicate evidence,
+conflicting or corrupted history, and incomplete writes cannot establish new
+preservation. Journaled evidence remains available for safe retry. Complete but
+uncertain writes require durable restart reconciliation before their prefix can
+be reused without duplicate cross-partition evidence. Existing administrator-
+authorized repair remains limited to an identified same-month interrupted target;
+older or unidentified incomplete targets remain blocked, not implicitly repaired
+or reassigned. No new recovery subsystem, registry or lifecycle authority is added.
+
+## Validation evidence
+
+- Codex implementation verification: **59 distinct checks PASS**, comprising
+  **35 synchronous** and **24 controlled asynchronous** checks, including 19 new
+  permanent regressions. Coverage includes UTC/December-January boundaries,
+  delayed/recovered evidence, cross-month Stop/Cancel identity, duplicate delivery,
+  invalid clocks, restart reconciliation, historical corruption, maintenance-write
+  safeguards, authorized repair and selected W070B preservation guarantees.
+- Independent ICC IPython validation: **6/6 checks PASS**.
+- Independent ICC implementation/source review: **PASS**, no confirmed P0-P3
+  findings, as reported for documentation closure.
+
+These are previously completed results, not checks newly executed for this
+documentation-only closure. Codex and ICC runs are separate evidence and are not
+combined as an additive validation total. No implementation tests or new audit
+were run for closure.
+
+## Limitations and remaining scope
+
+Controlled coroutine execution used an explicit test event loop without socket-
+pair initialization; it is not normal Windows asynchronous scheduling validation.
+Default sandbox temporary paths were inaccessible; successful implementation runs
+used permitted workspace temporary directories. No live NATS, real sockets,
+hardware, OS-signal or physical power-loss validation is claimed.
+
+W071 is CLOSED, but Q024 remains OPEN. No historical archive is declared safe to
+delete: cumulative confirmation and maintenance lookup still require retained
+historical products and have cumulative read/memory cost. Historical deletion
+independence/eligibility, broader Decision 353 memory retirement, Decision 350
+terminal-loss deletion, older/unidentified interrupted-target repair and other
+outstanding Q024 contracts remain unresolved. Decision 391 operational reconnection
+remains deferred. Permanent archives and framework journals are not deleted or
+rotated by this slice. Prior workflow history and accepted decisions are unchanged;
+Q019 and W001-W070B remain CLOSED, and unrelated question/milestone statuses are
+unchanged.
+
+---
+
 # Future Workflows
 
 The following workflows are expected to be added as the framework evolves.
