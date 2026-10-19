@@ -82,17 +82,29 @@ def validate_storage_capacity(reports: Iterable[dict[str, Any]]) -> None:
     """Require complete owner reports and sum distinct writes sharing a filesystem."""
     groups = {}
     for report in reports:
-        identity = report.get("filesystem_id")
-        if (report.get("ready") is not True or not isinstance(identity, list) or len(identity) != 2
-                or any(not isinstance(value, str) or not value for value in identity)
-                or type(report.get("required_bytes")) is not int or report["required_bytes"] < 0
-                or type(report.get("available_bytes")) is not int or report["available_bytes"] < 0):
-            raise RuntimeError(f"Storage capacity unconfirmed: {report}")
-        key = tuple(identity)
-        required, available = groups.get(key, (0, report["available_bytes"]))
-        groups[key] = required + report["required_bytes"], min(available, report["available_bytes"])
+        if "destinations" in report:
+            if report.get("ready") is not True or not report["destinations"]:
+                raise RuntimeError(f"Storage capacity unconfirmed: {report}")
+            destinations = report["destinations"]
+        else:
+            destinations = (report,)
+        for destination in destinations:
+            _accumulate_storage_capacity(destination, groups)
     if any(required > available for required, available in groups.values()):
         raise RuntimeError("Insufficient shared-filesystem capacity for recording and preservation")
+
+
+def _accumulate_storage_capacity(report, groups):
+    """Accumulate one concrete destination, never aggregate free space twice."""
+    identity = report.get("filesystem_id")
+    if (report.get("ready") is not True or not isinstance(identity, list) or len(identity) != 2
+            or any(not isinstance(value, str) or not value for value in identity)
+            or type(report.get("required_bytes")) is not int or report["required_bytes"] < 0
+            or type(report.get("available_bytes")) is not int or report["available_bytes"] < 0):
+        raise RuntimeError(f"Storage capacity unconfirmed: {report}")
+    key = tuple(identity)
+    required, available = groups.get(key, (0, report["available_bytes"]))
+    groups[key] = required + report["required_bytes"], min(available, report["available_bytes"])
 
 
 @dataclass(frozen=True)

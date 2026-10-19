@@ -267,7 +267,9 @@ class DistributedSynchronizationTests(unittest.IsolatedAsyncioTestCase):
             return await publish(result, operation)
         with patch.object(self.handler._boundary, "publish_command_result", side_effect=pause):
             task = asyncio.create_task(self.controller.start_launched_experiment("experiment",
-                scientific_outputs=(ScientificOutputSelection("device", "node", "events"),)))
+                scientific_outputs=(ScientificOutputSelection("device", "node", "events"),),
+                configuration=ExperimentConfiguration(60, {"node": 1000000}, 1000000),
+                storage_participant=RuntimeParticipant("storage_manager", "storage")))
             await asyncio.wait_for(reached.wait(), 2)
             task.cancel()
             with self.assertRaises(asyncio.CancelledError):

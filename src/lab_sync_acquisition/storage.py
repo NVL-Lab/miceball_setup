@@ -1007,11 +1007,16 @@ class PersistentStorageManager:
 
     @service_operation()
     def check_experiment_capacity(self, required_bytes: int) -> dict[str, Any]:
-        """Check the configured preservation destination, not archival success."""
+        """Check each configured preservation destination, not archival success."""
         readiness = self.check_ready()
         if not readiness.ready:
             return {"ready": False, "reason": readiness.reason}
-        return inspect_storage_capacity(self._storage_root, required_bytes)
+        roots = {self._storage_root}
+        if self._global_artifact_root is not None:
+            roots.add(self._global_artifact_root)
+        destinations = [inspect_storage_capacity(root, required_bytes) for root in sorted(roots)]
+        return {"ready": all(report["ready"] for report in destinations),
+                "destinations": destinations}
 
     @service_operation()
     def write_session_record(

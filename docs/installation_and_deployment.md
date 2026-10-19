@@ -1326,8 +1326,11 @@ devices using their existing stop/shutdown/initialize/start methods. Installatio
 only parameters remain prohibited, later Experiments do not inherit prior overrides,
 and resolution must match the declared stored representation when estimating.
 
-LocalStorageManager retains writability checks. StorageManager checks its own
-preservation root. Owner-correlated NATS reports identify OS host/local-volume
+LocalStorageManager retains writability checks. StorageManager checks both its
+evidence root and its configured scientific-artifact preservation root, applying
+the explicit preservation budget at each distinct destination. Its capacity report
+contains `ready` and concrete `destinations`; shared-volume accounting includes
+each distinct write and does not multiply available space. Owner-correlated NATS reports identify OS host/local-volume
 capacity, and Controller sums distinct recording/preservation writes on shared
 volumes without adding free space twice. Remote/unknown filesystem backing is
 indeterminate rather than assumed independent; it cannot authorize readiness.
@@ -1344,6 +1347,8 @@ mapping provenance and actual finalization outcome. Failed finalization is not
 successful expiry confirmation. Bounded iterations enforce the same deadline.
 Existing synchronous device calls cannot be preempted: deadline enforcement occurs
 between bounded device calls, not with a hardware timing/latency guarantee.
+An early transport `TimeoutError` is not interpreted as expiry: subsequent
+publication waits remain deadline-bounded while the Experiment is active.
 
 Controller consumes correlated expiry evidence on the existing evidence subjects;
 all participating nodes must confirm matching finalization before it records the
@@ -1352,6 +1357,13 @@ proof cannot end a subsequent Experiment, and the Session remains running. After
 missed delivery, call `await controller.reconcile_launched_experiment_expiry(id)`
 for current owner readback. Publication, durable intake and archival preservation
 remain separate guarantees; readback publication still precedes command success.
+Activation returns the captured deadline and mapping. Controller checks the
+mapping against SynchronizationManager's readiness assessment and its affine
+deadline calculation, then requires expiry proof to match that exact activation.
+Later mapping replacement does not invalidate otherwise valid delayed proof.
+For local initialization, the first Experiment resolves settings from the actual
+initialized DeviceManager adapters, not their earlier construction-time state;
+subsequent overrides remain isolated from the Session baseline.
 
 Local `Controller.start_experiment(..., configuration=configuration)` uses the same
 capacity/activation contracts. Its bounded iteration reconciles available expiry
@@ -1368,6 +1380,22 @@ a controlled asyncio loop without socket-pair initialization; this is not normal
 Windows asynchronous scheduling or independent ICC validation. Earlier overlapping
 runs are not additive. No full-suite campaign or three previously permission-
 blocked end-to-end closeout checks are claimed as passing here.
+
+The four subsequent P2 audit findings have bounded implementation corrections:
+expiry proof must match the authorized activation deadline, early publication
+timeouts cannot bypass its bound, capacity includes the configured scientific
+preservation destination, and local initialization uses current adapter settings.
+Remediation verification passed 40 distinct checks: 24 capacity/expiry checks
+(including seven new regressions), ten G3 sustained-acquisition checks and six
+directly affected bounded-persistence/distributed-synchronization checks. The
+cancellation fixture now supplies the required Experiment configuration so it
+reaches its intended activation boundary. Four original failures were reproduced
+using the committed methods substituted in memory, without reverting workspace
+files. These checks used simulated I/O, temporary disk/HDF5 storage and controlled
+asyncio execution, not normal Windows asynchronous scheduling, live NATS,
+hardware, OS signals or power-loss validation. Overlapping runs are not additive.
+G2 remains OPEN pending independent validation and separate re-audit; this is not
+documentation closure.
 
 ### Timing And Synchronization
 

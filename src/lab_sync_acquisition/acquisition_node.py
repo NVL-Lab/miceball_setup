@@ -504,6 +504,11 @@ class AcquisitionNode:
                                 True, True, "ready")
 
     def _experiment_device_parameters(self, configuration):
+        if not self._experiment_configurations:
+            # Local DeviceManager initialization may follow node construction.
+            self._session_device_configurations = {
+                a.device_id: deepcopy(a.initialization_config)
+                for a in self._runtime_device_manager.adapters}
         overrides = (configuration.device_configurations or {}).get(self._node_id, {})
         adapters = self._runtime_device_manager.adapters
         if set(overrides) - {a.device_id for a in adapters}:
@@ -798,7 +803,7 @@ class AcquisitionNode:
 
     @service_operation(new_work=True)
     def activate_experiment_runtime(self, context: ActiveExperimentRuntimeContext,
-                                    health_mapping: Iterable[ExperimentRuntimeHealthMapping]) -> None:
+                                    health_mapping: Iterable[ExperimentRuntimeHealthMapping]) -> dict[str, Any]:
         """Atomically apply Controller context without resetting a repeated health scope."""
         with self._reservation_lock:
             mapping = tuple(health_mapping)
@@ -816,7 +821,7 @@ class AcquisitionNode:
                 if (self._active_experiment_runtime_context != context
                         or self._active_experiment_runtime_health_mapping != mapping):
                     raise ValueError("Conflicting active Experiment context")
-                return
+                return deepcopy(self._experiment_deadline)
             session_deadline = context.experiment_start_session_time_s + context.duration_s
             if self._synchronization_manager is not None:
                 local_deadline = self._synchronization_manager.local_deadline_for_session_time(session_deadline)
@@ -834,6 +839,7 @@ class AcquisitionNode:
                 "local_deadline_s": local_deadline, "mapping": timing_mapping}
             self.activate_experiment_runtime_context(context)
             self.activate_experiment_runtime_health_mapping(context.experiment_id, mapping)
+            return deepcopy(self._experiment_deadline)
 
     @service_operation()
     def clear_experiment_runtime_health_mapping(self) -> None:

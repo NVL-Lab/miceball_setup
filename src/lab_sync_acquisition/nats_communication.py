@@ -908,7 +908,7 @@ class NatsAcquisitionNodeCommunication:
             except asyncio.TimeoutError:
                 # An unconfirmed publication cannot hold the recording deadline open.
                 try:
-                    self._acquisition_node.expire_experiment_if_due()
+                    expired = self._acquisition_node.expire_experiment_if_due()
                 except Exception:
                     logger.exception("experiment_expiry_finalization_failed")
                     try:
@@ -916,6 +916,11 @@ class NatsAcquisitionNodeCommunication:
                     except Exception:
                         logger.exception("sustained_acquisition_cleanup_unconfirmed")
                     return
+                if not expired and self._acquisition_node.experiment_runtime_active:
+                    # The transport can time out before the Experiment does.
+                    # Retry only through the deadline-bounded path above.
+                    await asyncio.sleep(0)
+                    continue
                 # Recording is now quiescent. Publish its terminal evidence once
                 # through existing transport timeouts, retaining failures for retry.
                 try:
@@ -1024,9 +1029,9 @@ class NatsAcquisitionNodeCommunication:
                 payload = {"confirmed": True}
             elif command.command_type == "activate_experiment_runtime":
                 context = ActiveExperimentRuntimeContext.from_dict(command.payload["context"])
-                self._acquisition_node.activate_experiment_runtime(context,
+                deadline = self._acquisition_node.activate_experiment_runtime(context,
                     tuple(ExperimentRuntimeHealthMapping.from_dict(m) for m in command.payload["health_mapping"]))
-                payload = {"confirmed": True, "experiment_id": context.experiment_id}
+                payload = {"confirmed": True, "experiment_id": context.experiment_id, "deadline": deadline}
             elif command.command_type == "finalize_experiment_scientific_outputs":
                 experiment_id = command.payload["experiment_id"]
                 if (not isinstance(experiment_id, str) or not experiment_id

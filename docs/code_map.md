@@ -11,18 +11,21 @@
 - local_storage.inspect_storage_capacity(root_path, required_bytes): Checks writable destination/free bytes and returns unconfirmed capacity on failure.
 - local_storage.validate_storage_capacity(reports): Validates reports and sums distinct required writes against one shared filesystem's conservative free-space observation.
 - LocalStorageManager.check_capacity(required_bytes): Adds capacity reporting while retaining local writability readiness; constructor unchanged.
-- PersistentStorageManager.check_experiment_capacity(required_bytes): Checks the preservation root without asserting intake or archival completion; constructor unchanged.
+- PersistentStorageManager.check_experiment_capacity(required_bytes): Returns readiness and concrete destination reports for its evidence root and configured scientific-artifact root without asserting archival completion; constructor unchanged.
+- local_storage._accumulate_storage_capacity(report, groups): Adds one concrete destination's required write budget to shared-filesystem accounting.
 - AcquisitionNode.check_experiment_capacity(scientific_outputs, configuration): Resolves selected operating settings and checks declared estimates or an explicit node budget; constructor unchanged.
 - AcquisitionNode.prepare_experiment_scientific_outputs(experiment_id, scientific_outputs, *, configuration=None): Requires configured capacity before applying device overrides or creating scientific streams.
 - AcquisitionNode.experiment_runtime_active: Includes timed idle Experiments in service-owned expiry enforcement.
 - AcquisitionNode.experiment_deadline_remaining_s: Reports remaining captured local monotonic time independently of later mapping/communication availability.
 - AcquisitionNode.expire_experiment_if_due(): Finalizes the affected Experiment and retains exact expiry/failure evidence without ending the Session.
 - AcquisitionNode.read_experiment_expiry(experiment_id): Reads detached retained owner proof without fabricating missing outcomes.
-- AcquisitionNode._experiment_device_parameters(configuration): Resolves Experiment overrides against the unchanged Session baseline using adapter-owned validation.
+- AcquisitionNode._experiment_device_parameters(configuration): Captures current initialized adapter settings before the first Experiment and resolves overrides against that unchanged Session baseline.
+- AcquisitionNode.activate_experiment_runtime(context, health_mapping): Returns a detached copy of the established deadline and mapping, including for identical activation retries; constructor and arguments unchanged.
 - SynchronizationManager.local_deadline_for_session_time(session_time_s): Translates a deadline for co-located users of its running authoritative clock; constructor unchanged.
 - Controller.start_launched_experiment(..., configuration=None, storage_participant=None): Requires per-Experiment capacity and synchronized common-deadline activation over existing NATS boundaries; constructor unchanged.
 - Controller.start_experiment(..., configuration=None): Applies explicit configuration and capacity to the bounded local workflow.
-- Controller.accept_experiment_expiry(message): Validates matching source/Session/Experiment/duration/finality and ends the canonical Experiment only after all participants confirm.
+- Controller.accept_experiment_expiry(message): Requires the exact captured activation mapping/deadline plus matching source/Session/Experiment/duration/finality before canonical reconciliation.
+- Controller._remember_experiment_deadline(node_id, experiment_id, deadline): Validates and retains one activation deadline against canonical configuration, common start and synchronization mapping.
 - Controller.reconcile_launched_experiment_expiry(experiment_id): Reads missed owner expiry proof without replaying acquisition or ending a Session.
 - Controller.get_status(): Also exposes active_experiment_id and canonical experiment_lifecycle_evidence.
 - Controller._reconcile_expiry_if_complete(experiment_id): Records one canonical end only after complete matching node proof and current lifecycle checks.
@@ -53,6 +56,14 @@
 - test_idle_experiment_expires_without_camera_reads: Enforces duration without scientific output selection.
 - test_resolution_must_match_stored_representation_even_with_budget: Rejects selected dimensions incompatible with the declared HDF5 schema before reads.
 - test_ended_preparation_cannot_reconfigure_a_device: Rejects ended Experiment preparation before device operating state can change.
+- test_local_initialization_after_node_construction_supports_recording: Records and finalizes camera data after supported DeviceManager initialization following node construction.
+- test_malformed_or_contradictory_expiry_cannot_end_recording: Rejects malformed mapping/deadline proof without ending the canonical Experiment or local recording.
+- test_early_transport_timeout_followed_by_pending_publication_still_expires: Finalizes products at the captured deadline despite an early publication timeout and blocked retry.
+- test_actual_scientific_preservation_destination_is_required: Checks sufficient, insufficient and indeterminate scientific-preservation capacity on a distinct filesystem.
+- test_preservation_roots_on_one_filesystem_sum_distinct_writes: Sums evidence and scientific-preservation writes without multiplying shared free space.
+- test_delayed_expiry_uses_activation_mapping_after_resynchronization: Reconciles delayed proof against the original captured deadline rather than a replacement mapping.
+- test_activation_deadline_must_use_authorized_synchronization_mapping: Rejects internally consistent but unauthorized activation mapping readback and finalizes prepared products.
+- ScientificAcquisitionPersistenceTests.workflow(..., initialize_after_node=False): Supports the existing bounded-science fixture with optional DeviceManager initialization after node construction.
 
 ## DeviceAdapter Adjustable Parameters (Decision 370; W069 Closed)
 

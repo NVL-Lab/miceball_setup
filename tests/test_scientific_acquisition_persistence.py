@@ -43,7 +43,7 @@ class ScientificAcquisitionPersistenceTests(unittest.TestCase):
     @contextmanager
     def workflow(self, *, frames=None, properties=None, count=1, adapter=None,
                  products=None, selected=True, select_all=False, max_buffered_rows=None,
-                 additional_adapters=()):
+                 additional_adapters=(), initialize_after_node=False):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             capture = None
@@ -51,7 +51,8 @@ class ScientificAcquisitionPersistenceTests(unittest.TestCase):
                 cv2 = FakeCV2(frames if frames is not None else [np.arange(24, dtype=np.uint16).reshape(2, 4, 3)], properties)
                 capture = cv2.capture
                 adapter = SeeedIMX219OpenCVCameraAdapter("camera", "opencv", ("camera_frames",), True, cv2_module=cv2)
-                adapter.initialize(OpenCVCameraConfig(0, 0, count))
+                if not initialize_after_node:
+                    adapter.initialize(OpenCVCameraConfig(0, 0, count))
             else:
                 adapter.initialize({})
             products = products if products is not None else (
@@ -75,6 +76,9 @@ class ScientificAcquisitionPersistenceTests(unittest.TestCase):
                 node.attach_local_storage_manager(LocalStorageManager(
                     root / "local", "session", "node", max_buffered_rows=max_buffered_rows,
                 ), config.selected_devices)
+            if initialize_after_node:
+                self.assertTrue(all(result.succeeded for result in manager.initialize_all(
+                    OpenCVCameraConfig(0, 0, count))))
             self.assertTrue(controller.create_session(config).succeeded)
             readiness = node.check_ready()
             self.assertTrue(controller.initialize_session(

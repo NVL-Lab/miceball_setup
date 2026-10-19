@@ -9,8 +9,10 @@ import unittest
 from unittest.mock import patch
 
 from lab_sync_acquisition import ExperimentConfiguration, ScientificProductDeclaration, ScientificOutputSelection
+from lab_sync_acquisition import RuntimeEvidenceMessage, PersistentStorageManager
 from lab_sync_acquisition.local_storage import inspect_storage_capacity, validate_storage_capacity
 from tests import test_sustained_acquisition as sustained
+from tests import test_scientific_acquisition_persistence as scientific
 
 
 class ExperimentCapacityTests(unittest.TestCase):
@@ -60,6 +62,29 @@ class ExperimentCapacityTests(unittest.TestCase):
             validate_storage_capacity((one, one))
         validate_storage_capacity((one, {**one, "filesystem_id": ["other-host", "volume"]}))
         validate_storage_capacity(({**one, "required_bytes": 40}, {**one, "required_bytes": 60}))
+
+    def test_local_initialization_after_node_construction_supports_recording(self):
+        fixture = scientific.ScientificAcquisitionPersistenceTests()
+        with fixture.workflow(initialize_after_node=True) as (controller, node, _, capture):
+            self.assertTrue(controller.run_one_iteration().succeeded)
+            self.assertTrue(controller.stop_experiment("experiment").succeeded)
+            self.assertEqual(capture.read_count, 1)
+            manifest, = node.local_storage_manager.manifests
+            self.assertEqual(manifest.lifecycle_state, "finalized")
+            self.assertEqual(fixture.saved_metadata(node)[0]["experiment_id"], "experiment")
+
+    def test_preservation_roots_on_one_filesystem_sum_distinct_writes(self):
+        with tempfile.TemporaryDirectory() as root:
+            owner = PersistentStorageManager(Path(root) / "evidence",
+                global_artifact_root=Path(root) / "science")
+            with patch("lab_sync_acquisition.local_storage.shutil.disk_usage", return_value=SimpleNamespace(free=150)), \
+                 patch("lab_sync_acquisition.local_storage._local_filesystem_identity", return_value=["host", "volume"]):
+                report = owner.check_experiment_capacity(100)
+                with self.assertRaisesRegex(RuntimeError, "shared-filesystem"):
+                    validate_storage_capacity((report,))
+            with patch("lab_sync_acquisition.local_storage.shutil.disk_usage", return_value=SimpleNamespace(free=200)), \
+                 patch("lab_sync_acquisition.local_storage._local_filesystem_identity", return_value=["host", "volume"]):
+                validate_storage_capacity((owner.check_experiment_capacity(100),))
 
 
 class ExperimentPreflightWorkflows(unittest.IsolatedAsyncioTestCase):
@@ -255,6 +280,131 @@ class ExperimentPreflightWorkflows(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(f.node.scientific_acquisition_active)
         self.assertIsNotNone(f.node.read_experiment_expiry("experiment"))
         self.assertTrue(await f.controller.reconcile_launched_experiment_expiry("experiment"))
+
+    async def test_malformed_or_contradictory_expiry_cannot_end_recording(self):
+        f = self.fixture
+        self.assertTrue((await self.start(configuration=ExperimentConfiguration(60, {"node": 1000000}, 1000))).succeeded)
+        await f.until(lambda: f.camera.capture.read_count >= 2)
+        context = f.node.status()["active_experiment_runtime_context"]
+        mapping = f.node.mapping_activation_history[-1]["mapping"]
+        end = context.experiment_start_session_time_s + context.duration_s
+        local_end = mapping["local_time_anchor_s"] + (end - mapping["session_time_anchor_s"]) / mapping["scale"]
+        payload = {"experiment_id": "experiment", "duration_s": 60,
+            "experiment_start_session_time_s": context.experiment_start_session_time_s,
+            "session_deadline_s": end, "local_deadline_s": local_end,
+            "finalized_local_time_s": local_end + 1, "mapping": mapping,
+            "finalization_confirmed": True,
+            "artifact_manifest_ids": [f.local.manifests[0].artifact_manifest_id]}
+        for changes in ({"mapping": {}, "local_deadline_s": 0, "finalized_local_time_s": 1},
+                        {"local_deadline_s": local_end - 1},
+                        {"mapping": {**mapping, "scale": mapping["scale"] * 2}},
+                        {"mapping": {**mapping, "acquisition_node_id": "other"}}):
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                f.controller.accept_experiment_expiry(RuntimeEvidenceMessage(
+                    "malformed", f.sid, "experiment_duration_expired", "node", {**payload, **changes}, True))
+            self.assertEqual(f.controller.get_status()["active_experiment_id"], "experiment")
+            self.assertTrue(f.node.scientific_acquisition_active)
+            self.assertEqual(f.local.manifests[0].lifecycle_state, "open")
+        with patch("lab_sync_acquisition.acquisition_node.monotonic", return_value=local_end + 1):
+            await f.until(lambda: not f.handler.acquisition_execution_active)
+        self.assertIsNone(f.controller.get_status()["active_experiment_id"])
+        self.assertFalse(f.controller.accept_experiment_expiry(f.node.read_experiment_expiry("experiment")))
+
+    async def test_early_transport_timeout_followed_by_pending_publication_still_expires(self):
+        f = self.fixture
+        self.assertTrue((await self.start(configuration=ExperimentConfiguration(0.2, {"node": 1000000}, 1000))).succeeded)
+        pending = asyncio.Event()
+        release = asyncio.Event()
+        calls = 0
+
+        async def publication():
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise asyncio.TimeoutError("transport timed out before expiry")
+            pending.set()
+            await release.wait()
+
+        with patch.object(f.handler, "publish_new_runtime_evidence", side_effect=publication):
+            await asyncio.wait_for(pending.wait(), 1)
+            await asyncio.sleep(0.3)
+            try:
+                self.assertFalse(f.node.scientific_acquisition_active)
+                self.assertIsNotNone(f.node.read_experiment_expiry("experiment"))
+                self.assertEqual(f.local.manifests[0].lifecycle_state, "finalized")
+            finally:
+                release.set()
+                await f.handler.stop_acquisition_execution()
+        self.assertTrue(await f.controller.reconcile_launched_experiment_expiry("experiment"))
+        self.assertGreaterEqual(len(f.saved()[0]), 1)
+
+    async def test_delayed_expiry_uses_activation_mapping_after_resynchronization(self):
+        f = self.fixture
+        self.assertTrue((await self.start(configuration=ExperimentConfiguration(60, {"node": 1000000}, 1000))).succeeded)
+        mapping = f.node.mapping_activation_history[-1]["mapping"]
+        context = f.node.status()["active_experiment_runtime_context"]
+        deadline = mapping["local_time_anchor_s"] + (
+            context.experiment_start_session_time_s + context.duration_s - mapping["session_time_anchor_s"]) / mapping["scale"]
+        subscription = next(s for s in f.broker.subscriptions if s.subject.endswith(".experiment_duration_expired"))
+        subscription.active = False
+        result = await f.communication.request_runtime_command(
+            sustained.RuntimeParticipant("synchronization_manager", "sync"), "resynchronize", f.sid,
+            {"node_ids": ["node"]}, 2)
+        self.assertTrue(result.success, result.reason)
+        self.assertNotEqual(f.node.mapping_activation_history[-1]["mapping"], mapping)
+        with patch("lab_sync_acquisition.acquisition_node.monotonic", return_value=deadline + 1):
+            await f.until(lambda: not f.handler.acquisition_execution_active)
+        self.assertEqual(f.node.read_experiment_expiry("experiment").payload["mapping"], mapping)
+        self.assertEqual(f.controller.get_status()["active_experiment_id"], "experiment")
+        self.assertTrue(await f.controller.reconcile_launched_experiment_expiry("experiment"))
+        self.assertIsNone(f.controller.get_status()["active_experiment_id"])
+
+    async def test_activation_deadline_must_use_authorized_synchronization_mapping(self):
+        f = self.fixture
+
+        def replace_mapping(operation, result):
+            if operation == "activate_experiment_runtime":
+                deadline = result["payload"]["deadline"]
+                mapping = {**deadline["mapping"], "scale": deadline["mapping"]["scale"] * 2}
+                result["payload"]["deadline"] = {**deadline, "mapping": mapping,
+                    "local_deadline_s": mapping["local_time_anchor_s"] + (
+                        deadline["session_deadline_s"] - mapping["session_time_anchor_s"]) / mapping["scale"]}
+            return result
+
+        f.broker.change_result = replace_mapping
+        result = await self.start(configuration=ExperimentConfiguration(60, {"node": 1000000}, 1000))
+        self.assertFalse(result.succeeded)
+        self.assertIn("authorized synchronization mapping", result.error)
+        self.assertFalse(f.node.scientific_acquisition_active)
+        self.assertTrue(all(m.lifecycle_state == "finalized" for m in f.local.manifests))
+
+    async def test_actual_scientific_preservation_destination_is_required(self):
+        f = self.fixture
+        destination = f.root / "scientific-preservation"
+        owner = PersistentStorageManager(f.root / "storage", global_artifact_root=destination)
+        # The existing adapter keeps its StorageManager owner; replace only its
+        # public capacity inspection to exercise this configured destination.
+        for free in (0, None, 10000):
+            visited = []
+
+            def capacity(path):
+                path = Path(path)
+                visited.append(path)
+                return SimpleNamespace(free=free if path == destination else 10000)
+
+            def filesystem(path):
+                return ["host", "preservation" if Path(path) == destination else "recording"]
+
+            with patch.object(f.storage, "check_experiment_capacity", side_effect=owner.check_experiment_capacity), \
+                 patch("lab_sync_acquisition.local_storage.shutil.disk_usage", side_effect=capacity), \
+                 patch("lab_sync_acquisition.local_storage._local_filesystem_identity", side_effect=filesystem):
+                result = await self.start(configuration=ExperimentConfiguration(60, {"node": 100}, 100))
+            self.assertIn(destination, visited)
+            self.assertEqual(result.succeeded, free == 10000, result.error)
+            if result.succeeded:
+                self.assertTrue((await f.controller.stop_launched_experiment("experiment")).succeeded)
+            else:
+                self.assertFalse(f.node.scientific_acquisition_active)
 
     async def test_idle_experiment_expires_without_camera_reads(self):
         f = self.fixture

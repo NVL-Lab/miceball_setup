@@ -178,6 +178,7 @@ class Controller:
         self._experiment_operation_lock = asyncio.Lock()
         self._distributed_closeout = None
         self._experiment_expiry_evidence: dict[tuple[str, str, str], RuntimeEvidenceMessage] = {}
+        self._experiment_deadlines: dict[tuple[str, str, str], dict[str, Any]] = {}
 
     @service_operation()
     async def kill_session(
@@ -1445,8 +1446,10 @@ class Controller:
                 if (set(configuration.recording_budgets or {}) - set(nodes)
                         or set(configuration.device_configurations or {}) - set(nodes)):
                     raise ValueError("Experiment configuration references an unreserved AcquisitionNode")
-                await self._request_launched_runtime(self._synchronization_participant(),
+                assessment = await self._request_launched_runtime(self._synchronization_participant(),
                     "assess_synchronization", {"node_ids": list(nodes)})
+                authorized_mappings = {q["acquisition_node_id"]: q.get("mapping")
+                                       for q in assessment.payload["qualities"]}
                 capacity_reports = []
                 for node_id, participant in nodes.items():
                     capacity = await self._request_launched_runtime(participant, "check_experiment_capacity",
@@ -1483,9 +1486,14 @@ class Controller:
                 canonical_started = True
                 # Acquisition context cannot precede the Controller-owned canonical start.
                 for participant in nodes.values():
-                    await self._request_launched_runtime(participant, "activate_experiment_runtime",
+                    activation = await self._request_launched_runtime(participant, "activate_experiment_runtime",
                         {"context": ActiveExperimentRuntimeContext(experiment_id, start_time, configuration.duration_s).to_dict(),
                          "health_mapping": [item.to_dict() for item in health_by_node.get(participant.component_id, ())]})
+                    if (activation.payload.get("deadline", {}).get("mapping") is None
+                            or activation.payload["deadline"]["mapping"] != authorized_mappings.get(participant.component_id)):
+                        raise ValueError("Experiment activation conflicts with authorized synchronization mapping")
+                    self._remember_experiment_deadline(participant.component_id, experiment_id,
+                        activation.payload.get("deadline"))
                 if session.current_state != SessionState.RUNNING:
                     raise RuntimeError("Session ended during Experiment preparation")
                 self._reconcile_expiry_if_complete(experiment_id)
@@ -1515,6 +1523,38 @@ class Controller:
                 return self._record_failed_command("start_experiment", error,
                                                     {"rejection_evidence": rejection.to_dict()})
 
+    def _remember_experiment_deadline(self, node_id, experiment_id, deadline):
+        from math import isfinite
+        session = self._require_session()
+        descriptor = next(d for d in session.experiment_descriptors if d.experiment_id == experiment_id)
+        start = next(e for e in session.experiment_lifecycle_evidence
+                     if e.experiment_id == experiment_id and e.event_type == "experiment_start")
+        if (not isinstance(deadline, dict) or deadline.get("experiment_id") != experiment_id
+                or deadline.get("duration_s") != descriptor.configuration.duration_s
+                or deadline.get("experiment_start_session_time_s") != start.session_time_s
+                or deadline.get("session_deadline_s") != start.session_time_s + descriptor.configuration.duration_s
+                or type(deadline.get("local_deadline_s")) not in (int, float)
+                or not isfinite(deadline["local_deadline_s"])):
+            raise ValueError("Incomplete Experiment activation deadline")
+        mapping = deadline.get("mapping")
+        if self._launch_communication is None:
+            if (mapping != {"source": "co_located_synchronization_manager"}
+                    or deadline["local_deadline_s"] != self._synchronization_manager.local_deadline_for_session_time(
+                        deadline["session_deadline_s"])):
+                raise ValueError("Conflicting local Experiment deadline")
+        elif (not isinstance(mapping, dict) or mapping.get("session_id") != session.session_id
+                or mapping.get("acquisition_node_id") != node_id
+                or any(type(mapping.get(k)) not in (int, float) or not isfinite(mapping[k])
+                       for k in ("local_time_anchor_s", "session_time_anchor_s", "scale", "created_session_time_s"))
+                or mapping["scale"] <= 0
+                or deadline["local_deadline_s"] != mapping["local_time_anchor_s"] + (
+                    deadline["session_deadline_s"] - mapping["session_time_anchor_s"]) / mapping["scale"]):
+            raise ValueError("Incomplete or inconsistent Experiment deadline mapping")
+        key = (session.session_id, experiment_id, node_id)
+        if key in self._experiment_deadlines and self._experiment_deadlines[key] != deadline:
+            raise ValueError("Conflicting Experiment activation deadline")
+        self._experiment_deadlines[key] = deepcopy(deadline)
+
     @service_operation()
     def accept_experiment_expiry(self, message: RuntimeEvidenceMessage) -> bool:
         """Reconcile exact node expiry proof without transferring canonical lifecycle authority."""
@@ -1529,7 +1569,9 @@ class Controller:
                       if e.experiment_id == experiment_id and e.event_type == "experiment_start"), None)
         nodes = ({p.component_id for p in self._reserved_participants} if self._launch_communication is not None
                  else {self._acquisition_node.node_id})
+        deadline = self._experiment_deadlines.get((session.session_id, experiment_id, message.source_id))
         if (descriptor is None or descriptor.configuration is None or start is None or message.source_id not in nodes
+                or deadline is None or any(payload.get(k) != value for k, value in deadline.items())
                 or message.is_persistent is not True or payload.get("finalization_confirmed") is not True
                 or payload.get("duration_s") != descriptor.configuration.duration_s
                 or payload.get("experiment_start_session_time_s") != start.session_time_s
@@ -2032,7 +2074,7 @@ class Controller:
             self._active_experiment_runtime_health_mapping = (
                 active_runtime_health_mapping
             )
-            self._acquisition_node.activate_experiment_runtime(
+            deadline = self._acquisition_node.activate_experiment_runtime(
                 ActiveExperimentRuntimeContext(
                     experiment_id=experiment_id,
                     experiment_start_session_time_s=(
@@ -2041,6 +2083,7 @@ class Controller:
                     duration_s=accepted_configuration.duration_s,
                 ), active_runtime_health_mapping
             )
+            self._remember_experiment_deadline(self._acquisition_node.node_id, experiment_id, deadline)
             return evidence.to_dict()
 
         try:
