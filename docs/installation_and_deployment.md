@@ -26,6 +26,20 @@ No maintenance Kill or notification/escalation mechanism is introduced. G2/G3
 deadlines and autonomous acquisition remain node-owned. G4 is not closed and no
 live NATS, hardware or complete deployment validation is claimed.
 
+Under Decision 406, an already-admitted Normal Stop retains sole cleanup
+ownership when an applicable authoritative `session_fail` arrives during its
+closing publication interval. Controller retains the affected Session/Experiment
+decision, records canonical failure, and confirms exact durable Ingestor acceptance
+before marking that health input processed. No competing remote Stop or Kill is
+issued. The existing last-call marker and immutable finalized intake still apply.
+Normal Stop can preserve the failed terminal Session through its existing complete
+receipt and Stage A path; it must not change that outcome to `completed`.
+Decision acceptance is not Stage A confirmation. Failed publication or missing
+acceptance leaves health processing unconfirmed; missing cleanup or archival
+confirmation retains the binding and preservation obligations for explicit retry.
+Cancellation likewise does not discard the fatal consequence or authorize release.
+This overlap implementation remains pending independent validation and audit.
+
 ### Existing Deployment Status
 
 Q022-A Decisions 367-378 are accepted and synchronized. Bounded shared-process

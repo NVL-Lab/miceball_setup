@@ -411,13 +411,12 @@ Decisions 103-114 establish the runtime health evidence chain and normalized loc
 * Should warning, recoverable-failure, or operator-required decisions later trigger external notification or acknowledgement behavior?
 * What explicit future decision would authorize escalation beyond their current no-mutation semantics?
 * How does Controller execute repeated or conflicting decisions?
-* If a fatal health/timing decision arrives before the completion marker but
-  after Normal Stop has been admitted, may that closeout supersede the configured
-  failure consequence, or must the consequence remain pending and affect the
-  canonical Session/Experiment outcome? The G4 audit observed the action rejected
-  as closeout-in-progress and its input marked processed. Precedence and required
-  reconciliation need LLC clarification; the G4 response-correlation correction
-  does not change this behavior or resolve the question.
+
+Decision 406 resolves the G4 Normal Stop/fatal-health precedence question:
+Normal Stop retains cleanup ownership, but an applicable authoritative fatal
+decision requires durable evidence and canonical failure accounting before it
+may be marked processed. It cannot merely be rejected as competing cleanup.
+Existing final-intake and preservation contracts remain unchanged; G4 remains OPEN.
 
 ### Blocks
 

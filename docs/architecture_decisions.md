@@ -11813,6 +11813,33 @@ no milestone or open deployment/recovery question is closed by this synchronizat
 
 ---
 
+## Decision 406: Normal Stop retains cleanup ownership while accounting for authoritative fatal health decisions
+
+**Status:** Accepted
+
+An already-admitted Normal Stop retains ownership of its ongoing closeout. A
+subsequently received authoritative `session_fail` health decision must not start
+competing cleanup, duplicate remote stops, or automatic Kill. Normal Stop does
+not immunize the Session from fatal failure: the decision must be durably recorded
+and associated with the affected Session and applicable Experiment context, and
+its canonical failure consequence must be accounted for without starting a
+competing cleanup operation. Where applicable and authoritative, the canonical
+terminal Session outcome is `failed`, not `completed`.
+
+The health decision may be marked processed only after its required evidence and
+lifecycle consequence have been accounted for; rejection of a competing command
+alone is insufficient. Existing cleanup, preservation, final-intake and binding
+obligations continue unchanged. Missing, failed or uncertain confirmations never
+become successful confirmations. Ordinary Normal Stop without a fatal decision
+retains its existing behavior.
+
+This is the user-approved LLC clarification of Decisions 113-114 and 382 for G4,
+not a new Session state, lifecycle authority, parallel closeout workflow, recovery
+or preservation mechanism. Recording it does not claim implementation validation,
+independent audit or G4 closure.
+
+---
+
 # Accepted Architectural Principles
 
 The following principles summarize the accepted decisions so far.

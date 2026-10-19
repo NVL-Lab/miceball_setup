@@ -770,7 +770,10 @@ class NatsControllerCommunication:
                     decision = controller.process_health_interpretation(interpretation)
                 state["decisions"][evidence_message.evidence_id] = (content, decision)
                 if callback is not None:
-                    await callback(decision)
+                    outcome = await callback(decision)
+                    details = getattr(outcome, "details", None)
+                    if isinstance(details, dict) and details.get("health_processing_confirmed") is False:
+                        raise RuntimeError("Fatal health evidence or canonical consequence remains unconfirmed")
                 await message.ack()
                 state["processed"][evidence_message.evidence_id] = content
             finally:
