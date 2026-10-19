@@ -1,9 +1,76 @@
 # Future GUI Design Notes
 
 This document preserves ideas for future GUI discussions. It is not an
-implementation roadmap or architecture decision record. Except for the explicitly
-identified accepted requirement below, its ideas are not approved implementation
-requirements. GUI implementation belongs outside this repository.
+implementation roadmap or architecture decision record. Explicitly identified
+accepted requirements are referenced below; other presentation ideas remain
+proposals. GUI implementation belongs outside this repository.
+
+## Accepted Functional Direction
+
+**Status:** User-accepted architecture in Decisions 396-405; documentation only,
+not implemented or software-validated GUI/Analysis functionality.
+
+- The GUI is a general-purpose framework client. The complete scientific workflow
+  must be operable from the microscope workstation; browser accessibility is
+  preferred, while the backend and central services may run elsewhere.
+- Services, Setup, and Experiment / Run are conceptual functional areas, not
+  approved tabs, tab count, widgets, frontend technology, or a layout. Services
+  concerns connectivity/readiness/status/maintenance; Setup concerns identities,
+  templates, configuration and products; Run concerns guided scientific steps,
+  plots, selections, calibration, progress and results.
+- One Session corresponds to one animal and may contain Experiments, Analyses,
+  Validation and interactions. Successive animals must not require restarting
+  GUI/services; existing closeout and resource-reuse obligations still apply.
+- The application owns protocols and editable reusable templates. Steps may be
+  scientific operations, Validation, preparation, annotations or review, not
+  necessarily Experiments. Actual executed configuration is preserved independently
+  of its starting template. Metadata ownership remains unresolved in Q008.
+- Analysis is lightweight, Session-scoped, and identified by `analysis_id`, not
+  a fabricated Experiment. Execution success is distinct from scientific result
+  acceptance/selection. Preserve all attempts/results and the actual inputs used
+  later; new selections cannot rewrite completed operations. Application-specific
+  dependency interpretation does not become a framework workflow engine.
+- Scientific products from Experiments and Analyses share existing local storage
+  and collection ownership. Analysis-compatible schemas/invocation are not yet
+  designed or implemented. Scientific calculations execute locally where data and
+  resources reside, with an existing AcquisitionNode as the intended coordinator,
+  not GUI/Controller calculation or a DeviceManager analysis scheduler.
+- Commands follow GUI application -> Controller -> AcquisitionNode; requested small
+  plots/structured results may flow AcquisitionNode -> GUI application/backend
+  without Controller payload relay. Ingestor is not a visualization relay. Detailed
+  transport, recipient authorization, correlation and disconnect contracts remain
+  open; shared paths/overwritten PNGs are not the general result transport.
+- Time-critical acquisition/closed-loop execution is independent of browser,
+  Controller and network round trips. Framework services remain GUI-independent.
+
+Decision 405 preserves the initial CaBMI use case: approximately two minutes of
+imaging, local rapid Suite2p ROI identification, approximately 15 minutes of
+baseline with those masks, inspection/selection of four neurons, neural-cursor
+simulation and target T calculation, iterative calibration review, then local
+closed-loop CaBMI. Imaging/baseline/closed-loop runs are candidate Experiments;
+ROI identification, baseline calculations, neuron selection and target calibration
+are Analyses. Operational tests remain Validation. This is not a mandatory protocol
+or a specified Suite2p/CaBMI integration interface. Legacy GUI/MATLAB code is a
+scientific/UX reference, not architectural authority. Decimated cursor display
+remains a future possibility, not authorization for general scientific streaming.
+
+### Unapproved Approaches And Unresolved Contracts
+
+Candidate approaches include a minimal local Analysis invocation interface,
+lightweight Controller-authorized request/outcome records, specific NATS result
+delivery, tagged operation-origin product identities, concrete input/output and
+selection provenance structures, application dependency/invalidation rules,
+frontend/backend packaging and widgets, installed-software integration, and
+detailed result authorization/correlation/reconnect behavior. None is selected
+by this synchronization.
+
+See Q026-Q030 and Q008 in [open questions](open_questions.md) for execution and
+interruption, persistence/timing/collection, acceptance/provenance, communication
+and trust, presentation/deployment, and metadata/template ownership. No general
+protocol editor, template installation framework, historical Analysis platform,
+generic workflow engine or broad online processing is required. Decisions 019/021
+continue to exclude GUI implementation and scientific analysis pipelines from
+this core repository. G4/G5 integration and hardware validation are separate.
 
 ---
 
@@ -165,7 +232,9 @@ The future GUI could:
   evidence-persistence interruption must not be presented as authority to replay
   artifact transfer or rewrite a permanently closed archive.
 - Offer archived evidence viewing by Session or date for operational inspection.
-  The GUI must not become a browser for viewing scientific artifacts. Artifact
+  This proposal is not a general historical scientific-artifact browser; the
+  active-Session requested scientific results accepted in Decision 404 are a
+  distinct scope, with delivery details still unresolved. Artifact
   metadata is not artifact bytes; NWB conversion and Cheaha upload remain separate
   later processing stages, not newly specified GUI execution mechanisms.
 

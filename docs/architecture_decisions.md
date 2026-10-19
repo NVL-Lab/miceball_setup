@@ -11578,6 +11578,241 @@ hardware, OS-signal, power-loss or normal Windows asynchronous scheduling behavi
 
 ---
 
+## Decision 396: The GUI is a general-purpose framework client accessible from the microscope workstation
+
+**Status:** Accepted
+
+The experimenter must be able to operate the complete scientific workflow from
+the microscope workstation. Browser-accessible deployment is preferred; the GUI
+application/backend and central services may execute elsewhere. AcquisitionNode
+and scientific processing execute where the relevant data and hardware are
+available, typically the microscope computer for CaBMI.
+
+The GUI owns interaction, not framework lifecycle, synchronization, acquisition,
+or persistence authority. Framework operation is GUI-independent. Time-critical
+scientific execution must not depend on browser responsiveness, GUI connectivity,
+Controller round trips, or NATS latency. Different laboratories may use different
+GUIs and protocols; a CaBMI-specific GUI is not mandatory.
+
+This extends Decisions 001-002 while preserving Decisions 019 and 021: GUI code
+and scientific analysis pipelines remain outside the core repository. Recording
+framework integration requirements does not authorize their implementation.
+
+---
+
+## Decision 397: One animal's Session may contain Experiments and Analyses
+
+**Status:** Accepted
+
+One framework Session corresponds to one animal. It may contain multiple
+Experiments and Analyses, Validation, and operator interactions. A laboratory day
+may contain multiple Sessions and experimenters. After closing one animal's
+Session, another must be preparable without restarting the GUI or framework
+services. Existing Session closure, resource reuse, evidence preservation, and
+artifact collection contracts remain authoritative.
+
+Experimenter, project, and template context may persist between Sessions, but
+each Session retains its own identity and authoritative records. Detailed metadata
+ownership remains unresolved under Q008.
+
+This broadens Decisions 092-096's conceptual Session contents without classifying
+Analysis as Experiment or Validation. Controller's canonical Experiment lifecycle
+authority is unchanged; service lifetimes remain independent under Decision 304.
+
+---
+
+## Decision 398: Services, Setup, and Experiment or Run are conceptual GUI areas
+
+**Status:** Accepted
+
+The GUI conceptually separates:
+
+- Services: connectivity, readiness, operational status, maintenance, and service information.
+- Setup: experimenter, project, animal, protocol/template, device/configuration
+  selection, scientific products, and configuration review.
+- Experiment / Run: guided scientific steps, plots, selections, calibration,
+  progress, results, and controls.
+
+These are functional areas, not an accepted tab count, widget layout, frontend
+technology, or implementation design. Existing readiness, maintenance, and
+shutdown authority and Decision 394's insufficient-storage warning are preserved.
+Presentation proposals remain in [GUI design notes](gui_design_notes.md).
+
+---
+
+## Decision 399: Scientific protocols and editable templates belong to the application
+
+**Status:** Accepted
+
+The GUI/application owns scientific protocols and templates, not the core
+framework. A protocol defines ordered steps, dependencies, and optional operations.
+A step may be an Experiment, Validation, Analysis, operator preparation or
+interaction, or scientific annotation/review; not every step is an Experiment.
+
+Templates provide editable starting configurations. Experimenters may modify
+selected settings, devices, and optional steps and retain modifications as future
+templates. Actual scientific execution configuration must be preserved independently
+of its original template. Metadata/template ownership and propagation remain open.
+
+The initial CaBMI application may reuse useful legacy GUI/protocol concepts.
+Legacy GUI and MATLAB code are scientific/user-experience references, not framework
+architectural authority. Neither a general protocol editor, a template installation
+framework, nor a core workflow engine is required by the initial scope.
+
+---
+
+## Decision 400: Repetition and scientific selection preserve every attempt and actual inputs
+
+**Status:** Accepted
+
+Repeating an operation never erases earlier scientific results. Every executed
+attempt and its products remain scientifically traceable. The GUI/application
+interprets protocol-specific dependencies; the framework preserves necessary
+scientific identities and provenance. Changed ROI masks may require dependent
+baseline processing, ensemble selection, and calibration to be repeated; changed
+neuron selections or calibration inputs may require recalibration before dependent
+CaBMI execution. Earlier dependent results cannot simply be treated as current
+for a revised workflow.
+
+Successful Analysis execution is distinct from scientific acceptance or selection.
+Valid persistent outputs must be preserved even when not selected. Experimenter
+acceptance/selection must be traceable, and later Experiments or Analyses identify
+the actual results and inputs used. New selections cannot retroactively change
+completed operations or overwrite historical results. Detailed dependency,
+selection, approval, and provenance representations remain unresolved.
+
+---
+
+## Decision 401: Analysis is a lightweight first-class Session-scoped scientific operation
+
+**Status:** Accepted
+
+Each Analysis has a unique `analysis_id` and may consume products from earlier
+Experiments or Analyses and produce new scientific products. Its originating
+operation is identified by `analysis_id`, never a fabricated `experiment_id`.
+
+Analysis is distinct from Experiment and Validation. Producing results does not
+make it inherit the full Experiment lifecycle, participant management, device
+readiness, or Stop/Kill machinery. This qualifies Decision 096's historical
+scientific-calibration-as-Experiment classification: scientific calculation and
+calibration between Experiments may be Analysis, while operational tests remain
+Validation and acquisition/closed-loop execution may remain Experiments.
+
+The initial scope is scientific calculation associated with the active Session,
+not historical data reopening, arbitrary offline processing, or a general job
+platform. Invocation, minimum requests/outcomes/failure evidence, interruption,
+and relationship to Session closure remain open under Q026. This decision
+defines no new lifecycle states or executable interface.
+
+---
+
+## Decision 402: Experiment and Analysis products share scientific persistence ownership
+
+**Status:** Accepted
+
+Scientific products may originate from an Experiment (`experiment_id`) or an
+Analysis (`analysis_id`) with equal standing under existing local scientific
+persistence. Reuse LocalStorageManager, authoritative ArtifactManifests, and
+existing global artifact collection rather than another persistence system.
+
+Preserve producing Session/operation identity, scientific input/source-product
+identities, relevant configurations and calculation parameters, outputs and their
+input relationships, actual results selected/used later, and earlier repeated
+results. Finalized products remain immutable; derived products remain separate,
+with exactly one LocalStorageManager owner per scientific record and common
+persistence ownership independently of payload meaning (Decisions 185-186, 191).
+
+This extends the Experiment-oriented scope of Decisions 178-218, 208-211,
+235-237, 240 onward, and 377-378. Device-declared acquisition product selection
+does not already implement Analysis invocation. Existing Experiment-specific
+stream, timing, manifest, and collection representations require later design
+for Analysis; no schema or implementation support is asserted here.
+
+Scientific results are not routine operational evidence and must not enter
+Ingestor as scientific observations. Existing local scientific ownership,
+manifest intake, pull-based global collection, and artifact/runtime-plane
+separation remain authoritative. Occasional visualization delivery under
+Decision 404 is not transfer of authoritative artifact bytes through NATS.
+
+---
+
+## Decision 403: Scientific execution remains local without turning DeviceManager into an Analysis scheduler
+
+**Status:** Accepted
+
+Hardware/software directly involved in acquisition or closed-loop execution may
+use DeviceAdapter where compatible; CaBMI closed-loop processing is a candidate.
+Between-Experiment Analysis is separate, not automatically a DeviceAdapter
+operation. Scientific processing executes where required data and computational
+resources reside.
+
+The intended direction is an appropriate existing AcquisitionNode coordinating
+local Analysis, not GUI or Controller performing scientific calculations.
+DeviceManager must not become a general analysis scheduler. The exact local
+invocation and installed-software integration interfaces remain unresolved.
+Decision 164's acquisition timestamp ownership and existing adapter/acquisition
+boundaries are unchanged; no Analysis timing schema is defined here.
+
+---
+
+## Decision 404: Controller command authority is distinct from direct GUI scientific-result delivery
+
+**Status:** Accepted
+
+Command/control direction is `GUI application -> Controller -> appropriate
+AcquisitionNode`. Controller coordinates framework-controlled operations,
+including authorized Session-associated Analysis requests. Scientific
+visualization/result direction is `AcquisitionNode -> GUI application/backend`:
+requested small plots and structured results need not pass through Controller.
+Controller receives the coordination outcome/status, not necessarily the
+visualization payload. Ingestor is not a scientific-observation or visualization
+relay. A browser may communicate with its GUI backend; NATS participation grants
+that backend no lifecycle authority.
+
+Reuse existing NATS infrastructure where appropriate, preserving Decisions
+115-149's brokered messaging, scientific artifact separation, publication/evidence
+guarantees, and distinction between telemetry and authoritative stored records.
+The direct result direction is logical, not authorization for a peer-to-peer
+transport. Precise transport, subjects, schemas, recipient authorization,
+correlation, and delivery/disconnection behavior remain unresolved under Q029.
+
+Initial scope is occasional plots and small structured results, not continuous
+imaging or general online/inter-node scientific streaming. Shared filesystem
+paths or repeatedly overwritten PNGs are not the general accepted result
+transport. This direction does not claim existing Analysis or GUI delivery support.
+
+---
+
+## Decision 405: The initial CaBMI workflow is a concrete use case, not a mandatory protocol
+
+**Status:** Accepted
+
+The initial scientific use case is:
+
+1. Acquire approximately two minutes of imaging.
+2. Run rapid Suite2p locally to identify ROIs.
+3. Acquire approximately 15 minutes of baseline activity using those masks.
+4. Inspect fluorescence and select four suitable neurons.
+5. Simulate the neural cursor and calculate target T.
+6. Review calibration, modify selections/parameters, and repeat calculations as appropriate.
+7. Execute the closed-loop CaBMI Experiment locally.
+
+Initial imaging, baseline acquisition, and closed-loop CaBMI are candidates for
+separate Experiments. ROI identification, baseline-derived calculations, neuron
+selection, and target calibration are Analyses, not automatically Experiments.
+Operational tests remain Validation where appropriate. Scientific recordings
+remain LocalStorageManager-owned; time-critical CaBMI execution is independent
+of GUI/network round trips. Future decimated live cursor visualization may be
+desirable but does not authorize general inter-node scientific streaming.
+
+Decisions 396-405 record user-accepted HLC direction conveyed by the LLC handoff,
+not implementation or software validation. Concrete Suite2p/CaBMI integration,
+GUI packaging, and low-level Analysis contracts are still subject to later
+accepted design. G4/G5 integration and hardware validation remain separate;
+no milestone or open deployment/recovery question is closed by this synchronization.
+
+---
+
 # Accepted Architectural Principles
 
 The following principles summarize the accepted decisions so far.

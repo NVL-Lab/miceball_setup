@@ -445,6 +445,10 @@ Events are part of the scientific record.
 
 A scientific or protocol segment that runs within a Session.
 
+Analysis is a distinct scientific operation, not another Experiment category
+(Decision 401). Calibration calculations between Experiments may be Analyses;
+not every application protocol step is an Experiment.
+
 Its identity represents one execution. Once stopped, aborted, or failed, it
 cannot restart under the same `experiment_id`, including when it has no
 scientific outputs or recorded data. Repeating its configuration creates a new
@@ -653,7 +657,25 @@ simulated adapter or broker-double test is not hardware or live-network validati
 
 A purpose rather than an architectural category.
 
-Operational calibration is represented as Validation. Scientific calibration, such as BMI decoder training, is represented as Experiment.
+Operational calibration is Validation. Decisions 401 and 405 qualify Decision
+096's earlier scientific-calibration-as-Experiment description: between-Experiment
+scientific calculations, including target calibration, may be Analysis;
+scientific acquisition or closed-loop execution may be Experiment. Calibration's
+purpose alone does not choose a lifecycle.
+
+---
+
+# Analysis
+
+A lightweight first-class Session-scoped scientific operation with a unique
+`analysis_id`, distinct from Experiment and Validation (Decision 401). It may
+consume earlier Experiment/Analysis products and produce scientific products
+under existing local persistence and collection ownership, without a fabricated
+`experiment_id` or automatic inheritance of Experiment lifecycle machinery.
+Execution success is distinct from scientific acceptance/selection; preserve all
+results and the actual inputs/results used later (Decisions 400-402). Invocation,
+timing, persistence representation, selection, and interruption contracts remain
+unresolved; this terminology does not claim implemented Analysis support.
 
 ---
 
@@ -889,6 +911,11 @@ by Session and Experiment; the external configuration model remains future work.
 ---
 
 # Scientific Data Product
+
+Decision 402 also accepts Analysis-origin scientific products with equal standing
+under existing LocalStorageManager ownership. The device-declared/Experiment-selected
+acquisition description below is not an Analysis invocation contract; adapting
+stream/manifest/collection representations remains unresolved under Q027.
 
 One scientifically meaningful output available from a resource, such as measured
 data, events, indices, or references into an external artifact. Device
@@ -1330,6 +1357,11 @@ The Reconstruction Manager does not perform acquisition or protocol execution.
 # Session
 
 A bounded temporal and evidence container with accepted configuration, selected devices, lifecycle state, Session Time, and a session identity.
+
+Under Decision 397, one Session corresponds to one animal and may contain
+Experiments, Analyses, Validation, and operator interactions. Successive animals
+use distinct Sessions without requiring GUI or service restart; existing cleanup,
+preservation, and reuse obligations remain authoritative.
 
 A Session may last minutes or hours.
 

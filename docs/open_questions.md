@@ -146,6 +146,12 @@ General acceptance requirements for new devices are not yet defined.
 
 ## Q008: What is the Configuration Model?
 
+**Accepted GUI/application direction:** Decisions 397-399 require per-animal
+Session identity, reusable editable templates, and preservation of actual executed
+configuration independently of its template. They do not settle authoritative
+metadata ownership or propagation. Q008 remains OPEN; no GUI/configuration
+implementation is established by those decisions.
+
 ### Why this matters
 
 The framework now has explicit `SessionConfig` buckets, separate
@@ -180,6 +186,14 @@ these settled selection and launch semantics are not Q008 schema questions.
 * What is the policy for declaring and applying defaults?
 * How are accepted configuration values propagated to runtime owners?
 * What vocabulary and structure should be used for `DeviceDeclaration.declared_capabilities`?
+* Who owns experimenter, project, and animal identities/metadata, and which values
+  enter authoritative Session records?
+* Who owns, shares, and persists reusable templates, and how are modified
+  templates distinguished from actual executed configuration?
+* How is accepted configuration propagated to the relevant runtime owners?
+
+HLC continues the metadata/configuration discussion. These questions do not
+reopen accepted installation settings or Session/device configuration boundaries.
 
 ### Blocks
 
@@ -187,6 +201,89 @@ these settled selection and launch semantics are not Q008 schema questions.
 * Session manifest structure
 * Device schema structure
 
+
+---
+
+## Q026: What is the lightweight Analysis execution contract?
+
+**Status:** OPEN - Decisions 401 and 403 accept the conceptual operation, not
+its invocation interface or implementation.
+
+Analysis is Session-scoped with a unique `analysis_id`, distinct from Experiment
+and Validation. It must not inherit full Experiment lifecycle/readiness/Stop/Kill
+machinery merely to produce products. Controller authorization and local execution
+ownership are accepted; the following remain unresolved:
+
+- How does an existing AcquisitionNode invoke installed Analysis capabilities?
+- What minimum request, outcome, and failure evidence is required?
+- How do interruption and Session closure affect an Analysis?
+- How does execution stay simpler than Experiment execution?
+- What concrete installed-software interfaces support Suite2p or CaBMI?
+
+A minimal node-hosted/coordinated invocation interface separate from adapter and
+DeviceManager lifecycle methods, Controller-authorized messages, and lightweight
+execution/outcome records are candidate approaches only. No interface, message
+schema, scheduler, job platform, or recovery mechanism is accepted here.
+
+## Q027: How do Analysis products use existing scientific persistence and collection?
+
+**Status:** OPEN - Decision 402 accepts common ownership and equal product
+standing, not Analysis-compatible schemas or implemented collection support.
+
+- How do Experiment-specific stream creation, declarations, timing, and
+  ArtifactManifests accommodate `analysis_id` without a fabricated `experiment_id`?
+- How are calculation parameters, source-product identities, and outputs represented?
+- How do Analysis products participate in existing artifact collection without
+  another scientific persistence system?
+
+Explicit operation-origin fields or tagged Experiment/Analysis identities are
+proposals, not accepted schema choices. Preserve Decisions 185-186/191 ownership
+and immutability, existing artifact-plane responsibilities, and scientific versus
+operational evidence separation. Q002 retains broader Session Record evolution.
+
+## Q028: How are scientific result acceptance and dependency provenance represented?
+
+**Status:** OPEN - Decision 400 accepts traceability and non-destructive repetition.
+
+- How are successful Analysis execution and experimenter acceptance represented separately?
+- How are selected results referenced by later Analyses or Experiments?
+- What is persisted about repeated attempts, superseded selections, and actual inputs?
+- Where is the boundary between application-owned dependency interpretation and
+  framework-preserved provenance?
+
+Concrete input/output structures, selected-result identifiers, and application
+dependency/invalidation representations remain proposals. Later selections cannot
+rewrite earlier products or recorded inputs of completed operations.
+
+## Q029: What contracts deliver authorized scientific results to the GUI?
+
+**Status:** OPEN - Decision 404 accepts command-authority/result-delivery directions,
+not a detailed transport or trust contract.
+
+- How are Controller-authorized requests correlated with direct AcquisitionNode-to-GUI results?
+- How are intended recipients identified and authorized?
+- What happens when the GUI disconnects before receiving a result?
+- Which existing NATS contracts can be reused, and what limited extensions are needed?
+
+Specific NATS request/result or publish/subscribe designs, detailed authorization,
+correlation, and reconnect behavior are proposals only. Occasional small plots
+and structured results do not authorize continuous imaging, general inter-node
+scientific streaming, or a broad transport-recovery/permissions infrastructure.
+
+## Q030: What GUI presentation and deployment design implements the accepted functional areas?
+
+**Status:** OPEN - Decisions 396 and 398 accept a framework-client GUI direction
+and conceptual Services, Setup, and Experiment / Run areas, not a concrete design.
+
+Detailed Services presentation, readiness/status polling, maintenance interaction,
+GUI deployment, frontend/backend packaging, programming technologies, layouts,
+and widgets remain unresolved. Browser accessibility is preferred, not an approved
+technology stack. See [GUI design notes](gui_design_notes.md) for explicitly
+unapproved presentation proposals. Existing readiness, service lifecycle, and
+shutdown contracts remain authoritative; no GUI implementation is claimed.
+
+General historical Analysis, broad online processing, inter-node scientific
+streaming, and a generic workflow engine remain outside the initial accepted scope.
 
 ---
 
