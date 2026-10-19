@@ -1702,6 +1702,18 @@ or hardware safety. Kill partial-preservation/recovery and later Stage B/explici
 permanent closure remain separate. No new reliability subsystem, transaction
 coordinator, registry or Session state is authorized.
 
+The G4 confirmation-integrity correction carries scoped producer proof through
+active Normal Stop, including cached-marker reuse, Stage A readback, terminal
+advancement and terminal-record readback before reporting success. Invalidated or
+superseded proof retains the binding, evidence and existing marker for explicit
+retry; a terminal state is not rolled back. Identifiably correlated malformed
+Stop resolutions invalidate retained success before full result decoding, while
+stale and unrelated traffic remains isolated. Kill can still preserve available
+evidence with unconfirmed cleanup, but cannot report or release against a stale
+successful cleanup snapshot. Historical saved-Session readback does not require
+an in-memory producer cache. This correction remains pending independent
+validation and audit; G4 remains OPEN and no live-deployment validation is implied.
+
 **Validated implementation - remote closeout (W060):** A Controller with no local
 Ingestor/StorageManager references uses its launched NATS communication plus an
 explicit `storage_participant` for `normal_stop_session()` or authorized

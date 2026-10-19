@@ -230,6 +230,7 @@ class Controller:
                     session.stop(reason)
                 if session.current_state == SessionState.STOPPING:
                     session.abort(reason)
+            self._refresh_kill_cleanup(session, self._kill_closeout["participants"])
             confirmed = {item["participant"]["component_id"] for item in self._kill_closeout["participants"]
                          if item["cleanup_confirmed"]}
             participants = tuple(self._reserved_participants) + tuple(
@@ -252,9 +253,7 @@ class Controller:
                 if self._session is not session or self._kill_closeout_session is not session:
                     raise RuntimeError("Controller Session binding changed during Kill")
                 self._kill_closeout["participants"].append(outcome)
-            self._runtime_cleanup_confirmed = bool(participants) and all(
-                any(item["participant"] == p.to_dict() and item["cleanup_confirmed"]
-                    for item in self._kill_closeout["participants"]) for p in participants)
+            self._refresh_kill_cleanup(session, self._kill_closeout["participants"])
             details = self._preserve_kill_closeout(session)
             return self._record_successful_command("kill_session", details)
         except asyncio.CancelledError:
@@ -288,6 +287,7 @@ class Controller:
             with self._storage_manager.session_preservation_guard(session.session_id), self._service_operation_lock:
                 if self._session is not session or intake.session_id != session.session_id:
                     raise RuntimeError("Session binding changed during Kill")
+                self._refresh_kill_cleanup(session, self._kill_closeout["participants"])
                 uncertainties = deepcopy(self._kill_closeout["uncertainties"])
                 uncertainties.extend(deepcopy(self._kill_closeout["participants"]))
                 uncertainties.extend({"participant": p.to_dict(), "reservation_release_confirmed": False,
@@ -391,7 +391,9 @@ class Controller:
                     communication=communication, result_window_s=result_window_s)
                 if not published.succeeded:
                     raise RuntimeError(published.error)
+                confirmations = self._require_producer_confirmations(session)
                 archived = await self.archive_acquisition_evidence(communication=receiving)
+                self._require_producer_confirmations(session, confirmations)
                 if not archived.succeeded:
                     raise RuntimeError(archived.error)
                 handoff = self.preserve_artifact_collection_handoff()
@@ -421,6 +423,39 @@ class Controller:
         if result.payload.get("session_id") != session.session_id:
             raise RuntimeError("Closeout result Session identity mismatch")
         return result.payload
+
+    def _require_producer_confirmations(self, session, expected=None):
+        """Consume current scoped producer proof, retaining one active closeout snapshot."""
+        if self._session is not session:
+            raise RuntimeError("Controller Session binding changed during closeout")
+        participants = tuple(p for p in session.configuration.expected_runtime_participants
+                             if p.component_type in {"acquisition_node", "synchronization_manager"})
+        if self._acquisition_node is not None and not any(
+                p.component_type == "acquisition_node" and p.component_id == self._acquisition_node.node_id
+                for p in participants):
+            participants += (RuntimeParticipant("acquisition_node", self._acquisition_node.node_id),)
+        current = tuple((p, self._launch_communication.session_acquisition_completion(p, session.session_id))
+                        for p in participants)
+        if (not participants or any(result is None for _, result in current)
+                or (expected is not None and current != expected)):
+            raise RuntimeError("Current producer confirmation is unconfirmed or superseded")
+        return current
+
+    def _refresh_kill_cleanup(self, session, outcomes):
+        """Retain partial Kill preservation without overstating current owner cleanup proof."""
+        for item in outcomes:
+            if item["cleanup_confirmed"]:
+                participant = RuntimeParticipant.from_dict(item["participant"])
+                current = self._launch_communication.session_acquisition_completion(participant, session.session_id)
+                if current is None or current.to_dict() != item.get("result"):
+                    item["cleanup_confirmed"] = False
+                    item["error"] = "Scoped cleanup confirmation is unconfirmed or superseded"
+        participants = tuple(self._reserved_participants) + tuple(
+            p for p in session.configuration.expected_runtime_participants
+            if p.component_type == "synchronization_manager")
+        self._runtime_cleanup_confirmed = bool(participants) and all(
+            any(item["participant"] == p.to_dict() and item["cleanup_confirmed"] for item in outcomes)
+            for p in participants)
 
     def _require_remote_preservation(self, session, result, storage, *, normal):
         if (result.get("session_id") != session.session_id
@@ -490,6 +525,7 @@ class Controller:
                     session.stop(reason)
                 if session.current_state == SessionState.STOPPING:
                     session.abort(reason)
+                self._refresh_kill_cleanup(session, attempt["participants"])
                 for participant in tuple(self._reserved_participants) + tuple(
                         p for p in participants if p.component_type == "synchronization_manager"):
                     previous = next((item for item in attempt["participants"]
@@ -508,11 +544,7 @@ class Controller:
                     if self._session is not session:
                         raise RuntimeError("Controller Session changed during Kill")
                     attempt["participants"].append(outcome)
-                self._runtime_cleanup_confirmed = bool(attempt["participants"]) and all(
-                    any(item["participant"] == p.to_dict() and item["cleanup_confirmed"]
-                        for item in attempt["participants"])
-                    for p in tuple(self._reserved_participants) + tuple(
-                        p for p in participants if p.component_type == "synchronization_manager"))
+                self._refresh_kill_cleanup(session, attempt["participants"])
             else:
                 if (session.current_state == SessionState.RUNNING or
                         (self._normal_stop_failure_session is session and not self._runtime_cleanup_confirmed)):
@@ -520,11 +552,13 @@ class Controller:
                     if not stopped.succeeded:
                         raise RuntimeError(stopped.error)
                 if (session.current_state == SessionState.STOPPING or
-                        self._normal_stop_failure_session is session) and not self._acquisition_marker_confirmed:
+                        self._normal_stop_failure_session is session):
                     published = await self.publish_acquisition_evidence_completion(
                         communication=communication, result_window_s=window)
                     if not published.succeeded:
                         raise RuntimeError(published.error)
+            confirmations = (self._require_producer_confirmations(session) if not kill and
+                (session.current_state != SessionState.COMPLETED or self._finalization_confirmation is None) else None)
             if session.current_state == SessionState.COMPLETED:
                 preserved = await self._closeout_owner_request(session, intake, "read_session_closeout", {}, window)
             else:
@@ -539,6 +573,10 @@ class Controller:
                     "controller_evidence": list(self._controller_owned_session_evidence_snapshot(session.session_id).values()),
                     "uncertainties": uncertainties}, window)
             self._require_remote_preservation(session, preserved, storage, normal=not kill)
+            if confirmations is not None:
+                self._require_producer_confirmations(session, confirmations)
+            if kill:
+                self._refresh_kill_cleanup(session, attempt["participants"])
             if not kill and session.current_state == SessionState.STOPPING:
                 if not self._runtime_cleanup_confirmed or self._active_experiment_id is not None:
                     raise RuntimeError("Normal Stop cleanup is unconfirmed")
@@ -546,9 +584,14 @@ class Controller:
             preserved = await self._closeout_owner_request(session, intake, "preserve_session_terminal_record",
                 {"session_record": _to_plain_data(self._session_record_evidence())}, window)
             self._require_remote_preservation(session, preserved, storage, normal=not kill)
+            if confirmations is not None:
+                self._require_producer_confirmations(session, confirmations)
+            if kill:
+                self._refresh_kill_cleanup(session, attempt["participants"])
             self._finalization_confirmation = {"session_id": session.session_id, "remote": True}
             return self._record_successful_command(name, {**preserved,
                 "session_state": session.current_state.value,
+                **({"participants": deepcopy(attempt["participants"])} if kill else {}),
                 "participant_cleanup_confirmed": self._runtime_cleanup_confirmed})
         except asyncio.CancelledError:
             # Durable owner admission/finality survives cancellation; no release is inferred.
@@ -599,6 +642,8 @@ class Controller:
                 if json.dumps(self._storage_manager.read_artifact_collection_handoff(session.session_id), sort_keys=True) != json.dumps(handoff, sort_keys=True):
                     raise RuntimeError("Current durable artifact handoff is unconfirmed")
                 record_path = self._storage_manager._session_directory(session.session_id) / "session_record_final.json"
+                if session.current_state != SessionState.COMPLETED or self._finalization_confirmation is None:
+                    self._require_producer_confirmations(session)
                 if session.current_state == SessionState.STOPPING:
                     session.complete()
                 self._archived_controller_action_decisions = self._controller_decision_evidence_snapshot(session.session_id)
@@ -2414,6 +2459,8 @@ class Controller:
                 raise RuntimeError("Normal Stop is in progress")
             if session.current_state not in {SessionState.COMPLETED, SessionState.FAILED, SessionState.ABORTED}:
                 raise RuntimeError("Session release requires a terminal Session")
+            if self._kill_closeout_session is session:
+                self._refresh_kill_cleanup(session, self._kill_closeout["participants"])
             if not session.cleanup_occurred or not self._runtime_cleanup_confirmed:
                 raise RuntimeError("Session runtime cleanup is unconfirmed")
             if self._artifact_collection_in_progress or self._active_experiment_id is not None:
@@ -2450,6 +2497,9 @@ class Controller:
                 self._require_controller_decision_archival(session.session_id, confirmation)
                 record = confirmation["session_record"]
                 if self._kill_closeout_session is session:
+                    self._refresh_kill_cleanup(session, self._kill_closeout["participants"])
+                    if not self._runtime_cleanup_confirmed:
+                        raise RuntimeError("Current Kill cleanup confirmation is unconfirmed")
                     self._require_kill_runtime_coverage(session.session_id, record)
                 lifecycle = record.get("session_lifecycle_evidence", [])
                 if (record.get("accepted_session_config", {}).get("session_id") != session.session_id
@@ -2502,6 +2552,8 @@ class Controller:
         session = self._require_session()
         admitted = False
         try:
+            if self._distributed_closeout is not None and self._distributed_closeout["kill"]:
+                self._refresh_kill_cleanup(session, self._distributed_closeout["participants"])
             if (communication is not self._launch_communication or type(window) not in {int, float}
                     or not isfinite(window) or window <= 0
                     or self._normal_stop_task is not None or self._finalization_confirmation is None
@@ -2516,6 +2568,10 @@ class Controller:
             intake = RuntimeParticipant.from_dict(scope["ingestor"])
 
             def require_release_coverage(preserved):
+                if scope["kill"]:
+                    self._refresh_kill_cleanup(session, scope["participants"])
+                    if not self._runtime_cleanup_confirmed:
+                        raise RuntimeError("Current Kill cleanup confirmation is unconfirmed")
                 self._require_remote_preservation(session, preserved, storage, normal=not scope["kill"])
                 self._require_controller_owned_evidence(session.session_id, preserved)
                 record = preserved["session_record"]
