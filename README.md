@@ -598,6 +598,14 @@ Required failures and unresolved results block canonical start; optional
 service failures are recorded without blocking confirmed required success.
 Selected scientific outputs remain required.
 
+G2 is CLOSED within its software-validated scope under Decisions 394-395.
+Experiment starts now require explicit `ExperimentConfiguration` with duration
+and confirmed recording/preservation capacity; nodes enforce the common deadline
+autonomously. See [capacity and duration usage](docs/installation_and_deployment.md#experiment-capacity-and-duration-g2-closed)
+and the [G2 validation record](docs/validated_workflows.md#g2---experiment-capacity-preflight-and-autonomous-duration-expiry)
+for failure/retry behavior and live-deployment/hardware limitations. Runtime
+duration extension remains deferred; Q022, Q024, M015 and Phase 16 remain OPEN.
+
 Phase 14 / Slice 22 Artifact Collection Handoff architecture is accepted in
 Decisions 240-244 and is complete (M010), following implementation, successful
 manual IPython validation, and independent audit PASS. W031 records the results

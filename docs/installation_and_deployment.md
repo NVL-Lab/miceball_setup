@@ -1278,7 +1278,7 @@ asynchronous scheduling validation is established. See
 complete evidence record. G2/G4/G5 are not completed by G3; Q022, Q024, M015 and
 Phase 16 remain OPEN.
 
-### Experiment Capacity And Duration (G2 Open)
+### Experiment Capacity And Duration (G2 Closed)
 
 Decisions 394-395 require explicit configuration before every Experiment, for
 headless and future GUI clients alike. Existing callers must supply configuration;
@@ -1384,8 +1384,13 @@ recorded cleanup-command failure retain any unresolved scientific obligation.
 Failure end time is explicitly unconfirmed rather than requiring another timing
 read. Unconfirmed products remain retained for existing explicit finalization
 retry; a failed start is never returned as successful activation.
-G2 remains OPEN for independent validation/audit; no live NATS, camera hardware,
-PC-Jetson performance, OS-signal or power-loss verification is claimed.
+G2 is CLOSED within its validated software scope after ICC independent validation
+and final separate Codex audit PASS with no remaining confirmed P0-P3 findings.
+See [G2 closure](validated_workflows.md#g2---experiment-capacity-preflight-and-autonomous-duration-expiry)
+for consolidated evidence and correction history. No live NATS, camera hardware,
+PC-Jetson performance, OS-signal, power-loss or normal Windows asynchronous
+scheduling verification is claimed. Runtime duration extension remains deferred;
+Q022, Q024, M015 and Phase 16 remain OPEN.
 
 Implementation verification passed 33 distinct focused checks: 17 new G2 checks,
 10 sustained-acquisition regressions and six directly affected bounded-storage,
@@ -1409,8 +1414,8 @@ using the committed methods substituted in memory, without reverting workspace
 files. These checks used simulated I/O, temporary disk/HDF5 storage and controlled
 asyncio execution, not normal Windows asynchronous scheduling, live NATS,
 hardware, OS signals or power-loss validation. Overlapping runs are not additive.
-G2 remains OPEN pending independent validation and separate re-audit; this is not
-documentation closure.
+At that implementation handoff, G2 remained open pending independent validation
+and re-audit; that run alone did not establish closure.
 
 The subsequent failed-preparation P2 correction retains the Session baseline
 across unsuccessful device transitions and requires ready/running devices before
@@ -1423,7 +1428,8 @@ lost between preparation and activation. Scientific frames and finalized HDF5
 products were checked after recovery. These are controlled software checks using
 simulated camera/NATS I/O, not independent validation, normal Windows asynchronous
 scheduling, hardware or live deployment verification. Earlier overlapping runs
-are not additive, and G2 remains OPEN for ICC validation and separate re-audit.
+are not additive. G2 still awaited ICC validation and separate re-audit at that
+handoff; the closure status above records their subsequent successful completion.
 
 Local activation-failure remediation passed 47 distinct automated checks: the
 previous 43 directly affected checks plus four new local readiness/mapping/context
@@ -1433,7 +1439,7 @@ finalization in the same Session. Synchronous local checks and controlled asynci
 execution used simulated camera/NATS I/O and temporary HDF5 storage. No live
 deployment, hardware, OS-signal, power-loss or normal Windows asynchronous
 scheduling validation is claimed. This implementation verification does not
-replace independent validation/re-audit or close G2.
+replace the subsequent independent validation/re-audit that now supports closure.
 
 ### Timing And Synchronization
 

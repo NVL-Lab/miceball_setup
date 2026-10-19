@@ -5571,6 +5571,115 @@ and previous workflow validation history are unchanged.
 
 ---
 
+# G2 - Experiment Capacity Preflight and Autonomous Duration Expiry
+
+**Status:** CLOSED - bounded software implementation under Decisions 394-395,
+independent ICC IPython/adversarial validation and separate independent Codex
+read-only audit PASS; ICC authorized documentation-only closure.
+
+## Implemented scope
+
+Every Experiment requires a positive finite configured duration. It supplies the
+storage-estimation horizon and the common Session-Time deadline; runtime duration
+extension remains deferred. Installation product/capability declarations, the
+Session-resolved device baseline and per-Experiment operating overrides remain
+distinct. Failed preparation cannot replace the baseline. A later explicit
+preparation reuses existing device cleanup, initialization, readiness and start
+methods to establish the requested settings; it is not automatic rollback.
+
+Before each Experiment, existing owners inspect actual recording destinations and
+StorageManager's evidence and configured scientific-artifact preservation roots.
+Declared encoded-size bounds and selected settings support estimates where
+defensible; otherwise explicit authoritative byte budgets are required. Shared
+filesystems sum distinct required writes against conservative observed free space,
+without multiplying available capacity. Insufficient or indeterminate capacity
+cannot establish readiness. No invented margins or storage reservation is added.
+
+After synchronization readiness, one common Experiment start plus duration is
+translated through authorized mappings into each node's local monotonic deadline.
+The existing G3 execution task enforces expiry independently of Controller
+connectivity, including idle Experiments and subsequent synchronization
+communication loss. Publication waits remain deadline-bounded while active;
+early transport timeouts are not mistaken for expiry. Nodes finalize local
+scientific products and retain expiry/failure evidence without ending the Session.
+
+Controller retains canonical lifecycle authority. Expiry proof must match the
+prepared configuration, common start and captured authorized activation mapping
+and deadline, with confirmed finalization. Invalid/conflicting proof fails closed;
+duplicates do not add canonical ends, and valid delayed proof remains usable after
+mapping replacement. Existing owner readback supports missed evidence delivery.
+Publication, durable intake and archival preservation remain separate guarantees.
+
+Pre-start preparation rejection remains distinct from an already-started
+Experiment failing activation. Local post-start activation failure records
+`experiment_fail`, clears active runtime context and attempts existing scientific
+finalization while retaining the activation error. Cleanup uncertainty is reported
+separately; retained artifacts and evidence remain available for explicit retry.
+An unconfirmed failure end time is not fabricated. Subsequent valid Experiments
+can record and finalize within the same Session. G3 autonomy, scientific timing,
+Experiment identity/isolation and existing Stop/Kill/Cancel behavior are preserved.
+See [Experiment Capacity And Duration](installation_and_deployment.md#experiment-capacity-and-duration-g2-closed)
+and `tests/test_experiment_capacity.py` for interfaces and public workflows.
+
+## Validation and correction history
+
+- Codex implementation verification passed **33** distinct checks initially,
+  **40** after the original four P2 corrections, **43** after failed-preparation
+  remediation, and **47** after local activation-failure remediation. These are
+  overlapping runs, not additive totals. The final run covered 31 capacity/expiry
+  and local-failure checks, ten G3 checks and six directly affected persistence/
+  distributed-start checks.
+- The initial independent audit returned **FAIL** with four P2 findings: incomplete
+  expiry proof, early publication timeout bypass, omitted scientific-preservation
+  capacity and stale local initialization settings. All were corrected with
+  permanent regression coverage.
+- Subsequent independent re-audits identified failed preparation contaminating
+  later configuration/device state, then local activation failure leaving a
+  phantom active Experiment and open scientific products. Both P2 findings were
+  corrected with permanent failure/retry regressions. The four local activation
+  regressions failed before their correction and passed afterward.
+- Independent ICC IPython/adversarial validation: **PASS**, including six
+  post-correction scenarios covering forged expiry proof, recovery after invalid
+  evidence, unknown preservation capacity, recovery after rejected preflight,
+  blocked publication and independent local initialization. Further independent
+  validation passed scientific-storage preparation failure with baseline recovery,
+  and post-context activation failure with partial finalization failure, retained
+  artifacts, explicit retry and subsequent valid HDF5 recording.
+- Final separate independent Codex read-only audit: **PASS**, no confirmed
+  remaining P0-P3 findings. **Four supporting automated tests** and **four
+  independently designed adversarial workflows** passed: inconsistent activation
+  readback plus post-finalization manifest-intake failure/retry; lost distributed
+  activation reply spanning autonomous expiry; activation failure after nonempty
+  two-product acquisition; and changing shared-filesystem free-space observations.
+  Canonical resolution, retained science/timing, repeated finalization without
+  rewriting and subsequent Experiment operation were checked.
+
+The final distributed probe initially encountered the broker double's inline
+propagation of consumer rejection into publication. Separating consumer handling
+from publication acknowledgment corrected the harness; it was not an application
+defect. These are previously completed verification stages, not tests or an audit
+rerun for documentation closure. Implementation, ICC validation and independent
+audit remain separate evidence.
+
+## Limitations and remaining scope
+
+Validation used controlled software fixtures, simulated camera/NATS I/O and clock
+advancement, temporary HDF5 products, synchronous checks and controlled asyncio
+execution. It does not establish normal Windows asynchronous scheduling, live
+PC-Jetson/NATS deployment, physical camera operation or sustained performance,
+OS-signal handling or physical power-loss behavior. Synchronous device calls
+remain nonpreemptible; no hard real-time or hardware deadline tolerance is claimed.
+The three Windows hard-link-blocked G3 closeout checks remain unverified and are
+not counted as passing G2 checks. Runtime duration extension, remote/shared-volume
+capacity coordination and the future GUI warning implementation remain outside
+this closure.
+
+G2 alone is closed by this record. G3 and prior W-record closures remain unchanged;
+G4/G5, Q022, Q024, M015 and Phase 16 are not closed by it. Accepted decision bodies
+and numbering are unchanged; no next implementation slice is selected.
+
+---
+
 # Future Workflows
 
 The following workflows are expected to be added as the framework evolves.

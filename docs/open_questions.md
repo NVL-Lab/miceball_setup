@@ -890,7 +890,7 @@ verification without another independent re-audit for this test-only cleanup.
 Remaining deployment work is pending.
 Q022 as a whole is not closed. Q019 remains CLOSED in W050.
 
-**G2 OPEN - accepted clarification synchronized (Decision 394):** Every Experiment
+**G2 CLOSED within validated software scope (Decisions 394-395):** Every Experiment
 has a configured duration before start, governing automatic termination and the
 capacity-estimation horizon. Selected device operating configuration, scientific
 storage representation and declared characteristics determine estimates; an
@@ -910,9 +910,16 @@ Controller reconciles the canonical Experiment end without ending the Session.
 The bounded implementation under Decisions 394-395 now carries explicit
 ExperimentConfiguration, per-destination capacity readiness, mapped local expiry
 and Controller reconciliation. Unsupported estimation requires explicit budgets;
-unconfirmed filesystem capacity/identity fails readiness. Independent validation,
-audit and closure remain pending. See installation_and_deployment.md for APIs,
-estimation inputs and limitations. Q022 remains OPEN.
+unconfirmed filesystem capacity/identity fails readiness. Failed preparation
+preserves the Session baseline; post-start activation failure resolves canonical
+lifecycle and reports scientific cleanup uncertainty separately. ICC independent
+adversarial validation and final separate Codex read-only audit passed with no
+remaining confirmed P0-P3 findings, after the documented P2 corrections. See
+[G2 closure](validated_workflows.md#g2---experiment-capacity-preflight-and-autonomous-duration-expiry)
+for evidence and limitations and installation_and_deployment.md for APIs.
+Runtime duration extension remains deferred. No live deployment/hardware,
+OS-signal, power-loss or normal Windows asynchronous scheduling validation is
+claimed. Q022 remains OPEN; this does not close Q024, M015 or Phase 16.
 
 **G3 CLOSED within validated software scope:** The AcquisitionNode
 service launcher now enables one adapter-owned sustained execution task. Active

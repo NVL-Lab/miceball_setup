@@ -1,6 +1,12 @@
 # Code Map
 
-## G2 Experiment Capacity And Autonomous Expiry (Implementation; Open)
+## G2 Experiment Capacity And Autonomous Expiry (Closed; Software Scope)
+
+G2 is CLOSED after ICC independent validation and final separate Codex audit PASS,
+with no remaining confirmed P0-P3 findings. See the
+[G2 closure record](validated_workflows.md#g2---experiment-capacity-preflight-and-autonomous-duration-expiry)
+for correction history, nonadditive verification counts and live/hardware limits.
+Runtime duration extension remains deferred; broader milestones stay open.
 
 - session.ExperimentConfiguration(duration_s, recording_budgets=None, preservation_budget_bytes=None, device_configurations=None): Carries explicit duration, inclusive destination budgets and validated node/device operating overrides; to_dict()/from_dict(data) preserve detached plain-data configuration.
 - session.ExperimentDescriptor(..., configuration=None): Preserves duration, operating settings and budgets with canonical scientific identity while reading historical descriptors without configuration.

@@ -11511,14 +11511,16 @@ uses authoritative framework readiness and cannot bypass failed capacity readine
 This requirement is recorded in `gui_design_notes.md`; GUI implementation remains
 outside this repository.
 
-**Implementation status (G2 OPEN):** Accepted and synchronized before implementation.
-Inspection found no configured-duration automatic Experiment termination mechanism
-in the current implementation to reuse: Controller has explicit local and NATS
-Experiment stop paths only. The expiry execution/delegation contract, including
-enforcement of the recording horizon while Controller is unavailable, requires LLC
-clarification before adding a timer or changing lifecycle execution. No G2 capacity
-implementation, validation or closure is claimed. G3 remains CLOSED within its
-validated software scope; Q022, Q024, M015 and Phase 16 remain OPEN.
+**Implementation history:** Initial inspection found no configured-duration
+automatic Experiment termination mechanism to reuse; implementation waited for
+the expiry execution/delegation clarification accepted in Decision 395.
+
+**Implementation status (G2 CLOSED; bounded software scope):** Per-Experiment
+capacity readiness and duration expiry are implemented, independently validated
+by ICC and finally audited PASS by separate Codex review with no remaining
+confirmed P0-P3 findings. See [G2 closure](validated_workflows.md#g2---experiment-capacity-preflight-and-autonomous-duration-expiry)
+for correction history and limitations. No live deployment/hardware validation is
+claimed. G3 remains CLOSED; Q022, Q024, M015 and Phase 16 remain OPEN.
 
 ---
 
@@ -11558,7 +11560,9 @@ unchanged. Decision 394 and its future GUI warning remain authoritative.
 **Implementation status:** Accepted and synchronized before G2 implementation.
 This resolves the expiry execution/delegation prerequisite reported during
 Decision 394 inspection; it does not claim an older timer implementation existed.
-G2 remains OPEN pending independent validation and separate audit.
+G2 is now CLOSED within its validated software scope after ICC independent
+validation and final separate Codex audit PASS, following the documented P2
+corrections. Runtime duration extension remains deferred.
 Q022, Q024, M015 and Phase 16 remain OPEN; G3 closure is unchanged.
 
 **Bounded G2 implementation update:** ExperimentConfiguration carries duration,
@@ -11567,8 +11571,10 @@ storage readiness checks capacity before each Experiment; nodes capture the
 authorized local deadline, finalize independently and retain expiry evidence.
 Controller reconciles exact expiry evidence without ending the Session. Declared
 encoded-size bounds support estimation where available; otherwise explicit
-budgets are required. Implementation verification is separate from independent
-validation/audit and does not close G2. See installation_and_deployment.md.
+budgets are required. Independent validation/audit and implementation verification
+remain distinct evidence; see [G2 closure](validated_workflows.md#g2---experiment-capacity-preflight-and-autonomous-duration-expiry)
+and installation_and_deployment.md. This closure does not establish live NATS,
+hardware, OS-signal, power-loss or normal Windows asynchronous scheduling behavior.
 
 ---
 

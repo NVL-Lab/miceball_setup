@@ -1658,8 +1658,9 @@ W062 does not complete Q022 or Q024.
 
 ## Storage Capacity Preflight (G2)
 
-**Status:** OPEN - accepted architecture synchronized in Decisions 394-395;
-bounded implementation awaits independent validation and audit. Per-Experiment configured duration, selected device
+**Status:** CLOSED - bounded software scope under Decisions 394-395 after ICC
+independent validation and final separate Codex audit PASS with no confirmed
+remaining P0-P3 findings. Per-Experiment configured duration, selected device
 configuration and scientific storage requirements determine the capacity budget,
 with an explicit authoritative byte budget permitted when estimation is not
 defensible. Recording and required preservation destinations must pass existing
@@ -1671,8 +1672,17 @@ enforce one common Experiment deadline in local monotonic time using authorized
 mappings, finalize products and preserve expiry evidence; Controller retains
 canonical lifecycle ownership. Controller disconnection does not disable expiry.
 G2 implements per-Experiment storage checks, local expiry and Controller
-reconciliation; independent validation/audit remain pending. G3 and prior
-validated history remain unchanged;
+reconciliation, including failed-preparation baseline isolation and local
+activation-failure resolution with honest cleanup status and explicit retry.
+The final implementation run passed 47 distinct checks; final independent audit
+passed four supporting tests and four adversarial workflows. Earlier overlapping
+runs and ICC validation are not additive totals. See
+[G2 closure](validated_workflows.md#g2---experiment-capacity-preflight-and-autonomous-duration-expiry)
+for the FAIL/correction/PASS history and independent validation evidence.
+Controlled software validation does not establish live PC-Jetson/NATS integration,
+hardware timing/performance, OS-signal, power-loss or normal Windows asynchronous
+scheduling behavior. Runtime duration extension remains deferred. G3 and prior
+validated history remain unchanged; G4/G5 are not completed here.
 Q022, Q024, M015 and Phase 16 remain OPEN.
 
 ## Completed Sustained Acquisition Execution (G3)
