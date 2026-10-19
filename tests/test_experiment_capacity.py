@@ -1,6 +1,8 @@
 """Per-Experiment storage readiness and independently enforced recording deadlines."""
 
 import asyncio
+import json
+from itertools import repeat
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -8,12 +10,159 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+import h5py
+import numpy as np
+
 from lab_sync_acquisition import ExperimentConfiguration, ScientificProductDeclaration, ScientificOutputSelection
 from lab_sync_acquisition import RuntimeEvidenceMessage, PersistentStorageManager
+from lab_sync_acquisition import (
+    AcquisitionNode, Controller, DeviceDeclaration, DeviceManager, InMemoryIngestor,
+    OpenCVCameraConfig, SeeedIMX219OpenCVCameraAdapter, SessionConfig, SynchronizationManager,
+)
 from lab_sync_acquisition.device_adapter import DeviceReadiness
 from lab_sync_acquisition.local_storage import inspect_storage_capacity, validate_storage_capacity
 from tests import test_sustained_acquisition as sustained
 from tests import test_scientific_acquisition_persistence as scientific
+from tests.test_scientific_camera_collection import FakeCV2
+
+
+class LocalActivationFailureTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        root = Path(self.temporary.name)
+        self.frame = np.arange(24, dtype=np.uint16).reshape(2, 4, 3)
+        self.camera = FakeCV2(repeat(self.frame), {})
+        self.adapter = SeeedIMX219OpenCVCameraAdapter(
+            "camera", "opencv", ("camera_frames",), True, cv2_module=self.camera)
+        manager = DeviceManager((self.adapter,))
+        self.assertTrue(all(r.succeeded for r in manager.initialize_all(OpenCVCameraConfig(0, 0, 1))))
+        products = tuple(ScientificProductDeclaration(name, "camera_frames",
+            {"frame_shape": [2, 4, 3], "frame_dtype": "uint16"}, "hdf5") for name in ("frames", "second"))
+        declarations = (DeviceDeclaration("camera", "opencv", True, True, ("camera_frames",), products),)
+        config = SessionConfig(declarations, str(root / "runtime.jsonl"), {},
+            str(root / "errors"), session_id="session")
+        self.storage = PersistentStorageManager(root / "storage")
+        self.ingestor = InMemoryIngestor(self.storage)
+        self.sync = SynchronizationManager()
+        self.node = AcquisitionNode("session", manager, self.sync, self.ingestor, node_id="node",
+            error_evidence_location=config.error_evidence_location, default_local_storage_root=root / "local",
+            device_declarations=declarations)
+        self.controller = Controller(self.node, self.ingestor, self.storage, root / "session.json",
+            synchronization_manager=self.sync)
+        self.assertTrue(self.controller.create_session(config).succeeded)
+        ready = self.node.check_ready()
+        self.assertTrue(self.controller.initialize_session(ready["device_readiness"], ready["service_readiness"]).succeeded)
+        self.assertTrue(self.controller.start_session().succeeded)
+        self.local = self.node.local_storage_manager
+        self.addCleanup(self.cleanup)
+
+    def cleanup(self):
+        if self.node.status()["is_running"]:
+            self.node.stop_runtime()
+        self.local.cleanup()
+
+    def start(self, identity, *, both=False):
+        outputs = tuple(ScientificOutputSelection("camera", "node", name)
+                        for name in (("frames", "second") if both else ("frames",)))
+        return self.controller.start_experiment(identity, scientific_outputs=outputs,
+            configuration=ExperimentConfiguration(60, {"node": 1000000}, 1000000))
+
+    def assert_resolved(self, result, identity, *, confirmed=True):
+        self.assertFalse(result.succeeded)
+        self.assertIsNone(self.controller.get_status()["active_experiment_id"])
+        self.assertEqual(self.controller.get_status()["session_state"], "running")
+        self.assertFalse(self.node.scientific_acquisition_active)
+        self.assertIsNone(self.node.status()["active_experiment_runtime_context"])
+        events = [e for e in self.controller.get_status()["experiment_lifecycle_evidence"]
+                  if e.experiment_id == identity]
+        self.assertEqual([e.event_type for e in events], ["experiment_start", "experiment_fail"])
+        self.assertIsNone(events[-1].session_time_s)
+        self.assertTrue(events[-1].details["end_time_unconfirmed"])
+        self.assertEqual(result.details["cleanup_confirmed"], confirmed)
+        self.assertEqual(self.camera.capture.read_count, 0)
+        if confirmed:
+            self.assertTrue(all(m.lifecycle_state == "finalized" for m in self.local.manifests))
+
+    def record_next(self):
+        previous = {Path(m.local_storage_path): Path(m.local_storage_path).read_bytes()
+                    for m in self.local.manifests}
+        self.assertTrue(self.start("next").succeeded)
+        self.assertTrue(self.controller.run_one_iteration().succeeded)
+        self.assertTrue(self.controller.stop_experiment("next").succeeded)
+        manifest, = [m for m in self.local.manifests if m.experiment_id == "next"]
+        self.assertEqual(manifest.lifecycle_state, "finalized")
+        events = [e for e in self.controller.get_status()["experiment_lifecycle_evidence"]
+                  if e.experiment_id == "next"]
+        self.assertEqual([e.event_type for e in events], ["experiment_start", "experiment_stop"])
+        self.assertIsNotNone(events[-1].session_time_s)
+        self.assertTrue(all(path.read_bytes() == data for path, data in previous.items()))
+        with h5py.File(manifest.local_storage_path) as saved:
+            np.testing.assert_array_equal(saved["frames"][0], self.frame)
+            row = json.loads(saved["record_metadata_json"][0])
+            self.assertEqual(row["experiment_id"], "next")
+            self.assertEqual(row["session_id"], "session")
+
+    def test_local_readiness_loss_resolves_start_and_allows_recording(self):
+        ready = self.adapter.check_ready
+        calls = 0
+
+        def lose_readiness():
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                return DeviceReadiness("camera", False, "Readiness lost at activation", ("camera_frames",))
+            return ready()
+
+        with patch.object(self.adapter, "check_ready", side_effect=lose_readiness):
+            result = self.start("activation-failed")
+        self.assertIn("ready, running devices", result.error)
+        self.assert_resolved(result, "activation-failed")
+        self.record_next()
+
+    def test_local_mapping_failure_resolves_without_another_clock_read(self):
+        with patch.object(self.sync, "local_deadline_for_session_time", side_effect=RuntimeError("Mapping unavailable")):
+            result = self.start("mapping-failed")
+        self.assertIn("Mapping unavailable", result.error)
+        self.assert_resolved(result, "mapping-failed")
+        self.record_next()
+
+    def test_failure_after_context_activation_clears_context_and_deadline(self):
+        activate = self.node.activate_experiment_runtime
+
+        def activate_then_fail(*args):
+            activate(*args)
+            raise OSError("Activation confirmation failed")
+
+        with patch.object(self.node, "activate_experiment_runtime", side_effect=activate_then_fail):
+            result = self.start("context-failed")
+        self.assertIn("Activation confirmation failed", result.error)
+        self.assert_resolved(result, "context-failed")
+        self.assertFalse(self.node.expire_experiment_if_due())
+        self.record_next()
+
+    def test_activation_cleanup_failure_retains_products_and_reports_unconfirmed(self):
+        finalize = self.local.finalize_stream
+
+        def finalize_one(storage_id):
+            if storage_id == self.local.manifests[1].storage_id:
+                raise OSError("Injected scientific finalization failure")
+            return finalize(storage_id)
+
+        with patch.object(self.sync, "local_deadline_for_session_time", side_effect=RuntimeError("Mapping unavailable")), \
+             patch.object(self.local, "finalize_stream", side_effect=finalize_one):
+            result = self.start("cleanup-failed", both=True)
+        self.assertIn("Mapping unavailable", result.error)
+        self.assert_resolved(result, "cleanup-failed", confirmed=False)
+        self.assertIn("Injected scientific finalization failure", result.details["cleanup_error"])
+        self.assertEqual([m.lifecycle_state for m in self.local.manifests], ["finalized", "open"])
+        paths = [Path(m.local_storage_path) for m in self.local.manifests]
+        self.assertTrue(all(p.exists() for p in paths))
+        self.node.finalize_experiment_scientific_outputs("cleanup-failed")
+        self.assertTrue(all(m.lifecycle_state == "finalized" for m in self.local.manifests))
+        self.assertEqual(len([e for e in self.controller.get_status()["experiment_lifecycle_evidence"]
+                              if e.event_type == "experiment_fail"]), 1)
+        self.record_next()
 
 
 class ExperimentCapacityTests(unittest.TestCase):

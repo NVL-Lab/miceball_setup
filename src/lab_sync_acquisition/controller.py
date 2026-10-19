@@ -2074,16 +2074,29 @@ class Controller:
             self._active_experiment_runtime_health_mapping = (
                 active_runtime_health_mapping
             )
-            deadline = self._acquisition_node.activate_experiment_runtime(
-                ActiveExperimentRuntimeContext(
-                    experiment_id=experiment_id,
-                    experiment_start_session_time_s=(
-                        experiment_start_session_time_s
-                    ),
-                    duration_s=accepted_configuration.duration_s,
-                ), active_runtime_health_mapping
-            )
-            self._remember_experiment_deadline(self._acquisition_node.node_id, experiment_id, deadline)
+            try:
+                deadline = self._acquisition_node.activate_experiment_runtime(
+                    ActiveExperimentRuntimeContext(
+                        experiment_id=experiment_id,
+                        experiment_start_session_time_s=experiment_start_session_time_s,
+                        duration_s=accepted_configuration.duration_s,
+                    ), active_runtime_health_mapping
+                )
+                self._remember_experiment_deadline(self._acquisition_node.node_id, experiment_id, deadline)
+            except Exception as error:
+                rejection_details = {"experiment_id": experiment_id, "phase": "activation",
+                                     "cleanup_confirmed": False}
+                try:
+                    self._end_experiment(experiment_id, "experiment_fail",
+                        {"reason": str(error), "phase": "activation", "end_time_unconfirmed": True,
+                         "cleanup_confirmation": "see Controller command outcomes"},
+                        end_time_unconfirmed=True)
+                except Exception as cleanup_error:
+                    cleanup = self._record_failed_command("finalize_experiment_cleanup", cleanup_error)
+                    rejection_details["cleanup_error"] = cleanup.error
+                else:
+                    rejection_details["cleanup_confirmed"] = True
+                raise
             return evidence.to_dict()
 
         try:
@@ -2988,9 +3001,10 @@ class Controller:
 
     def _end_experiment(
         self, experiment_id: str, event_type: str, details: dict[str, Any] | None = None,
+        *, end_time_unconfirmed: bool = False,
     ) -> dict[str, Any]:
         evidence = self._require_session().record_experiment_lifecycle(
-            experiment_id, event_type, self._current_session_time_s(), details,
+            experiment_id, event_type, None if end_time_unconfirmed else self._current_session_time_s(), details,
         )
         self._active_experiment_id = None
         self._active_experiment_runtime_health_mapping = ()

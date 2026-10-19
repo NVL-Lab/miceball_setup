@@ -23,7 +23,8 @@
 - AcquisitionNode.activate_experiment_runtime(context, health_mapping): Rechecks ready/running devices and returns a detached established deadline/mapping, including for identical activation retries; constructor and arguments unchanged.
 - SynchronizationManager.local_deadline_for_session_time(session_time_s): Translates a deadline for co-located users of its running authoritative clock; constructor unchanged.
 - Controller.start_launched_experiment(..., configuration=None, storage_participant=None): Requires per-Experiment capacity and synchronized common-deadline activation over existing NATS boundaries; constructor unchanged.
-- Controller.start_experiment(..., configuration=None): Applies explicit configuration and capacity to the bounded local workflow.
+- Controller.start_experiment(..., configuration=None): Applies local capacity/preparation and resolves post-start activation errors as experiment_fail with explicit scientific-cleanup confirmation.
+- Controller._end_experiment(experiment_id, event_type, details=None, *, end_time_unconfirmed=False): Clears local active context and finalizes products after canonical termination, optionally preserving an unconfirmed end time without another clock read.
 - Controller.accept_experiment_expiry(message): Requires the exact captured activation mapping/deadline plus matching source/Session/Experiment/duration/finality before canonical reconciliation.
 - Controller._remember_experiment_deadline(node_id, experiment_id, deadline): Validates and retains one activation deadline against canonical configuration, common start and synchronization mapping.
 - Controller.reconcile_launched_experiment_expiry(experiment_id): Reads missed owner expiry proof without replaying acquisition or ending a Session.
@@ -35,6 +36,15 @@
 - NatsStorageManagerCommunication.execute_command(command): Also routes correlated capacity inspection to the preservation owner; constructor unchanged.
 
 ## tests/test_experiment_capacity.py
+
+- LocalActivationFailureTests.setUp()/cleanup(): Compose and clean local service owners, a software camera and temporary HDF5 scientific storage.
+- LocalActivationFailureTests.start(identity, *, both=False): Starts a configured local Experiment with one or two selected camera products.
+- LocalActivationFailureTests.assert_resolved(result, identity, *, confirmed=True): Checks canonical experiment_fail, cleared active context and honest cleanup confirmation after failed activation.
+- LocalActivationFailureTests.record_next(): Verifies subsequent acquisition, scientific identities, frame contents and finalization without restarting the Session.
+- test_local_readiness_loss_resolves_start_and_allows_recording: Resolves readiness lost between local preparation and activation and records a subsequent Experiment.
+- test_local_mapping_failure_resolves_without_another_clock_read: Retains activation mapping failure while resolving canonical lifecycle with explicitly unconfirmed end time.
+- test_failure_after_context_activation_clears_context_and_deadline: Clears already-established runtime context after failed activation confirmation.
+- test_activation_cleanup_failure_retains_products_and_reports_unconfirmed: Reports partial scientific finalization failure, retains both artifacts and exercises explicit cleanup retry before later recording.
 
 - ExperimentCapacityTests: Covers explicit configuration, encoded-size estimation, writability/unknown-capacity rejection and shared-volume accounting.
 - ExperimentPreflightWorkflows.asyncSetUp()/asyncTearDown(): Compose/clean actual owners with simulated camera/NATS and temporary scientific storage.

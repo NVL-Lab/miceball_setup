@@ -1376,6 +1376,14 @@ Local `Controller.start_experiment(..., configuration=configuration)` uses the s
 capacity/activation contracts. Its bounded iteration reconciles available expiry
 proof; autonomous scheduling is supplied by the operational service composition,
 not by constructing another timer inside the bounded acquisition core.
+If local activation fails after canonical start, Controller records
+`experiment_fail`, clears active Experiment context and attempts existing node
+scientific finalization without stopping the Session. The failed command retains
+the activation error and reports `cleanup_confirmed`; a `cleanup_error` and
+recorded cleanup-command failure retain any unresolved scientific obligation.
+Failure end time is explicitly unconfirmed rather than requiring another timing
+read. Unconfirmed products remain retained for existing explicit finalization
+retry; a failed start is never returned as successful activation.
 G2 remains OPEN for independent validation/audit; no live NATS, camera hardware,
 PC-Jetson performance, OS-signal or power-loss verification is claimed.
 
@@ -1416,6 +1424,16 @@ products were checked after recovery. These are controlled software checks using
 simulated camera/NATS I/O, not independent validation, normal Windows asynchronous
 scheduling, hardware or live deployment verification. Earlier overlapping runs
 are not additive, and G2 remains OPEN for ICC validation and separate re-audit.
+
+Local activation-failure remediation passed 47 distinct automated checks: the
+previous 43 directly affected checks plus four new local readiness/mapping/context
+and partial-cleanup regressions. All four new regressions reproduced the failure
+before the correction and passed afterward, including subsequent recording and
+finalization in the same Session. Synchronous local checks and controlled asyncio
+execution used simulated camera/NATS I/O and temporary HDF5 storage. No live
+deployment, hardware, OS-signal, power-loss or normal Windows asynchronous
+scheduling validation is claimed. This implementation verification does not
+replace independent validation/re-audit or close G2.
 
 ### Timing And Synchronization
 
