@@ -1656,6 +1656,28 @@ implementation and validation as described above.
 General configuration, installation and broader Q022 integration remain open;
 W062 does not complete Q022 or Q024.
 
+## Completed Sustained Acquisition Execution (G3)
+
+**Status:** CLOSED - bounded software scope after implementation verification
+(26 checks), independent ICC IPython validation (5/5 PASS), and separate independent
+Codex audit PASS with no confirmed P0-P3 findings. The audit passed 15 automated
+checks and two adversarial finalization workflows; counts are not additive.
+
+The existing AcquisitionNode service composition owns autonomous repeated bounded
+acquisition for active scientific Experiments without per-iteration Controller
+commands or a Controller-connectivity requirement. Existing scientific storage,
+timestamps, identities, health evidence, Experiment idle/reactivation and
+Stop/Kill/Cancel semantics are preserved. Authorized cleanup joins execution;
+acquisition failures retain partial science and evidence while attempting cleanup.
+
+Three distributed closeout checks remain unverified due to Windows hard-link
+permissions, independently reproduced by a minimal os.link() control. Controlled
+software validation does not establish live PC-Jetson/NATS integration, physical
+camera operation/performance, OS-signal, power-loss or normal Windows asynchronous
+scheduling behavior. See [G3 closure](validated_workflows.md#g3---sustained-acquisition-execution).
+G2/G4/G5 are not completed by this closure. Q022, Q024, M015 and Phase 16 remain
+OPEN; accepted architecture and historical W-records are unchanged.
+
 ## Completed Q022 Distributed Session Closeout (W060)
 
 **Status:** CLOSED - implemented, independently validated and audited under

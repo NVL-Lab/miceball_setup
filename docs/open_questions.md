@@ -890,7 +890,7 @@ verification without another independent re-audit for this test-only cleanup.
 Remaining deployment work is pending.
 Q022 as a whole is not closed. Q019 remains CLOSED in W050.
 
-**G3 implementation, independent validation/audit pending:** The AcquisitionNode
+**G3 CLOSED within validated software scope:** The AcquisitionNode
 service launcher now enables one adapter-owned sustained execution task. Active
 Experiments with selected scientific outputs repeatedly use the existing bounded
 iteration, local scientific storage, timestamping and operational evidence paths
@@ -899,8 +899,17 @@ quiesces the task; service cleanup disables and joins it. Controller disappearan
 is not a stop trigger. Bounded callers remain supported without automatic
 scheduling. This does not implement G2 capacity preflight, G4 remote health-action
 execution, G5 hardware deployment validation, or close Q022/M015/Phase 16. See
-the G3 implementation section in installation_and_deployment.md and the focused
-tests in tests/test_sustained_acquisition.py.
+the G3 section in installation_and_deployment.md and the focused
+tests in tests/test_sustained_acquisition.py. Implementation verification passed
+26 checks; independent ICC IPython validation passed 5/5; separate independent
+Codex audit PASS found no confirmed P0-P3 findings, with 15 automated checks and
+two adversarial workflows passed. These stages are not additive totals. Three
+distributed closeout checks remain unverified because Windows hard-link
+permissions blocked promotion; a minimal os.link() control reproduced the failure.
+Live PC-Jetson/NATS integration, camera hardware/performance, OS-signal, power-loss
+and normal Windows asynchronous scheduling validation are not established. See
+[G3 closure](validated_workflows.md#g3---sustained-acquisition-execution) for evidence
+and limitations. Q022 remains OPEN; this does not close Q024, M015 or Phase 16.
 
 Decisions 379-381 resolve Slice 2's distributed scientific synchronization
 architecture gate: measured cross-clock validity, local affine application and

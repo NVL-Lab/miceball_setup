@@ -5506,6 +5506,71 @@ unchanged.
 
 ---
 
+# G3 - Sustained Acquisition Execution
+
+**Status:** CLOSED - bounded software implementation, independent ICC-coordinated
+IPython validation and separate independent Codex audit PASS; ICC authorized
+documentation closure within this validated software scope.
+
+## Implemented scope
+
+The existing Jetson AcquisitionNode service composition enables one adapter-owned
+sustained execution task. An Experiment selecting scientific camera outputs
+activates repeated existing bounded acquisition iterations without per-iteration
+Controller commands. Temporary Controller disconnection is not a stop trigger.
+Existing timestamps, Session/Experiment identities, scientific storage and health
+evidence paths remain authoritative; scientific observations remain node-local.
+
+Experiment finalization quiesces execution, idle intervals do not collect frames,
+and subsequent activation can resume recording within the running Session.
+Authorized cleanup disables and joins the owned task. Existing Stop/Kill/Cancel
+semantics remain unchanged. Acquisition failure retains partial scientific data
+and failure evidence while attempting existing device cleanup and finalization;
+it does not independently change the Controller's Session lifecycle.
+
+Scheduling remains in the existing service adapter, not the bounded acquisition
+core. Blocking reads or awaited evidence publication can delay progress; no hard
+real-time, sustained-rate or lossless-camera guarantee is established. See
+[Sustained Acquisition Execution](installation_and_deployment.md#sustained-acquisition-execution-g3-closed)
+for composition and usage, and `tests/test_sustained_acquisition.py` for workflows.
+
+## Validation evidence
+
+- Implementation verification: **26 checks PASS**.
+- Independent ICC-coordinated IPython validation: **5/5 PASS**, covering autonomous
+  recording and sequential HDF5 integrity, Controller disconnection and authorized
+  Stop, Experiment idle/reactivation, acquisition failure with partial data and
+  evidence retention, and blocked Stop/Cancel/unauthorized and authorized Kill.
+- Separate independent Codex audit: **PASS**, no confirmed P0-P3 findings.
+  Independent execution passed **15 automated checks** and **two adversarial
+  workflows**: cancellation during finalization with explicit retry, and concurrent
+  duplicate finalization with subsequent Experiment activation. Finalized HDF5
+  remained unchanged and no additional reads occurred after quiescence.
+
+These are distinct completed validation stages, not additive test totals or tests
+rerun for documentation closure. Controlled asyncio execution exercised tasks and
+cancellation but is not normal Windows asynchronous scheduling validation.
+
+## Limitations and remaining scope
+
+Three distributed closeout checks remained blocked by Windows hard-link
+permissions: `test_normal_stop_quiesces_sustained_recording_before_finalized_intake`,
+`test_normal_stop_preserves_science_and_releases_independent_services`, and
+`test_kill_preserves_partial_evidence_without_confirming_missing_cleanup` in
+`tests/test_distributed_session_closeout.py`. A separate minimal workspace-local
+`os.link()` probe reproduced the permission failure independently of acquisition.
+These checks are not claimed as passing; their end-to-end outcomes remain
+unverified in this environment. Assertions and persistence mechanisms were not
+weakened to obtain a pass.
+
+No live PC-Jetson deployment, live NATS/JetStream integration, physical camera
+recording or sustained performance, OS-signal or power-loss behavior was validated.
+G3 alone is CLOSED. G2, G4 and G5 are not completed by this record. Q022, Q024,
+M015 and Phase 16 remain OPEN with their separate requirements. Accepted decisions
+and previous workflow validation history are unchanged.
+
+---
+
 # Future Workflows
 
 The following workflows are expected to be added as the framework evolves.

@@ -1232,7 +1232,7 @@ and W042 publication-before-success with concurrency-safe evidence cursors. A
 timeout cannot prove cleanup or reservation release. Depends on receiving/timing
 interfaces below, not creation of node collaborators in Controller.
 
-### Sustained Acquisition Execution (G3 Implementation)
+### Sustained Acquisition Execution (G3 Closed)
 
 The independent AcquisitionNode launcher enables sustained execution in its
 existing NATS adapter before command admission. Session runtime startup alone
@@ -1266,8 +1266,17 @@ yield between collections. This adds no configured sampling cadence or read
 timeout: camera settings, `frames_per_collect`, and existing persistence batching
 remain authoritative. A blocking device read or evidence-publication wait can
 delay progress; no hard real-time or lossless-camera guarantee is established.
-G3 is implementation work awaiting independent validation/audit, not workflow
-closure or actual PC-Jetson hardware validation. Q022, M015 and Phase 16 remain OPEN.
+G3 is CLOSED within its validated software scope after 26 implementation checks,
+5/5 independent ICC IPython checks and separate independent Codex audit PASS with
+no confirmed P0-P3 findings. The audit passed 15 automated checks and two adversarial
+workflows; these are separate stages, not additive totals. Three end-to-end
+distributed closeout checks remain blocked by Windows hard-link permissions and
+are not claimed as passing. No live PC-Jetson deployment, live NATS/JetStream,
+physical camera recording/performance, OS-signal, power-loss or normal Windows
+asynchronous scheduling validation is established. See
+[G3 closure](validated_workflows.md#g3---sustained-acquisition-execution) for the
+complete evidence record. G2/G4/G5 are not completed by G3; Q022, Q024, M015 and
+Phase 16 remain OPEN.
 
 ### Timing And Synchronization
 
