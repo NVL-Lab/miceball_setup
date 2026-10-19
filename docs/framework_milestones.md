@@ -1656,6 +1656,25 @@ implementation and validation as described above.
 General configuration, installation and broader Q022 integration remain open;
 W062 does not complete Q022 or Q024.
 
+## Storage Capacity Preflight (G2)
+
+**Status:** OPEN - accepted architecture synchronized in Decisions 394-395;
+bounded implementation awaits independent validation and audit. Per-Experiment configured duration, selected device
+configuration and scientific storage requirements determine the capacity budget,
+with an explicit authoritative byte budget permitted when estimation is not
+defensible. Recording and required preservation destinations must pass existing
+readiness, with correct shared-filesystem accounting and no invented margins.
+The accepted GUI warning is documentation only.
+
+Decision 395 resolves the initially missing expiry execution contract: nodes
+enforce one common Experiment deadline in local monotonic time using authorized
+mappings, finalize products and preserve expiry evidence; Controller retains
+canonical lifecycle ownership. Controller disconnection does not disable expiry.
+G2 implements per-Experiment storage checks, local expiry and Controller
+reconciliation; independent validation/audit remain pending. G3 and prior
+validated history remain unchanged;
+Q022, Q024, M015 and Phase 16 remain OPEN.
+
 ## Completed Sustained Acquisition Execution (G3)
 
 **Status:** CLOSED - bounded software scope after implementation verification

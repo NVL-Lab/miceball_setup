@@ -17,6 +17,7 @@ from lab_sync_acquisition import (
     ScientificOutputSelection, ScientificProductDeclaration, SynchronizationConfiguration,
     ExperimentRuntimeHealthMapping,
     SynchronizationManager,
+    ExperimentConfiguration, PersistentStorageManager, NatsStorageManagerCommunication,
 )
 from tests.test_session_launch import _Boundary, _Broker, _CollectingAdapter
 from tests.nats_server_fixture import NATS_SERVER, temporary_jetstream_server
@@ -46,6 +47,8 @@ class DistributedSynchronizationTests(unittest.IsolatedAsyncioTestCase):
             _Boundary("synchronization_manager", "sync", self.broker), self.sync)
         await self.sync_handler.subscribe_commands()
         self.ingestor = InMemoryIngestor(recovery_journal_root=self.root / "journals")
+        storage = self.ingestor._storage_manager or PersistentStorageManager(self.root / "storage")
+        await NatsStorageManagerCommunication(_Boundary("storage_manager", "storage", self.broker), storage).subscribe_commands()
         self.ingestor_handler = NatsIngestorCommunication(_Boundary("ingestor", "ingestor", self.broker), self.ingestor)
         await self.ingestor_handler.subscribe_commands()
         adapter = _CollectingAdapter("device", "fake", ("events",), True)
@@ -91,7 +94,9 @@ class DistributedSynchronizationTests(unittest.IsolatedAsyncioTestCase):
 
     async def experiment(self, name="experiment"):
         result = await self.controller.start_launched_experiment(name,
-            scientific_outputs=(ScientificOutputSelection("device", "node", "events"),))
+            scientific_outputs=(ScientificOutputSelection("device", "node", "events"),),
+            configuration=ExperimentConfiguration(60, {"node": 1000000}, 1000000),
+            storage_participant=RuntimeParticipant("storage_manager", "storage"))
         self.assertTrue(result.succeeded, result.error)
 
     async def test_measured_mapping_drives_local_science_and_experiment_finalization(self):

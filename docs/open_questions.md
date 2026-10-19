@@ -890,6 +890,30 @@ verification without another independent re-audit for this test-only cleanup.
 Remaining deployment work is pending.
 Q022 as a whole is not closed. Q019 remains CLOSED in W050.
 
+**G2 OPEN - accepted clarification synchronized (Decision 394):** Every Experiment
+has a configured duration before start, governing automatic termination and the
+capacity-estimation horizon. Selected device operating configuration, scientific
+storage representation and declared characteristics determine estimates; an
+explicit authoritative byte budget is permitted when estimation is not defensible.
+Existing size/rate fields are not reinterpreted. Each Experiment must pass capacity
+readiness for its recording and required preservation destinations, accounting for
+shared filesystems; insufficient or indeterminate capacity blocks readiness for
+GUI and headless operation alike. The accepted future GUI warning is recorded in
+gui_design_notes.md, not implemented here.
+
+The initial inspection found no existing automatic duration expiry mechanism.
+Accepted Decision 395 resolves execution/delegation: nodes translate the common
+Experiment deadline through authorized synchronization mappings and enforce it
+locally, including during Controller disconnection or subsequent synchronization
+communication loss. Nodes finalize products and preserve expiry evidence;
+Controller reconciles the canonical Experiment end without ending the Session.
+The bounded implementation under Decisions 394-395 now carries explicit
+ExperimentConfiguration, per-destination capacity readiness, mapped local expiry
+and Controller reconciliation. Unsupported estimation requires explicit budgets;
+unconfirmed filesystem capacity/identity fails readiness. Independent validation,
+audit and closure remain pending. See installation_and_deployment.md for APIs,
+estimation inputs and limitations. Q022 remains OPEN.
+
 **G3 CLOSED within validated software scope:** The AcquisitionNode
 service launcher now enables one adapter-owned sustained execution task. Active
 Experiments with selected scientific outputs repeatedly use the existing bounded

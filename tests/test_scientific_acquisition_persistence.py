@@ -16,6 +16,7 @@ from lab_sync_acquisition import (
     PersistentStorageManager, ScientificOutputSelection, ScientificProductDeclaration,
     SessionConfig, SynchronizationManager, OpenCVCameraConfig, SeeedIMX219OpenCVCameraAdapter,
     LocalStorageManager,
+    ExperimentConfiguration,
 )
 from tests.test_scientific_camera_collection import FakeCV2
 from tests.fakes import ReadyFakeAdapter
@@ -82,7 +83,8 @@ class ScientificAcquisitionPersistenceTests(unittest.TestCase):
             self.assertTrue(start.succeeded, start.error)
             outputs = tuple(ScientificOutputSelection("camera", "node", product.data_product_id)
                             for product in (products if select_all else products[:1])) if selected else ()
-            self.assertTrue(controller.start_experiment("experiment", scientific_outputs=outputs).succeeded)
+            self.assertTrue(controller.start_experiment("experiment", scientific_outputs=outputs,
+                configuration=ExperimentConfiguration(60, {"node": 1000000}, 1000000)).succeeded)
             try:
                 yield controller, node, ingestor, capture
             finally:
@@ -100,7 +102,8 @@ class ScientificAcquisitionPersistenceTests(unittest.TestCase):
                   np.full((2, 4, 3), 60000, dtype=np.uint16)]
         with self.workflow(frames=frames, count=2, properties={0: 123.4}) as (controller, node, ingestor, capture):
             origin = node.status()["active_experiment_runtime_context"].experiment_start_session_time_s
-            with patch("lab_sync_acquisition.acquisition_node.monotonic", side_effect=[10.0, 11.0]):
+            # Deadline admission precedes the two independently timed frame rows.
+            with patch("lab_sync_acquisition.acquisition_node.monotonic", side_effect=[9.0, 10.0, 11.0]):
                 self.assertTrue(controller.run_one_iteration().succeeded)
             self.assertEqual(capture.read_count, 2)
             manifest, = node.local_storage_manager.manifests

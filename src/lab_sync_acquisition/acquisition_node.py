@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict, is_dataclass
 import json
 from math import isfinite
 from pathlib import Path
@@ -28,7 +28,7 @@ from lab_sync_acquisition.device_manager import (
 from lab_sync_acquisition.device import DeviceDeclaration
 from lab_sync_acquisition.device_adapter import DeviceAdapterState, DeviceReadiness
 from lab_sync_acquisition.local_storage import LocalStorageManager, ArtifactManifest
-from lab_sync_acquisition.session import ScientificOutputSelection
+from lab_sync_acquisition.session import ScientificOutputSelection, ExperimentConfiguration
 from lab_sync_acquisition.experiment_runtime import (
     ActiveExperimentRuntimeContext,
     ExperimentRuntimeHealthMapping,
@@ -117,6 +117,10 @@ class AcquisitionNode:
         self._device_declarations: tuple[DeviceDeclaration, ...] = ()
         self._scientific_output_storage_ids: dict[tuple[str, str, str], str] = {}
         self._prepared_scientific_outputs: dict[str, tuple[ScientificOutputSelection, ...]] = {}
+        self._experiment_configurations: dict[str, ExperimentConfiguration] = {}
+        self._experiment_deadline: dict[str, Any] | None = None
+        self._session_device_configurations: dict[str, Any] = {
+            a.device_id: deepcopy(a.initialization_config) for a in device_manager.adapters}
         self._ended_experiment_ids: set[str] = set()
         self._artifact_manifest_evidence: list[RuntimeEvidenceMessage] = []
         self._role = role
@@ -263,6 +267,9 @@ class AcquisitionNode:
                     self._deployment_device_configurations[adapter.device_id],
                     (device_configurations or {}).get(adapter.device_id))
                 for adapter in selected_adapters}
+            self._session_device_configurations = deepcopy(configurations)
+            self._experiment_configurations.clear()
+            self._experiment_deadline = None
             for adapter in selected_adapters:
                 self._initialization_touched_adapters.append(adapter)
                 configuration = configurations[adapter.device_id]
@@ -406,6 +413,7 @@ class AcquisitionNode:
         self,
         experiment_id: str,
         scientific_outputs: Iterable[ScientificOutputSelection],
+        *, configuration: ExperimentConfiguration | None = None,
     ) -> ServiceReadiness:
         """Resolve explicit declarations and request empty streams before acquisition."""
         created: list[str] = []
@@ -415,6 +423,28 @@ class AcquisitionNode:
                 raise ValueError("Experiment runtime identity has ended and cannot be reused")
             if len(set(outputs)) != len(outputs):
                 raise ValueError("Duplicate scientific output selection")
+            if not isinstance(configuration, ExperimentConfiguration):
+                raise ValueError("An explicit ExperimentConfiguration is required")
+            previous = self._experiment_configurations.get(experiment_id)
+            if previous is not None and previous != configuration:
+                raise ValueError("Conflicting Experiment configuration")
+            if self._active_experiment_runtime_context is not None:
+                raise RuntimeError("Cannot prepare while an Experiment is active")
+            capacity = self.check_experiment_capacity(outputs, configuration)
+            if capacity["ready"] is not True:
+                raise RuntimeError(str(capacity))
+            for adapter, parameters in self._experiment_device_parameters(configuration):
+                if parameters != adapter.initialization_config:
+                    was_running = adapter.state == DeviceAdapterState.RUNNING
+                    if was_running:
+                        adapter.stop()
+                    adapter.shutdown()
+                    adapter.initialize(parameters)
+                    if not adapter.check_ready().ready:
+                        raise RuntimeError(f"Experiment device configuration is unready: {adapter.device_id}")
+                    if was_running:
+                        adapter.start()
+            self._experiment_configurations[experiment_id] = deepcopy(configuration)
             if outputs and not experiment_id:
                 raise ValueError("experiment_id is required")
             if outputs and self._local_storage_manager is None:
@@ -472,6 +502,88 @@ class AcquisitionNode:
         self._prepared_scientific_outputs[experiment_id] = outputs
         return ServiceReadiness(self._node_id or "acquisition_node", "scientific_output_preparation",
                                 True, True, "ready")
+
+    def _experiment_device_parameters(self, configuration):
+        overrides = (configuration.device_configurations or {}).get(self._node_id, {})
+        adapters = self._runtime_device_manager.adapters
+        if set(overrides) - {a.device_id for a in adapters}:
+            raise ValueError("Experiment configuration references an unavailable device")
+        return tuple((a, a.resolve_session_configuration(self._session_device_configurations[a.device_id],
+                                                        overrides.get(a.device_id))) for a in adapters)
+
+    @service_operation()
+    def check_experiment_capacity(self, scientific_outputs: Iterable[ScientificOutputSelection],
+                                  configuration: ExperimentConfiguration) -> dict[str, Any]:
+        """Check this node's selected representation or explicit all-inclusive recording budget."""
+        try:
+            if not isinstance(configuration, ExperimentConfiguration) or self._local_storage_manager is None:
+                raise ValueError("Prepared local storage and Experiment configuration are required")
+            outputs = tuple(scientific_outputs)
+            parameters = {a.device_id: asdict(value) if is_dataclass(value) else value
+                          for a, value in self._experiment_device_parameters(configuration)}
+            required = (configuration.recording_budgets or {}).get(self._node_id)
+            total = 0
+            for output in outputs:
+                if output.source_node_id != self._node_id:
+                    raise ValueError("Capacity output references another node")
+                product = next(p for d in self._device_declarations if d.device_id == output.source_device_id
+                               for p in d.scientific_products if p.data_product_id == output.data_product_id)
+                if product.storage_format == "hdf5" and product.product_type == "camera_frames":
+                    shape = product.schema.get("frame_shape")
+                    selected = parameters[output.source_device_id]
+                    if (not isinstance(shape, list) or len(shape) not in (2, 3)
+                            or selected.get("frame_width") not in (None, shape[1])
+                            or selected.get("frame_height") not in (None, shape[0])):
+                        raise ValueError("Selected camera resolution differs from the declared stored representation")
+                if required is None:
+                    total += product.estimate_storage_bytes(configuration.duration_s, parameters[output.source_device_id])
+            if required is None:
+                required = total
+            return self._local_storage_manager.check_capacity(required)
+        except Exception as error:
+            return {"ready": False, "reason": f"Recording capacity unconfirmed: {error}"}
+
+    @property
+    def experiment_runtime_active(self) -> bool:
+        """Whether this node owns an active Experiment, including an idle timed Experiment."""
+        return self._running and not self._failed and self._active_experiment_runtime_context is not None
+
+    @property
+    def experiment_deadline_remaining_s(self) -> float:
+        """Remaining local monotonic time for the captured authorized deadline."""
+        if self._experiment_deadline is None:
+            raise RuntimeError("No established Experiment deadline")
+        return max(0.0, self._experiment_deadline["local_deadline_s"] - monotonic())
+
+    @service_operation()
+    def expire_experiment_if_due(self) -> bool:
+        """Finalize only the expired Experiment and retain its producer-owned expiry proof."""
+        with self._reservation_lock:
+            if not self.experiment_runtime_active or self.experiment_deadline_remaining_s > 0:
+                return False
+            deadline = deepcopy(self._experiment_deadline)
+            failure = None
+            manifests = ()
+            try:
+                manifests = self.finalize_experiment_scientific_outputs(deadline["experiment_id"])
+            except Exception as error:
+                failure = error
+                self._record_acquisition_failure(error)
+            evidence = RuntimeEvidenceMessage(
+                f"experiment-expiry-{self._session_id}-{self._node_id}-{deadline['experiment_id']}",
+                self._session_id, "experiment_duration_expired", self._node_id,
+                {**deadline, "finalized_local_time_s": monotonic(), "finalization_confirmed": failure is None,
+                 "error": str(failure) if failure is not None else None,
+                 "artifact_manifest_ids": [m.artifact_manifest_id for m in manifests]}, True)
+            self._retain_runtime_evidence(evidence)
+            if failure is not None:
+                raise failure
+            return True
+
+    def read_experiment_expiry(self, experiment_id: str) -> RuntimeEvidenceMessage | None:
+        """Read retained exact expiry evidence without manufacturing a missing outcome."""
+        return next((m for m in self.runtime_evidence if m.evidence_type == "experiment_duration_expired"
+                     and m.session_id == self._session_id and m.payload["experiment_id"] == experiment_id), None)
 
     @service_operation()
     def finalize_experiment_scientific_outputs(self, experiment_id: str) -> tuple[ArtifactManifest, ...]:
@@ -566,6 +678,10 @@ class AcquisitionNode:
 
         if context.experiment_id in self._ended_experiment_ids:
             raise ValueError("Experiment runtime identity has ended and cannot be reused")
+        if (self._experiment_deadline is None
+                or self._experiment_deadline["experiment_id"] != context.experiment_id
+                or self._experiment_deadline["duration_s"] != context.duration_s):
+            raise RuntimeError("Experiment activation requires prepared capacity and an authorized deadline")
         self._active_experiment_runtime_context = context
 
     @service_operation()
@@ -573,6 +689,7 @@ class AcquisitionNode:
         """Clear active Experiment timing context without stopping runtime."""
 
         self._active_experiment_runtime_context = None
+        self._experiment_deadline = None
 
     @service_operation()
     def receive_active_synchronization_mapping(
@@ -685,17 +802,36 @@ class AcquisitionNode:
         """Atomically apply Controller context without resetting a repeated health scope."""
         with self._reservation_lock:
             mapping = tuple(health_mapping)
-            if not context.experiment_id or not isfinite(context.experiment_start_session_time_s):
+            if (not context.experiment_id or type(context.experiment_start_session_time_s) not in (int, float)
+                    or not isfinite(context.experiment_start_session_time_s)):
                 raise ValueError("Explicit Experiment identity and finite Session Time are required")
             if not self._synchronization_readiness().ready:
                 raise RuntimeError("Experiment requires acceptable synchronization")
             if context.experiment_id not in self._prepared_scientific_outputs:
                 raise RuntimeError("Experiment scientific outputs must be prepared first")
+            configuration = self._experiment_configurations.get(context.experiment_id)
+            if configuration is None or context.duration_s != configuration.duration_s:
+                raise RuntimeError("Experiment deadline requires the exact prepared duration")
             if self._active_experiment_runtime_context is not None:
                 if (self._active_experiment_runtime_context != context
                         or self._active_experiment_runtime_health_mapping != mapping):
                     raise ValueError("Conflicting active Experiment context")
                 return
+            session_deadline = context.experiment_start_session_time_s + context.duration_s
+            if self._synchronization_manager is not None:
+                local_deadline = self._synchronization_manager.local_deadline_for_session_time(session_deadline)
+                timing_mapping = {"source": "co_located_synchronization_manager"}
+            else:
+                authorized = self._active_synchronization_mapping
+                local_deadline = authorized.local_time_anchor_s + (
+                    session_deadline - authorized.session_time_anchor_s) / authorized.scale
+                timing_mapping = authorized.to_dict()
+            if not isfinite(local_deadline):
+                raise ValueError("Experiment deadline is not finite")
+            self._experiment_deadline = {"experiment_id": context.experiment_id,
+                "experiment_start_session_time_s": context.experiment_start_session_time_s,
+                "duration_s": context.duration_s, "session_deadline_s": session_deadline,
+                "local_deadline_s": local_deadline, "mapping": timing_mapping}
             self.activate_experiment_runtime_context(context)
             self.activate_experiment_runtime_health_mapping(context.experiment_id, mapping)
 
@@ -816,6 +952,8 @@ class AcquisitionNode:
 
     def _collect_iteration(self) -> AcquisitionIterationSummary:
         """Keep a prospective mapping stable through collection and local persistence."""
+        if self.expire_experiment_if_due():
+            return AcquisitionIterationSummary(self._iteration_index, 0, 0)
         if not self._session_prepared:
             raise RuntimeError("Acquisition requires successful Session preparation")
         if self._failed or not self._running:

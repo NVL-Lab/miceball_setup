@@ -11473,6 +11473,105 @@ provenance retain their journal-based verification and are not retirement-eligib
 
 ---
 
+## Decision 394: Configured Experiment duration and per-Experiment storage capacity readiness
+
+**Status:** Accepted
+
+Every Experiment has a configured duration established before it begins. That
+duration determines automatic Experiment termination under the existing accepted
+lifecycle architecture and defines the recording time horizon for storage-capacity
+estimation. Runtime duration extension is deferred. No competing Experiment
+lifecycle authority is introduced.
+
+Device installation/declaration and Experiment-specific operating configuration
+are distinct. Devices provide supported capabilities and relevant scientific
+storage characteristics; Experiments select operating parameters such as
+acquisition rate and resolution. Reuse existing scientific-product declarations
+and configuration contracts. Estimate capacity from the selected configuration,
+configured duration and actual scientific storage representation, without invented
+frame rates, dimensions, compression ratios, overhead percentages or safety margins.
+When a defensible estimate cannot be calculated, an explicitly configured
+authoritative byte budget is permitted. Existing meanings of
+`expected_data_size_bytes` and related fields are not silently reinterpreted.
+
+Capacity readiness is checked before each Experiment, not merely once per Session.
+Experiments may select different devices, configurations, durations and scientific
+outputs. Checks cover destinations where that Experiment's scientific data and
+required preservation products will be written, correctly accounting for shared
+filesystems. Insufficient or indeterminate required capacity cannot establish
+successful readiness. Existing LocalStorageManager, StorageManager, readiness,
+preservation and lifecycle ownership remain authoritative. This applies equally
+to GUI-driven and headless Controller operation and clarifies Decisions 045, 208,
+217 and 235-237 without replacing them.
+
+The future GUI must clearly warn the experimenter before Experiment start when
+available storage is insufficient for its configured requirements. Where known,
+show the affected destination, required capacity and available capacity. The GUI
+uses authoritative framework readiness and cannot bypass failed capacity readiness.
+This requirement is recorded in `gui_design_notes.md`; GUI implementation remains
+outside this repository.
+
+**Implementation status (G2 OPEN):** Accepted and synchronized before implementation.
+Inspection found no configured-duration automatic Experiment termination mechanism
+in the current implementation to reuse: Controller has explicit local and NATS
+Experiment stop paths only. The expiry execution/delegation contract, including
+enforcement of the recording horizon while Controller is unavailable, requires LLC
+clarification before adding a timer or changing lifecycle execution. No G2 capacity
+implementation, validation or closure is claimed. G3 remains CLOSED within its
+validated software scope; Q022, Q024, M015 and Phase 16 remain OPEN.
+
+---
+
+## Decision 395: Common Experiment deadlines are enforced autonomously by AcquisitionNodes
+
+**Status:** Accepted
+
+Every Experiment has a duration configured before start; it governs both expiry
+and the storage-estimation horizon under Decision 394. Runtime duration extension
+remains deferred. Duration is measured from one common Experiment start time, not
+each node's recording activation. SynchronizationManager supplies the accepted
+mappings, and required synchronization readiness must pass before start.
+
+Each participating AcquisitionNode translates the common Experiment deadline to
+its local monotonic clock using the accepted mapping. It autonomously ends the
+affected Experiment's acquisition at expiry, finalizes its local scientific
+products and evidence, and preserves duration-expiry evidence. Controller
+disconnection does not disable expiry. Once a valid deadline is established,
+temporary synchronization communication loss does not independently disable it.
+This adds neither a new synchronization authority nor a timing tolerance.
+
+Controller retains canonical Experiment and Session lifecycle ownership and
+reconciles valid expiry evidence through existing lifecycle/evidence mechanisms,
+including delayed delivery after disconnection. Expiry ends the Experiment, not
+the Session. Preserve G3 autonomous execution and existing Stop/Kill/Cancel,
+acquisition-failure, finalization and preservation contracts; no competing
+lifecycle authority or general recovery framework is introduced.
+
+Capacity is checked independently before each Experiment using configured
+duration, selected scientific outputs, device operating parameters, actual stored
+representation and required recording/preservation destinations. Shared
+filesystems must be accounted for correctly. Explicit authoritative byte budgets
+are permitted when defensible estimation is unavailable. Insufficient or
+indeterminate capacity prevents readiness; existing declaration meanings remain
+unchanged. Decision 394 and its future GUI warning remain authoritative.
+
+**Implementation status:** Accepted and synchronized before G2 implementation.
+This resolves the expiry execution/delegation prerequisite reported during
+Decision 394 inspection; it does not claim an older timer implementation existed.
+G2 remains OPEN pending independent validation and separate audit.
+Q022, Q024, M015 and Phase 16 remain OPEN; G3 closure is unchanged.
+
+**Bounded G2 implementation update:** ExperimentConfiguration carries duration,
+node operating overrides and explicit recording/preservation budgets. Existing
+storage readiness checks capacity before each Experiment; nodes capture the
+authorized local deadline, finalize independently and retain expiry evidence.
+Controller reconciles exact expiry evidence without ending the Session. Declared
+encoded-size bounds support estimation where available; otherwise explicit
+budgets are required. Implementation verification is separate from independent
+validation/audit and does not close G2. See installation_and_deployment.md.
+
+---
+
 # Accepted Architectural Principles
 
 The following principles summarize the accepted decisions so far.

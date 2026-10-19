@@ -1,5 +1,59 @@
 # Code Map
 
+## G2 Experiment Capacity And Autonomous Expiry (Implementation; Open)
+
+- session.ExperimentConfiguration(duration_s, recording_budgets=None, preservation_budget_bytes=None, device_configurations=None): Carries explicit duration, inclusive destination budgets and validated node/device operating overrides; to_dict()/from_dict(data) preserve detached plain-data configuration.
+- session.ExperimentDescriptor(..., configuration=None): Preserves duration, operating settings and budgets with canonical scientific identity while reading historical descriptors without configuration.
+- Session.ensure_experiment_descriptor(..., configuration=None): Retains one exact configuration for each canonical Experiment identity.
+- experiment_runtime.ActiveExperimentRuntimeContext(experiment_id, experiment_start_session_time_s, duration_s=None): Carries the common start and duration to nodes without owning canonical lifecycle.
+- ScientificProductDeclaration.estimate_storage_bytes(duration_s, parameters): Uses explicit inclusive encoded-size bounds, selected rate/duration and a bounded in-flight collection without reinterpreting legacy expected-size/rate fields.
+- local_storage._local_filesystem_identity(path): Identifies supported local backing and refuses unconfirmed remote/shared filesystem independence.
+- local_storage.inspect_storage_capacity(root_path, required_bytes): Checks writable destination/free bytes and returns unconfirmed capacity on failure.
+- local_storage.validate_storage_capacity(reports): Validates reports and sums distinct required writes against one shared filesystem's conservative free-space observation.
+- LocalStorageManager.check_capacity(required_bytes): Adds capacity reporting while retaining local writability readiness; constructor unchanged.
+- PersistentStorageManager.check_experiment_capacity(required_bytes): Checks the preservation root without asserting intake or archival completion; constructor unchanged.
+- AcquisitionNode.check_experiment_capacity(scientific_outputs, configuration): Resolves selected operating settings and checks declared estimates or an explicit node budget; constructor unchanged.
+- AcquisitionNode.prepare_experiment_scientific_outputs(experiment_id, scientific_outputs, *, configuration=None): Requires configured capacity before applying device overrides or creating scientific streams.
+- AcquisitionNode.experiment_runtime_active: Includes timed idle Experiments in service-owned expiry enforcement.
+- AcquisitionNode.experiment_deadline_remaining_s: Reports remaining captured local monotonic time independently of later mapping/communication availability.
+- AcquisitionNode.expire_experiment_if_due(): Finalizes the affected Experiment and retains exact expiry/failure evidence without ending the Session.
+- AcquisitionNode.read_experiment_expiry(experiment_id): Reads detached retained owner proof without fabricating missing outcomes.
+- AcquisitionNode._experiment_device_parameters(configuration): Resolves Experiment overrides against the unchanged Session baseline using adapter-owned validation.
+- SynchronizationManager.local_deadline_for_session_time(session_time_s): Translates a deadline for co-located users of its running authoritative clock; constructor unchanged.
+- Controller.start_launched_experiment(..., configuration=None, storage_participant=None): Requires per-Experiment capacity and synchronized common-deadline activation over existing NATS boundaries; constructor unchanged.
+- Controller.start_experiment(..., configuration=None): Applies explicit configuration and capacity to the bounded local workflow.
+- Controller.accept_experiment_expiry(message): Validates matching source/Session/Experiment/duration/finality and ends the canonical Experiment only after all participants confirm.
+- Controller.reconcile_launched_experiment_expiry(experiment_id): Reads missed owner expiry proof without replaying acquisition or ending a Session.
+- Controller.get_status(): Also exposes active_experiment_id and canonical experiment_lifecycle_evidence.
+- Controller._reconcile_expiry_if_complete(experiment_id): Records one canonical end only after complete matching node proof and current lifecycle checks.
+- NatsControllerCommunication.subscribe_experiment_expiry_evidence(session_id, controller): Validates existing subject/body identity and delivers expiry evidence to Controller.
+- NatsAcquisitionNodeCommunication: Also routes check_experiment_capacity/read_experiment_expiry and enforces deadlines within its existing owned G3 task; constructor unchanged.
+- NatsAcquisitionNodeCommunication._publish_acquisition_evidence(): Reuses manifest/runtime publication and cursor ownership inside a deadline-bounded iteration.
+- NatsStorageManagerCommunication.execute_command(command): Also routes correlated capacity inspection to the preservation owner; constructor unchanged.
+
+## tests/test_experiment_capacity.py
+
+- ExperimentCapacityTests: Covers explicit configuration, encoded-size estimation, writability/unknown-capacity rejection and shared-volume accounting.
+- ExperimentPreflightWorkflows.asyncSetUp()/asyncTearDown(): Compose/clean actual owners with simulated camera/NATS and temporary scientific storage.
+- ExperimentPreflightWorkflows.start(name="experiment", configuration=None, outputs=None): Requests explicitly configured Controller preparation through NATS.
+- test_configuration_requires_a_finite_duration_and_explicit_valid_budgets: Rejects invalid duration/budget inputs and checks serialization.
+- test_encoded_estimate_uses_duration_selected_rate_and_inflight_batch: Varies the horizon/rate without changing legacy declaration meanings.
+- test_capacity_preserves_writability_and_unknown_space_failures: Demonstrates sufficient/insufficient and indeterminate destination capacity.
+- test_shared_filesystem_sums_writes_not_free_space: Distinguishes shared volume writes from independent capacity.
+- test_sufficient_budgets_and_each_experiment_is_checked_again: Rechecks capacity for successive Experiments.
+- test_missing_configuration_or_budget_never_begins_recording: Rejects absent required inputs before scientific reads.
+- test_insufficient_recording_and_preservation_are_reported: Retains explicit failure evidence for either insufficient destination.
+- test_unknown_capacity_and_failed_synchronization_block_start: Rejects unconfirmed capacity or timing readiness.
+- test_operating_overrides_are_selected_per_experiment_and_do_not_leak: Reuses adapter validation and restores the Session baseline.
+- test_failed_expiry_finalization_is_not_canonical_completion: Preserves failure proof and cleanup without false canonical success.
+- test_expiry_finalizes_locally_and_controller_reconciles_only_experiment: Checks mapping, HDF5 finalization, duplicate/conflicting/stale proof and continuing Session state.
+- test_bounded_iteration_enforces_the_same_prepared_deadline: Prevents reads past expiry through the bounded command API.
+- test_offline_controller_and_degraded_sync_do_not_disable_captured_deadline: Checks autonomous expiry and delayed authoritative readback.
+- test_publication_wait_cannot_extend_recording_deadline: Retains proof while bounding publication by the remaining duration.
+- test_idle_experiment_expires_without_camera_reads: Enforces duration without scientific output selection.
+- test_resolution_must_match_stored_representation_even_with_budget: Rejects selected dimensions incompatible with the declared HDF5 schema before reads.
+- test_ended_preparation_cannot_reconfigure_a_device: Rejects ended Experiment preparation before device operating state can change.
+
 ## DeviceAdapter Adjustable Parameters (Decision 370; W069 Closed)
 
 Adapters expose plain-data Session parameter definitions through existing node
@@ -1873,7 +1927,7 @@ automatic. Kill integration and overall closeout validation remain deferred.
 - SustainedAcquisitionTests.test_identical_activation_and_repeated_enable_have_one_recording_writer: Reuses one recording writer across repeated enable and duplicate activation requests.
 - SustainedAcquisitionTests.test_experiment_gap_is_idle_and_next_experiment_resumes: Keeps acquisition idle between scientific Experiments and resumes with the next identity.
 - SustainedAcquisitionTests.test_rejected_runtime_stop_leaves_recording_active: Rejects another Session's stop without interrupting the active recording.
-- SustainedAcquisitionTests.test_experiment_without_selected_products_does_not_schedule_reads: Leaves an output-free Experiment idle without reading the camera.
+- SustainedAcquisitionTests.test_experiment_without_selected_products_keeps_expiry_without_reads: Keeps idle deadline enforcement without reading the camera.
 - SustainedAcquisitionTests.test_publication_failure_retains_timing_evidence_without_stopping_frames: Preserves degraded timing evidence across publication failure while recording continues and later intake deduplicates it.
 - SustainedAcquisitionTests.test_interrupted_scheduler_shutdown_can_be_retried_without_background_reads: Retains accountable shutdown across cancellation and permits explicit retry without further acquisition.
 - SustainedAcquisitionTests.test_acquisition_failure_preserves_partial_frames_and_cleans_devices: Finalizes completed frames and records failure without inventing a Controller lifecycle transition.

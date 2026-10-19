@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
+from copy import deepcopy
+from math import isfinite
 from pathlib import Path
 from typing import Any, ClassVar, Iterable, TYPE_CHECKING
 
@@ -184,6 +186,45 @@ class ScientificOutputSelection:
 
 
 @dataclass(frozen=True)
+class ExperimentConfiguration:
+    """Explicit duration, operating overrides and all-inclusive destination budgets."""
+
+    duration_s: float
+    recording_budgets: dict[str, int] | None = None
+    preservation_budget_bytes: int | None = None
+    device_configurations: dict[str, dict[str, dict[str, Any]]] | None = None
+
+    def __post_init__(self) -> None:
+        if type(self.duration_s) not in (int, float) or not isfinite(self.duration_s) or self.duration_s <= 0:
+            raise ValueError("Experiment duration_s must be positive and finite")
+        budgets = self.recording_budgets
+        if budgets is not None and (not isinstance(budgets, dict) or any(
+                not isinstance(key, str) or not key or type(value) is not int or value < 0
+                for key, value in budgets.items())):
+            raise ValueError("Recording budgets require node identities and nonnegative byte counts")
+        value = self.preservation_budget_bytes
+        if value is not None and (type(value) is not int or value < 0):
+            raise ValueError("Preservation budget must be a nonnegative byte count")
+        overrides = self.device_configurations
+        if overrides is not None and (not isinstance(overrides, dict) or any(
+                not isinstance(node, str) or not node or not isinstance(devices, dict) or any(
+                    not isinstance(device, str) or not device or not isinstance(parameters, dict)
+                    for device, parameters in devices.items()) for node, devices in overrides.items())):
+            raise ValueError("Operating overrides must identify nodes, devices and parameter dictionaries")
+        object.__setattr__(self, "recording_budgets", deepcopy(budgets))
+        object.__setattr__(self, "device_configurations", deepcopy(overrides))
+
+    def to_dict(self) -> dict[str, Any]:
+        return deepcopy({"duration_s": self.duration_s, "recording_budgets": self.recording_budgets,
+                         "preservation_budget_bytes": self.preservation_budget_bytes,
+                         "device_configurations": self.device_configurations})
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> ExperimentConfiguration:
+        return cls(**data)
+
+
+@dataclass(frozen=True)
 class ExperimentDescriptor:
     """Persistent scientific identity for one Experiment in a Session."""
 
@@ -191,6 +232,7 @@ class ExperimentDescriptor:
     details: dict[str, Any] | None = None
     expected_participants: tuple[ExpectedParticipant, ...] = ()
     scientific_outputs: tuple[ScientificOutputSelection, ...] = ()
+    configuration: ExperimentConfiguration | None = None
 
     def __post_init__(self) -> None:
         outputs = tuple(self.scientific_outputs)
@@ -206,6 +248,7 @@ class ExperimentDescriptor:
         return {
             "experiment_id": self.experiment_id,
             "details": self.details,
+            "configuration": self.configuration.to_dict() if self.configuration is not None else None,
             "scientific_outputs": [output.to_dict() for output in self.scientific_outputs],
             "expected_participants": [
                 participant.to_dict()
@@ -228,6 +271,8 @@ class ExperimentDescriptor:
                 ScientificOutputSelection.from_dict(output)
                 for output in data.get("scientific_outputs", ())
             ),
+            configuration=(ExperimentConfiguration.from_dict(data["configuration"])
+                           if data.get("configuration") is not None else None),
         )
 
 
@@ -347,12 +392,15 @@ class Session:
         expected_participants: Iterable[ExpectedParticipant] = (),
         *,
         scientific_outputs: Iterable[ScientificOutputSelection] = (),
+        configuration: ExperimentConfiguration | None = None,
     ) -> ExperimentDescriptor:
         """Create one descriptor for an Experiment or return the existing one."""
 
         outputs = tuple(scientific_outputs)
         for descriptor in self._experiment_descriptors:
             if descriptor.experiment_id == experiment_id:
+                if configuration != descriptor.configuration:
+                    raise ValueError("Experiment configuration conflicts with existing descriptor")
                 if outputs and outputs != descriptor.scientific_outputs:
                     raise ValueError("Scientific outputs conflict with existing Experiment descriptor")
                 return descriptor
@@ -362,6 +410,7 @@ class Session:
             details=dict(details) if details is not None else None,
             expected_participants=tuple(expected_participants),
             scientific_outputs=outputs,
+            configuration=configuration,
         )
         self._experiment_descriptors.append(descriptor)
         return descriptor

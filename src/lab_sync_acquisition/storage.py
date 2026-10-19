@@ -20,7 +20,7 @@ from typing import Any, Iterable, Iterator, Mapping
 from uuid import uuid4
 
 from lab_sync_acquisition.service_readiness import ServiceReadiness, apply_dependency_readiness
-from lab_sync_acquisition.local_storage import ArtifactManifest
+from lab_sync_acquisition.local_storage import ArtifactManifest, inspect_storage_capacity
 from lab_sync_acquisition.communication import RuntimeEvidenceMessage
 from lab_sync_acquisition.service_maintenance import service_operation
 
@@ -1004,6 +1004,14 @@ class PersistentStorageManager:
             reason="ready",
         ))
 
+
+    @service_operation()
+    def check_experiment_capacity(self, required_bytes: int) -> dict[str, Any]:
+        """Check the configured preservation destination, not archival success."""
+        readiness = self.check_ready()
+        if not readiness.ready:
+            return {"ready": False, "reason": readiness.reason}
+        return inspect_storage_capacity(self._storage_root, required_bytes)
 
     @service_operation()
     def write_session_record(

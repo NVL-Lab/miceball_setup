@@ -1,10 +1,23 @@
 # Future GUI Design Notes
 
 This document preserves ideas for future GUI discussions. It is not an
-implementation roadmap, architecture decision record, or source of approved
-implementation requirements. GUI implementation belongs outside this repository.
+implementation roadmap or architecture decision record. Except for the explicitly
+identified accepted requirement below, its ideas are not approved implementation
+requirements. GUI implementation belongs outside this repository.
 
 ---
+
+## Insufficient Storage Warning
+
+**Status:** Accepted future GUI requirement under Decision 394; not implemented.
+
+Before starting an Experiment, the GUI must clearly inform the experimenter when
+available storage is insufficient for that Experiment's configured requirements.
+Where known, identify the affected destination, required capacity and available
+capacity. Use the framework's authoritative per-Experiment readiness result; the
+GUI cannot bypass failed capacity readiness or substitute its own readiness
+authority. Headless Controller operation is subject to the same framework gate.
+No GUI functionality is implemented or validated by this documentation.
 
 ## Services Tab
 

@@ -39,7 +39,7 @@ from lab_sync_acquisition.communication import (
 )
 from lab_sync_acquisition.ingestor import InMemoryIngestor
 from lab_sync_acquisition.controller import Controller, ControllerActionDecision
-from lab_sync_acquisition.session import ScientificOutputSelection
+from lab_sync_acquisition.session import ScientificOutputSelection, ExperimentConfiguration
 from lab_sync_acquisition.device import DeviceDeclaration
 from lab_sync_acquisition.synchronization import SynchronizationManager
 from lab_sync_acquisition.experiment_runtime import ActiveExperimentRuntimeContext, ExperimentRuntimeHealthMapping
@@ -680,6 +680,21 @@ class NatsControllerCommunication:
                                          ack_policy=AckPolicy.EXPLICIT)} if new_only else {}),
         )
 
+    async def subscribe_experiment_expiry_evidence(self, session_id: str, controller: Controller):
+        """Deliver node expiry proof through existing evidence subjects, never lifecycle commands."""
+        async def receive(message):
+            evidence = RuntimeEvidenceMessage.from_dict(json.loads(message.data.decode("utf-8")))
+            route = parse_runtime_subject(message.subject)
+            if (route["session_id"] != session_id or evidence.session_id != session_id
+                    or route["component_type"] != "acquisition_node" or route["component_id"] != evidence.source_id
+                    or route["message_type"] != "experiment_duration_expired"):
+                raise ValueError("Expiry evidence subject/body mismatch")
+            controller.accept_experiment_expiry(evidence)
+            await message.ack()
+        return await self._boundary._require_jetstream().subscribe(
+            f"messages.{session_id}.evidence.acquisition_node.*.experiment_duration_expired",
+            cb=receive, manual_ack=True, config=ConsumerConfig(deliver_policy=DeliverPolicy.NEW))
+
     async def subscribe_health_interpretation_evidence(
         self,
         session_id: str,
@@ -811,6 +826,7 @@ class NatsAcquisitionNodeCommunication:
             "prepare_experiment_scientific_outputs",
             "read_local_time", "accept_synchronization_quality", "activate_experiment_runtime",
             "finalize_experiment_scientific_outputs",
+            "check_experiment_capacity", "read_experiment_expiry",
         }
     )
 
@@ -861,7 +877,7 @@ class NatsAcquisitionNodeCommunication:
 
     async def _refresh_acquisition_execution(self) -> None:
         async with self._acquisition_execution_lock:
-            if self._sustained_acquisition_enabled and self._acquisition_node.scientific_acquisition_active:
+            if self._sustained_acquisition_enabled and self._acquisition_node.experiment_runtime_active:
                 if not self.acquisition_execution_active:
                     self._acquisition_task = asyncio.create_task(self._run_acquisition())
             else:
@@ -870,10 +886,12 @@ class NatsAcquisitionNodeCommunication:
     async def _run_acquisition(self) -> None:
         # Bounded synchronous iterations and lifecycle commands share the service
         # event loop: finalization cannot overlap a camera read or local append.
-        while self._sustained_acquisition_enabled and self._acquisition_node.scientific_acquisition_active:
+        while self._sustained_acquisition_enabled and self._acquisition_node.experiment_runtime_active:
             failed = False
             try:
-                self._acquisition_node.run_one_iteration()
+                if not self._acquisition_node.expire_experiment_if_due():
+                    if self._acquisition_node.scientific_acquisition_active:
+                        self._acquisition_node.run_one_iteration()
             except Exception:
                 failed = True
                 logger.exception("sustained_acquisition_failed")
@@ -882,15 +900,42 @@ class NatsAcquisitionNodeCommunication:
                 except Exception:
                     logger.exception("sustained_acquisition_cleanup_unconfirmed")
             try:
-                await self.publish_new_artifact_manifest_evidence()
-                await self.publish_new_runtime_evidence()
+                if self._acquisition_node.experiment_runtime_active:
+                    await asyncio.wait_for(self._publish_acquisition_evidence(),
+                        timeout=self._acquisition_node.experiment_deadline_remaining_s)
+                else:
+                    await self._publish_acquisition_evidence()
+            except asyncio.TimeoutError:
+                # An unconfirmed publication cannot hold the recording deadline open.
+                try:
+                    self._acquisition_node.expire_experiment_if_due()
+                except Exception:
+                    logger.exception("experiment_expiry_finalization_failed")
+                    try:
+                        self._acquisition_node.stop_runtime()
+                    except Exception:
+                        logger.exception("sustained_acquisition_cleanup_unconfirmed")
+                    return
+                # Recording is now quiescent. Publish its terminal evidence once
+                # through existing transport timeouts, retaining failures for retry.
+                try:
+                    await self._publish_acquisition_evidence()
+                except Exception:
+                    logger.exception("sustained_acquisition_publication_unconfirmed")
             except Exception:
                 # Existing cursors and producer retention keep unconfirmed evidence;
                 # communication failure is not an acquisition-stop authorization.
                 logger.exception("sustained_acquisition_publication_unconfirmed")
             if failed:
                 return
+            if (self._acquisition_node.experiment_runtime_active
+                    and not self._acquisition_node.scientific_acquisition_active):
+                await asyncio.sleep(self._acquisition_node.experiment_deadline_remaining_s)
             await asyncio.sleep(0)
+
+    async def _publish_acquisition_evidence(self):
+        await self.publish_new_artifact_manifest_evidence()
+        await self.publish_new_runtime_evidence()
 
     async def subscribe_commands(self) -> tuple[Subscription, Subscription]:
         """Consume commands routed to this AcquisitionNode instance."""
@@ -1021,13 +1066,21 @@ class NatsAcquisitionNodeCommunication:
                 experiment_id = command.payload["experiment_id"]
                 preparation = self._acquisition_node.prepare_experiment_scientific_outputs(
                     experiment_id, tuple(ScientificOutputSelection.from_dict(item)
-                                         for item in command.payload["scientific_outputs"]))
+                                         for item in command.payload["scientific_outputs"]),
+                    configuration=ExperimentConfiguration.from_dict(command.payload["configuration"]))
                 payload = {"experiment_id": experiment_id, "preparation": preparation.to_dict()}
                 if preparation.required and not preparation.ready:
                     result = self._result(command, "failed", False, preparation.reason, payload)
                     self._results_by_command_id[command.command_id] = result
                     self._commands_by_id[command.command_id] = deepcopy(identity)
                     return result
+            elif command.command_type == "check_experiment_capacity":
+                payload = {"capacity": self._acquisition_node.check_experiment_capacity(
+                    tuple(ScientificOutputSelection.from_dict(item) for item in command.payload["scientific_outputs"]),
+                    ExperimentConfiguration.from_dict(command.payload["configuration"]))}
+            elif command.command_type == "read_experiment_expiry":
+                evidence = self._acquisition_node.read_experiment_expiry(command.payload["experiment_id"])
+                payload = {"expiry_evidence": evidence.to_dict() if evidence is not None else None}
             elif command.command_type == "start_runtime":
                 outcome = self._acquisition_node.start_runtime()
                 if any(not item.succeeded for item in outcome.get("device_start_results", ())):
@@ -1850,7 +1903,9 @@ class NatsStorageManagerCommunication:
             if command.command_type == "check_readiness":
                 return _execute_service_command(self._boundary, self._storage_manager, command, {})
             _validate_owner_request(self._boundary, command)
-            if command.command_type in {"get_saved_session_collection_status", "collect_saved_artifacts"}:
+            if command.command_type == "check_experiment_capacity":
+                payload = {"capacity": self._storage_manager.check_experiment_capacity(command.payload.get("required_bytes"))}
+            elif command.command_type in {"get_saved_session_collection_status", "collect_saved_artifacts"}:
                 collecting = command.command_type == "collect_saved_artifacts"
                 expected = {"request_nonce", "evidence_id"} if collecting else {"request_nonce"}
                 if set(command.payload) != expected:

@@ -12,12 +12,14 @@ class ActiveExperimentRuntimeContext:
 
     experiment_id: str
     experiment_start_session_time_s: float
+    duration_s: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Return the active Experiment timing context as plain data."""
 
         return {
             "experiment_id": self.experiment_id,
+            "duration_s": self.duration_s,
             "experiment_start_session_time_s": (
                 self.experiment_start_session_time_s
             ),
@@ -32,6 +34,7 @@ class ActiveExperimentRuntimeContext:
             experiment_start_session_time_s=data[
                 "experiment_start_session_time_s"
             ],
+            duration_s=data.get("duration_s"),
         )
 
 

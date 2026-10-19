@@ -75,6 +75,7 @@ from lab_sync_acquisition.nats_communication import (
 from lab_sync_acquisition.session import (
     ExpectedParticipant,
     ExperimentDescriptor,
+    ExperimentConfiguration,
     ExperimentLifecycleEvidence,
     LifecycleTransition,
     ReadinessCheck,
@@ -142,6 +143,7 @@ __all__ = [
     "DeviceReadinessSummary",
     "ExpectedParticipant",
     "ExperimentDescriptor",
+    "ExperimentConfiguration",
     "ExperimentLifecycleEvidence",
     "ExperimentRuntimeHealthMapping",
     "ExperimentScopedHealthObservation",

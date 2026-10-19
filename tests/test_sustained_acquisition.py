@@ -15,7 +15,8 @@ from lab_sync_acquisition import (
     AcquisitionNode, Controller, DeviceDeclaration, DeviceManager, InMemoryIngestor,
     NatsAcquisitionNodeCommunication, NatsControllerCommunication, NatsIngestorCommunication,
     NatsSynchronizationManagerCommunication, OpenCVCameraConfig, PersistentStorageManager,
-    RuntimeParticipant, ScientificOutputSelection, ScientificProductDeclaration,
+    RuntimeParticipant, ScientificOutputSelection, ScientificProductDeclaration, ExperimentConfiguration,
+    NatsStorageManagerCommunication,
     SeeedIMX219OpenCVCameraAdapter, ServiceMaintenanceInterface, SynchronizationManager,
 )
 from tests.test_distributed_synchronization import configuration
@@ -37,6 +38,8 @@ class SustainedAcquisitionTests(unittest.IsolatedAsyncioTestCase):
                 {"frame_shape": [2, 4, 3], "frame_dtype": "uint16"}, "hdf5"),))
         self.broker = _Broker()
         self.storage = PersistentStorageManager(self.root / "storage")
+        await NatsStorageManagerCommunication(_Boundary("storage_manager", "storage", self.broker),
+                                              self.storage).subscribe_commands()
         self.ingestor = InMemoryIngestor(storage_manager=self.storage,
             recovery_journal_root=self.root / "journals", framework_recovery_journal_path=self.root / "framework.jsonl")
         self.intake = NatsIngestorCommunication(_Boundary("ingestor", "ingestor", self.broker), self.ingestor)
@@ -84,7 +87,9 @@ class SustainedAcquisitionTests(unittest.IsolatedAsyncioTestCase):
 
     async def experiment(self, identity="experiment"):
         result = await self.controller.start_launched_experiment(identity,
-            scientific_outputs=(ScientificOutputSelection("camera", "node", "frames"),))
+            scientific_outputs=(ScientificOutputSelection("camera", "node", "frames"),),
+            configuration=ExperimentConfiguration(60, {"node": 1000000}, 1000000),
+            storage_participant=RuntimeParticipant("storage_manager", "storage"))
         self.assertTrue(result.succeeded, result.error)
 
     async def request(self, operation, payload=None, **kwargs):
@@ -185,12 +190,14 @@ class SustainedAcquisitionTests(unittest.IsolatedAsyncioTestCase):
         await self.until(lambda: self.camera.capture.read_count >= count + 2)
         self.assertTrue(self.handler.acquisition_execution_active)
 
-    async def test_experiment_without_selected_products_does_not_schedule_reads(self):
-        result = await self.controller.start_launched_experiment("idle")
+    async def test_experiment_without_selected_products_keeps_expiry_without_reads(self):
+        result = await self.controller.start_launched_experiment("idle",
+            configuration=ExperimentConfiguration(60, {"node": 0}, 1000000),
+            storage_participant=RuntimeParticipant("storage_manager", "storage"))
         self.assertTrue(result.succeeded, result.error)
         for _ in range(5):
             await asyncio.sleep(0)
-        self.assertFalse(self.handler.acquisition_execution_active)
+        self.assertTrue(self.handler.acquisition_execution_active)
         self.assertEqual(self.camera.capture.read_count, 0)
 
     async def test_publication_failure_retains_timing_evidence_without_stopping_frames(self):

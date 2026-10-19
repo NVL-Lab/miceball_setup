@@ -1278,6 +1278,97 @@ asynchronous scheduling validation is established. See
 complete evidence record. G2/G4/G5 are not completed by G3; Q022, Q024, M015 and
 Phase 16 remain OPEN.
 
+### Experiment Capacity And Duration (G2 Open)
+
+Decisions 394-395 require explicit configuration before every Experiment, for
+headless and future GUI clients alike. Existing callers must supply configuration;
+there is no inferred duration, default budget or legacy bypass. Historical
+descriptors without configuration remain readable, not authorization for a new run.
+
+```python
+from lab_sync_acquisition import ExperimentConfiguration, RuntimeParticipant
+
+configuration = ExperimentConfiguration(
+    duration_s=120,
+    recording_budgets={"node-001": 4000000000},
+    preservation_budget_bytes=4100000000,
+    device_configurations={"node-001": {"camera-001": {"fps": 20}}},
+)
+result = await controller.start_launched_experiment(
+    "experiment-001", scientific_outputs=outputs, configuration=configuration,
+    storage_participant=RuntimeParticipant("storage_manager", "storage-001"),
+)
+```
+
+The byte counts above illustrate explicit operator inputs, not recommended values.
+Recording budgets cover each node's complete local writes. The preservation
+budget covers all required scientific copies, evidence, audit and preservation
+products for the Experiment at the configured StorageManager root; it is mandatory
+because those products have no general fixed-size estimator. Budget configuration
+must account for the actual representation and overhead. Capacity reports are
+readiness snapshots, not disk reservations or protection from unrelated writers.
+
+When no recording budget is supplied, camera HDF5 estimation requires explicit
+`storage_requirements["capacity_estimate"]` containing `fixed_bytes` and
+`bytes_per_observation`. These are declared inclusive encoded-storage bounds,
+not aliases for `expected_data_size_bytes`. Fixed bytes include fixed product/
+manifest costs; per-observation bytes include frame data, metadata and applicable
+format overhead and cannot be smaller than the raw stored frame. Selected `fps`,
+`frames_per_collect` and declared shape/dtype must be known and consistent.
+The estimate is `fixed_bytes + (ceil(duration_s * fps) + frames_per_collect) *
+bytes_per_observation`, including a bounded collection in flight at expiry.
+Other products, unknown rates or unbounded encoded sizes require explicit budgets.
+No compression ratio, overhead percentage or safety margin is invented.
+
+Node operating overrides use existing adapter parameter validation against the
+Session-resolved baseline. Between Experiments, selected overrides may reprepare
+devices using their existing stop/shutdown/initialize/start methods. Installation-
+only parameters remain prohibited, later Experiments do not inherit prior overrides,
+and resolution must match the declared stored representation when estimating.
+
+LocalStorageManager retains writability checks. StorageManager checks its own
+preservation root. Owner-correlated NATS reports identify OS host/local-volume
+capacity, and Controller sums distinct recording/preservation writes on shared
+volumes without adding free space twice. Remote/unknown filesystem backing is
+indeterminate rather than assumed independent; it cannot authorize readiness.
+Network filesystem capacity coordination is not implemented by this bounded slice.
+
+Required synchronization readiness precedes activation. The common Session-Time
+start plus duration is translated once through each node's authorized affine
+mapping to a local monotonic deadline. Subsequent communication loss, quality
+degradation or mapping replacement does not remove/reset that captured deadline.
+G3's owned execution task enforces expiry even for an idle Experiment and bounds
+publication waits by the remaining duration. Expiry finalizes only that Experiment
+and retains persistent `experiment_duration_expired` evidence, including timing
+mapping provenance and actual finalization outcome. Failed finalization is not
+successful expiry confirmation. Bounded iterations enforce the same deadline.
+Existing synchronous device calls cannot be preempted: deadline enforcement occurs
+between bounded device calls, not with a hardware timing/latency guarantee.
+
+Controller consumes correlated expiry evidence on the existing evidence subjects;
+all participating nodes must confirm matching finalization before it records the
+canonical Experiment end. Duplicates are idempotent, conflicts fail closed, stale
+proof cannot end a subsequent Experiment, and the Session remains running. After
+missed delivery, call `await controller.reconcile_launched_experiment_expiry(id)`
+for current owner readback. Publication, durable intake and archival preservation
+remain separate guarantees; readback publication still precedes command success.
+
+Local `Controller.start_experiment(..., configuration=configuration)` uses the same
+capacity/activation contracts. Its bounded iteration reconciles available expiry
+proof; autonomous scheduling is supplied by the operational service composition,
+not by constructing another timer inside the bounded acquisition core.
+G2 remains OPEN for independent validation/audit; no live NATS, camera hardware,
+PC-Jetson performance, OS-signal or power-loss verification is claimed.
+
+Implementation verification passed 33 distinct focused checks: 17 new G2 checks,
+10 sustained-acquisition regressions and six directly affected bounded-storage,
+synchronization, startup and command-idempotency checks. These used the existing
+Python 3.12 environment, simulated camera/NATS I/O, real temporary HDF5 files and
+a controlled asyncio loop without socket-pair initialization; this is not normal
+Windows asynchronous scheduling or independent ICC validation. Earlier overlapping
+runs are not additive. No full-suite campaign or three previously permission-
+blocked end-to-end closeout checks are claimed as passing here.
+
 ### Timing And Synchronization
 
 **Accepted target (Decisions 379-381; not implemented by documentation

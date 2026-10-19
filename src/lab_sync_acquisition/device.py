@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from copy import deepcopy
 import json
+from math import ceil, isfinite
 from typing import Any, Iterable
 
 
@@ -60,6 +61,36 @@ class ScientificProductDeclaration:
     def from_dict(cls, data: dict[str, Any]) -> ScientificProductDeclaration:
         """Reconstruct a scientific product declaration from plain data."""
         return cls(**data)
+
+    def estimate_storage_bytes(self, duration_s: float, parameters: dict[str, Any]) -> int:
+        """Use explicitly declared encoded-size bounds, never legacy expected-size guesses."""
+        bounds = (self.storage_requirements or {}).get("capacity_estimate")
+        if not isinstance(bounds, dict):
+            raise ValueError("An explicit recording budget or declared capacity_estimate is required")
+        fixed = bounds.get("fixed_bytes")
+        per_observation = bounds.get("bytes_per_observation")
+        rate = parameters.get("fps")
+        batch = parameters.get("frames_per_collect")
+        if (type(fixed) is not int or fixed < 0 or type(per_observation) is not int or per_observation <= 0
+                or type(rate) not in (int, float) or not isfinite(rate) or rate <= 0
+                or type(batch) is not int or batch < 1):
+            raise ValueError("Complete encoded-size bounds and selected rate/batch are required")
+        if self.storage_format != "hdf5" or self.product_type != "camera_frames":
+            raise ValueError("This product requires an explicit recording byte budget")
+        import numpy as np
+        shape = self.schema.get("frame_shape")
+        if (not isinstance(shape, list) or len(shape) not in (2, 3)
+                or any(type(n) is not int or n <= 0 for n in shape)):
+            raise ValueError("Explicit stored frame dimensions are required")
+        dtype = np.dtype(self.schema["frame_dtype"])
+        raw = int(np.prod(shape)) * dtype.itemsize
+        if dtype.hasobject or per_observation < raw:
+            raise ValueError("Declared encoded-size bound cannot be smaller than the raw frame")
+        if (parameters.get("frame_width") not in (None, shape[1])
+                or parameters.get("frame_height") not in (None, shape[0])):
+            raise ValueError("Selected resolution differs from the declared stored representation")
+        # Include the bounded collection already in flight when the deadline arrives.
+        return fixed + (ceil(duration_s * rate) + batch) * per_observation
 
 
 @dataclass(frozen=True)

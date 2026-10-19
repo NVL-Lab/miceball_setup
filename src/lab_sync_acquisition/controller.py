@@ -31,12 +31,14 @@ from lab_sync_acquisition.experiment_runtime import (
 )
 from lab_sync_acquisition.ingestor import InMemoryIngestor
 from lab_sync_acquisition.service_readiness import ServiceReadiness, apply_dependency_readiness
+from lab_sync_acquisition.local_storage import validate_storage_capacity
 from lab_sync_acquisition.session import (
     ExpectedParticipant,
     Session,
     SessionConfig,
     SessionState,
     ScientificOutputSelection,
+    ExperimentConfiguration,
 )
 from lab_sync_acquisition.storage import PersistentStorageManager, _to_plain_data
 from lab_sync_acquisition.synchronization import SynchronizationManager
@@ -175,6 +177,7 @@ class Controller:
         self._kill_closeout: dict[str, Any] | None = None
         self._experiment_operation_lock = asyncio.Lock()
         self._distributed_closeout = None
+        self._experiment_expiry_evidence: dict[tuple[str, str, str], RuntimeEvidenceMessage] = {}
 
     @service_operation()
     async def kill_session(
@@ -1232,6 +1235,7 @@ class Controller:
             self._session.initialize(device_reports, preparation_reports)
             self._launch_communication = communication
             self._reserved_participants = tuple(acquired)
+            subscriptions.append(await communication.subscribe_experiment_expiry_evidence(session_id, self))
             self._launch_result_window_s = result_window_s
             self._launch_subscriptions = tuple(subscriptions)
             return self._record_successful_command("launch_session", {"session_id": session_id,
@@ -1405,13 +1409,18 @@ class Controller:
     async def start_launched_experiment(self, experiment_id: str, *,
             scientific_outputs: Iterable[ScientificOutputSelection] = (),
             runtime_health_mapping: Mapping[str, Iterable[ExperimentRuntimeHealthMapping]] | None = None,
-            details: dict[str, Any] | None = None) -> ControllerCommandResult:
+            details: dict[str, Any] | None = None,
+            configuration: ExperimentConfiguration | None = None,
+            storage_participant: RuntimeParticipant | None = None) -> ControllerCommandResult:
         """Prepare, synchronize and activate Experiment runtime exclusively through NATS."""
         async with self._experiment_operation_lock:
             session = self._require_session()
             prepared = []
             canonical_started = False
             try:
+                if not isinstance(configuration, ExperimentConfiguration):
+                    raise ValueError("An explicit ExperimentConfiguration is required")
+                configuration = ExperimentConfiguration.from_dict(configuration.to_dict())
                 if session.current_state != SessionState.RUNNING or self._active_experiment_id is not None:
                     raise RuntimeError("Experiment requires a running Session without an active Experiment")
                 session.check_experiment_can_start(experiment_id)
@@ -1419,6 +1428,8 @@ class Controller:
                 details = deepcopy(details)
                 descriptor = next((d for d in session.experiment_descriptors if d.experiment_id == experiment_id), None)
                 if descriptor is not None:
+                    if descriptor.configuration != configuration:
+                        raise ValueError("Experiment configuration conflicts with existing descriptor")
                     if outputs and outputs != descriptor.scientific_outputs:
                         raise ValueError("Scientific outputs conflict with the Experiment descriptor")
                     outputs = descriptor.scientific_outputs
@@ -1431,20 +1442,41 @@ class Controller:
                     raise TypeError("Health context must use ExperimentRuntimeHealthMapping")
                 if any(output.source_node_id not in nodes for output in outputs):
                     raise ValueError("Scientific output references an unreserved AcquisitionNode")
+                if (set(configuration.recording_budgets or {}) - set(nodes)
+                        or set(configuration.device_configurations or {}) - set(nodes)):
+                    raise ValueError("Experiment configuration references an unreserved AcquisitionNode")
                 await self._request_launched_runtime(self._synchronization_participant(),
                     "assess_synchronization", {"node_ids": list(nodes)})
+                capacity_reports = []
+                for node_id, participant in nodes.items():
+                    capacity = await self._request_launched_runtime(participant, "check_experiment_capacity",
+                        {"scientific_outputs": [o.to_dict() for o in outputs if o.source_node_id == node_id],
+                         "configuration": configuration.to_dict()})
+                    capacity_reports.append(capacity.payload["capacity"])
+                if storage_participant is None:
+                    storage_participant = getattr(getattr(self, "_maintenance", None), "_framework_storage", None)
+                if not isinstance(storage_participant, RuntimeParticipant) or storage_participant.component_type != "storage_manager":
+                    raise ValueError("An explicitly configured preservation StorageManager is required")
+                capacity = await self._request_launched_runtime(storage_participant, "check_experiment_capacity",
+                    {"required_bytes": configuration.preservation_budget_bytes})
+                capacity_reports.append(capacity.payload["capacity"])
+                validate_storage_capacity(capacity_reports)
+                session.record_service_readiness((ServiceReadiness(self._component_id,
+                    "experiment_storage_capacity", True, True, str(capacity_reports)),))
                 for node_id, participant in nodes.items():
                     prepared.append(participant)
                     result = await self._request_launched_runtime(participant, "prepare_experiment_scientific_outputs",
                         {"experiment_id": experiment_id, "scientific_outputs":
-                         [output.to_dict() for output in outputs if output.source_node_id == node_id]})
+                         [output.to_dict() for output in outputs if output.source_node_id == node_id],
+                         "configuration": configuration.to_dict()})
                     if result.payload.get("preparation", {}).get("ready") is not True:
                         raise RuntimeError("Experiment output preparation is unconfirmed")
                 clock = await self._request_launched_runtime(self._synchronization_participant(), "read_session_time", {})
                 start_time = clock.payload["session_time_s"]
                 if session.current_state != SessionState.RUNNING:
                     raise RuntimeError("Session ended during Experiment preparation")
-                session.ensure_experiment_descriptor(experiment_id, details, (), scientific_outputs=outputs)
+                session.ensure_experiment_descriptor(experiment_id, details, (), scientific_outputs=outputs,
+                                                     configuration=configuration)
                 evidence = session.record_experiment_lifecycle(experiment_id, "experiment_start", start_time, details)
                 self._active_experiment_id = experiment_id
                 self._active_experiment_runtime_health_mapping = health
@@ -1452,10 +1484,11 @@ class Controller:
                 # Acquisition context cannot precede the Controller-owned canonical start.
                 for participant in nodes.values():
                     await self._request_launched_runtime(participant, "activate_experiment_runtime",
-                        {"context": ActiveExperimentRuntimeContext(experiment_id, start_time).to_dict(),
+                        {"context": ActiveExperimentRuntimeContext(experiment_id, start_time, configuration.duration_s).to_dict(),
                          "health_mapping": [item.to_dict() for item in health_by_node.get(participant.component_id, ())]})
                 if session.current_state != SessionState.RUNNING:
                     raise RuntimeError("Session ended during Experiment preparation")
+                self._reconcile_expiry_if_complete(experiment_id)
                 return self._record_successful_command("start_experiment", evidence.to_dict())
             except BaseException as error:
                 for participant in prepared:
@@ -1477,8 +1510,76 @@ class Controller:
                     "experiment_start_rejected", self._component_id,
                     {"experiment_id": experiment_id, "reason": str(error),
                      "session_time_s": None, "timing_unconfirmed": True}, True)
+                session.record_service_readiness((ServiceReadiness(self._component_id,
+                    "experiment_preparation", True, False, str(error)),))
                 return self._record_failed_command("start_experiment", error,
                                                     {"rejection_evidence": rejection.to_dict()})
+
+    @service_operation()
+    def accept_experiment_expiry(self, message: RuntimeEvidenceMessage) -> bool:
+        """Reconcile exact node expiry proof without transferring canonical lifecycle authority."""
+        from math import isfinite
+        session = self._require_session()
+        if message.session_id != session.session_id or message.evidence_type != "experiment_duration_expired":
+            raise ValueError("Expiry evidence has mismatched Session/type")
+        payload = message.payload
+        experiment_id = payload.get("experiment_id")
+        descriptor = next((d for d in session.experiment_descriptors if d.experiment_id == experiment_id), None)
+        start = next((e for e in session.experiment_lifecycle_evidence
+                      if e.experiment_id == experiment_id and e.event_type == "experiment_start"), None)
+        nodes = ({p.component_id for p in self._reserved_participants} if self._launch_communication is not None
+                 else {self._acquisition_node.node_id})
+        if (descriptor is None or descriptor.configuration is None or start is None or message.source_id not in nodes
+                or message.is_persistent is not True or payload.get("finalization_confirmed") is not True
+                or payload.get("duration_s") != descriptor.configuration.duration_s
+                or payload.get("experiment_start_session_time_s") != start.session_time_s
+                or payload.get("session_deadline_s") != start.session_time_s + descriptor.configuration.duration_s
+                or any(type(payload.get(k)) not in (int, float) or not isfinite(payload[k])
+                       for k in ("local_deadline_s", "finalized_local_time_s", "duration_s",
+                                 "experiment_start_session_time_s", "session_deadline_s"))
+                or payload["finalized_local_time_s"] < payload["local_deadline_s"]
+                or not isinstance(payload.get("mapping"), dict)
+                or not isinstance(payload.get("artifact_manifest_ids"), list)
+                or any(not isinstance(value, str) or not value for value in payload["artifact_manifest_ids"])
+                or len(set(payload["artifact_manifest_ids"])) != len(payload["artifact_manifest_ids"])
+                or len(payload["artifact_manifest_ids"]) != sum(
+                    output.source_node_id == message.source_id for output in descriptor.scientific_outputs)):
+            raise ValueError("Incomplete, stale or conflicting Experiment expiry proof")
+        key = (session.session_id, experiment_id, message.source_id)
+        previous = self._experiment_expiry_evidence.get(key)
+        if previous is not None and previous.to_dict() != message.to_dict():
+            raise ValueError("Conflicting node expiry evidence")
+        self._experiment_expiry_evidence[key] = deepcopy(message)
+        if self._experiment_operation_lock.locked():
+            return False
+        return self._reconcile_expiry_if_complete(experiment_id)
+
+    def _reconcile_expiry_if_complete(self, experiment_id):
+        session = self._require_session()
+        if session.current_state != SessionState.RUNNING or self._active_experiment_id != experiment_id:
+            return False
+        nodes = ({p.component_id for p in self._reserved_participants} if self._launch_communication is not None
+                 else {self._acquisition_node.node_id})
+        proofs = [self._experiment_expiry_evidence.get((session.session_id, experiment_id, node)) for node in nodes]
+        if not proofs or any(p is None for p in proofs):
+            return False
+        session.record_experiment_lifecycle(experiment_id, "experiment_stop", proofs[0].payload["session_deadline_s"],
+            {"reason": "configured_duration_expired", "expiry_evidence_ids": [p.evidence_id for p in proofs]})
+        self._active_experiment_id = None
+        self._active_experiment_runtime_health_mapping = ()
+        return True
+
+    @service_operation()
+    async def reconcile_launched_experiment_expiry(self, experiment_id: str) -> bool:
+        """Read current owner proof after missed publication; absent proof never ends an Experiment."""
+        for participant in self._reserved_participants:
+            result = await self._request_launched_runtime(participant, "read_experiment_expiry",
+                                                          {"experiment_id": experiment_id})
+            message = result.payload.get("expiry_evidence")
+            if message is None:
+                return False
+            self.accept_experiment_expiry(RuntimeEvidenceMessage.from_dict(message))
+        return self._active_experiment_id != experiment_id
 
     @service_operation()
     async def stop_launched_experiment(self, experiment_id: str,
@@ -1803,6 +1904,10 @@ class Controller:
             summary = self._acquisition_node.run_one_iteration()
             if self._acquisition_node.status()["failed"]:
                 raise RuntimeError("AcquisitionNode reported failed status")
+            if self._active_experiment_id is not None:
+                expiry = self._acquisition_node.read_experiment_expiry(self._active_experiment_id)
+                if expiry is not None:
+                    self.accept_experiment_expiry(expiry)
         except Exception as error:
             self._attempt_runtime_stop()
             self._mark_session_failed(str(error))
@@ -1820,6 +1925,7 @@ class Controller:
         scientific_outputs: Iterable[ScientificOutputSelection] = (),
         preparation_readiness: Iterable[ServiceReadiness] = (),
         preparation_outcomes: Iterable[GroupCommandOutcome] = (),
+        configuration: ExperimentConfiguration | None = None,
     ) -> ControllerCommandResult:
         """Record canonical Experiment start evidence inside a running Session."""
 
@@ -1828,6 +1934,9 @@ class Controller:
         def command() -> dict[str, Any]:
             nonlocal rejection_details
             session = self._require_session()
+            if not isinstance(configuration, ExperimentConfiguration):
+                raise ValueError("An explicit ExperimentConfiguration is required")
+            accepted_configuration = ExperimentConfiguration.from_dict(configuration.to_dict())
             if session.current_state != SessionState.RUNNING:
                 raise RuntimeError("Experiment start requires a running Session")
             if self._active_experiment_id is not None:
@@ -1878,7 +1987,12 @@ class Controller:
                             raise RuntimeError("Required remote scientific preparation did not succeed")
                 if any(output.source_node_id != self._acquisition_node.node_id for output in outputs):
                     raise ValueError("Scientific output references an unknown AcquisitionNode")
-                preparation = self._acquisition_node.prepare_experiment_scientific_outputs(experiment_id, outputs)
+                if self._storage_manager is None:
+                    raise RuntimeError("Authoritative preservation StorageManager is required")
+                validate_storage_capacity((self._acquisition_node.check_experiment_capacity(outputs, accepted_configuration),
+                    self._storage_manager.check_experiment_capacity(accepted_configuration.preservation_budget_bytes)))
+                preparation = self._acquisition_node.prepare_experiment_scientific_outputs(
+                    experiment_id, outputs, configuration=accepted_configuration)
                 records.append(preparation)
                 session.record_service_readiness((preparation,))
                 if preparation.required and not preparation.ready:
@@ -1906,6 +2020,7 @@ class Controller:
                 start_details,
                 participants,
                 scientific_outputs=outputs,
+                configuration=accepted_configuration,
             )
             evidence = session.record_experiment_lifecycle(
                 experiment_id=experiment_id,
@@ -1917,17 +2032,14 @@ class Controller:
             self._active_experiment_runtime_health_mapping = (
                 active_runtime_health_mapping
             )
-            self._acquisition_node.activate_experiment_runtime_context(
+            self._acquisition_node.activate_experiment_runtime(
                 ActiveExperimentRuntimeContext(
                     experiment_id=experiment_id,
                     experiment_start_session_time_s=(
                         experiment_start_session_time_s
                     ),
-                )
-            )
-            self._acquisition_node.activate_experiment_runtime_health_mapping(
-                experiment_id,
-                active_runtime_health_mapping
+                    duration_s=accepted_configuration.duration_s,
+                ), active_runtime_health_mapping
             )
             return evidence.to_dict()
 
@@ -2420,6 +2532,8 @@ class Controller:
                 self._active_experiment_runtime_health_mapping
             ),
             "last_command": self._last_result,
+            "active_experiment_id": self._active_experiment_id,
+            "experiment_lifecycle_evidence": self._session.experiment_lifecycle_evidence if self._session else (),
             "last_released_session": self._last_released_session,
         }
 

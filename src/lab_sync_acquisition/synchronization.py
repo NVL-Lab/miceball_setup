@@ -665,6 +665,13 @@ class SynchronizationManager:
             self._stopped_session_time_s = self.current_session_time_s
             return self._stopped_session_time_s
 
+    def local_deadline_for_session_time(self, session_time_s: float) -> float:
+        """Translate a common deadline for a co-located user of this authoritative clock."""
+        if (not self.is_running or type(session_time_s) not in (int, float)
+                or not isfinite(session_time_s)):
+            raise RuntimeError("A running authoritative clock and finite deadline are required")
+        return self._started_at_monotonic_s + session_time_s
+
     @property
     def timing_reconciliation_evidence(self) -> tuple[RuntimeEvidenceMessage, ...]:
         return tuple(RuntimeEvidenceMessage.from_dict(deepcopy(m.to_dict()))

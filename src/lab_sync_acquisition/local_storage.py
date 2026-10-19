@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import math
 import os
+import shutil
+import socket
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from time import monotonic
@@ -23,6 +25,74 @@ REQUIRED_SCIENTIFIC_ROW_FIELDS = frozenset(
         "experiment_id",
     }
 )
+
+
+def _local_filesystem_identity(path: Path) -> list[str]:
+    """Do not mistake a remotely shared mount for independent host-local capacity."""
+    host = socket.gethostname()
+    if not host:
+        raise RuntimeError("Filesystem host identity is unavailable")
+    resolved = path.resolve()
+    if os.name == "nt":
+        import ctypes
+        drive_type = ctypes.windll.kernel32.GetDriveTypeW(str(resolved.anchor))
+        if drive_type not in (2, 3, 6):
+            raise RuntimeError("Independent capacity of a remote or unknown volume is unconfirmed")
+    else:
+        # Known local mounts can be distinguished using the OS's existing mount
+        # description; unknown/shared backing is not assigned a fabricated identity.
+        mounts = []
+        for line in Path("/proc/self/mountinfo").read_text().splitlines():
+            fields, filesystem = line.split(" - ", 1)
+            mount = Path(fields.split()[4].replace("\\040", " "))
+            if resolved.is_relative_to(mount):
+                mounts.append((len(str(mount)), filesystem.split()[0]))
+        if not mounts or max(mounts)[1] not in {"ext2", "ext3", "ext4", "xfs", "btrfs", "f2fs", "tmpfs", "overlay", "zfs"}:
+            raise RuntimeError("Independent capacity of this filesystem is unconfirmed")
+    return [host, str(resolved.stat().st_dev)]
+
+
+def inspect_storage_capacity(root_path: str | Path, required_bytes: int) -> dict[str, Any]:
+    """Inspect one writable destination without treating unknown capacity as ready."""
+    report = {"destination": str(root_path), "required_bytes": required_bytes,
+              "available_bytes": None, "filesystem_id": None, "ready": False}
+    try:
+        if type(required_bytes) is not int or required_bytes < 0:
+            raise ValueError("An authoritative nonnegative byte budget is required")
+        path = Path(root_path)
+        path.mkdir(parents=True, exist_ok=True)
+        probe = path / f".capacity-{uuid4().hex}"
+        try:
+            with probe.open("xb") as output:
+                output.write(b"capacity")
+        finally:
+            probe.unlink(missing_ok=True)
+        free = shutil.disk_usage(path).free
+        if type(free) is not int or free < 0:
+            raise RuntimeError("Filesystem capacity or identity is indeterminate")
+        report.update(available_bytes=free, filesystem_id=_local_filesystem_identity(path),
+                      ready=free >= required_bytes,
+                      reason="ready" if free >= required_bytes else "insufficient_storage_capacity")
+    except Exception as error:
+        report["reason"] = f"storage_capacity_unconfirmed: {type(error).__name__}"
+    return report
+
+
+def validate_storage_capacity(reports: Iterable[dict[str, Any]]) -> None:
+    """Require complete owner reports and sum distinct writes sharing a filesystem."""
+    groups = {}
+    for report in reports:
+        identity = report.get("filesystem_id")
+        if (report.get("ready") is not True or not isinstance(identity, list) or len(identity) != 2
+                or any(not isinstance(value, str) or not value for value in identity)
+                or type(report.get("required_bytes")) is not int or report["required_bytes"] < 0
+                or type(report.get("available_bytes")) is not int or report["available_bytes"] < 0):
+            raise RuntimeError(f"Storage capacity unconfirmed: {report}")
+        key = tuple(identity)
+        required, available = groups.get(key, (0, report["available_bytes"]))
+        groups[key] = required + report["required_bytes"], min(available, report["available_bytes"])
+    if any(required > available for required, available in groups.values()):
+        raise RuntimeError("Insufficient shared-filesystem capacity for recording and preservation")
 
 
 @dataclass(frozen=True)
@@ -248,6 +318,13 @@ class LocalStorageManager:
             ready=True,
             reason="ready",
         )
+
+    def check_capacity(self, required_bytes: int) -> dict[str, Any]:
+        """Preserve local writability readiness while checking the explicit byte budget."""
+        readiness = self.check_ready()
+        if not readiness.ready:
+            return {"ready": False, "reason": readiness.reason, "destination": str(self.root_path)}
+        return inspect_storage_capacity(self.root_path, required_bytes)
 
     def create_stream(
         self,
