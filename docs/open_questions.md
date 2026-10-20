@@ -469,6 +469,33 @@ power-loss behavior remain unverified. G4-A awaits ICC validation and independen
 audit. G4-B (legacy completion proof) and G4-C (startup/rollback correlation) remain
 outstanding; G4 and Q013 remain OPEN.
 
+**G4-A timing/failure-accounting P2 correction (implemented; pending renewed ICC
+validation and independent audit):** The shared `_mark_session_failed()` now
+contains failure of optional Session Time acquisition only. Canonical
+`experiment_fail`, active-context clearing and existing FAILED transitions still
+run with `None` and explicit timing uncertainty; evidence-recording and lifecycle
+exceptions are not suppressed. The original failure reason/details and available
+timing are retained. No second Node Stop or scientific finalization is introduced.
+All nine reviewed callers retain the same shared accounting mechanism; Normal
+Stop ownership, durable acceptance, cleanup and preservation guards are unchanged.
+
+Regression-first execution reproduced four affected paths (local acquisition,
+local fatal action, local Stop and launched Stop), with two controls passing.
+Post-correction verification passed all ten new methods. The impact-based set
+produced 51 distinct passes: 22 synchronous methods without event-loop changes
+and 29 methods under controlled SelectorEventLoop scheduling. Counts overlap
+the earlier implementation verification and must not be added to it. One existing
+`test_failed_runtime_start_protects_unconfirmed_cleanup` assertion failed because
+the reservation was released; the identical assertion failed with HEAD's original
+failure-accounting method restored in memory (the only production change).
+That baseline failure is not counted as a pass or corrected in this slice.
+A bounded normal Windows async attempt stalled before test setup in socket-pair
+initialization and is not a pass. The previously blocked hard-link archival
+success checks were not rerun or counted. Live NATS, hardware, OS signals,
+power loss and normal Windows async scheduling remain unverified. This is
+implementation verification only; G4-A/G4/Q013 remain OPEN, and G4-B/G4-C are
+unchanged and out of scope.
+
 ### Blocks
 
 * Fatal/warning health behavior

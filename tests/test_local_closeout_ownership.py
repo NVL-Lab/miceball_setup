@@ -2,9 +2,13 @@
 
 import asyncio
 from contextlib import ExitStack
+from pathlib import Path
 from time import monotonic
 import unittest
-from unittest.mock import patch
+from unittest.mock import PropertyMock, patch
+
+import h5py
+import numpy as np
 
 from lab_sync_acquisition import (
     AcquisitionNode, Controller, ControllerActionDecision, ExperimentConfiguration, ScientificOutputSelection,
@@ -254,6 +258,69 @@ class LocalCloseoutOwnershipTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.controller.get_status()["session_state"], "failed")
         await self.finish_unpreserved()
 
+    async def test_launched_stop_failure_accounts_for_failure_without_local_time(self):
+        self.assertTrue(self.start_experiment().succeeded)
+        self.node.run_one_iteration()
+        self.resume.set()
+        self.f.broker.drop_results.add(("node-a", "release_reservation"))
+        read_time = type(self.f.sync).current_session_time_s.fget
+
+        def read_after_cleanup():
+            if self.stops.call_count:
+                raise OSError("Session Time unavailable after cleanup")
+            return read_time(self.f.sync)
+
+        with patch.object(type(self.f.sync), "current_session_time_s", new_callable=PropertyMock,
+                          side_effect=read_after_cleanup), \
+             patch.object(self.local, "finalize_stream", wraps=self.local.finalize_stream) as finalize:
+            result = await self.controller.stop_launched_session()
+        self.assertFalse(result.succeeded)
+        self.assertIn("Distributed runtime cleanup unconfirmed", result.error)
+        self.assertEqual(self.controller.get_status()["session_state"], "failed")
+        self.assertIsNone(self.controller.get_status()["active_experiment_id"])
+        events = self.controller.get_status()["experiment_lifecycle_evidence"]
+        self.assertEqual([e.event_type for e in events], ["experiment_start", "experiment_fail"])
+        self.assertIsNone(events[-1].session_time_s)
+        self.assertTrue(events[-1].details["timing_unconfirmed"])
+        self.assertEqual(events[-1].details["reason"], "Distributed runtime cleanup unconfirmed")
+        self.assertEqual(self.stops.call_count, 1)
+        self.assertEqual(self.physical_stops.call_count, 1)
+        self.assertEqual(finalize.call_count, 1)
+        self.assertTrue(all(m.lifecycle_state == "finalized" for m in self.local.manifests))
+        self.assertIsNone(self.storage.get_acquisition_stage_preservation_confirmation(self.sid))
+        self.assertEqual(self.controller.get_status()["session_id"], self.sid)
+        self.assertFalse((await self.controller.release_session()).succeeded)
+        self.assertFalse(self.controller.stop_session().succeeded)
+        with patch.object(self.storage, "write_evidence_archive", side_effect=OSError("archive unavailable")):
+            self.assertFalse(self.controller.finalize_session().succeeded)
+        self.assertEqual(self.controller.get_status()["session_state"], "failed")
+        self.assertEqual(self.stops.call_count, 1)
+        self.assertFalse(any(c["command_type"] == "kill" for c in self.f.broker.commands))
+
+    async def test_interrupted_normal_stop_preserves_fatal_details_without_time(self):
+        self.assertTrue(self.start_experiment().succeeded)
+        await self.begin()
+        self.closing.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await self.closing
+        decision = self.fatal(experiment_id="experiment")
+        with patch.object(type(self.f.sync), "current_session_time_s", new_callable=PropertyMock,
+                          side_effect=OSError("Session Time unavailable")):
+            result = self.controller.execute_controller_action_decision(decision)
+        self.assertTrue(result.succeeded, result.error)
+        self.assertTrue(result.details["health_processing_confirmed"])
+        self.assertEqual(self.stops.call_count, 0)
+        event = self.controller.get_status()["experiment_lifecycle_evidence"][-1]
+        self.assertEqual(event.event_type, "experiment_fail")
+        self.assertIsNone(event.session_time_s)
+        self.assertTrue(event.details["timing_unconfirmed"])
+        self.assertEqual(event.details["cleanup_owner"], "normal_stop")
+        for key, value in decision.to_dict().items():
+            self.assertEqual(event.details[key], value)
+        self.closing = asyncio.create_task(self.workflow.stop())
+        await self.finish_unpreserved()
+        self.assertEqual(self.controller.get_status()["session_state"], "failed")
+
 
 class LocalLifecycleCompatibilityTests(unittest.TestCase):
     def setUp(self):
@@ -282,3 +349,178 @@ class LocalLifecycleCompatibilityTests(unittest.TestCase):
         self.assertEqual(self.f.controller.get_status()["session_state"], "failed")
         self.assertFalse(self.f.node.status()["is_running"])
         self.assertTrue(all(m.lifecycle_state == "finalized" for m in self.f.local.manifests))
+
+
+class LocalFailureTimingTests(unittest.TestCase):
+    def setUp(self):
+        self.f = capacity.LocalActivationFailureTests()
+        self.f.addCleanup = self.addCleanup
+        ingestor = capacity.InMemoryIngestor
+
+        def prepared_ingestor(storage):
+            owner = ingestor(storage, recovery_journal_root=Path(self.f.temporary.name) / "journals")
+            self.assertTrue(owner.prepare_session("session").ready)
+            return owner
+
+        with patch.object(capacity, "InMemoryIngestor", side_effect=prepared_ingestor):
+            self.f.setUp()
+
+    def fail_after_cleanup(self, operation, *, action_confirmed=False, timing_available=False):
+        f = self.f
+        self.assertTrue(f.start("failure").succeeded)
+        self.assertTrue(f.controller.run_one_iteration().succeeded)
+        stop = f.node.stop_runtime
+        read_time = type(f.sync).current_session_time_s.fget
+        stopped = False
+
+        def read_after_cleanup():
+            if stopped and not timing_available:
+                raise OSError("Session Time unavailable after cleanup")
+            return read_time(f.sync)
+
+        def stop_then_lose_time():
+            nonlocal stopped
+            result = stop()
+            stopped = True
+            return result
+
+        with patch.object(type(f.sync), "current_session_time_s", new_callable=PropertyMock,
+                          side_effect=read_after_cleanup), \
+             patch.object(f.node, "stop_runtime", side_effect=stop_then_lose_time) as stops, \
+             patch.object(f.adapter, "stop", wraps=f.adapter.stop) as physical_stops, \
+             patch.object(f.local, "finalize_stream", wraps=f.local.finalize_stream) as finalize:
+            result = operation()
+            self.assertEqual(result.succeeded, action_confirmed, result.error)
+            status = f.controller.get_status()
+            self.assertEqual(status["session_state"], "failed")
+            self.assertEqual(status["session_id"], "session")
+            self.assertIsNone(status["active_experiment_id"])
+            self.assertEqual(status["active_experiment_runtime_health_mapping"], ())
+            events = status["experiment_lifecycle_evidence"]
+            self.assertEqual([e.event_type for e in events], ["experiment_start", "experiment_fail"])
+            self.assertEqual(events[-1].experiment_id, "failure")
+            if timing_available:
+                self.assertIsNotNone(events[-1].session_time_s)
+                self.assertNotIn("timing_unconfirmed", events[-1].details)
+            else:
+                self.assertIsNone(events[-1].session_time_s)
+                self.assertTrue(events[-1].details["timing_unconfirmed"])
+            self.assertFalse(f.node.status()["is_running"])
+            self.assertTrue(f.node.status()["cleanup_confirmed"])
+            self.assertIsNone(f.storage.get_acquisition_stage_preservation_confirmation("session"))
+            self.assertFalse(f.controller.stop_session().succeeded)
+            with patch.object(f.storage, "write_evidence_archive", side_effect=OSError("archive unavailable")):
+                self.assertFalse(f.controller.finalize_session().succeeded)
+            self.assertEqual(f.controller.get_status()["session_state"], "failed")
+            preserved = f.controller.finalize_session()
+            self.assertTrue(preserved.succeeded, preserved.error)
+            self.assertEqual(f.controller.get_status()["session_state"], "failed")
+            self.assertEqual(stops.call_count, 1)
+            self.assertEqual(physical_stops.call_count, 1)
+            self.assertEqual(finalize.call_count, 1)
+
+        manifest, = f.local.manifests
+        self.assertEqual(manifest.lifecycle_state, "finalized")
+        with h5py.File(manifest.local_storage_path) as saved:
+            np.testing.assert_array_equal(saved["frames"][0], f.frame)
+        record = f.storage.read_session_record(preserved.details["session_record_path"])
+        self.assertEqual(record["final_session_status"]["state"], "failed")
+        self.assertEqual([e["event_type"] for e in record["experiment_lifecycle_evidence"]],
+                         ["experiment_start", "experiment_fail"])
+        return result, events[-1]
+
+    def test_acquisition_failure_is_canonical_when_time_is_lost_after_cleanup(self):
+        def fail_iteration():
+            with patch.object(self.f.camera.capture, "read", return_value=(False, None)):
+                return self.f.controller.run_one_iteration()
+
+        result, event = self.fail_after_cleanup(fail_iteration)
+        self.assertIn(result.error.split(": ", 1)[-1], event.details["reason"])
+
+    def test_local_fatal_is_canonical_when_time_is_lost_after_cleanup(self):
+        decision = ControllerActionDecision("fatal", "session", "failure", "source", "policy",
+                                            "session_failure", "session_fail", None)
+        _, event = self.fail_after_cleanup(
+            lambda: self.f.controller.execute_controller_action_decision(decision), action_confirmed=True)
+        self.assertEqual(event.details["reason"], "ControllerActionDecision requested Session failure")
+        message, = self.f.controller.controller_action_decision_evidence
+        self.assertEqual(message.payload, decision.to_dict())
+        self.assertTrue(self.f.ingestor.has_durable_runtime_evidence(message))
+
+    def test_local_stop_failure_is_canonical_when_time_is_lost_after_cleanup(self):
+        result, event = self.fail_after_cleanup(self.f.controller.stop_session)
+        self.assertIn("Session Time unavailable after cleanup", result.error)
+        self.assertEqual(event.details["reason"], "Session Time unavailable after cleanup")
+
+    def test_failure_retains_available_session_time(self):
+        def fail_iteration():
+            with patch.object(self.f.node, "run_one_iteration", side_effect=OSError("collection failed")):
+                return self.f.controller.run_one_iteration()
+
+        result, event = self.fail_after_cleanup(fail_iteration, timing_available=True)
+        self.assertIn("collection failed", result.error)
+        self.assertEqual(event.details["reason"], "collection failed")
+
+    def test_failure_without_active_experiment_does_not_require_session_time(self):
+        with patch.object(type(self.f.sync), "current_session_time_s", new_callable=PropertyMock,
+                          side_effect=OSError("Session Time unavailable")), \
+             patch.object(self.f.node, "run_one_iteration", side_effect=OSError("collection failed")):
+            result = self.f.controller.run_one_iteration()
+        self.assertFalse(result.succeeded)
+        self.assertIn("collection failed", result.error)
+        status = self.f.controller.get_status()
+        self.assertEqual(status["session_state"], "failed")
+        self.assertIsNone(status["active_experiment_id"])
+        self.assertEqual(status["experiment_lifecycle_evidence"], ())
+        self.assertFalse(self.f.node.status()["is_running"])
+        self.assertFalse(self.f.controller.stop_session().succeeded)
+
+    def test_unconfirmed_cleanup_remains_separate_from_canonical_failure(self):
+        self.assertTrue(self.f.start("failure").succeeded)
+        with patch.object(type(self.f.sync), "current_session_time_s", new_callable=PropertyMock,
+                          side_effect=OSError("Session Time unavailable")), \
+             patch.object(self.f.node, "run_one_iteration", side_effect=OSError("collection failed")), \
+             patch.object(self.f.local, "finalize_stream", side_effect=OSError("finalization unavailable")) as finalize:
+            result = self.f.controller.run_one_iteration()
+        self.assertFalse(result.succeeded)
+        self.assertIn("collection failed", result.error)
+        status = self.f.controller.get_status()
+        self.assertEqual(status["session_state"], "failed")
+        self.assertIsNone(status["active_experiment_id"])
+        self.assertEqual(status["experiment_lifecycle_evidence"][-1].event_type, "experiment_fail")
+        self.assertTrue(status["experiment_lifecycle_evidence"][-1].details["timing_unconfirmed"])
+        self.assertFalse(self.f.node.status()["cleanup_confirmed"])
+        self.assertEqual(finalize.call_count, 1)
+        self.assertEqual(self.f.local.manifests[0].lifecycle_state, "open")
+        self.assertTrue(Path(self.f.local.manifests[0].local_storage_path).exists())
+        self.assertIsNone(self.f.storage.get_acquisition_stage_preservation_confirmation("session"))
+
+    def test_canonical_evidence_failure_is_not_suppressed_as_a_timing_failure(self):
+        self.assertTrue(self.f.start("failure").succeeded)
+        decision = ControllerActionDecision("fatal", "session", "failure", "source", "policy",
+                                            "session_failure", "session_fail", None)
+        with patch.object(type(self.f.sync), "current_session_time_s", new_callable=PropertyMock,
+                          side_effect=OSError("Session Time unavailable")), \
+             patch("lab_sync_acquisition.session.Session.record_experiment_lifecycle",
+                   side_effect=RuntimeError("canonical evidence unavailable")):
+            result = self.f.controller.execute_controller_action_decision(decision)
+        self.assertFalse(result.succeeded)
+        self.assertIn("canonical evidence unavailable", result.error)
+        self.assertEqual(self.f.controller.get_status()["active_experiment_id"], "failure")
+        self.assertEqual([e.event_type for e in self.f.controller.get_status()["experiment_lifecycle_evidence"]],
+                         ["experiment_start"])
+
+    def test_canonical_transition_failure_is_not_suppressed_as_a_timing_failure(self):
+        self.assertTrue(self.f.start("failure").succeeded)
+        decision = ControllerActionDecision("fatal", "session", "failure", "source", "policy",
+                                            "session_failure", "session_fail", None)
+        with patch.object(type(self.f.sync), "current_session_time_s", new_callable=PropertyMock,
+                          side_effect=OSError("Session Time unavailable")), \
+             patch("lab_sync_acquisition.session.Session.fail", side_effect=RuntimeError("transition unavailable")):
+            result = self.f.controller.execute_controller_action_decision(decision)
+        self.assertFalse(result.succeeded)
+        self.assertIn("transition unavailable", result.error)
+        self.assertEqual(self.f.controller.get_status()["session_state"], "stopping")
+        self.assertIsNone(self.f.controller.get_status()["active_experiment_id"])
+        self.assertEqual([e.event_type for e in self.f.controller.get_status()["experiment_lifecycle_evidence"]],
+                         ["experiment_start", "experiment_fail"])

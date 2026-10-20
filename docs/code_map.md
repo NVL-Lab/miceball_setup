@@ -1195,7 +1195,7 @@ is complete; W030 records manual validation, focused tests, and audit reassessme
 - Controller._require_local_runtime_transition(session): Rejects local runtime work during another Experiment transition or admitted/interrupted closeout without adding ownership state.
 - Controller._record_normal_stop_failure(session, payload): Validates retained fatal evidence and the admitted Session/Experiment context before applying canonical failure without physical cleanup.
 - Controller._account_normal_stop_failure(session, payload): Uses shared fatal accounting and then confirms remote durable acceptance through the existing publication/readback contracts.
-- Controller._mark_session_failed(reason, details=None): Records canonical Session/Experiment failure and its Normal Stop retry association without invoking resource cleanup or repeating scientific finalization.
+- Controller._mark_session_failed(reason, details=None): Records canonical Session/Experiment failure with explicitly unconfirmed time when optional timing acquisition fails, retaining Normal Stop retry association without repeating resource cleanup or scientific finalization.
 - Controller._attempt_runtime_stop(): Attempts local owner cleanup only while the existing local transition guard permits it, retaining actual node cleanup status and failures.
 - Controller.stop_session: Stops runtime and scientific persistence, records normal-stop evidence for any active Experiment, and then stops the Session through its existing lifecycle.
 - Controller.initialize_session: Retains the historical direct-object workflow, with Session-authorized local storage now physically created by AcquisitionNode and criticality evaluated from selected DeviceDeclarations.
@@ -1225,7 +1225,7 @@ readback remain independent confirmation boundaries.
 | Retried fatal decision after journal failure or cancellation | Retained decision identity and closeout association; explicit acceptance retry, no duplicate cleanup | `test_fatal_acceptance_failure_retains_consequence_and_allows_explicit_retry`, `test_cancelled_normal_stop_retains_admission_and_fatal_accounting` |
 | Non-mutating local decisions | Existing evidence-only/no-cleanup behavior | `test_controller_action_decision` |
 | `stop_session`, `_attempt_runtime_stop` from start/iteration/session-failure errors | Shared admission guard at public transition and error-cleanup boundaries; Node owns resumable physical cleanup | Repeated-start/iteration overlap tests; `test_owner_finalization_failure_retains_science_and_retry_progress` |
-| `_mark_session_failed`, including launched startup/Stop and persistence-error callers | Canonical failure only; Normal Stop failure association survives explicit retry | Local fatal/error tests; selected interrupted-closeout and partial-owner-cleanup tests |
+| `_mark_session_failed`, including launched startup/Stop and persistence-error callers | Canonical failure only; optional timing failure cannot prevent Experiment/Session failure; Normal Stop association survives retry | `LocalFailureTimingTests`, launched Stop timing-loss and interrupted Normal Stop details tests; selected startup, persistence-error and partial-owner-cleanup tests |
 | `accept_experiment_expiry`, expiry reconciliation | Existing exact owner proof and deferred reconciliation during runtime transition; no competing cleanup | `test_expiry_and_fatal_decision_preserve_one_canonical_experiment_end`; selected G2 expiry regressions |
 | Local entry points versus launched Experiment transitions, Normal Stop and Kill | Existing Experiment lock and closeout ownership remain authoritative | Selected G2/G3, remote-health, fatal-overlap and interrupted Stop regressions |
 | `finalize_session`, `release_session`, maintenance, preservation consumers | Existing guards retained; legacy completion-proof correction is deferred G4-B | No G4-B changes or claim that its confirmed defect is resolved |
@@ -1235,6 +1235,21 @@ New tests are in `tests/test_local_closeout_ownership.py`. Evidence here is
 implementation verification, not independent validation or an audit. Initial
 hard-link publication, live infrastructure and arbitrary cross-thread Controller
 scheduling are not established by controlled event-loop tests.
+
+### tests/test_local_closeout_ownership.py: Failure Timing Coverage
+
+- LocalFailureTimingTests.setUp(): Reuses the local camera/HDF5 fixture with explicitly prepared, journal-backed Ingestor intake.
+- LocalFailureTimingTests.fail_after_cleanup(operation, *, action_confirmed=False, timing_available=False): Exercises post-cleanup timing loss, canonical failure, unchanged scientific data, independent preservation failure/retry and single-owner cleanup.
+- test_acquisition_failure_is_canonical_when_time_is_lost_after_cleanup: Retains the acquisition error and records one Experiment/Session failure despite unavailable time.
+- test_local_fatal_is_canonical_when_time_is_lost_after_cleanup: Confirms fatal-action execution as FAILED, preserving the exact durable decision without implying successful Session completion.
+- test_local_stop_failure_is_canonical_when_time_is_lost_after_cleanup: Resolves failed Experiment-end timing through shared failure accounting rather than leaving a running Session.
+- test_failure_retains_available_session_time: Preserves confirmed end timing and the original failure when the clock remains available.
+- test_failure_without_active_experiment_does_not_require_session_time: Fails the Session without inventing Experiment evidence or requiring a timestamp.
+- test_unconfirmed_cleanup_remains_separate_from_canonical_failure: Retains open scientific products and cleanup uncertainty despite canonical FAILED.
+- test_canonical_evidence_failure_is_not_suppressed_as_a_timing_failure: Reports evidence-recording failure without falsely clearing the active Experiment.
+- test_canonical_transition_failure_is_not_suppressed_as_a_timing_failure: Reports failed lifecycle transition without claiming successful fatal-action execution.
+- test_launched_stop_failure_accounts_for_failure_without_local_time: Preserves launched release uncertainty and binding while recording canonical failure after owner cleanup and local clock loss.
+- test_interrupted_normal_stop_preserves_fatal_details_without_time: Retains fatal context, durable processing and sole cleanup ownership across cancelled Normal Stop and explicit retry.
 
 ## src/lab_sync_acquisition/device_adapter.py
 

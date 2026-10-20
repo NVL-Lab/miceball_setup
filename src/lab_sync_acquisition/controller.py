@@ -3374,10 +3374,15 @@ class Controller:
             self._normal_stop_failure_session = session
         if session.current_state == SessionState.RUNNING:
             if self._active_experiment_id is not None:
+                try:
+                    end_time = None if normal_stop else self._current_session_time_s()
+                except Exception:
+                    # Missing timing must not suppress mandatory canonical failure.
+                    end_time = None
                 session.record_experiment_lifecycle(self._active_experiment_id, "experiment_fail",
-                    None if normal_stop else self._current_session_time_s(),
-                    {"reason": reason, **(details or {}), **({"timing_unconfirmed": True,
-                        "cleanup_owner": "normal_stop"} if normal_stop else {})})
+                    end_time, {"reason": reason, **(details or {}),
+                        **({"timing_unconfirmed": True} if end_time is None else {}),
+                        **({"cleanup_owner": "normal_stop"} if normal_stop else {})})
                 self._active_experiment_id = None
                 self._active_experiment_runtime_health_mapping = ()
             session.stop(reason=reason)
