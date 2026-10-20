@@ -454,6 +454,22 @@ class NatsCommunicationBoundary:
             )
 
 
+@dataclass
+class _RuntimeStopAttempt:
+    """Communication-owned observations for one admitted, completely identified Stop."""
+
+    command: RuntimeCommandMessage
+    resolution: str | None = None
+    observed: RuntimeCommandResultMessage | None = None
+    confirmation: RuntimeCommandResultMessage | None = None
+    invalid: bool = False
+
+    def invalidate(self):
+        self.invalid = True
+        self.observed = None
+        self.confirmation = None
+
+
 class NatsControllerCommunication:
     """Controller-side command publication and command-result consumption."""
 
@@ -464,12 +480,8 @@ class NatsControllerCommunication:
         self._maintenance_requests: list[dict[str, Any]] = []
         self._health_receivers: dict[str, list[dict[str, Any]]] = {}
         self._runtime_stop_commands: dict[tuple, RuntimeCommandMessage] = {}
-        self._runtime_stop_confirmations: dict[tuple, RuntimeCommandResultMessage | None] = {}
-        self._runtime_stop_resolutions: dict[tuple, str | None] = {}
-        self._runtime_stop_results: dict[tuple, RuntimeCommandResultMessage] = {}
-        # Same communication-lifetime retention as command_results; only admitted
-        # invalid attempts add identities, never unrelated/stale message traffic.
-        self._invalid_runtime_stop_attempts: set[tuple] = set()
+        # Same lifetime as command_results; traffic cannot invent an admitted attempt.
+        self._runtime_stop_attempts: dict[tuple, _RuntimeStopAttempt] = {}
         self._unpublished_evidence: dict[str, RuntimeEvidenceMessage] = {}
 
     @property
@@ -548,21 +560,25 @@ class NatsControllerCommunication:
             result_window_s, command_id=command_id)
 
     def _admit_runtime_stop(self, participant, command):
-        """Replace the scoped attempt before suspension; observations belong only to it."""
+        """Select a current invocation without forgetting historical attempt integrity."""
         key = (command.session_id, participant.component_type, participant.component_id)
+        identity = self._runtime_stop_attempt_identity(key, command)
+        attempt = self._runtime_stop_attempts.get(identity)
+        if attempt is not None and attempt.command.to_dict() != command.to_dict():
+            raise ValueError("Conflicting scoped Stop attempt identity")
         previous = self._runtime_stop_commands.get(key)
         if (previous is not None and previous.command_id == command.command_id
                 and previous.payload.get("request_nonce") == command.payload.get("request_nonce")):
             if previous.to_dict() != command.to_dict():
                 raise ValueError("Conflicting scoped Stop attempt identity")
             return previous
-        self._runtime_stop_commands[key] = command
-        self._runtime_stop_confirmations.pop(key, None)
-        self._runtime_stop_results.pop(key, None)
-        if self._runtime_stop_attempt_identity(key, command) in self._invalid_runtime_stop_attempts:
-            self._runtime_stop_resolutions[key] = None
+        if attempt is None:
+            self._runtime_stop_attempts[identity] = _RuntimeStopAttempt(deepcopy(command))
         else:
-            self._runtime_stop_resolutions.pop(key, None)
+            attempt.confirmation = None
+        # A historical replay gets a new invocation token. It cannot reactivate
+        # an older coroutine that was superseded while awaiting transport.
+        self._runtime_stop_commands[key] = command
         return command
 
     @staticmethod
@@ -570,11 +586,22 @@ class NatsControllerCommunication:
         return (*key, command.command_type, command.source_id, command.target_id,
                 command.command_id, command.payload.get("request_nonce"))
 
-    def _invalidate_runtime_stop(self, key, command):
-        self._invalid_runtime_stop_attempts.add(self._runtime_stop_attempt_identity(key, command))
-        self._runtime_stop_resolutions[key] = None
-        self._runtime_stop_confirmations[key] = None
-        self._runtime_stop_results.pop(key, None)
+    def _find_runtime_stop_attempt(self, subject, envelope):
+        """Identify current or historical admitted proof before full result decoding."""
+        try:
+            route = parse_runtime_subject(subject)
+        except ValueError:
+            return None
+        if not isinstance(envelope, dict) or not isinstance(envelope.get("payload"), dict):
+            return None
+        key = (route["session_id"], route["component_type"], route["component_id"])
+        fields = tuple(envelope.get(name) for name in ("session_id", "source_id", "target_id", "command_id"))
+        nonce = envelope["payload"].get("request_nonce")
+        if (any(type(value) is not str for value in (*fields, nonce))
+                or fields[0] != key[0] or fields[1] != key[2]
+                or subject != build_runtime_subject(key[0], "command_result", key[1], key[2], "stop_runtime")):
+            return None
+        return self._runtime_stop_attempts.get((*key, "stop_runtime", fields[2], fields[1], fields[3], nonce))
 
     async def _request_command(self, participant, command_type, session_id, payload,
                                result_window_s, *, command_id=None, admitted_stop=None):
@@ -619,9 +646,10 @@ class NatsControllerCommunication:
                 event.clear()
                 await asyncio.wait_for(event.wait(), max(0, deadline - asyncio.get_running_loop().time()))
             replies = [reply for reply in self._command_results if matches_attempt(reply)]
-            if (command_type == "stop_runtime" and (self._runtime_stop_commands.get(key) is not command
-                    or (key in self._runtime_stop_resolutions and self._runtime_stop_resolutions[key] is None))):
-                return None
+            if command_type == "stop_runtime":
+                attempt = self._runtime_stop_attempts[self._runtime_stop_attempt_identity(key, command)]
+                if self._runtime_stop_commands.get(key) is not command or attempt.invalid:
+                    return None
             # Delivery/result IDs may differ on duplicate publication, but the
             # owner's resolution of one attempt must remain identical.
             try:
@@ -637,10 +665,10 @@ class NatsControllerCommunication:
             if command_type == "stop_runtime":
                 # Only a callback on the actual owner/type/operation subject can
                 # establish this resolution; body correlation alone is not proof.
-                if self._runtime_stop_resolutions.get(key) not in resolutions:
+                if attempt.resolution not in resolutions:
                     result = None
                 elif result.success is True:
-                    self._runtime_stop_confirmations[key] = deepcopy(result)
+                    attempt.confirmation = deepcopy(result)
         except TimeoutError:
             return None
         finally:
@@ -673,10 +701,7 @@ class NatsControllerCommunication:
             # Both consumers observe one owned attempt, including pending-phase
             # contradictions. Handover must never replace either consumer's veto.
             requests._runtime_stop_commands = self._runtime_stop_commands
-            requests._runtime_stop_confirmations = self._runtime_stop_confirmations
-            requests._runtime_stop_resolutions = self._runtime_stop_resolutions
-            requests._runtime_stop_results = self._runtime_stop_results
-            requests._invalid_runtime_stop_attempts = self._invalid_runtime_stop_attempts
+            requests._runtime_stop_attempts = self._runtime_stop_attempts
         setup = asyncio.create_task(requests.subscribe_command_results(session_id, new_only=True,
             participant=participant, command_type=command_type,
             result_filter=lambda result: (result.payload.get("request_nonce") == nonce
@@ -866,10 +891,12 @@ class NatsControllerCommunication:
                     invalid_result_callback("Command result addressed to another requester")
                 await message.ack()
                 return
+            # Scoped request filtering must not discard integrity observations
+            # about another known attempt owned by this same issuer lifetime.
+            self._observe_runtime_stop_result(message.subject, result)
             if result_filter is not None and not result_filter(result):
                 await message.ack()
                 return
-            self._observe_runtime_stop_result(message.subject, result)
             self._command_results = self._command_results + (result,)
             event = self._command_result_events.get(result.command_id)
             if event is not None:
@@ -1018,7 +1045,9 @@ class NatsControllerCommunication:
         """Read only the scoped Stop resolution, unless a received conflict invalidated it."""
         key = (session_id, participant.component_type, participant.component_id)
         command = self._runtime_stop_commands.get(key)
-        result = self._runtime_stop_confirmations.get(key)
+        attempt = (self._runtime_stop_attempts.get(self._runtime_stop_attempt_identity(key, command))
+                   if command is not None else None)
+        result = attempt.confirmation if attempt is not None and not attempt.invalid else None
         if (command is None or result is None or command.command_type != "stop_runtime"
                 or result.command_id != command.command_id or result.session_id != session_id
                 or result.source_id != participant.component_id or result.target_id != command.source_id
@@ -1032,26 +1061,16 @@ class NatsControllerCommunication:
         """Read a current owner resolution for retry classification, not producer completion."""
         key = (session_id, participant.component_type, participant.component_id)
         command = self._runtime_stop_commands.get(key)
-        result = self._runtime_stop_results.get(key)
-        if (command is None or result is None
-                or self._runtime_stop_resolutions.get(key) is None
-                or self._runtime_stop_attempt_identity(key, command) in self._invalid_runtime_stop_attempts):
+        attempt = (self._runtime_stop_attempts.get(self._runtime_stop_attempt_identity(key, command))
+                   if command is not None else None)
+        if attempt is None or attempt.invalid or attempt.observed is None:
             return None
-        return deepcopy(result)
+        return deepcopy(attempt.observed)
 
     def _observe_runtime_stop_result(self, subject, result):
         """Invalidate an accepted scoped Stop when later delivery contradicts that attempt."""
-        try:
-            route = parse_runtime_subject(subject)
-        except ValueError:
-            return
-        key = (result.session_id, route["component_type"], route["component_id"])
-        command = self._runtime_stop_commands.get(key)
-        if (command is None or result.status not in {"succeeded", "failed"}
-                or subject != build_runtime_subject(result.session_id, "command_result", key[1], key[2], "stop_runtime")
-                or result.command_id != command.command_id or result.source_id != command.target_id
-                or result.target_id != command.source_id
-                or result.payload.get("request_nonce") != command.payload.get("request_nonce")):
+        attempt = self._find_runtime_stop_attempt(subject, result.to_dict())
+        if attempt is None or result.status not in {"succeeded", "failed"}:
             return None
         try:
             resolution = json.dumps([result.status, result.success, result.reason, result.payload],
@@ -1059,32 +1078,19 @@ class NatsControllerCommunication:
             if type(result.success) is not bool or result.success != (result.status == "succeeded"):
                 raise ValueError("Invalid Stop resolution")
         except (TypeError, ValueError):
-            self._invalidate_runtime_stop(key, command)
+            attempt.invalidate()
             return
-        if key in self._runtime_stop_resolutions and self._runtime_stop_resolutions[key] != resolution:
-            self._invalidate_runtime_stop(key, command)
-        else:
-            self._runtime_stop_resolutions[key] = resolution
-            self._runtime_stop_results.setdefault(key, deepcopy(result))
+        if attempt.resolution is not None and attempt.resolution != resolution:
+            attempt.invalidate()
+        elif not attempt.invalid:
+            attempt.resolution = resolution
+            if attempt.observed is None:
+                attempt.observed = deepcopy(result)
 
     def _reject_malformed_stop_result(self, subject, envelope):
         """Invalidate only an exactly identified Stop attempt before full decoding."""
-        try:
-            route = parse_runtime_subject(subject)
-        except ValueError:
-            return False
-        if not isinstance(envelope, dict) or not isinstance(envelope.get("payload"), dict):
-            return False
-        key = (route["session_id"], route["component_type"], route["component_id"])
-        command = self._runtime_stop_commands.get(key)
-        if (command is None
-                or subject != build_runtime_subject(key[0], "command_result", key[1], key[2], "stop_runtime")
-                or any(type(envelope.get(name)) is not type(value) or envelope.get(name) != value
-                       for name, value in (("session_id", command.session_id),
-                           ("command_id", command.command_id), ("source_id", command.target_id),
-                           ("target_id", command.source_id)))
-                or type(envelope["payload"].get("request_nonce")) is not str
-                or envelope["payload"]["request_nonce"] != command.payload.get("request_nonce")):
+        attempt = self._find_runtime_stop_attempt(subject, envelope)
+        if attempt is None:
             return False
         try:
             status = envelope["status"]
@@ -1097,8 +1103,8 @@ class NatsControllerCommunication:
             json.dumps(envelope, allow_nan=False)
             RuntimeCommandResultMessage.from_dict(envelope)
         except (ValueError, TypeError, KeyError, AttributeError):
-            self._invalidate_runtime_stop(key, command)
-            logger.warning("Malformed scoped Stop result command_id=%s", command.command_id)
+            attempt.invalidate()
+            logger.warning("Malformed scoped Stop result command_id=%s", attempt.command.command_id)
             return True
         return False
 

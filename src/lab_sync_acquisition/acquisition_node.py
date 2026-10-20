@@ -416,6 +416,14 @@ class AcquisitionNode:
         *, configuration: ExperimentConfiguration | None = None,
     ) -> ServiceReadiness:
         """Resolve explicit declarations and request empty streams before acquisition."""
+        with self._reservation_lock:
+            if not self._session_prepared and not self._running:
+                return ServiceReadiness(self._node_id or "acquisition_node", "scientific_output_preparation",
+                                        True, False, "Session runtime is not prepared or has closed")
+            self._initialization_cleanup_confirmed = False
+            return self._prepare_experiment_scientific_outputs(experiment_id, scientific_outputs, configuration)
+
+    def _prepare_experiment_scientific_outputs(self, experiment_id, scientific_outputs, configuration):
         created: list[str] = []
         try:
             outputs = tuple(scientific_outputs)
@@ -1101,8 +1109,14 @@ class AcquisitionNode:
     @service_operation()
     def stop_runtime(self) -> dict[str, Any]:
         """Stop acquisition, finalize scientific products, and retain operational evidence."""
+        with self._reservation_lock:
+            return self._stop_runtime()
+
+    def _stop_runtime(self) -> dict[str, Any]:
+        """Resume unresolved cleanup from authoritative adapter and stream states."""
         self._session_prepared = False
         self._initialization_cleanup_confirmed = False
+        self._running = False
         failures = []
         final_session_time_s = None
         try:
@@ -1110,9 +1124,11 @@ class AcquisitionNode:
                                     else self._session_time())
         except Exception as error:
             failures.append(error)
-        device_stop_results = self._runtime_device_manager.stop_all()
+        # Only RUNNING permits stop(). Other states are handled by shutdown(),
+        # whose existing contract confirms resource closure, including retries.
+        running = tuple(a for a in self._runtime_device_manager.adapters if a.state == DeviceAdapterState.RUNNING)
+        device_stop_results = DeviceManager(running).stop_all() if running else ()
         device_shutdown_results = self._runtime_device_manager.shutdown_all()
-        self._running = False
         try:
             self._finalize_prepared_scientific_outputs()
         except Exception as error:

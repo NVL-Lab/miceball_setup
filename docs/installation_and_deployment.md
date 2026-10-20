@@ -1714,6 +1714,27 @@ successful cleanup snapshot. Historical saved-Session readback does not require
 an in-memory producer cache. This correction remains pending independent
 validation and audit; G4 remains OPEN and no live-deployment validation is implied.
 
+The consolidated ownership correction also applies current cleanup proof to
+completed Normal Stop retries, local/remote binding retirement and service
+maintenance eligibility. Controller's per-participant Stop/release progress is
+shared across closeout paths: lost replies retain owner command identities and
+payloads, definitive failures permit new explicit attempts, and confirmed releases
+are not repeated. A completed cleanup phase with invalid proof remains blocked
+until fresh scoped proof is established; it is not itself a reason to repeat
+physical cleanup. Known historical malformed or contradictory Stop results remain
+invalid after supersession or exact replay, including delivery through a temporary
+requester's subscription. No durable command registry is added.
+
+Experiment admission and closeout use existing Controller serialization;
+AcquisitionNode's reservation lock joins preparation with cleanup and prevents
+post-Stop preparation from reopening resources. Device shutdown and scientific
+finalization retries resume outstanding obligations from existing owner state.
+Retained Normal Stop ownership also accounts for applicable fatal health after an
+interrupted closeout without competing cleanup. A terminal failure is not reversed
+and a partial Kill archive is not rewritten to make a later cleanup retry succeed.
+These implementation changes require independent validation and audit, not an
+operator assumption that G4 or a live deployment is validated.
+
 **Validated implementation - remote closeout (W060):** A Controller with no local
 Ingestor/StorageManager references uses its launched NATS communication plus an
 explicit `storage_participant` for `normal_stop_session()` or authorized

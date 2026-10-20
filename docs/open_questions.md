@@ -418,6 +418,32 @@ decision requires durable evidence and canonical failure accounting before it
 may be marked processed. It cannot merely be rejected as competing cleanup.
 Existing final-intake and preservation contracts remain unchanged; G4 remains OPEN.
 
+The consolidated G4 ownership correction is implemented but awaits ICC independent
+validation and a separate audit. Experiment admission cannot overlap admitted
+closeout; AcquisitionNode serializes preparation and cleanup and rejects
+preparation after runtime closure. Controller retains one per-participant
+Stop/release progress record across Normal Stop, health cleanup and Kill, while
+current scoped producer proof independently gates completed Normal Stop retries,
+binding release and maintenance eligibility. Uncertain owner operations retain
+their command identity; definitive failures permit a new explicit attempt.
+Known historical Stop contradictions and identifiable malformed results remain
+invalid across supersession, temporary-request filtering and exact replay without
+invalidating an independent fresh attempt. Cleanup retries use existing adapter
+and scientific-stream states to resume unfinished obligations, not repeat
+completed device transitions. Preserved partial Kill archives remain immutable;
+later cleanup does not imply newly confirmed preservation. This changes neither
+accepted architecture nor G4's OPEN status.
+
+Implementation verification for this consolidated correction passed 166 distinct
+test methods across focused controlled-asyncio runs (19 new lifecycle-integrity
+methods plus directly affected confirmation, health, binding-release and G2/G3
+regressions; repeated runs are not added). This is not independent validation or
+an audit. Disk-backed checks exercise existing identical handoff readback, not
+initial hard-link promotion; previously Windows-permission-blocked archival tests
+are not claimed as passing. Live NATS, hardware, real OS signals, power loss,
+Controller restart recovery and normal Windows asynchronous scheduling remain
+outside this verification.
+
 ### Blocks
 
 * Fatal/warning health behavior

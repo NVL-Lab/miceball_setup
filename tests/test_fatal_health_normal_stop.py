@@ -6,7 +6,7 @@ from dataclasses import replace
 import unittest
 from unittest.mock import patch
 
-from lab_sync_acquisition import RuntimeEvidenceMessage
+from lab_sync_acquisition import RuntimeEvidenceMessage, RuntimeParticipant
 from lab_sync_acquisition.nats_communication import DurablePublicationError
 from tests import test_distributed_session_closeout as closeout_fixtures
 from tests.test_producer_publication_completion import interpretation
@@ -62,11 +62,13 @@ class FatalHealthNormalStopTests(unittest.IsolatedAsyncioTestCase):
 
     async def reject_wrong_synchronization_reply(self, *, fatal):
         original = self.f.broker.publish
+        attempted = []
 
         async def redirect(subject, data, stream):
             command = json.loads(data)
             if (stream == "LAB_COMMANDS" and command["command_type"] == "stop_runtime"
                     and command["target_id"] == "sync"):
+                attempted.append(command["command_id"])
                 command["command_type"] = "check_readiness"
                 subject = subject.rsplit(".", 1)[0] + ".check_readiness"
                 data = json.dumps(command).encode()
@@ -90,8 +92,26 @@ class FatalHealthNormalStopTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(len(self.node_stops()), 1)
             self.assertFalse(any(c["command_type"] == "kill" for c in self.f.broker.commands))
             with patch.object(self.closeout.storage, "write_acquisition_stage", side_effect=OSError("archive unavailable")):
+                # The redirected request occupied this ID at the owner. An
+                # uncertain retry must first obtain its definitive rejection.
+                rejected = await self.closeout.stop()
+                self.assertFalse(rejected.succeeded)
+                self.assertFalse(rejected.details["preservation_confirmed"])
+                self.assertFalse(self.f.controller._acquisition_marker_confirmed)
+                self.assertIsNone(self.f.controller._acquisition_marker)
+                publication.assert_not_awaited()
+                resolution = self.f.communication.runtime_stop_resolution(
+                    RuntimeParticipant("synchronization_manager", "sync"), self.f.sid)
+                self.assertIsNotNone(resolution)
+                self.assertEqual(resolution.command_id, attempted[0])
+                self.assertEqual((resolution.status, resolution.success), ("failed", False))
+                self.assertIn("Conflicting synchronization command identity", resolution.reason)
                 retried = await self.closeout.stop()
             publication.assert_awaited_once()
+            stops = [c for c in self.f.broker.commands if c["target_id"] == "sync"
+                     and c["command_type"] == "stop_runtime"]
+            self.assertEqual(stops[0]["command_id"], attempted[0])
+            self.assertNotEqual(stops[1]["command_id"], attempted[0])
             self.assertTrue(self.f.controller._acquisition_marker_confirmed)
             self.assertFalse(retried.succeeded)
             self.assertFalse(retried.details["preservation_confirmed"])
