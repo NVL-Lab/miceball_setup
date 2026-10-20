@@ -175,7 +175,7 @@ class Controller:
         self._normal_stop_task: asyncio.Task[Any] | None = None
         self._normal_stop_failure_session: Session | None = None
         self._normal_stop_experiment_id: str | None = None
-        self._normal_stop_cleanup: dict[str, Any] | None = None
+        self._runtime_cleanup_progress: dict[str, Any] | None = None
         self._kill_closeout_session: Session | None = None
         self._kill_closeout: dict[str, Any] | None = None
         self._experiment_operation_lock = asyncio.Lock()
@@ -216,7 +216,7 @@ class Controller:
                 if self._kill_closeout_session is not session:
                     self._kill_closeout_session = session
                     self._kill_closeout = {"session_id": session.session_id, "reason": reason,
-                        "participants": [], "command_ids": {},
+                        "participants": [],
                         "uncertainties": [{"reason": "Complete acquisition receipt is unconfirmed"}]}
                 self._normal_stop_task = asyncio.current_task()
                 admitted = True
@@ -242,10 +242,7 @@ class Controller:
                     continue
                 outcome = {"participant": participant.to_dict(), "cleanup_confirmed": False}
                 try:
-                    result = await communication.request_runtime_command(participant, "stop_runtime",
-                        session.session_id, {}, result_window_s,
-                        command_id=self._kill_closeout["command_ids"].setdefault(
-                            (participant.component_type, participant.component_id), uuid4().hex))
+                    result = await self._request_cleanup_stop(session, participant, result_window_s)
                     outcome["cleanup_confirmed"] = (result is not None and result.success is True
                         and result.status == "succeeded")
                     outcome["result"] = result.to_dict() if result is not None else None
@@ -444,7 +441,7 @@ class Controller:
         return current
 
     def _refresh_kill_cleanup(self, session, outcomes):
-        """Retain partial Kill preservation without overstating current owner cleanup proof."""
+        """Refresh health/Kill cleanup claims without overstating current owner proof."""
         for item in outcomes:
             if item["cleanup_confirmed"]:
                 participant = RuntimeParticipant.from_dict(item["participant"])
@@ -536,9 +533,8 @@ class Controller:
                         continue
                     outcome = {"participant": participant.to_dict(), "cleanup_confirmed": False}
                     try:
-                        result = await communication.request_runtime_command(participant, "stop_runtime",
-                            session.session_id, {}, window, command_id=json.dumps(
-                                [session.session_id, "kill_stop", participant.component_id]))
+                        result = await self._request_cleanup_stop(session, participant, window,
+                            initial_command_id=json.dumps([session.session_id, "kill_stop", participant.component_id]))
                         outcome["cleanup_confirmed"] = result is not None and result.success is True
                         outcome["result"] = result.to_dict() if result else None
                     except Exception as error:
@@ -1419,32 +1415,26 @@ class Controller:
             return self._record_failed_command("stop_session", RuntimeError("Normal Stop is in progress"))
         self._runtime_cleanup_confirmed = False
         outcomes = []
-        if self._normal_stop_cleanup is None:
-            self._normal_stop_cleanup = {"session_id": session.session_id, "nodes": {}}
-        progress = self._normal_stop_cleanup
-        if progress["session_id"] != session.session_id:
-            raise RuntimeError("Normal Stop progress belongs to another Session")
         for participant in self._reserved_participants:
             # Allocate before dispatch. A lost result, including cancellation in
             # unsubscribe, retries the owner's cached operation with a fresh nonce.
-            node = progress["nodes"].setdefault((participant.component_type, participant.component_id),
-                {"stop_command_id": uuid4().hex, "release_command_id": uuid4().hex, "released": False})
+            node = self._cleanup_step(session, participant)
             try:
-                result = self._launch_communication.session_acquisition_completion(participant, session.session_id)
-                if result is None:
-                    result = await self._launch_communication.request_runtime_command(participant, "stop_runtime",
-                        session.session_id, {}, self._launch_result_window_s, command_id=node["stop_command_id"])
+                result = await self._request_cleanup_stop(session, participant, self._launch_result_window_s)
                 if self._session is not session:
                     raise RuntimeError("Controller Session changed during Normal Stop")
                 if result is None or result.success is not True:
                     raise RuntimeError("Node stop/local finalization unconfirmed")
                 node["stop_command_id"] = result.command_id
                 if not node["released"]:
+                    if node.pop("release_failed", False):
+                        node["release_command_id"] = uuid4().hex
                     release = await self._launch_communication.request_runtime_command(participant, "release_reservation",
                         session.session_id, {}, self._launch_result_window_s, command_id=node["release_command_id"])
                     if self._session is not session:
                         raise RuntimeError("Controller Session changed during reservation release")
                     if release is None or release.success is not True or release.payload.get("confirmed") is not True:
+                        node["release_failed"] = release is not None and release.status == "failed" and release.success is False
                         raise RuntimeError("Reservation release unconfirmed")
                     node["released"] = True
                 outcomes.append({"participant": participant.to_dict(), "released": True})
@@ -1478,6 +1468,34 @@ class Controller:
         self._runtime_cleanup_confirmed = True
         return self._record_successful_command("stop_session", {"session_id": session.session_id,
             "session_state": session.current_state.value, "nodes": outcomes})
+
+    def _cleanup_step(self, session, participant, initial_command_id=None):
+        """Own each Session participant's cleanup identity independently of a coroutine."""
+        if self._session is not session:
+            raise RuntimeError("Controller Session changed during cleanup")
+        if self._runtime_cleanup_progress is None:
+            self._runtime_cleanup_progress = {"session_id": session.session_id, "participants": {}}
+        progress = self._runtime_cleanup_progress
+        if progress["session_id"] != session.session_id:
+            raise RuntimeError("Cleanup progress belongs to another Session")
+        return progress["participants"].setdefault((participant.component_type, participant.component_id),
+            {"stop_command_id": initial_command_id or uuid4().hex,
+             "release_command_id": uuid4().hex, "released": False})
+
+    async def _request_cleanup_stop(self, session, participant, window, *, initial_command_id=None):
+        """Reuse uncertain/successful owner work; a confirmed failure permits a new explicit attempt."""
+        step = self._cleanup_step(session, participant, initial_command_id)
+        communication = self._launch_communication
+        completed = communication.session_acquisition_completion(participant, session.session_id)
+        if completed is not None:
+            step["stop_command_id"] = completed.command_id
+            return completed
+        resolution = communication.runtime_stop_resolution(participant, session.session_id)
+        if (resolution is not None and resolution.command_id == step["stop_command_id"]
+                and resolution.status == "failed" and resolution.success is False):
+            step["stop_command_id"] = uuid4().hex
+        return await communication.request_runtime_command(participant, "stop_runtime", session.session_id,
+            {}, window, command_id=step["stop_command_id"])
 
     def _synchronization_participant(self) -> RuntimeParticipant:
         participants = [p for p in self._require_session().configuration.expected_runtime_participants
@@ -1966,9 +1984,11 @@ class Controller:
                 # reservations or admit Kill as a consequence of a health policy.
                 for participant in (*self._reserved_participants, self._synchronization_participant()):
                     try:
-                        await asyncio.wait_for(self._request_launched_runtime(participant, "stop_runtime", {}),
-                                               self._launch_result_window_s)
-                        outcomes.append({"participant": participant.to_dict(), "cleanup_confirmed": True})
+                        result = await asyncio.wait_for(self._request_cleanup_stop(session, participant,
+                            self._launch_result_window_s), self._launch_result_window_s)
+                        outcomes.append({"participant": participant.to_dict(),
+                            "cleanup_confirmed": result is not None and result.success is True,
+                            "result": result.to_dict() if result else None})
                     except Exception as error:
                         outcomes.append({"participant": participant.to_dict(), "cleanup_confirmed": False,
                                          "error": str(error)})
@@ -1984,7 +2004,7 @@ class Controller:
                     session.stop("ControllerActionDecision requested Session failure")
                 if session.current_state == SessionState.STOPPING:
                     session.fail("ControllerActionDecision requested Session failure")
-                self._runtime_cleanup_confirmed = bool(outcomes) and all(o["cleanup_confirmed"] for o in outcomes)
+                self._refresh_kill_cleanup(session, outcomes)
                 details = {"controller_decision": action, "session_state": session.current_state.value,
                     "participant_outcomes": outcomes, "cleanup_confirmed": self._runtime_cleanup_confirmed,
                     "preservation_confirmed": False, "binding_retained": True}
@@ -2567,7 +2587,7 @@ class Controller:
         self._distributed_closeout = None
         self._normal_stop_failure_session = None
         self._normal_stop_experiment_id = None
-        self._normal_stop_cleanup = None
+        self._runtime_cleanup_progress = None
         self._active_experiment_runtime_health_mapping = ()
         self._command_results.clear()
 

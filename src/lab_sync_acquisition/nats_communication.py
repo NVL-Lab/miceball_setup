@@ -100,6 +100,8 @@ class NatsCommunicationBoundary:
         self._dependency_result_observer = None
         self.maintenance_command_handled: Callable[[RuntimeCommandMessage, RuntimeCommandResultMessage], None] | None = None
         self._pending_dependent_deliveries = {}
+        self._partial_result_subscriptions: dict[Subscription, NATS] = {}
+        self._partial_result_cleanup_task: asyncio.Task | None = None
 
     @property
     def connected(self) -> bool:
@@ -169,6 +171,75 @@ class NatsCommunicationBoundary:
         """Synchronize pending Core NATS protocol operations with the server."""
 
         await self._require_client().flush()
+
+    async def _subscribe_command_results(self, subject, callback, **options):
+        """Own SDK result subscriptions even when construction raises before returning a handle."""
+        await self._finish_partial_result_subscriptions()
+        jetstream = self._require_jetstream()
+        try:
+            return await jetstream.subscribe(subject, cb=callback, manual_ack=True, **options)
+        except BaseException:
+            # nats-py registers the Core subscription before awaiting SUB/flush.
+            # Manual ACK preserves this exact callback identity; never collect
+            # another concurrent request's interest or the client's reply inbox.
+            if isinstance(jetstream, JetStreamContext):
+                client = jetstream._nc
+                for subscription in tuple(client._subs.values()):
+                    if subscription._cb is callback:
+                        self._partial_result_subscriptions[subscription] = client
+            try:
+                await self._finish_partial_result_subscriptions()
+            except BaseException:
+                logger.warning("Partial result subscription cleanup was interrupted or failed")
+            raise
+
+    async def _finish_partial_result_subscriptions(self):
+        """Join partial subscription cleanup; unresolved handles stay owned for explicit retry."""
+        if not self._partial_result_subscriptions and self._partial_result_cleanup_task is None:
+            return
+
+        async def cleanup():
+            errors = []
+            processed = set()
+            while any(sub not in processed for sub in self._partial_result_subscriptions):
+                for subscription, client in tuple(self._partial_result_subscriptions.items()):
+                    if subscription in processed:
+                        continue
+                    processed.add(subscription)
+                    try:
+                        if not subscription._closed:
+                            await subscription.unsubscribe()
+                    except BaseException as error:
+                        errors.append(error)
+                    callback_task = subscription._wait_for_msgs_task
+                    if subscription._closed and callback_task is not None:
+                        await asyncio.gather(callback_task, return_exceptions=True)
+                    if (subscription._closed and subscription._id not in client._subs
+                            and (callback_task is None or callback_task.done())):
+                        self._partial_result_subscriptions.pop(subscription, None)
+            if errors:
+                raise errors[0]
+
+        if self._partial_result_cleanup_task is not None and self._partial_result_cleanup_task.done():
+            self._partial_result_cleanup_task = None
+        if self._partial_result_cleanup_task is None:
+            self._partial_result_cleanup_task = asyncio.create_task(cleanup())
+        task = self._partial_result_cleanup_task
+        cancelled = False
+        try:
+            while not task.done():
+                try:
+                    await asyncio.shield(task)
+                except asyncio.CancelledError:
+                    cancelled = True
+            task.result()
+        finally:
+            if task.done() and self._partial_result_cleanup_task is task:
+                self._partial_result_cleanup_task = None
+        if self._partial_result_subscriptions:
+            raise RuntimeError("Partial result subscription cleanup remains unconfirmed")
+        if cancelled:
+            raise asyncio.CancelledError()
 
     async def ensure_streams(self) -> None:
         """Provision disjoint runtime filters without replacing existing streams."""
@@ -395,6 +466,10 @@ class NatsControllerCommunication:
         self._runtime_stop_commands: dict[tuple, RuntimeCommandMessage] = {}
         self._runtime_stop_confirmations: dict[tuple, RuntimeCommandResultMessage | None] = {}
         self._runtime_stop_resolutions: dict[tuple, str | None] = {}
+        self._runtime_stop_results: dict[tuple, RuntimeCommandResultMessage] = {}
+        # Same communication-lifetime retention as command_results; only admitted
+        # invalid attempts add identities, never unrelated/stale message traffic.
+        self._invalid_runtime_stop_attempts: set[tuple] = set()
         self._unpublished_evidence: dict[str, RuntimeEvidenceMessage] = {}
 
     @property
@@ -483,8 +558,23 @@ class NatsControllerCommunication:
             return previous
         self._runtime_stop_commands[key] = command
         self._runtime_stop_confirmations.pop(key, None)
-        self._runtime_stop_resolutions.pop(key, None)
+        self._runtime_stop_results.pop(key, None)
+        if self._runtime_stop_attempt_identity(key, command) in self._invalid_runtime_stop_attempts:
+            self._runtime_stop_resolutions[key] = None
+        else:
+            self._runtime_stop_resolutions.pop(key, None)
         return command
+
+    @staticmethod
+    def _runtime_stop_attempt_identity(key, command):
+        return (*key, command.command_type, command.source_id, command.target_id,
+                command.command_id, command.payload.get("request_nonce"))
+
+    def _invalidate_runtime_stop(self, key, command):
+        self._invalid_runtime_stop_attempts.add(self._runtime_stop_attempt_identity(key, command))
+        self._runtime_stop_resolutions[key] = None
+        self._runtime_stop_confirmations[key] = None
+        self._runtime_stop_results.pop(key, None)
 
     async def _request_command(self, participant, command_type, session_id, payload,
                                result_window_s, *, command_id=None, admitted_stop=None):
@@ -585,6 +675,8 @@ class NatsControllerCommunication:
             requests._runtime_stop_commands = self._runtime_stop_commands
             requests._runtime_stop_confirmations = self._runtime_stop_confirmations
             requests._runtime_stop_resolutions = self._runtime_stop_resolutions
+            requests._runtime_stop_results = self._runtime_stop_results
+            requests._invalid_runtime_stop_attempts = self._invalid_runtime_stop_attempts
         setup = asyncio.create_task(requests.subscribe_command_results(session_id, new_only=True,
             participant=participant, command_type=command_type,
             result_filter=lambda result: (result.payload.get("request_nonce") == nonce
@@ -791,10 +883,9 @@ class NatsControllerCommunication:
                 await callback(result)
             await message.ack()
 
-        return await self._boundary._require_jetstream().subscribe(
+        return await self._boundary._subscribe_command_results(
             subject,
-            cb=receive,
-            manual_ack=True,
+            receive,
             **({"config": ConsumerConfig(deliver_policy=DeliverPolicy.NEW,
                                          ack_policy=AckPolicy.EXPLICIT)} if new_only else {}),
         )
@@ -936,6 +1027,18 @@ class NatsControllerCommunication:
             return None
         return deepcopy(result)
 
+    def runtime_stop_resolution(self, participant: RuntimeParticipant,
+                                session_id: str) -> RuntimeCommandResultMessage | None:
+        """Read a current owner resolution for retry classification, not producer completion."""
+        key = (session_id, participant.component_type, participant.component_id)
+        command = self._runtime_stop_commands.get(key)
+        result = self._runtime_stop_results.get(key)
+        if (command is None or result is None
+                or self._runtime_stop_resolutions.get(key) is None
+                or self._runtime_stop_attempt_identity(key, command) in self._invalid_runtime_stop_attempts):
+            return None
+        return deepcopy(result)
+
     def _observe_runtime_stop_result(self, subject, result):
         """Invalidate an accepted scoped Stop when later delivery contradicts that attempt."""
         try:
@@ -956,14 +1059,13 @@ class NatsControllerCommunication:
             if type(result.success) is not bool or result.success != (result.status == "succeeded"):
                 raise ValueError("Invalid Stop resolution")
         except (TypeError, ValueError):
-            self._runtime_stop_resolutions[key] = None
-            self._runtime_stop_confirmations[key] = None
+            self._invalidate_runtime_stop(key, command)
             return
         if key in self._runtime_stop_resolutions and self._runtime_stop_resolutions[key] != resolution:
-            self._runtime_stop_resolutions[key] = None
-            self._runtime_stop_confirmations[key] = None
+            self._invalidate_runtime_stop(key, command)
         else:
             self._runtime_stop_resolutions[key] = resolution
+            self._runtime_stop_results.setdefault(key, deepcopy(result))
 
     def _reject_malformed_stop_result(self, subject, envelope):
         """Invalidate only an exactly identified Stop attempt before full decoding."""
@@ -995,8 +1097,7 @@ class NatsControllerCommunication:
             json.dumps(envelope, allow_nan=False)
             RuntimeCommandResultMessage.from_dict(envelope)
         except (ValueError, TypeError, KeyError, AttributeError):
-            self._runtime_stop_resolutions[key] = None
-            self._runtime_stop_confirmations[key] = None
+            self._invalidate_runtime_stop(key, command)
             logger.warning("Malformed scoped Stop result command_id=%s", command.command_id)
             return True
         return False
