@@ -152,6 +152,35 @@ Do not force unrelated logic into a generic helper just to reuse code.
 
 ---
 
+# Impact Analysis And Invariant Enforcement
+
+Before changing existing behavior, complete the proportional impact and
+invariant-coverage review required by
+[the authoritative workflow](docs/architecture_chat_workflow.md#pre-implementation-impact-and-invariant-review)
+and obtain ICC scope review and implementation authorization before coding.
+
+* Trace affected callers, consumers, and alternate execution paths, including
+  relevant failure, retry, and local/distributed paths.
+* Identify the existing authoritative mechanisms enforcing the relevant
+  invariants, including enforcement introduced by earlier corrections.
+* Prefer coherent enforcement through those mechanisms over accumulating
+  entry-point-specific patches, parallel state, or special-case fallbacks.
+* Identify obsolete, duplicated, or superseded code; remove or consolidate it
+  when equivalent behavior and coverage can be demonstrated safely within the
+  authorized scope.
+* Preserve checks at genuinely independent trust, concurrency, or
+  state-transition boundaries, explaining why they are not redundant.
+* Do not retain unnecessary defensive checks merely because earlier corrections
+  introduced them.
+* Do not remove apparently unused code without establishing its reachability,
+  callers, and architectural obligations.
+
+Keep the analysis proportional to the change and preserve Reuse Before Adding
+and Simplicity First. Missing or conflicting architectural requirements must be
+reported through the existing clarification workflow, not resolved in code.
+
+---
+
 # Code Map Must Be Maintained
 
 The repository should maintain:
@@ -312,6 +341,13 @@ The GUI itself belongs elsewhere.
 # Testing Expectations
 
 Tests should verify architectural promises, not only code behavior.
+
+For defect corrections, reproduce confirmed failures with appropriate regression
+tests before modifying production behavior whenever feasible. If reproduction
+before the correction is not feasible, explain the limitation. Tests must check
+relevant externally observable behavior and authoritative state through public
+interfaces, not merely successful return values or internal implementation
+details.
 
 Important examples:
 
@@ -535,6 +571,11 @@ When reporting completed work:
 - Prefer simple workflow tests over architecture-policing tests.
 - Vertical-slice tests should read like user workflows.
 - Minimize information required for manual verification in IPython.
+- For implementation affecting existing behavior, include the proportional impact,
+  invariant-coverage, and code consolidation assessment required by
+  [Implementation Reporting](docs/architecture_chat_workflow.md#implementation-reporting),
+  with entry-point coverage, corrections, retained earlier patches and reasons,
+  remaining gaps, and selected tests, rationale, and results.
 
 # Public API reporting
 

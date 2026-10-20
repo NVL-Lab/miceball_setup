@@ -79,6 +79,8 @@ or acceptance.
 - Receives accepted architecture from LLC and coordinates documentation
   synchronization before implementation.
 - Prepares Codex implementation instructions and reviews implementation reports.
+- Reviews the proposed scope against the pre-implementation impact and
+  invariant-coverage analysis before authorizing implementation.
 - May inspect code to understand implementation, assess reports, and plan
   independent validation.
 - Coordinates independent manual IPython validation, independent audits, and
@@ -116,6 +118,8 @@ distinct stages, not alternate names for the same check.
 ```text
 Accepted architecture
     -> Documentation synchronization
+    -> Proportional impact and invariant-coverage review
+    -> ICC scope review and implementation authorization
     -> Codex implementation and automated tests
     -> ICC review of Codex report
     -> Independent manual IPython validation
@@ -128,6 +132,51 @@ No implementation begins before accepted architecture is synchronized. ICC revie
 the implementation report before manual validation. Documentation-only tasks do
 not automatically require implementation validation, but must preserve accepted
 architecture and authorized scope.
+
+## Pre-Implementation Impact And Invariant Review
+
+Before changes affecting existing behavior or architectural contracts, Codex must
+complete an impact and invariant-coverage review that:
+
+- Identifies the accepted requirements and invariants affected by the change.
+- Traces relevant public entry points, internal callers, state transitions,
+  failure handlers, retries, and local/distributed variants.
+- Identifies producers and consumers of affected state, authority, and evidence.
+- Distinguishes paths that already enforce the invariant, delegate to shared
+  enforcement, or require correction.
+- Identifies existing tests and meaningful coverage gaps.
+- Separates confirmed defects from suspected risks and unrelated issues.
+- Establishes a coherent proposed implementation boundary before coding.
+
+Review depth must be proportional to the change. Simple, isolated changes need
+only a concise assessment, not a framework-wide inventory or large matrix.
+Cross-cutting lifecycle, concurrency, persistence, and distributed-state changes
+require broader analysis of the affected paths and boundaries.
+
+ICC must review the proposed implementation scope against this analysis before
+authorizing implementation. Missing or conflicting architectural requirements
+follow the existing LLC/HLC clarification process below; scope review does not
+authorize new architecture. Codex's engineering obligations for enforcement,
+consolidation, and regression reproduction are defined in
+[AGENTS.md](../AGENTS.md#impact-analysis-and-invariant-enforcement).
+
+## Implementation Reporting
+
+Implementation work affecting existing behavior must include a concise report of:
+
+- The impact and invariant-coverage assessment, entry points examined, and their
+  enforcement coverage.
+- Confirmed defects and corrections, distinguished from suspected risks and
+  unrelated issues.
+- A code consolidation assessment: existing mechanisms reused, redundant code
+  removed or consolidated, and earlier patches retained with reasons.
+- Remaining gaps and limitations, including complexity or cleanup outside the
+  authorized scope.
+- Tests selected, their impact-based rationale, and actual results.
+
+Report depth must remain proportional to the change. Trivial changes do not
+require lengthy reports or large matrices. These reports do not replace
+independent manual validation, independent audit, or the existing closure rules.
 
 ## Handling Architectural Conflicts
 
