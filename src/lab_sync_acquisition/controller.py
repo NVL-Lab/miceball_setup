@@ -2011,10 +2011,7 @@ class Controller:
             if action not in {"experiment_fail", "session_fail"}:
                 return self._record_successful_command(name,
                     {"controller_decision": action, "lifecycle_mutated": False})
-            if (action == "session_fail" and self._kill_closeout_session is not session
-                    and not (self._distributed_closeout or {}).get("kill", False)
-                    and (self._normal_stop_task is not None or self._normal_stop_failure_session is session
-                         or self._acquisition_marker_session is session)):
+            if action == "session_fail" and self._normal_stop_owns_cleanup(session):
                 overlapping = True
                 return await self._account_normal_stop_failure(session, payload)
             async with self._experiment_operation_lock:
@@ -2072,24 +2069,33 @@ class Controller:
                 {"participant_outcomes": outcomes, "outcome_unconfirmed": True,
                  **({"health_processing_confirmed": False} if overlapping else {})})
 
-    async def _account_normal_stop_failure(self, session, payload):
-        """Account for fatal health without taking over the admitted cleanup."""
+    def _normal_stop_owns_cleanup(self, session):
+        """Recognize admitted or interrupted Normal Stop without treating Kill as Normal Stop."""
+        return (self._kill_closeout_session is not session
+            and not (self._distributed_closeout or {}).get("kill", False)
+            and (self._normal_stop_task is not None or self._normal_stop_failure_session is session
+                 or self._acquisition_marker_session is session))
+
+    def _require_local_runtime_transition(self, session):
+        """Reject local resource work once another runtime transition or closeout owns it."""
+        if (self._session is not session or self._normal_stop_task is not None
+                or self._acquisition_marker_session is session or self._experiment_operation_lock.locked()):
+            raise RuntimeError("Session closeout or runtime transition owns cleanup")
+
+    def _record_normal_stop_failure(self, session, payload):
+        """Apply one retained fatal decision's canonical consequence, without resource cleanup."""
         if (self._session is not session or self._acquisition_marker_session is not session
                 or session.current_state not in {SessionState.RUNNING, SessionState.STOPPING, SessionState.FAILED}
                 or payload.get("experiment_id") not in {None, self._normal_stop_experiment_id}):
             raise RuntimeError("Fatal decision does not match the admitted Normal Stop context")
-        self._normal_stop_failure_session = session
-        if self._active_experiment_id is not None:
-            session.record_experiment_lifecycle(self._active_experiment_id, "experiment_fail", None,
-                {**payload, "timing_unconfirmed": True, "cleanup_owner": "normal_stop"})
-            self._active_experiment_id = None
-            self._active_experiment_runtime_health_mapping = ()
-        if session.current_state == SessionState.RUNNING:
-            session.stop("Fatal health during Normal Stop")
-        if session.current_state == SessionState.STOPPING:
-            session.fail("Fatal health during Normal Stop")
         evidence = next(message for message in self.controller_action_decision_evidence
                         if message.session_id == session.session_id and message.payload == payload)
+        self._mark_session_failed("Fatal health during Normal Stop", payload)
+        return evidence
+
+    async def _account_normal_stop_failure(self, session, payload):
+        """Confirm remote durable acceptance after shared canonical fatal accounting."""
+        evidence = self._record_normal_stop_failure(session, payload)
         window = self._launch_result_window_s
         await asyncio.wait_for(self._launch_communication.publish_evidence(evidence), window)
         ingestors = [p for p in session.configuration.expected_runtime_participants if p.component_type == "ingestor"]
@@ -2129,7 +2135,25 @@ class Controller:
                 raise RuntimeError(
                     f"ControllerActionDecision is not executable in Phase 8b: {decision.controller_decision}"
                 )
-            self._record_action_decision(decision)
+            overlapping = decision.controller_decision == "session_fail" and self._normal_stop_owns_cleanup(session)
+            try:
+                self._record_action_decision(decision)
+            finally:
+                # Retained decisions still have a canonical consequence if local
+                # journal acceptance fails; only confirmed acceptance permits success.
+                if overlapping:
+                    evidence = self._record_normal_stop_failure(session, decision.to_dict())
+            if overlapping:
+                if self._ingestor is None:
+                    raise RuntimeError("Local fatal accounting requires authoritative Ingestor acceptance")
+                if not self._ingestor.has_durable_runtime_evidence(evidence):
+                    self._ingestor.receive_runtime_evidence(evidence)
+                if not self._ingestor.has_durable_runtime_evidence(evidence):
+                    raise RuntimeError("Fatal decision durable acceptance is unconfirmed")
+                return {"controller_decision": "session_fail", "session_state": "failed",
+                    "cleanup_owner": "normal_stop", "health_processing_confirmed": True,
+                    "durable_acceptance_confirmed": True, "preservation_confirmed": False,
+                    "binding_retained": True}
             if decision.controller_decision in {
                 "record_only",
                 "record_warning",
@@ -2168,6 +2192,7 @@ class Controller:
                 )
                 return evidence
             if decision.controller_decision == "session_fail":
+                self._require_local_runtime_transition(session)
                 self._attempt_runtime_stop()
                 self._mark_session_failed(
                     "ControllerActionDecision requested Session failure"
@@ -2207,6 +2232,7 @@ class Controller:
 
         def command() -> dict[str, Any]:
             session = self._require_session()
+            self._require_local_runtime_transition(session)
             session.initialize(
                 device_readiness_summary=device_readiness_summary,
                 service_readiness=service_readiness,
@@ -2221,10 +2247,14 @@ class Controller:
         """Start runtime first, then move Session lifecycle to running."""
 
         session = self._require_session()
-        if self._ingestor is None:
-            return self._record_failed_command(
-                "start_session", RuntimeError("Local Session start requires an explicit Ingestor reference")
-            )
+        try:
+            self._require_local_runtime_transition(session)
+            if session.current_state != SessionState.INITIALIZED:
+                raise RuntimeError("Session must be initialized before start")
+            if self._ingestor is None:
+                raise RuntimeError("Local Session start requires an explicit Ingestor reference")
+        except Exception as error:
+            return self._record_failed_command("start_session", error)
         self._runtime_cleanup_confirmed = False
         try:
             runtime_result = self._acquisition_node.start_runtime()
@@ -2248,6 +2278,13 @@ class Controller:
     def run_one_iteration(self) -> ControllerCommandResult:
         """Run one bounded AcquisitionNode runtime iteration."""
 
+        try:
+            session = self._require_session()
+            self._require_local_runtime_transition(session)
+            if session.current_state != SessionState.RUNNING:
+                raise RuntimeError("Acquisition requires a running Session")
+        except Exception as error:
+            return self._record_failed_command("run_one_iteration", error)
         try:
             summary = self._acquisition_node.run_one_iteration()
             if self._acquisition_node.status()["failed"]:
@@ -2282,6 +2319,7 @@ class Controller:
         def command() -> dict[str, Any]:
             nonlocal rejection_details
             session = self._require_session()
+            self._require_local_runtime_transition(session)
             if not isinstance(configuration, ExperimentConfiguration):
                 raise ValueError("An explicit ExperimentConfiguration is required")
             accepted_configuration = ExperimentConfiguration.from_dict(configuration.to_dict())
@@ -2443,8 +2481,12 @@ class Controller:
         """Stop runtime cleanup first, then move Session to stopping."""
 
         session = self._require_session()
-        if self._normal_stop_task is not None:
-            return self._record_failed_command("stop_session", RuntimeError("Normal Stop is in progress"))
+        try:
+            self._require_local_runtime_transition(session)
+            if session.current_state != SessionState.RUNNING:
+                raise RuntimeError("Session stop requires a running Session")
+        except Exception as error:
+            return self._record_failed_command("stop_session", error)
         self._runtime_cleanup_confirmed = False
         try:
             runtime_result = self._acquisition_node.stop_runtime()
@@ -3298,6 +3340,10 @@ class Controller:
         return False
 
     def _attempt_runtime_stop(self) -> None:
+        try:
+            self._require_local_runtime_transition(self._require_session())
+        except RuntimeError:
+            return
         self._runtime_cleanup_confirmed = False
         try:
             self._acquisition_node.stop_runtime()
@@ -3309,6 +3355,7 @@ class Controller:
         self, experiment_id: str, event_type: str, details: dict[str, Any] | None = None,
         *, end_time_unconfirmed: bool = False,
     ) -> dict[str, Any]:
+        self._require_local_runtime_transition(self._require_session())
         evidence = self._require_session().record_experiment_lifecycle(
             experiment_id, event_type, None if end_time_unconfirmed else self._current_session_time_s(), details,
         )
@@ -3319,14 +3366,20 @@ class Controller:
         self._acquisition_node.finalize_experiment_scientific_outputs(experiment_id)
         return evidence.to_dict()
 
-    def _mark_session_failed(self, reason: str) -> None:
+    def _mark_session_failed(self, reason: str, details: dict[str, Any] | None = None) -> None:
+        """Record canonical failure; the invoking runtime owner retains physical cleanup."""
         session = self._require_session()
+        normal_stop = self._normal_stop_owns_cleanup(session)
+        if normal_stop:
+            self._normal_stop_failure_session = session
         if session.current_state == SessionState.RUNNING:
             if self._active_experiment_id is not None:
-                try:
-                    self._end_experiment(self._active_experiment_id, "experiment_fail", {"reason": reason})
-                except Exception as error:
-                    self._record_failed_command("finalize_experiment_cleanup", error)
+                session.record_experiment_lifecycle(self._active_experiment_id, "experiment_fail",
+                    None if normal_stop else self._current_session_time_s(),
+                    {"reason": reason, **(details or {}), **({"timing_unconfirmed": True,
+                        "cleanup_owner": "normal_stop"} if normal_stop else {})})
+                self._active_experiment_id = None
+                self._active_experiment_runtime_health_mapping = ()
             session.stop(reason=reason)
         if session.current_state in {SessionState.INITIALIZED, SessionState.STOPPING}:
             session.fail(reason=reason)

@@ -444,6 +444,31 @@ are not claimed as passing. Live NATS, hardware, real OS signals, power loss,
 Controller restart recovery and normal Windows asynchronous scheduling remain
 outside this verification.
 
+**G4-A local ownership remediation (implemented; pending ICC validation/audit):**
+Local Session initialization/start, bounded iteration and Experiment transitions
+now respect the existing admitted/interrupted closeout association and runtime
+transition lock. Invalid requests are rejected before resource side effects.
+Local fatal-health execution shares Decision 406 context validation and canonical
+failure accounting with the launched executor; exact durable local Ingestor
+acceptance is required before confirming health processing. Retained decisions
+can retry acceptance after failure without competing cleanup. Canonical failure
+no longer invokes a second scientific finalization after runtime-owner cleanup.
+No additional lifecycle state, ownership cache or cleanup service was added.
+The entry-point/test matrix is in `docs/code_map.md`, with permanent regressions
+in `tests/test_local_closeout_ownership.py`.
+
+G4-A verification passed 75 distinct focused methods, including 14 new methods;
+the two new synchronous methods also passed without event-loop modifications
+using a workspace-permitted temporary directory. Async checks used controlled
+SelectorEventLoop scheduling, not normal Windows scheduling. Two older Controller
+tests failed identically against unmodified HEAD because they omit the mandatory
+Experiment configuration; they were not changed or counted as passes. Two existing
+archival-success tests remain blocked by Windows hard-link permission failures
+and are not counted as passing. Live NATS, hardware, OS signals and physical
+power-loss behavior remain unverified. G4-A awaits ICC validation and independent
+audit. G4-B (legacy completion proof) and G4-C (startup/rollback correlation) remain
+outstanding; G4 and Q013 remain OPEN.
+
 ### Blocks
 
 * Fatal/warning health behavior

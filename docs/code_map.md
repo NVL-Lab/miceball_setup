@@ -30,7 +30,7 @@ Runtime duration extension remains deferred; broader milestones stay open.
 - SynchronizationManager.local_deadline_for_session_time(session_time_s): Translates a deadline for co-located users of its running authoritative clock; constructor unchanged.
 - Controller.start_launched_experiment(..., configuration=None, storage_participant=None): Requires per-Experiment capacity and synchronized common-deadline activation over existing NATS boundaries; constructor unchanged.
 - Controller.start_experiment(..., configuration=None): Applies local capacity/preparation and resolves post-start activation errors as experiment_fail with explicit scientific-cleanup confirmation.
-- Controller._end_experiment(experiment_id, event_type, details=None, *, end_time_unconfirmed=False): Clears local active context and finalizes products after canonical termination, optionally preserving an unconfirmed end time without another clock read.
+- Controller._end_experiment(experiment_id, event_type, details=None, *, end_time_unconfirmed=False): Requires local transition admission before canonical termination, context clearing and scientific finalization, optionally preserving an unconfirmed end time without another clock read.
 - Controller.accept_experiment_expiry(message): Requires the exact captured activation mapping/deadline plus matching source/Session/Experiment/duration/finality before canonical reconciliation.
 - Controller._remember_experiment_deadline(node_id, experiment_id, deadline): Validates and retains one activation deadline against canonical configuration, common start and synchronization mapping.
 - Controller.reconcile_launched_experiment_expiry(experiment_id): Reads missed owner expiry proof without replaying acquisition or ending a Session.
@@ -1189,14 +1189,52 @@ is complete; W030 records manual validation, focused tests, and audit reassessme
 - Controller.start_experiment: Accepts keyword-only `scientific_outputs=()`, `preparation_readiness=()`, and `preparation_outcomes=()`, gates start on required readiness and correlated final remote successes, and reports preparation rejection once as persistent runtime evidence in failed result details without lifecycle activation.
 - Controller._record_failed_command: Records an unsuccessful command with optional plain diagnostic details, including the produced rejection message for a pre-start preparation failure.
 - Controller.stop_experiment: Records canonical normal-stop evidence, clears active runtime context and health mapping, and requests finalization of only that Experiment's streams without stopping the Session or acquisition runtime.
-- Controller.execute_controller_action_decision: Records persistent evidence for an externally supplied accepted decision once, then executes unchanged no-mutation or failure semantics, finalizing Experiment streams for `experiment_fail` and retaining the failed-Session cleanup path for `session_fail`.
+- Controller.execute_controller_action_decision(decision): Executes local accepted consequences, requiring durable local Ingestor acceptance and shared canonical failure accounting rather than competing cleanup when Normal Stop owns the Session.
 - Controller.execute_launched_controller_action_decision(decision): Executes recorded health/timing consequences through launched owners, or accounts for fatal failure during admitted Normal Stop through durable decision acceptance and canonical failure without competing cleanup, keeping preservation and release obligations separate.
+- Controller._normal_stop_owns_cleanup(session): Recognizes the existing admitted/interrupted Normal Stop association while excluding local and distributed Kill.
+- Controller._require_local_runtime_transition(session): Rejects local runtime work during another Experiment transition or admitted/interrupted closeout without adding ownership state.
+- Controller._record_normal_stop_failure(session, payload): Validates retained fatal evidence and the admitted Session/Experiment context before applying canonical failure without physical cleanup.
+- Controller._account_normal_stop_failure(session, payload): Uses shared fatal accounting and then confirms remote durable acceptance through the existing publication/readback contracts.
+- Controller._mark_session_failed(reason, details=None): Records canonical Session/Experiment failure and its Normal Stop retry association without invoking resource cleanup or repeating scientific finalization.
+- Controller._attempt_runtime_stop(): Attempts local owner cleanup only while the existing local transition guard permits it, retaining actual node cleanup status and failures.
 - Controller.stop_session: Stops runtime and scientific persistence, records normal-stop evidence for any active Experiment, and then stops the Session through its existing lifecycle.
 - Controller.initialize_session: Retains the historical direct-object workflow, with Session-authorized local storage now physically created by AcquisitionNode and criticality evaluated from selected DeviceDeclarations.
-- Controller.start_session(): Requires an explicit Ingestor reference before local runtime startup, then starts acquisition, starts the Session, and writes the initial Session Record through existing persistence.
+- Controller.start_session(): Requires local transition admission, initialized canonical state and an explicit Ingestor before runtime startup, then starts the Session and writes its initial record.
+- Controller.run_one_iteration(): Rejects non-running or closeout-owned local iteration requests before collection and preserves the existing cleanup/failure path for actual acquisition errors.
 - Controller._session_record_evidence(): Gathers Session configuration, lifecycle, readiness, cleanup, command failures and Experiment evidence without duplicating the operational Evidence Archive or scientific observations in the Session Record.
 - Controller._require_kill_runtime_coverage(session_id, record): Requires matching Session identity and exact current operational evidence/all-audit archival coverage under existing intake/preservation guards before Kill reconfirmation or release.
 - Controller._session_ingest_state(): Captures current operational messages and the complete intake audit for finalization/release race detection without obsolete scientific-envelope counters.
+
+### G4-A Local Entry-Point Coverage (Implementation, Not Validation Or Closure)
+
+The local admission guard reuses the existing closeout association and Experiment
+lock. Interrupted closeout remains fenced without another cache or lifecycle flag.
+The failure recorder changes canonical evidence only; callers remain responsible
+for runtime cleanup. Both health executors share Normal Stop context validation
+and canonical accounting, while local journal acceptance and remote acceptance
+readback remain independent confirmation boundaries.
+
+| Local entry point / indirect caller | Existing invariant enforcement | Public-behavior coverage |
+| --- | --- | --- |
+| `create_session` | Existing binding rejects another Session; no physical work | `test_controller` bounded Session workflow; binding remains retained in local overlap tests |
+| `initialize_session`, `start_session` | Shared local transition guard; start also checks initialized state before side effects | `test_local_experiment_transitions_and_initialization_cannot_escape_closeout`, `test_repeated_local_start_does_not_take_over_cleanup`, `test_repeated_start_preserves_recording_and_a_subsequent_experiment` |
+| `run_one_iteration` | Shared admission/state checks precede collection and error cleanup | `test_late_iteration_after_owner_cleanup_does_not_stop_again`, `test_iteration_failure_request_during_cleanup_is_rejected_before_collection`, `test_iteration_failure_still_cleans_up_when_no_closeout_is_admitted` |
+| `start_experiment` preparation/activation and activation-error cleanup | Admission precedes preparation; existing activation-failure handling remains; `_end_experiment` enforces ownership at finalization | `test_cancelled_normal_stop_retains_admission_and_fatal_accounting`; existing `LocalActivationFailureTests` |
+| `stop_experiment`, `_end_experiment`, local `experiment_fail` | Finalization cannot take over an admitted closeout | `test_local_experiment_transitions_and_initialization_cannot_escape_closeout`, `test_experiment_failure_decision_cannot_finalize_for_the_stop_owner` |
+| Local `session_fail` | Shared Normal Stop context/canonical accounting; exact durable local acceptance before processing success | `test_local_fatal_uses_normal_stop_owner_and_durable_failure`, `test_mismatched_fatal_context_never_takes_cleanup_ownership`, `test_unconfirmed_durable_acceptance_cannot_confirm_health_processing` |
+| Retried fatal decision after journal failure or cancellation | Retained decision identity and closeout association; explicit acceptance retry, no duplicate cleanup | `test_fatal_acceptance_failure_retains_consequence_and_allows_explicit_retry`, `test_cancelled_normal_stop_retains_admission_and_fatal_accounting` |
+| Non-mutating local decisions | Existing evidence-only/no-cleanup behavior | `test_controller_action_decision` |
+| `stop_session`, `_attempt_runtime_stop` from start/iteration/session-failure errors | Shared admission guard at public transition and error-cleanup boundaries; Node owns resumable physical cleanup | Repeated-start/iteration overlap tests; `test_owner_finalization_failure_retains_science_and_retry_progress` |
+| `_mark_session_failed`, including launched startup/Stop and persistence-error callers | Canonical failure only; Normal Stop failure association survives explicit retry | Local fatal/error tests; selected interrupted-closeout and partial-owner-cleanup tests |
+| `accept_experiment_expiry`, expiry reconciliation | Existing exact owner proof and deferred reconciliation during runtime transition; no competing cleanup | `test_expiry_and_fatal_decision_preserve_one_canonical_experiment_end`; selected G2 expiry regressions |
+| Local entry points versus launched Experiment transitions, Normal Stop and Kill | Existing Experiment lock and closeout ownership remain authoritative | Selected G2/G3, remote-health, fatal-overlap and interrupted Stop regressions |
+| `finalize_session`, `release_session`, maintenance, preservation consumers | Existing guards retained; legacy completion-proof correction is deferred G4-B | No G4-B changes or claim that its confirmed defect is resolved |
+| Launch/start rollback response consumption | Existing implementation unchanged | Wrong-operation rollback correction is deferred G4-C |
+
+New tests are in `tests/test_local_closeout_ownership.py`. Evidence here is
+implementation verification, not independent validation or an audit. Initial
+hard-link publication, live infrastructure and arbitrary cross-thread Controller
+scheduling are not established by controlled event-loop tests.
 
 ## src/lab_sync_acquisition/device_adapter.py
 
