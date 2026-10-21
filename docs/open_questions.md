@@ -148,9 +148,27 @@ General acceptance requirements for new devices are not yet defined.
 
 **Accepted GUI/application direction:** Decisions 397-399 require per-animal
 Session identity, reusable editable templates, and preservation of actual executed
-configuration independently of its template. They do not settle authoritative
-metadata ownership or propagation. Q008 remains OPEN; no GUI/configuration
-implementation is established by those decisions.
+configuration independently of its template. Decisions 409-411 additionally
+settle editable application catalog ownership, historical Session metadata,
+lab/personal template editing rules and immutable historical configuration.
+Q008 remains OPEN; no GUI/configuration implementation is established here.
+
+The application catalog contains experimenters, projects, project-local animals
+and templates. A project has one primary experimenter, but records the actual
+Session experimenter separately when different. Cross-project animal copies are
+independent. Selected context enters authoritative Session history at creation;
+later catalog edits cannot change it. GUI catalog ownership does not transfer
+scientific-record ownership to GUI or Controller.
+
+Lab templates are shared immutable references; personal templates are owner-
+editable and overwritable. Copies of another experimenter's configuration are
+independent by default. Working edits may be saved as new personal templates,
+overwrite an owned personal template, or remain unsaved before or after an
+Experiment. Templates may cover Sessions or selected Experiment types; some
+Experiments need none. Reusable templates, working configuration, accepted
+execution configuration and immutable history are distinct. Different Experiments
+may use different configurations; whole-Session template reconstruction is not
+required. No project-sharing or permissions infrastructure is authorized.
 
 ### Why this matters
 
@@ -186,13 +204,14 @@ these settled selection and launch semantics are not Q008 schema questions.
 * What is the policy for declaring and applying defaults?
 * How are accepted configuration values propagated to runtime owners?
 * What vocabulary and structure should be used for `DeviceDeclaration.declared_capabilities`?
-* Who owns experimenter, project, and animal identities/metadata, and which values
-  enter authoritative Session records?
-* Who owns, shares, and persists reusable templates, and how are modified
-  templates distinguished from actual executed configuration?
+* How are catalog identities, persistence and transfer represented, and which
+  concrete relevant metadata fields enter historical Session records?
+* How are lab/personal templates persisted and transferred under their accepted
+  editing rules, and how are working, accepted and historical values represented?
+* Which settings belong in Session templates versus Experiment templates?
 * How is accepted configuration propagated to the relevant runtime owners?
 
-HLC continues the metadata/configuration discussion. These questions do not
+Remaining low-level metadata/configuration contracts require accepted design. They do not
 reopen accepted installation settings or Session/device configuration boundaries.
 
 ### Blocks
@@ -257,25 +276,58 @@ rewrite earlier products or recorded inputs of completed operations.
 
 ## Q029: What contracts deliver authorized scientific results to the GUI?
 
-**Status:** OPEN - Decision 404 accepts command-authority/result-delivery directions,
-not a detailed transport or trust contract.
+**Status:** OPEN - Decision 404 accepts command-authority/result-delivery directions;
+Decisions 412-413 settle GUI independence, reconnection and exclusive control,
+not detailed transport, trust or authority mechanisms.
+
+GUI connectivity loss cannot establish operation success/failure or trigger
+automatic repetition. Reopening retrieves authoritative Session/operation state;
+backend restart must permit reconnection without operational service restarts.
+Each deployment has one controlling GUI, with Cancel or Take Over for a new
+connection. Successful takeover invalidates old command authority without the
+old GUI's cooperation; recovery of that GUI cannot restore authority by itself.
+Operations continue during takeover. Independent deployments remain independent.
 
 - How are Controller-authorized requests correlated with direct AcquisitionNode-to-GUI results?
 - How are intended recipients identified and authorized?
 - What happens when the GUI disconnects before receiving a result?
 - Which existing NATS contracts can be reused, and what limited extensions are needed?
+- How is current authoritative state retrieved after browser/backend recovery?
+- How are controlling connections identified and authority transferred or fenced
+  without relying on the superseded GUI? No identity, lease, heartbeat, fencing
+  or stale-instance mechanism has been selected.
 
 Specific NATS request/result or publish/subscribe designs, detailed authorization,
-correlation, and reconnect behavior are proposals only. Occasional small plots
+correlation, and detailed reconnect mechanisms are proposals only. Occasional small plots
 and structured results do not authorize continuous imaging, general inter-node
 scientific streaming, or a broad transport-recovery/permissions infrastructure.
 
 ## Q030: What GUI presentation and deployment design implements the accepted functional areas?
 
 **Status:** OPEN - Decisions 396 and 398 accept a framework-client GUI direction
-and conceptual Services, Setup, and Experiment / Run areas, not a concrete design.
+and conceptual Services, Setup, and Experiment / Run areas; Decisions 409-413
+add catalog/template, history, reconnect and takeover requirements, not a concrete
+presentation or deployment implementation.
 
-Detailed Services presentation, readiness/status polling, maintenance interaction,
+The UI must distinguish immutable lab references, editable personal templates,
+working edits and immutable execution history, and offer Cancel or Take Over
+when another controlling GUI connects. No simultaneous multi-GUI control,
+secondary monitoring GUI or physical browser termination is required. The GUI
+is not the sole holder of execution history/provenance. How these requirements
+are presented and packaged remains open; Q008 tracks configuration contracts
+and Q029 tracks communication and command-authority mechanisms.
+
+Decisions 414-418 now require a permanently accessible Services tab, automatic
+status refresh (configurable default 10 seconds), trust-based administrator mode,
+inspectable obligations and persistent operational warnings/history. Administrator
+mode hides administrative controls from ordinary experimenter mode but is not a
+security boundary or operation authorization. Existing normal scientific controls
+remain available; service maintenance is distinct from Session Kill. Detailed
+control placement, confirmation presentation and dismissal interaction remain
+open. See Q031-Q033 for unsettled technical contracts and independent Experiment
+Kill; no GUI feature is implemented or validated by these decisions.
+
+Detailed Services presentation, status-refresh mechanisms, maintenance interaction,
 GUI deployment, frontend/backend packaging, programming technologies, layouts,
 and widgets remain unresolved. Browser accessibility is preferred, not an approved
 technology stack. See [GUI design notes](gui_design_notes.md) for explicitly
@@ -284,6 +336,54 @@ shutdown contracts remain authoritative; no GUI implementation is claimed.
 
 General historical Analysis, broad online processing, inter-node scientific
 streaming, and a generic workflow engine remain outside the initial accepted scope.
+
+---
+
+## Q031: How is GUI service-status freshness established?
+
+**Status:** OPEN - Decision 414 accepts refresh behavior, not its technical contract.
+
+- Which existing readiness queries and announcements supply each configured
+  service's current or last-known status and confirmation timestamp?
+- What freshness, timeout and invalid-response rules distinguish confirmed
+  availability, stale status, unknown availability and confirmed problems?
+- How do configurable periodic refresh (default 10 seconds) and prompt incoming
+  updates reconcile without stale results replacing newer authoritative reports?
+
+Preserve Decisions 284/328. Announcements alone do not establish proactive
+disappearance detection. No framework heartbeat, registry, monitoring service or
+guaranteed detection latency is selected. Q030 retains presentation choices.
+
+## Q032: How are GUI operational warnings delivered, associated and retrieved?
+
+**Status:** OPEN - Decisions 417-418 accept warnings and reviewable Session history,
+not a complete retrieval or notification interface.
+
+- How are health/readiness/operational evidence and decisions correlated to the
+  affected Session/Experiment, including historical and resolved conditions?
+- How are warnings delivered and reconciled after disconnect, retry or takeover
+  without duplicate scientific actions or false resolution?
+- Which existing authoritative persistent records can be queried for complete
+  Session-associated warning/error history, and what retrieval contract is missing?
+- How is notification minimization/dismissal represented without erasing evidence,
+  hiding all unresolved critical indication or discharging obligations?
+
+GUI cannot classify scientific lifecycle failure independently or terminate
+operations. Persistent evidence is not assumed to be an implemented queryable
+warning-history API. No GUI scientific log, duplicate archive or general
+event-history subsystem is authorized. Q029 retains transport/authority details;
+Q030 retains presentation and Q024 service-owned recovery work.
+
+## Q033: Is independent Experiment Kill required, and what would it mean?
+
+**Status:** OPEN - HLC question, not an accepted scientific lifecycle operation.
+
+Decision 415 preserves existing Session Kill under Decisions 360/365 and ordinary
+Experiment Stop; it does not establish independent Experiment Kill. Whether such
+an operation is needed, its distinction from Session Kill, command authority,
+authorization, lifecycle consequence, scientific finalization and cleanup behavior
+require explicit accepted architecture. Do not implement or infer those semantics
+from GUI controls or service-level Kill.
 
 ---
 

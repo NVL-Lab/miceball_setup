@@ -11997,6 +11997,230 @@ for the preserved blocker and audit history.
 
 ---
 
+## Decision 409: Editable application catalogs are separate from historical Session metadata
+
+**Status:** Accepted
+
+This and Decisions 410-413 record the user-accepted HLC/LLC handoff "GUI
+Configuration, Metadata, and Recovery Decisions". They supplement Decisions
+396-405; recording them does not establish implemented or validated GUI behavior.
+
+The GUI/application maintains an editable catalog of experimenters, projects,
+animals and templates. Each project has one primary experimenter; other
+experimenters may conduct Sessions under that project, with the actual Session
+experimenter recorded separately when different. Animals belong to individual
+projects. Copying an animal to another project creates an independent record;
+cross-project biological identity tracking is unnecessary.
+
+At Session creation, the selected project, animal, experimenter and relevant
+metadata become part of authoritative historical Session records. Later catalog
+edits cannot change that history. The GUI owns the editable catalog, not
+authoritative scientific history; Controller does not become the scientific
+metadata owner. No project-sharing infrastructure or permissions system is
+authorized. Persistence, identity representation and transfer contracts remain
+open under Q008. This clarifies the metadata deferrals in Decisions 397 and 399
+without changing existing scientific-record ownership.
+
+---
+
+## Decision 410: Lab reference templates and personal templates have distinct editing rules
+
+**Status:** Accepted
+
+Lab templates are shared immutable reference configurations. Experimenters may
+copy them but cannot overwrite them. Personal templates belong to individual
+experimenters and may be created, copied, edited and overwritten by their owners.
+Copying another experimenter's configuration produces an independent copy by
+default. These rules clarify Decision 399's editable-template direction without
+authorizing a permissions infrastructure.
+
+Templates may apply to Sessions or selected Experiment types; not every
+Experiment requires one. Before or after an Experiment, an experimenter may load
+and modify a working configuration, save it as a new personal template, overwrite
+an existing personal template, or continue without saving. The exact division
+of Session and Experiment template settings remains unresolved in Q008, as do
+their persistence, identity and transfer contracts. No schema or runtime
+component is selected here.
+
+---
+
+## Decision 411: Historical execution configuration is independent of templates and working edits
+
+**Status:** Accepted
+
+Distinguish reusable templates, editable working configuration, accepted execution
+configuration and immutable historical configuration. Completed Experiment
+configurations describe what actually ran and cannot be altered by later edits.
+Session history likewise remains independent of template changes. Different
+Experiments in one Session may use different configurations. No whole-Session
+template reconstruction requirement is accepted.
+
+This clarifies Decisions 399-400 without selecting configuration schemas or
+runtime components. Existing deployment-local configuration, SessionConfig,
+device configuration and AcquisitionNode storage-root authority remain unchanged
+(including Decisions 234, 298, 368-370 and 394). Historical scientific records
+retain existing persistence ownership; application template ownership does not
+transfer that authority to GUI or Controller. Remaining representation and
+propagation contracts stay open under Q008.
+
+---
+
+## Decision 412: GUI disconnection and backend restart do not terminate scientific operations
+
+**Status:** Accepted
+
+Browser closure, freezing or disconnection must not automatically interrupt
+running Sessions, Experiments, Analyses or framework services. Reopening the GUI
+retrieves authoritative current Session and operation state. Connectivity loss
+is neither operation success nor failure and must not trigger automatic
+scientific-operation repetition. GUI backend restart must permit reconnection
+without restarting Controller or other operational services.
+
+The GUI must not be the sole holder of authoritative execution history or
+scientific provenance. This extends GUI independence in Decisions 304, 314 and
+396, preserving existing Session/Experiment lifecycle and scientific-record
+contracts. It establishes no new service-restart or general lifecycle-recovery
+policy. Q029/Q030 retain low-level state retrieval, result delivery, correlation
+and reconnection design; Analysis execution contracts remain open in Q026.
+
+---
+
+## Decision 413: Each deployment has one controlling GUI with non-disruptive takeover
+
+**Status:** Accepted
+
+Each framework deployment permits one active controlling GUI connection. When
+another GUI attempts to connect, offer Cancel or Take Over. Successful takeover
+invalidates the previous GUI's command authority without depending on that GUI
+responding. A recovered superseded GUI cannot resume control without obtaining
+authority again. Takeover must not interrupt running scientific operations or
+services. Independent deployments have independent controlling GUIs.
+
+Simultaneous multi-GUI control, a secondary monitoring GUI and physical termination
+of the previous browser are not required. No ownership, identity, fencing, lease,
+heartbeat or stale-instance mechanism is selected. These remain low-level
+questions under Q029/Q030. Controller command authority (Decision 404), service
+ownership and GUI-independent lifetimes remain unchanged. This decision does
+not implement control authority or authorize a new lifecycle authority.
+
+---
+
+## Decision 414: A permanently accessible Services tab presents configured services and refreshed status
+
+**Status:** Accepted
+
+This and Decisions 415-418 record the user-accepted HLC/LLC handoff "Services
+Tab, Administrative Controls, and Operational Warnings". They supplement
+Decisions 396-405 and 409-413 without claiming GUI implementation or validation.
+Decision 398's functional-area direction is now specifically supplemented by
+a permanently accessible Services tab; other layout and technology choices
+remain unresolved.
+
+Show all configured framework services with authoritative current or last-known
+readiness/status, the most recent confirmation timestamp, relevant dependencies
+and known operational problems. Provide readiness-check and startup guidance,
+identify unavailable dependencies and explain affected operations. Services are
+independently started and managed: GUI does not launch, supervise or own processes.
+
+Automatically refresh service status at a configurable default interval of
+10 seconds. Relevant incoming framework status updates the affected presentation
+promptly. Distinguish confirmed current readiness, stale/last-known readiness,
+unknown availability and confirmed operational problems. A disappeared service
+cannot remain labeled currently confirmed available when checks no longer
+establish availability. Preserve Decisions 284 and 328: readiness announcements
+do not already provide proactive disappearance detection. No new framework
+heartbeat, registry, monitoring service or guaranteed detection latency is
+authorized. Freshness, query, timeout and announcement contracts remain open
+in Q031; presentation details remain in Q030.
+
+---
+
+## Decision 415: Trust-based administrator mode exposes existing administrative operations
+
+**Status:** Accepted
+
+Provide a selectable administrator user/mode without passwords or login
+infrastructure. Administrative controls are hidden in ordinary experimenter
+mode. This prevents accidental action; it is not a security boundary. Selecting
+the mode does not authorize an operation or satisfy its technical prerequisites.
+
+Expose existing service Stop/Kill/Cancel, general framework shutdown and supported
+recovery/abandonment operations. Preserve explicit operation authorization,
+affected scope, safety checks, command identity, service-specific Kill and truthful
+outcomes under Decisions 304-346 and 385. No authentication, role-management or
+new framework authorization infrastructure is authorized.
+
+Ordinary experimenters retain applicable normal Session/Experiment operations,
+including established Stop/Kill controls. Distinguish Session Kill from service
+Kill, framework shutdown and administrative recovery/abandonment. Session Kill
+and its active-Experiment consequences remain governed by Decisions 360 and 365.
+An independent Experiment Kill is not established; its command, lifecycle,
+authorization and cleanup semantics require HLC resolution in Q033. Detailed
+administrative presentation remains open under Q030.
+
+---
+
+## Decision 416: Outstanding obligations are inspectable while recovery remains service-owned
+
+**Status:** Accepted
+
+All experimenters may inspect known outstanding service obligations. Administrator
+mode may expose existing supported choices to authorize recovery attempts, leave
+obligations unresolved or record administrative abandonment. Distinguish the
+responsible service, affected scope, known facts, uncertainty, supported versus
+undefined procedures, authorization, attempted action, confirmed outcome,
+remaining obligations and evidence preservation.
+
+Partial artifact preservation and resource cleanup are separate obligations.
+Abandonment implies neither recovery, safe reuse, completed cleanup nor deletion.
+Services retain assessment, current safety checks and execution authority under
+Decisions 332-346; GUI invents no recovery algorithms, automatic retries or
+recovery manager. Unsupported procedures must not be presented as available.
+This accepts the corresponding GUI requirements formerly proposed in the
+Services design notes, not new service interfaces. Q030 retains detailed controls
+and Q024 retains outstanding recovery implementation work.
+
+---
+
+## Decision 417: Operational warnings remain visible without acquiring lifecycle authority
+
+**Status:** Accepted
+
+Problems affecting active Sessions or Experiments generate prominent warnings
+in Experiment/Run. A persistent warning indicator remains visible throughout the
+GUI, including Setup and Services. Distinguish confirmed failures, unknown
+availability, historical reports and framework-confirmed resolution. A service
+problem is not automatically an Experiment failure without an authoritative
+lifecycle consequence. GUI must not independently terminate scientific operations.
+
+Reuse existing health, readiness, operational evidence, ControllerActionDecision
+and lifecycle contracts, including Decisions 113-114 and 407-408. Notification
+delivery, correlation and reconciliation remain open under Q032. This introduces
+no new lifecycle state, monitoring subsystem or scientific command.
+
+---
+
+## Decision 418: Session warning history survives notification dismissal
+
+**Status:** Accepted
+
+Experiment/Run provides reviewable history of Session-associated warnings and
+errors, including resolved conditions. Experimenters may minimize or dismiss
+prominent notifications. Dismissal must not erase historical evidence, hide all
+indication of unresolved critical conditions, imply technical resolution,
+authorize recovery or discharge obligations. Indicators change according to
+authoritative framework-confirmed information.
+
+Existing persistent evidence does not necessarily provide a complete queryable
+Session warning-history interface. Retrieval, Session association and dismissal
+reconciliation remain open in Q032. Do not create a GUI-owned scientific log,
+duplicate archive or general event-history subsystem. Existing scientific
+finalization, Stage A/Stage B preservation and immutable-intake contracts under
+Decisions 360, 365 and 382 remain unchanged. Recording this requirement neither
+implements history retrieval nor reopens finalized evidence.
+
+---
+
 # Accepted Architectural Principles
 
 The following principles summarize the accepted decisions so far.

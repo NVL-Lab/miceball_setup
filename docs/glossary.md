@@ -1309,7 +1309,42 @@ The Acquisition Node records protocol execution.
 
 The larger scientific study or collection of related Sessions.
 
-A Project may contain many Sessions. Project orchestration is not implemented in the current framework.
+A Project may contain many Sessions. Under Decision 409 its editable application
+catalog record has one primary experimenter and project-local animals; another
+actual Session experimenter is recorded separately. Copying an animal to another
+project creates an independent record. Selected context becomes immutable
+historical Session metadata at creation, independently of later catalog edits.
+Project orchestration is not implemented in the current framework.
+
+---
+
+# Lab And Personal Templates
+
+Application-owned reusable starting configurations (Decision 410). Lab templates
+are shared immutable references that may be copied, not overwritten. Personal
+templates belong to an experimenter who may create, copy, edit or overwrite them.
+Copies of another experimenter's configuration are independent by default.
+Session versus Experiment template settings remain unresolved in Q008.
+
+---
+
+# Working And Historical Configuration
+
+Editable working configuration is distinct from reusable templates, accepted
+execution configuration and immutable historical configuration (Decision 411).
+Historical Experiment configuration describes what actually ran; later working
+or template edits cannot change it or Session history. These distinctions select
+no configuration schema or runtime component.
+
+---
+
+# Controlling GUI Connection
+
+The single active GUI command-authority connection for a framework deployment
+(Decision 413). Take Over invalidates previous GUI command authority without
+requiring its response or interrupting operations. Recovery of a superseded GUI
+does not restore authority. Identity and authority-transfer mechanisms remain
+open under Q029/Q030; no implementation is claimed.
 
 ---
 

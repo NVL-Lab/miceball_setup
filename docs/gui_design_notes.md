@@ -7,7 +7,7 @@ proposals. GUI implementation belongs outside this repository.
 
 ## Accepted Functional Direction
 
-**Status:** User-accepted architecture in Decisions 396-405; documentation only,
+**Status:** User-accepted architecture in Decisions 396-405 and 409-413; documentation only,
 not implemented or software-validated GUI/Analysis functionality.
 
 - The GUI is a general-purpose framework client. The complete scientific workflow
@@ -18,13 +18,17 @@ not implemented or software-validated GUI/Analysis functionality.
   concerns connectivity/readiness/status/maintenance; Setup concerns identities,
   templates, configuration and products; Run concerns guided scientific steps,
   plots, selections, calibration, progress and results.
+  Decision 414 subsequently requires the permanently accessible Services tab
+  specifically; the remaining tab count and layout are still unresolved.
 - One Session corresponds to one animal and may contain Experiments, Analyses,
   Validation and interactions. Successive animals must not require restarting
   GUI/services; existing closeout and resource-reuse obligations still apply.
 - The application owns protocols and editable reusable templates. Steps may be
   scientific operations, Validation, preparation, annotations or review, not
   necessarily Experiments. Actual executed configuration is preserved independently
-  of its starting template. Metadata ownership remains unresolved in Q008.
+  of its starting template. Decisions 409-411 settle catalog and template rules;
+  detailed persistence, identities, transfer and configuration contracts remain
+  unresolved in Q008.
 - Analysis is lightweight, Session-scoped, and identified by `analysis_id`, not
   a fabricated Experiment. Execution success is distinct from scientific result
   acceptance/selection. Preserve all attempts/results and the actual inputs used
@@ -38,7 +42,7 @@ not implemented or software-validated GUI/Analysis functionality.
 - Commands follow GUI application -> Controller -> AcquisitionNode; requested small
   plots/structured results may flow AcquisitionNode -> GUI application/backend
   without Controller payload relay. Ingestor is not a visualization relay. Detailed
-  transport, recipient authorization, correlation and disconnect contracts remain
+  transport, recipient authorization, correlation and reconnect mechanisms remain
   open; shared paths/overwritten PNGs are not the general result transport.
 - Time-critical acquisition/closed-loop execution is independent of browser,
   Controller and network round trips. Framework services remain GUI-independent.
@@ -54,6 +58,46 @@ or a specified Suite2p/CaBMI integration interface. Legacy GUI/MATLAB code is a
 scientific/UX reference, not architectural authority. Decimated cursor display
 remains a future possibility, not authorization for general scientific streaming.
 
+### Accepted Catalog, Configuration And Recovery Requirements
+
+Decisions 409-413 supplement the functional direction without implementing it:
+
+- The application owns an editable experimenter/project/animal/template catalog.
+  Projects have one primary experimenter; another actual Session experimenter is
+  recorded separately. Animals are project-local; cross-project copies are
+  independent, without biological identity tracking across projects. Selected
+  metadata enters authoritative Session history at creation and cannot be changed
+  by later catalog edits. GUI catalog ownership is not scientific-history ownership
+  and does not make Controller the scientific metadata owner.
+- Lab templates are shared immutable references that experimenters may copy, not
+  overwrite. Personal templates are owned, creatable, copyable, editable and
+  overwritable by their experimenter. Copying someone else's configuration makes
+  an independent copy by default. Before or after an Experiment, working edits
+  may become a new personal template, overwrite an owned template or stay unsaved.
+- Templates may concern Sessions or selected Experiment types; not every Experiment
+  needs one. Reusable templates, working configuration, accepted execution values
+  and immutable historical configuration are distinct. Completed Experiment and
+  Session history cannot change with later edits; Experiments in one Session may
+  differ. Whole-Session template reconstruction is not required. The exact
+  Session/Experiment settings split remains open.
+- Browser closure, freezing or disconnection does not automatically interrupt
+  Sessions, Experiments, Analyses or services. Reopening retrieves authoritative
+  current state; lost connectivity implies neither success nor failure and cannot
+  trigger automatic repetition. Backend restart permits reconnection without
+  restarting Controller/services. GUI is not the sole holder of authoritative
+  history or provenance. This is not a general service-restart/recovery policy.
+- One controlling GUI is permitted per deployment. A new connection offers Cancel
+  or Take Over. Successful takeover invalidates old command authority without
+  requiring an old-GUI response; a recovered superseded GUI must obtain authority
+  again. Operations/services continue uninterrupted. Independent deployments have
+  independent controlling GUIs. Simultaneous control, a monitoring GUI and killing
+  the previous browser are not required.
+
+No project-sharing infrastructure, permissions system, configuration schema or
+control-authority mechanism is selected. Existing lifecycle, provenance,
+deployment-local configuration, SessionConfig, device configuration and node-owned
+storage-root authority remain unchanged.
+
 ### Unapproved Approaches And Unresolved Contracts
 
 Candidate approaches include a minimal local Analysis invocation interface,
@@ -61,12 +105,14 @@ lightweight Controller-authorized request/outcome records, specific NATS result
 delivery, tagged operation-origin product identities, concrete input/output and
 selection provenance structures, application dependency/invalidation rules,
 frontend/backend packaging and widgets, installed-software integration, and
-detailed result authorization/correlation/reconnect behavior. None is selected
+detailed result authorization/correlation/reconnect mechanisms, and control
+identity, fencing, lease, heartbeat or stale-instance mechanisms. None is selected
 by this synchronization.
 
 See Q026-Q030 and Q008 in [open questions](open_questions.md) for execution and
 interruption, persistence/timing/collection, acceptance/provenance, communication
-and trust, presentation/deployment, and metadata/template ownership. No general
+and trust, presentation/deployment, and catalog/template persistence, identities,
+transfer and Session/Experiment settings boundaries. No general
 protocol editor, template installation framework, historical Analysis platform,
 generic workflow engine or broad online processing is required. Decisions 019/021
 continue to exclude GUI implementation and scientific analysis pipelines from
@@ -88,14 +134,18 @@ No GUI functionality is implemented or validated by this documentation.
 
 ## Services Tab
 
-**Status:** Future GUI design ideas, not accepted architecture or implementation requirements.
+**Status:** Accepted functional requirements in Decisions 414-418, not implemented
+or validated GUI functionality. Detailed widgets, layouts and technical contracts
+remain unresolved under Q030-Q033.
 
-The proposed presentation is a permanently accessible **Services tab**, available
-for service inspection, startup guidance, and operational shutdown requests.
+A permanently accessible **Services tab** shows all configured framework services
+for inspection, startup guidance and existing administrative operations. This
+supplements Decision 398's conceptual functional areas without fixing the rest
+of the GUI layout.
 
 ### Readiness and startup guidance
 
-The future tab could:
+The tab must provide the following accepted readiness and guidance behavior:
 
 - Display configured services, their current or last-known readiness, and the
   timestamp of the most recent confirmed status. Distinguish historical reports
@@ -110,9 +160,25 @@ The future tab could:
 - Clearly state that services start independently: the GUI does not launch
   services or control operating-system processes.
 
+Automatically refresh status at a configurable default interval of **10 seconds**;
+relevant incoming framework information updates affected presentation promptly.
+Distinguish current confirmation, stale/last-known reports, unknown availability
+and confirmed problems. Do not keep a disappeared service labeled currently
+confirmed available when checks can no longer establish availability. Decisions
+284/328 remain authoritative; announcements alone do not implement proactive
+disappearance detection. Freshness, queries, timeouts and announcement contracts
+remain open in Q031. No heartbeat, registry, monitoring service or guaranteed
+detection latency is authorized.
+
 ### Shutdown, authorization, and outstanding obligations
 
-The future tab could also:
+Selectable trust-based administrator mode hides administrative controls from
+ordinary experimenter mode, without passwords or login infrastructure. It prevents
+accidental action, not unauthorized access as a security boundary. Mode selection
+is neither operation authorization nor satisfaction of technical prerequisites.
+Do not introduce authentication, role management or framework authorization
+infrastructure. Accepted controls expose existing Stop/Kill/Cancel, framework
+shutdown and supported recovery/abandonment operations:
 
 - Provide access to existing orderly shutdown and administrator-authorized kill
   operations, with clear separation between readiness checks, ordinary cleanup,
@@ -121,24 +187,28 @@ The future tab could also:
   results, and each service's actual progress and confirmed outcomes as Controller
   coordinates closeout. Use existing `blocked`, `failed`, and `completed` attempt
   outcomes, explain blockers, and never present missing confirmation as success.
-- Provide a separate **Kill** button for each blocked service, requiring a new,
-  explicit administrator authorization for that service. Authorization for one
-  service would not authorize termination of another.
+- Require explicit administrator authorization for each blocked service's Kill;
+  authorization for one does not authorize another. A separate **Kill** button
+  per service is a presentation proposal, not a mandated widget.
 - Allow administrators to decline forced termination while preserving actual
   outcomes; explain that already stopped services will not automatically restart.
 - Warn about dependencies, affected scope, unresolved obligations, and forced
   termination consequences, including possible loss of unpreserved scientific
   data or runtime evidence. Successful forced retirement does not confirm that
   unresolved cleanup or preservation obligations succeeded.
-- Display unresolved obligations from previous operation attempts. Potential
-  recovery/abandonment controls remain future presentation ideas within the
-  accepted service-owned boundaries described below, not GUI-owned execution policy.
+- Display unresolved obligations from previous operation attempts to all
+  experimenters, within the accepted service-owned boundaries below.
+
+Ordinary experimenters retain applicable normal Session/Experiment operations,
+including established Stop/Kill controls. Session Kill differs from service Kill,
+framework shutdown and administrative recovery. Its active-Experiment consequence
+follows Decision 365. Independent Experiment Kill is not accepted; Q033 returns
+that question to HLC without inventing a command or cleanup policy.
 
 ### Operator-facing recovery guidance
 
-**Status:** Future GUI design ideas, not accepted GUI architecture or implementation requirements.
-
-Within the proposed Services tab, the future GUI could:
+**Status:** Accepted requirements under Decision 416; detailed presentation remains
+unresolved. Within Services, provide the following distinctions:
 
 - Group unresolved obligations by responsible service and show which recovery
   actions are supported, unsupported, or not yet established. Distinguish work
@@ -150,7 +220,7 @@ Within the proposed Services tab, the future GUI could:
   obligation, leave it unresolved, or abandon it. Explain that authorization
   permits an attempt, not guaranteed success or unrelated work, and that leaving
   unresolved differs from abandonment. Abandonment does not prove cleanup,
-  resource safety, or recovery.
+  resource safety, recovery or deletion.
 - Show the administrator choice, actual attempted actions, confirmed outcomes,
   remaining obligations, and evidence-preservation warnings separately. Publication
   or command acknowledgment is not recovery success or confirmed archival.
@@ -159,8 +229,8 @@ Within the proposed Services tab, the future GUI could:
   the other. Keep existing service-specific kill authorization and forced-action
   warnings separate from recovery authorization.
 
-Q024-B Decisions 339-346 accept framework service-specific recovery boundaries,
-not these GUI controls. The GUI remains a client: services own technical assessment,
+Decision 416 accepts these GUI requirements within Q024-B Decisions 339-346's
+existing framework recovery boundaries. The GUI remains a client: services own technical assessment,
 immediate prerequisite/safety checks, and authorized execution through existing
 interfaces. These ideas define no detailed control behavior, command schema,
 automatic recovery, data deletion, process supervision, or new recovery authority.
@@ -178,14 +248,35 @@ Decisions 325-326 establish progressive shutdown, service-specific authorization
 and two-phase closeout. Decisions 332-338 establish narrow service-owned reporting
 and administrative abandonment; Decisions 339-346 accept Q024-B's service-specific
 operator-authorized execution boundaries; their supported framework implementation
-is independently validated and audited after correction in W039. GUI controls
-remain future proposals.
+is independently validated and audited after correction in W039. The newly
+accepted GUI controls themselves remain unimplemented and unvalidated.
 
-These are existing framework contracts, not new GUI requirements. The Services
-tab, its controls, and all presentation ideas above remain future design ideas,
-not accepted architecture or approved implementation requirements. This document
-adds no service states, lifecycle behavior, startup mechanism, or recovery policy
-and does not itself resolve architecture; Q019 is closed in W050 while Q024 and other open questions remain.
+Decisions 414-418 accept the GUI requirements identified here; concrete widgets
+and control layout remain proposals. Those decisions do not change existing
+service states, lifecycle behavior, startup or recovery policy. No GUI implementation
+or validation is claimed; Q019 is closed in W050 while Q024 and other open
+questions retain their existing status.
+
+### Accepted Operational Warnings And Session History
+
+Problems affecting active Sessions/Experiments generate prominent Experiment/Run
+warnings. A persistent indicator remains visible throughout the GUI, including
+Setup and Services. Distinguish confirmed failures, unknown availability, historical
+reports and framework-confirmed resolution. A service problem alone is not an
+Experiment failure; GUI cannot independently terminate scientific operations.
+
+Experiment/Run provides reviewable Session-associated warning/error history,
+including resolved conditions. Experimenters may minimize or dismiss prominent
+notifications without erasing historical evidence, hiding every indication of
+unresolved critical conditions, implying technical resolution, authorizing recovery
+or discharging obligations. Indicators follow authoritative framework information.
+
+Reuse existing health, readiness, operational evidence, ControllerActionDecision
+and lifecycle contracts. Notification delivery, correlation, reconciliation,
+dismissal representation and complete historical retrieval remain open in Q032.
+Existing persistent evidence is not assumed to provide that query interface.
+No GUI scientific log, duplicate archive or general event-history subsystem is
+authorized. Exact warning widgets and layouts remain presentation proposals.
 
 ## Session Closeout, Collection, and Archived Evidence
 
