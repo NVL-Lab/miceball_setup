@@ -1151,7 +1151,7 @@ is complete; W030 records manual validation, focused tests, and audit reassessme
 - ControllerCommandResult: Records one command outcome and exposes its command, success, details, and error as plain evidence.
 - ControllerActionDecision: Records one health-derived Controller decision with Session, Experiment, source, policy, interpretation, and originating-observation provenance using the normalized local decision vocabulary.
 - Controller.controller_action_decision_evidence: Returns retained persistent RuntimeEvidenceMessages for Controller decisions, using existing evidence identities and plain decision payloads for caller-managed publication.
-- Controller.process_health_interpretation(evidence): Accepts original-context applicability and persistent evidence without lifecycle mutation, reusing verified interpretation redelivery and rejecting new post-cutoff admission.
+- Controller.process_health_interpretation(evidence: HealthInterpretationEvidence | RuntimeEvidenceMessage): Retains the complete direct interpretation or transport envelope in decision evidence, reuses only exact input replay, and rejects conflicting identities or new post-cutoff admission.
 - Controller.process_timing_quality_interpretation(message): Validates Session/participant scope, idempotently records the configured timing-policy decision and retains its evidence for completion-marker publication without autonomous lifecycle action.
 - Controller._record_action_decision(decision): Delegates object-based decisions to shared applicability/cutoff enforcement and retries exact retained evidence handoff without changing identity.
 - Controller._controller_decision_evidence_snapshot(session_id): Copies Session-specific owned message identities and contents for exact compilation and archival confirmation.
@@ -1208,11 +1208,11 @@ is complete; W030 records manual validation, focused tests, and audit reassessme
 - Controller.execute_launched_controller_action_decision(decision): Reuses accepted applicability, checks closeout ownership before and after Experiment-lock waiting, and confirms durable accounting without requiring FAILED during Normal Stop.
 - Controller._normal_stop_owns_cleanup(session): Reads formal Normal Stop ownership from retained Session cleanup progress while excluding local and distributed Kill.
 - Controller._require_local_runtime_transition(session): Rejects local runtime work during another Experiment transition or admitted/interrupted closeout without adding ownership state.
-- Controller._accept_action_payload(session, payload, *, identity=None, decision=None): Orders original-context applicability and retained evidence acceptance against health admission closure, reusing exact accepted evidence on redelivery.
+- Controller._accept_action_payload(session, payload, *, identity=None, decision=None): Atomically orders health/timing input identity, original-context applicability, first decision time and evidence acceptance against the cutoff, reusing exact accepted input without a replay registry.
 - Controller._session_closeout_progress(session): Reuses existing Session-specific participant cleanup progress for formal ownership and the health-admission cutoff.
 - Controller._admit_session_closeout(session, owner): Retains the first formally admitted physical closeout owner without treating fatal acceptance as closeout admission.
 - Controller._account_accepted_decision(session, payload): Obtains bounded authoritative Ingestor acceptance and confirms the accepted decision's applicable lifecycle or admitted-closeout consequence.
-- Controller._confirm_decision_accounting(session, evidence): Produces affirmative original-Session/evidence-scoped accounting details independently of cleanup, Stage A preservation and binding release.
+- Controller._confirm_decision_accounting(session, evidence): Requires original-Session durable accounting and the applicable consequence, resuming/verifying local Experiment scientific finalization through its owner rather than treating a terminal event as proof, without claiming Stage A preservation or binding release.
 - Controller._accounted_decision_ids(session): Derives confirmed decision accounting from existing retained command results instead of maintaining a parallel proof cache.
 - Controller._health_processing_confirmed(session, payload, details): Validates a health callback's affirmative proof against retained accepted evidence and accounted results before acknowledgment.
 - Controller._health_admission_closed(session): Reads the authoritative cutoff for the original binding without admitting or processing new evidence.
@@ -1350,6 +1350,34 @@ applicability; cleanup progress retains admission and uncertain owner commands;
 command results retain accounting proof. Scoped producer confirmation, actual
 resource cleanup, journal acceptance and preservation checks protect distinct
 boundaries and remain required. No public signatures changed.
+
+#### Post-Audit Shared Proof And Identity Correction (Pending ICC Validation)
+
+The subsequent audit found that local terminal Experiment evidence could mask
+unfinished scientific finalization and that partial interpretation provenance
+could alias a new late envelope to an accepted decision. Shared accounting now
+invokes the existing AcquisitionNode finalizer for Experiment-only consequences
+outside Normal Stop ownership. LocalStorageManager idempotently returns confirmed
+manifests without repeating disk finalization, or raises while leaving unfinished
+work unconfirmed. Launched-only termination already confirms scoped owner
+finalization before recording the canonical terminal event. Normal Stop still
+owns its cleanup and independently checks scientific preservation and release.
+
+Health and timing replay enforcement is consolidated in locked payload acceptance.
+Health decisions retain the complete input in `details.interpretation`; enveloped
+inputs use a stable `health-decision-{evidence_id}` decision-evidence identity.
+Timing decisions retain their complete envelope and existing identity. Exact replay
+preserves the original decision time; changed input or envelope identity cannot
+reuse acceptance. `process_health_interpretation` now also accepts the complete
+RuntimeEvidenceMessage, which the receiver passes without discarding provenance.
+Direct payload-only callers remain supported but cannot attest to a later envelope
+they never supplied; they must accept the original envelope for transport replay
+across the cutoff. No constructor, parameter count or return type changed.
+
+### tests/test_health_proof_integrity.py
+
+- ScientificFinalizationProofTests: Uses actual node/storage owners and disk-backed products to verify failed/interrupted finalization, local/launched retry, independent decisions, no repeated confirmed disk work, and retained Normal Stop/release obligations.
+- HealthInputIdentityTests: Verifies complete health/timing input identity, concurrent exact acceptance, direct/enveloped replay, cutoff rejection without ACK, immutable completed archives and launched finalization retry before canonical termination.
 
 ### tests/test_health_closeout_accounting.py
 

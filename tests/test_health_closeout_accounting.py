@@ -160,8 +160,8 @@ class HealthCloseoutAccountingTests(unittest.IsolatedAsyncioTestCase):
         controller = self.f.controller
         # Accept through the public interpretation API before closeout; callback
         # delivery is delayed until after cutoff and Experiment termination.
-        controller.process_health_interpretation(replace(interpretation("accepted-before-cutoff"),
-            interpretation_label="session_failure"))
+        import json
+        controller.process_health_interpretation(RuntimeEvidenceMessage.from_dict(json.loads(original.data)))
         stopped = await self.workflow.stop()
         self.assertFalse(stopped.succeeded)
         self.assertIn("require durable accounting", stopped.error)

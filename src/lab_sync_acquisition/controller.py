@@ -1937,26 +1937,21 @@ class Controller:
     @service_operation()
     def process_health_interpretation(
         self,
-        evidence: HealthInterpretationEvidence,
+        evidence: HealthInterpretationEvidence | RuntimeEvidenceMessage,
     ) -> ControllerActionDecision:
-        """Record one evidence-only decision for presented interpretation evidence."""
+        """Retain exact interpretation provenance; transport replay requires its envelope."""
 
         session = self._require_session()
-        with self._service_operation_lock:
-            previous = next((d for d in self._controller_action_decisions
-                if d.session_id == session.session_id
-                and d.originating_observation_id == evidence.originating_observation_id
-                and d.experiment_id == evidence.experiment_id
-                and d.live_source_id == evidence.live_source_id), None)
-            if previous is not None:
-                if (previous.acquisition_health_policy != evidence.acquisition_health_policy
-                        or previous.interpretation_label != evidence.interpretation_label
-                        or previous.details != {"expected_participant_id": evidence.expected_participant_id,
-                                                "required": evidence.required}):
-                    raise ValueError("Conflicting Controller health interpretation identity")
-        if previous is not None:
-            self._record_action_decision(previous)
-            return previous
+        original = deepcopy(evidence.to_dict())
+        identity = None
+        if isinstance(evidence, RuntimeEvidenceMessage):
+            if (evidence.session_id != session.session_id
+                    or evidence.evidence_type != "health_interpretation"
+                    or (self._launch_communication is not None and evidence.source_id not in {
+                        p.component_id for p in self._reserved_participants})):
+                raise ValueError("Health interpretation does not match this Session's participants")
+            identity = f"health-decision-{evidence.evidence_id}"
+            evidence = HealthInterpretationEvidence.from_dict(evidence.payload)
         decision_by_interpretation = {
             "informational": "record_only",
             "uninterpreted": "record_only",
@@ -1975,13 +1970,14 @@ class Controller:
             controller_decision=decision_by_interpretation[
                 evidence.interpretation_label
             ],
-            decision_time_s=self._current_session_time_s(),
+            decision_time_s=None,
             details={
                 "expected_participant_id": evidence.expected_participant_id,
                 "required": evidence.required,
+                "interpretation": original,
             },
         )
-        message = self._record_action_decision(decision)
+        message = self._accept_action_payload(session, decision.to_dict(), identity=identity, decision=decision)
         return ControllerActionDecision.from_dict(message.payload)
 
     @service_operation()
@@ -1999,19 +1995,11 @@ class Controller:
         if label not in decisions:
             raise ValueError("Unknown timing-quality interpretation")
         identity = f"timing-decision-{message.evidence_id}"
-        with self._service_operation_lock:
-            if self._session is not session:
-                raise RuntimeError("Controller Session changed during timing interpretation")
-            previous = next((m for m in self._controller_action_decision_evidence if m.evidence_id == identity), None)
-            if previous is not None:
-                if previous.payload["interpretation"] != message.to_dict():
-                    raise ValueError("Conflicting timing interpretation identity")
-                return deepcopy(previous.payload)
-            payload = {"session_id": session.session_id, "experiment_id": message.payload.get("experiment_id"),
-                "originating_observation_id": message.evidence_id, "interpretation_label": label,
-                "controller_decision": decisions[label], "interpretation": message.to_dict()}
-        self._accept_action_payload(session, payload, identity=identity)
-        return payload
+        payload = {"session_id": session.session_id, "experiment_id": message.payload.get("experiment_id"),
+            "originating_observation_id": message.evidence_id, "interpretation_label": label,
+            "controller_decision": decisions[label], "interpretation": message.to_dict()}
+        accepted = self._accept_action_payload(session, payload, identity=identity)
+        return deepcopy(accepted.payload)
 
     def _record_action_decision(self, decision: ControllerActionDecision):
         return self._accept_action_payload(self._require_session(), decision.to_dict(), decision=decision)
@@ -2023,6 +2011,25 @@ class Controller:
                 raise RuntimeError("Controller decision does not match the original Session")
             message = next((m for m in self._controller_action_decision_evidence
                             if m.session_id == session.session_id and m.payload == payload), None)
+            health_input = decision is not None and (decision.details or {}).get("interpretation") is not None
+            previous = next((m for m in self._controller_action_decision_evidence
+                if identity is not None and m.evidence_id == identity), None)
+            if previous is None and health_input:
+                previous = next((m for m in self._controller_action_decision_evidence
+                    if m.session_id == session.session_id
+                    and m.payload.get("originating_observation_id") == decision.originating_observation_id
+                    and m.payload.get("experiment_id") == decision.experiment_id
+                    and m.payload.get("live_source_id") == decision.live_source_id), None)
+            if previous is not None:
+                # Replay keeps the original decision time, but never aliases a
+                # changed input or transport identity. Resolve under admission's
+                # lock so simultaneous exact inputs also produce one decision.
+                keys = previous.payload.keys() | payload.keys()
+                if previous.session_id != session.session_id or any(
+                        previous.payload.get(key) != payload.get(key) for key in keys
+                        if not (health_input and key == "decision_time_s")):
+                    raise ValueError("Conflicting Controller interpretation evidence identity")
+                message = previous
             if message is None:
                 progress = self._runtime_cleanup_progress or {}
                 if progress.get("health_admission_closed"):
@@ -2033,6 +2040,9 @@ class Controller:
                             or (experiment is not None and experiment != self._active_experiment_id)
                             or (payload["controller_decision"] == "experiment_fail" and experiment is None)):
                         raise RuntimeError("Fatal decision does not match the active acceptance context")
+                if health_input:
+                    decision = replace(decision, decision_time_s=self._current_session_time_s())
+                    payload = decision.to_dict()
                 message = RuntimeEvidenceMessage(identity or uuid4().hex, session.session_id,
                     "controller_action_decision", self._component_id, deepcopy(payload), True)
                 if decision is not None:
@@ -2176,6 +2186,11 @@ class Controller:
         if not (normal or (action == "session_fail" and session.current_state == SessionState.FAILED)
                 or (action == "experiment_fail" and experiment_ended)):
             raise RuntimeError("Fatal decision closeout consequence is unconfirmed")
+        if action == "experiment_fail" and not normal and self._acquisition_node is not None:
+            # Canonical termination can precede failed scientific finalization.
+            # The owner resumes unfinished streams and verifies finalized ones
+            # idempotently, independently of which execution entry point retries.
+            self._acquisition_node.finalize_experiment_scientific_outputs(evidence.payload["experiment_id"])
         return {"controller_decision": action, "session_id": session.session_id,
             "evidence_id": evidence.evidence_id, "session_state": session.current_state.value,
             "cleanup_owner": "normal_stop" if self._normal_stop_owns_cleanup(session) else "controller",
@@ -2288,6 +2303,8 @@ class Controller:
                         e.experiment_id == decision.experiment_id and e.event_type in {
                             "experiment_stop", "experiment_fail", "experiment_abort"}
                         for e in session.experiment_lifecycle_evidence):
+                    if not self._normal_stop_owns_cleanup(session):
+                        self._require_local_runtime_transition(session)
                     evidence = next(m for m in self.controller_action_decision_evidence if m.payload == decision.to_dict())
                     if self._ingestor is None or not self._ingestor.has_durable_runtime_evidence(evidence):
                         raise RuntimeError("Fatal decision durable acceptance is unconfirmed")

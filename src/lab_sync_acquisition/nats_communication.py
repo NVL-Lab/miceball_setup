@@ -20,7 +20,6 @@ from nats.js.client import JetStreamContext
 from nats.js.errors import NotFoundError
 
 from lab_sync_acquisition.acquisition_node import AcquisitionNode
-from lab_sync_acquisition.acquisition_health import HealthInterpretationEvidence
 from lab_sync_acquisition.communication import (
     COMMAND_RESULT_STATUSES,
     SERVICE_RECOVERY_COMMAND_TYPES,
@@ -992,8 +991,7 @@ class NatsControllerCommunication:
                         if evidence_message.evidence_type == "timing_quality_interpretation":
                             decision = controller.process_timing_quality_interpretation(evidence_message)
                         else:
-                            interpretation = HealthInterpretationEvidence.from_dict(evidence_message.payload)
-                            decision = controller.process_health_interpretation(interpretation)
+                            decision = controller.process_health_interpretation(evidence_message)
                     except _HealthAdmissionClosed:
                         # Rejected delivery is not processed success. An already
                         # accepted decision instead survives cutoff and failed handoff.

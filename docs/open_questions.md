@@ -512,6 +512,64 @@ scheduling campaign, live NATS, hardware, OS signals or physical power-loss
 verification is claimed. Independent ICC IPython validation and a separate audit
 remain required; G4-A/Q013 remain OPEN.
 
+### Decision 407/408 Post-Audit Proof And Identity Correction (Pending ICC Validation)
+
+The separate post-restructuring audit returned FAIL with two confirmed P2 findings:
+
+- **P2-A:** Local `experiment_fail` could record its canonical terminal event and
+  then fail scientific finalization. Replay or a second applicable decision could
+  report confirmed processing while the actual scientific manifest remained open.
+- **P2-B:** Partial health provenance matching could map a new envelope with changed
+  diagnostic content or timestamps to an earlier decision after completed Normal
+  Stop, ACK it and mark it processed despite the health admission cutoff.
+
+Both failures were reproduced with permanent regressions before production edits.
+The bounded correction reuses scientific-owner finalization at the shared decision
+accounting boundary. Local terminal evidence is not finalization proof: unfinished
+streams must resume successfully before Experiment-only processing is confirmed.
+Already-finalized streams are verified through the owner's idempotent finalizer
+without repeated flush/write work or duplicate canonical events. Launched-only
+termination retains its existing scoped finalization-before-event contract; mixed
+local/launched retries cannot bypass local owner proof. Normal Stop remains sole
+cleanup owner and independently requires scientific preservation and safe release.
+
+Health and timing input replay now share locked evidence acceptance and cutoff
+enforcement. Retained health decisions include the complete original interpretation
+or RuntimeEvidenceMessage in `details.interpretation`, including diagnostics,
+timestamps and envelope provenance. Transport inputs have stable decision-evidence
+identities. Changed content or a new envelope cannot impersonate accepted input;
+exact replay preserves original decision time and applicability without requiring
+a new clock read. No parallel replay registry or finalization cache was added.
+Receiver identity/pending/ACK checks remain separate trust/concurrency boundaries.
+
+**Public interface:** `Controller.process_health_interpretation(evidence)` now
+accepts either HealthInterpretationEvidence or its complete RuntimeEvidenceMessage.
+The receiver supplies the latter. Payload-only direct calls remain valid, but
+cannot prove a subsequently presented transport envelope's identity. To allow
+verified transport redelivery after cutoff, direct callers must originally supply
+that same envelope. The delayed-delivery regression now does so explicitly.
+Controller constructors and all other public signatures remain unchanged.
+
+**Implementation verification:** 74 distinct selected test methods passed under
+controlled asyncio execution: fourteen new proof/identity methods, nine prior
+decision-accounting methods, six Controller-action methods, sixteen remote-health
+methods, twelve shared-coordination methods and seventeen selected ownership,
+Kill, correlation, G2/G3 and retirement controls. The new regressions cover actual
+disk-backed stream state, failed/cancelled finalization and retries, no duplicate
+terminal events, incomplete Stop/release, health/timing replay and rejection,
+concurrent acceptance, and unchanged completed archives. This is implementation
+verification, not independent validation or audit PASS.
+AST parsing of the four changed Python files, public-signature comparison and
+`git diff --check` also passed; only the accepted input-type annotation above
+changed among Controller's public signatures.
+
+Successful archival controls use the existing identical-handoff fixture and
+production preservation/readback, not initial hard-link promotion. Previously
+Windows-blocked archival-success tests were not rerun or counted as passing.
+No live NATS, hardware, OS-signal, power-loss or normal Windows asynchronous
+scheduling validation is claimed. ICC independent validation and a separate audit
+remain required. G4-A/Q013 remain OPEN; G4-B/G4-C remain deferred.
+
 ### Historical Integration Blockers (Resolved By Decision 408)
 
 The following questions preserve the completed review's pre-408 context. Decision
