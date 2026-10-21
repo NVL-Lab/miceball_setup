@@ -415,14 +415,15 @@ Controller decision archival, independent binding release, authorized Kill,
 interrupted cleanup and safe retry remain required under Decisions 313, 322,
 360, 365 and 382. No new infrastructure or lifecycle states are accepted.
 
-This is accepted architecture, not implemented or validated redesign. The current
-Alternative B implementation still requires canonical FAILED proof for fatal
-processing, including during Normal Stop. Its existing tests and reports below
-describe that earlier contract; their passing results do not establish Decision
-407/408 compliance. The latest independent audit returned FAIL as recorded below.
+The Decision 407/408 restructuring is now implemented, pending ICC independent
+manual validation and a separate audit. The historical Alternative B reports below
+describe the earlier mandatory-FAILED contract; their passing results do not
+establish Decision 407/408 compliance. The previous independent audit returned
+FAIL as recorded below, not an audit result for the new restructuring.
 The completed pre-implementation impact/invariant review identified the three
 architectural blockers resolved by Decision 408 below. ICC implementation scope
-authorization remains pending; synchronization is not implementation authorization.
+authorization was granted for this coherent implementation. No independent
+validation, audit PASS or closure is claimed by the implementation report.
 Other notification/escalation questions below remain open.
 
 ### Accepted Admission And Applicability Clarifications (Decision 408)
@@ -452,10 +453,64 @@ The explicitly user-accepted LLC handoff resolves the three blockers below:
 Cutoff alone proves neither durability, preservation nor completion eligibility.
 All applicable accepted decisions require accounting and preservation before
 successful completion; Decisions 313, 322, 365 and 382 remain authoritative.
-These are resolved architectural requirements, not implemented or validated
-behavior. G4-A/Q013 remain OPEN and G4-B/G4-C remain deferred. Documentation is
-synchronized for ICC implementation scope authorization; no new impact review
-or implementation result is claimed here.
+These architectural requirements are implemented in the bounded restructuring
+below but not independently validated or audited. G4-A/Q013 remain OPEN and
+G4-B/G4-C remain deferred.
+
+### Decision 407/408 Implementation (Pending ICC Validation And Audit)
+
+The existing Controller coordination now orders health acceptance against a
+mandatory cutoff before completion-marker publication and final acquisition
+intake. Accepted evidence retains applicability and original context; multiple
+decisions survive Experiment termination without matching an earlier termination
+payload. Verified redelivery reuses the accepted decision. New post-cutoff inputs
+are rejected, not marked successfully processed or added to immutable evidence.
+Accepted but unaccounted fatal decisions block the marker until explicit processing
+and retry establish the required proof.
+
+The first formally admitted Session closeout owns coordination through the
+existing retained cleanup progress. Decision receipt/acceptance does not select
+that owner. Normal Stop can complete despite accounted fatal evidence only with
+all existing scientific finalization, producer, intake, Stage A, terminal-record
+and release guarantees. Standalone fatal closeout retains FAILED, bindings and
+its distinct cleanup/preservation obligations. Experiment-only failure and
+authorized Kill retain their existing boundaries.
+
+Positive health acknowledgment requires exact retained decision evidence,
+authoritative durable Ingestor acceptance and the applicable admitted-closeout
+or lifecycle consequence. It does not await full Normal Stop archival or equate
+publication with preservation. Pending/cancelled processing cannot authorize ACK.
+Accounting proof is derived from retained command results, not a second cache.
+Original asynchronous command context is retained at the shared result-recording
+boundary; late success, error or cancellation cannot alter a replacement Session.
+
+Superseded exact-payload termination matching, FAILED-only acknowledgment,
+per-decision failure during Normal Stop and the redundant retained Normal Stop
+Experiment-context field were removed. Existing cleanup command identities,
+scoped producer proof, independent trust-boundary checks and genuine operational
+failure/retry handling remain. Public constructors and method signatures are
+unchanged. See the [code map](code_map.md)
+for entry-point coverage and reusable mechanisms.
+
+**Implementation verification:** 110 distinct selected methods passed under
+controlled asyncio execution: nine new decision-accounting methods, twelve shared
+coordination methods, 46 local/distributed ownership methods, six Controller action
+methods, sixteen remote health methods, eleven Normal Stop/fatal overlap methods,
+four scoped-correlation controls and six selected G2/G3 controls. The permanent
+independent-decision and late-diagnostic regressions also reproduced the previous
+P2/P3 against the committed pre-change Controller/communication code and passed
+with the restructuring. This is implementation verification, not an independent
+audit. AST parsing, unchanged-public-signature checks and `git diff --check` passed.
+
+Two initial-handoff archival-success methods in `test_fatal_health_normal_stop`
+were attempted but blocked by Windows hard-link promotion (`WinError 5`); they
+are not counted among the 110 passes. Successful disk-backed closeout controls
+reuse the existing identical-handoff fixture and production preservation/readback,
+not successful initial hard-link promotion. The controlled loop omits socket-pair
+initialization and uses simulated transport; no normal Windows asynchronous
+scheduling campaign, live NATS, hardware, OS signals or physical power-loss
+verification is claimed. Independent ICC IPython validation and a separate audit
+remain required; G4-A/Q013 remain OPEN.
 
 ### Historical Integration Blockers (Resolved By Decision 408)
 

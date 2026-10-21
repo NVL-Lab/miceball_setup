@@ -39,7 +39,7 @@ from lab_sync_acquisition.communication import (
     build_group_command_messages,
 )
 from lab_sync_acquisition.ingestor import InMemoryIngestor
-from lab_sync_acquisition.controller import Controller, ControllerActionDecision
+from lab_sync_acquisition.controller import Controller, ControllerActionDecision, _HealthAdmissionClosed
 from lab_sync_acquisition.session import ScientificOutputSelection, ExperimentConfiguration
 from lab_sync_acquisition.device import DeviceDeclaration
 from lab_sync_acquisition.synchronization import SynchronizationManager
@@ -984,12 +984,21 @@ class NatsControllerCommunication:
                 if recorded is not None:
                     if recorded[0] != content:
                         raise ValueError("Conflicting Controller health evidence identity")
+                    if recorded[1] is None:
+                        raise RuntimeError("Session health-decision admission is closed")
                     decision = recorded[1]
-                elif evidence_message.evidence_type == "timing_quality_interpretation":
-                    decision = controller.process_timing_quality_interpretation(evidence_message)
                 else:
-                    interpretation = HealthInterpretationEvidence.from_dict(evidence_message.payload)
-                    decision = controller.process_health_interpretation(interpretation)
+                    try:
+                        if evidence_message.evidence_type == "timing_quality_interpretation":
+                            decision = controller.process_timing_quality_interpretation(evidence_message)
+                        else:
+                            interpretation = HealthInterpretationEvidence.from_dict(evidence_message.payload)
+                            decision = controller.process_health_interpretation(interpretation)
+                    except _HealthAdmissionClosed:
+                        # Rejected delivery is not processed success. An already
+                        # accepted decision instead survives cutoff and failed handoff.
+                        state["decisions"][evidence_message.evidence_id] = (content, None)
+                        raise
                 state["decisions"][evidence_message.evidence_id] = (content, decision)
                 if callback is not None:
                     outcome = await callback(decision)
@@ -999,16 +1008,8 @@ class NatsControllerCommunication:
                 else:
                     details = None
                 payload = decision.to_dict() if hasattr(decision, "to_dict") else decision
-                if payload.get("controller_decision") == "session_fail":
-                    retained = next((item for item in controller.controller_action_decision_evidence
-                                     if item.session_id == session_id and item.payload == payload), None)
-                    if (not isinstance(details, dict) or details.get("health_processing_confirmed") is not True
-                            or details.get("durable_acceptance_confirmed") is not True
-                            or details.get("session_id") != session_id or retained is None
-                            or details.get("evidence_id") != retained.evidence_id
-                            or details.get("session_state") != "failed"
-                            or controller._session is not state["session"]
-                            or controller.get_status()["session_state"] != "failed"):
+                if payload.get("controller_decision") in {"session_fail", "experiment_fail"}:
+                    if not controller._health_processing_confirmed(state["session"], payload, details):
                         raise RuntimeError("Fatal health requires affirmative durable and canonical accounting")
                 await message.ack()
                 state["processed"][evidence_message.evidence_id] = content
@@ -1048,6 +1049,10 @@ class NatsControllerCommunication:
                 continue
             content = json.dumps(evidence.to_dict(), sort_keys=True,
                                  separators=(",", ":"), allow_nan=False)
+            if controller._health_admission_closed(controller._session) and all(
+                    state["decisions"].get(evidence.evidence_id) == (content, None) for state in states):
+                sequence = record.seq + 1
+                continue
             if evidence.session_id != session_id or any(
                     state["processed"].get(evidence.evidence_id) != content for state in states):
                 return False

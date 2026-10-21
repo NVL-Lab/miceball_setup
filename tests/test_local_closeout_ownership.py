@@ -2,6 +2,7 @@
 
 import asyncio
 from contextlib import ExitStack, asynccontextmanager
+from dataclasses import replace
 from pathlib import Path
 from time import monotonic
 import unittest
@@ -18,6 +19,7 @@ from tests import test_normal_stop as normal
 from tests import test_experiment_capacity as capacity
 from tests import test_closeout_attempt_ownership as attempts
 from tests.test_distributed_synchronization import configuration
+from tests.test_producer_publication_completion import interpretation
 
 
 class LocalCloseoutOwnershipTests(unittest.IsolatedAsyncioTestCase):
@@ -112,11 +114,11 @@ class LocalCloseoutOwnershipTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.stops.call_count, 0)
         message, = self.controller.controller_action_decision_evidence
         self.assertTrue(self.f.ingestor.has_durable_runtime_evidence(message))
-        self.assertEqual(self.controller.get_status()["session_state"], "failed")
+        self.assertEqual(self.controller.get_status()["session_state"], "running")
         events = self.controller.get_status()["experiment_lifecycle_evidence"]
-        self.assertEqual([e.event_type for e in events], ["experiment_start", "experiment_fail"])
+        self.assertEqual([e.event_type for e in events], ["experiment_start"])
         await self.finish_unpreserved()
-        self.assertEqual(self.controller.get_status()["session_state"], "failed")
+        self.assertEqual(self.controller.get_status()["session_state"], "stopping")
 
     async def test_repeated_local_start_does_not_take_over_cleanup(self):
         await self.begin()
@@ -174,7 +176,7 @@ class LocalCloseoutOwnershipTests(unittest.IsolatedAsyncioTestCase):
             retry = await self.workflow.stop()
         self.assertFalse(retry.succeeded)
         self.assertIn("archive unavailable", retry.error)
-        self.assertEqual(self.controller.get_status()["session_state"], "failed")
+        self.assertEqual(self.controller.get_status()["session_state"], "stopping")
         self.assertEqual(self.stops.call_count, 1)
 
     async def test_fatal_acceptance_failure_retains_consequence_and_allows_explicit_retry(self):
@@ -183,7 +185,7 @@ class LocalCloseoutOwnershipTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(self.f.ingestor, "receive_runtime_evidence", side_effect=OSError("journal unavailable")):
             result = self.controller.execute_controller_action_decision(decision)
         self.assertFalse(result.succeeded)
-        self.assertEqual(self.controller.get_status()["session_state"], "failed")
+        self.assertEqual(self.controller.get_status()["session_state"], "running")
         self.assertEqual(self.stops.call_count, 0)
         retried = self.controller.execute_controller_action_decision(decision)
         self.assertTrue(retried.succeeded, retried.error)
@@ -208,7 +210,7 @@ class LocalCloseoutOwnershipTests(unittest.IsolatedAsyncioTestCase):
             result = self.controller.execute_controller_action_decision(decision)
         self.assertFalse(result.succeeded)
         self.assertIn("durable acceptance is unconfirmed", result.error)
-        self.assertEqual(self.controller.get_status()["session_state"], "failed")
+        self.assertEqual(self.controller.get_status()["session_state"], "running")
         self.assertEqual(self.stops.call_count, 0)
         self.assertTrue(self.controller.execute_controller_action_decision(decision).succeeded)
         await self.finish_unpreserved()
@@ -221,7 +223,8 @@ class LocalCloseoutOwnershipTests(unittest.IsolatedAsyncioTestCase):
                                             "experiment_failure", "experiment_fail", None)
         with patch.object(self.node, "finalize_experiment_scientific_outputs", wraps=self.node.finalize_experiment_scientific_outputs) as finalize:
             result = self.controller.execute_controller_action_decision(decision)
-            self.assertFalse(result.succeeded)
+            self.assertTrue(result.succeeded, result.error)
+            self.assertTrue(result.details["health_processing_confirmed"])
             finalize.assert_not_called()
         self.assertEqual(self.controller.get_status()["active_experiment_id"], "experiment")
         await self.finish_unpreserved()
@@ -256,9 +259,11 @@ class LocalCloseoutOwnershipTests(unittest.IsolatedAsyncioTestCase):
         result = self.controller.execute_controller_action_decision(self.fatal(experiment_id="experiment"))
         self.assertTrue(result.succeeded, result.error)
         events = self.controller.get_status()["experiment_lifecycle_evidence"]
-        self.assertEqual([e.event_type for e in events], ["experiment_start", "experiment_fail"])
-        self.assertEqual(self.controller.get_status()["session_state"], "failed")
+        self.assertEqual([e.event_type for e in events], ["experiment_start"])
+        self.assertEqual(self.controller.get_status()["session_state"], "running")
         await self.finish_unpreserved()
+        self.assertEqual([e.event_type for e in self.controller.get_status()["experiment_lifecycle_evidence"]],
+                         ["experiment_start", "experiment_stop"])
 
     async def test_launched_stop_failure_accounts_for_failure_without_local_time(self):
         self.assertTrue(self.start_experiment().succeeded)
@@ -313,15 +318,13 @@ class LocalCloseoutOwnershipTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result.details["health_processing_confirmed"])
         self.assertEqual(self.stops.call_count, 0)
         event = self.controller.get_status()["experiment_lifecycle_evidence"][-1]
-        self.assertEqual(event.event_type, "experiment_fail")
-        self.assertIsNone(event.session_time_s)
-        self.assertTrue(event.details["timing_unconfirmed"])
-        self.assertEqual(event.details["cleanup_owner"], "normal_stop")
-        for key, value in decision.to_dict().items():
-            self.assertEqual(event.details[key], value)
+        self.assertEqual(event.event_type, "experiment_start")
+        message, = self.controller.controller_action_decision_evidence
+        self.assertEqual(message.payload, decision.to_dict())
+        self.assertTrue(self.f.ingestor.has_durable_runtime_evidence(message))
         self.closing = asyncio.create_task(self.workflow.stop())
         await self.finish_unpreserved()
-        self.assertEqual(self.controller.get_status()["session_state"], "failed")
+        self.assertEqual(self.controller.get_status()["session_state"], "stopping")
 
 
 class NormalStopAdmissionTests(unittest.IsolatedAsyncioTestCase):
@@ -388,6 +391,10 @@ class NormalStopAdmissionTests(unittest.IsolatedAsyncioTestCase):
             await self.closing
 
     def decision(self, experiment_id="experiment", action="session_fail"):
+        retained = next((d for d in self.controller.controller_action_decisions
+                         if d.experiment_id == experiment_id and d.controller_decision == action), None)
+        if retained is not None:
+            return retained
         return ControllerActionDecision("fatal-" + str(experiment_id), self.sid, experiment_id, "source", "policy",
             "session_failure" if action == "session_fail" else "experiment_failure", action, None)
 
@@ -396,11 +403,15 @@ class NormalStopAdmissionTests(unittest.IsolatedAsyncioTestCase):
             return await self.controller.execute_launched_controller_action_decision(decision)
         return self.controller.execute_controller_action_decision(decision)
 
+    def accept_fatal(self, experiment_id="experiment"):
+        return self.controller.process_health_interpretation(replace(interpretation("accepted-fatal"),
+            experiment_id=experiment_id, interpretation_label="session_failure"))
+
     def assert_failed_closeout(self):
         self.assertFalse(self.closeout_result.succeeded)
         self.assertIn("archive unavailable", self.closeout_result.error)
         status = self.controller.get_status()
-        self.assertEqual(status["session_state"], "failed")
+        self.assertEqual(status["session_state"], "stopping")
         self.assertEqual(status["session_id"], self.sid)
         self.assertIsNone(status["active_experiment_id"])
         events = status["experiment_lifecycle_evidence"]
@@ -414,6 +425,7 @@ class NormalStopAdmissionTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_local_retry_retains_original_experiment_for_fatal_accounting(self):
         await self.running()
+        self.accept_fatal()
         async with self.holding("synchronization_manager", "stop_runtime", interruptions=1):
             self.assertEqual(self.controller.get_status()["session_state"], "stopping")
             self.assertIsNone(self.controller.get_status()["active_experiment_id"])
@@ -429,6 +441,7 @@ class NormalStopAdmissionTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_remote_repeated_retry_retains_original_experiment_for_fatal_accounting(self):
         await self.running(remote=True)
+        self.accept_fatal()
         async with self.holding("synchronization_manager", "stop_runtime", interruptions=2):
             result = await self.execute(self.decision())
             self.assertTrue(result.succeeded, result.error)
@@ -439,6 +452,7 @@ class NormalStopAdmissionTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_rejected_remote_owner_retry_cannot_replace_original_context(self):
         await self.running(remote=True)
+        self.accept_fatal()
         async with self.holding("synchronization_manager", "stop_runtime"):
             await self.cancel_closeout()
             rejected = await self.controller.normal_stop_session(communication=self.f.communication,
@@ -486,7 +500,8 @@ class NormalStopAdmissionTests(unittest.IsolatedAsyncioTestCase):
             with patch.object(self.node, "finalize_experiment_scientific_outputs",
                               wraps=self.node.finalize_experiment_scientific_outputs) as finalize:
                 result = await self.execute(self.decision(action="experiment_fail"))
-            self.assertFalse(result.succeeded)
+            self.assertTrue(result.succeeded, result.error)
+            self.assertTrue(result.details["health_processing_confirmed"])
             finalize.assert_not_called()
             self.assertEqual(self.controller.get_status()["active_experiment_id"], "experiment")
 
@@ -502,14 +517,14 @@ class NormalStopAdmissionTests(unittest.IsolatedAsyncioTestCase):
                 self.assert_failed_closeout()
                 endings = [e.event_type for e in self.controller.get_status()["experiment_lifecycle_evidence"]
                            if e.event_type != "experiment_start"]
-                self.assertEqual(endings, ["experiment_fail"])
+                self.assertEqual(endings, ["experiment_stop"])
 
     async def test_fatal_before_cancellation_keeps_its_failure_and_cleanup_owner(self):
         await self.running(remote=True)
         async with self.holding("acquisition_node", "stop_runtime"):
             decision = self.decision()
             self.assertTrue((await self.execute(decision)).succeeded)
-            self.assertEqual(self.controller.get_status()["session_state"], "failed")
+            self.assertEqual(self.controller.get_status()["session_state"], "running")
             await self.cancel_closeout()
             self.assertEqual(self.stops.call_count, 0)
         self.closeout_result = await self.workflow.stop()
@@ -520,6 +535,7 @@ class NormalStopAdmissionTests(unittest.IsolatedAsyncioTestCase):
         for remote in (False, True):
             with self.subTest(remote=remote):
                 await self.running(remote=remote)
+                self.accept_fatal()
                 async with self.holding("synchronization_manager", "stop_runtime"):
                     await self.cancel_closeout()
                     result = await self.execute(self.decision())
@@ -541,6 +557,7 @@ class NormalStopAdmissionTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_retry_requires_durable_acceptance_separately_from_canonical_failure(self):
         await self.running(remote=True)
+        self.accept_fatal()
         async with self.holding("synchronization_manager", "stop_runtime", interruptions=1):
             decision = self.decision()
             self.f.broker.drop_results.add(("ingestor", "read_runtime_evidence_acceptance"))
@@ -550,7 +567,7 @@ class NormalStopAdmissionTests(unittest.IsolatedAsyncioTestCase):
                 self.f.broker.drop_results.clear()
             self.assertFalse(result.succeeded)
             self.assertFalse(result.details["health_processing_confirmed"])
-            self.assertEqual(self.controller.get_status()["session_state"], "failed")
+            self.assertEqual(self.controller.get_status()["session_state"], "stopping")
             evidence, = self.controller.controller_action_decision_evidence
             self.assertEqual(evidence.payload, decision.to_dict())
             self.assertTrue(self.f.ingestor.has_durable_runtime_evidence(evidence))
@@ -562,13 +579,14 @@ class NormalStopAdmissionTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_verified_retirement_allows_a_new_session_with_fresh_context(self):
         await self.running(remote=True, preserve=True)
+        self.accept_fatal()
         async with self.holding("synchronization_manager", "stop_runtime", interruptions=1):
             self.assertTrue((await self.execute(self.decision())).succeeded)
         self.assertTrue(self.closeout_result.succeeded, self.closeout_result.error)
-        self.assertEqual(self.controller.get_status()["session_state"], "failed")
+        self.assertEqual(self.controller.get_status()["session_state"], "completed")
         before = self.workflow.archive()
         preserved = self.storage.get_session_preservation_confirmation(self.sid)
-        self.assertEqual(preserved["session_record"]["final_session_status"]["state"], "failed")
+        self.assertEqual(preserved["session_record"]["final_session_status"]["state"], "completed")
         self.assertTrue((await self.workflow.stop()).succeeded)
         self.assertEqual(self.workflow.archive(), before)
         self.assertEqual(self.stops.call_count, 1)
@@ -598,11 +616,12 @@ class NormalStopAdmissionTests(unittest.IsolatedAsyncioTestCase):
                     await self.f.broker.deliver(durable, sequence)
 
         self.enterContext(patch.object(self.workflow, "acknowledge", new=acknowledge_current_session))
+        self.accept_fatal("next")
         async with self.holding("synchronization_manager", "stop_runtime", interruptions=1):
             self.assertFalse((await self.execute(self.decision("experiment"))).succeeded)
             self.assertTrue((await self.execute(self.decision("next"))).succeeded)
         self.assertTrue(self.closeout_result.succeeded, self.closeout_result.error)
-        self.assertEqual(self.controller.get_status()["session_state"], "failed")
+        self.assertEqual(self.controller.get_status()["session_state"], "completed")
         self.assertEqual(self.stops.call_count, 2)
         self.assertEqual(self.physical_stops.call_count, 2)
         self.assertEqual({path: Path(path).read_bytes() for path in before}, before)
@@ -719,7 +738,7 @@ class ExperimentCloseoutAdmissionTests(unittest.IsolatedAsyncioTestCase):
 
     async def reject_closeout(self, case, *, kill=False):
         controller = case.controller
-        ownership = (controller._acquisition_marker_session, controller._normal_stop_experiment_id,
+        ownership = (controller._acquisition_marker_session,
                      controller._normal_stop_task, controller._distributed_closeout,
                      controller._kill_closeout_session, controller._runtime_cleanup_progress)
         commands = len(case.f.broker.commands)
@@ -730,7 +749,7 @@ class ExperimentCloseoutAdmissionTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result.succeeded)
         self.assertEqual(len(case.f.broker.commands), commands)
         self.assertEqual(case.stops.call_count, 0)
-        self.assertEqual((controller._acquisition_marker_session, controller._normal_stop_experiment_id,
+        self.assertEqual((controller._acquisition_marker_session,
                           controller._normal_stop_task, controller._distributed_closeout,
                           controller._kill_closeout_session, controller._runtime_cleanup_progress), ownership)
         self.assertEqual(controller.get_status()["session_state"], "running")
@@ -758,13 +777,13 @@ class ExperimentCloseoutAdmissionTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(case.f.ingestor.has_durable_runtime_evidence(message))
         self.assertFalse(case.closeout_result.succeeded)
         self.assertIn("archive unavailable", case.closeout_result.error)
-        self.assertEqual(case.controller.get_status()["session_state"], "failed")
+        self.assertEqual(case.controller.get_status()["session_state"], "stopping")
         self.assertEqual(case.stops.call_count, 1)
         self.assertEqual(case.physical_stops.call_count, 1)
         self.assert_finalized_once(case)
         endings = [e.event_type for e in case.controller.get_status()["experiment_lifecycle_evidence"]
                    if e.experiment_id == "next"]
-        self.assertEqual(endings, ["experiment_start", "experiment_fail"])
+        self.assertEqual(endings, ["experiment_start", "experiment_stop"])
         self.assertIsNone(case.storage.get_acquisition_stage_preservation_confirmation(case.sid))
 
     async def test_local_normal_stop_cannot_admit_during_experiment_preparation(self):
@@ -815,7 +834,7 @@ class ExperimentCloseoutAdmissionTests(unittest.IsolatedAsyncioTestCase):
                         self.assertEqual([e.event_type for e in events],
                                          ["experiment_start", "experiment_fail" if fail else "experiment_stop"])
 
-    async def test_fatal_queued_behind_start_keeps_its_canonical_consequence(self):
+    async def test_fatal_about_unstarted_experiment_is_rejected_then_active_context_is_accepted(self):
         for remote in (False, True):
             with self.subTest(remote=remote):
                 case = await self.workflow(remote=remote)
@@ -827,7 +846,7 @@ class ExperimentCloseoutAdmissionTests(unittest.IsolatedAsyncioTestCase):
                         fatal = asyncio.create_task(case.controller.execute_launched_controller_action_decision(
                             case.decision("next")))
                         await asyncio.sleep(0)
-                        self.assertFalse(fatal.done())
+                        self.assertTrue(fatal.done())
                         await self.reject_closeout(case)
                     finally:
                         resume.set()
@@ -835,6 +854,9 @@ class ExperimentCloseoutAdmissionTests(unittest.IsolatedAsyncioTestCase):
                         result = await fatal if fatal is not None else None
                 self.assertTrue(started.succeeded, started.error)
                 self.assertIsNotNone(result)
+                self.assertFalse(result.succeeded)
+                self.assertEqual(case.controller.get_status()["session_state"], "running")
+                result = await case.controller.execute_launched_controller_action_decision(case.decision("next"))
                 self.assertTrue(result.succeeded, result.error)
                 self.assertEqual(case.controller.get_status()["session_state"], "failed")
                 self.assertIsNone(case.controller.get_status()["active_experiment_id"])
@@ -860,7 +882,7 @@ class ExperimentCloseoutAdmissionTests(unittest.IsolatedAsyncioTestCase):
                 self.assertFalse(case.node.scientific_acquisition_active)
                 async with case.holding("synchronization_manager", "stop_runtime", interruptions=1):
                     self.assertTrue((await case.execute(case.decision(None))).succeeded)
-                self.assertEqual(case.controller.get_status()["session_state"], "failed")
+                self.assertEqual(case.controller.get_status()["session_state"], "stopping")
                 self.assertFalse(case.closeout_result.succeeded)
                 self.assertEqual(case.stops.call_count, 1)
                 self.assert_finalized_once(case)
@@ -880,21 +902,28 @@ class ExperimentCloseoutAdmissionTests(unittest.IsolatedAsyncioTestCase):
                             competing = asyncio.create_task(operation)
                             try:
                                 await asyncio.sleep(0)
-                                self.assertFalse(competing.done())
-                                self.assertEqual(len(case.f.broker.commands), commands)
+                                if action == "experiment_fail":
+                                    accounted = await asyncio.wait_for(asyncio.shield(competing), 2)
+                                    self.assertTrue(accounted.succeeded, accounted.error)
+                                    self.assertTrue(accounted.details["health_processing_confirmed"])
+                                else:
+                                    self.assertFalse(competing.done())
+                                self.assertEqual(len([c for c in case.f.broker.commands[commands:]
+                                    if c["command_type"] != "read_runtime_evidence_acceptance"]), 0)
                                 self.assertEqual(case.stops.call_count, 0)
                                 if cancel:
                                     await case.cancel_closeout()
                                     rejected = await competing
-                                    self.assertFalse(rejected.succeeded)
-                                    self.assertEqual(len(case.f.broker.commands), commands)
+                                    self.assertEqual(rejected.succeeded, action == "experiment_fail", rejected.error)
+                                    self.assertEqual(len([c for c in case.f.broker.commands[commands:]
+                                        if c["command_type"] != "read_runtime_evidence_acceptance"]), 0)
                                     self.assertEqual(case.stops.call_count, 0)
                             except BaseException:
                                 competing.cancel()
                                 await asyncio.gather(competing, return_exceptions=True)
                                 raise
                         rejected = await competing
-                        self.assertFalse(rejected.succeeded)
+                        self.assertEqual(rejected.succeeded, action == "experiment_fail", rejected.error)
                         if cancel:
                             case.closeout_result = await case.workflow.stop()
                         self.assertFalse(case.closeout_result.succeeded)

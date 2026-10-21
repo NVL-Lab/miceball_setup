@@ -2,7 +2,7 @@
 
 ## Status And Scope
 
-### G4 Remote Health Actions (Open; Accepted Redesign Not Implemented)
+### G4 Remote Health Actions (Open; Restructuring Pending Independent Validation)
 
 Decision 407 records the accepted G4-A simplification: already-admitted Normal
 Stop may complete despite fatal health evidence if every existing completion
@@ -10,11 +10,10 @@ guarantee is satisfied. Independent fatal accounting and Session-scoped cleanup
 remain required. Decision 408 clarifies authoritative closeout admission,
 original-context applicability and mandatory health-decision admission closure
 before final acquisition-intake finalization. These accepted requirements resolve
-the three architectural blockers, but implementation remains pending ICC scope
-authorization. This redesign is not implemented or validated; the behavior
-described below is the existing pre-407 implementation. The latest Alternative B
-audit returned FAIL with distinct-decision accounting and replacement-diagnostic
-findings; see [Q013](open_questions.md#q013-what-further-framework-behavior-follows-controlleractiondecision-execution).
+the three architectural blockers. The restructuring is implemented but awaits
+ICC independent validation and a separate audit. The previous Alternative B audit
+returned FAIL with distinct-decision accounting and replacement-diagnostic
+findings; its history is preserved in [Q013](open_questions.md#q013-what-further-framework-behavior-follows-controlleractiondecision-execution).
 
 Distributed `Controller.launch_session()` now attaches the existing health
 interpretation subscription to
@@ -26,7 +25,7 @@ scientific finalization/publication and current Session Time before canonical
 `experiment_fail`; missing confirmation retains unresolved active context for
 explicit retry. Existing normal Experiment stop reuses that same finalization path.
 
-Session failure attempts every reserved node and the synchronization owner,
+Standalone Session failure admitted first attempts every reserved node and the synchronization owner,
 records canonical failure rather than successful completion or authorized Kill,
 and reports each cleanup outcome. Its successful action result confirms the
 requested lifecycle action and reported cleanup only: `preservation_confirmed`
@@ -38,21 +37,23 @@ No maintenance Kill or notification/escalation mechanism is introduced. G2/G3
 deadlines and autonomous acquisition remain node-owned. G4 is not closed and no
 live NATS, hardware or complete deployment validation is claimed.
 
-**Current pre-407 overlap behavior:** Under the original Decision 406 contract,
-an already-admitted Normal Stop retains sole cleanup
+**Decision 407/408 overlap behavior:** An already-admitted Normal Stop retains sole cleanup
 ownership when an applicable authoritative `session_fail` arrives during its
 closing publication interval. Controller retains the affected Session/Experiment
-decision, records canonical failure, and confirms exact durable Ingestor acceptance
+decision and confirms exact durable Ingestor acceptance and admitted-closeout accounting
 before marking that health input processed. No competing remote Stop or Kill is
 issued. The existing last-call marker and immutable finalized intake still apply.
-Normal Stop can preserve the failed terminal Session through its existing complete
-receipt and Stage A path; it must not change that outcome to `completed`.
+Normal Stop may reach `completed` through its existing complete receipt and Stage A
+path despite recorded fatal decisions; a fatal closeout admitted first retains
+FAILED and cannot be displaced by later Normal Stop.
 Decision acceptance is not Stage A confirmation. Failed publication or missing
 acceptance leaves health processing unconfirmed; missing cleanup or archival
 confirmation retains the binding and preservation obligations for explicit retry.
-Cancellation likewise does not discard the fatal consequence or authorize release.
-These are implementation descriptions, not the newly accepted terminal-outcome
-policy or a claim of G4-A closure.
+Cancellation likewise does not discard accepted accounting obligations or authorize
+release. Controller closes new health-decision admission before marker publication
+and final intake, while verified redelivery retains prior applicability. Rejected
+late decisions are not successfully processed; finalized products are not reopened.
+These implementation descriptions do not claim independent validation or G4-A closure.
 
 Normal Stop confirms synchronization publication through the existing scoped
 runtime request contract, as do adjacent node Stop/reservation-release and

@@ -8,13 +8,13 @@ import unittest
 from unittest.mock import AsyncMock, patch
 
 from lab_sync_acquisition import ControllerCommandResult, RuntimeEvidenceMessage
-from tests.test_local_closeout_ownership import ExperimentCloseoutAdmissionTests
+from tests import test_local_closeout_ownership as ownership_fixtures
 from tests.test_producer_publication_completion import interpretation
 
 
 class SessionFailureCoordinationTests(unittest.IsolatedAsyncioTestCase):
     async def workflow(self, *, remote=False, active=False):
-        fixture = ExperimentCloseoutAdmissionTests()
+        fixture = ownership_fixtures.ExperimentCloseoutAdmissionTests()
         fixture.addCleanup = self.addCleanup
         fixture.addAsyncCleanup = self.addAsyncCleanup
         return fixture, await fixture.workflow(remote=remote, active=active)
@@ -63,7 +63,7 @@ class SessionFailureCoordinationTests(unittest.IsolatedAsyncioTestCase):
                     if ending else fixture.start(case))
                 tasks.append(transition)
                 await asyncio.wait_for(entered.wait(), 2)
-                incoming = self.health(case)
+                incoming = self.health(case, experiment=None if before_start else "next")
                 delivery = asyncio.create_task(self.deliver(case, incoming))
                 tasks.append(delivery)
                 for _ in range(20):
@@ -82,8 +82,8 @@ class SessionFailureCoordinationTests(unittest.IsolatedAsyncioTestCase):
             finally:
                 resume.set()
                 await asyncio.gather(*tasks, return_exceptions=True)
-        self.assertEqual(controller.get_status()["session_state"], "failed")
-        self.assertEqual(transition_result.succeeded, before_start, transition_result.error)
+        self.assertEqual(controller.get_status()["session_state"], "stopping")
+        self.assertTrue(transition_result.succeeded, transition_result.error)
         self.assertFalse(result.succeeded)
         decision, = controller.controller_action_decision_evidence
         self.assertTrue(case.f.ingestor.has_durable_runtime_evidence(decision))
@@ -95,15 +95,12 @@ class SessionFailureCoordinationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(case.physical_stops.call_count, 1)
         fixture.assert_finalized_once(case)
         self.assertIsNone(case.storage.get_acquisition_stage_preservation_confirmation(case.sid))
-        if before_start:
-            self.assertIs(controller._acquisition_marker_session, controller._session)
-        else:
-            self.assertIsNone(controller._acquisition_marker_session)
+        self.assertIs(controller._acquisition_marker_session, controller._session)
         events = [event.event_type for event in controller.get_status()["experiment_lifecycle_evidence"]
                   if event.experiment_id == "next"]
-        self.assertEqual(events, ["experiment_start", "experiment_fail"])
+        self.assertEqual(events, ["experiment_start", "experiment_stop"])
 
-    async def preserve_failed(self, case):
+    async def preserve_normal(self, case):
         writer = case.storage.write_artifact_collection_handoff
 
         def existing(session_id, contents):
@@ -118,7 +115,7 @@ class SessionFailureCoordinationTests(unittest.IsolatedAsyncioTestCase):
                 patch.object(case.storage, "write_artifact_collection_handoff", side_effect=existing):
             preserved = await case.workflow.stop()
         self.assertTrue(preserved.succeeded, preserved.error)
-        self.assertEqual(case.controller.get_status()["session_state"], "failed")
+        self.assertEqual(case.controller.get_status()["session_state"], "completed")
         self.assertEqual(case.stops.call_count, 1)
         self.assertIsNotNone(case.storage.get_acquisition_stage_preservation_confirmation(case.sid))
 
@@ -157,10 +154,11 @@ class SessionFailureCoordinationTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_unrelated_local_fatal_context_cannot_stop_the_active_experiment(self):
         _, case = await self.workflow(active=True)
-        decision = case.controller.process_health_interpretation(replace(
-            interpretation("unrelated-fatal"), experiment_id="unrelated",
-            interpretation_label="session_failure"))
-        result = case.controller.execute_controller_action_decision(decision)
+        with self.assertRaises(RuntimeError):
+            case.controller.process_health_interpretation(replace(
+                interpretation("unrelated-fatal"), experiment_id="unrelated",
+                interpretation_label="session_failure"))
+        result = case.controller.execute_controller_action_decision(case.decision("unrelated"))
         self.assertFalse(result.succeeded)
         self.assertEqual(case.stops.call_count, 0)
         self.assertEqual(case.physical_stops.call_count, 0)
@@ -206,7 +204,7 @@ class SessionFailureCoordinationTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_cancelled_queued_fatal_cannot_be_acknowledged_or_allow_completion(self):
         fixture, case = await self.workflow(remote=True)
-        incoming = self.health(case)
+        incoming = self.health(case, experiment=None)
         async with fixture.paused(case, "prepare_experiment_scientific_outputs", after=True) as (entered, resume):
             starting = asyncio.create_task(fixture.start(case))
             delivery = None
@@ -226,22 +224,22 @@ class SessionFailureCoordinationTests(unittest.IsolatedAsyncioTestCase):
                             for state in case.f.communication._health_receivers[case.sid]))
         async with case.holding("acquisition_node", "stop_runtime"):
             await self.deliver(case, incoming)
-        self.assertEqual(case.controller.get_status()["session_state"], "failed")
+        self.assertEqual(case.controller.get_status()["session_state"], "stopping")
         self.assertEqual(case.stops.call_count, 1)
 
-    async def test_normal_stop_owner_preserves_failure_after_cancellation_and_retry(self):
+    async def test_normal_stop_owner_preserves_fatal_evidence_and_completes_after_retry(self):
         for remote in (False, True):
             with self.subTest(remote=remote):
                 fixture, case = await self.workflow(remote=remote, active=True)
                 async with case.holding("acquisition_node", "stop_runtime"):
                     await self.deliver(case, self.health(case))
                     self.assertEqual(case.stops.call_count, 0)
-                    self.assertEqual(case.controller.get_status()["session_state"], "failed")
+                    self.assertEqual(case.controller.get_status()["session_state"], "running")
                     await case.cancel_closeout()
                 unpreserved = await case.workflow.stop()
                 self.assertFalse(unpreserved.succeeded)
                 self.assertIn("archive unavailable", unpreserved.error)
-                await self.preserve_failed(case)
+                await self.preserve_normal(case)
                 self.assertEqual(case.stops.call_count, 1)
                 self.assertEqual(case.physical_stops.call_count, 1)
                 fixture.assert_finalized_once(case)

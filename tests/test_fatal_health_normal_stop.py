@@ -88,7 +88,7 @@ class FatalHealthNormalStopTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(self.f.controller._acquisition_marker_confirmed)
             self.assertIsNone(self.f.controller._acquisition_marker)
             self.assertIsNotNone(self.f.controller._session)
-            self.assertEqual(self.f.controller.get_status()["session_state"], "failed" if fatal else "stopping")
+            self.assertEqual(self.f.controller.get_status()["session_state"], "stopping")
             self.assertEqual(len(self.node_stops()), 1)
             self.assertFalse(any(c["command_type"] == "kill" for c in self.f.broker.commands))
             with patch.object(self.closeout.storage, "write_acquisition_stage", side_effect=OSError("archive unavailable")):
@@ -172,8 +172,8 @@ class FatalHealthNormalStopTests(unittest.IsolatedAsyncioTestCase):
         await self.fatal()
         self.assertTrue(self.f.node.status()["is_running"])
         self.assertEqual(self.node_stops(), [])
-        self.assertEqual(self.f.controller.get_status()["session_state"], "failed")
-        self.assertEqual(self.f.controller._session.experiment_lifecycle_evidence[-1].event_type, "experiment_fail")
+        self.assertEqual(self.f.controller.get_status()["session_state"], "running")
+        self.assertEqual(self.f.controller._session.experiment_lifecycle_evidence[-1].event_type, "experiment_start")
         self.assertTrue(await self.f.communication.confirm_session_health_processing(self.f.sid, self.f.controller))
         decision, = self.f.controller.controller_action_decision_evidence
         with self.f.ingestor.durable_runtime_evidence_history_guard(
@@ -185,7 +185,7 @@ class FatalHealthNormalStopTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result.succeeded)
         self.assertFalse(result.details["preservation_confirmed"])
         self.assertEqual(len(self.node_stops()), 1)
-        self.assertEqual(self.f.controller.get_status()["session_state"], "failed")
+        self.assertEqual(self.f.controller.get_status()["session_state"], "stopping")
         self.assertIsNotNone(self.f.controller._session)
 
     async def test_failed_decision_publication_is_not_marked_processed(self):
@@ -194,7 +194,7 @@ class FatalHealthNormalStopTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(DurablePublicationError):
                 await self.fatal()
         self.assertFalse(await self.f.communication.confirm_session_health_processing(self.f.sid, self.f.controller))
-        self.assertEqual(self.f.controller.get_status()["session_state"], "failed")
+        self.assertEqual(self.f.controller.get_status()["session_state"], "running")
         await self.fatal()
         self.assertTrue(await self.f.communication.confirm_session_health_processing(self.f.sid, self.f.controller))
         self.assertEqual(len(self.f.controller.controller_action_decisions), 1)
@@ -228,7 +228,7 @@ class FatalHealthNormalStopTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(asyncio.CancelledError):
             await self.stopping
         self.stopping = None
-        self.assertEqual(self.f.controller.get_status()["session_state"], "failed")
+        self.assertEqual(self.f.controller.get_status()["session_state"], "running")
         self.assertTrue(self.f.node.status()["is_running"])
         self.assertEqual(self.node_stops(), [])
         with patch.object(self.closeout.storage, "write_acquisition_stage", side_effect=OSError("archive unavailable")):
@@ -237,7 +237,7 @@ class FatalHealthNormalStopTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result.succeeded)
         self.assertEqual(len(self.node_stops()), 1)
         self.assertFalse(self.f.node.status()["is_running"])
-        self.assertEqual(self.f.controller.get_status()["session_state"], "failed")
+        self.assertEqual(self.f.controller.get_status()["session_state"], "stopping")
 
     async def test_timing_failure_uses_the_same_normal_stop_owner(self):
         await self.begin_stop()
@@ -249,7 +249,7 @@ class FatalHealthNormalStopTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result.succeeded, result.error)
         self.assertTrue(result.details["durable_acceptance_confirmed"])
         self.assertEqual(self.node_stops(), [])
-        self.assertEqual(self.f.controller.get_status()["session_state"], "failed")
+        self.assertEqual(self.f.controller.get_status()["session_state"], "running")
 
     async def test_fatal_during_experiment_end_time_does_not_record_stale_stop(self):
         self.pause_operation = None
@@ -272,18 +272,18 @@ class FatalHealthNormalStopTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.node_stops()), 1)
         endings = [item.event_type for item in self.f.controller._session.experiment_lifecycle_evidence
                    if item.event_type in {"experiment_stop", "experiment_fail"}]
-        self.assertEqual(endings, ["experiment_fail"])
+        self.assertEqual(endings, ["experiment_stop"])
 
-    async def test_verified_closeout_preserves_failed_terminal_outcome_and_retries(self):
+    async def test_verified_closeout_preserves_completed_outcome_and_fatal_evidence(self):
         await self.begin_stop()
         await self.fatal()
         self.resume.set()
         result = await self.stopping
         self.assertTrue(result.succeeded, result.error)
-        self.assertEqual(result.details["session_state"], "failed")
+        self.assertEqual(result.details["session_state"], "completed")
         self.assertTrue(result.details["preservation_confirmed"])
         preserved = self.f.ingestor.read_session_closeout(self.f.sid)
-        self.assertEqual(preserved["session_record"]["final_session_status"]["state"], "failed")
+        self.assertEqual(preserved["session_record"]["final_session_status"]["state"], "completed")
         self.assertTrue(all(message.to_dict() in preserved["runtime_evidence"]
                             for message in self.f.controller.controller_action_decision_evidence))
         before = self.closeout.archive()

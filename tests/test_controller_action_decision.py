@@ -30,7 +30,9 @@ class ControllerActionDecisionTests(unittest.TestCase):
         }
 
         with tempfile.TemporaryDirectory() as directory:
-            controller = self._controller(Path(directory))
+            controller, node, _, _ = self._running_controller(Path(directory))
+            self.assertTrue(controller.start_experiment("experiment-001",
+                configuration=ExperimentConfiguration(60, {}, 1000000)).succeeded)
             before = controller.get_status()
 
             for index, (interpretation, expected_decision) in enumerate(
@@ -60,6 +62,8 @@ class ControllerActionDecisionTests(unittest.TestCase):
             self.assertEqual(after["session_state"], before["session_state"])
             self.assertEqual(after["acquisition_runtime"], before["acquisition_runtime"])
             self.assertEqual(after["last_command"], before["last_command"])
+            controller.stop_session()
+            node.local_storage_manager.cleanup()
 
     def test_action_decision_round_trips_with_interpretation_provenance(self):
         with tempfile.TemporaryDirectory() as directory:

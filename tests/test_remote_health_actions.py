@@ -93,18 +93,20 @@ class RemoteHealthActionTests(unittest.IsolatedAsyncioTestCase):
     async def test_health_subscription_executes_once_and_rejects_conflicting_delivery(self):
         health = replace(interpretation(), interpretation_label="experiment_failure")
         message = RuntimeEvidenceMessage("health", self.f.sid, "health_interpretation", "node", health.to_dict(), True)
-        await self.f.handler.publish_evidence(message)
+        # Inject a completed producer publication. The synchronous fixture broker
+        # otherwise re-enters a still-publishing node while delivering its input.
+        await self.f.handler._boundary.publish_evidence(message)
         count = len(self.f.controller.controller_action_decisions)
-        await self.f.handler.publish_evidence(message)
+        await self.f.handler._boundary.publish_evidence(message)
         self.assertEqual(len(self.f.controller.controller_action_decisions), count)
         self.assertEqual(self.f.controller._session.experiment_lifecycle_evidence[-1].event_type, "experiment_fail")
         with self.assertRaises(DurablePublicationError):
-            await self.f.handler.publish_evidence(replace(message, payload={**health.to_dict(), "required": False}))
+            await self.f.handler._boundary.publish_evidence(replace(message, payload={**health.to_dict(), "required": False}))
 
     async def test_timing_interpretation_uses_same_failure_executor(self):
         message = RuntimeEvidenceMessage("timing-health", self.f.sid, "timing_quality_interpretation", "node",
             {"experiment_id": "experiment", "interpretation_label": "experiment_failure"}, True)
-        await self.f.handler.publish_evidence(message)
+        await self.f.handler._boundary.publish_evidence(message)
         self.assertEqual(self.f.controller._session.experiment_lifecycle_evidence[-1].event_type, "experiment_fail")
         self.assertFalse(self.f.node.experiment_runtime_active)
 

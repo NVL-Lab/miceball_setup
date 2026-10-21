@@ -269,7 +269,7 @@ class DistributedSessionCloseoutTests(unittest.IsolatedAsyncioTestCase):
                 "timing_quality_interpretation", "node", {"interpretation_label": "warning"}, True))
         self.assertEqual(self.archive(), before)
 
-    async def test_new_health_during_publication_requires_retry_before_marker(self):
+    async def test_new_health_during_publication_is_rejected_after_cutoff(self):
         await self.running()
         f = self.fixture
         f.controller.process_health_interpretation(interpretation("first"))
@@ -286,7 +286,7 @@ class DistributedSessionCloseoutTests(unittest.IsolatedAsyncioTestCase):
         f.broker.after_publication = add_health
         result = await self.stop()
         self.assertFalse(result.succeeded)
-        self.assertIn("changed during publication", result.error)
+        self.assertIn("admission is closed", result.error)
         self.assertIsNone(f.controller._acquisition_marker)
         f.broker.after_publication = acknowledge_marker
         result = await self.stop()
@@ -294,7 +294,8 @@ class DistributedSessionCloseoutTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result.details["acquisition_preservation_eligible"])
         observations = {m["payload"].get("originating_observation_id") for m in result.details["runtime_evidence"]
                         if m["evidence_type"] == "controller_action_decision"}
-        self.assertTrue({"first", "during-publication"} <= observations)
+        self.assertIn("first", observations)
+        self.assertNotIn("during-publication", observations)
 
     async def test_post_completion_rejection_blocks_remote_release(self):
         await self.running()

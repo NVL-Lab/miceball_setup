@@ -6,8 +6,10 @@ import asyncio
 import json
 from collections.abc import Awaitable, Callable
 from contextlib import nullcontext
+from contextvars import ContextVar
 from copy import deepcopy
 from dataclasses import dataclass, replace
+from functools import wraps
 from pathlib import Path
 from threading import RLock
 from typing import Any, Iterable, TYPE_CHECKING
@@ -45,6 +47,27 @@ from lab_sync_acquisition.synchronization import SynchronizationManager
 
 if TYPE_CHECKING:
     from lab_sync_acquisition.nats_communication import NatsControllerCommunication, NatsIngestorCommunication
+
+
+_command_origin = ContextVar("controller_command_origin", default=None)
+
+
+class _HealthAdmissionClosed(RuntimeError):
+    """A new health input was rejected, not accepted for later processing."""
+
+
+def _session_command(method):
+    """Keep nested asynchronous command reporting attached to its original binding."""
+    @wraps(method)
+    async def command(controller, *args, **kwargs):
+        origin = _command_origin.get()
+        token = _command_origin.set(origin if origin is not None and origin[0] is controller
+                                    else (controller, controller._session))
+        try:
+            return await method(controller, *args, **kwargs)
+        finally:
+            _command_origin.reset(token)
+    return command
 
 
 @dataclass(frozen=True)
@@ -174,7 +197,6 @@ class Controller:
         self._acquisition_archival_active = False
         self._normal_stop_task: asyncio.Task[Any] | None = None
         self._normal_stop_failure_session: Session | None = None
-        self._normal_stop_experiment_id: str | None = None
         self._runtime_cleanup_progress: dict[str, Any] | None = None
         self._kill_closeout_session: Session | None = None
         self._kill_closeout: dict[str, Any] | None = None
@@ -184,6 +206,7 @@ class Controller:
         self._experiment_deadlines: dict[tuple[str, str, str], dict[str, Any]] = {}
 
     @service_operation()
+    @_session_command
     async def kill_session(
         self, *, communication: NatsControllerCommunication, result_window_s: float,
         operator_authorized: bool, reason: str | None = None,
@@ -341,6 +364,7 @@ class Controller:
             raise RuntimeError("Current operational evidence and audit preservation is unconfirmed")
 
     @service_operation()
+    @_session_command
     async def normal_stop_session(
         self, *, communication: NatsControllerCommunication,
         receiving: NatsIngestorCommunication | None = None, result_window_s: float,
@@ -371,8 +395,8 @@ class Controller:
                         and not (session.current_state == SessionState.FAILED and self._normal_stop_failure_session is session)):
                     raise RuntimeError("Normal Stop requires a running, stopping, or normally completed Session")
                 # Retain original context and Q019 obligations across interrupted cleanup.
+                self._admit_session_closeout(session, "normal_stop")
                 if self._acquisition_marker_session is not session:
-                    self._normal_stop_experiment_id = self._active_experiment_id
                     self._acquisition_marker_session = session
                     self._acquisition_marker = None
                     self._acquisition_marker_confirmed = False
@@ -530,11 +554,11 @@ class Controller:
                     if attempt["kill"] != kill and not (kill and session.current_state == SessionState.STOPPING):
                         raise RuntimeError("An incompatible closeout is already admitted")
                 else:
+                    if not kill:
+                        self._admit_session_closeout(session, "normal_stop")
                     attempt = {"session_id": session.session_id, "storage": storage.to_dict(),
                         "ingestor": intake.to_dict(), "kill": kill, "participants": []}
                     self._distributed_closeout = attempt
-                    if not kill:
-                        self._normal_stop_experiment_id = self._active_experiment_id
                 self._normal_stop_task = asyncio.current_task()
                 admitted = True
                 self._acquisition_marker_session = session
@@ -675,6 +699,7 @@ class Controller:
                         "artifact_collection_handoff": handoff}
 
     @service_operation()
+    @_session_command
     async def archive_acquisition_evidence(
         self, *, communication: NatsIngestorCommunication,
     ) -> ControllerCommandResult:
@@ -780,6 +805,7 @@ class Controller:
             return self._record_failed_command("preserve_artifact_collection_handoff", error)
 
     @service_operation()
+    @_session_command
     async def publish_acquisition_evidence_completion(
         self, *, communication: NatsControllerCommunication, result_window_s: float,
     ) -> ControllerCommandResult:
@@ -826,6 +852,10 @@ class Controller:
             with self._service_operation_lock:
                 if self._session is not session:
                     raise RuntimeError("Controller Session binding changed during publication")
+                # The same lock orders acceptance and cutoff. Retained decisions
+                # remain executable on retry; no new evidence can race the marker.
+                self._session_closeout_progress(session)["health_admission_closed"] = True
+                self._require_health_accounting(session)
                 messages = list(self.controller_action_decision_evidence)
                 messages.extend(m for m in communication.unpublished_session_evidence(session.session_id)
                                 if self._acquisition_marker is None
@@ -856,6 +886,7 @@ class Controller:
                 if self._session is not session:
                     raise RuntimeError("Controller Session binding changed during publication")
                 required = self._controller_owned_session_evidence_snapshot(session.session_id)
+                self._require_health_accounting(session)
                 producer_confirmations = tuple((p, communication.session_acquisition_completion(p, session.session_id))
                                                for p in (*nodes, synchronization[0]))
                 if any(confirmation is None for _, confirmation in producer_confirmations):
@@ -894,6 +925,7 @@ class Controller:
             self._component_id, "controller", True, not terminated,
             "service_terminated" if terminated else "ready"))
 
+    @_session_command
     async def shutdown_framework(
         self, participants: Iterable[RuntimeParticipant], *,
         communication: NatsControllerCommunication, stop_attempt_id: str,
@@ -1124,6 +1156,7 @@ class Controller:
                         self._framework_shutdown_attempt_id = None
 
     @service_operation(new_work=True)
+    @_session_command
     async def get_node_inventory(self, participant, *, communication, result_window_s):
         """Read fresh installed-device and adjustable-parameter definitions without a Session."""
         from math import isfinite
@@ -1380,6 +1413,7 @@ class Controller:
             return result
 
     @service_operation(new_work=True)
+    @_session_command
     async def start_launched_session(self) -> ControllerCommandResult:
         """Start reserved distributed acquisition through existing runtime commands."""
         if self._experiment_operation_lock.locked():
@@ -1423,6 +1457,7 @@ class Controller:
             return self._record_failed_command("start_session", error, {"rollback": rollback})
 
     @service_operation()
+    @_session_command
     async def stop_launched_session(self, reason: str | None = None) -> ControllerCommandResult:
         """Stop/finalize every reserved node before releasing it, independently of global collection."""
         if self._experiment_operation_lock.locked():
@@ -1433,9 +1468,13 @@ class Controller:
     async def _stop_launched_session(self, reason: str | None, *, failure=None) -> ControllerCommandResult:
         session = self._require_session()
         if failure is not None and self._normal_stop_owns_cleanup(session):
-            return await self._account_session_failure(session, failure)
+            return await self._account_accepted_decision(session, failure)
         if self._normal_stop_task is not None and self._normal_stop_task is not asyncio.current_task():
             return self._record_failed_command("stop_session", RuntimeError("Normal Stop is in progress"))
+        try:
+            self._admit_session_closeout(session, "fatal" if failure is not None else "normal_stop")
+        except RuntimeError as error:
+            return self._record_failed_command("stop_session", error)
         self._runtime_cleanup_confirmed = False
         outcomes = []
         participants = self._reserved_participants
@@ -1462,7 +1501,7 @@ class Controller:
                 outcomes.append({"participant": participant.to_dict(), "released": False,
                                  "cleanup_confirmed": False, "error": str(error)})
         if failure is not None:
-            accounted = await self._account_session_failure(session, failure)
+            accounted = await self._account_accepted_decision(session, failure)
             self._refresh_kill_cleanup(session, outcomes)
             details = {**accounted.details, "participant_outcomes": outcomes,
                        "cleanup_confirmed": self._runtime_cleanup_confirmed}
@@ -1501,6 +1540,13 @@ class Controller:
 
     def _cleanup_step(self, session, participant, initial_command_id=None):
         """Own each Session participant's cleanup identity independently of a coroutine."""
+        progress = self._session_closeout_progress(session)
+        return progress["participants"].setdefault((participant.component_type, participant.component_id),
+            {"stop_command_id": initial_command_id or uuid4().hex,
+             "release_command_id": uuid4().hex, "released": False})
+
+    def _session_closeout_progress(self, session):
+        """Retain admission and completed work in the existing Session cleanup progress."""
         if self._session is not session:
             raise RuntimeError("Controller Session changed during cleanup")
         if self._runtime_cleanup_progress is None:
@@ -1508,9 +1554,16 @@ class Controller:
         progress = self._runtime_cleanup_progress
         if progress["session_id"] != session.session_id:
             raise RuntimeError("Cleanup progress belongs to another Session")
-        return progress["participants"].setdefault((participant.component_type, participant.component_id),
-            {"stop_command_id": initial_command_id or uuid4().hex,
-             "release_command_id": uuid4().hex, "released": False})
+        return progress
+
+    def _admit_session_closeout(self, session, owner):
+        """Select the physical closeout owner once, not when health evidence arrives."""
+        with self._service_operation_lock:
+            progress = self._session_closeout_progress(session)
+            previous = progress.get("owner")
+            if previous is not None and previous != owner:
+                raise RuntimeError(f"Session closeout is owned by {previous}")
+            progress["owner"] = owner
 
     async def _request_cleanup_stop(self, session, participant, window, *, initial_command_id=None):
         """Reuse uncertain/successful owner work; a confirmed failure permits a new explicit attempt."""
@@ -1602,6 +1655,7 @@ class Controller:
         return result
 
     @service_operation(new_work=True)
+    @_session_command
     async def start_launched_experiment(self, experiment_id: str, *,
             scientific_outputs: Iterable[ScientificOutputSelection] = (),
             runtime_health_mapping: Mapping[str, Iterable[ExperimentRuntimeHealthMapping]] | None = None,
@@ -1617,7 +1671,7 @@ class Controller:
                 if not isinstance(configuration, ExperimentConfiguration):
                     raise ValueError("An explicit ExperimentConfiguration is required")
                 configuration = ExperimentConfiguration.from_dict(configuration.to_dict())
-                if (self._normal_stop_task is not None or self._acquisition_marker_session is session
+                if (self._normal_stop_owns_cleanup(session) or self._normal_stop_task is not None or self._acquisition_marker_session is session
                         or session.current_state != SessionState.RUNNING
                         or self._active_experiment_id is not None):
                     raise RuntimeError("Experiment requires a running Session without an active Experiment")
@@ -1795,7 +1849,8 @@ class Controller:
 
     def _reconcile_expiry_if_complete(self, experiment_id):
         session = self._require_session()
-        if session.current_state != SessionState.RUNNING or self._active_experiment_id != experiment_id:
+        if (self._normal_stop_owns_cleanup(session) or session.current_state != SessionState.RUNNING
+                or self._active_experiment_id != experiment_id):
             return False
         nodes = ({p.component_id for p in self._reserved_participants} if self._launch_communication is not None
                  else {self._acquisition_node.node_id})
@@ -1809,6 +1864,7 @@ class Controller:
         return True
 
     @service_operation()
+    @_session_command
     async def reconcile_launched_experiment_expiry(self, experiment_id: str) -> bool:
         """Read current owner proof after missed publication; absent proof never ends an Experiment."""
         for participant in self._reserved_participants:
@@ -1821,6 +1877,7 @@ class Controller:
         return self._active_experiment_id != experiment_id
 
     @service_operation()
+    @_session_command
     async def stop_launched_experiment(self, experiment_id: str,
                                        details: dict[str, Any] | None = None) -> ControllerCommandResult:
         """Confirm node finalization/publication before recording canonical Experiment stop."""
@@ -1831,7 +1888,7 @@ class Controller:
         name = "stop_experiment" if event_type == "experiment_stop" else "execute_controller_action_decision"
         try:
             session = self._require_session()
-            if (self._normal_stop_task is not None or self._acquisition_marker_session is session
+            if (self._normal_stop_owns_cleanup(session) or self._normal_stop_task is not None or self._acquisition_marker_session is session
                     or session.current_state != SessionState.RUNNING
                     or self._active_experiment_id != experiment_id):
                 raise RuntimeError("Requested Experiment is not active in this running Session")
@@ -1885,6 +1942,21 @@ class Controller:
         """Record one evidence-only decision for presented interpretation evidence."""
 
         session = self._require_session()
+        with self._service_operation_lock:
+            previous = next((d for d in self._controller_action_decisions
+                if d.session_id == session.session_id
+                and d.originating_observation_id == evidence.originating_observation_id
+                and d.experiment_id == evidence.experiment_id
+                and d.live_source_id == evidence.live_source_id), None)
+            if previous is not None:
+                if (previous.acquisition_health_policy != evidence.acquisition_health_policy
+                        or previous.interpretation_label != evidence.interpretation_label
+                        or previous.details != {"expected_participant_id": evidence.expected_participant_id,
+                                                "required": evidence.required}):
+                    raise ValueError("Conflicting Controller health interpretation identity")
+        if previous is not None:
+            self._record_action_decision(previous)
+            return previous
         decision_by_interpretation = {
             "informational": "record_only",
             "uninterpreted": "record_only",
@@ -1909,8 +1981,8 @@ class Controller:
                 "required": evidence.required,
             },
         )
-        self._record_action_decision(decision)
-        return decision
+        message = self._record_action_decision(decision)
+        return ControllerActionDecision.from_dict(message.payload)
 
     @service_operation()
     def process_timing_quality_interpretation(self, message: RuntimeEvidenceMessage) -> dict[str, Any]:
@@ -1935,37 +2007,44 @@ class Controller:
                 if previous.payload["interpretation"] != message.to_dict():
                     raise ValueError("Conflicting timing interpretation identity")
                 return deepcopy(previous.payload)
-            if self._acquisition_marker_session is session and self._acquisition_marker is not None:
-                raise RuntimeError("Session acquisition publication is already closed")
             payload = {"session_id": session.session_id, "experiment_id": message.payload.get("experiment_id"),
                 "originating_observation_id": message.evidence_id, "interpretation_label": label,
                 "controller_decision": decisions[label], "interpretation": message.to_dict()}
-            self._controller_action_decision_evidence.append(RuntimeEvidenceMessage(identity, session.session_id,
-                "controller_action_decision", self._component_id, deepcopy(payload), True))
-            return payload
+        self._accept_action_payload(session, payload, identity=identity)
+        return payload
 
-    def _record_action_decision(self, decision: ControllerActionDecision) -> None:
+    def _record_action_decision(self, decision: ControllerActionDecision):
+        return self._accept_action_payload(self._require_session(), decision.to_dict(), decision=decision)
+
+    def _accept_action_payload(self, session, payload, *, identity=None, decision=None):
+        """Atomically accept applicability and evidence before the health admission cutoff."""
         with self._service_operation_lock:
-            if any(recorded is decision for recorded in self._controller_action_decisions):
-                return
-            if (self._acquisition_marker_session is self._session and self._session is not None
-                    and self._acquisition_marker is not None):
-                raise RuntimeError("Session acquisition evidence publication boundary is closed")
-            message = RuntimeEvidenceMessage(
-                evidence_id=uuid4().hex,
-                session_id=decision.session_id,
-                evidence_type="controller_action_decision",
-                source_id=self._component_id,
-                payload=deepcopy(decision.to_dict()),
-                is_persistent=True,
-            )
-            # Retain ownership before handoff; do not nest Controller and intake locks.
-            self._controller_action_decisions.append(decision)
-            self._controller_action_decision_evidence.append(message)
+            if self._session is not session or payload.get("session_id") != session.session_id:
+                raise RuntimeError("Controller decision does not match the original Session")
+            message = next((m for m in self._controller_action_decision_evidence
+                            if m.session_id == session.session_id and m.payload == payload), None)
+            if message is None:
+                progress = self._runtime_cleanup_progress or {}
+                if progress.get("health_admission_closed"):
+                    raise _HealthAdmissionClosed("Session health-decision admission is closed")
+                if payload.get("controller_decision") in {"experiment_fail", "session_fail"}:
+                    experiment = payload.get("experiment_id")
+                    if (session.current_state not in {SessionState.RUNNING, SessionState.STOPPING}
+                            or (experiment is not None and experiment != self._active_experiment_id)
+                            or (payload["controller_decision"] == "experiment_fail" and experiment is None)):
+                        raise RuntimeError("Fatal decision does not match the active acceptance context")
+                message = RuntimeEvidenceMessage(identity or uuid4().hex, session.session_id,
+                    "controller_action_decision", self._component_id, deepcopy(payload), True)
+                if decision is not None:
+                    self._controller_action_decisions.append(decision)
+                self._controller_action_decision_evidence.append(message)
+        # Retain acceptance before handoff, without nesting Controller/intake locks.
         if self._ingestor is not None:
-            audit = self._ingestor.receive_runtime_evidence(message)
-            if not audit.accepted:
-                raise RuntimeError("Controller decision evidence intake was not accepted")
+            if not self._ingestor.has_durable_runtime_evidence(message):
+                audit = self._ingestor.receive_runtime_evidence(message)
+                if not audit.accepted:
+                    raise RuntimeError("Controller decision evidence intake was not accepted")
+        return message
 
     def _controller_decision_evidence_snapshot(self, session_id: str) -> dict[str, dict[str, Any]]:
         return {
@@ -2011,6 +2090,7 @@ class Controller:
             raise RuntimeError("Current Evidence Archive does not preserve required Controller-owned evidence")
 
     @service_operation()
+    @_session_command
     async def execute_launched_controller_action_decision(
         self, decision: ControllerActionDecision | dict[str, Any],
     ) -> ControllerCommandResult:
@@ -2034,25 +2114,33 @@ class Controller:
             if action not in {"experiment_fail", "session_fail"}:
                 return self._record_successful_command(name,
                     {"controller_decision": action, "lifecycle_mutated": False})
-            if action == "session_fail" and self._normal_stop_owns_cleanup(session):
-                return await self._account_session_failure(session, payload)
-            if action == "session_fail" and (session.current_state == SessionState.FAILED
-                    or payload.get("experiment_id") in {None, self._active_experiment_id}):
-                # Canonical accounting does not take resource ownership. Retain
-                # an applicable consequence even if waiting for cleanup is cancelled.
-                self._record_session_failure(session, payload)
+            if self._normal_stop_owns_cleanup(session):
+                return await self._account_accepted_decision(session, payload)
             async with self._experiment_operation_lock:
                 if self._session is not session:
                     raise RuntimeError("Session binding changed during health execution")
                 if action == "experiment_fail":
                     experiment_id = payload.get("experiment_id")
+                    if self._normal_stop_owns_cleanup(session):
+                        return await self._account_accepted_decision(session, payload)
+                    if self._active_experiment_id != experiment_id and any(
+                            e.experiment_id == experiment_id and e.event_type in {
+                                "experiment_stop", "experiment_fail", "experiment_abort"}
+                            for e in session.experiment_lifecycle_evidence):
+                        return await self._account_accepted_decision(session, payload)
                     if session.current_state != SessionState.RUNNING or self._active_experiment_id != experiment_id:
                         raise RuntimeError("Health decision does not match the active Experiment")
                     result = await self._end_launched_experiment(experiment_id, payload, "experiment_fail")
+                    if result.succeeded:
+                        accounted = await self._account_accepted_decision(session, payload)
+                        return self._record_successful_command(name, {**result.details, **accounted.details})
                     return result
                 # Resolve current ownership inside the same coordination path as
                 # Normal Stop, including the lock-release/waiter handover interval.
-                self._record_session_failure(session, payload)
+                if self._normal_stop_owns_cleanup(session):
+                    return await self._account_accepted_decision(session, payload)
+                self._admit_session_closeout(session, "fatal")
+                self._mark_session_failed("ControllerActionDecision requested Session failure", payload)
                 return await self._stop_launched_session(
                     "ControllerActionDecision requested Session failure", failure=payload)
         except asyncio.CancelledError:
@@ -2066,66 +2154,88 @@ class Controller:
 
     def _normal_stop_owns_cleanup(self, session):
         """Recognize admitted or interrupted Normal Stop without treating Kill as Normal Stop."""
-        return (self._kill_closeout_session is not session
+        return (self._session is session and self._kill_closeout_session is not session
             and not (self._distributed_closeout or {}).get("kill", False)
-            and (self._normal_stop_task is not None or self._normal_stop_failure_session is session
-                 or self._acquisition_marker_session is session))
+            and (self._runtime_cleanup_progress or {}).get("owner") == "normal_stop")
 
     def _require_local_runtime_transition(self, session):
         """Reject local resource work once another runtime transition or closeout owns it."""
-        if (self._session is not session or self._normal_stop_task is not None
+        if (self._session is not session or self._normal_stop_owns_cleanup(session) or self._normal_stop_task is not None
                 or self._acquisition_marker_session is session or self._experiment_operation_lock.locked()):
             raise RuntimeError("Session closeout or runtime transition owns cleanup")
 
-    def _record_session_failure(self, session, payload):
-        """Apply one retained fatal decision's canonical consequence, without resource cleanup."""
-        if (self._session is not session or payload.get("session_id") != session.session_id
-                or payload.get("controller_decision") != "session_fail"
-                or session.current_state not in {SessionState.RUNNING, SessionState.STOPPING, SessionState.FAILED}
-                or self._kill_closeout_session is session or (self._distributed_closeout or {}).get("kill", False)):
-            raise RuntimeError("Fatal decision does not match the bound Session lifecycle")
-        evidence = next(message for message in self.controller_action_decision_evidence
-                        if message.session_id == session.session_id and message.payload == payload)
-        context = (self._normal_stop_experiment_id if self._normal_stop_owns_cleanup(session)
-                   else self._active_experiment_id)
-        previously_accounted = any(event.event_type == "experiment_fail"
-            and event.experiment_id == payload.get("experiment_id")
-            and all((event.details or {}).get(key) == value for key, value in payload.items())
-            for event in session.experiment_lifecycle_evidence)
-        if payload.get("experiment_id") not in {None, context} and not (
-                session.current_state == SessionState.FAILED and previously_accounted):
-            raise RuntimeError("Fatal decision does not match the admitted Session/Experiment context")
-        self._mark_session_failed("ControllerActionDecision requested Session failure", payload)
-        return evidence
-
-    def _session_failure_confirmation(self, session, evidence):
+    def _confirm_decision_accounting(self, session, evidence):
         """Describe accounted fatal evidence without conflating it with resource preservation."""
-        if self._session is not session or session.current_state != SessionState.FAILED:
+        if self._session is not session:
             raise RuntimeError("Fatal decision canonical consequence is unconfirmed")
-        return {"controller_decision": "session_fail", "session_id": session.session_id,
-            "evidence_id": evidence.evidence_id, "session_state": "failed",
+        action = evidence.payload["controller_decision"]
+        normal = self._normal_stop_owns_cleanup(session)
+        experiment_ended = any(e.experiment_id == evidence.payload.get("experiment_id")
+            and e.event_type in {"experiment_stop", "experiment_fail", "experiment_abort"}
+            for e in session.experiment_lifecycle_evidence)
+        if not (normal or (action == "session_fail" and session.current_state == SessionState.FAILED)
+                or (action == "experiment_fail" and experiment_ended)):
+            raise RuntimeError("Fatal decision closeout consequence is unconfirmed")
+        return {"controller_decision": action, "session_id": session.session_id,
+            "evidence_id": evidence.evidence_id, "session_state": session.current_state.value,
             "cleanup_owner": "normal_stop" if self._normal_stop_owns_cleanup(session) else "controller",
             "health_processing_confirmed": True, "durable_acceptance_confirmed": True,
             "preservation_confirmed": False, "binding_retained": True}
 
-    async def _account_session_failure(self, session, payload):
-        """Confirm durable acceptance after shared canonical fatal accounting."""
-        evidence = self._record_session_failure(session, payload)
+    def _health_processing_confirmed(self, session, payload, details):
+        """Read affirmative decision accounting without inferring it from callback success."""
+        if self._session is not session or not isinstance(details, dict):
+            return False
+        evidence = next((m for m in self._controller_action_decision_evidence
+            if m.session_id == session.session_id and m.payload == payload), None)
+        return (evidence is not None and details.get("health_processing_confirmed") is True
+            and details.get("durable_acceptance_confirmed") is True
+            and details.get("session_id") == session.session_id
+            and details.get("evidence_id") == evidence.evidence_id
+            and evidence.evidence_id in self._accounted_decision_ids(session))
+
+    def _accounted_decision_ids(self, session):
+        """Derive confirmed accounting from retained results, not a second proof cache."""
+        return {result.details["evidence_id"] for result in self._command_results
+            if isinstance(result.details, Mapping) and result.details.get("session_id") == session.session_id
+            and result.details.get("health_processing_confirmed") is True
+            and result.details.get("durable_acceptance_confirmed") is True
+            and isinstance(result.details.get("evidence_id"), str)}
+
+    def _health_admission_closed(self, session):
+        with self._service_operation_lock:
+            return (self._session is not session
+                or (self._runtime_cleanup_progress or {}).get("health_admission_closed", False))
+
+    def _require_health_accounting(self, session):
+        accounted = self._accounted_decision_ids(session)
+        if any(m.session_id == session.session_id
+               and m.payload.get("controller_decision") in {"session_fail", "experiment_fail"}
+               and m.evidence_id not in accounted for m in self._controller_action_decision_evidence):
+            raise RuntimeError("Accepted fatal decisions still require durable accounting")
+
+    async def _account_accepted_decision(self, session, payload):
+        """Confirm an accepted decision without owning or repeating lifecycle execution."""
+        evidence = next(m for m in self.controller_action_decision_evidence
+                        if m.session_id == session.session_id and m.payload == payload)
         window = self._launch_result_window_s
-        await asyncio.wait_for(self._launch_communication.publish_evidence(evidence), window)
+        communication = self._launch_communication
+        await asyncio.wait_for(communication.publish_evidence(evidence), window)
+        if self._session is not session:
+            raise RuntimeError("Controller Session changed during decision publication")
         ingestors = [p for p in session.configuration.expected_runtime_participants if p.component_type == "ingestor"]
         if len(ingestors) != 1:
             raise RuntimeError("Fatal decision requires one authoritative evidence receiving owner")
-        result = await asyncio.wait_for(self._launch_communication.request_persistence_command(
+        result = await asyncio.wait_for(communication.request_persistence_command(
             ingestors[0], "read_runtime_evidence_acceptance", session.session_id,
             {"evidence": evidence.to_dict()}, window, command_id=uuid4().hex), window)
-        if (self._session is not session or session.current_state != SessionState.FAILED
+        if (self._session is not session
                 or result is None or result.success is not True
                 or result.payload.get("evidence_id") != evidence.evidence_id
                 or result.payload.get("durable_acceptance_confirmed") is not True):
             raise RuntimeError("Fatal decision durable acceptance or canonical consequence is unconfirmed")
         return self._record_successful_command("execute_controller_action_decision",
-            self._session_failure_confirmation(session, evidence))
+            self._confirm_decision_accounting(session, evidence))
 
     @service_operation()
     def execute_controller_action_decision(
@@ -2147,26 +2257,21 @@ class Controller:
                 raise RuntimeError(
                     f"ControllerActionDecision is not executable in Phase 8b: {decision.controller_decision}"
                 )
-            overlapping = decision.controller_decision == "session_fail" and self._normal_stop_owns_cleanup(session)
-            try:
-                self._record_action_decision(decision)
-            finally:
-                # Retained decisions still have a canonical consequence if local
-                # journal acceptance fails; only confirmed acceptance permits success.
-                if overlapping:
-                    evidence = self._record_session_failure(session, decision.to_dict())
+            self._record_action_decision(decision)
             if decision.controller_decision == "session_fail":
-                if not overlapping:
+                if not self._normal_stop_owns_cleanup(session):
                     self._require_local_runtime_transition(session)
-                    evidence = self._record_session_failure(session, decision.to_dict())
+                    self._admit_session_closeout(session, "fatal")
+                    self._mark_session_failed("ControllerActionDecision requested Session failure", decision.to_dict())
                     self._attempt_runtime_stop()
+                evidence = next(m for m in self.controller_action_decision_evidence if m.payload == decision.to_dict())
                 if self._ingestor is None:
                     raise RuntimeError("Local fatal accounting requires authoritative Ingestor acceptance")
                 if not self._ingestor.has_durable_runtime_evidence(evidence):
                     self._ingestor.receive_runtime_evidence(evidence)
                 if not self._ingestor.has_durable_runtime_evidence(evidence):
                     raise RuntimeError("Fatal decision durable acceptance is unconfirmed")
-                return {**self._session_failure_confirmation(session, evidence),
+                return {**self._confirm_decision_accounting(session, evidence),
                         "cleanup_confirmed": self._runtime_cleanup_confirmed}
             if decision.controller_decision in {
                 "record_only",
@@ -2179,6 +2284,14 @@ class Controller:
                     "lifecycle_mutated": False,
                 }
             if decision.controller_decision == "experiment_fail":
+                if self._normal_stop_owns_cleanup(session) or any(
+                        e.experiment_id == decision.experiment_id and e.event_type in {
+                            "experiment_stop", "experiment_fail", "experiment_abort"}
+                        for e in session.experiment_lifecycle_evidence):
+                    evidence = next(m for m in self.controller_action_decision_evidence if m.payload == decision.to_dict())
+                    if self._ingestor is None or not self._ingestor.has_durable_runtime_evidence(evidence):
+                        raise RuntimeError("Fatal decision durable acceptance is unconfirmed")
+                    return self._confirm_decision_accounting(session, evidence)
                 if session.current_state != SessionState.RUNNING:
                     raise RuntimeError(
                         "Experiment failure requires a running Session"
@@ -2204,7 +2317,10 @@ class Controller:
                         "controller_decision": decision.controller_decision,
                     },
                 )
-                return evidence
+                message = next(m for m in self.controller_action_decision_evidence if m.payload == decision.to_dict())
+                if self._ingestor is None or not self._ingestor.has_durable_runtime_evidence(message):
+                    raise RuntimeError("Fatal decision durable acceptance is unconfirmed")
+                return {**evidence, **self._confirm_decision_accounting(session, message)}
             raise RuntimeError(
                 "ControllerActionDecision is not executable in Phase 8b: "
                 f"{decision.controller_decision}"
@@ -2590,6 +2706,7 @@ class Controller:
         )
 
     @service_operation()
+    @_session_command
     async def release_session(self, *, communication: NatsControllerCommunication | None = None,
                               result_window_s: float | None = None) -> ControllerCommandResult:
         """Release a terminal binding after confirmed cleanup and final persistence."""
@@ -2685,7 +2802,6 @@ class Controller:
         self._kill_closeout = None
         self._distributed_closeout = None
         self._normal_stop_failure_session = None
-        self._normal_stop_experiment_id = None
         self._runtime_cleanup_progress = None
         self._active_experiment_runtime_health_mapping = ()
         self._command_results.clear()
@@ -2753,6 +2869,7 @@ class Controller:
             if admitted and self._normal_stop_task is asyncio.current_task():
                 self._normal_stop_task = None
 
+    @_session_command
     async def reconcile_session_closeout(self, session_id: str, *, communication: NatsControllerCommunication,
                                         ingestor_participant: RuntimeParticipant,
                                         storage_participant: RuntimeParticipant, result_window_s: float) -> ControllerCommandResult:
@@ -2791,6 +2908,7 @@ class Controller:
         return self._record_successful_command("collect_session_artifacts", details)
 
     @service_operation(new_work=True)
+    @_session_command
     async def collect_session_artifacts_with_evidence(self) -> ControllerCommandResult:
         """Await collection evidence publication after acquisition end, before finalization."""
         if self._artifact_collection_in_progress:
@@ -2864,6 +2982,7 @@ class Controller:
             return self._record_failed_command("collect_selected_session_artifacts", error)
 
     @service_operation(new_work=True)
+    @_session_command
     async def collect_saved_session_artifacts_remote(
         self, session_id: str, *, evidence_id: str,
         communication: NatsControllerCommunication,
@@ -2896,6 +3015,7 @@ class Controller:
         except Exception as error:
             return self._record_failed_command(name, error)
 
+    @_session_command
     async def close_saved_session_archive_remote(
         self, session_id: str, *, communication: NatsControllerCommunication,
         storage_participant: RuntimeParticipant, result_window_s: float,
@@ -3007,6 +3127,7 @@ class Controller:
                      for m in self._reconciliation_evidence)
 
     @service_operation()
+    @_session_command
     async def reconcile_outcomes(self, *, session_id: str | None = None,
                                  participants: Iterable[RuntimeParticipant] | None = None,
                                  communication: NatsControllerCommunication | None = None,
@@ -3329,6 +3450,12 @@ class Controller:
         self, result: ControllerCommandResult
     ) -> ControllerCommandResult:
         with self._service_operation_lock:
+            origin = _command_origin.get()
+            if (origin is not None and origin[0] is self and origin[1] is not None
+                    and origin[1] is not self._session):
+                details = dict(result.details) if isinstance(result.details, Mapping) else {"outcome": result.details}
+                details["session_id"] = origin[1].session_id if origin[1] is not None else None
+                return replace(result, details=details)
             self._last_result = result
             self._command_results.append(result)
         return result
