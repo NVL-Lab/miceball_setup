@@ -392,6 +392,78 @@ producer messages. It does not resolve this publication-recovery question.
 
 ## Q013: What further framework behavior follows ControllerActionDecision execution?
 
+**Status:** OPEN. G4-A and G4 remain OPEN; G4-B/G4-C remain deferred.
+
+### Accepted G4-A Simplification (Decision 407)
+
+The user-accepted HLC simplification and reconciled LLC handoff are synchronized
+in Decision 407. Session lifecycle records how a Session ended; health evidence
+records what happened. Already-admitted Normal Stop may produce COMPLETED despite
+fatal health decisions only when all existing completion guarantees are satisfied.
+Decision 407 partially supersedes Decision 406's mandatory FAILED consequence in
+that case, retaining original-context, durable-accounting and sole-cleanup-owner
+protections. It clarifies Decisions 113-114 so multiple applicable fatal decisions
+are independently accounted for without repeated Experiment termination or
+physical cleanup. Individual decisions do not own competing physical cleanup;
+one logical Controller-owned Session closeout coordinator governs it, with
+independent service-owned obligations unchanged.
+
+Asynchronous outcomes, including failures and diagnostics, must remain scoped to
+their originating Session and operation and cannot modify a replacement Session.
+Scientific finalization, complete Normal Stop intake/Stage A preservation,
+Controller decision archival, independent binding release, authorized Kill,
+interrupted cleanup and safe retry remain required under Decisions 313, 322,
+360, 365 and 382. No new infrastructure or lifecycle states are accepted.
+
+This is accepted architecture, not implemented or validated redesign. The current
+Alternative B implementation still requires canonical FAILED proof for fatal
+processing, including during Normal Stop. Its existing tests and reports below
+describe that earlier contract; their passing results do not establish Decision
+407 compliance. The latest independent audit returned FAIL as recorded below.
+Implementation requires the workflow's impact/invariant review and ICC scope
+authorization; documentation synchronization is not implementation authorization.
+Other notification/escalation questions below remain open.
+
+### Integration Questions Requiring Clarification
+
+- **Evidence first arriving after finalized intake:** Decision 382 rejects or
+  discards later acquisition deliveries without changing finalized evidence,
+  audit or Session Record, while Decision 322 requires archival of every
+  Session-associated ControllerActionDecision before binding release. If a newly
+  received fatal input is still applicable after that immutable boundary, what
+  accepted path establishes its required durable accounting without reopening
+  those products? Decision 407 does not select rejection, deferral, another
+  archival path or retrospective outcome change as the answer.
+- **Delayed execution and first admission:** Where fatal evidence is received or
+  recorded before Normal Stop but its execution is delayed, which existing
+  authoritative admission establishes closeout ordering? The accepted direction
+  does not specify whether receipt, decision acceptance, execution admission or
+  cleanup admission determines the order. Scheduler order or execution-time
+  observation must not silently become a new architectural rule.
+- **Applicability after Experiment termination:** Independent accounting of
+  multiple already-applicable fatal decisions is accepted and does not require
+  matching a previous decision's complete payload or repeating termination.
+  The remaining question is how applicability is established for a newly
+  received decision about an already-terminated Experiment, distinguishing its
+  original context from genuinely stale or unrelated input. This synchronization
+  does not authorize accepting arbitrary historical Experiment identities.
+
+### Completion Entry-Point Coverage
+
+The requirement that every completion guarantee be satisfied is unchanged; no
+legacy or alternate completion entry point receives an exemption. The impact
+review must trace `normal_stop_session()`, `finalize_session()` and their local,
+remote and internal completion/preservation consumers. The known legacy proof
+gap remains G4-B, not a newly resolved policy question or an authorized scope
+expansion. ICC must review implementation coverage/scope; return any genuine
+contract conflict found there to LLC/HLC rather than weakening proof requirements.
+
+### Historical Implementation And Validation Reports
+
+The following reports retain their original implementation/architecture context,
+including Decision 406's former FAILED requirement. They are historical evidence,
+not claims that the newly accepted Decision 407 is already implemented.
+
 **G4 implementation update (not validated/closed):** Launched Controller Sessions
 now subscribe to health/timing interpretations and invoke
 `execute_launched_controller_action_decision()` without a local AcquisitionNode.
@@ -635,6 +707,34 @@ Windows-hard-link-blocked success checks are not counted. No normal Windows asyn
 live NATS, hardware, OS-signal or power-loss validation is claimed. These are
 implementation results, not independent validation or audit. G4-A/G4/Q013 remain
 OPEN pending ICC review and the separate validation/audit stages.
+
+### Latest Alternative B Independent Audit (FAIL; Before Decision 407)
+
+The separate post-implementation audit reported one confirmed P2 and one P3.
+Its observations and required corrective work are not removed or declared resolved
+by the subsequent architectural simplification:
+
+- **P2, lost context for distinct accepted fatal decisions:** Two decisions were
+  accepted and durably preserved while the same Experiment was active. After the
+  first established FAILED and cleared active context, the second was rejected
+  repeatedly because the prior canonical event required exact decision-payload
+  matching. Both local- and remote-owner compositions reproduced this, with one
+  physical Stop, no second acknowledgment and retained unprocessed input.
+- **P3, replacement-Session diagnostic contamination:** A delayed public launched
+  fatal-action readback completed after verified FAILED preservation, original
+  binding release and creation of a replacement Session. The stale failure was
+  rejected but then recorded in the replacement's command history/last result.
+  Remote reproduction verified the original archive, finalized products and one
+  physical Stop; the local variant was blocked by Windows hard-link permissions.
+
+The audit's acknowledgment-loss/redelivery and cancellation-before-readback
+controls passed, along with five selected existing regression methods. It used
+actual owners, temporary disk persistence, simulated transport and controlled
+asyncio scheduling; no ordinary Windows async, live NATS, hardware, OS-signal or
+power-loss validation was established. Earlier reported 82-method implementation
+verification and ICC's fatal-processing/redelivery PASS remain separate historical
+stages, not proof that these findings or Decision 407 implementation are complete.
+G4-A, G4 and Q013 remain OPEN.
 
 ### Blocks
 

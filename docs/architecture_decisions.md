@@ -904,6 +904,10 @@ Readiness checks should be recorded so that later reconstruction can determine w
 
 **Status:** Accepted
 
+**Subsequent qualification:** Decision 407 qualifies the fatal-evidence/terminal-
+outcome interpretation below for already-admitted Normal Stop; its cleanup,
+preservation and safety requirements remain unchanged. Historical text is retained.
+
 Every session must enter a cleanup/finalization phase during `stopping`, regardless of whether it ends normally, fails, or is aborted.
 
 Cleanup includes:
@@ -3995,6 +3999,11 @@ Framework consequence remains separate
 
 **Superseded in vocabulary by Decision 114:** The lifecycle ownership and behavior remain accepted; the current decision names are `experiment_fail` and `session_fail`.
 
+**Subsequent clarification:** Decision 407 separates fatal-decision accounting
+from Session closeout ownership and clarifies the outcome of already-admitted
+Normal Stop. Multiple applicable decisions require independent durable accounting,
+not repeated Experiment termination or physical cleanup. Historical text follows.
+
 Experiment lifecycle terminal events are distinct: `experiment_stop` records normal completion, `experiment_fail` records unexpected Experiment-level framework or runtime failure, and `experiment_abort` is reserved for future intentional early termination and is not implemented in Phase 8b.
 
 Controller executes `record_experiment_failure_decision` by asking Session to record canonical `experiment_fail` evidence, ending the active Experiment, and clearing the active Experiment runtime health mapping from both Controller and AcquisitionNode.
@@ -4028,6 +4037,11 @@ Session failure
 ## Decision 114: ControllerActionDecision uses normalized local execution vocabulary
 
 **Status:** Accepted
+
+**Subsequent clarification:** Decision 407 preserves this decision vocabulary
+while separating each applicable fatal decision's durable accounting from the
+Session-scoped cleanup owner and the terminal outcome of already-admitted Normal
+Stop. It does not change Experiment-only failure into Session failure.
 
 Controller maps health interpretations to the following local decision vocabulary:
 
@@ -11817,6 +11831,12 @@ no milestone or open deployment/recovery question is closed by this synchronizat
 
 **Status:** Accepted
 
+**Partially superseded by Decision 407:** The mandatory FAILED consequence of an
+applicable fatal decision during already-admitted Normal Stop is superseded.
+Original Session/Experiment context, durable accounting and sole-cleanup-owner
+protections remain authoritative. The original accepted text below is retained
+for traceability; read its terminal-outcome and processing wording with Decision 407.
+
 An already-admitted Normal Stop retains ownership of its ongoing closeout. A
 subsequently received authoritative `session_fail` health decision must not start
 competing cleanup, duplicate remote stops, or automatic Kill. Normal Stop does
@@ -11837,6 +11857,71 @@ This is the user-approved LLC clarification of Decisions 113-114 and 382 for G4,
 not a new Session state, lifecycle authority, parallel closeout workflow, recovery
 or preservation mechanism. Recording it does not claim implementation validation,
 independent audit or G4 closure.
+
+---
+
+## Decision 407: Session closeout separates terminal lifecycle outcome from fatal health accounting
+
+**Status:** Accepted
+
+This records the user-accepted HLC direction titled "G4-A Simplification of Fatal
+Health Decisions and Session Closeout", reconciled in the LLC-to-ICC handoff.
+It partially supersedes Decision 406 and clarifies Decisions 113-114; it does not
+claim implementation, validation, audit PASS or G4-A closure.
+
+Session lifecycle describes how a Session ended; health evidence records what
+happened. When Normal Stop was already admitted and all existing completion
+guarantees are satisfied, the Session may be `completed` despite recorded fatal
+health decisions. The presence of such evidence does not by itself require a
+`failed` terminal outcome in that case. Evidence is not erased or reclassified to
+justify completion. This is a bounded qualification of the earlier terminal-
+outcome wording, not a change to the existing scientific or safety obligations.
+
+Decision 406's requirement that applicable fatal decisions necessarily force
+`failed` during already-admitted Normal Stop is superseded. Its protections for
+original Session/Experiment context, durable decision accounting and sole cleanup
+ownership remain. An individual fatal decision does not independently own physical
+Session cleanup. One logical Controller-owned, Session-scoped closeout coordinator
+governs physical cleanup coordination; service owners retain their independent
+cleanup, scientific finalization, preservation, safety and release responsibilities.
+Already-admitted Normal Stop is not displaced by a competing fatal cleanup path.
+
+Each applicable fatal decision must be independently durably accounted for using
+its own evidence and original Session/Experiment provenance. Multiple decisions
+can be accounted for after canonical Experiment termination without repeating that
+termination or physical cleanup. Independent decision accounting does not require
+one new canonical terminal event per decision. Processing confirmation still
+requires the decision's durable evidence and applicable lifecycle/closeout
+consequence to be accounted for; rejecting competing cleanup or acknowledging
+publication alone is insufficient. Under the already-admitted Normal Stop case,
+this no longer means requiring a new FAILED transition for each fatal input.
+
+Every asynchronous outcome, including errors and diagnostics, remains attributable
+to its originating Session and operation. Work completing after release or
+replacement must not modify a replacement Session, including its diagnostics.
+
+Decisions 313, 322, 360, 365 and 382 remain unchanged: scientific finalization,
+required producer publication, complete durable acquisition intake, verified
+Stage A preservation, terminal Session Record obligations and each service's
+independent binding-release and safety requirements still apply. Every persistent
+ControllerActionDecision still requires confirmed archival before Controller
+binding release. Missing, failed or uncertain cleanup/preservation is not success.
+Finalized acquisition intake and immutable historical evidence are not reopened
+by this decision. Authorized Kill retains its distinct emergency and partial-
+preservation semantics; interruption, retained obligations and safe explicit retry
+remain governed by the existing contracts. Standalone fatal failure does not
+automatically acquire Normal Stop's full archival/release procedure, and
+Experiment-only failure remains Experiment-only.
+
+No new Session states, services, generic transaction frameworks, ownership
+registries or unnecessary reconciliation machinery are authorized. Integration
+questions not specified by this accepted direction remain explicit in
+[Q013](open_questions.md#q013-what-further-framework-behavior-follows-controlleractiondecision-execution);
+this synchronization selects no new late-intake or delayed-admission rule.
+
+**Implementation status:** Accepted and synchronized only. Current G4-A behavior,
+the latest pre-synchronization P2/P3 audit findings, and remaining clarification
+and implementation work are tracked in Q013. G4-A and Q013 remain OPEN.
 
 ---
 

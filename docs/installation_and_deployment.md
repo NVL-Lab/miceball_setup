@@ -2,7 +2,15 @@
 
 ## Status And Scope
 
-### G4 Remote Health Actions (Implementation Pending Independent Validation)
+### G4 Remote Health Actions (Open; Accepted Redesign Not Implemented)
+
+Decision 407 records the accepted G4-A simplification: already-admitted Normal
+Stop may complete despite fatal health evidence if every existing completion
+guarantee is satisfied. Independent fatal accounting and Session-scoped cleanup
+remain required. This redesign is not implemented or validated; the behavior
+described below is the existing pre-407 implementation. The latest Alternative B
+audit returned FAIL with distinct-decision accounting and replacement-diagnostic
+findings; see [Q013](open_questions.md#q013-what-further-framework-behavior-follows-controlleractiondecision-execution).
 
 Distributed `Controller.launch_session()` now attaches the existing health
 interpretation subscription to
@@ -26,7 +34,8 @@ No maintenance Kill or notification/escalation mechanism is introduced. G2/G3
 deadlines and autonomous acquisition remain node-owned. G4 is not closed and no
 live NATS, hardware or complete deployment validation is claimed.
 
-Under Decision 406, an already-admitted Normal Stop retains sole cleanup
+**Current pre-407 overlap behavior:** Under the original Decision 406 contract,
+an already-admitted Normal Stop retains sole cleanup
 ownership when an applicable authoritative `session_fail` arrives during its
 closing publication interval. Controller retains the affected Session/Experiment
 decision, records canonical failure, and confirms exact durable Ingestor acceptance
@@ -38,7 +47,8 @@ Decision acceptance is not Stage A confirmation. Failed publication or missing
 acceptance leaves health processing unconfirmed; missing cleanup or archival
 confirmation retains the binding and preservation obligations for explicit retry.
 Cancellation likewise does not discard the fatal consequence or authorize release.
-This overlap implementation remains pending independent validation and audit.
+These are implementation descriptions, not the newly accepted terminal-outcome
+policy or a claim of G4-A closure.
 
 Normal Stop confirms synchronization publication through the existing scoped
 runtime request contract, as do adjacent node Stop/reservation-release and

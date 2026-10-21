@@ -1126,6 +1126,16 @@ scientific/runtime timing is rejected rather than silently rewritten.
 
 ## src/lab_sync_acquisition/controller.py
 
+**Architecture/implementation distinction:** Decision 407 partially supersedes
+Decision 406's mandatory FAILED outcome during already-admitted Normal Stop and
+clarifies independent fatal accounting and originating-Session outcome isolation.
+The G4-A descriptions and regression matrices below document the current pre-407
+implementation, not an implemented redesign. The latest Alternative B audit
+returned FAIL (P2 distinct-decision context loss; P3 replacement diagnostics).
+See [Q013](open_questions.md#q013-what-further-framework-behavior-follows-controlleractiondecision-execution)
+for accepted direction, history and unresolved integration questions. No public
+interface change or G4-A closure is recorded by this documentation update.
+
 - Controller.maintenance_evidence(): Collects retained framework reconciliation and owned Session decisions, rejection evidence and completion markers for service retirement.
 
 Slice 21 implementation note (Decision 239): the preparation gate produces
