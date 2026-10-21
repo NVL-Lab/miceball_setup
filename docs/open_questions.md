@@ -573,6 +573,69 @@ OS-signal or power-loss validation is claimed. No additional production correcti
 was established by this matrix. G4-A/G4/Q013 remain OPEN; G4-B and G4-C remain
 deferred. Independent ICC validation and a separate audit still follow.
 
+**G4-A Alternative B shared coordination (implemented; pending ICC validation
+and independent audit):** Following ICC scope authorization, launched Normal Stop
+and standalone fatal Session failure now share the existing Controller participant
+cleanup traversal, command identities and scoped proof. Synchronous local Stop and
+failure callers share Node-status-aware cleanup. Fatal canonical accounting is
+independent of physical cleanup: an applicable consequence is retained before
+cancellable Experiment-lock waiting, and current ownership is re-evaluated after
+handover. If Normal Stop owns cleanup, fatal processing accounts for evidence and
+FAILED without competing resource work. Standalone fatal failure retains bindings,
+reservations and unconfirmed preservation; it does not invoke Normal Stop's full
+archival/release procedure. Its existing bounded owner wait is retained without
+changing Normal Stop's execution-task ownership.
+
+The health receiver now requires affirmative Session/evidence-scoped durable
+acceptance and canonical FAILED proof before ACK/processed status. Missing,
+incomplete or cancelled accounting is not success. Identical pending duplicates
+remain unprocessed; confirmed redelivery reuses accounting and cleanup. A confirmed
+fatal consequence is distinct from a missing cleanup result or archival failure.
+The existing health-publication barrier continues to prevent completion while
+required inputs remain unprocessed.
+
+The separate fatal participant loop and duplicate canonical transition branch
+were consolidated into existing cleanup and failure-accounting mechanisms; the
+Normal-Stop-only accounting helpers were generalized rather than retained as
+parallel wrappers. Existing admission guards, retained original context, producer
+confirmation, cancellation/progress, binding-retention and preservation checks
+remain at their independent boundaries. No stored flag, lock, Session state,
+service or public signature was added. Kill and Experiment-only termination were
+not refactored; G4-B and G4-C remain out of scope.
+
+Regression-first execution produced eight failing assertions/subcases in the
+start/end handover and missing-proof workflows, while standalone/cancellation
+controls passed. An additional local-context regression reproduced cleanup before
+rejection of an unrelated fatal request; shared validation/canonical accounting
+now precedes local physical cleanup as well. Available canonical timing is retained
+before cleanup rather than discarded when the clock later becomes unavailable.
+Final impact-based verification passed 82 distinct methods:
+68 under controlled SelectorEventLoop scheduling and 14 synchronous checks without
+event-loop modifications, including twelve new coordination methods. Reruns and
+earlier verification are not additive. Actual owners and disk-backed products
+cover fatal/Normal Stop orderings, cancellation, partial/lost/stalled cleanup,
+fresh acceptance readback, positive processing/replay, preservation failure and
+successful FAILED terminal readback. Existing selected tests cover ordinary
+completion, verified retirement and Session replacement, Kill, G2 and G3.
+The pre-canonical-start control queues fatal execution and makes Normal Stop
+runnable at the actual Experiment-lock release, verifying the post-wait ownership
+handover separately from immediate canonical failure during activation/termination.
+
+A legacy local fatal-action fixture was corrected to start the named Experiment
+and prepare an explicit durable Ingestor journal; evidence-only/non-mutating
+controls still pass. The timing fixture now distinguishes a valid timestamp
+captured before cleanup from timing unavailable during later failure accounting.
+Applying the fatal timeout to Normal Stop initially changed
+its task/suspension behavior and failed ownership regressions; the final shared
+traversal preserves that bound only for standalone fatal execution. The default
+sandbox temporary directory denied synchronous fixture setup; reruns used a
+permitted workspace temporary location. Successful archival controls use the
+existing-identical-handoff path, not initial hard-link promotion. Previously
+Windows-hard-link-blocked success checks are not counted. No normal Windows async,
+live NATS, hardware, OS-signal or power-loss validation is claimed. These are
+implementation results, not independent validation or audit. G4-A/G4/Q013 remain
+OPEN pending ICC review and the separate validation/audit stages.
+
 ### Blocks
 
 * Fatal/warning health behavior

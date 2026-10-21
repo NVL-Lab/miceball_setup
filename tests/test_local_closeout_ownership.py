@@ -948,7 +948,8 @@ class LocalFailureTimingTests(unittest.TestCase):
         with patch.object(capacity, "InMemoryIngestor", side_effect=prepared_ingestor):
             self.f.setUp()
 
-    def fail_after_cleanup(self, operation, *, action_confirmed=False, timing_available=False):
+    def fail_after_cleanup(self, operation, *, action_confirmed=False, timing_available=False,
+                           canonical_before_cleanup=False):
         f = self.f
         self.assertTrue(f.start("failure").succeeded)
         self.assertTrue(f.controller.run_one_iteration().succeeded)
@@ -982,7 +983,7 @@ class LocalFailureTimingTests(unittest.TestCase):
             events = status["experiment_lifecycle_evidence"]
             self.assertEqual([e.event_type for e in events], ["experiment_start", "experiment_fail"])
             self.assertEqual(events[-1].experiment_id, "failure")
-            if timing_available:
+            if timing_available or canonical_before_cleanup:
                 self.assertIsNotNone(events[-1].session_time_s)
                 self.assertNotIn("timing_unconfirmed", events[-1].details)
             else:
@@ -1024,7 +1025,8 @@ class LocalFailureTimingTests(unittest.TestCase):
         decision = ControllerActionDecision("fatal", "session", "failure", "source", "policy",
                                             "session_failure", "session_fail", None)
         _, event = self.fail_after_cleanup(
-            lambda: self.f.controller.execute_controller_action_decision(decision), action_confirmed=True)
+            lambda: self.f.controller.execute_controller_action_decision(decision),
+            action_confirmed=True, canonical_before_cleanup=True)
         self.assertEqual(event.details["reason"], "ControllerActionDecision requested Session failure")
         message, = self.f.controller.controller_action_decision_evidence
         self.assertEqual(message.payload, decision.to_dict())

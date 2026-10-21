@@ -1430,27 +1430,46 @@ class Controller:
         async with self._experiment_operation_lock:
             return await self._stop_launched_session(reason)
 
-    async def _stop_launched_session(self, reason: str | None) -> ControllerCommandResult:
+    async def _stop_launched_session(self, reason: str | None, *, failure=None) -> ControllerCommandResult:
         session = self._require_session()
+        if failure is not None and self._normal_stop_owns_cleanup(session):
+            return await self._account_session_failure(session, failure)
         if self._normal_stop_task is not None and self._normal_stop_task is not asyncio.current_task():
             return self._record_failed_command("stop_session", RuntimeError("Normal Stop is in progress"))
         self._runtime_cleanup_confirmed = False
         outcomes = []
-        for participant in self._reserved_participants:
+        participants = self._reserved_participants
+        if failure is not None:
+            participants = (*participants, self._synchronization_participant())
+        for participant in participants:
             # Allocate before dispatch. A lost result, including cancellation in
             # unsubscribe, retries the owner's cached operation with a fresh nonce.
             node = self._cleanup_step(session, participant)
             try:
-                result = await self._request_cleanup_stop(session, participant, self._launch_result_window_s)
+                request = self._request_cleanup_stop(session, participant, self._launch_result_window_s)
+                result = (await asyncio.wait_for(request, self._launch_result_window_s)
+                          if failure is not None else await request)
                 if self._session is not session:
                     raise RuntimeError("Controller Session changed during Normal Stop")
                 if result is None or result.success is not True:
                     raise RuntimeError("Node stop/local finalization unconfirmed")
                 node["stop_command_id"] = result.command_id
-                await self._request_cleanup_release(session, participant, self._launch_result_window_s)
-                outcomes.append({"participant": participant.to_dict(), "released": True})
+                if failure is None:
+                    await self._request_cleanup_release(session, participant, self._launch_result_window_s)
+                outcomes.append({"participant": participant.to_dict(), "released": failure is None,
+                    "cleanup_confirmed": True, "result": result.to_dict()})
             except Exception as error:
-                outcomes.append({"participant": participant.to_dict(), "released": False, "error": str(error)})
+                outcomes.append({"participant": participant.to_dict(), "released": False,
+                                 "cleanup_confirmed": False, "error": str(error)})
+        if failure is not None:
+            accounted = await self._account_session_failure(session, failure)
+            self._refresh_kill_cleanup(session, outcomes)
+            details = {**accounted.details, "participant_outcomes": outcomes,
+                       "cleanup_confirmed": self._runtime_cleanup_confirmed}
+            if not self._runtime_cleanup_confirmed:
+                return self._record_failed_command("execute_controller_action_decision",
+                    RuntimeError("Remote cleanup is unconfirmed"), details)
+            return self._record_successful_command("execute_controller_action_decision", details)
         if any(not o["released"] for o in outcomes):
             self._mark_session_failed("Distributed runtime cleanup unconfirmed")
             self._normal_stop_failure_session = session
@@ -1998,8 +2017,7 @@ class Controller:
         """Execute an accepted health/timing decision through the launched owners."""
         name = "execute_controller_action_decision"
         session = self._require_session()
-        outcomes = []
-        overlapping = False
+        payload = {}
         try:
             if self._launch_communication is None:
                 raise RuntimeError("A launched Session communication binding is required")
@@ -2017,62 +2035,34 @@ class Controller:
                 return self._record_successful_command(name,
                     {"controller_decision": action, "lifecycle_mutated": False})
             if action == "session_fail" and self._normal_stop_owns_cleanup(session):
-                overlapping = True
-                return await self._account_normal_stop_failure(session, payload)
+                return await self._account_session_failure(session, payload)
+            if action == "session_fail" and (session.current_state == SessionState.FAILED
+                    or payload.get("experiment_id") in {None, self._active_experiment_id}):
+                # Canonical accounting does not take resource ownership. Retain
+                # an applicable consequence even if waiting for cleanup is cancelled.
+                self._record_session_failure(session, payload)
             async with self._experiment_operation_lock:
-                if self._session is not session or self._normal_stop_task is not None:
-                    raise RuntimeError("Session closeout or binding changed during health execution")
+                if self._session is not session:
+                    raise RuntimeError("Session binding changed during health execution")
                 if action == "experiment_fail":
                     experiment_id = payload.get("experiment_id")
                     if session.current_state != SessionState.RUNNING or self._active_experiment_id != experiment_id:
                         raise RuntimeError("Health decision does not match the active Experiment")
                     result = await self._end_launched_experiment(experiment_id, payload, "experiment_fail")
                     return result
-                if session.current_state not in {SessionState.RUNNING, SessionState.STOPPING, SessionState.FAILED}:
-                    raise RuntimeError("Session lifecycle does not permit health failure")
-                if (session.current_state != SessionState.FAILED
-                        and payload.get("experiment_id") not in {None, self._active_experiment_id}):
-                    raise RuntimeError("Session health decision belongs to another Experiment")
-                self._runtime_cleanup_confirmed = False
-                # Attempt every owner even when another owner fails. Never release
-                # reservations or admit Kill as a consequence of a health policy.
-                for participant in (*self._reserved_participants, self._synchronization_participant()):
-                    try:
-                        result = await asyncio.wait_for(self._request_cleanup_stop(session, participant,
-                            self._launch_result_window_s), self._launch_result_window_s)
-                        outcomes.append({"participant": participant.to_dict(),
-                            "cleanup_confirmed": result is not None and result.success is True,
-                            "result": result.to_dict() if result else None})
-                    except Exception as error:
-                        outcomes.append({"participant": participant.to_dict(), "cleanup_confirmed": False,
-                                         "error": str(error)})
-                if (self._session is not session or self._normal_stop_task is not None
-                        or session.current_state not in {SessionState.RUNNING, SessionState.STOPPING, SessionState.FAILED}):
-                    raise RuntimeError("Session health action was superseded during remote cleanup")
-                if self._active_experiment_id is not None:
-                    session.record_experiment_lifecycle(self._active_experiment_id, "experiment_fail", None,
-                        {**payload, "timing_unconfirmed": True, "participant_outcomes": outcomes})
-                    self._active_experiment_id = None
-                    self._active_experiment_runtime_health_mapping = ()
-                if session.current_state == SessionState.RUNNING:
-                    session.stop("ControllerActionDecision requested Session failure")
-                if session.current_state == SessionState.STOPPING:
-                    session.fail("ControllerActionDecision requested Session failure")
-                self._refresh_kill_cleanup(session, outcomes)
-                details = {"controller_decision": action, "session_state": session.current_state.value,
-                    "participant_outcomes": outcomes, "cleanup_confirmed": self._runtime_cleanup_confirmed,
-                    "preservation_confirmed": False, "binding_retained": True}
-                if not self._runtime_cleanup_confirmed:
-                    return self._record_failed_command(name, RuntimeError("Remote cleanup is unconfirmed"), details)
-                return self._record_successful_command(name, details)
+                # Resolve current ownership inside the same coordination path as
+                # Normal Stop, including the lock-release/waiter handover interval.
+                self._record_session_failure(session, payload)
+                return await self._stop_launched_session(
+                    "ControllerActionDecision requested Session failure", failure=payload)
         except asyncio.CancelledError:
             self._record_failed_command(name, RuntimeError("Health action interrupted; remote outcome unconfirmed"),
-                {"participant_outcomes": outcomes, "outcome_unconfirmed": True})
+                {"outcome_unconfirmed": True, "health_processing_confirmed": False})
             raise
         except Exception as error:
             return self._record_failed_command(name, error,
-                {"participant_outcomes": outcomes, "outcome_unconfirmed": True,
-                 **({"health_processing_confirmed": False} if overlapping else {})})
+                {"outcome_unconfirmed": True,
+                 **({"health_processing_confirmed": False} if payload.get("controller_decision") == "session_fail" else {})})
 
     def _normal_stop_owns_cleanup(self, session):
         """Recognize admitted or interrupted Normal Stop without treating Kill as Normal Stop."""
@@ -2087,20 +2077,40 @@ class Controller:
                 or self._acquisition_marker_session is session or self._experiment_operation_lock.locked()):
             raise RuntimeError("Session closeout or runtime transition owns cleanup")
 
-    def _record_normal_stop_failure(self, session, payload):
+    def _record_session_failure(self, session, payload):
         """Apply one retained fatal decision's canonical consequence, without resource cleanup."""
-        if (self._session is not session or self._acquisition_marker_session is not session
+        if (self._session is not session or payload.get("session_id") != session.session_id
+                or payload.get("controller_decision") != "session_fail"
                 or session.current_state not in {SessionState.RUNNING, SessionState.STOPPING, SessionState.FAILED}
-                or payload.get("experiment_id") not in {None, self._normal_stop_experiment_id}):
-            raise RuntimeError("Fatal decision does not match the admitted Normal Stop context")
+                or self._kill_closeout_session is session or (self._distributed_closeout or {}).get("kill", False)):
+            raise RuntimeError("Fatal decision does not match the bound Session lifecycle")
         evidence = next(message for message in self.controller_action_decision_evidence
                         if message.session_id == session.session_id and message.payload == payload)
-        self._mark_session_failed("Fatal health during Normal Stop", payload)
+        context = (self._normal_stop_experiment_id if self._normal_stop_owns_cleanup(session)
+                   else self._active_experiment_id)
+        previously_accounted = any(event.event_type == "experiment_fail"
+            and event.experiment_id == payload.get("experiment_id")
+            and all((event.details or {}).get(key) == value for key, value in payload.items())
+            for event in session.experiment_lifecycle_evidence)
+        if payload.get("experiment_id") not in {None, context} and not (
+                session.current_state == SessionState.FAILED and previously_accounted):
+            raise RuntimeError("Fatal decision does not match the admitted Session/Experiment context")
+        self._mark_session_failed("ControllerActionDecision requested Session failure", payload)
         return evidence
 
-    async def _account_normal_stop_failure(self, session, payload):
-        """Confirm remote durable acceptance after shared canonical fatal accounting."""
-        evidence = self._record_normal_stop_failure(session, payload)
+    def _session_failure_confirmation(self, session, evidence):
+        """Describe accounted fatal evidence without conflating it with resource preservation."""
+        if self._session is not session or session.current_state != SessionState.FAILED:
+            raise RuntimeError("Fatal decision canonical consequence is unconfirmed")
+        return {"controller_decision": "session_fail", "session_id": session.session_id,
+            "evidence_id": evidence.evidence_id, "session_state": "failed",
+            "cleanup_owner": "normal_stop" if self._normal_stop_owns_cleanup(session) else "controller",
+            "health_processing_confirmed": True, "durable_acceptance_confirmed": True,
+            "preservation_confirmed": False, "binding_retained": True}
+
+    async def _account_session_failure(self, session, payload):
+        """Confirm durable acceptance after shared canonical fatal accounting."""
+        evidence = self._record_session_failure(session, payload)
         window = self._launch_result_window_s
         await asyncio.wait_for(self._launch_communication.publish_evidence(evidence), window)
         ingestors = [p for p in session.configuration.expected_runtime_participants if p.component_type == "ingestor"]
@@ -2114,11 +2124,8 @@ class Controller:
                 or result.payload.get("evidence_id") != evidence.evidence_id
                 or result.payload.get("durable_acceptance_confirmed") is not True):
             raise RuntimeError("Fatal decision durable acceptance or canonical consequence is unconfirmed")
-        return self._record_successful_command("execute_controller_action_decision", {
-            "controller_decision": "session_fail", "session_state": "failed",
-            "cleanup_owner": "normal_stop", "health_processing_confirmed": True,
-            "durable_acceptance_confirmed": True, "preservation_confirmed": False,
-            "binding_retained": True})
+        return self._record_successful_command("execute_controller_action_decision",
+            self._session_failure_confirmation(session, evidence))
 
     @service_operation()
     def execute_controller_action_decision(
@@ -2147,18 +2154,20 @@ class Controller:
                 # Retained decisions still have a canonical consequence if local
                 # journal acceptance fails; only confirmed acceptance permits success.
                 if overlapping:
-                    evidence = self._record_normal_stop_failure(session, decision.to_dict())
-            if overlapping:
+                    evidence = self._record_session_failure(session, decision.to_dict())
+            if decision.controller_decision == "session_fail":
+                if not overlapping:
+                    self._require_local_runtime_transition(session)
+                    evidence = self._record_session_failure(session, decision.to_dict())
+                    self._attempt_runtime_stop()
                 if self._ingestor is None:
                     raise RuntimeError("Local fatal accounting requires authoritative Ingestor acceptance")
                 if not self._ingestor.has_durable_runtime_evidence(evidence):
                     self._ingestor.receive_runtime_evidence(evidence)
                 if not self._ingestor.has_durable_runtime_evidence(evidence):
                     raise RuntimeError("Fatal decision durable acceptance is unconfirmed")
-                return {"controller_decision": "session_fail", "session_state": "failed",
-                    "cleanup_owner": "normal_stop", "health_processing_confirmed": True,
-                    "durable_acceptance_confirmed": True, "preservation_confirmed": False,
-                    "binding_retained": True}
+                return {**self._session_failure_confirmation(session, evidence),
+                        "cleanup_confirmed": self._runtime_cleanup_confirmed}
             if decision.controller_decision in {
                 "record_only",
                 "record_warning",
@@ -2196,13 +2205,6 @@ class Controller:
                     },
                 )
                 return evidence
-            if decision.controller_decision == "session_fail":
-                self._require_local_runtime_transition(session)
-                self._attempt_runtime_stop()
-                self._mark_session_failed(
-                    "ControllerActionDecision requested Session failure"
-                )
-                return {"session_state": session.current_state.value}
             raise RuntimeError(
                 "ControllerActionDecision is not executable in Phase 8b: "
                 f"{decision.controller_decision}"
@@ -2494,8 +2496,7 @@ class Controller:
             return self._record_failed_command("stop_session", error)
         self._runtime_cleanup_confirmed = False
         try:
-            runtime_result = self._acquisition_node.stop_runtime()
-            self._runtime_cleanup_confirmed = self._acquisition_node.status()["cleanup_confirmed"]
+            runtime_result = self._stop_local_session_runtime(session)
             if self._active_experiment_id is not None:
                 self._end_experiment(self._active_experiment_id, "experiment_stop", details={"reason": reason})
         except Exception as error:
@@ -3349,12 +3350,21 @@ class Controller:
             self._require_local_runtime_transition(self._require_session())
         except RuntimeError:
             return
-        self._runtime_cleanup_confirmed = False
         try:
-            self._acquisition_node.stop_runtime()
-            self._runtime_cleanup_confirmed = self._acquisition_node.status()["cleanup_confirmed"]
+            self._stop_local_session_runtime(self._require_session())
         except Exception as error:
             self._record_failed_command("stop_runtime_cleanup", error)
+
+    def _stop_local_session_runtime(self, session):
+        """Execute local Session cleanup for orderly Stop and failure callers."""
+        self._require_local_runtime_transition(session)
+        self._runtime_cleanup_confirmed = False
+        if self._acquisition_node.status()["cleanup_confirmed"] and not self._acquisition_node.status()["is_running"]:
+            self._runtime_cleanup_confirmed = True
+            return {"participant_cleanup_confirmed": True}
+        result = self._acquisition_node.stop_runtime()
+        self._runtime_cleanup_confirmed = self._acquisition_node.status()["cleanup_confirmed"]
+        return result
 
     def _end_experiment(
         self, experiment_id: str, event_type: str, details: dict[str, Any] | None = None,

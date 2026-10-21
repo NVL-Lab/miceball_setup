@@ -973,6 +973,8 @@ class NatsControllerCommunication:
             if previous is not None:
                 if previous != content:
                     raise ValueError("Conflicting Controller health evidence identity")
+                if evidence_message.evidence_id not in state["processed"]:
+                    raise RuntimeError("Controller health processing is still in progress")
                 await message.ack()
                 return
             state["active"] += 1
@@ -994,6 +996,20 @@ class NatsControllerCommunication:
                     details = getattr(outcome, "details", None)
                     if isinstance(details, dict) and details.get("health_processing_confirmed") is False:
                         raise RuntimeError("Fatal health evidence or canonical consequence remains unconfirmed")
+                else:
+                    details = None
+                payload = decision.to_dict() if hasattr(decision, "to_dict") else decision
+                if payload.get("controller_decision") == "session_fail":
+                    retained = next((item for item in controller.controller_action_decision_evidence
+                                     if item.session_id == session_id and item.payload == payload), None)
+                    if (not isinstance(details, dict) or details.get("health_processing_confirmed") is not True
+                            or details.get("durable_acceptance_confirmed") is not True
+                            or details.get("session_id") != session_id or retained is None
+                            or details.get("evidence_id") != retained.evidence_id
+                            or details.get("session_state") != "failed"
+                            or controller._session is not state["session"]
+                            or controller.get_status()["session_state"] != "failed"):
+                        raise RuntimeError("Fatal health requires affirmative durable and canonical accounting")
                 await message.ack()
                 state["processed"][evidence_message.evidence_id] = content
             finally:

@@ -184,6 +184,9 @@ class ControllerActionDecisionTests(unittest.TestCase):
     def test_session_failure_uses_existing_failed_session_cleanup_path(self):
         with tempfile.TemporaryDirectory() as directory:
             controller, node, _, manager = self._running_controller(Path(directory))
+            started = controller.start_experiment("experiment-001",
+                configuration=ExperimentConfiguration(60, {}, 1000000))
+            self.assertTrue(started.succeeded, started.error)
             decision = controller.process_health_interpretation(
                 self._evidence(1, "session_failure")
             )
@@ -193,6 +196,7 @@ class ControllerActionDecisionTests(unittest.TestCase):
             self.assertTrue(result.succeeded)
             self.assertEqual(result.details["session_state"], "failed")
             self.assertEqual(controller.get_status()["session_state"], "failed")
+            self.assertIsNone(controller.get_status()["active_experiment_id"])
             self.assertFalse(node.status()["is_running"])
             self.assertTrue(all(status.shutdown for status in manager.collect_statuses()))
 
@@ -252,7 +256,8 @@ class ControllerActionDecisionTests(unittest.TestCase):
             (ReadyFakeAdapter("source-001", "fake", ("stream",), True),)
         )
         storage = PersistentStorageManager(root)
-        ingestor = InMemoryIngestor(storage_manager=storage)
+        ingestor = InMemoryIngestor(storage_manager=storage, recovery_journal_root=root / "journals")
+        ingestor.prepare_session("controller-action-session")
         synchronization = SynchronizationManager()
         node = AcquisitionNode(
             session_id="controller-action-session",
