@@ -419,12 +419,48 @@ This is accepted architecture, not implemented or validated redesign. The curren
 Alternative B implementation still requires canonical FAILED proof for fatal
 processing, including during Normal Stop. Its existing tests and reports below
 describe that earlier contract; their passing results do not establish Decision
-407 compliance. The latest independent audit returned FAIL as recorded below.
-Implementation requires the workflow's impact/invariant review and ICC scope
-authorization; documentation synchronization is not implementation authorization.
+407/408 compliance. The latest independent audit returned FAIL as recorded below.
+The completed pre-implementation impact/invariant review identified the three
+architectural blockers resolved by Decision 408 below. ICC implementation scope
+authorization remains pending; synchronization is not implementation authorization.
 Other notification/escalation questions below remain open.
 
-### Integration Questions Requiring Clarification
+### Accepted Admission And Applicability Clarifications (Decision 408)
+
+The explicitly user-accepted LLC handoff resolves the three blockers below:
+
+- **Closeout admission:** The first Session closeout formally admitted through
+  authoritative Controller/Session coordination owns physical closeout. Fatal
+  receipt or acceptance alone is not closeout admission. Normal Stop admitted
+  first retains ownership even if an earlier accepted fatal decision awaits
+  execution; independent accounting does not automatically force FAILED. Fatal
+  closeout admitted first retains FAILED and cannot be displaced by Normal Stop.
+- **Applicability:** Authoritative acceptance establishes applicability against
+  original Session/Experiment context. Decisions accepted while the Experiment
+  was active remain independently applicable after termination, without repeated
+  termination or cleanup. New decisions about terminated Experiments are not
+  automatically applicable. Verified redelivery retains original identity and
+  applicability; all asynchronous outcomes remain attributed to the original
+  Session/operation, never a replacement Session.
+- **Admission cutoff:** Controller authoritatively orders acceptance and closure
+  of new Session-associated health-decision admission before committing Decision
+  382 intake finalization, without an admission gap. Thereafter new decisions are
+  rejected, accepted decisions still require accounting, and verified redelivery
+  is permitted without new admission. Rejected late deliveries are not successful
+  processing. Finalized evidence, audit and Session Records stay immutable.
+
+Cutoff alone proves neither durability, preservation nor completion eligibility.
+All applicable accepted decisions require accounting and preservation before
+successful completion; Decisions 313, 322, 365 and 382 remain authoritative.
+These are resolved architectural requirements, not implemented or validated
+behavior. G4-A/Q013 remain OPEN and G4-B/G4-C remain deferred. Documentation is
+synchronized for ICC implementation scope authorization; no new impact review
+or implementation result is claimed here.
+
+### Historical Integration Blockers (Resolved By Decision 408)
+
+The following questions preserve the completed review's pre-408 context. Decision
+408 supplies the accepted boundaries above; they are not outstanding blockers.
 
 - **Evidence first arriving after finalized intake:** Decision 382 rejects or
   discards later acquisition deliveries without changing finalized evidence,

@@ -11864,6 +11864,10 @@ independent audit or G4 closure.
 
 **Status:** Accepted
 
+**Subsequent clarification:** Decision 408 resolves the admission, applicability
+and late-intake integration questions identified below. The original Decision 407
+text is retained for traceability; its implementation remains pending.
+
 This records the user-accepted HLC direction titled "G4-A Simplification of Fatal
 Health Decisions and Session Closeout", reconciled in the LLC-to-ICC handoff.
 It partially supersedes Decision 406 and clarifies Decisions 113-114; it does not
@@ -11922,6 +11926,74 @@ this synchronization selects no new late-intake or delayed-admission rule.
 **Implementation status:** Accepted and synchronized only. Current G4-A behavior,
 the latest pre-synchronization P2/P3 audit findings, and remaining clarification
 and implementation work are tracked in Q013. G4-A and Q013 remain OPEN.
+
+---
+
+## Decision 408: Controller closeout admission, fatal-decision applicability and health-decision cutoff clarify Decision 407
+
+**Status:** Accepted
+
+This records the explicitly user-accepted LLC handoff titled "G4-A Decision 407
+Admission and Applicability Clarifications". It clarifies Decision 407 and resolves
+the three integration blockers recorded in Q013 without rewriting Decisions
+113-114, 313, 322, 365, 382, 406 or 407 or their historical implementation reports.
+
+### Authoritative closeout admission
+
+The first Session closeout operation formally admitted by Controller owns physical
+closeout coordination. Receiving or accepting a fatal decision does not itself
+admit fatal Session closeout. Normal Stop admitted first retains ownership even
+when an earlier accepted fatal decision awaits execution. That decision remains
+independently accountable and does not automatically force `failed` under this
+Normal Stop ownership. Fatal Session closeout admitted first retains its existing
+`failed` behavior; later Normal Stop cannot displace it. Admission ordering uses
+existing authoritative Controller/Session coordination, not incidental coroutine
+scheduling.
+
+### Independent fatal-decision applicability
+
+Applicability is established at authoritative acceptance against the original
+Session/Experiment context. Multiple applicable decisions accepted while an
+Experiment was active remain applicable after its terminal transition. Accounting
+for them does not require duplicate Experiment termination or physical cleanup.
+New decisions about already-terminated Experiments are not automatically
+applicable. Verified redelivery retains the existing decision's original identity
+and applicability rather than establishing a new context. Every asynchronous
+success, failure, cancellation and diagnostic outcome remains attributable to its
+originating Session and operation and cannot modify a replacement Session.
+
+### Mandatory health-decision admission cutoff
+
+Controller closes admission of new Session-associated health decisions before
+committing final acquisition-intake finalization under Decision 382. Admission
+closure and decision acceptance must be authoritatively ordered using existing
+Controller coordination, with no admission gap between cutoff and finalization.
+After closure:
+
+- Reject newly presented Session-associated health decisions.
+- Continue accounting for previously accepted decisions.
+- Permit verified redelivery of previously accepted decisions without treating it
+  as new admission.
+- Never report rejected late deliveries as successfully processed new decisions.
+- Do not reopen finalized acquisition evidence, intake audit or Session Records.
+
+The cutoff itself establishes neither durability nor preservation nor permission
+to complete Normal Stop. All applicable accepted decisions must be accounted for
+and preserved before successful completion. Decisions 313, 322, 365 and 382 remain
+authoritative: independent service release, every accepted Controller decision's
+required archival, complete Normal Stop preservation and immutable finalized
+intake are not weakened. Decision 407's partial supersession of Decision 406 and
+its retained original-context, durability and sole-cleanup-owner protections
+remain unchanged. No new policies, states, services, archives, registries or
+generalized synchronization mechanisms are authorized.
+
+**Implementation status:** Accepted and synchronized only. The completed G4-A
+pre-implementation impact/invariant review identified these three blockers;
+this clarification resolves their architectural requirements, not their
+implementation. ICC implementation scope authorization, implementation and
+independent verification remain pending. G4-A and Q013 remain OPEN; G4-B/G4-C
+remain deferred. See [Q013](open_questions.md#q013-what-further-framework-behavior-follows-controlleractiondecision-execution)
+for the preserved blocker and audit history.
 
 ---
 

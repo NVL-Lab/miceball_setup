@@ -7,7 +7,11 @@
 Decision 407 records the accepted G4-A simplification: already-admitted Normal
 Stop may complete despite fatal health evidence if every existing completion
 guarantee is satisfied. Independent fatal accounting and Session-scoped cleanup
-remain required. This redesign is not implemented or validated; the behavior
+remain required. Decision 408 clarifies authoritative closeout admission,
+original-context applicability and mandatory health-decision admission closure
+before final acquisition-intake finalization. These accepted requirements resolve
+the three architectural blockers, but implementation remains pending ICC scope
+authorization. This redesign is not implemented or validated; the behavior
 described below is the existing pre-407 implementation. The latest Alternative B
 audit returned FAIL with distinct-decision accounting and replacement-diagnostic
 findings; see [Q013](open_questions.md#q013-what-further-framework-behavior-follows-controlleractiondecision-execution).
