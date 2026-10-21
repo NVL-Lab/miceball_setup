@@ -1892,18 +1892,7 @@ class Controller:
                     or session.current_state != SessionState.RUNNING
                     or self._active_experiment_id != experiment_id):
                 raise RuntimeError("Requested Experiment is not active in this running Session")
-            failures = []
-            for participant in self._reserved_participants:
-                try:
-                    result = await asyncio.wait_for(self._request_launched_runtime(
-                        participant, "finalize_experiment_scientific_outputs", {"experiment_id": experiment_id}),
-                        self._launch_result_window_s)
-                    if result.payload.get("confirmed") is not True or result.payload.get("experiment_id") != experiment_id:
-                        raise RuntimeError("Experiment finalization result identity is unconfirmed")
-                except Exception as error:
-                    failures.append(error)
-            if failures:
-                raise ExceptionGroup("Experiment finalization is unconfirmed", failures)
+            await self._finalize_launched_experiment_outputs(session, experiment_id)
             clock = await asyncio.wait_for(self._request_launched_runtime(
                 self._synchronization_participant(), "read_session_time", {}), self._launch_result_window_s)
             if session.current_state != SessionState.RUNNING:
@@ -1915,6 +1904,35 @@ class Controller:
             return self._record_successful_command(name, evidence.to_dict())
         except Exception as error:
             return self._record_failed_command(name, error, {"outcome_unconfirmed": True})
+
+    async def _finalize_launched_experiment_outputs(self, session, experiment_id):
+        """Resume/verify each reserved scientific owner's Experiment finalization."""
+        if self._session is not session:
+            raise RuntimeError("Session binding changed before Experiment finalization")
+        failures = []
+        local = self._acquisition_node
+        if local is not None:
+            try:
+                local.finalize_experiment_scientific_outputs(experiment_id)
+            except Exception as error:
+                failures.append(error)
+        for participant in self._reserved_participants:
+            if self._session is not session:
+                raise RuntimeError("Session binding changed during Experiment finalization")
+            if local is not None and participant.component_id == local.node_id:
+                continue
+            try:
+                result = await asyncio.wait_for(self._request_launched_runtime(
+                    participant, "finalize_experiment_scientific_outputs", {"experiment_id": experiment_id}),
+                    self._launch_result_window_s)
+                if result.payload.get("confirmed") is not True or result.payload.get("experiment_id") != experiment_id:
+                    raise RuntimeError("Experiment finalization result identity is unconfirmed")
+            except Exception as error:
+                failures.append(error)
+        if self._session is not session:
+            raise RuntimeError("Session binding changed during Experiment finalization")
+        if failures:
+            raise ExceptionGroup("Experiment finalization is unconfirmed", failures)
 
     @property
     def controller_action_decisions(self) -> tuple[ControllerActionDecision, ...]:
@@ -2160,7 +2178,8 @@ class Controller:
         except Exception as error:
             return self._record_failed_command(name, error,
                 {"outcome_unconfirmed": True,
-                 **({"health_processing_confirmed": False} if payload.get("controller_decision") == "session_fail" else {})})
+                 **({"health_processing_confirmed": False}
+                    if payload.get("controller_decision") in {"experiment_fail", "session_fail"} else {})})
 
     def _normal_stop_owns_cleanup(self, session):
         """Recognize admitted or interrupted Normal Stop without treating Kill as Normal Stop."""
@@ -2170,6 +2189,8 @@ class Controller:
 
     def _require_local_runtime_transition(self, session):
         """Reject local resource work once another runtime transition or closeout owns it."""
+        if self._acquisition_node is None:
+            raise RuntimeError("Local runtime execution requires a local AcquisitionNode; use launched commands")
         if (self._session is not session or self._normal_stop_owns_cleanup(session) or self._normal_stop_task is not None
                 or self._acquisition_marker_session is session or self._experiment_operation_lock.locked()):
             raise RuntimeError("Session closeout or runtime transition owns cleanup")
@@ -2249,6 +2270,11 @@ class Controller:
                 or result.payload.get("evidence_id") != evidence.evidence_id
                 or result.payload.get("durable_acceptance_confirmed") is not True):
             raise RuntimeError("Fatal decision durable acceptance or canonical consequence is unconfirmed")
+        if payload["controller_decision"] == "experiment_fail" and not self._normal_stop_owns_cleanup(session):
+            # Other paths can record canonical termination before cleanup succeeds.
+            # Account only after the actual launched owners confirm their work;
+            # idempotent finalizers verify closed streams without rewriting them.
+            await self._finalize_launched_experiment_outputs(session, payload["experiment_id"])
         return self._record_successful_command("execute_controller_action_decision",
             self._confirm_decision_accounting(session, evidence))
 

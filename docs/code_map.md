@@ -1167,6 +1167,7 @@ is complete; W030 records manual validation, focused tests, and audit reassessme
 - Controller.stop_launched_session(reason=None): Stops and locally finalizes all reserved nodes through NATS, releases only confirmed-clean reservations, records the Controller-owned end of any active Experiment without refinalizing node files, and stops the Session without waiting for global collection.
 - Controller.start_launched_experiment(experiment_id, *, scientific_outputs=(), runtime_health_mapping=None, details=None, configuration=None, storage_participant=None): Fences retained closeout ownership before measured synchronization and preparation, records canonical start before node-specific activation, and preserves failed/cancelled activation outcomes and cleanup uncertainty.
 - Controller._end_launched_experiment(experiment_id, details, event_type): Shares the retained closeout fence and confirmed owner finalization path for manual Experiment Stop and remote experiment_fail.
+- Controller._finalize_launched_experiment_outputs(session, experiment_id): Resumes/verifies explicit local ownership directly and every other reserved scientific owner through scoped bounded NATS commands, retaining original-Session attribution and reporting any missing confirmation.
 - Controller.stop_launched_experiment(experiment_id, details=None): Confirms each node's finalization and evidence publication before recording canonical Experiment stop with fresh authoritative Session Time.
 - Controller._start_launched_session: Serializes Session startup with other runtime transitions, starts configured remote synchronization once and requires correlated node acquisition confirmations.
 - Controller._stop_launched_session(reason, *, failure=None): Coordinates shared launched Session cleanup with retained participant identities/progress, re-evaluating Normal Stop ownership for fatal callers while keeping orderly reservation release and standalone fatal binding retention distinct.
@@ -1207,11 +1208,11 @@ is complete; W030 records manual validation, focused tests, and audit reassessme
 - Controller.execute_controller_action_decision(decision): Independently accounts for accepted local fatal decisions using durable Ingestor acceptance without displacing admitted Normal Stop or repeating terminal events.
 - Controller.execute_launched_controller_action_decision(decision): Reuses accepted applicability, checks closeout ownership before and after Experiment-lock waiting, and confirms durable accounting without requiring FAILED during Normal Stop.
 - Controller._normal_stop_owns_cleanup(session): Reads formal Normal Stop ownership from retained Session cleanup progress while excluding local and distributed Kill.
-- Controller._require_local_runtime_transition(session): Rejects local runtime work during another Experiment transition or admitted/interrupted closeout without adding ownership state.
+- Controller._require_local_runtime_transition(session): Rejects absent local AcquisitionNode ownership and local runtime work during another Experiment transition or admitted/interrupted closeout before lifecycle/resource mutation.
 - Controller._accept_action_payload(session, payload, *, identity=None, decision=None): Atomically orders health/timing input identity, original-context applicability, first decision time and evidence acceptance against the cutoff, reusing exact accepted input without a replay registry.
 - Controller._session_closeout_progress(session): Reuses existing Session-specific participant cleanup progress for formal ownership and the health-admission cutoff.
 - Controller._admit_session_closeout(session, owner): Retains the first formally admitted physical closeout owner without treating fatal acceptance as closeout admission.
-- Controller._account_accepted_decision(session, payload): Obtains bounded authoritative Ingestor acceptance and confirms the accepted decision's applicable lifecycle or admitted-closeout consequence.
+- Controller._account_accepted_decision(session, payload): Obtains authoritative Ingestor acceptance and, outside Normal Stop ownership, verifies all launched Experiment scientific owners before confirming Experiment-failure accounting even when canonical termination already exists.
 - Controller._confirm_decision_accounting(session, evidence): Requires original-Session durable accounting and the applicable consequence, resuming/verifying local Experiment scientific finalization through its owner rather than treating a terminal event as proof, without claiming Stage A preservation or binding release.
 - Controller._accounted_decision_ids(session): Derives confirmed decision accounting from existing retained command results instead of maintaining a parallel proof cache.
 - Controller._health_processing_confirmed(session, payload, details): Validates a health callback's affirmative proof against retained accepted evidence and accounted results before acknowledgment.
@@ -1378,6 +1379,34 @@ across the cutoff. No constructor, parameter count or return type changed.
 
 - ScientificFinalizationProofTests: Uses actual node/storage owners and disk-backed products to verify failed/interrupted finalization, local/launched retry, independent decisions, no repeated confirmed disk work, and retained Normal Stop/release obligations.
 - HealthInputIdentityTests: Verifies complete health/timing input identity, concurrent exact acceptance, direct/enveloped replay, cutoff rejection without ACK, immutable completed archives and launched finalization retry before canonical termination.
+
+### G4-A Remote Scientific-Finalization Proof Correction (Pending ICC Validation)
+
+The next independent audit reproduced affirmative Experiment accounting with open
+remote streams after failed Session cleanup. It also reproduced local-only
+termination mutating a remote-only Controller before failing. The existing
+launched finalization loop is now shared by termination and later accounting;
+canonical Experiment termination alone is never scientific-owner proof. Explicit
+local references use existing owner calls; other reserved owners require scoped
+`finalize_experiment_scientific_outputs` responses with matching Experiment identity.
+Failures, timeout, cancellation and lost/mismatched replies cannot authorize ACK.
+Retries verify idempotent owner finalizers, without a new finalization cache or
+repeating confirmed disk flush/write work. Normal Stop retains separate accounting
+and physical cleanup obligations. See Q013 for regression-first evidence and limits.
+
+| Caller / composition | Scientific proof and admission boundary |
+| --- | --- |
+| Synchronous local Experiment Stop/failure | Existing local-transition guard requires an actual local owner before canonical mutation; local accounting resumes/verifies owner finalization |
+| Initial launched Experiment Stop/failure | Shared finalization helper confirms every scientific owner before recording the terminal event |
+| Previously terminal launched Experiment failure | Shared accounting obtains durable decision acceptance and requires the same owner helper before affirmative processing |
+| Mixed local/launched execution | Explicit local owner is verified directly; remaining reserved owners use scoped NATS; synchronous local accounting retains its owner verification |
+| Fatal Session cleanup followed by Experiment accounting | Failed Session outcome and cleanup obligations remain retained; Experiment accounting independently requires owner finalization |
+| Already-admitted Normal Stop | Existing durable accounting delegates cleanup to Normal Stop; producer, intake, preservation and release guards remain independent |
+
+### tests/test_remote_finalization_proof.py
+
+- RemoteFinalizationProofTests: Verifies the actual failed-Session/open-stream reproduction, independent decisions, owner recovery, unavailable/cancelled/lost/misrouted replies without ACK, pre-mutation local rejection, later-Experiment isolation and successful owner confirmation with no selected products.
+- RemoteFinalizationProofTests.fail_session_with_unfinished_science(): Constructs the supported launched failure sequence with real owners, retained decisions, disk-backed streams and explicit unconfirmed node cleanup.
 
 ### tests/test_health_closeout_accounting.py
 

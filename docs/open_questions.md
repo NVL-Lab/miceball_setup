@@ -570,6 +570,58 @@ No live NATS, hardware, OS-signal, power-loss or normal Windows asynchronous
 scheduling validation is claimed. ICC independent validation and a separate audit
 remain required. G4-A/Q013 remain OPEN; G4-B/G4-C remain deferred.
 
+### Remote Scientific-Finalization Proof Correction (Pending ICC Validation)
+
+ICC independently validated the preceding proof/identity correction with 2/2
+IPython checks. The subsequent independent audit nevertheless returned FAIL with
+one confirmed P2: remote-only accounting still substituted canonical Experiment
+termination for scientific-owner confirmation. Accepted Session-failure cleanup
+could remain unconfirmed while a separately preaccepted Experiment-failure
+decision was processed and ACKed with an open remote stream. A second manifestation
+used synchronous local termination on a remote-only Controller, mutating canonical
+state before failing for lack of local ownership. These share the same incomplete
+proof/admission boundary; they do not reopen Decisions 407/408.
+
+Permanent regressions reproduced the failures before production edits. The bounded
+correction consolidates the existing launched finalization loop into
+`_finalize_launched_experiment_outputs(session, experiment_id)`, reused by initial
+termination and subsequent decision accounting. Explicit local scientific ownership
+uses existing direct owner verification; remaining reserved owners require bounded,
+participant/operation-scoped NATS finalization responses with matching Experiment
+identity. Missing, failed, cancelled, lost or wrong-operation confirmation prevents
+affirmative Experiment processing and ACK. The original Session is checked across
+asynchronous boundaries. The shared local-transition guard now rejects absent
+local ownership before canonical or resource mutation.
+
+No finalization cache, new public API, coordinator or lifecycle state was added.
+Existing owner finalizers verify already-closed streams without repeated disk
+flush/write work. Independent decisions retain their original acceptance and each
+requires proof; retries do not append duplicate terminal events or alter a later
+Experiment. FAILED Session outcome, incomplete runtime cleanup, retained binding
+and preservation obligations remain truthful even after scientific finalization
+recovers. Normal Stop retains its separate admitted-owner accounting semantics and
+independent producer, intake, archival and release requirements. See the code-map
+coverage matrix for local, remote-only and mixed callers.
+
+**Implementation verification:** 80 distinct selected methods passed under
+controlled asyncio execution: six new remote-proof methods, fourteen earlier
+proof/identity methods, nine decision-accounting methods, six Controller-action
+methods, sixteen remote-health methods, twelve coordination methods and seventeen
+selected ownership, correlation, Kill, G2/G3 and retirement controls. The new tests
+exercise actual disk manifests and real owner responses, unavailable/stalled/
+cancelled/lost finalization, wrong-operation rejection, retry and no repeated disk
+finalization, independent decisions, local-only rejection, later-Experiment isolation
+and empty-product finalization. An initial compatibility run found one mixed-owner
+failure caused by an unnecessary NATS round trip under a 10 ms fixture window;
+the correction reuses the explicit local owner instead. These are implementation
+checks, not independent validation or audit PASS for this correction.
+
+No live NATS, hardware, OS-signal, power-loss or normal Windows asynchronous
+scheduling validation is claimed. Successful archival controls use the existing
+identical-handoff fixture; Windows-blocked initial hard-link promotion checks are
+not counted as passing. Independent ICC validation and a separate audit remain
+required. G4-A/Q013 remain OPEN; G4-B/G4-C remain deferred.
+
 ### Historical Integration Blockers (Resolved By Decision 408)
 
 The following questions preserve the completed review's pre-408 context. Decision
