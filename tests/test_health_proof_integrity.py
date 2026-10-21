@@ -7,21 +7,28 @@ import unittest
 from unittest.mock import patch
 
 from lab_sync_acquisition import RuntimeEvidenceMessage
-from tests import test_local_closeout_ownership as local
 from tests import test_health_closeout_accounting as remote
+from tests import test_experiment_capacity as capacity
+from pathlib import Path
 from tests.test_producer_publication_completion import interpretation
 
 
 class ScientificFinalizationProofTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
-        self.owner = local.LocalCloseoutOwnershipTests()
+        self.owner = capacity.LocalActivationFailureTests()
         self.owner.addCleanup = self.addCleanup
-        self.owner.addAsyncCleanup = self.addAsyncCleanup
-        await self.owner.asyncSetUp()
-        self.owner.resume.set()
+        ingestor = capacity.InMemoryIngestor
+
+        def durable(storage):
+            owner = ingestor(storage, recovery_journal_root=Path(self.owner.temporary.name) / "journals")
+            owner.prepare_session("session")
+            return owner
+
+        with patch.object(capacity, "InMemoryIngestor", side_effect=durable):
+            self.owner.setUp()
         self.controller = self.owner.controller
         self.node = self.owner.node
-        started = self.owner.start_experiment()
+        started = self.owner.start("experiment")
         self.assertTrue(started.succeeded, started.error)
         self.node.run_one_iteration()
 
@@ -60,7 +67,7 @@ class ScientificFinalizationProofTests(unittest.IsolatedAsyncioTestCase):
             flush.assert_not_called()
         self.assertTrue(all(m.lifecycle_state == "finalized" for m in manager.manifests))
 
-    async def test_launched_accounting_cannot_bypass_failed_local_finalization(self):
+    async def test_launched_executor_rejects_in_process_session_and_local_retry_recovers(self):
         first, second = self.decisions()
         with patch.object(self.node.local_storage_manager, "finalize_stream",
                           side_effect=OSError("disk unavailable")):
@@ -68,7 +75,7 @@ class ScientificFinalizationProofTests(unittest.IsolatedAsyncioTestCase):
             result = await self.controller.execute_launched_controller_action_decision(second)
             self.assertFalse(result.succeeded)
             self.assertTrue(any(m.lifecycle_state == "open" for m in self.node.local_storage_manager.manifests))
-        result = await self.controller.execute_launched_controller_action_decision(second)
+        result = self.controller.execute_controller_action_decision(second)
         self.assertTrue(result.succeeded, result.error)
         self.assertTrue(all(m.lifecycle_state == "finalized" for m in self.node.local_storage_manager.manifests))
 
@@ -91,12 +98,11 @@ class ScientificFinalizationProofTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(self.node.local_storage_manager, "finalize_stream",
                           side_effect=OSError("disk unavailable")):
             self.assertFalse(self.controller.execute_controller_action_decision(first).succeeded)
-            result = await self.owner.workflow.stop()
+            result = self.controller.stop_session()
             self.assertFalse(result.succeeded)
             self.assertIsNotNone(self.controller.get_status()["session_id"])
             self.assertTrue(any(m.lifecycle_state == "open" for m in self.node.local_storage_manager.manifests))
-            release = await self.controller.release_session(communication=self.owner.f.communication,
-                                                            result_window_s=.05)
+            release = await self.controller.release_session()
             self.assertFalse(release.succeeded)
             self.assertIsNotNone(self.controller.get_status()["session_id"])
 

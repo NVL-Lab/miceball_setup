@@ -1,17 +1,17 @@
 """Normal Stop composes the validated producer, receipt, archival, and handoff owners."""
 
 import asyncio
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from threading import Event
 import unittest
 import sys
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from lab_sync_acquisition import Controller, InMemoryIngestor, PersistentStorageManager, RuntimeEvidenceMessage, ScientificOutputSelection
+from lab_sync_acquisition import Controller, InMemoryIngestor, PersistentStorageManager, RuntimeEvidenceMessage, ScientificOutputSelection, RuntimeParticipant, NatsStorageManagerCommunication
 from tests import test_producer_publication_completion as producers
+from tests.test_distributed_session_closeout import CloseoutBroker
+from tests.test_session_launch import _Boundary
 
 
 class NormalStopTests(unittest.IsolatedAsyncioTestCase):
@@ -21,9 +21,23 @@ class NormalStopTests(unittest.IsolatedAsyncioTestCase):
         self.producer.addAsyncCleanup = self.addAsyncCleanup
         self.producer.setUp()
         self.fixture = self.producer.fixture
+        self.fixture.broker = CloseoutBroker()
+        self.fixture.communication = producers.NatsControllerCommunication(
+            _Boundary("controller", "controller", self.fixture.broker))
         self.storage = PersistentStorageManager(self.fixture.root)
-        self.fixture.controller = Controller(ingestor=self.fixture.ingestor,
-            storage_manager=self.storage, synchronization_manager=self.fixture.sync)
+        self.storage_participant = RuntimeParticipant("storage_manager", "storage")
+        self.fixture.ingestor = InMemoryIngestor(storage_manager=self.storage,
+            recovery_journal_root=self.fixture.root / "journals")
+        self.fixture.controller = Controller()
+        services = self.fixture.services
+
+        async def independent_services(**options):
+            await services(**options)
+            await NatsStorageManagerCommunication(
+                _Boundary("storage_manager", "storage", self.fixture.broker),
+                self.storage).subscribe_commands()
+
+        self.fixture.services = independent_services
 
     async def asyncTearDown(self):
         if self.fixture.controller.get_status()["session_state"] == "running":
@@ -52,7 +66,8 @@ class NormalStopTests(unittest.IsolatedAsyncioTestCase):
 
     async def stop(self):
         return await self.fixture.controller.normal_stop_session(
-            communication=self.fixture.communication, receiving=self.receiver,
+            communication=self.fixture.communication,
+            storage_participant=RuntimeParticipant("storage_manager", "storage"),
             result_window_s=1)
 
     def products(self):
@@ -84,13 +99,13 @@ class NormalStopTests(unittest.IsolatedAsyncioTestCase):
             final_index = next(i for i, (_, p) in enumerate(events) if p.get("evidence_type") == "artifact_manifest"
                 and p["source_id"] == node.node_id and p["payload"]["lifecycle_state"] == "finalized")
             self.assertLess(final_index, marker_index)
-        before, event_count = self.products(), len(events)
+        before = self.products()
+        evidence_before = [item for item in events if item[1].get("evidence_type")]
         self.assertTrue((await self.stop()).succeeded)
         self.assertEqual(self.products(), before)
-        self.assertEqual(len(events), event_count)
-        self.assertTrue(self.fixture.sync.release_session(self.sid, ingestor=self.fixture.ingestor))
-        self.assertTrue((await self.fixture.controller.release_session()).succeeded)
-        self.assertTrue(self.fixture.ingestor.release_session(self.sid, storage_manager=self.storage))
+        self.assertEqual([item for item in events if item[1].get("evidence_type")], evidence_before)
+        self.assertTrue((await self.fixture.controller.release_session(
+            communication=self.fixture.communication, result_window_s=1)).succeeded)
         restored = PersistentStorageManager(self.fixture.root)
         self.assertEqual(restored.read_artifact_collection_handoff(self.sid), handoff)
 
@@ -107,112 +122,6 @@ class NormalStopTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue((await self.stop()).succeeded)
         self.assertEqual(len(self.fixture.broker.commands), commands)
         self.assertEqual(len(self.producer.published("acquisition_evidence_completion")), 1)
-
-    async def test_release_serializes_new_evidence_during_final_readback(self):
-        await self._exercise_release_intake("accepted", during_readback=True)
-
-    async def test_release_serializes_rejected_intake_during_final_readback(self):
-        await self._exercise_release_intake("rejected", during_readback=True)
-
-    async def test_release_serializes_redelivery_during_final_readback(self):
-        await self._exercise_release_intake("duplicate", during_readback=True)
-
-    async def test_new_evidence_during_unsubscribe_blocks_release(self):
-        await self._exercise_release_intake("accepted", during_readback=False)
-
-    async def test_rejected_intake_during_unsubscribe_blocks_release(self):
-        await self._exercise_release_intake("rejected", during_readback=False)
-
-    async def test_redelivery_during_unsubscribe_blocks_release(self):
-        await self._exercise_release_intake("duplicate", during_readback=False)
-
-    async def _exercise_release_intake(self, variant, *, during_readback):
-        await self.running()
-        self.assertTrue((await self.stop()).succeeded)
-        controller, intake = self.fixture.controller, self.fixture.ingestor
-        evidence = (intake.accepted_runtime_evidence[0] if variant == "duplicate" else
-                    RuntimeEvidenceMessage("late-release" if variant == "accepted" else "",
-                        self.sid, "event", "node-a", {"event_type": "late-status"}, True))
-        accepted_before = intake.accepted_runtime_evidence
-        audit_before = intake.runtime_evidence_audit
-        attempted = Event()
-        blocked, observed_bindings, pending, preserved = [], [], [], {}
-
-        def receive():
-            # Probe the real lock without a scheduling-dependent timeout or sleep.
-            acquired = intake._intake_lock.acquire(blocking=False)
-            blocked.append(not acquired)
-            attempted.set()
-            if not acquired:
-                intake._intake_lock.acquire()
-            try:
-                observed_bindings.append(controller.get_status()["session_id"])
-                return intake.receive_runtime_evidence(evidence)
-            finally:
-                intake._intake_lock.release()
-
-        with ThreadPoolExecutor(max_workers=1) as workers:
-            if during_readback:
-                readback = self.storage.read_artifact_collection_handoff
-                calls = 0
-
-                def read_handoff(session_id):
-                    nonlocal calls
-                    handoff = readback(session_id)
-                    calls += 1
-                    if calls == 2:
-                        preserved.update(self.products())
-                        pending.append(workers.submit(receive))
-                        if not attempted.wait(5):
-                            raise RuntimeError("Concurrent intake did not reach the release boundary")
-                    return handoff
-
-                with patch.object(self.storage, "read_artifact_collection_handoff", side_effect=read_handoff):
-                    released = await controller.release_session()
-                self.assertEqual(calls, 2)
-            else:
-                subscription = controller._launch_subscriptions[0]
-                unsubscribe = subscription.unsubscribe
-
-                async def receive_before_commit():
-                    preserved.update(self.products())
-                    pending.append(workers.submit(receive))
-                    await asyncio.wait_for(asyncio.wrap_future(pending[0]), 5)
-                    await unsubscribe()
-
-                with patch.object(subscription, "unsubscribe", side_effect=receive_before_commit):
-                    released = await controller.release_session()
-            received = pending[0].result(timeout=5)
-
-        self.assertIs(received.accepted, variant != "rejected")
-        self.assertEqual(received.reason, {"accepted": "accepted", "rejected": "missing_required_identity",
-                                          "duplicate": "already_accepted"}[variant])
-        self.assertEqual(intake.runtime_evidence_audit[:-1], audit_before)
-        self.assertEqual(intake.runtime_evidence_audit[-1], received)
-        self.assertEqual(intake.accepted_runtime_evidence,
-                         accepted_before + ((evidence,) if variant == "accepted" else ()))
-        self.assertEqual(intake.session_id, self.sid)
-        self.assertEqual(self.products(), preserved)
-        confirmation = self.storage.get_acquisition_stage_preservation_confirmation(self.sid)
-        self.assertEqual(confirmation["ingest_audit"], [item.to_dict() for item in audit_before])
-        self.assertEqual(len(intake.runtime_evidence_audit), len(confirmation["ingest_audit"]) + 1)
-        if received.accepted:
-            self.assertTrue(intake.has_durable_runtime_evidence(evidence))
-        with self.assertRaisesRegex(RuntimeError, "current runtime intake"):
-            intake.release_session(self.sid, storage_manager=self.storage)
-        if during_readback:
-            self.assertTrue(released.succeeded, released.error)
-            self.assertEqual(blocked, [True])
-            self.assertEqual(observed_bindings, [None])
-            self.assertIsNone(controller.get_status()["session_id"])
-        else:
-            self.assertFalse(released.succeeded)
-            self.assertIn("Accepted intake changed during Session release", released.error)
-            self.assertEqual(blocked, [False])
-            self.assertEqual(observed_bindings, [self.sid])
-            self.assertEqual(controller.get_status()["session_id"], self.sid)
-            self.assertFalse((await controller.release_session()).succeeded)
-            self.assertEqual(self.products(), preserved)
 
     async def test_failed_producer_publication_cannot_complete_or_release_reservation(self):
         await self.running()
@@ -241,7 +150,7 @@ class NormalStopTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.fixture.ingestor.recovery_journal_path.read_bytes(), journal)
         self.assertEqual(self.fixture.ingestor.session_id, self.sid)
         self.assertIsNone(self.storage.get_acquisition_stage_preservation_confirmation(self.sid))
-        self.assertFalse((await self.fixture.controller.release_session()).succeeded)
+        self.assertFalse((await self.fixture.controller.release_session(communication=self.fixture.communication, result_window_s=1)).succeeded)
 
     async def test_handoff_interruption_retries_without_refinalizing_scientific_files(self):
         await self.running()
@@ -273,7 +182,7 @@ class NormalStopTests(unittest.IsolatedAsyncioTestCase):
             await entered.wait()
             self.assertFalse((await self.stop()).succeeded)
             self.assertFalse(self.fixture.controller.finalize_session().succeeded)
-            self.assertFalse((await self.fixture.controller.release_session()).succeeded)
+            self.assertFalse((await self.fixture.controller.release_session(communication=self.fixture.communication, result_window_s=1)).succeeded)
             task.cancel()
             with self.assertRaises(asyncio.CancelledError):
                 await task
@@ -283,16 +192,15 @@ class NormalStopTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_changed_current_archive_between_handoff_and_completion_is_rejected(self):
         await self.running()
-        preserve = self.fixture.controller.preserve_artifact_collection_handoff
+        preserve = self.storage.write_artifact_collection_handoff
 
-        def corrupt():
-            result = preserve()
-            self.assertTrue(result.succeeded, result.error)
+        def corrupt(*args, **kwargs):
+            result = preserve(*args, **kwargs)
             path = self.fixture.root / f"session_{self.sid}/evidence/ingest_audit.jsonl"
             path.write_text("[]\n")
             return result
 
-        with patch.object(self.fixture.controller, "preserve_artifact_collection_handoff", side_effect=corrupt):
+        with patch.object(self.storage, "write_artifact_collection_handoff", side_effect=corrupt):
             result = await self.stop()
         self.assertFalse(result.succeeded)
         self.assertEqual(self.fixture.controller.get_status()["session_state"], "stopping")
@@ -321,7 +229,7 @@ class NormalStopTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.producer.published("acquisition_evidence_completion"), [])
         self.assertIsNone(self.storage.get_acquisition_stage_preservation_confirmation(self.sid))
         self.assertFalse(self.fixture.controller.finalize_session().succeeded)
-        self.assertFalse((await self.fixture.controller.release_session()).succeeded)
+        self.assertFalse((await self.fixture.controller.release_session(communication=self.fixture.communication, result_window_s=1)).succeeded)
         self.assertEqual(self.fixture.controller.get_status()["session_state"], "stopping")
         self.assertEqual(self.fixture.ingestor.session_id, self.sid)
         self.assertEqual(self.fixture.ingestor.recovery_journal_path.read_bytes(), journal)
@@ -342,87 +250,19 @@ class NormalStopTests(unittest.IsolatedAsyncioTestCase):
         self.fixture.broker.drop_results.clear()
         self.assertTrue((await self.stop()).succeeded)
 
-    async def test_late_operational_intake_requires_preserved_record_coverage_before_completion(self):
-        await self._exercise_late_operational_intake(accepted=True)
-
-    async def test_late_rejected_operational_intake_requires_preserved_audit_before_completion(self):
-        await self._exercise_late_operational_intake(accepted=False)
-
-    async def _exercise_late_operational_intake(self, *, accepted):
-        intake = InMemoryIngestor(self.storage,
-            recovery_journal_root=self.fixture.root / "late-intake-journals")
-        self.fixture.ingestor = intake
-        self.fixture.controller = Controller(ingestor=intake, storage_manager=self.storage,
-            synchronization_manager=self.fixture.sync)
-        await self.running()
-        preserve = self.fixture.controller.preserve_artifact_collection_handoff
-        envelope = RuntimeEvidenceMessage("late-operational" if accepted else "", self.sid, "event", "node-a", {"event_type": "late-operational-status"}, True)
-        baseline = {}
-        with ThreadPoolExecutor(max_workers=1) as workers:
-            def late_intake():
-                result = preserve()
-                self.assertTrue(result.succeeded, result.error)
-                baseline.update(self.products())
-                received = workers.submit(intake.receive_runtime_evidence, envelope).result(timeout=3)
-                self.assertIs(received.accepted, accepted)
-                return result
-
-            with patch.object(self.fixture.controller, "preserve_artifact_collection_handoff", side_effect=late_intake):
-                failed = await self.stop()
-        self.assertFalse(failed.succeeded)
-        self.assertIn("Current complete Stage A preservation is unconfirmed", failed.error)
-        self.assertEqual(self.fixture.controller.get_status()["session_state"], "stopping")
-        self.assertEqual(intake.session_id, self.sid)
-        self.assertEqual(self.products(), baseline)
-        record = self.storage.get_acquisition_stage_preservation_confirmation(self.sid)["session_record"]
-        self.assertEqual(record["runtime_evidence"], [])
-        self.assertEqual(record["runtime_evidence_audit"], [])
-        self.assertFalse(self.fixture.controller.finalize_session().succeeded)
-        self.assertFalse((await self.fixture.controller.release_session()).succeeded)
-        commands = len(self.fixture.broker.commands)
-        journal = intake.recovery_journal_path.read_bytes()
-        self.assertTrue((await self.stop()).succeeded)
-        self.assertEqual(len(self.fixture.broker.commands), commands)
-        self.assertEqual(intake.recovery_journal_path.read_bytes(), journal)
-        record = self.storage.get_acquisition_stage_preservation_confirmation(self.sid)["session_record"]
-        self.assertTrue((await self.fixture.controller.release_session()).succeeded)
-        self.assertTrue(intake.release_session(self.sid, storage_manager=self.storage))
-        self.assertTrue(self.fixture.sync.release_session(self.sid))
-
     async def test_q019_finalization_reuses_stage_a_without_rewriting_summary(self):
         await self.running()
         self.assertTrue((await self.fixture.controller.stop_launched_session()).succeeded)
         self.assertTrue((await self.producer.marker()).succeeded)
         self.assertFalse(self.fixture.controller.finalize_session().succeeded)
-        self.assertTrue((await self.fixture.controller.archive_acquisition_evidence(communication=self.receiver)).succeeded)
-        self.assertTrue(self.fixture.controller.preserve_artifact_collection_handoff().succeeded)
-        before = self.products()
-        result = self.fixture.controller.finalize_session()
-        self.assertTrue(result.succeeded, result.error)
-        self.assertEqual(self.products(), before)
-        self.assertEqual(self.fixture.controller.get_status()["session_state"], "completed")
-
-    async def test_active_experiment_ends_without_reopening_node_finalized_files(self):
-        f = self.fixture
-        await f.services()
-        node, declaration, _ = await f.node()
-        f.controller = Controller(node, ingestor=f.ingestor,
-            storage_manager=self.storage, synchronization_manager=f.sync)
-        launched = await f.launch({"node-a": [declaration]})
-        self.assertTrue(launched.succeeded, launched.error)
-        self.sid = launched.details["session_id"]
-        self.connect_receipt()
-        self.assertTrue((await f.controller.start_launched_session()).succeeded)
-        started = f.controller.start_experiment("experiment", scientific_outputs=(
-            ScientificOutputSelection(declaration.device_id, "node-a", "events"),))
-        self.assertTrue(started.succeeded, started.error)
+        self.assertFalse((await self.fixture.controller.archive_acquisition_evidence(communication=self.receiver)).succeeded)
+        self.assertFalse(self.fixture.controller.preserve_artifact_collection_handoff().succeeded)
         result = await self.stop()
         self.assertTrue(result.succeeded, result.error)
-        record = self.storage.get_acquisition_stage_preservation_confirmation(self.sid)["session_record"]
-        events = record["experiment_lifecycle_evidence"]
-        self.assertEqual([e["event_type"] for e in events], ["experiment_start", "experiment_stop"])
-        manifests = self.producer.published("artifact_manifest")
-        self.assertEqual([m["payload"]["lifecycle_state"] for m in manifests], ["open", "finalized"])
+        before = self.products()
+        self.assertTrue((await self.stop()).succeeded)
+        self.assertEqual(self.products(), before)
+        self.assertEqual(self.fixture.controller.get_status()["session_state"], "completed")
 
     async def test_journal_accepted_marker_without_publication_ack_cannot_use_legacy_finalizer(self):
         await self.running()

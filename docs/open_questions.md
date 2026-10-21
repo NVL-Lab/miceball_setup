@@ -459,6 +459,50 @@ G4-B/G4-C remain deferred.
 
 ### Decision 407/408 Implementation (Pending ICC Validation And Audit)
 
+**Current deployed lifecycle isolation (implemented; pending ICC validation and
+separate audit):** The architecture-to-code reconciliation distinguished accepted
+Decision 375/376 deployment from historical direct-object development. A Controller
+with direct service collaborators cannot launch a NATS Session; rejection precedes
+reservation and canonical mutation. Once launched, synchronous development
+lifecycle/health execution, legacy finalization and direct-owner preservation/
+collection cannot operate on that binding. Existing launched owner commands handle
+scientific finalization for every reserved node, Normal Stop, Kill and release.
+Optional object references no longer choose a competing deployed closeout path.
+
+The duplicate Controller-side direct-owner Normal Stop/Kill pipeline, partial-Kill
+archive helper, marker-specific local completion helper and unreachable local
+release branches were removed. Pure in-process constructors, lifecycle APIs and
+manual demonstrations remain supported development tools, not another deployment
+architecture. No new finalization cache, mode registry or lifecycle authority was
+added. Existing Decision 407/408 admission, independent durable fatal accounting,
+cutoff/redelivery, scoped confirmations, cancellation/retry and original-Session
+attribution remain required. Previous hybrid test expectations below are historical,
+not current support guarantees. G4-A/G4/Q013 remain OPEN; G4-B/G4-C and broader
+Q022 deployment adaptations remain outside this correction.
+
+**Implementation verification:** 142 distinct selected test methods passed under
+controlled asyncio execution (116 ownership/accounting/owner-startup methods,
+17 capacity/expiry/acquisition/correlation/publication controls, two failure
+controls, six additional Normal Stop/Kill readback controls and one stopped-Session
+finalization-boundary check). The seven new
+deployment-boundary methods cover pre-admission rejection, historical API
+isolation, every-node scientific finalization and retained pure in-process use.
+Regression-first checks reproduced hybrid launch acceptance before the correction;
+the development workflow control already passed. Hybrid borrowed-lock tests were
+removed rather than treated as a second deployment contract; existing launched
+finalized-intake, current-proof and release/readback tests cover owner boundaries.
+
+Public constructor/method signatures are unchanged, changed Python files parse,
+and documentation/diff checks passed. Successful archival checks use actual
+preservation/readback with existing-identical handoff fixtures; they do not
+establish initial hard-link promotion. An unmodified initial-promotion control
+was attempted and blocked by Windows `os.link()` permission denial (`WinError 5`),
+not counted as a pass. An interim fixture-migration run was interrupted and rerun
+after removing an invalid queued-call test deadlock; it is not validation evidence.
+No live NATS, physical hardware, OS signals, power-loss or normal Windows asyncio
+scheduling validation is claimed. ICC independent IPython validation and separate
+audit remain required; this report closes no work item.
+
 The existing Controller coordination now orders health acceptance against a
 mandatory cutoff before completion-marker publication and final acquisition
 intake. Accepted evidence retains applicability and original context; multiple

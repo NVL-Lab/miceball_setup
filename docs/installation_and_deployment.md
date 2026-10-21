@@ -18,7 +18,17 @@ findings; its history is preserved in [Q013](open_questions.md#q013-what-further
 Distributed `Controller.launch_session()` now attaches the existing health
 interpretation subscription to
 `await controller.execute_launched_controller_action_decision(decision)`.
-The Controller may have no local AcquisitionNode. Acquisition-health and timing
+The deployed Controller has no direct AcquisitionNode, Ingestor, StorageManager
+or SynchronizationManager collaborators (Decisions 375/376). Construct it as
+`Controller(component_id=...)`; `launch_session()` rejects direct collaborators
+before Session creation or reservation. Pure in-process development workflows
+remain available separately, but cannot operate on a launched binding. Normal
+Stop/Kill require the launched communication and explicit StorageManager
+RuntimeParticipant; the retained `receiving` parameter does not enable direct
+Ingestor access. Scientific finalization and closeout use existing scoped NATS
+owner confirmations, and release uses the launched binding even after incomplete
+closeout. There is no supported hybrid Controller execution mode.
+Acquisition-health and timing
 interpretations use the same executor and existing runtime command/result path.
 Non-mutating decisions remain evidence-only. Experiment failure confirms node
 scientific finalization/publication and current Session Time before canonical
@@ -57,7 +67,7 @@ These implementation descriptions do not claim independent validation or G4-A cl
 
 Normal Stop confirms synchronization publication through the existing scoped
 runtime request contract, as do adjacent node Stop/reservation-release and
-local-owner Kill confirmations. Replies for another operation, owner/type or
+Kill confirmations. Replies for another operation, owner/type or
 attempt cannot substitute for these operations. Missing or conflicting scoped
 results leave the relevant confirmation unestablished; a failed new Stop attempt
 cannot reuse an earlier successful producer-completion result.

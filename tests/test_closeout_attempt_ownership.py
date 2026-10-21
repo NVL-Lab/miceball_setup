@@ -343,7 +343,7 @@ class InterruptedNormalStopTests(unittest.IsolatedAsyncioTestCase):
                 result = await close()
                 self.assertTrue(result.succeeded, result.error)
                 self.assertEqual(f.controller.get_status()["session_state"],
-                    "aborted" if kill else "failed" if fatal else "completed")
+                    "aborted" if kill else "completed")
                 confirmation = workflow.storage.get_session_preservation_confirmation(workflow.sid if local_owners else f.sid)
                 self.assertIsNotNone(confirmation)
                 if not kill:
@@ -457,7 +457,7 @@ class InterruptedNormalStopTests(unittest.IsolatedAsyncioTestCase):
                             self.assertFalse(result.succeeded)
                             self.assertFalse(result.details.get("preservation_confirmed", False))
                         self.assertEqual(f.controller.get_status()["session_state"],
-                            "aborted" if kill else "failed" if fatal else "stopping")
+                            "aborted" if kill else "stopping")
                         self.assertIsNotNone(f.controller.get_status()["session_id"])
                         self.assertIsNone(f.communication.session_acquisition_completion(
                             RuntimeParticipant("synchronization_manager", "sync"), f.sid))

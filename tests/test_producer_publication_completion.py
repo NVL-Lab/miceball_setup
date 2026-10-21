@@ -62,8 +62,7 @@ class ProducerPublicationCompletionTests(unittest.IsolatedAsyncioTestCase):
         self.fixture.addAsyncCleanup = self.addAsyncCleanup
         self.fixture.setUp()
         self.fixture.broker = PublicationBroker()
-        self.fixture.controller = Controller(ingestor=self.fixture.ingestor,
-                                             synchronization_manager=self.fixture.sync)
+        self.fixture.controller = Controller()
         self.fixture.communication = NatsControllerCommunication(
             _Boundary("controller", "controller", self.fixture.broker))
 
@@ -667,7 +666,7 @@ class RealProducerPublicationTests(unittest.IsolatedAsyncioTestCase):
                 controller_boundary = await boundary("controller", "controller")
                 await controller_boundary.ensure_streams()
                 f.communication = NatsControllerCommunication(controller_boundary)
-                f.controller = Controller(ingestor=f.ingestor, synchronization_manager=f.sync)
+                f.controller = Controller()
                 sync_boundary = await boundary("synchronization_manager", "sync")
                 await NatsSynchronizationManagerCommunication(sync_boundary, f.sync).subscribe_commands()
                 intake_boundary = await boundary("ingestor", "ingestor")

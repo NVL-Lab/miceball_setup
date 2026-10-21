@@ -1,4 +1,4 @@
-"""Local lifecycle calls respect the existing admitted Session closeout owner."""
+"""Launched owners coordinate closeout; historical calls cannot take it over."""
 
 import asyncio
 from contextlib import ExitStack, asynccontextmanager
@@ -38,10 +38,11 @@ class LocalCloseoutOwnershipTests(unittest.IsolatedAsyncioTestCase):
         self.node, self.declaration, self.adapter = await self.f.node(node_class=mapped_node)
         self.f.config["synchronization_configuration"] = configuration()
         self.storage = self.workflow.storage
-        self.controller = Controller(self.node, self.f.ingestor, self.storage,
-                                     synchronization_manager=self.f.sync)
+        self.controller = Controller()
         self.f.controller = self.controller
-        launched = await self.f.launch({"node-a": [self.declaration]})
+        launched = await self.controller.launch_session({"node-a": [self.declaration]},
+            communication=self.f.communication, participants=self.f.participants,
+            config_parameters=self.f.config, result_window_s=1)
         self.assertTrue(launched.succeeded, launched.error)
         self.workflow.sid = self.sid = launched.details["session_id"]
         self.workflow.connect_receipt()
@@ -74,10 +75,11 @@ class LocalCloseoutOwnershipTests(unittest.IsolatedAsyncioTestCase):
             self.node.stop_runtime()
         self.local.cleanup()
 
-    def start_experiment(self, identity="experiment"):
-        return self.controller.start_experiment(identity,
+    async def start_experiment(self, identity="experiment"):
+        return await self.controller.start_launched_experiment(identity,
             scientific_outputs=(ScientificOutputSelection(self.declaration.device_id, "node-a", "events"),),
-            configuration=ExperimentConfiguration(60, {"node-a": 1000000}, 1000000))
+            configuration=ExperimentConfiguration(60, {"node-a": 1000000}, 1000000),
+            storage_participant=RuntimeParticipant("storage_manager", "storage"))
 
     def fatal(self, identity="fatal", experiment_id=None):
         return ControllerActionDecision(identity, self.sid, experiment_id, "source", "policy",
@@ -103,11 +105,11 @@ class LocalCloseoutOwnershipTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(any(c["command_type"] == "kill" for c in self.f.broker.commands))
 
     async def test_local_fatal_uses_normal_stop_owner_and_durable_failure(self):
-        started = self.start_experiment()
+        started = await self.start_experiment()
         self.assertTrue(started.succeeded, started.error)
         await self.begin()
         decision = self.fatal(experiment_id="experiment")
-        result = self.controller.execute_controller_action_decision(decision)
+        result = await self.controller.execute_launched_controller_action_decision(decision)
         self.assertTrue(result.succeeded, result.error)
         self.assertTrue(result.details["health_processing_confirmed"])
         self.assertEqual(result.details["cleanup_owner"], "normal_stop")
@@ -149,12 +151,12 @@ class LocalCloseoutOwnershipTests(unittest.IsolatedAsyncioTestCase):
         await self.finish_unpreserved()
 
     async def test_local_experiment_transitions_and_initialization_cannot_escape_closeout(self):
-        started = self.start_experiment()
+        started = await self.start_experiment()
         self.assertTrue(started.succeeded, started.error)
         await self.begin()
         with patch.object(self.node, "prepare_experiment_scientific_outputs", wraps=self.node.prepare_experiment_scientific_outputs) as prepare, \
              patch.object(self.node, "finalize_experiment_scientific_outputs", side_effect=OSError("must remain with owner")) as finalize:
-            for result in (self.start_experiment("new"), self.controller.stop_experiment("experiment"),
+            for result in (self.controller.start_experiment("new"), self.controller.stop_experiment("experiment"),
                            self.controller.initialize_session(), self.controller.stop_session()):
                 self.assertFalse(result.succeeded)
             prepare.assert_not_called()
@@ -167,10 +169,10 @@ class LocalCloseoutOwnershipTests(unittest.IsolatedAsyncioTestCase):
         self.closing.cancel()
         with self.assertRaises(asyncio.CancelledError):
             await self.closing
-        self.assertFalse(self.start_experiment("after-interruption").succeeded)
+        self.assertFalse((await self.start_experiment("after-interruption")).succeeded)
         self.assertFalse(self.controller.start_session().succeeded)
         decision = self.fatal()
-        self.assertTrue(self.controller.execute_controller_action_decision(decision).succeeded)
+        self.assertTrue((await self.controller.execute_launched_controller_action_decision(decision)).succeeded)
         self.assertEqual(self.stops.call_count, 0)
         with patch.object(self.storage, "write_acquisition_stage", side_effect=OSError("archive unavailable")):
             retry = await self.workflow.stop()
@@ -183,21 +185,21 @@ class LocalCloseoutOwnershipTests(unittest.IsolatedAsyncioTestCase):
         await self.begin()
         decision = self.fatal()
         with patch.object(self.f.ingestor, "receive_runtime_evidence", side_effect=OSError("journal unavailable")):
-            result = self.controller.execute_controller_action_decision(decision)
+            result = await self.controller.execute_launched_controller_action_decision(decision)
         self.assertFalse(result.succeeded)
         self.assertEqual(self.controller.get_status()["session_state"], "running")
         self.assertEqual(self.stops.call_count, 0)
-        retried = self.controller.execute_controller_action_decision(decision)
+        retried = await self.controller.execute_launched_controller_action_decision(decision)
         self.assertTrue(retried.succeeded, retried.error)
         self.assertTrue(retried.details["health_processing_confirmed"])
         self.assertEqual(len(self.controller.controller_action_decision_evidence), 1)
         await self.finish_unpreserved()
 
     async def test_mismatched_fatal_context_never_takes_cleanup_ownership(self):
-        started = self.start_experiment()
+        started = await self.start_experiment()
         self.assertTrue(started.succeeded, started.error)
         await self.begin()
-        result = self.controller.execute_controller_action_decision(self.fatal(experiment_id="other"))
+        result = await self.controller.execute_launched_controller_action_decision(self.fatal(experiment_id="other"))
         self.assertFalse(result.succeeded)
         self.assertEqual(self.stops.call_count, 0)
         self.assertEqual(self.controller.get_status()["session_state"], "running")
@@ -207,22 +209,22 @@ class LocalCloseoutOwnershipTests(unittest.IsolatedAsyncioTestCase):
         await self.begin()
         decision = self.fatal()
         with patch.object(self.f.ingestor, "has_durable_runtime_evidence", return_value=False):
-            result = self.controller.execute_controller_action_decision(decision)
+            result = await self.controller.execute_launched_controller_action_decision(decision)
         self.assertFalse(result.succeeded)
-        self.assertIn("durable acceptance is unconfirmed", result.error)
+        self.assertIn("not durably accepted", result.error)
         self.assertEqual(self.controller.get_status()["session_state"], "running")
         self.assertEqual(self.stops.call_count, 0)
-        self.assertTrue(self.controller.execute_controller_action_decision(decision).succeeded)
+        self.assertTrue((await self.controller.execute_launched_controller_action_decision(decision)).succeeded)
         await self.finish_unpreserved()
 
     async def test_experiment_failure_decision_cannot_finalize_for_the_stop_owner(self):
-        started = self.start_experiment()
+        started = await self.start_experiment()
         self.assertTrue(started.succeeded, started.error)
         await self.begin()
         decision = ControllerActionDecision("experiment-failure", self.sid, "experiment", "source", "policy",
                                             "experiment_failure", "experiment_fail", None)
         with patch.object(self.node, "finalize_experiment_scientific_outputs", wraps=self.node.finalize_experiment_scientific_outputs) as finalize:
-            result = self.controller.execute_controller_action_decision(decision)
+            result = await self.controller.execute_launched_controller_action_decision(decision)
             self.assertTrue(result.succeeded, result.error)
             self.assertTrue(result.details["health_processing_confirmed"])
             finalize.assert_not_called()
@@ -230,7 +232,7 @@ class LocalCloseoutOwnershipTests(unittest.IsolatedAsyncioTestCase):
         await self.finish_unpreserved()
 
     async def test_owner_finalization_failure_retains_science_and_retry_progress(self):
-        started = self.start_experiment()
+        started = await self.start_experiment()
         self.assertTrue(started.succeeded, started.error)
         await self.begin()
         self.assertFalse(self.controller.stop_experiment("experiment").succeeded)
@@ -249,14 +251,14 @@ class LocalCloseoutOwnershipTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(all(m.lifecycle_state == "finalized" for m in self.local.manifests))
 
     async def test_expiry_and_fatal_decision_preserve_one_canonical_experiment_end(self):
-        started = self.start_experiment()
+        started = await self.start_experiment()
         self.assertTrue(started.succeeded, started.error)
         await self.begin()
         with patch("lab_sync_acquisition.acquisition_node.monotonic", return_value=monotonic() + 61):
             self.assertTrue(self.node.expire_experiment_if_due())
         proof = self.node.read_experiment_expiry("experiment")
         self.assertFalse(self.controller.accept_experiment_expiry(proof))
-        result = self.controller.execute_controller_action_decision(self.fatal(experiment_id="experiment"))
+        result = await self.controller.execute_launched_controller_action_decision(self.fatal(experiment_id="experiment"))
         self.assertTrue(result.succeeded, result.error)
         events = self.controller.get_status()["experiment_lifecycle_evidence"]
         self.assertEqual([e.event_type for e in events], ["experiment_start"])
@@ -266,7 +268,7 @@ class LocalCloseoutOwnershipTests(unittest.IsolatedAsyncioTestCase):
                          ["experiment_start", "experiment_stop"])
 
     async def test_launched_stop_failure_accounts_for_failure_without_local_time(self):
-        self.assertTrue(self.start_experiment().succeeded)
+        self.assertTrue((await self.start_experiment()).succeeded)
         self.node.run_one_iteration()
         self.resume.set()
         self.f.broker.drop_results.add(("node-a", "release_reservation"))
@@ -305,7 +307,7 @@ class LocalCloseoutOwnershipTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(any(c["command_type"] == "kill" for c in self.f.broker.commands))
 
     async def test_interrupted_normal_stop_preserves_fatal_details_without_time(self):
-        self.assertTrue(self.start_experiment().succeeded)
+        self.assertTrue((await self.start_experiment()).succeeded)
         await self.begin()
         self.closing.cancel()
         with self.assertRaises(asyncio.CancelledError):
@@ -313,7 +315,7 @@ class LocalCloseoutOwnershipTests(unittest.IsolatedAsyncioTestCase):
         decision = self.fatal(experiment_id="experiment")
         with patch.object(type(self.f.sync), "current_session_time_s", new_callable=PropertyMock,
                           side_effect=OSError("Session Time unavailable")):
-            result = self.controller.execute_controller_action_decision(decision)
+            result = await self.controller.execute_launched_controller_action_decision(decision)
         self.assertTrue(result.succeeded, result.error)
         self.assertTrue(result.details["health_processing_confirmed"])
         self.assertEqual(self.stops.call_count, 0)
@@ -329,7 +331,6 @@ class LocalCloseoutOwnershipTests(unittest.IsolatedAsyncioTestCase):
 
 class NormalStopAdmissionTests(unittest.IsolatedAsyncioTestCase):
     async def running(self, *, remote=False, active=True, preserve=False):
-        self.remote = remote
         if remote:
             fixture = attempts.InterruptedNormalStopTests()
             fixture.addCleanup = self.addCleanup
@@ -343,7 +344,7 @@ class NormalStopAdmissionTests(unittest.IsolatedAsyncioTestCase):
             fixture.addAsyncCleanup = self.addAsyncCleanup
             await fixture.asyncSetUp()
             fixture.resume.set()
-            self.assertTrue(fixture.start_experiment().succeeded)
+            self.assertTrue((await fixture.start_experiment()).succeeded)
             fixture.node.run_one_iteration()
             self.workflow, self.f, self.node = fixture.workflow, fixture.f, fixture.node
         self.controller = self.f.controller
@@ -351,8 +352,7 @@ class NormalStopAdmissionTests(unittest.IsolatedAsyncioTestCase):
         self.sid = self.controller.get_status()["session_id"]
         self.local = self.node.local_storage_manager
         if not active:
-            ended = (await self.controller.stop_launched_experiment("experiment") if remote
-                     else self.controller.stop_experiment("experiment"))
+            ended = await self.controller.stop_launched_experiment("experiment")
             self.assertTrue(ended.succeeded, ended.error)
         self.stops = self.enterContext(patch.object(self.node, "stop_runtime", wraps=self.node.stop_runtime))
         adapter, = self.node._runtime_device_manager.adapters
@@ -399,9 +399,7 @@ class NormalStopAdmissionTests(unittest.IsolatedAsyncioTestCase):
             "session_failure" if action == "session_fail" else "experiment_failure", action, None)
 
     async def execute(self, decision):
-        if self.remote:
-            return await self.controller.execute_launched_controller_action_decision(decision)
-        return self.controller.execute_controller_action_decision(decision)
+        return await self.controller.execute_launched_controller_action_decision(decision)
 
     def accept_fatal(self, experiment_id="experiment"):
         return self.controller.process_health_interpretation(replace(interpretation("accepted-fatal"),
@@ -648,15 +646,16 @@ class NormalStopAdmissionTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_kill_association_does_not_admit_a_local_normal_stop(self):
         await self.running()
-        with patch.object(type(self.f.sync), "current_session_time_s", new_callable=PropertyMock,
-                          side_effect=OSError("Kill end timing unavailable")):
+        with patch.object(self.f.communication, "request_persistence_command",
+                          side_effect=OSError("Kill admission result unavailable")):
             killed = await self.controller.kill_session(communication=self.f.communication,
+                storage_participant=RuntimeParticipant("storage_manager", "storage"),
                 result_window_s=.05, operator_authorized=True)
         self.assertFalse(killed.succeeded)
         self.assertEqual(self.controller.get_status()["session_state"], "running")
         result = await self.workflow.stop()
         self.assertFalse(result.succeeded)
-        self.assertIn("Kill closeout", result.error)
+        self.assertIn("incompatible closeout", result.error)
         self.assertEqual(self.stops.call_count, 0)
         self.assertEqual(self.controller.get_status()["active_experiment_id"], "experiment")
 
@@ -694,12 +693,6 @@ class ExperimentCloseoutAdmissionTests(unittest.IsolatedAsyncioTestCase):
 
         with patch.object(Controller, "launch_session", new=launch):
             await case.running(remote=remote, active=False)
-        if not remote:
-            from lab_sync_acquisition import NatsStorageManagerCommunication
-            from tests.test_session_launch import _Boundary
-
-            await NatsStorageManagerCommunication(
-                _Boundary("storage_manager", "storage", case.f.broker), case.storage).subscribe_commands()
         if active:
             result = await self.start(case)
             self.assertTrue(result.succeeded, result.error)

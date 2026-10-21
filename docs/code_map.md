@@ -1167,7 +1167,7 @@ is complete; W030 records manual validation, focused tests, and audit reassessme
 - Controller.stop_launched_session(reason=None): Stops and locally finalizes all reserved nodes through NATS, releases only confirmed-clean reservations, records the Controller-owned end of any active Experiment without refinalizing node files, and stops the Session without waiting for global collection.
 - Controller.start_launched_experiment(experiment_id, *, scientific_outputs=(), runtime_health_mapping=None, details=None, configuration=None, storage_participant=None): Fences retained closeout ownership before measured synchronization and preparation, records canonical start before node-specific activation, and preserves failed/cancelled activation outcomes and cleanup uncertainty.
 - Controller._end_launched_experiment(experiment_id, details, event_type): Shares the retained closeout fence and confirmed owner finalization path for manual Experiment Stop and remote experiment_fail.
-- Controller._finalize_launched_experiment_outputs(session, experiment_id): Resumes/verifies explicit local ownership directly and every other reserved scientific owner through scoped bounded NATS commands, retaining original-Session attribution and reporting any missing confirmation.
+- Controller._finalize_launched_experiment_outputs(session, experiment_id): Resumes/verifies every reserved scientific owner exclusively through scoped bounded NATS commands, retaining original-Session attribution and reporting any missing confirmation.
 - Controller.stop_launched_experiment(experiment_id, details=None): Confirms each node's finalization and evidence publication before recording canonical Experiment stop with fresh authoritative Session Time.
 - Controller._start_launched_session: Serializes Session startup with other runtime transitions, starts configured remote synchronization once and requires correlated node acquisition confirmations.
 - Controller._stop_launched_session(reason, *, failure=None): Coordinates shared launched Session cleanup with retained participant identities/progress, re-evaluating Normal Stop ownership for fatal callers while keeping orderly reservation release and standalone fatal binding retention distinct.
@@ -1180,8 +1180,8 @@ is complete; W030 records manual validation, focused tests, and audit reassessme
 - Controller.publish_acquisition_evidence_completion(*, communication, result_window_s): Verifies producer and health prerequisites before marker admission and verifies the same producer confirmations after awaited publication, retaining an unconfirmed published marker for explicit retry if prerequisites change.
 - Controller.archive_acquisition_evidence(*, communication): Verifies receipt of its confirmed W042 marker through the matching NatsIngestorCommunication, archives current protected Ingestor compilation and existing Session Record evidence, and returns confirmed Stage A paths without lifecycle completion, collection, or binding release.
 - Controller.preserve_artifact_collection_handoff(): Compiles journal-backed artifact information after current Stage A confirmation and returns verified durable handoff preservation without changing lifecycle or releasing bindings.
-- Controller.normal_stop_session(*, communication, receiving=None, result_window_s, reason=None, storage_participant=None): Rejects conflicting Experiment execution before local or remote closeout admission, then coordinates verified preservation as sole cleanup owner while retaining original Experiment context and applicable canonical failure across retries (Decision 406), without taking over admitted Kill.
-- Controller.kill_session(*, communication, result_window_s, operator_authorized, reason=None, storage_participant=None): Admits local or remote forced closeout before shutdown, aborts Experiment/Session and preserves available evidence while retaining cleanup uncertainty and reservations without automatic collection or closure.
+- Controller.normal_stop_session(*, communication, receiving=None, result_window_s, reason=None, storage_participant=None): Uses launched NATS owners and an explicit StorageManager identity for sole-owner cleanup, verified preservation and terminal reporting under Decisions 407/408; receiving is retained for signature compatibility, not direct-owner access.
+- Controller.kill_session(*, communication, result_window_s, operator_authorized, reason=None, storage_participant=None): Uses launched NATS owners and explicit authorization for forced closeout, retaining partial preservation, cleanup uncertainty and independent release obligations.
 - Controller.reconcile_session_closeout(session_id, *, communication, ingestor_participant, storage_participant, result_window_s): Reads authoritative known-Session preservation over NATS without restoring a Session or transitioning its lifecycle.
 - Controller._closeout_owner_request: Requires a current correlated closeout result and unchanged Controller binding after each owner request.
 - Controller._require_remote_preservation: Checks receiving/storage identity, accepted configuration and applicable finalized-marker provenance before using remote preservation.
@@ -1191,8 +1191,6 @@ is complete; W030 records manual validation, focused tests, and audit reassessme
 - Controller._close_session_remote: Validates retained owner/mode before admission, captures Normal Stop Experiment context once per attempt, and coordinates remote Normal Stop or Kill, durable preservation and terminal lifecycle publication without shared owner objects.
 - Controller._release_session_remote: Revalidates terminal preservation and independent participant release, retaining confirmed unsubscribe progress and unresolved obligations across explicit retries before retiring Controller state.
 - Controller._retire_session_binding: Retires only a confirmed Controller binding while preserving its terminal outcome and service lifetime.
-- Controller._preserve_kill_closeout(session): Confirms current journal-backed partial archive and handoff under intake, persistence, and admission guards without claiming complete receipt.
-- Controller._complete_preserved_acquisition(session): Rechecks current journal, Stage A operational evidence/all-audit coverage, final Session Record, owned evidence, marker and handoff under intake/storage/admission locks before completion without replacing an unconfirmed baseline.
 - Controller.get_status(): Returns Session/command status, the bounded last released terminal outcome, and the local AcquisitionNode snapshot or None, without fabricating remote runtime status.
 - Controller.reconcile_outcomes(*, session_id=None, participants=None, communication=None, result_window_s=None): Reads existing scoped outcomes or bounded current observations of explicit remote participants, retaining unassociated uncertainty and changed informational evidence without operational replay or lifecycle mutation.
 - Controller._validate_participant_reconciliation(participants, result_window_s): Checks explicit unique remote principal-service identities and the issuer-defined bounded observation window without discovering participants.
@@ -1209,6 +1207,8 @@ is complete; W030 records manual validation, focused tests, and audit reassessme
 - Controller.execute_launched_controller_action_decision(decision): Reuses accepted applicability, checks closeout ownership before and after Experiment-lock waiting, and confirms durable accounting without requiring FAILED during Normal Stop.
 - Controller._normal_stop_owns_cleanup(session): Reads formal Normal Stop ownership from retained Session cleanup progress while excluding local and distributed Kill.
 - Controller._require_local_runtime_transition(session): Rejects absent local AcquisitionNode ownership and local runtime work during another Experiment transition or admitted/interrupted closeout before lifecycle/resource mutation.
+- Controller._require_in_process_workflow(): Rejects historical direct-owner commands against an established launched Session before lifecycle, evidence or resource mutation.
+- Controller._require_launched_workflow(): Requires the existing Session communication binding before brokered lifecycle or closeout side effects.
 - Controller._accept_action_payload(session, payload, *, identity=None, decision=None): Atomically orders health/timing input identity, original-context applicability, first decision time and evidence acceptance against the cutoff, reusing exact accepted input without a replay registry.
 - Controller._session_closeout_progress(session): Reuses existing Session-specific participant cleanup progress for formal ownership and the health-admission cutoff.
 - Controller._admit_session_closeout(session, owner): Retains the first formally admitted physical closeout owner without treating fatal acceptance as closeout admission.
@@ -1227,7 +1227,6 @@ is complete; W030 records manual validation, focused tests, and audit reassessme
 - Controller.start_session(): Requires local transition admission, initialized canonical state and an explicit Ingestor before runtime startup, then starts the Session and writes its initial record.
 - Controller.run_one_iteration(): Rejects non-running or closeout-owned local iteration requests before collection and preserves the existing cleanup/failure path for actual acquisition errors.
 - Controller._session_record_evidence(): Gathers Session configuration, lifecycle, readiness, cleanup, command failures and Experiment evidence without duplicating the operational Evidence Archive or scientific observations in the Session Record.
-- Controller._require_kill_runtime_coverage(session_id, record): Requires matching Session identity and exact current operational evidence/all-audit archival coverage under existing intake/preservation guards before Kill reconfirmation or release.
 - Controller._session_ingest_state(): Captures current operational messages and the complete intake audit for finalization/release race detection without obsolete scientific-envelope counters.
 
 ### G4-A Local Entry-Point Coverage (Implementation, Not Validation Or Closure)
@@ -1377,10 +1376,14 @@ across the cutoff. No constructor, parameter count or return type changed.
 
 ### tests/test_health_proof_integrity.py
 
-- ScientificFinalizationProofTests: Uses actual node/storage owners and disk-backed products to verify failed/interrupted finalization, local/launched retry, independent decisions, no repeated confirmed disk work, and retained Normal Stop/release obligations.
+- ScientificFinalizationProofTests: Uses pure in-process node/storage owners and disk-backed products to verify failed/interrupted finalization, rejection of launched execution, independent decisions, idempotent local retry and retained cleanup/release obligations.
 - HealthInputIdentityTests: Verifies complete health/timing input identity, concurrent exact acceptance, direct/enveloped replay, cutoff rejection without ACK, immutable completed archives and launched finalization retry before canonical termination.
 
 ### G4-A Remote Scientific-Finalization Proof Correction (Pending ICC Validation)
+
+Historical correction report: the mixed direct-object/NATS composition described
+below is superseded by deployed lifecycle isolation. It is not a supported
+deployment mode; its prior audit/validation history is retained.
 
 The next independent audit reproduced affirmative Experiment accounting with open
 remote streams after failed Session cleanup. It also reproduced local-only
@@ -1407,6 +1410,34 @@ and physical cleanup obligations. See Q013 for regression-first evidence and lim
 
 - RemoteFinalizationProofTests: Verifies the actual failed-Session/open-stream reproduction, independent decisions, owner recovery, unavailable/cancelled/lost/misrouted replies without ACK, pre-mutation local rejection, later-Experiment isolation and successful owner confirmation with no selected products.
 - RemoteFinalizationProofTests.fail_session_with_unfinished_science(): Constructs the supported launched failure sequence with real owners, retained decisions, disk-backed streams and explicit unconfirmed node cleanup.
+
+### G4-A Deployed Lifecycle Isolation (Pending ICC Validation And Audit)
+
+Decisions 375/376 distinguish independent NATS orchestration from pure in-process
+development, not supported hybrid deployment modes. Controller launch rejects
+direct AcquisitionNode/Ingestor/StorageManager/SynchronizationManager collaborators
+before reservation or Session creation. Historical synchronous lifecycle,
+finalization and direct-owner collection APIs reject a launched binding; launched
+APIs likewise cannot acquire a development Session's cleanup ownership.
+Normal Stop, Kill and release select the NATS owner path from the established
+binding, never optional service-object presence. The duplicate direct-owner
+Normal Stop/Kill orchestration and its private archive/completion helpers were
+removed; pure in-process development finalization remains separate.
+
+Scientific finalization, fatal accounting, scoped confirmation, cutoff/redelivery,
+stable cleanup identities and originating-Session guards retain their independent
+trust/concurrency obligations. No public signatures, accepted decisions or
+deployment topology changed. Historical hybrid test compositions are migrated to
+object-free Controller fixtures or pure development fixtures, not supported with
+new fallback behavior. G4-A/Q013 remain OPEN; G4-B/G4-C remain deferred.
+
+### tests/test_deployed_lifecycle_isolation.py
+
+- DeploymentCompositionTests: Verifies rejection of direct collaborators before distributed admission, reservation or command dispatch.
+- LaunchedEntryPointIsolationTests: Verifies historical lifecycle, preservation and collection calls cannot mutate a running launched Session or its scientific products.
+- MultipleScientificOwnerTests: Requires scoped NATS finalization from every actual scientific owner, retaining open products/unconfirmed accounting until explicit successful retry.
+- InProcessCompatibilityTests: Exercises legitimate direct-owner acquisition, Experiment finalization and Session completion.
+- InProcessAdmissionTests: Verifies launched closeout cannot claim an in-process Session or mutate its canonical Experiment.
 
 ### tests/test_health_closeout_accounting.py
 
@@ -2041,9 +2072,8 @@ automatic. Kill integration and overall closeout validation remain deferred.
 
 ## tests/test_normal_stop.py
 
-- NormalStopTests: Exercises public brokered Normal Stop ordering, multiple/optional nodes, active Experiment termination, independently verified receipt, persistence and handoff failures, current-archive corruption, cancellation/overlap, explicit retries, Q019-aware finalization, and unchanged scientific files using existing transport doubles.
+- NormalStopTests: Exercises independent NATS Normal Stop ordering, multiple/optional nodes, verified receipt, persistence/handoff failures, current-archive corruption, cancellation/retry and rejection of legacy finalization through actual paired storage owners.
 - NormalStopTests.connect_receipt(): Connects the existing broker-double durable receipt callback and controlled marker-time delivery without substituting framework owners or receipt verification.
-- NormalStopTests._exercise_late_operational_intake(accepted): Exercises cross-thread accepted operational evidence or rejected-intake audit after handoff preservation, completion refusal, unchanged historical products and explicit retry before safe release.
 
 ## tests/test_acquisition_stage_archival.py
 

@@ -11,7 +11,8 @@ from unittest.mock import AsyncMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from lab_sync_acquisition import Controller, InMemoryIngestor, PersistentStorageManager, RuntimeEvidenceMessage, ScientificOutputSelection, RuntimeParticipant, ServiceMaintenanceInterface, SshRetrievalEndpoint
+from lab_sync_acquisition import AcquisitionNode, Controller, InMemoryIngestor, PersistentStorageManager, RuntimeEvidenceMessage, ScientificOutputSelection, RuntimeParticipant, ServiceMaintenanceInterface, SshRetrievalEndpoint, ExperimentConfiguration
+from tests.test_distributed_synchronization import configuration
 from tests import test_normal_stop as normal
 from tests import test_authorized_recovery as recovery
 from tests import test_storage as records
@@ -39,6 +40,7 @@ class KillSessionTests(unittest.IsolatedAsyncioTestCase):
     async def kill(self, authorized=True):
         return await self.fixture.controller.kill_session(
             communication=self.fixture.communication, result_window_s=1,
+            storage_participant=RuntimeParticipant("storage_manager", "storage"),
             operator_authorized=authorized, reason="operator abort")
 
     def baseline(self):
@@ -53,8 +55,8 @@ class KillSessionTests(unittest.IsolatedAsyncioTestCase):
             result = await self.kill()
         self.assertTrue(result.succeeded, result.error)
         self.assertEqual(result.details["session_state"], "aborted")
-        self.assertFalse(result.details["stage_a_complete"])
-        self.assertFalse(result.details["archive_closed"])
+        self.assertFalse(result.details["compilation_summary"]["stage_a_complete"])
+        self.assertFalse(result.details["compilation_summary"]["archive_closed"])
         saved = self.baseline()
         self.assertIsNotNone(saved)
         self.assertTrue(saved["session_record"]["cleanup_evidence"]["cleanup_occurred"])
@@ -68,20 +70,29 @@ class KillSessionTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue((await self.kill()).succeeded)
         self.assertEqual(self.normal.products(), before)
         self.assertFalse(self.fixture.controller.finalize_session().succeeded)
-        self.assertTrue((await self.fixture.controller.release_session()).succeeded)
+        self.assertTrue((await self.fixture.controller.release_session(
+            communication=self.fixture.communication, result_window_s=1)).succeeded)
 
     async def test_active_experiment_aborts_without_reopening_scientific_files(self):
         f = self.fixture
         await f.services()
-        node, declaration, _ = await f.node()
-        f.controller = Controller(node, ingestor=f.ingestor, storage_manager=self.storage,
-                                  synchronization_manager=f.sync)
-        launched = await f.launch({"node-a": [declaration]})
-        self.assertTrue(launched.succeeded)
+        def mapped_node(**settings):
+            return AcquisitionNode(**{**settings, "synchronization_manager": None,
+                                      "synchronization_source_id": "sync"})
+
+        node, declaration, _ = await f.node(node_class=mapped_node)
+        f.controller = Controller()
+        f.config["synchronization_configuration"] = configuration()
+        launched = await f.controller.launch_session({"node-a": [declaration]},
+            communication=f.communication, participants=f.participants,
+            config_parameters=f.config, result_window_s=1)
+        self.assertTrue(launched.succeeded, launched.error)
         self.sid = launched.details["session_id"]
         self.assertTrue((await f.controller.start_launched_session()).succeeded)
-        self.assertTrue(f.controller.start_experiment("experiment", scientific_outputs=(
-            ScientificOutputSelection(declaration.device_id, "node-a", "events"),)).succeeded)
+        self.assertTrue((await f.controller.start_launched_experiment("experiment", scientific_outputs=(
+            ScientificOutputSelection(declaration.device_id, "node-a", "events"),),
+            configuration=ExperimentConfiguration(60, {"node-a": 1000000}, 1000000),
+            storage_participant=RuntimeParticipant("storage_manager", "storage"))).succeeded)
         result = await self.kill()
         self.assertTrue(result.succeeded, result.error)
         events = self.baseline()["session_record"]["experiment_lifecycle_evidence"]
@@ -120,7 +131,7 @@ class KillSessionTests(unittest.IsolatedAsyncioTestCase):
                 await task
         self.assertEqual(self.fixture.controller.get_status()["session_state"], "aborted")
         self.assertEqual(self.fixture.ingestor.session_id, self.sid)
-        self.assertIsNotNone(self.baseline())
+        self.assertIsNone(self.baseline())  # Interrupted owner work is not archival confirmation.
         self.assertFalse(self.fixture.controller.finalize_session().succeeded)
 
     async def test_failed_persistence_preserves_journal_and_refuses_unsafe_retry(self):
@@ -157,7 +168,6 @@ class KillSessionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.fixture.nodes["node-a"].reserved_for_session_id, self.sid)
         self.assertIsNone(self.fixture.communication.session_acquisition_completion(
             RuntimeParticipant("acquisition_node", "node-a"), self.sid))
-        self.assertFalse(self.fixture.controller._kill_closeout["participants"][0]["cleanup_confirmed"])
 
     async def test_handoff_publication_failure_retries_without_repeating_cleanup_or_archive(self):
         await self.running()
@@ -188,7 +198,7 @@ class KillSessionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(journal_path.read_bytes(), journal)
         self.assertEqual(self.normal.products(), historical)
         self.assertTrue((await self.kill()).succeeded)
-        self.assertTrue((await self.fixture.controller.release_session()).succeeded)
+        self.assertTrue((await self.fixture.controller.release_session(communication=self.fixture.communication, result_window_s=1)).succeeded)
         self.assertTrue(intake.release_session(self.sid, storage_manager=self.storage))
         self.assertIsNone(intake.session_id)
         self.assertEqual(journal_path.read_bytes(), journal)
@@ -271,8 +281,7 @@ class KillSessionTests(unittest.IsolatedAsyncioTestCase):
     async def _exercise_late_kill_operational_intake(self, *, accepted):
         intake = InMemoryIngestor(self.storage, recovery_journal_root=self.fixture.root / "late-journals")
         self.fixture.ingestor = intake
-        self.fixture.controller = Controller(ingestor=intake, storage_manager=self.storage,
-                                             synchronization_manager=self.fixture.sync)
+        self.fixture.controller = Controller()
         await self.running()
         self.assertTrue((await self.kill()).succeeded)
         historical = self.normal.products()
@@ -286,7 +295,7 @@ class KillSessionTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(retry.succeeded)
             self.assertFalse(retry.details["preservation_confirmed"])
             self.assertIn("Additional Kill intake", retry.error)
-            self.assertFalse((await self.fixture.controller.release_session()).succeeded)
+            self.assertFalse((await self.fixture.controller.release_session(communication=self.fixture.communication, result_window_s=1)).succeeded)
         self.assertEqual(self.fixture.controller.get_status()["session_state"], "aborted")
         self.assertEqual(intake.session_id, self.sid)
         self.assertEqual(self.normal.products(), historical)
@@ -310,8 +319,7 @@ class KillSessionTests(unittest.IsolatedAsyncioTestCase):
     async def test_operational_intake_during_kill_release_unsubscription_keeps_binding_and_record(self):
         intake = InMemoryIngestor(self.storage, recovery_journal_root=self.fixture.root / "release-journals")
         self.fixture.ingestor = intake
-        self.fixture.controller = Controller(ingestor=intake, storage_manager=self.storage,
-                                             synchronization_manager=self.fixture.sync)
+        self.fixture.controller = Controller()
         await self.running()
         self.assertTrue((await self.kill()).succeeded)
         historical = self.normal.products()
@@ -324,7 +332,7 @@ class KillSessionTests(unittest.IsolatedAsyncioTestCase):
             received.append(audit.accepted)
             await original()
         with patch.object(subscription, "unsubscribe", side_effect=late_intake):
-            result = await self.fixture.controller.release_session()
+            result = await self.fixture.controller.release_session(communication=self.fixture.communication, result_window_s=1)
         self.assertEqual(received, [True])
         self.assertFalse(result.succeeded)
         self.assertEqual(self.fixture.controller.get_status()["session_state"], "aborted")
