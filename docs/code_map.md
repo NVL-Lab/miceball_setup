@@ -1129,13 +1129,16 @@ scientific/runtime timing is rejected rather than silently rewritten.
 **Architecture/implementation distinction:** Decision 407 partially supersedes
 Decision 406's mandatory FAILED outcome during already-admitted Normal Stop and
 clarifies independent fatal accounting and originating-Session outcome isolation.
-The Decision 407/408 restructuring is implemented, pending ICC independent
-validation and a separate audit. Historical matrices below retain their original
+The Decision 407/408 restructuring and final deployed-lifecycle isolation
+correction are CLOSED within G4-A's validated software scope at `2672879`.
+Historical matrices below retain their original
 pre-407 context. The previous Alternative B audit returned FAIL (P2
 distinct-decision context loss; P3 replacement diagnostics).
 See [Q013](open_questions.md#q013-what-further-framework-behavior-follows-controlleractiondecision-execution)
-for accepted direction, implementation tracking and history. No public signature
-change or G4-A closure is recorded.
+for accepted direction, implementation tracking and history, and the
+[G4-A closure record](validated_workflows.md#g4-a---deployed-lifecycle-isolation-and-fatal-health-accounting)
+for accepted validation and audit evidence. Public signatures are unchanged.
+Earlier pending/FAIL handoff headings below are historical, not current status.
 
 - _session_command(method): Captures the original Controller/Session binding for nested asynchronous command reporting and returns late outcomes detached from replacement-Session history.
 - _HealthAdmissionClosed: Distinguishes rejected new health admission from an accepted decision whose handoff or processing remains unresolved.
@@ -1411,7 +1414,15 @@ and physical cleanup obligations. See Q013 for regression-first evidence and lim
 - RemoteFinalizationProofTests: Verifies the actual failed-Session/open-stream reproduction, independent decisions, owner recovery, unavailable/cancelled/lost/misrouted replies without ACK, pre-mutation local rejection, later-Experiment isolation and successful owner confirmation with no selected products.
 - RemoteFinalizationProofTests.fail_session_with_unfinished_science(): Constructs the supported launched failure sequence with real owners, retained decisions, disk-backed streams and explicit unconfirmed node cleanup.
 
-### G4-A Deployed Lifecycle Isolation (Pending ICC Validation And Audit)
+### G4-A Deployed Lifecycle Isolation (Closed; Software Scope)
+
+Closed at `2672879` after 142 controlled implementation methods, independent ICC
+IPython validation (3/3 PASS), and separate Codex audit PASS with no confirmed
+P0-P3 findings and five additional two-node adversarial workflows. See the
+[closure record](validated_workflows.md#g4-a---deployed-lifecycle-isolation-and-fatal-health-accounting)
+for independent-check scope, existing-identical-handoff limitations and unverified
+live infrastructure, hardware, OS-signal, power-loss and normal Windows scheduling.
+Broader cancellation/replacement and G2/G3 were not exhaustively revalidated.
 
 Decisions 375/376 distinguish independent NATS orchestration from pure in-process
 development, not supported hybrid deployment modes. Controller launch rejects
@@ -1429,7 +1440,8 @@ stable cleanup identities and originating-Session guards retain their independen
 trust/concurrency obligations. No public signatures, accepted decisions or
 deployment topology changed. Historical hybrid test compositions are migrated to
 object-free Controller fixtures or pure development fixtures, not supported with
-new fallback behavior. G4-A/Q013 remain OPEN; G4-B/G4-C remain deferred.
+new fallback behavior. G4-A is CLOSED; G4/Q013 remain OPEN and G4-B/G4-C remain
+deferred. This does not close Q022, Q024, M015 or Phase 16.
 
 ### tests/test_deployed_lifecycle_isolation.py
 

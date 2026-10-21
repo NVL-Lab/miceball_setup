@@ -2,7 +2,7 @@
 
 ## Status And Scope
 
-### G4 Remote Health Actions (Open; Restructuring Pending Independent Validation)
+### G4 Remote Health Actions (G4-A Closed; Broader G4 Open)
 
 Decision 407 records the accepted G4-A simplification: already-admitted Normal
 Stop may complete despite fatal health evidence if every existing completion
@@ -10,14 +10,22 @@ guarantee is satisfied. Independent fatal accounting and Session-scoped cleanup
 remain required. Decision 408 clarifies authoritative closeout admission,
 original-context applicability and mandatory health-decision admission closure
 before final acquisition-intake finalization. These accepted requirements resolve
-the three architectural blockers. The restructuring is implemented but awaits
-ICC independent validation and a separate audit. The previous Alternative B audit
+the three architectural blockers. The restructuring and final deployed-lifecycle
+isolation correction are CLOSED within G4-A's validated software scope at
+`2672879`, after 142 controlled implementation methods, independent ICC IPython
+validation (3/3 PASS) and separate Codex audit PASS with no confirmed P0-P3 findings.
+The audit independently passed five additional two-node adversarial workflows.
+See the [G4-A closure record](validated_workflows.md#g4-a---deployed-lifecycle-isolation-and-fatal-health-accounting)
+for the distinct validation stages and scope. The previous Alternative B audit
 returned FAIL with distinct-decision accounting and replacement-diagnostic
 findings; its history is preserved in [Q013](open_questions.md#q013-what-further-framework-behavior-follows-controlleractiondecision-execution).
 
 Distributed `Controller.launch_session()` now attaches the existing health
 interpretation subscription to
 `await controller.execute_launched_controller_action_decision(decision)`.
+Controller is the sole deployed Session launcher, and all its deployed service
+communication uses NATS irrespective of physical computer placement. The
+Ingestor/StorageManager pair retains its shared process and separate authorities.
 The deployed Controller has no direct AcquisitionNode, Ingestor, StorageManager
 or SynchronizationManager collaborators (Decisions 375/376). Construct it as
 `Controller(component_id=...)`; `launch_session()` rejects direct collaborators
@@ -63,7 +71,12 @@ Cancellation likewise does not discard accepted accounting obligations or author
 release. Controller closes new health-decision admission before marker publication
 and final intake, while verified redelivery retains prior applicability. Rejected
 late decisions are not successfully processed; finalized products are not reopened.
-These implementation descriptions do not claim independent validation or G4-A closure.
+G4-A alone is closed. G4-B/G4-C remain deferred and G4/Q013, Q022, Q024, M015 and
+Phase 16 remain open. These checks established no live NATS, hardware, OS-signal,
+power-loss or normal Windows asyncio scheduling validation. Initial hard-link
+promotion was not independently validated; archival-success checks used
+existing-identical handoffs. Broader cancellation/replacement and G2/G3 behavior
+were not exhaustively revalidated by the final audit.
 
 Normal Stop confirms synchronization publication through the existing scoped
 runtime request contract, as do adjacent node Stop/reservation-release and

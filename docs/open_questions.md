@@ -392,7 +392,9 @@ producer messages. It does not resolve this publication-recovery question.
 
 ## Q013: What further framework behavior follows ControllerActionDecision execution?
 
-**Status:** OPEN. G4-A and G4 remain OPEN; G4-B/G4-C remain deferred.
+**Status:** OPEN. G4-A is CLOSED within its validated software scope at `2672879`;
+G4 remains OPEN and G4-B/G4-C remain deferred. See
+[G4-A closure](validated_workflows.md#g4-a---deployed-lifecycle-isolation-and-fatal-health-accounting).
 
 ### Accepted G4-A Simplification (Decision 407)
 
@@ -415,15 +417,16 @@ Controller decision archival, independent binding release, authorized Kill,
 interrupted cleanup and safe retry remain required under Decisions 313, 322,
 360, 365 and 382. No new infrastructure or lifecycle states are accepted.
 
-The Decision 407/408 restructuring is now implemented, pending ICC independent
-manual validation and a separate audit. The historical Alternative B reports below
+The Decision 407/408 restructuring and final deployed-lifecycle isolation
+correction are implemented, independently validated and audited PASS within
+G4-A's closed software scope. The historical Alternative B reports below
 describe the earlier mandatory-FAILED contract; their passing results do not
 establish Decision 407/408 compliance. The previous independent audit returned
 FAIL as recorded below, not an audit result for the new restructuring.
 The completed pre-implementation impact/invariant review identified the three
 architectural blockers resolved by Decision 408 below. ICC implementation scope
-authorization was granted for this coherent implementation. No independent
-validation, audit PASS or closure is claimed by the implementation report.
+authorization was granted for this coherent implementation. Implementation results
+remain distinct from the subsequent independent validation, audit and closure.
 Other notification/escalation questions below remain open.
 
 ### Accepted Admission And Applicability Clarifications (Decision 408)
@@ -454,13 +457,20 @@ Cutoff alone proves neither durability, preservation nor completion eligibility.
 All applicable accepted decisions require accounting and preservation before
 successful completion; Decisions 313, 322, 365 and 382 remain authoritative.
 These architectural requirements are implemented in the bounded restructuring
-below but not independently validated or audited. G4-A/Q013 remain OPEN and
-G4-B/G4-C remain deferred.
+and final correction closed below. Q013 remains OPEN; G4-B/G4-C remain deferred.
 
-### Decision 407/408 Implementation (Pending ICC Validation And Audit)
+### G4-A Closure (Validated Software Scope)
 
-**Current deployed lifecycle isolation (implemented; pending ICC validation and
-separate audit):** The architecture-to-code reconciliation distinguished accepted
+**Status: CLOSED at implementation commit `2672879`.** ICC independent IPython
+validation passed **3/3** single-node checks. The separate independent Codex audit
+returned **PASS, no confirmed P0-P3 findings**, including five additional two-node
+adversarial workflows. ICC accepted the audit and authorized documentation-only
+closure. See the [validated-workflow record](validated_workflows.md#g4-a---deployed-lifecycle-isolation-and-fatal-health-accounting)
+for the exact evidence and limits; this closes neither G4 nor Q013.
+
+**Final deployed lifecycle isolation:** Controller is the sole deployed Session
+launcher and uses NATS for all deployed service communication, irrespective of
+computer placement. The architecture-to-code reconciliation distinguished accepted
 Decision 375/376 deployment from historical direct-object development. A Controller
 with direct service collaborators cannot launch a NATS Session; rejection precedes
 reservation and canonical mutation. Once launched, synchronous development
@@ -477,8 +487,8 @@ architecture. No new finalization cache, mode registry or lifecycle authority wa
 added. Existing Decision 407/408 admission, independent durable fatal accounting,
 cutoff/redelivery, scoped confirmations, cancellation/retry and original-Session
 attribution remain required. Previous hybrid test expectations below are historical,
-not current support guarantees. G4-A/G4/Q013 remain OPEN; G4-B/G4-C and broader
-Q022 deployment adaptations remain outside this correction.
+not current support guarantees. G4-A is CLOSED; G4/Q013 remain OPEN, while
+G4-B/G4-C and broader Q022 deployment adaptations remain outside this closure.
 
 **Implementation verification:** 142 distinct selected test methods passed under
 controlled asyncio execution (116 ownership/accounting/owner-startup methods,
@@ -500,8 +510,17 @@ was attempted and blocked by Windows `os.link()` permission denial (`WinError 5`
 not counted as a pass. An interim fixture-migration run was interrupted and rerun
 after removing an invalid queued-call test deadlock; it is not validation evidence.
 No live NATS, physical hardware, OS signals, power-loss or normal Windows asyncio
-scheduling validation is claimed. ICC independent IPython validation and separate
-audit remain required; this report closes no work item.
+scheduling validation is claimed. Initial hard-link promotion was not independently
+validated; broader cancellation/replacement and G2/G3 behavior were not exhaustively
+revalidated by the final audit. ICC validation and separate audit subsequently
+passed as recorded above. No implementation tests or audit were rerun for closure.
+
+### Historical Decision 407/408 Implementation Reports
+
+The reports below preserve their original implementation and audit-stage status,
+including earlier FAIL findings and pending-validation statements. Current G4-A
+closure is recorded above; these historical statements do not reopen the slice
+or close the separately deferred G4-B/G4-C work.
 
 The existing Controller coordination now orders health acceptance against a
 mandatory cutoff before completion-marker publication and final acquisition

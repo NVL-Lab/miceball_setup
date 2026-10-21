@@ -1707,6 +1707,33 @@ scheduling behavior. See [G3 closure](validated_workflows.md#g3---sustained-acqu
 G2/G4/G5 are not completed by this closure. Q022, Q024, M015 and Phase 16 remain
 OPEN; accepted architecture and historical W-records are unchanged.
 
+## Completed Deployed Lifecycle Isolation (G4-A)
+
+**Status:** CLOSED - bounded software scope at `2672879`, after 142 controlled
+implementation methods, independent ICC IPython validation (3/3 PASS), and separate
+independent Codex audit PASS with no confirmed P0-P3 findings. ICC accepted the
+audit and authorized documentation closure.
+
+Controller alone launches deployed Sessions and communicates with service owners
+through NATS irrespective of computer placement. Historical direct-owner APIs
+cannot operate on launched Sessions; unsupported hybrid launch is rejected before
+admission. Competing direct-owner Normal Stop/Kill orchestration was removed.
+Scientific finalization, fatal accounting, preservation and independent release
+retain their accepted owner-confirmation contracts under Decisions 375-376 and
+407-408.
+
+The audit independently passed five additional two-node adversarial workflows.
+The ICC checks were single-node checks, not multi-node or live-infrastructure
+validation. No live NATS, hardware, OS-signal, power-loss or normal Windows asyncio
+scheduling validation is established. Initial hard-link promotion was not
+independently validated; archival-success checks used existing-identical handoffs.
+Broader cancellation/replacement and G2/G3 behavior were not exhaustively
+revalidated. See [G4-A closure](validated_workflows.md#g4-a---deployed-lifecycle-isolation-and-fatal-health-accounting)
+for the separate evidence stages and limitations.
+
+G4-B/G4-C remain deferred; G4/Q013, Q022, Q024, M015, Phase 16 and G5 are not
+closed by G4-A. Prior architectural decisions and validation history are preserved.
+
 ## Completed Q022 Distributed Session Closeout (W060)
 
 **Status:** CLOSED - implemented, independently validated and audited under

@@ -5680,6 +5680,90 @@ and numbering are unchanged; no next implementation slice is selected.
 
 ---
 
+# G4-A - Deployed Lifecycle Isolation and Fatal Health Accounting
+
+**Status:** CLOSED - validated software scope at implementation commit `2672879`,
+after independent ICC IPython validation and separate independent Codex read-only
+audit PASS. ICC accepted the audit and authorized documentation-only closure.
+
+## Implemented scope
+
+Under Decisions 375-376 and 407-408, Controller is the sole deployed Session
+launcher. All deployed Controller-to-service communication uses NATS regardless
+of physical computer placement. Ingestor and StorageManager retain their accepted
+shared process and separate responsibilities; Controller does not borrow either
+owner through direct Python references.
+
+`launch_session()` rejects direct service collaborators before reservation or
+Session creation. Historical in-process lifecycle, health-action execution,
+finalization and collection interfaces cannot operate on launched Sessions.
+Legitimate pure in-process development workflows remain available separately,
+not as a supported hybrid deployment mode.
+
+Supported launched lifecycle, health-action execution, every-node scientific
+finalization, Normal Stop, explicitly authorized Kill, preservation and independent
+binding release use their existing NATS commands and authoritative confirmations.
+The competing direct-owner Normal Stop/Kill orchestration, obsolete Kill cache
+and associated private archival/completion helpers were removed. Public
+Controller constructor/method signatures and properties remain unchanged.
+
+Decisions 407-408 retain first-admitted closeout ownership, independent durable
+fatal-decision accounting, original Session/Experiment applicability and the
+health-admission cutoff before immutable final intake. Already-admitted Normal
+Stop may complete despite accounted fatal evidence only when its existing
+completion guarantees are satisfied. Standalone fatal Session closeout retains
+FAILED and unresolved obligations; Experiment-only failure remains Experiment-only.
+Scientific finalization, publication, durable acceptance, Stage A preservation
+and permission to release remain distinct.
+
+## Accepted validation and audit evidence
+
+- **Codex implementation verification:** 142 distinct selected methods passed
+  under controlled verification. These are implementation results, not independent
+  validation or a normal Windows asyncio scheduling campaign.
+- **Independent ICC IPython validation: 3/3 PASS.** Historical Controller calls
+  rejected launched Sessions without changing Experiment lifecycle evidence,
+  stopping the node or issuing NATS commands; supported NATS Experiment Stop
+  finalized scientific output; supported NATS Session Stop stopped the node.
+  These checks established only their tested single-node behavior.
+- **Separate independent Codex read-only audit: PASS**, no confirmed P0-P3
+  findings at `2672879`. The audit traced the public lifecycle, finalization,
+  collection and health-action entry points and independently passed five
+  additional two-node adversarial workflows:
+  lost finalization replies after both scientific owners finished, with safe retry;
+  fatal Session cleanup with an unreachable second owner and explicit recovery;
+  two fatal inputs during Normal Stop, durable archival and late-input rejection;
+  historical API isolation after launched Stop followed by valid NATS closeout;
+  and Kill authorization with a wrong-operation reply, partial preservation and
+  refused unsafe release.
+
+The audit checked actual scientific-owner state, disk-backed products, canonical
+events, durable decision acceptance, acknowledgment and preservation evidence,
+not only command returns. Its five workflows are separate from the reported
+implementation methods and ICC checks. Earlier FAIL findings, corrections and
+overlapping validation runs remain preserved in
+[Q013](open_questions.md#q013-what-further-framework-behavior-follows-controlleractiondecision-execution);
+they are not additive totals or outstanding findings against this final correction.
+No tests or independent audit were rerun for documentation closure.
+
+## Limitations and remaining scope
+
+No live NATS, physical hardware, OS-signal, power-loss or normal Windows asyncio
+scheduling validation was established by these checks. Initial hard-link promotion
+was not independently validated; archival-success checks used existing-identical
+handoff fixtures and actual preservation/readback, not verified initial promotion.
+The implementation's Windows `os.link()` permission-denied control is not counted
+as passing. Broader cancellation/replacement and G2/G3 behavior were not
+exhaustively revalidated by the final audit; source review and existing regression
+coverage are distinct from newly executed independent checks.
+
+G4-A alone is CLOSED. G4-B (legacy completion proof), G4-C (startup/rollback
+correlation), broader G4/Q013, G5 live PC-Jetson validation, Q022, Q024, M015 and
+Phase 16 remain open or deferred under their existing tracking. Accepted
+architectural decisions, numbering and earlier validation history are unchanged.
+
+---
+
 # Future Workflows
 
 The following workflows are expected to be added as the framework evolves.
