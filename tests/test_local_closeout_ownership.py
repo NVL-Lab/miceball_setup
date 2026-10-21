@@ -1,7 +1,7 @@
 """Local lifecycle calls respect the existing admitted Session closeout owner."""
 
 import asyncio
-from contextlib import ExitStack
+from contextlib import ExitStack, asynccontextmanager
 from pathlib import Path
 from time import monotonic
 import unittest
@@ -11,10 +11,12 @@ import h5py
 import numpy as np
 
 from lab_sync_acquisition import (
-    AcquisitionNode, Controller, ControllerActionDecision, ExperimentConfiguration, ScientificOutputSelection,
+    AcquisitionNode, Controller, ControllerActionDecision, ExperimentConfiguration, RuntimeParticipant,
+    ScientificOutputSelection,
 )
 from tests import test_normal_stop as normal
 from tests import test_experiment_capacity as capacity
+from tests import test_closeout_attempt_ownership as attempts
 from tests.test_distributed_synchronization import configuration
 
 
@@ -320,6 +322,345 @@ class LocalCloseoutOwnershipTests(unittest.IsolatedAsyncioTestCase):
         self.closing = asyncio.create_task(self.workflow.stop())
         await self.finish_unpreserved()
         self.assertEqual(self.controller.get_status()["session_state"], "failed")
+
+
+class NormalStopAdmissionTests(unittest.IsolatedAsyncioTestCase):
+    async def running(self, *, remote=False, active=True, preserve=False):
+        self.remote = remote
+        if remote:
+            fixture = attempts.InterruptedNormalStopTests()
+            fixture.addCleanup = self.addCleanup
+            fixture.addAsyncCleanup = self.addAsyncCleanup
+            self.workflow = await fixture.workflow()
+            self.f = self.workflow.fixture
+            self.node = self.f.node
+        else:
+            fixture = LocalCloseoutOwnershipTests()
+            fixture.addCleanup = self.addCleanup
+            fixture.addAsyncCleanup = self.addAsyncCleanup
+            await fixture.asyncSetUp()
+            fixture.resume.set()
+            self.assertTrue(fixture.start_experiment().succeeded)
+            fixture.node.run_one_iteration()
+            self.workflow, self.f, self.node = fixture.workflow, fixture.f, fixture.node
+        self.controller = self.f.controller
+        self.storage = self.workflow.storage
+        self.sid = self.controller.get_status()["session_id"]
+        self.local = self.node.local_storage_manager
+        if not active:
+            ended = (await self.controller.stop_launched_experiment("experiment") if remote
+                     else self.controller.stop_experiment("experiment"))
+            self.assertTrue(ended.succeeded, ended.error)
+        self.stops = self.enterContext(patch.object(self.node, "stop_runtime", wraps=self.node.stop_runtime))
+        adapter, = self.node._runtime_device_manager.adapters
+        self.physical_stops = self.enterContext(patch.object(adapter, "stop", wraps=adapter.stop))
+        self.finalize = self.enterContext(patch.object(self.local, "finalize_stream", wraps=self.local.finalize_stream))
+        if not preserve:
+            self.enterContext(patch.object(self.storage, "write_acquisition_stage", side_effect=OSError("archive unavailable")))
+
+    @asynccontextmanager
+    async def holding(self, component_type, operation, *, interruptions=0):
+        entered, proceed = asyncio.Event(), asyncio.Event()
+        request = self.f.communication.request_runtime_command
+
+        async def paused(participant, command_type, *args, **kwargs):
+            if participant.component_type == component_type and command_type == operation:
+                entered.set()
+                await proceed.wait()
+            return await request(participant, command_type, *args, **kwargs)
+
+        with patch.object(self.f.communication, "request_runtime_command", new=paused):
+            try:
+                for attempt in range(interruptions + 1):
+                    entered.clear()
+                    self.closing = asyncio.create_task(self.workflow.stop())
+                    await asyncio.wait_for(entered.wait(), 2)
+                    if attempt < interruptions:
+                        await self.cancel_closeout()
+                yield
+            finally:
+                proceed.set()
+                self.closeout_result, = await asyncio.gather(self.closing, return_exceptions=True)
+
+    async def cancel_closeout(self):
+        self.closing.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await self.closing
+
+    def decision(self, experiment_id="experiment", action="session_fail"):
+        return ControllerActionDecision("fatal-" + str(experiment_id), self.sid, experiment_id, "source", "policy",
+            "session_failure" if action == "session_fail" else "experiment_failure", action, None)
+
+    async def execute(self, decision):
+        if self.remote:
+            return await self.controller.execute_launched_controller_action_decision(decision)
+        return self.controller.execute_controller_action_decision(decision)
+
+    def assert_failed_closeout(self):
+        self.assertFalse(self.closeout_result.succeeded)
+        self.assertIn("archive unavailable", self.closeout_result.error)
+        status = self.controller.get_status()
+        self.assertEqual(status["session_state"], "failed")
+        self.assertEqual(status["session_id"], self.sid)
+        self.assertIsNone(status["active_experiment_id"])
+        events = status["experiment_lifecycle_evidence"]
+        self.assertEqual(len([e for e in events if e.event_type != "experiment_start"]), 1)
+        self.assertEqual(self.stops.call_count, 1)
+        self.assertEqual(self.physical_stops.call_count, 1)
+        self.assertEqual(self.finalize.call_count, 1)
+        self.assertTrue(all(m.lifecycle_state == "finalized" for m in self.local.manifests))
+        self.assertIsNone(self.storage.get_acquisition_stage_preservation_confirmation(self.sid))
+        self.assertFalse(any(c["command_type"] == "kill" for c in self.f.broker.commands))
+
+    async def test_local_retry_retains_original_experiment_for_fatal_accounting(self):
+        await self.running()
+        async with self.holding("synchronization_manager", "stop_runtime", interruptions=1):
+            self.assertEqual(self.controller.get_status()["session_state"], "stopping")
+            self.assertIsNone(self.controller.get_status()["active_experiment_id"])
+            self.assertFalse((await self.execute(self.decision("unrelated"))).succeeded)
+            result = await self.execute(self.decision())
+            self.assertTrue(result.succeeded, result.error)
+            self.assertTrue(result.details["durable_acceptance_confirmed"])
+            evidence = self.controller.controller_action_decision_evidence[-1]
+            self.assertTrue(self.f.ingestor.has_durable_runtime_evidence(evidence))
+        self.assert_failed_closeout()
+        self.closeout_result = await self.workflow.stop()
+        self.assert_failed_closeout()
+
+    async def test_remote_repeated_retry_retains_original_experiment_for_fatal_accounting(self):
+        await self.running(remote=True)
+        async with self.holding("synchronization_manager", "stop_runtime", interruptions=2):
+            result = await self.execute(self.decision())
+            self.assertTrue(result.succeeded, result.error)
+            self.assertTrue(result.details["durable_acceptance_confirmed"])
+        self.assert_failed_closeout()
+        self.closeout_result = await self.workflow.stop()
+        self.assert_failed_closeout()
+
+    async def test_rejected_remote_owner_retry_cannot_replace_original_context(self):
+        await self.running(remote=True)
+        async with self.holding("synchronization_manager", "stop_runtime"):
+            await self.cancel_closeout()
+            rejected = await self.controller.normal_stop_session(communication=self.f.communication,
+                storage_participant=RuntimeParticipant("storage_manager", "different-owner"), result_window_s=.05)
+            self.assertFalse(rejected.succeeded)
+            self.assertIn("owner identity", rejected.error)
+            result = await self.execute(self.decision())
+            self.assertTrue(result.succeeded, result.error)
+        self.closeout_result = await self.workflow.stop()
+        self.assert_failed_closeout()
+
+    async def test_interrupted_closeout_fences_launched_start_without_active_experiment(self):
+        await self.running(remote=True, active=False)
+        async with self.holding("acquisition_node", "stop_runtime"):
+            await self.cancel_closeout()
+            with patch.object(self.node, "prepare_experiment_scientific_outputs",
+                              wraps=self.node.prepare_experiment_scientific_outputs) as prepare, \
+                 patch.object(self.node, "activate_experiment_runtime", wraps=self.node.activate_experiment_runtime) as activate:
+                result = await self.controller.start_launched_experiment("competing",
+                    scientific_outputs=(ScientificOutputSelection("device", "node", "events"),),
+                    configuration=ExperimentConfiguration(60, {"node": 1000000}, 1000000),
+                    storage_participant=self.workflow.storage_participant)
+            self.assertFalse(result.succeeded)
+            prepare.assert_not_called()
+            activate.assert_not_called()
+            self.assertIsNone(self.controller.get_status()["active_experiment_id"])
+            self.assertFalse(self.node.scientific_acquisition_active)
+            self.assertEqual(self.stops.call_count, 0)
+
+    async def test_interrupted_closeout_fences_manual_launched_termination(self):
+        await self.running(remote=True)
+        async with self.holding("acquisition_node", "stop_runtime"):
+            await self.cancel_closeout()
+            with patch.object(self.node, "finalize_experiment_scientific_outputs",
+                              wraps=self.node.finalize_experiment_scientific_outputs) as finalize:
+                result = await self.controller.stop_launched_experiment("experiment")
+            self.assertFalse(result.succeeded)
+            finalize.assert_not_called()
+            self.assertEqual(self.controller.get_status()["active_experiment_id"], "experiment")
+
+    async def test_interrupted_closeout_fences_remote_experiment_failure(self):
+        await self.running(remote=True)
+        async with self.holding("acquisition_node", "stop_runtime"):
+            await self.cancel_closeout()
+            with patch.object(self.node, "finalize_experiment_scientific_outputs",
+                              wraps=self.node.finalize_experiment_scientific_outputs) as finalize:
+                result = await self.execute(self.decision(action="experiment_fail"))
+            self.assertFalse(result.succeeded)
+            finalize.assert_not_called()
+            self.assertEqual(self.controller.get_status()["active_experiment_id"], "experiment")
+
+    async def test_cancellation_between_cleanup_and_canonical_end_retains_context(self):
+        for remote in (False, True):
+            with self.subTest(remote=remote):
+                await self.running(remote=remote)
+                async with self.holding("synchronization_manager", "read_session_time", interruptions=1):
+                    self.assertEqual(self.stops.call_count, 1)
+                    self.assertEqual(self.controller.get_status()["active_experiment_id"], "experiment")
+                    result = await self.execute(self.decision())
+                    self.assertTrue(result.succeeded, result.error)
+                self.assert_failed_closeout()
+                endings = [e.event_type for e in self.controller.get_status()["experiment_lifecycle_evidence"]
+                           if e.event_type != "experiment_start"]
+                self.assertEqual(endings, ["experiment_fail"])
+
+    async def test_fatal_before_cancellation_keeps_its_failure_and_cleanup_owner(self):
+        await self.running(remote=True)
+        async with self.holding("acquisition_node", "stop_runtime"):
+            decision = self.decision()
+            self.assertTrue((await self.execute(decision)).succeeded)
+            self.assertEqual(self.controller.get_status()["session_state"], "failed")
+            await self.cancel_closeout()
+            self.assertEqual(self.stops.call_count, 0)
+        self.closeout_result = await self.workflow.stop()
+        self.assert_failed_closeout()
+        self.assertEqual(len(self.controller.controller_action_decision_evidence), 1)
+
+    async def test_fatal_after_cancellation_before_retry_keeps_original_context(self):
+        for remote in (False, True):
+            with self.subTest(remote=remote):
+                await self.running(remote=remote)
+                async with self.holding("synchronization_manager", "stop_runtime"):
+                    await self.cancel_closeout()
+                    result = await self.execute(self.decision())
+                    self.assertTrue(result.succeeded, result.error)
+                    self.assertTrue(result.details["durable_acceptance_confirmed"])
+                self.closeout_result = await self.workflow.stop()
+                self.assert_failed_closeout()
+
+    async def test_original_none_context_survives_retries_without_authorizing_old_experiments(self):
+        for remote in (False, True):
+            with self.subTest(remote=remote):
+                await self.running(remote=remote, active=False)
+                async with self.holding("synchronization_manager", "stop_runtime", interruptions=2):
+                    self.assertFalse((await self.execute(self.decision())).succeeded)
+                    self.assertEqual(self.controller.get_status()["session_state"], "stopping")
+                    result = await self.execute(self.decision(None))
+                    self.assertTrue(result.succeeded, result.error)
+                self.assert_failed_closeout()
+
+    async def test_retry_requires_durable_acceptance_separately_from_canonical_failure(self):
+        await self.running(remote=True)
+        async with self.holding("synchronization_manager", "stop_runtime", interruptions=1):
+            decision = self.decision()
+            self.f.broker.drop_results.add(("ingestor", "read_runtime_evidence_acceptance"))
+            try:
+                result = await self.execute(decision)
+            finally:
+                self.f.broker.drop_results.clear()
+            self.assertFalse(result.succeeded)
+            self.assertFalse(result.details["health_processing_confirmed"])
+            self.assertEqual(self.controller.get_status()["session_state"], "failed")
+            evidence, = self.controller.controller_action_decision_evidence
+            self.assertEqual(evidence.payload, decision.to_dict())
+            self.assertTrue(self.f.ingestor.has_durable_runtime_evidence(evidence))
+            result = await self.execute(decision)
+            self.assertTrue(result.succeeded, result.error)
+            self.assertTrue(result.details["durable_acceptance_confirmed"])
+            self.assertEqual(self.controller.controller_action_decision_evidence, (evidence,))
+        self.assert_failed_closeout()
+
+    async def test_verified_retirement_allows_a_new_session_with_fresh_context(self):
+        await self.running(remote=True, preserve=True)
+        async with self.holding("synchronization_manager", "stop_runtime", interruptions=1):
+            self.assertTrue((await self.execute(self.decision())).succeeded)
+        self.assertTrue(self.closeout_result.succeeded, self.closeout_result.error)
+        self.assertEqual(self.controller.get_status()["session_state"], "failed")
+        before = self.workflow.archive()
+        preserved = self.storage.get_session_preservation_confirmation(self.sid)
+        self.assertEqual(preserved["session_record"]["final_session_status"]["state"], "failed")
+        self.assertTrue((await self.workflow.stop()).succeeded)
+        self.assertEqual(self.workflow.archive(), before)
+        self.assertEqual(self.stops.call_count, 1)
+        self.assertEqual(self.physical_stops.call_count, 1)
+        self.assertEqual(self.finalize.call_count, 1)
+        released = await self.controller.release_session(communication=self.f.communication, result_window_s=.05)
+        self.assertTrue(released.succeeded, released.error)
+        self.assertIsNone(self.controller.get_status()["session_id"])
+        self.assertIsNone(self.f.ingestor.session_id)
+        previous_sid = self.sid
+        experiment = self.f.experiment
+
+        async def next_experiment(name="experiment"):
+            return await experiment("next")
+
+        with patch.object(self.f, "experiment", new=next_experiment):
+            await self.workflow.running()
+        self.sid = self.f.sid
+        self.assertNotEqual(self.sid, previous_sid)
+        self.local = self.node.local_storage_manager
+
+        async def acknowledge_current_session():
+            durable = self.workflow.durable
+            subject = self.f.broker.consumers[durable].config.filter_subject
+            for sequence, message in sorted(self.f.broker.records.items()):
+                if self.f.broker.matches(subject, message.subject):
+                    await self.f.broker.deliver(durable, sequence)
+
+        self.enterContext(patch.object(self.workflow, "acknowledge", new=acknowledge_current_session))
+        async with self.holding("synchronization_manager", "stop_runtime", interruptions=1):
+            self.assertFalse((await self.execute(self.decision("experiment"))).succeeded)
+            self.assertTrue((await self.execute(self.decision("next"))).succeeded)
+        self.assertTrue(self.closeout_result.succeeded, self.closeout_result.error)
+        self.assertEqual(self.controller.get_status()["session_state"], "failed")
+        self.assertEqual(self.stops.call_count, 2)
+        self.assertEqual(self.physical_stops.call_count, 2)
+        self.assertEqual({path: Path(path).read_bytes() for path in before}, before)
+        record = self.storage.get_session_preservation_confirmation(self.sid)["session_record"]
+        self.assertEqual([e["experiment_id"] for e in record["experiment_lifecycle_evidence"]], ["next", "next"])
+
+    async def test_permitted_kill_conversion_does_not_reopen_normal_closeout(self):
+        await self.running(remote=True, preserve=True)
+        async with self.holding("synchronization_manager", "stop_runtime"):
+            await self.cancel_closeout()
+        result = await self.controller.kill_session(communication=self.f.communication,
+            storage_participant=self.workflow.storage_participant, result_window_s=.05, operator_authorized=True)
+        self.assertTrue(result.succeeded, result.error)
+        self.assertEqual(self.controller.get_status()["session_state"], "aborted")
+        before = self.workflow.archive()
+        self.assertFalse((await self.workflow.stop()).succeeded)
+        self.assertEqual(self.workflow.archive(), before)
+        self.assertEqual(self.stops.call_count, 1)
+        self.assertEqual(self.physical_stops.call_count, 1)
+        self.assertEqual(self.finalize.call_count, 1)
+        endings = [e.event_type for e in self.controller.get_status()["experiment_lifecycle_evidence"]
+                   if e.event_type != "experiment_start"]
+        self.assertEqual(endings, ["experiment_stop"])
+
+    async def test_kill_association_does_not_admit_a_local_normal_stop(self):
+        await self.running()
+        with patch.object(type(self.f.sync), "current_session_time_s", new_callable=PropertyMock,
+                          side_effect=OSError("Kill end timing unavailable")):
+            killed = await self.controller.kill_session(communication=self.f.communication,
+                result_window_s=.05, operator_authorized=True)
+        self.assertFalse(killed.succeeded)
+        self.assertEqual(self.controller.get_status()["session_state"], "running")
+        result = await self.workflow.stop()
+        self.assertFalse(result.succeeded)
+        self.assertIn("Kill closeout", result.error)
+        self.assertEqual(self.stops.call_count, 0)
+        self.assertEqual(self.controller.get_status()["active_experiment_id"], "experiment")
+
+    async def test_auxiliary_marker_publication_preserves_existing_closeout_contracts(self):
+        for remote in (False, True):
+            with self.subTest(remote=remote):
+                await self.running(remote=remote, preserve=remote)
+                self.assertTrue((await self.controller.stop_launched_session()).succeeded)
+                published = await self.controller.publish_acquisition_evidence_completion(
+                    communication=self.f.communication, result_window_s=.05)
+                self.assertTrue(published.succeeded, published.error)
+                marker = published.details["marker"]
+                result = await self.workflow.stop()
+                self.assertEqual(result.succeeded, remote, result.error)
+                self.assertEqual(self.controller.get_status()["session_state"], "completed" if remote else "stopping")
+                if remote:
+                    confirmation = self.storage.get_session_preservation_confirmation(self.sid)
+                    self.assertEqual(confirmation["compilation_summary"]["acquisition_evidence_completion"]["evidence_id"],
+                                     marker["evidence_id"])
+                else:
+                    self.assertIn("archive unavailable", result.error)
+                self.assertEqual(self.stops.call_count, 1)
+                self.assertEqual(self.finalize.call_count, 1)
 
 
 class LocalLifecycleCompatibilityTests(unittest.TestCase):

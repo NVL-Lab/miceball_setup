@@ -496,6 +496,45 @@ power loss and normal Windows async scheduling remain unverified. This is
 implementation verification only; G4-A/G4/Q013 remain OPEN, and G4-B/G4-C are
 unchanged and out of scope.
 
+**G4-A admission-context and interrupted-resource-work correction (implemented;
+pending ICC validation and independent audit):** Local Normal Stop retains the
+Experiment snapshot established with its first valid Session association; remote
+Normal Stop captures it when creating the validated closeout attempt. A valid
+original `None` is retained across cancellation, canonical Experiment termination
+and repeated retries. Existing remote owner/mode validation now precedes admission
+mutation, so rejected retries cannot replace the snapshot. An admitted local Kill
+cannot be mistaken for Normal Stop merely because it has a marker association.
+Launched Experiment start and shared manual/fatal termination now respect the
+retained closeout fence as well as the active task/lock. No new field, cache,
+helper or lifecycle authority was introduced. Failure association, exact fatal
+context validation, durable acceptance, cleanup/progress, preservation and
+verified retirement remain separate; the earlier optional-timing correction is
+unchanged. G4-B/G4-C are not modified.
+
+All six required regression-first methods failed before production changes:
+local/remote context loss, rejected-owner retry mutation, and interrupted
+launched start/manual end/experiment_fail admission. After correction, all 15
+new methods passed. Impact-based verification passed 64 distinct methods: 10
+synchronous methods without event-loop changes and 54 methods under controlled
+SelectorEventLoop scheduling, including the 15 new methods. Repeated runs and
+overlap with previous verification are not additive. Coverage includes the three
+cancellation windows, fatal decisions before/after cancellation and during retry,
+originally empty context, mismatched identity, missing acceptance confirmation,
+preservation failure/retry, permitted Kill conversion, verified retirement and
+fresh context in a subsequent Session, plus selected existing G2/G3 workflows.
+Successful disk-backed controls verified normal completion and failed-terminal
+preservation/readback without duplicate cleanup. They reuse the existing
+identical-handoff fixture, not initial hard-link promotion. Two test setup issues
+were corrected: local setup uses native local Experiment termination, and the
+successive-Session receipt double delivers only its current subject filter.
+No production scope expansion was needed. A normal Windows async attempt stalled
+before setup in socket-pair initialization and is not counted as passing.
+Previously blocked hard-link checks and the previously reported baseline
+launched-start assertion were not rerun or counted. No live NATS, hardware,
+OS-signal, power-loss or normal Windows async scheduling validation is claimed.
+This is implementation verification only; G4-A, G4 and Q013 remain OPEN pending
+the separate ICC validation and independent audit stages.
+
 ### Blocks
 
 * Fatal/warning health behavior

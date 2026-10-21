@@ -359,6 +359,8 @@ class Controller:
                 if (self._normal_stop_task is not None or self._acquisition_publication_active
                         or self._acquisition_archival_active or self._artifact_collection_in_progress):
                     raise RuntimeError("Session closeout is already in progress")
+                if self._kill_closeout_session is session:
+                    raise RuntimeError("Kill closeout is already admitted")
                 if (communication is not self._launch_communication or self._ingestor is None
                         or receiving._ingestor is not self._ingestor or self._storage_manager is None):
                     raise ValueError("Normal Stop requires the launched communication and matching evidence owners")
@@ -368,14 +370,13 @@ class Controller:
                 if (session.current_state not in {SessionState.RUNNING, SessionState.STOPPING, SessionState.COMPLETED}
                         and not (session.current_state == SessionState.FAILED and self._normal_stop_failure_session is session)):
                     raise RuntimeError("Normal Stop requires a running, stopping, or normally completed Session")
-                # Retain Q019 obligations even if shutdown fails before producing a marker.
+                # Retain original context and Q019 obligations across interrupted cleanup.
                 if self._acquisition_marker_session is not session:
+                    self._normal_stop_experiment_id = self._active_experiment_id
                     self._acquisition_marker_session = session
                     self._acquisition_marker = None
                     self._acquisition_marker_confirmed = False
                 self._normal_stop_task = asyncio.current_task()
-                if self._normal_stop_failure_session is not session:
-                    self._normal_stop_experiment_id = self._active_experiment_id
                 admitted = True
             await self._resume_normal_stop_runtime(session, reason)
             if self._session is not session:
@@ -522,19 +523,21 @@ class Controller:
                 if (self._experiment_operation_lock.locked() or self._normal_stop_task is not None or self._acquisition_archival_active
                         or self._acquisition_publication_active or self._artifact_collection_in_progress):
                     raise RuntimeError("Session closeout is already in progress")
+                attempt = self._distributed_closeout
+                if attempt is not None:
+                    if attempt["session_id"] != session.session_id or attempt["storage"] != storage.to_dict():
+                        raise RuntimeError("Closeout owner identity cannot change during retry")
+                    if attempt["kill"] != kill and not (kill and session.current_state == SessionState.STOPPING):
+                        raise RuntimeError("An incompatible closeout is already admitted")
+                else:
+                    attempt = {"session_id": session.session_id, "storage": storage.to_dict(),
+                        "ingestor": intake.to_dict(), "kill": kill, "participants": []}
+                    self._distributed_closeout = attempt
+                    if not kill:
+                        self._normal_stop_experiment_id = self._active_experiment_id
                 self._normal_stop_task = asyncio.current_task()
-                if not kill and self._normal_stop_failure_session is not session:
-                    self._normal_stop_experiment_id = self._active_experiment_id
                 admitted = True
                 self._acquisition_marker_session = session
-                if self._distributed_closeout is None:
-                    self._distributed_closeout = {"session_id": session.session_id, "storage": storage.to_dict(),
-                        "ingestor": intake.to_dict(), "kill": kill, "participants": []}
-                attempt = self._distributed_closeout
-                if attempt["session_id"] != session.session_id or attempt["storage"] != storage.to_dict():
-                    raise RuntimeError("Closeout owner identity cannot change during retry")
-                if attempt["kill"] != kill and not (kill and session.current_state == SessionState.STOPPING):
-                    raise RuntimeError("An incompatible closeout is already admitted")
             if kill:
                 await self._closeout_owner_request(session, intake, "admit_session_kill",
                     {"operator_authorized": True}, window)
@@ -1595,7 +1598,8 @@ class Controller:
                 if not isinstance(configuration, ExperimentConfiguration):
                     raise ValueError("An explicit ExperimentConfiguration is required")
                 configuration = ExperimentConfiguration.from_dict(configuration.to_dict())
-                if (self._normal_stop_task is not None or session.current_state != SessionState.RUNNING
+                if (self._normal_stop_task is not None or self._acquisition_marker_session is session
+                        or session.current_state != SessionState.RUNNING
                         or self._active_experiment_id is not None):
                     raise RuntimeError("Experiment requires a running Session without an active Experiment")
                 session.check_experiment_can_start(experiment_id)
@@ -1808,7 +1812,8 @@ class Controller:
         name = "stop_experiment" if event_type == "experiment_stop" else "execute_controller_action_decision"
         try:
             session = self._require_session()
-            if (self._normal_stop_task is not None or session.current_state != SessionState.RUNNING
+            if (self._normal_stop_task is not None or self._acquisition_marker_session is session
+                    or session.current_state != SessionState.RUNNING
                     or self._active_experiment_id != experiment_id):
                 raise RuntimeError("Requested Experiment is not active in this running Session")
             failures = []

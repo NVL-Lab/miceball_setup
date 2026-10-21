@@ -28,7 +28,7 @@ Runtime duration extension remains deferred; broader milestones stay open.
 - AcquisitionNode._experiment_device_parameters(configuration): Retains explicit Session settings or captures initialized local settings once, independently of preparation success, and resolves isolated Experiment overrides.
 - AcquisitionNode.activate_experiment_runtime(context, health_mapping): Rechecks ready/running devices and returns a detached established deadline/mapping, including for identical activation retries; constructor and arguments unchanged.
 - SynchronizationManager.local_deadline_for_session_time(session_time_s): Translates a deadline for co-located users of its running authoritative clock; constructor unchanged.
-- Controller.start_launched_experiment(..., configuration=None, storage_participant=None): Requires per-Experiment capacity and synchronized common-deadline activation over existing NATS boundaries; constructor unchanged.
+- Controller.start_launched_experiment(..., configuration=None, storage_participant=None): Requires per-Experiment capacity and synchronized common-deadline activation over existing NATS boundaries, rejecting resource work during active or interrupted closeout; constructor unchanged.
 - Controller.start_experiment(..., configuration=None): Applies local capacity/preparation and resolves post-start activation errors as experiment_fail with explicit scientific-cleanup confirmation.
 - Controller._end_experiment(experiment_id, event_type, details=None, *, end_time_unconfirmed=False): Requires local transition admission before canonical termination, context clearing and scientific finalization, optionally preserving an unconfirmed end time without another clock read.
 - Controller.accept_experiment_expiry(message): Requires the exact captured activation mapping/deadline plus matching source/Session/Experiment/duration/finality before canonical reconciliation.
@@ -1151,7 +1151,8 @@ is complete; W030 records manual validation, focused tests, and audit reassessme
 - Controller.shutdown_framework(participants, *, communication, stop_attempt_id, administrator_id, result_window_s, authorize_kill=None): Surveys an explicit Session-independent scope and coordinates progressive W036 retirement with StorageManager/Controller preparation, exact pre-Ingestor archival, separately bounded per-service authorization, and retained later confirmations in ControllerCommandResult.details.
 - Controller.start_launched_session(): Establishes configured remote synchronization before starting reserved nodes through correlated NATS commands, returning ControllerCommandResult and attempting cleanup if startup fails.
 - Controller.stop_launched_session(reason=None): Stops and locally finalizes all reserved nodes through NATS, releases only confirmed-clean reservations, records the Controller-owned end of any active Experiment without refinalizing node files, and stops the Session without waiting for global collection.
-- Controller.start_launched_experiment(experiment_id, *, scientific_outputs=(), runtime_health_mapping=None, details=None): Requires measured synchronization and output preparation, records canonical start before delivering node-specific timing/health context over NATS, and preserves failed/cancelled activation outcomes and cleanup uncertainty.
+- Controller.start_launched_experiment(experiment_id, *, scientific_outputs=(), runtime_health_mapping=None, details=None, configuration=None, storage_participant=None): Fences retained closeout ownership before measured synchronization and preparation, records canonical start before node-specific activation, and preserves failed/cancelled activation outcomes and cleanup uncertainty.
+- Controller._end_launched_experiment(experiment_id, details, event_type): Shares the retained closeout fence and confirmed owner finalization path for manual Experiment Stop and remote experiment_fail.
 - Controller.stop_launched_experiment(experiment_id, details=None): Confirms each node's finalization and evidence publication before recording canonical Experiment stop with fresh authoritative Session Time.
 - Controller._start_launched_session: Serializes Session startup with other runtime transitions, starts configured remote synchronization once and requires correlated node acquisition confirmations.
 - Controller._stop_launched_session: Retains Session-scoped node Stop/release command identities and confirmed releases outside the coroutine, retries uncertain operations through owner deduplication with fresh nonces, and rechecks producer proof without repeating confirmed physical cleanup.
@@ -1164,7 +1165,7 @@ is complete; W030 records manual validation, focused tests, and audit reassessme
 - Controller.publish_acquisition_evidence_completion(*, communication, result_window_s): Verifies producer and health prerequisites before marker admission and verifies the same producer confirmations after awaited publication, retaining an unconfirmed published marker for explicit retry if prerequisites change.
 - Controller.archive_acquisition_evidence(*, communication): Verifies receipt of its confirmed W042 marker through the matching NatsIngestorCommunication, archives current protected Ingestor compilation and existing Session Record evidence, and returns confirmed Stage A paths without lifecycle completion, collection, or binding release.
 - Controller.preserve_artifact_collection_handoff(): Compiles journal-backed artifact information after current Stage A confirmation and returns verified durable handoff preservation without changing lifecycle or releasing bindings.
-- Controller.normal_stop_session(*, communication, receiving=None, result_window_s, reason=None, storage_participant=None): Coordinates local or remote shutdown and verified preservation as the sole closeout owner, retaining canonical failure for an applicable overlapping fatal health decision (Decision 406).
+- Controller.normal_stop_session(*, communication, receiving=None, result_window_s, reason=None, storage_participant=None): Coordinates local or remote shutdown and verified preservation as the sole closeout owner, retaining its original Experiment context across retries and canonical failure for applicable overlapping fatal health (Decision 406), without taking over admitted Kill.
 - Controller.kill_session(*, communication, result_window_s, operator_authorized, reason=None, storage_participant=None): Admits local or remote forced closeout before shutdown, aborts Experiment/Session and preserves available evidence while retaining cleanup uncertainty and reservations without automatic collection or closure.
 - Controller.reconcile_session_closeout(session_id, *, communication, ingestor_participant, storage_participant, result_window_s): Reads authoritative known-Session preservation over NATS without restoring a Session or transitioning its lifecycle.
 - Controller._closeout_owner_request: Requires a current correlated closeout result and unchanged Controller binding after each owner request.
@@ -1172,7 +1173,7 @@ is complete; W030 records manual validation, focused tests, and audit reassessme
 - Controller._require_producer_confirmations(session, expected=None): Requires current scoped producer Stop proof and rejects changes to an active closeout's snapshot without imposing volatile proof on historical readback.
 - Controller._require_runtime_cleanup(session): Derives current cleanup eligibility from scoped producer proof and applicable local owner state at completion, release and maintenance consumers rather than trusting a cached aggregate.
 - Controller._refresh_kill_cleanup(session, outcomes): Revalidates exact current participant Stop receipts for health and Kill reporting, retaining partial preservation and unresolved obligations when proof changes.
-- Controller._close_session_remote: Connects remote Normal Stop or Kill, durable preservation and Controller-owned terminal lifecycle publication without shared owner objects.
+- Controller._close_session_remote: Validates retained owner/mode before admission, captures Normal Stop Experiment context once per attempt, and coordinates remote Normal Stop or Kill, durable preservation and terminal lifecycle publication without shared owner objects.
 - Controller._release_session_remote: Revalidates terminal preservation and independent participant release, retaining confirmed unsubscribe progress and unresolved obligations across explicit retries before retiring Controller state.
 - Controller._retire_session_binding: Retires only a confirmed Controller binding while preserving its terminal outcome and service lifetime.
 - Controller._preserve_kill_closeout(session): Confirms current journal-backed partial archive and handoff under intake, persistence, and admission guards without claiming complete receipt.
@@ -1228,6 +1229,7 @@ readback remain independent confirmation boundaries.
 | `_mark_session_failed`, including launched startup/Stop and persistence-error callers | Canonical failure only; optional timing failure cannot prevent Experiment/Session failure; Normal Stop association survives retry | `LocalFailureTimingTests`, launched Stop timing-loss and interrupted Normal Stop details tests; selected startup, persistence-error and partial-owner-cleanup tests |
 | `accept_experiment_expiry`, expiry reconciliation | Existing exact owner proof and deferred reconciliation during runtime transition; no competing cleanup | `test_expiry_and_fatal_decision_preserve_one_canonical_experiment_end`; selected G2 expiry regressions |
 | Local entry points versus launched Experiment transitions, Normal Stop and Kill | Existing Experiment lock and closeout ownership remain authoritative | Selected G2/G3, remote-health, fatal-overlap and interrupted Stop regressions |
+| Local/remote Normal Stop retry and launched resource work after cancellation | Original admission context, including None, survives retry; owner/mode rejection cannot replace it; retained closeout fences launched start and shared termination | `NormalStopAdmissionTests`, including successful preservation, permitted Kill conversion and fresh context after verified retirement |
 | `finalize_session`, `release_session`, maintenance, preservation consumers | Existing guards retained; legacy completion-proof correction is deferred G4-B | No G4-B changes or claim that its confirmed defect is resolved |
 | Launch/start rollback response consumption | Existing implementation unchanged | Wrong-operation rollback correction is deferred G4-C |
 
@@ -1250,6 +1252,30 @@ scheduling are not established by controlled event-loop tests.
 - test_canonical_transition_failure_is_not_suppressed_as_a_timing_failure: Reports failed lifecycle transition without claiming successful fatal-action execution.
 - test_launched_stop_failure_accounts_for_failure_without_local_time: Preserves launched release uncertainty and binding while recording canonical failure after owner cleanup and local clock loss.
 - test_interrupted_normal_stop_preserves_fatal_details_without_time: Retains fatal context, durable processing and sole cleanup ownership across cancelled Normal Stop and explicit retry.
+
+### tests/test_local_closeout_ownership.py: Normal Stop Admission Coverage
+
+- NormalStopAdmissionTests.running(remote=False, active=True, preserve=False): Reuses local and distributed owner fixtures with selected active context and either injected archival failure or existing-identical-handoff preservation.
+- NormalStopAdmissionTests.holding(component_type, operation, *, interruptions=0): Pauses existing scoped runtime dispatch, cancels selected attempts and joins the owned closeout task on exit.
+- NormalStopAdmissionTests.cancel_closeout(): Cancels and awaits the current closeout without discarding retained obligations.
+- NormalStopAdmissionTests.decision(experiment_id="experiment", action="session_fail"): Builds an explicitly scoped health decision for the current Session.
+- NormalStopAdmissionTests.execute(decision): Invokes the fixture's local or launched public health executor.
+- NormalStopAdmissionTests.assert_failed_closeout(): Checks FAILED, retained binding, unconfirmed preservation and exactly one cleanup/finalization without duplicate Experiment termination.
+- test_local_retry_retains_original_experiment_for_fatal_accounting: Preserves local context after termination/cancellation, rejects unrelated fatal identity and retains FAILED through preservation retries.
+- test_remote_repeated_retry_retains_original_experiment_for_fatal_accounting: Preserves remote context and durable fatal accounting across repeated interruptions and preservation failure.
+- test_rejected_remote_owner_retry_cannot_replace_original_context: Rejects a different storage owner without preventing subsequent fatal accounting for the original context.
+- test_interrupted_closeout_fences_launched_start_without_active_experiment: Rejects new preparation/activation after early cancellation with an originally empty context.
+- test_interrupted_closeout_fences_manual_launched_termination: Rejects competing manual finalization while interrupted Normal Stop owns cleanup.
+- test_interrupted_closeout_fences_remote_experiment_failure: Applies the same no-competing-finalization fence to remote experiment_fail.
+- test_cancellation_between_cleanup_and_canonical_end_retains_context: Accounts for fatal failure before the resumed end-time read without duplicate cleanup or termination.
+- test_fatal_before_cancellation_keeps_its_failure_and_cleanup_owner: Retains canonical failure established before interruption and resumes the sole cleanup owner.
+- test_fatal_after_cancellation_before_retry_keeps_original_context: Uses the retained local/remote context before starting an explicit retry.
+- test_original_none_context_survives_retries_without_authorizing_old_experiments: Preserves a valid empty admission context and rejects historical Experiment identities.
+- test_retry_requires_durable_acceptance_separately_from_canonical_failure: Keeps missing acceptance confirmation unsuccessful, then confirms the same retained decision on explicit retry.
+- test_verified_retirement_allows_a_new_session_with_fresh_context: Verifies failed-terminal preservation, immutable retry, independent release and a distinct Session's newly captured Experiment context.
+- test_permitted_kill_conversion_does_not_reopen_normal_closeout: Preserves allowed Normal Stop-to-Kill conversion and prevents returning to Normal Stop or repeating cleanup.
+- test_kill_association_does_not_admit_a_local_normal_stop: Retains incomplete Kill ownership rather than mistaking its marker association for Normal Stop admission.
+- test_auxiliary_marker_publication_preserves_existing_closeout_contracts: Completes a normally stopped Session after auxiliary marker publication without replacing the marker or repeating cleanup.
 
 ## src/lab_sync_acquisition/device_adapter.py
 
