@@ -663,6 +663,248 @@ class NormalStopAdmissionTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(self.finalize.call_count, 1)
 
 
+class ExperimentCloseoutAdmissionTests(unittest.IsolatedAsyncioTestCase):
+    async def workflow(self, *, remote=False, active=False):
+        case = NormalStopAdmissionTests()
+        case.addCleanup = self.addCleanup
+        case.addAsyncCleanup = self.addAsyncCleanup
+        launch_session = Controller.launch_session
+
+        async def launch(owner, *args, **kwargs):
+            return await launch_session(owner, *args, **{**kwargs, "result_window_s": 1})
+
+        with patch.object(Controller, "launch_session", new=launch):
+            await case.running(remote=remote, active=False)
+        if not remote:
+            from lab_sync_acquisition import NatsStorageManagerCommunication
+            from tests.test_session_launch import _Boundary
+
+            await NatsStorageManagerCommunication(
+                _Boundary("storage_manager", "storage", case.f.broker), case.storage).subscribe_commands()
+        if active:
+            result = await self.start(case)
+            self.assertTrue(result.succeeded, result.error)
+        return case
+
+    def assert_finalized_once(self, case):
+        manifests = case.local.manifests
+        self.assertTrue(all(m.lifecycle_state == "finalized" for m in manifests))
+        finalized = [e.storage_id for e in case.local.evidence if e.evidence_type == "stream_finalized"]
+        self.assertEqual(sorted(finalized), sorted(m.storage_id for m in manifests))
+
+    @asynccontextmanager
+    async def paused(self, case, operation, *, after=False):
+        entered, resume = asyncio.Event(), asyncio.Event()
+        request = case.f.communication.request_runtime_command
+
+        async def dispatch(participant, command_type, *args, **kwargs):
+            if command_type != operation:
+                return await request(participant, command_type, *args, **kwargs)
+            result = await request(participant, command_type, *args, **kwargs) if after else None
+            entered.set()
+            await resume.wait()
+            return result if after else await request(participant, command_type, *args, **kwargs)
+
+        with patch.object(case.f.communication, "request_runtime_command", new=dispatch):
+            try:
+                yield entered, resume
+            finally:
+                resume.set()
+
+    async def start(self, case):
+        outputs = case.controller._session.experiment_descriptors[0].scientific_outputs
+        return await case.controller.start_launched_experiment("next", scientific_outputs=outputs,
+            configuration=ExperimentConfiguration(60, {case.node.node_id: 1000000}, 1000000),
+            storage_participant=RuntimeParticipant("storage_manager", "storage"))
+
+    async def reject_closeout(self, case, *, kill=False):
+        controller = case.controller
+        ownership = (controller._acquisition_marker_session, controller._normal_stop_experiment_id,
+                     controller._normal_stop_task, controller._distributed_closeout,
+                     controller._kill_closeout_session, controller._runtime_cleanup_progress)
+        commands = len(case.f.broker.commands)
+        result = (await controller.kill_session(communication=case.f.communication,
+                    storage_participant=RuntimeParticipant("storage_manager", "storage"),
+                    result_window_s=.05, operator_authorized=True)
+                  if kill else await case.workflow.stop())
+        self.assertFalse(result.succeeded)
+        self.assertEqual(len(case.f.broker.commands), commands)
+        self.assertEqual(case.stops.call_count, 0)
+        self.assertEqual((controller._acquisition_marker_session, controller._normal_stop_experiment_id,
+                          controller._normal_stop_task, controller._distributed_closeout,
+                          controller._kill_closeout_session, controller._runtime_cleanup_progress), ownership)
+        self.assertEqual(controller.get_status()["session_state"], "running")
+
+    async def start_first(self, *, remote, boundary, after=False, kill=False):
+        case = await self.workflow(remote=remote)
+        async with self.paused(case, boundary, after=after) as (entered, resume):
+            starting = asyncio.create_task(self.start(case))
+            try:
+                await asyncio.wait_for(entered.wait(), 2)
+                await self.reject_closeout(case, kill=kill)
+            finally:
+                resume.set()
+                result, = await asyncio.gather(starting, return_exceptions=True)
+        self.assertIsNotNone(result)
+        self.assertTrue(result.succeeded, result.error)
+        self.assertEqual(case.controller.get_status()["active_experiment_id"], "next")
+        self.assertTrue(case.node.scientific_acquisition_active)
+        case.node.run_one_iteration()
+        async with case.holding("acquisition_node", "stop_runtime"):
+            fatal = await case.execute(case.decision("next"))
+            self.assertTrue(fatal.succeeded, fatal.error)
+            self.assertTrue(fatal.details["health_processing_confirmed"])
+            message = case.controller.controller_action_decision_evidence[-1]
+            self.assertTrue(case.f.ingestor.has_durable_runtime_evidence(message))
+        self.assertFalse(case.closeout_result.succeeded)
+        self.assertIn("archive unavailable", case.closeout_result.error)
+        self.assertEqual(case.controller.get_status()["session_state"], "failed")
+        self.assertEqual(case.stops.call_count, 1)
+        self.assertEqual(case.physical_stops.call_count, 1)
+        self.assert_finalized_once(case)
+        endings = [e.event_type for e in case.controller.get_status()["experiment_lifecycle_evidence"]
+                   if e.experiment_id == "next"]
+        self.assertEqual(endings, ["experiment_start", "experiment_fail"])
+        self.assertIsNone(case.storage.get_acquisition_stage_preservation_confirmation(case.sid))
+
+    async def test_local_normal_stop_cannot_admit_during_experiment_preparation(self):
+        await self.start_first(remote=False, boundary="prepare_experiment_scientific_outputs")
+
+    async def test_start_first_excludes_closeout_through_activation_and_time_readback(self):
+        for remote in (False, True):
+            for boundary in ("read_session_time", "activate_experiment_runtime"):
+                with self.subTest(remote=remote, boundary=boundary):
+                    await self.start_first(remote=remote, boundary=boundary, after=True)
+
+    async def test_kill_rejection_during_local_and_remote_start_does_not_take_ownership(self):
+        for remote in (False, True):
+            with self.subTest(remote=remote):
+                await self.start_first(remote=remote, boundary="prepare_experiment_scientific_outputs",
+                                       after=True, kill=True)
+
+    async def test_experiment_termination_first_excludes_normal_stop_and_kill(self):
+        for remote in (False, True):
+            for fail in (False, True):
+                for boundary in ("finalize_experiment_scientific_outputs", "read_session_time"):
+                    with self.subTest(remote=remote, fail=fail, boundary=boundary):
+                        case = await self.workflow(remote=remote, active=True)
+                        async with self.paused(case, boundary, after=True) as (entered, resume):
+                            ending = asyncio.create_task(
+                                case.controller.execute_launched_controller_action_decision(
+                                    case.decision("next", action="experiment_fail")) if fail else
+                                case.controller.stop_launched_experiment("next"))
+                            try:
+                                await asyncio.wait_for(entered.wait(), 2)
+                                await self.reject_closeout(case)
+                                await self.reject_closeout(case, kill=True)
+                            finally:
+                                resume.set()
+                                result, = await asyncio.gather(ending, return_exceptions=True)
+                        self.assertTrue(result.succeeded, result.error)
+                        self.assertEqual(case.controller.get_status()["session_state"], "running")
+                        self.assertIsNone(case.controller.get_status()["active_experiment_id"])
+                        self.assert_finalized_once(case)
+                        stopped = await case.workflow.stop()
+                        self.assertFalse(stopped.succeeded)
+                        self.assertIn("archive unavailable", stopped.error)
+                        self.assertEqual(case.controller.get_status()["session_state"], "stopping")
+                        self.assertEqual(case.stops.call_count, 1)
+                        self.assert_finalized_once(case)
+                        events = [e for e in case.controller.get_status()["experiment_lifecycle_evidence"]
+                                  if e.experiment_id == "next"]
+                        self.assertEqual([e.event_type for e in events],
+                                         ["experiment_start", "experiment_fail" if fail else "experiment_stop"])
+
+    async def test_fatal_queued_behind_start_keeps_its_canonical_consequence(self):
+        for remote in (False, True):
+            with self.subTest(remote=remote):
+                case = await self.workflow(remote=remote)
+                async with self.paused(case, "prepare_experiment_scientific_outputs", after=True) as (entered, resume):
+                    starting = asyncio.create_task(self.start(case))
+                    fatal = None
+                    try:
+                        await asyncio.wait_for(entered.wait(), 2)
+                        fatal = asyncio.create_task(case.controller.execute_launched_controller_action_decision(
+                            case.decision("next")))
+                        await asyncio.sleep(0)
+                        self.assertFalse(fatal.done())
+                        await self.reject_closeout(case)
+                    finally:
+                        resume.set()
+                        started = await starting
+                        result = await fatal if fatal is not None else None
+                self.assertTrue(started.succeeded, started.error)
+                self.assertIsNotNone(result)
+                self.assertTrue(result.succeeded, result.error)
+                self.assertEqual(case.controller.get_status()["session_state"], "failed")
+                self.assertIsNone(case.controller.get_status()["active_experiment_id"])
+                self.assertEqual(case.stops.call_count, 1)
+                self.assert_finalized_once(case)
+
+    async def test_cancelled_preparation_leaves_no_rejected_closeout_ownership(self):
+        for remote in (False, True):
+            with self.subTest(remote=remote):
+                case = await self.workflow(remote=remote)
+                async with self.paused(case, "read_session_time") as (entered, resume):
+                    starting = asyncio.create_task(self.start(case))
+                    try:
+                        await asyncio.wait_for(entered.wait(), 2)
+                        await self.reject_closeout(case)
+                        starting.cancel()
+                    finally:
+                        resume.set()
+                        result, = await asyncio.gather(starting, return_exceptions=True)
+                self.assertIsInstance(result, asyncio.CancelledError)
+                self.assertEqual(case.controller.get_status()["session_state"], "running")
+                self.assertIsNone(case.controller.get_status()["active_experiment_id"])
+                self.assertFalse(case.node.scientific_acquisition_active)
+                async with case.holding("synchronization_manager", "stop_runtime", interruptions=1):
+                    self.assertTrue((await case.execute(case.decision(None))).succeeded)
+                self.assertEqual(case.controller.get_status()["session_state"], "failed")
+                self.assertFalse(case.closeout_result.succeeded)
+                self.assertEqual(case.stops.call_count, 1)
+                self.assert_finalized_once(case)
+
+    async def test_normal_stop_first_fences_queued_transitions_and_interrupted_retries(self):
+        for remote in (False, True):
+            for action in ("start", "stop", "experiment_fail"):
+                for cancel in (False, True):
+                    with self.subTest(remote=remote, action=action, cancel=cancel):
+                        case = await self.workflow(remote=remote, active=action != "start")
+                        async with case.holding("acquisition_node", "stop_runtime"):
+                            commands = len(case.f.broker.commands)
+                            operation = (self.start(case) if action == "start" else
+                                case.controller.stop_launched_experiment("next") if action == "stop" else
+                                case.controller.execute_launched_controller_action_decision(
+                                    case.decision("next", action="experiment_fail")))
+                            competing = asyncio.create_task(operation)
+                            try:
+                                await asyncio.sleep(0)
+                                self.assertFalse(competing.done())
+                                self.assertEqual(len(case.f.broker.commands), commands)
+                                self.assertEqual(case.stops.call_count, 0)
+                                if cancel:
+                                    await case.cancel_closeout()
+                                    rejected = await competing
+                                    self.assertFalse(rejected.succeeded)
+                                    self.assertEqual(len(case.f.broker.commands), commands)
+                                    self.assertEqual(case.stops.call_count, 0)
+                            except BaseException:
+                                competing.cancel()
+                                await asyncio.gather(competing, return_exceptions=True)
+                                raise
+                        rejected = await competing
+                        self.assertFalse(rejected.succeeded)
+                        if cancel:
+                            case.closeout_result = await case.workflow.stop()
+                        self.assertFalse(case.closeout_result.succeeded)
+                        self.assertIn("archive unavailable", case.closeout_result.error)
+                        self.assertEqual(case.controller.get_status()["session_state"], "stopping")
+                        self.assertEqual(case.stops.call_count, 1)
+                        self.assertEqual(case.physical_stops.call_count, 1)
+                        self.assert_finalized_once(case)
+
+
 class LocalLifecycleCompatibilityTests(unittest.TestCase):
     def setUp(self):
         self.f = capacity.LocalActivationFailureTests()

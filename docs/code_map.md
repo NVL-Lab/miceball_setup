@@ -1165,7 +1165,7 @@ is complete; W030 records manual validation, focused tests, and audit reassessme
 - Controller.publish_acquisition_evidence_completion(*, communication, result_window_s): Verifies producer and health prerequisites before marker admission and verifies the same producer confirmations after awaited publication, retaining an unconfirmed published marker for explicit retry if prerequisites change.
 - Controller.archive_acquisition_evidence(*, communication): Verifies receipt of its confirmed W042 marker through the matching NatsIngestorCommunication, archives current protected Ingestor compilation and existing Session Record evidence, and returns confirmed Stage A paths without lifecycle completion, collection, or binding release.
 - Controller.preserve_artifact_collection_handoff(): Compiles journal-backed artifact information after current Stage A confirmation and returns verified durable handoff preservation without changing lifecycle or releasing bindings.
-- Controller.normal_stop_session(*, communication, receiving=None, result_window_s, reason=None, storage_participant=None): Coordinates local or remote shutdown and verified preservation as the sole closeout owner, retaining its original Experiment context across retries and canonical failure for applicable overlapping fatal health (Decision 406), without taking over admitted Kill.
+- Controller.normal_stop_session(*, communication, receiving=None, result_window_s, reason=None, storage_participant=None): Rejects conflicting Experiment execution before local or remote closeout admission, then coordinates verified preservation as sole cleanup owner while retaining original Experiment context and applicable canonical failure across retries (Decision 406), without taking over admitted Kill.
 - Controller.kill_session(*, communication, result_window_s, operator_authorized, reason=None, storage_participant=None): Admits local or remote forced closeout before shutdown, aborts Experiment/Session and preserves available evidence while retaining cleanup uncertainty and reservations without automatic collection or closure.
 - Controller.reconcile_session_closeout(session_id, *, communication, ingestor_participant, storage_participant, result_window_s): Reads authoritative known-Session preservation over NATS without restoring a Session or transitioning its lifecycle.
 - Controller._closeout_owner_request: Requires a current correlated closeout result and unchanged Controller binding after each owner request.
@@ -1230,6 +1230,7 @@ readback remain independent confirmation boundaries.
 | `accept_experiment_expiry`, expiry reconciliation | Existing exact owner proof and deferred reconciliation during runtime transition; no competing cleanup | `test_expiry_and_fatal_decision_preserve_one_canonical_experiment_end`; selected G2 expiry regressions |
 | Local entry points versus launched Experiment transitions, Normal Stop and Kill | Existing Experiment lock and closeout ownership remain authoritative | Selected G2/G3, remote-health, fatal-overlap and interrupted Stop regressions |
 | Local/remote Normal Stop retry and launched resource work after cancellation | Original admission context, including None, survives retry; owner/mode rejection cannot replace it; retained closeout fences launched start and shared termination | `NormalStopAdmissionTests`, including successful preservation, permitted Kill conversion and fresh context after verified retirement |
+| Experiment transitions before versus after Normal Stop/Kill admission | Existing Experiment lock excludes closeout before admission mutation; retained closeout excludes subsequent resource work after lock release or cancellation | `ExperimentCloseoutAdmissionTests`, existing local-transition and Kill-admission controls; matrix below |
 | `finalize_session`, `release_session`, maintenance, preservation consumers | Existing guards retained; legacy completion-proof correction is deferred G4-B | No G4-B changes or claim that its confirmed defect is resolved |
 | Launch/start rollback response consumption | Existing implementation unchanged | Wrong-operation rollback correction is deferred G4-C |
 
@@ -1276,6 +1277,35 @@ scheduling are not established by controlled event-loop tests.
 - test_permitted_kill_conversion_does_not_reopen_normal_closeout: Preserves allowed Normal Stop-to-Kill conversion and prevents returning to Normal Stop or repeating cleanup.
 - test_kill_association_does_not_admit_a_local_normal_stop: Retains incomplete Kill ownership rather than mistaking its marker association for Normal Stop admission.
 - test_auxiliary_marker_publication_preserves_existing_closeout_contracts: Completes a normally stopped Session after auxiliary marker publication without replacing the marker or repeating cleanup.
+
+### tests/test_local_closeout_ownership.py: Experiment/Closeout Ordering Coverage
+
+- ExperimentCloseoutAdmissionTests: Exercises both transition/closeout orderings with actual owners, simulated NATS and disk-backed scientific products.
+- ExperimentCloseoutAdmissionTests.workflow(remote=False, active=False): Reuses existing local/remote workflows with explicit result windows, a storage command adapter and optional launched Experiment activation.
+- ExperimentCloseoutAdmissionTests.assert_finalized_once(case): Requires one authoritative stream-finalized event per scientific product, distinguishing idempotent readback calls from repeated finalization.
+- ExperimentCloseoutAdmissionTests.paused(case, operation, after=False): Holds scoped dispatch before an owner operation or after its result to expose deterministic transition boundaries.
+- ExperimentCloseoutAdmissionTests.start(case): Starts the next Experiment through the existing launched API and accepted output/configuration contracts.
+- ExperimentCloseoutAdmissionTests.reject_closeout(case, kill=False): Checks rejection without ownership mutation, cleanup commands, physical Stop or lifecycle transition.
+- ExperimentCloseoutAdmissionTests.start_first(remote, boundary, after=False, kill=False): Verifies continued legitimate activation and durable fatal accounting after a rejected closeout, followed by single-owner cleanup and explicit archival failure.
+- test_local_normal_stop_cannot_admit_during_experiment_preparation: Reproduces local Normal Stop admission mutation while preparation owns the Experiment lock.
+- test_start_first_excludes_closeout_through_activation_and_time_readback: Exercises reverse-order admission at synchronization readback and activation boundaries for both owner compositions.
+- test_kill_rejection_during_local_and_remote_start_does_not_take_ownership: Retains existing Kill exclusion without mutating rejected ownership.
+- test_experiment_termination_first_excludes_normal_stop_and_kill: Protects manual/failure termination through finalization and time readback before orderly cleanup.
+- test_fatal_queued_behind_start_keeps_its_canonical_consequence: Queues launched fatal execution behind preparation while rejecting competing closeout admission.
+- test_cancelled_preparation_leaves_no_rejected_closeout_ownership: Preserves scientific products through cancelled preparation and subsequent interrupted Normal Stop/fatal retry.
+- test_normal_stop_first_fences_queued_transitions_and_interrupted_retries: Rejects queued start, manual termination and experiment_fail after active or interrupted local/remote closeout.
+
+| Conflict / boundary | Transition first | Closeout first / retry |
+| --- | --- | --- |
+| Experiment start / Normal Stop | Preparation, time readback and activation; rejected admission leaves context unchanged | New queued-transition matrix and existing retained-admission tests |
+| Experiment stop or experiment_fail / Normal Stop | Finalization and time readback with local/remote owners | Queued-transition matrix, local transition guard and interrupted termination tests |
+| Experiment transitions / Kill | New local/remote start and termination controls; existing preparation-boundary tests | Existing admitted-Kill fence and permitted-conversion tests |
+| Fatal Session decision / Normal Stop | Queued fatal action survives rejected competing admission | Existing shared canonical accounting, durable acceptance and timing-loss tests |
+| Cancellation / preservation / retirement | Cancelled preparation and stable rejected admission | Existing repeated closeout retry, successful/failed preservation, verified release and successive-Session tests |
+
+These are implementation regressions, not independent validation or an audit.
+The new seven methods cover 31 parametrized workflows; successful archival
+controls reuse existing-identical-handoff readback, not initial hard-link promotion.
 
 ## src/lab_sync_acquisition/device_adapter.py
 

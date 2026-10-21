@@ -535,6 +535,44 @@ OS-signal, power-loss or normal Windows async scheduling validation is claimed.
 This is implementation verification only; G4-A, G4 and Q013 remain OPEN pending
 the separate ICC validation and independent audit stages.
 
+**G4-A symmetric admission correction (implemented; pending ICC validation and
+independent audit):** Following the consolidated ownership review and ICC scope
+authorization, local-owner Normal Stop now checks the existing Experiment-operation
+lock before mutating retained admission/context. This aligns its admission with
+remote Normal Stop and Kill. No additional production method, helper, lock, field,
+cache, public signature or architectural contract changed. Retained original
+context (including None), post-cancellation fencing, remote owner/mode validation,
+canonical-only fatal accounting, optional timing uncertainty and independent
+cleanup/preservation confirmation remain unchanged. Rejection cannot reserve
+closeout ownership while an Experiment transition is still executing.
+
+Regression-first verification reproduced nine local-owner admission failures
+across preparation, activation, time readback, manual/failure finalization, queued
+fatal execution and cancellation. Remote-owner and Kill controls passed. After
+the correction, seven new methods covering 31 parametrized workflows passed.
+The directly affected selection passed 63 distinct methods: 53 under controlled
+SelectorEventLoop scheduling and ten synchronous methods without event-loop
+changes. Counts include the new methods; reruns and earlier records are not
+additive. Coverage includes both ownership orderings, rejected-admission
+immutability, single physical cleanup, one actual scientific finalization per
+product, applicable durable fatal acceptance, preserved FAILED outcomes,
+unconfirmed archival failure, retry, Kill conversion, verified retirement and
+fresh subsequent Session context. The entry-point and ordering matrices are in
+`code_map.md`.
+
+Test-harness corrections distinguished idempotent finalization readback from
+actual stream finalization, used launched activation before launched termination,
+and supplied an explicit one-second fixture result window rather than the reused
+local fixture's 0.01-second window. Fatal-before-Experiment-end tests pause Node
+Stop, not the later synchronization Stop. These changes do not weaken production
+contracts or alter existing tests. Existing successful-preservation controls use
+the identical-handoff path, not initial hard-link promotion. Previously
+Windows-hard-link-blocked archival checks and the reported baseline startup
+failure were not rerun or counted. No ordinary Windows async, live NATS, hardware,
+OS-signal or power-loss validation is claimed. No additional production correction
+was established by this matrix. G4-A/G4/Q013 remain OPEN; G4-B and G4-C remain
+deferred. Independent ICC validation and a separate audit still follow.
+
 ### Blocks
 
 * Fatal/warning health behavior

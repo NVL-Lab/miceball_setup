@@ -356,7 +356,7 @@ class Controller:
         admitted = False
         try:
             with self._service_operation_lock:
-                if (self._normal_stop_task is not None or self._acquisition_publication_active
+                if (self._experiment_operation_lock.locked() or self._normal_stop_task is not None or self._acquisition_publication_active
                         or self._acquisition_archival_active or self._artifact_collection_in_progress):
                     raise RuntimeError("Session closeout is already in progress")
                 if self._kill_closeout_session is session:
