@@ -880,6 +880,35 @@ gap remains G4-B, not a newly resolved policy question or an authorized scope
 expansion. ICC must review implementation coverage/scope; return any genuine
 contract conflict found there to LLC/HLC rather than weakening proof requirements.
 
+### G4-C Failed-Launch Cleanup Clarification (Decision 420)
+
+**Status: OPEN; accepted architecture synchronized, implementation pending.**
+The user-accepted simplified direction resolves the pre-Session cleanup-entry-point
+question: a failed launch is not recovered as a Session. Only minimum original
+reservation/Session identity, affected participant scope and necessary cleanup
+progress carry forward. Failed/cancelled launches attempt participant-owned
+cleanup; incomplete or uncertain cleanup leaves affected resources unavailable.
+
+The next `launch_session()` first attempts leftover cleanup through existing
+scoped NATS commands and authoritative participant state, under existing Controller
+serialization. It proceeds with an entirely new Session only after cleanup and
+availability are confirmed; otherwise it rejects the new launch before acquiring
+new reservations and identifies unresolved resources. Original-attempt scoping
+must protect unrelated/replacement Sessions. Cancellation cannot discard cleanup
+obligations or imply successful release.
+
+No failed-Session continuation, scientific-initialization retry, new public
+recovery API, parallel lifecycle or persistent failed-launch journal is authorized.
+Decision 352 continues to govern participant reservations after Controller failure.
+The earlier pre-Session rollback recommendation was not synchronized as a
+decision; Decision 420 records cleanup-only semantics and qualifies the historical
+no-retry wording in Decisions 293/294/300 without changing their accepted bodies.
+
+G4-C still requires scoped startup/rollback correlation and safe cleanup/admission
+implementation, independent validation and audit. This synchronization claims none
+of those stages complete. G4-A/B remain CLOSED; G4/Q013 remain OPEN. G5 is outside
+this task.
+
 ### Historical Implementation And Validation Reports
 
 The following reports retain their original implementation/architecture context,

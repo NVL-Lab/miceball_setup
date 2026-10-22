@@ -12249,6 +12249,63 @@ unfinished; Q013 stays OPEN. G4-C and G5 are outside this change.
 
 ---
 
+## Decision 420: Failed launches retain only resource cleanup obligations before a new launch
+
+**Status:** Accepted
+
+This records the user-accepted simplified G4-C failed-launch cleanup direction.
+It clarifies Decisions 293, 294, 298-300, 302 and 352 without rewriting their
+historical text. A failed launch is not recovered as a Session. A subsequent
+launch creates an entirely new Session; only outstanding resource cleanup
+obligations carry forward. The failed attempt's allocated Session ID is not
+reused for the new Session, preserving Decision 293.
+
+Controller remains the sole Session launcher. All Controller-to-service
+communication uses NATS, regardless of computer placement; participant-owned
+resource and reservation authority remains unchanged.
+
+Failed or cancelled launches attempt cleanup through existing participant-owned
+mechanisms. Confirmed cleanup finishes the failed attempt without retaining or
+reconstructing its Session. If cleanup is incomplete or uncertain, affected
+resources remain unavailable. Controller retains only the minimum operational
+information needed for safe cleanup retry: the original reservation/Session
+identity, potentially affected participants and necessary cleanup progress.
+Absence of a Controller Session object does not discard those obligations.
+
+The next `launch_session()` first attempts to resolve leftover resources from the
+previous failed attempt. It uses existing scoped NATS commands and authoritative
+participant state to establish cleanup and availability. Cleanup remains scoped
+to the original attempt and must never release resources belonging to an
+unrelated or replacement Session. Once cleanup and availability are confirmed,
+Controller may proceed with a new Session launch. Otherwise the new launch is
+rejected before acquiring new reservations and identifies unresolved resources.
+Existing Controller serialization mechanisms prevent cleanup and launch admission
+from racing. Cancellation cannot silently discard cleanup obligations or treat
+uncertain release as successful.
+
+This narrowly qualifies the earlier no-retry/deferred-retry wording in Decisions
+293, 294 and 300: cleanup may be retried when a subsequent launch is requested;
+the failed launch's scientific initialization is not retried or continued, and
+no replacement Session is created on its behalf. Decision 300's confirmed
+participant cleanup before reservation release, Decision 302's safe device reuse,
+and Decisions 298-299's initialization ownership and confirmation remain
+authoritative. Scientific artifacts, accepted evidence and timing remain protected.
+
+This is Controller-runtime cleanup while Controller remains alive, not automatic
+Controller-crash recovery. Decision 294's prohibition on a persistent failed-launch
+journal remains intact; Decision 352 governs participant reservations and
+reconciliation after Controller failure. No failed-Session reconstruction, new
+public recovery API, Session state, parallel lifecycle, cleanup subsystem,
+persistent failed-launch journal, new NATS messaging architecture or automatic
+Controller-crash recovery is authorized.
+
+The earlier G4-C pre-Session rollback recommendation was not recorded as an
+accepted decision. This accepted direction permits resource cleanup only, not
+Session recovery. Documentation synchronization does not establish implementation,
+testing or validation. G4-A/B remain CLOSED; G4-C and Q013 remain OPEN.
+
+---
+
 # Accepted Architectural Principles
 
 The following principles summarize the accepted decisions so far.
