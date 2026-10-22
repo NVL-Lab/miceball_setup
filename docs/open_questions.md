@@ -825,6 +825,22 @@ persistence continues to block maintenance. Tests migrate shared owner guarantee
 to archival APIs and launched closeout fixtures, not another completion pipeline.
 G4-B remains OPEN pending ICC validation and independent audit.
 
+**G4-B subscription teardown correction (implementation only):** Actual nats-py
+2.15.0 can close local subscription interest before UNSUB transport drain fails;
+repeating `unsubscribe()` then raises `BadSubscriptionError`. Controller retains
+the existing pending handle until connected transport reconciliation and local
+task cleanup succeed. A retry resends UNSUB rather than treating local closure,
+transport failure or an invalid-subscription exception as release confirmation.
+Cancellation, disconnected transport and preservation uncertainty retain the
+binding. No new completion path or release authority is introduced. Focused
+actual-SDK tests use simulated transport and real disk-backed owner closeout;
+eight focused release methods passed under controlled asyncio execution,
+including three SDK regressions, existing cancellation, corruption and failed
+preservation checks. Existing-identical handoff fixtures do not validate initial
+hard-link promotion. No live NATS, real sockets, hardware, OS-signal, power-loss
+or normal Windows asyncio scheduling validation is claimed. Independent
+validation and re-audit remain pending.
+
 Implementation verification: 45 distinct focused methods passed (34 affected
 methods, 10 selected owner/finalization regressions and one standalone Session
 completion control; overlapping reruns are not additional passes). Eighteen

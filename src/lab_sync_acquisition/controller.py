@@ -2472,7 +2472,8 @@ class Controller:
             await self._closeout_owner_request(session, intake, "release_session", {}, window)
             require_release_coverage(preserved)
             for subscription in self._launch_subscriptions:
-                await subscription.unsubscribe()
+                from lab_sync_acquisition.nats_communication import _unsubscribe_session_subscription
+                await _unsubscribe_session_subscription(subscription)
                 with self._service_operation_lock:
                     if self._session is not session:
                         raise RuntimeError("Controller Session changed during subscription release")

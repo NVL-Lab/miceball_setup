@@ -9,6 +9,11 @@ import tempfile
 from threading import Event
 import unittest
 from unittest.mock import patch
+from types import SimpleNamespace
+
+from nats.aio.client import Client
+from nats.aio.subscription import Subscription
+from nats.js.client import JetStreamContext
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
@@ -102,6 +107,101 @@ class SessionBindingReleaseTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue((await self.fixture.controller.start_launched_session()).succeeded)
         self.assertEqual(self.workflow.products(), before)
         self.assertTrue((await self.fixture.controller.stop_launched_session()).succeeded)
+
+    async def sdk_subscription_release(self, *, fail_drain, cancel_drain=False):
+        """Use the SDK's real local closure and UNSUB transport ordering."""
+        self.assertTrue((await self.workflow.stop()).succeeded)
+        before = self.workflow.products()
+        controller = self.fixture.controller
+        previous, *remaining = controller._launch_subscriptions
+        await previous.unsubscribe()
+        client = Client()
+        client._status = Client.CONNECTED
+        client._flush_queue = asyncio.Queue()
+        writes = []
+        draining = asyncio.Event()
+
+        class Transport:
+            broken = fail_drain
+            interrupted = cancel_drain
+
+            def writelines(self, lines):
+                writes.extend(lines)
+
+            async def drain(self):
+                if self.interrupted:
+                    draining.set()
+                    await asyncio.Event().wait()
+                if self.broken:
+                    raise ConnectionResetError("UNSUB transport interrupted")
+
+        transport = Transport()
+        client._transport = transport
+        async def receive(message):
+            pass
+
+        core = Subscription(client, id=701, subject="release.sdk", cb=receive)
+        core._start(None)
+        heartbeat = asyncio.create_task(asyncio.Event().wait())
+        flow_control = asyncio.create_task(asyncio.Event().wait())
+        core._jsi = SimpleNamespace(_hbtask=heartbeat, _fctask=flow_control)
+        tasks = (core._wait_for_msgs_task, heartbeat, flow_control)
+
+        async def cleanup():
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+        self.addAsyncCleanup(cleanup)
+        client._subs[701] = core
+        subscription = JetStreamContext.PushSubscription(None, core, "RESULTS", "release")
+        controller._launch_subscriptions = (subscription, *remaining)
+        node = self.fixture.nodes["node-a"]
+        with patch.object(node, "stop_runtime", wraps=node.stop_runtime) as stop:
+            if cancel_drain:
+                attempt = asyncio.create_task(self.release())
+                await asyncio.wait_for(draining.wait(), 1)
+                attempt.cancel()
+                with self.assertRaises(asyncio.CancelledError):
+                    await attempt
+                self.assertTrue(subscription._closed)
+                self.assertEqual(controller.get_status()["session_id"], self.workflow.sid)
+                self.assertIn(subscription, controller._launch_subscriptions)
+                transport.interrupted = False
+            result = await self.release()
+            if fail_drain:
+                self.assertFalse(result.succeeded)
+                self.assertTrue(subscription._closed)
+                self.assertNotIn(701, client._subs)
+                self.assertEqual(controller.get_status()["session_id"], self.workflow.sid)
+                self.assertIn(subscription, controller._launch_subscriptions)
+                self.assertEqual(self.workflow.products(), before)
+                # Continued transport uncertainty must retain the same obligation.
+                self.assertFalse((await self.release()).succeeded)
+                transport.broken = False
+                client._status = Client.RECONNECTING
+                self.assertFalse((await self.release()).succeeded)
+                self.assertEqual(controller.get_status()["session_id"], self.workflow.sid)
+                client._status = Client.CONNECTED
+                result = await self.release()
+            self.assertTrue(result.succeeded, result.error)
+            self.assertIsNone(controller.get_status()["session_id"])
+            self.assertEqual(stop.call_count, 0)
+        self.assertTrue(all(task.done() for task in tasks))
+        self.assertTrue(any(b"UNSUB 701" in line for line in writes))
+        self.assertEqual(self.workflow.products(), before)
+        declaration = node.declared_devices[0]
+        self.assertTrue((await self.fixture.launch({"node-a": [declaration]})).succeeded)
+        self.assertEqual(self.workflow.products(), before)
+
+    async def test_sdk_healthy_subscription_release(self):
+        await self.sdk_subscription_release(fail_drain=False)
+
+    async def test_sdk_locally_closed_subscription_release_recovers_transport(self):
+        await self.sdk_subscription_release(fail_drain=True)
+
+    async def test_sdk_cancelled_transport_teardown_retains_binding_until_retry(self):
+        await self.sdk_subscription_release(fail_drain=False, cancel_drain=True)
 
 
 class EvidenceOwnerReleaseTests(unittest.TestCase):

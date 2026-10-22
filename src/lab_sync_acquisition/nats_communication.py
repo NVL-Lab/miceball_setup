@@ -57,6 +57,40 @@ RuntimeTelemetryCallback = Callable[[RuntimeTelemetryMessage], Awaitable[None]]
 logger = logging.getLogger(__name__)
 
 
+async def _unsubscribe_session_subscription(subscription) -> None:
+    """Finish SDK-local closure and transport teardown before release advances."""
+    if not isinstance(subscription, Subscription):
+        await subscription.unsubscribe()
+        return
+
+    client = subscription._conn
+    if not client.is_connected:
+        raise RuntimeError("Subscription teardown requires a connected NATS transport")
+    task = asyncio.current_task()
+    cancellations = task.cancelling()
+    if subscription._closed:
+        # nats-py closes/removes local interest before awaiting UNSUB delivery.
+        # Repeating this protocol operation is safe; repeating unsubscribe() is not.
+        await client._send_unsubscribe(subscription._id)
+    else:
+        await subscription.unsubscribe()
+    await client.flush()
+    if not client.is_connected:
+        raise RuntimeError("NATS transport disconnected during subscription teardown")
+    tasks = [subscription._wait_for_msgs_task]
+    if isinstance(subscription, JetStreamContext.PushSubscription):
+        state = subscription._sub._jsi
+        tasks.extend((state._hbtask, state._fctask))
+    tasks = [pending for pending in tasks if pending is not None]
+    for pending in tasks:
+        pending.cancel()
+    if tasks:
+        await asyncio.gather(*tasks, return_exceptions=True)
+    # Some SDK flush paths suppress cancellation; that is not release confirmation.
+    if task.cancelling() > cancellations:
+        raise asyncio.CancelledError()
+
+
 class DurablePublicationError(RuntimeError):
     """Explicit failure to obtain intended JetStream stream acceptance."""
 
