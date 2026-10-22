@@ -250,7 +250,6 @@ class DistributedSessionCloseoutTests(unittest.IsolatedAsyncioTestCase):
                 "timing_quality_interpretation", "node", {"interpretation_label": "warning"}, True)
             f.controller.process_timing_quality_interpretation(timing_evidence)
             self.assertIsNone(f.controller._acquisition_marker)
-            self.assertFalse(f.controller.finalize_session().succeeded)
         finally:
             resume.set()
             result = await task
@@ -527,7 +526,6 @@ class DistributedSessionCloseoutTests(unittest.IsolatedAsyncioTestCase):
             await task
         f.broker.before_publication = None
         self.assertEqual(f.ingestor.session_id, f.sid)
-        self.assertFalse(f.controller.finalize_session().succeeded)
         self.assertFalse((await f.controller.release_session(communication=f.communication, result_window_s=0.05)).succeeded)
         result = await self.stop()
         self.assertTrue(result.succeeded, result.error)

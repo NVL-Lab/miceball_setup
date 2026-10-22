@@ -415,7 +415,7 @@ class ProducerPublicationCompletionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.published("experiment_start_rejected"), [retained.to_dict()])
         self.assertTrue(f.ingestor.has_durable_runtime_evidence(retained))
 
-    async def test_unaccepted_produced_marker_cannot_be_discarded_by_finalization_or_release(self):
+    async def test_unaccepted_produced_marker_cannot_be_discarded_by_release(self):
         sid = await self.running(two=False)
         f = self.fixture
         self.assertTrue((await f.controller.stop_launched_session()).succeeded)
@@ -426,9 +426,6 @@ class ProducerPublicationCompletionTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse((await self.marker()).succeeded)
         retained = f.communication.unpublished_session_evidence(sid)
         self.assertEqual(len(retained), 1)
-        final = f.controller.finalize_session()
-        self.assertFalse(final.succeeded)
-        self.assertIn("Controller-owned evidence is missing", final.error)
         self.assertFalse((await f.controller.release_session()).succeeded)
         self.assertEqual(f.controller.get_status()["session_id"], sid)
         self.assertEqual(f.communication.unpublished_session_evidence(sid), retained)

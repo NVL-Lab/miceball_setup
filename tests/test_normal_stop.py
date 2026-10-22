@@ -181,7 +181,6 @@ class NormalStopTests(unittest.IsolatedAsyncioTestCase):
             task = asyncio.create_task(self.stop())
             await entered.wait()
             self.assertFalse((await self.stop()).succeeded)
-            self.assertFalse(self.fixture.controller.finalize_session().succeeded)
             self.assertFalse((await self.fixture.controller.release_session(communication=self.fixture.communication, result_window_s=1)).succeeded)
             task.cancel()
             with self.assertRaises(asyncio.CancelledError):
@@ -228,7 +227,6 @@ class NormalStopTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.fixture.controller.get_status()["session_state"], "stopping")
         self.assertEqual(self.producer.published("acquisition_evidence_completion"), [])
         self.assertIsNone(self.storage.get_acquisition_stage_preservation_confirmation(self.sid))
-        self.assertFalse(self.fixture.controller.finalize_session().succeeded)
         self.assertFalse((await self.fixture.controller.release_session(communication=self.fixture.communication, result_window_s=1)).succeeded)
         self.assertEqual(self.fixture.controller.get_status()["session_state"], "stopping")
         self.assertEqual(self.fixture.ingestor.session_id, self.sid)
@@ -244,7 +242,6 @@ class NormalStopTests(unittest.IsolatedAsyncioTestCase):
         self.fixture.broker.drop_results.add(("sync", "stop_runtime"))
         self.assertFalse((await self.stop()).succeeded)
         self.assertEqual(self.producer.published("acquisition_evidence_completion"), [])
-        self.assertFalse(self.fixture.controller.finalize_session().succeeded)
         self.assertEqual(self.fixture.controller.get_status()["session_state"], "stopping")
         self.assertIsNone(self.storage.get_acquisition_stage_preservation_confirmation(self.sid))
         self.fixture.broker.drop_results.clear()
@@ -254,7 +251,6 @@ class NormalStopTests(unittest.IsolatedAsyncioTestCase):
         await self.running()
         self.assertTrue((await self.fixture.controller.stop_launched_session()).succeeded)
         self.assertTrue((await self.producer.marker()).succeeded)
-        self.assertFalse(self.fixture.controller.finalize_session().succeeded)
         self.assertFalse((await self.fixture.controller.archive_acquisition_evidence(communication=self.receiver)).succeeded)
         self.assertFalse(self.fixture.controller.preserve_artifact_collection_handoff().succeeded)
         result = await self.stop()
@@ -277,7 +273,6 @@ class NormalStopTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result.succeeded)
         self.assertTrue(any(m.evidence_type == "acquisition_evidence_completion"
                             for m in self.fixture.ingestor.accepted_runtime_evidence))
-        self.assertFalse(self.fixture.controller.finalize_session().succeeded)
         self.assertEqual(self.fixture.controller.get_status()["session_state"], "stopping")
         self.assertFalse((self.fixture.root / f"session_{self.sid}/evidence").exists())
 

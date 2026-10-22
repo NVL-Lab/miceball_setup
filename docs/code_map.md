@@ -1159,7 +1159,6 @@ is complete; W030 records manual validation, focused tests, and audit reassessme
 - Controller._record_action_decision(decision): Delegates object-based decisions to shared applicability/cutoff enforcement and retries exact retained evidence handoff without changing identity.
 - Controller._controller_decision_evidence_snapshot(session_id): Copies Session-specific owned message identities and contents for exact compilation and archival confirmation.
 - Controller._controller_owned_session_evidence_snapshot(session_id): Copies persistent decisions, retained preparation-rejection messages, and any produced completion marker for exact Session-scoped preservation checks.
-- Controller._require_controller_decision_archival(session_id, confirmation): Blocks release unless decisions and owned evidence remain archived, also requiring current matching durable handoff coverage for a Session with its Q019 completion marker.
 - Controller._require_controller_owned_evidence(session_id, confirmation): Requires exact authoritative runtime-evidence coverage of all currently retained Controller-owned Session messages before retirement.
 - Controller: Sequentially coordinates one Session with optional keyword-only `component_id="controller"` for producer identity, preserves existing ownership, and orchestrates preparation, lifecycle, runtime cleanup, and final persistence.
 - Controller.__init__(acquisition_node=None, ingestor=None, storage_manager=None, session_record_path=None, synchronization_manager=None, *, component_id="controller"): Supports Controller creation before Session and without remote participant references while retaining existing local collaborators.
@@ -1201,8 +1200,8 @@ is complete; W030 records manual validation, focused tests, and audit reassessme
 - Controller.reconciliation_evidence: Returns detached retained persistent informational findings for existing publication and preservation paths.
 - Controller._reconcile_framework_attempt: Correlates confirmed final participant results against the original framework attempt and archived evidence without treating missing results or intent as completion.
 - Controller.check_ready(): Returns Session-independent service readiness, combining confirmed configured dependencies and refusing to fabricate a ready/unready report when dependency availability is unknown.
-- Controller.release_session(*, communication=None, result_window_s=None): Releases only its captured terminal binding after current preservation and independent cleanup/release obligations, using local guards or remote owner confirmation without borrowing locks across network waits.
-- Controller._session_ingest_state(): Snapshots existing intake views to detect acceptance/audit changes after final persistence or during subscription release.
+- Controller.release_session(*, communication=None, result_window_s=None): Releases only a launched terminal binding after confirmed NATS owner cleanup, preservation and independent release, rejecting unsupported local release without lifecycle or resource mutation.
+- Controller._session_ingest_state(): Snapshots accepted operational evidence and complete intake audit for current acquisition-stage verification without performing Controller completion.
 - Controller.start_experiment: Accepts keyword-only `scientific_outputs=()`, `preparation_readiness=()`, and `preparation_outcomes=()`, gates start on required readiness and correlated final remote successes, and reports preparation rejection once as persistent runtime evidence in failed result details without lifecycle activation.
 - Controller._record_failed_command: Records an unsuccessful command with optional plain diagnostic details, including the produced rejection message for a pre-start preparation failure.
 - Controller.stop_experiment: Records canonical normal-stop evidence, clears active runtime context and health mapping, and requests finalization of only that Experiment's streams without stopping the Session or acquisition runtime.
@@ -1230,7 +1229,17 @@ is complete; W030 records manual validation, focused tests, and audit reassessme
 - Controller.start_session(): Requires local transition admission, initialized canonical state and an explicit Ingestor before runtime startup, then starts the Session and writes its initial record.
 - Controller.run_one_iteration(): Rejects non-running or closeout-owned local iteration requests before collection and preserves the existing cleanup/failure path for actual acquisition errors.
 - Controller._session_record_evidence(): Gathers Session configuration, lifecycle, readiness, cleanup, command failures and Experiment evidence without duplicating the operational Evidence Archive or scientific observations in the Session Record.
-- Controller._session_ingest_state(): Captures current operational messages and the complete intake audit for finalization/release race detection without obsolete scientific-envelope counters.
+
+**G4-B / Decision 419 (implemented; pending independent validation):** Removed
+the historical Controller completion API, tuple-based local release and final
+record-writing helper, plus the finalizer-only decision snapshot cache. Supported
+NATS closeout/release retain their owner proofs and deployed confirmation.
+Maintenance checks current exact owned-evidence coverage and applicable handoff
+readback; absent deployed final persistence still blocks retirement. Shared
+record construction, Ingestor compilation and StorageManager APIs remain intact.
+Regression coverage migrates former hybrid release tests to the existing launched
+closeout fixtures and preserves owner-level archival/recovery tests. See Q013
+for implementation verification and environment limitations; G4-A stays CLOSED.
 
 ### G4-A Local Entry-Point Coverage (Implementation, Not Validation Or Closure)
 
@@ -1257,7 +1266,7 @@ readback remain independent confirmation boundaries.
 | Local entry points versus launched Experiment transitions, Normal Stop and Kill | Existing Experiment lock and closeout ownership remain authoritative | Selected G2/G3, remote-health, fatal-overlap and interrupted Stop regressions |
 | Local/remote Normal Stop retry and launched resource work after cancellation | Original admission context, including None, survives retry; owner/mode rejection cannot replace it; retained closeout fences launched start and shared termination | `NormalStopAdmissionTests`, including successful preservation, permitted Kill conversion and fresh context after verified retirement |
 | Experiment transitions before versus after Normal Stop/Kill admission | Existing Experiment lock excludes closeout before admission mutation; retained closeout excludes subsequent resource work after lock release or cancellation | `ExperimentCloseoutAdmissionTests`, existing local-transition and Kill-admission controls; matrix below |
-| `finalize_session`, `release_session`, maintenance, preservation consumers | Existing guards retained; legacy completion-proof correction is deferred G4-B | No G4-B changes or claim that its confirmed defect is resolved |
+| Historical completion, release, maintenance and preservation consumers | Historical G4-A boundary; Decision 419 removes the obsolete completion/local release pipeline in G4-B | Current G4-B implementation is pending independent validation; shared owner proof remains required |
 | Launch/start rollback response consumption | Existing implementation unchanged | Wrong-operation rollback correction is deferred G4-C |
 
 New tests are in `tests/test_local_closeout_ownership.py`. Evidence here is
@@ -1981,7 +1990,7 @@ deployment validation (M011), distinct from W032's software validation.
 - NatsAcquisitionNodeCommunication.publish_new_runtime_evidence(): Serializes retained lifecycle/health/failure publication without changing original identities and advances progress only after durable acknowledgment.
 - NatsAcquisitionNodeCommunication.publish_evidence(message): Retains unconfirmed node-owned messages for explicit later publication and requires durable acknowledgment before removing the obligation.
 - InMemoryIngestor.compile_artifact_collection_handoff(session_id): Groups retained Session-scoped artifact_manifest messages by manifest identity, selects complete finalized or initial manifests, and returns session_id plus artifacts entries containing artifact_manifest and missing_finalization_evidence.
-- Controller.finalize_session(): Retains legacy finalization for Sessions without a Q019 marker; for a produced Q019 marker it refuses unconfirmed publication and requires current Stage A/handoff coverage before completion, without rewriting the acquisition archive or discarding its summary metadata.
+- Historical Controller completion is removed under Decision 419; existing Ingestor compilation and StorageManager archival/handoff APIs remain independently available without completing a Session.
 - StorageManager owns Artifact Plane retrieval and global storage; byte retrieval was outside Slice 22 and is now implemented separately in Slice 23, with real Jetson/SSH-SFTP deployment validation still pending under M011.
 
 The historical implemented persistent-evidence compilation and Evidence Archive
@@ -2039,10 +2048,11 @@ without owning the boundary, interpreting transport, or adding an evidence queue
 
 Controller coordinates Session processing finalization after acquisition end
 and required post-session processing; ending one Experiment does not trigger
-Session-wide collection. The explicit evidence-enabled sequence is stop_session(),
-await collect_session_artifacts_with_evidence(), then finalize_session(). Generic
-Ingestor compilation and archive writing are unchanged. finalize_session() rejects
-an active collection/publication operation without waiting or mutating lifecycle.
+Session-wide collection. The historical direct-owner completion sequence is
+retired under Decision 419. Supported completion uses launched normal_stop_session()
+with authoritative NATS owner proof; release_session() requires that launched
+binding and confirmed cleanup/preservation. Existing Ingestor compilation and
+archive writing remain available to their owners without Controller completion.
 Unavailable copied-size metadata is null and does not change retrieval/verification
 outcomes or prevent later artifact attempts. Durable publication alone
 does not guarantee Ingestor consumption before finalization; that Session-wide

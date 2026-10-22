@@ -300,8 +300,6 @@ class LocalCloseoutOwnershipTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.controller.get_status()["session_id"], self.sid)
         self.assertFalse((await self.controller.release_session()).succeeded)
         self.assertFalse(self.controller.stop_session().succeeded)
-        with patch.object(self.storage, "write_evidence_archive", side_effect=OSError("archive unavailable")):
-            self.assertFalse(self.controller.finalize_session().succeeded)
         self.assertEqual(self.controller.get_status()["session_state"], "failed")
         self.assertEqual(self.stops.call_count, 1)
         self.assertFalse(any(c["command_type"] == "kill" for c in self.f.broker.commands))
@@ -1015,11 +1013,7 @@ class LocalFailureTimingTests(unittest.TestCase):
             self.assertTrue(f.node.status()["cleanup_confirmed"])
             self.assertIsNone(f.storage.get_acquisition_stage_preservation_confirmation("session"))
             self.assertFalse(f.controller.stop_session().succeeded)
-            with patch.object(f.storage, "write_evidence_archive", side_effect=OSError("archive unavailable")):
-                self.assertFalse(f.controller.finalize_session().succeeded)
             self.assertEqual(f.controller.get_status()["session_state"], "failed")
-            preserved = f.controller.finalize_session()
-            self.assertTrue(preserved.succeeded, preserved.error)
             self.assertEqual(f.controller.get_status()["session_state"], "failed")
             self.assertEqual(stops.call_count, 1)
             self.assertEqual(physical_stops.call_count, 1)

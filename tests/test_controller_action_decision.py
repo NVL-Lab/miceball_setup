@@ -164,7 +164,8 @@ class ControllerActionDecisionTests(unittest.TestCase):
             )
 
             controller.stop_session()
-            controller.finalize_session()
+            storage.write_final_session_record(
+                controller.get_status()["session_id"], **controller._session_record_evidence())
             record = storage.read_session_record(
                 root
                 / "session_controller-action-session"

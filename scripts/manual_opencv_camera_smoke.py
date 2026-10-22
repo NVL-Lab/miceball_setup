@@ -276,7 +276,6 @@ def _run_scientific(args, adapter, manager, config) -> int:
             _require_success(controller.run_one_iteration())
         _require_success(controller.stop_experiment(experiment_id))
         _require_success(controller.stop_session())
-        _require_success(controller.finalize_session())
         manifest, = node.local_storage_manager.manifests
         report = verify_scientific_artifact(manifest, origin, shape, args.frame_dtype)
     except (Exception, KeyboardInterrupt) as error:

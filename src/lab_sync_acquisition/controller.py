@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import Awaitable, Callable
-from contextlib import nullcontext
 from contextvars import ContextVar
 from copy import deepcopy
 from dataclasses import dataclass, replace
@@ -177,7 +176,6 @@ class Controller:
         self._command_results: list[ControllerCommandResult] = []
         self._controller_action_decisions: list[ControllerActionDecision] = []
         self._controller_action_decision_evidence: list[RuntimeEvidenceMessage] = []
-        self._archived_controller_action_decisions: dict[str, dict[str, Any]] = {}
         self._artifact_collection_in_progress = False
         self._launch_communication: NatsControllerCommunication | None = None
         self._reserved_participants: tuple[RuntimeParticipant, ...] = ()
@@ -1836,18 +1834,6 @@ class Controller:
             snapshot[self._acquisition_marker.evidence_id] = deepcopy(self._acquisition_marker.to_dict())
         return snapshot
 
-    def _require_controller_decision_archival(
-        self, session_id: str, confirmation: dict[str, Any] | None,
-    ) -> None:
-        decisions = self._controller_decision_evidence_snapshot(session_id)
-        if confirmation is None or decisions != self._archived_controller_action_decisions:
-            raise RuntimeError("Controller decision Evidence Archive preservation is unconfirmed")
-        self._require_controller_owned_evidence(session_id, confirmation)
-        if self._acquisition_marker_session is self._session and self._acquisition_marker is not None:
-            expected_handoff = self._ingestor.compile_artifact_collection_handoff(session_id)
-            if json.dumps(self._storage_manager.read_artifact_collection_handoff(session_id), sort_keys=True) != json.dumps(expected_handoff, sort_keys=True):
-                raise RuntimeError("Current durable artifact handoff does not cover the closing Session")
-
     def _require_controller_owned_evidence(self, session_id: str, confirmation: dict) -> None:
         """Require exact authoritative archive coverage without retiring unpreserved evidence."""
         if not isinstance(confirmation.get("runtime_evidence"), list):
@@ -2411,140 +2397,15 @@ class Controller:
                 "runtime_result": runtime_result,
             },
         )
-
-    @service_operation()
-    def finalize_session(self) -> ControllerCommandResult:
-        """Persist Phase 13 products, completing only a stopping Session."""
-
-        session = self._require_session()
-        try:
-            self._require_in_process_workflow()
-        except RuntimeError as error:
-            return self._record_failed_command("finalize_session", error)
-        if self._artifact_collection_in_progress or self._acquisition_publication_active or self._acquisition_archival_active or self._normal_stop_task is not None:
-            return self._record_failed_command(
-                "finalize_session", RuntimeError("Artifact collection/publication is in progress"))
-        if session.current_state not in {
-                SessionState.STOPPING, SessionState.COMPLETED, SessionState.FAILED, SessionState.ABORTED}:
-            return self._record_failed_command(
-                "finalize_session", RuntimeError("Session must end acquisition before finalization"))
-        self._finalization_confirmation = None
-        self._archived_controller_action_decisions = {}
-        try:
-            if self._ingestor is None:
-                raise RuntimeError("Session finalization requires an explicit Ingestor reference")
-            ingest_state = self._session_ingest_state()
-            compiled_runtime_evidence = (
-                self._ingestor.compile_persistent_runtime_evidence()
-            )
-            decision_snapshot = self._controller_decision_evidence_snapshot(session.session_id)
-            owned_snapshot = self._controller_owned_session_evidence_snapshot(session.session_id)
-            compiled_messages = {
-                message.evidence_id: message.to_dict()
-                for message in compiled_runtime_evidence["runtime_evidence"]
-            }
-            if any(compiled_messages.get(identity) != contents
-                   for identity, contents in decision_snapshot.items()):
-                raise RuntimeError("Required Controller decision evidence is missing from persistent compilation")
-            if any(json.dumps(compiled_messages.get(identity), sort_keys=True) != json.dumps(contents, sort_keys=True)
-                   for identity, contents in owned_snapshot.items()):
-                raise RuntimeError("Required Controller-owned evidence is missing from persistent compilation")
-            artifact_collection_handoff = self._ingestor.compile_artifact_collection_handoff(
-                session.session_id
-            )
-            archive_paths = self._storage_manager.write_evidence_archive(
-                session.session_id,
-                compiled_runtime_evidence,
-            )
-            if not isinstance(archive_paths, dict) or not all(
-                isinstance(archive_paths.get(name), Path)
-                for name in ("runtime_evidence", "ingest_audit", "compilation_summary")
-            ):
-                raise RuntimeError("Evidence Archive write confirmation is unavailable")
-            final_record_path = self._write_final_session_record()
-            if decision_snapshot != self._controller_decision_evidence_snapshot(session.session_id):
-                raise RuntimeError("Controller decision evidence changed during final persistence")
-            if owned_snapshot != self._controller_owned_session_evidence_snapshot(session.session_id):
-                raise RuntimeError("Controller-owned evidence changed during final persistence")
-        except Exception as error:
-            self._mark_session_failed(str(error))
-            return self._record_failed_command("finalize_session", error)
-
-        if session.current_state == SessionState.STOPPING:
-            session.complete()
-        self._archived_controller_action_decisions = decision_snapshot
-        self._finalization_confirmation = (ingest_state, str(final_record_path))
-        return self._record_successful_command(
-            "finalize_session",
-            {
-                "session_state": session.current_state.value,
-                "evidence_archive_paths": {
-                    name: str(path)
-                    for name, path in archive_paths.items()
-                },
-                "session_record_path": str(final_record_path),
-                "artifact_collection_handoff": artifact_collection_handoff,
-            },
-        )
-
     @service_operation()
     @_session_command
     async def release_session(self, *, communication: NatsControllerCommunication | None = None,
                               result_window_s: float | None = None) -> ControllerCommandResult:
-        """Release a terminal binding after confirmed cleanup and final persistence."""
+        """Release a launched terminal binding after confirmed cleanup and persistence."""
         if self._launch_communication is not None:
             return await self._release_session_remote(communication, result_window_s)
-        session = self._session
-        try:
-            session = self._require_session()
-            if self._normal_stop_task is not None:
-                raise RuntimeError("Normal Stop is in progress")
-            if session.current_state not in {SessionState.COMPLETED, SessionState.FAILED, SessionState.ABORTED}:
-                raise RuntimeError("Session release requires a terminal Session")
-            self._require_runtime_cleanup(session)
-            if not session.cleanup_occurred:
-                raise RuntimeError("Session runtime cleanup is unconfirmed")
-            if self._artifact_collection_in_progress or self._active_experiment_id is not None:
-                raise RuntimeError("Session-specific work remains active")
-            if self._finalization_confirmation is None:
-                raise RuntimeError("Required final persistence is unconfirmed")
-            ingest_state, record_path = self._finalization_confirmation
-            with (self._ingestor._intake_lock if self._ingestor is not None else nullcontext()), \
-                    self._storage_manager.session_preservation_guard(session.session_id) as confirmation:
-                if ingest_state != self._session_ingest_state():
-                    raise RuntimeError("Accepted intake changed after final persistence")
-                self._require_controller_decision_archival(session.session_id, confirmation)
-                # Refresh the pre-completion record to preserve the actual terminal outcome.
-                record_path = str(self._write_final_session_record())
-            # Lock order is intake -> storage; retain both through retirement, never an await.
-            with (self._ingestor._intake_lock if self._ingestor is not None else nullcontext()), \
-                    self._storage_manager.session_preservation_guard(session.session_id) as confirmation:
-                if ingest_state != self._session_ingest_state():
-                    raise RuntimeError("Accepted intake changed during Session release")
-                self._require_controller_decision_archival(session.session_id, confirmation)
-                record = confirmation["session_record"]
-                self._require_runtime_cleanup(session)
-                lifecycle = record.get("session_lifecycle_evidence", [])
-                if (record.get("accepted_session_config", {}).get("session_id") != session.session_id
-                        or record.get("final_session_status") != session.final_status
-                        or not lifecycle or lifecycle[-1].get("to_state") != session.current_state.value):
-                    raise RuntimeError("Terminal Session Record preservation is unconfirmed")
-                outcome = {"session_id": session.session_id,
-                           "session_state": session.current_state.value,
-                           "final_session_status": dict(session.final_status),
-                           "session_record_path": record_path}
-                if self._session is not session:
-                    raise RuntimeError("Controller Session binding changed during release")
-                self._retire_session_binding(outcome)
-        except Exception as error:
-            if self._session is not session:
-                # A stale operation must not record its failure in a newer binding.
-                return ControllerCommandResult(
-                    "release_session", False, {"session_id": session.session_id},
-                    f"{type(error).__name__}: {error}",
-                )
-            return self._record_failed_command("release_session", error)
-        return self._record_successful_command("release_session", outcome)
+        return self._record_failed_command("release_session",
+            RuntimeError("Session release requires a launched NATS binding"))
 
     def _retire_session_binding(self, outcome):
         """Retire only the Controller's already verified Session-specific state."""
@@ -2556,7 +2417,6 @@ class Controller:
         self._launch_subscriptions = ()
         self._runtime_cleanup_confirmed = False
         self._finalization_confirmation = None
-        self._archived_controller_action_decisions = {}
         self._controller_action_decisions.clear()
         self._controller_action_decision_evidence.clear()
         self._acquisition_marker_session = None
@@ -2868,7 +2728,14 @@ class Controller:
                             raise RuntimeError("Current Controller decisions lack remote archival confirmation")
                     else:
                         with storage_manager.session_preservation_guard(self._session.session_id) as confirmation:
-                            self._require_controller_decision_archival(self._session.session_id, confirmation)
+                            if confirmation is None:
+                                raise RuntimeError("Controller decision Evidence Archive preservation is unconfirmed")
+                            self._require_controller_owned_evidence(self._session.session_id, confirmation)
+                            if self._acquisition_marker_session is self._session and self._acquisition_marker is not None:
+                                expected = self._ingestor.compile_artifact_collection_handoff(self._session.session_id)
+                                actual = storage_manager.read_artifact_collection_handoff(self._session.session_id)
+                                if json.dumps(actual, sort_keys=True) != json.dumps(expected, sort_keys=True):
+                                    raise RuntimeError("Current durable artifact handoff does not cover the closing Session")
                 except Exception as error:
                     blockers.append(f"Controller decision preservation: {error}")
         if self._artifact_collection_in_progress or self._active_experiment_id is not None:
@@ -3339,13 +3206,6 @@ class Controller:
     def _write_initial_session_record(self) -> Path:
         session = self._require_session()
         return self._storage_manager.write_initial_session_record(
-            session.session_id,
-            **self._session_record_evidence(),
-        )
-
-    def _write_final_session_record(self) -> Path:
-        session = self._require_session()
-        return self._storage_manager.write_final_session_record(
             session.session_id,
             **self._session_record_evidence(),
         )

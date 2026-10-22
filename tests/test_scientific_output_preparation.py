@@ -51,6 +51,7 @@ class ScientificOutputPreparationTests(unittest.TestCase):
         manager = DeviceManager((ReadyFakeAdapter("camera-001", "camera", ("stream",), True),))
         storage = PersistentStorageManager(root)
         ingestor = InMemoryIngestor(storage_manager=storage)
+        self.storage, self.ingestor = storage, ingestor
         sync = SynchronizationManager()
         node = AcquisitionNode(session_id, manager, sync, ingestor, node_id="node-001",
                                device_declarations=config.selected_devices,

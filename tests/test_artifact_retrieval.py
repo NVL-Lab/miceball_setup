@@ -10,6 +10,8 @@ from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from lab_sync_acquisition import ExperimentConfiguration
+
 from lab_sync_acquisition import (
     ArtifactManifest, LocalStorageManager, PersistentStorageManager,
     SshRetrievalEndpoint,
@@ -306,7 +308,7 @@ class ArtifactRetrievalTests(unittest.TestCase):
             self.assertIn("primary SSH failure", result.artifact_results[0].failure_information)
             self.assertFalse((root / "global/session/experiment/node/artifact/frames.h5").exists())
 
-    def test_controller_initiates_collection_after_finalization_without_lifecycle_change(self):
+    def test_owner_collection_preserves_stopped_session_and_archived_history(self):
         for failure in (False, True):
             with self.subTest(failure=failure), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
@@ -321,26 +323,28 @@ class ArtifactRetrievalTests(unittest.TestCase):
                            side_effect=configured_storage):
                     preparation, controller, node = fixture.workflow(root)
                 self.assertTrue(controller.start_experiment(
-                    "experiment", scientific_outputs=(preparation.output("events"),)).succeeded)
+                    "experiment", scientific_outputs=(preparation.output("events"),), configuration=ExperimentConfiguration(60, {"node-001": 1000000}, 1000000)).succeeded)
                 self.assertTrue(controller.stop_experiment("experiment").succeeded)
                 self.assertTrue(controller.stop_session().succeeded)
-                finalization = controller.finalize_session()
-                self.assertTrue(finalization.succeeded)
+                paths = preparation.storage.write_evidence_archive(
+                    "session-001", preparation.ingestor.compile_persistent_runtime_evidence())
+                record_path = preparation.storage.write_final_session_record(
+                    "session-001", **controller._session_record_evidence())
                 manifest = node.local_storage_manager.manifests[0]
                 source_bytes = Path(manifest.local_storage_path).read_bytes()
                 sftp = SftpDouble({manifest.local_storage_path: source_bytes})
                 mock_ssh, client = self.ssh(sftp)
                 if failure:
                     client.connect.side_effect = ConnectionError("SSH unavailable")
-                record_path = Path(finalization.details["session_record_path"])
                 record_before = record_path.read_bytes()
-                archive = Path(finalization.details["evidence_archive_paths"]["runtime_evidence"])
+                archive = paths["runtime_evidence"]
                 archive_before = archive.read_bytes()
                 with mock_ssh:
-                    result = controller.collect_session_artifacts()
+                    result = preparation.storage.collect_artifacts(
+                        preparation.ingestor.compile_artifact_collection_handoff("session-001"))
                 self.assertFalse(result.succeeded)
-                self.assertEqual(controller.get_status()["session_state"], "completed")
-                collection = result.details["artifact_collection_result"]
+                self.assertEqual(controller.get_status()["session_state"], "stopping")
+                collection = result.to_dict()
                 self.assertFalse(collection["succeeded"])
                 self.assertEqual(collection["artifact_results"][0]["outcome"],
                                  "failure" if failure else "success")

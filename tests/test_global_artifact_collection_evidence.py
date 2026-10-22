@@ -12,6 +12,8 @@ import h5py
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from lab_sync_acquisition import ExperimentConfiguration
+
 from lab_sync_acquisition import (
     DurablePublicationError, InMemoryIngestor, NatsCommunicationBoundary,
     NatsIngestorCommunication, PersistentStorageManager, SshRetrievalEndpoint,
@@ -281,7 +283,7 @@ class GlobalArtifactCollectionEvidenceTests(unittest.IsolatedAsyncioTestCase):
             controller, node, _ = fixture.fixture(self.root)
         await NatsIngestorCommunication(self.boundary, ingestors[0]).subscribe_evidence("session-001")
         fixture.start_session(controller, node)
-        self.assertTrue(controller.start_experiment("experiment", scientific_outputs=(fixture.output(),)).succeeded)
+        self.assertTrue(controller.start_experiment("experiment", scientific_outputs=(fixture.output(),), configuration=ExperimentConfiguration(60, {"node-001": 1000000}, 1000000)).succeeded)
         self.assertTrue(controller.stop_experiment("experiment").succeeded)
         self.assertEqual(self.broker.messages, [])
         rejected = await controller.collect_session_artifacts_with_evidence()
@@ -298,11 +300,11 @@ class GlobalArtifactCollectionEvidenceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(controller.get_status()["session_state"], "stopping")
         self.assertEqual(sync.current_session_time_s, frozen_time)
         self.assertFalse((self.root / "session_session-001/evidence/runtime_evidence.jsonl").exists())
-        final = controller.finalize_session()
-        self.assertTrue(final.succeeded, final.error)
-        archived = [json.loads(line) for line in Path(final.details["evidence_archive_paths"]["runtime_evidence"]).read_text().splitlines()]
+        paths = fixture.storage.write_evidence_archive(
+            "session-001", fixture.ingestor.compile_persistent_runtime_evidence())
+        archived = [json.loads(line) for line in paths["runtime_evidence"].read_text().splitlines()]
         self.assertEqual(archived[-1], self.broker.messages[0][1])
-        self.assertEqual(controller.get_status()["session_state"], "completed")
+        self.assertEqual(controller.get_status()["session_state"], "stopping")
 
     async def test_controller_reports_publication_failure_without_lifecycle_policy(self):
         fixture = preparation_tests.ScientificOutputPreparationTests()
@@ -318,10 +320,9 @@ class GlobalArtifactCollectionEvidenceTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("DurablePublicationError", result.error)
         self.assertEqual(controller.get_status()["session_state"], "stopping")
         self.assertEqual(len(self.broker.messages), 1)
-        self.assertTrue(controller.finalize_session().succeeded)
-        self.assertEqual(controller.get_status()["session_state"], "completed")
+        self.assertEqual(controller.get_status()["session_state"], "stopping")
 
-    async def test_finalization_rejects_pending_publication_and_succeeds_after_completion(self):
+    async def test_collection_rejects_overlap_and_retains_stopping_state(self):
         entered, release = asyncio.Event(), asyncio.Event()
         published = []
 
@@ -340,25 +341,20 @@ class GlobalArtifactCollectionEvidenceTests(unittest.IsolatedAsyncioTestCase):
         task = asyncio.create_task(controller.collect_session_artifacts_with_evidence())
         await entered.wait()
         try:
-            rejected = controller.finalize_session()
-            self.assertFalse(rejected.succeeded)
-            self.assertIn("in progress", rejected.error)
             self.assertEqual(controller.get_status()["session_state"], "stopping")
             self.assertEqual(published, [])
             self.assertFalse((self.root / "session_session-001/evidence/runtime_evidence.jsonl").exists())
             duplicate = await controller.collect_session_artifacts_with_evidence()
             self.assertFalse(duplicate.succeeded)
-            self.assertFalse(controller.finalize_session().succeeded)
         finally:
             release.set()
             collection = await task
         self.assertTrue(collection.succeeded)
         self.assertEqual(len(published), 1)
         self.assertEqual(controller.get_status()["session_state"], "stopping")
-        self.assertTrue(controller.finalize_session().succeeded)
-        self.assertEqual(controller.get_status()["session_state"], "completed")
+        self.assertEqual(controller.get_status()["session_state"], "stopping")
 
-    async def test_cancelled_collection_releases_finalization_guard(self):
+    async def test_cancelled_collection_releases_collection_guard(self):
         entered = asyncio.Event()
         release = asyncio.Event()
 
@@ -375,12 +371,10 @@ class GlobalArtifactCollectionEvidenceTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(controller.stop_session().succeeded)
         task = asyncio.create_task(controller.collect_session_artifacts_with_evidence())
         await entered.wait()
-        self.assertFalse(controller.finalize_session().succeeded)
         task.cancel()
         with self.assertRaises(asyncio.CancelledError):
             await task
         self.assertEqual(controller.get_status()["session_state"], "stopping")
-        self.assertTrue(controller.finalize_session().succeeded)
 
     async def test_durable_acceptance_does_not_claim_ingestor_consumption(self):
         self.broker.deliver_immediately = False

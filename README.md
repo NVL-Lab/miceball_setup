@@ -619,9 +619,10 @@ Controller initiates post-session collection and coordinates the handoff;
 StorageManager owns later retrieval through the separate Artifact Plane.
 Slice 22 does not implement artifact-byte transfer, diagnostics compilation,
 restart recovery, new persistence infrastructure, or Session lifecycle changes.
-Controller's finalize_session result exposes artifact_collection_handoff with
+The historical Slice 22 Controller completion API is retired under Decision 419.
+Ingestor compilation and StorageManager durable handoff readback expose
 session_id and artifacts entries containing artifact_manifest and
-missing_finalization_evidence. Current Ingestor retention is in memory. Slice 22
+missing_finalization_evidence without completing a Session. Slice 22
 validation used simulated devices and NATS broker doubles, not live NATS or
 hardware acquisition; artifact-byte retrieval was not implemented by Slice 22.
 
@@ -674,11 +675,14 @@ Ending one Experiment does not trigger Session-wide collection. The archive must
 not be treated as finally complete before legitimate post-session evidence can
 be produced. Configure PersistentStorageManager with the existing async
 `evidence_publisher` callable and logical `component_id`; the explicit sequence is
-`Controller.stop_session()`, await `Controller.collect_session_artifacts_with_evidence()`,
-then `Controller.finalize_session()`. Publication failures are reported through
-the existing DurablePublicationError/Controller command-result path. Finalization
-rejects active collection/publication without lifecycle mutation; the guard clears
-after success, failure, or cancellation. Copied size comes from the temporary
+the historical direct-owner sequence, now retired under Decision 419. Supported
+completion uses `await Controller.normal_stop_session(...)` on a launched NATS
+Session with scientific cleanup, complete acquisition intake and verified Stage A
+preservation, followed by `await Controller.release_session(communication=...,
+result_window_s=...)` after confirmed closeout. Later collection is separate.
+Local development acquisition does not provide Controller Session completion
+or binding release. Publication failures use the existing
+DurablePublicationError/command-result path. Copied size comes from the temporary
 file position; unavailable size is null without changing actual outcomes or
 preventing later attempts. W033 records the initial audit FAIL, both corrections,
 manual Scenarios 1-5 and 6B PASS (Scenario 6 inconclusive), and final re-audit PASS.

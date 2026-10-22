@@ -16,7 +16,6 @@ from lab_sync_acquisition import (
 )
 from tests import test_closeout_attempt_ownership as ownership
 from tests import test_distributed_session_closeout as remote
-from tests import test_session_binding_release as binding
 from tests.test_closeout_confirmation_integrity import _deliver_result
 from tests.test_producer_publication_completion import interpretation
 from tests.test_session_launch import _Boundary, _Broker
@@ -337,31 +336,6 @@ class CloseoutLifecycleIntegrityTests(unittest.IsolatedAsyncioTestCase):
                         self.assertEqual(stopped.call_count, 1)
                         after = workflow.products() if local else workflow.archive()
                         self.assertEqual({p: b for p, b in after.items() if str(p).endswith(".jsonl")}, before)
-
-    async def test_legacy_local_release_keeps_current_node_proof_without_requiring_a_marker(self):
-        workflow = binding.SessionBindingReleaseTests()
-        workflow.addCleanup = self.addCleanup
-        workflow.addAsyncCleanup = self.addAsyncCleanup
-        await workflow.asyncSetUp()
-        f = workflow.launch
-        sid = await workflow.start_session()
-        with patch.object(workflow.node, "stop_runtime", wraps=workflow.node.stop_runtime) as stopped:
-            await workflow.stop_session()
-            self.assertTrue(f.controller.finalize_session().succeeded)
-            directory = workflow.storage._session_directory(sid)
-            before = {p: p.read_bytes() for p in directory.rglob("*") if p.is_file()}
-            original = await self.invalidate(f, RuntimeParticipant("acquisition_node", "node-a"))
-            self.assertFalse((await f.controller.release_session()).succeeded)
-            self.assertEqual(f.controller.get_status()["session_id"], sid)
-            self.assertIsNotNone(await f.communication.request_runtime_command(RuntimeParticipant("acquisition_node", "node-a"),
-                "stop_runtime", sid, {}, .1, command_id=original.command_id))
-            self.assertTrue((await f.controller.release_session()).succeeded)
-            self.assertEqual(stopped.call_count, 1)
-            # Legacy release persists its terminal lifecycle; archived evidence is unchanged.
-            self.assertEqual({p: p.read_bytes() for p in directory.rglob("*.jsonl")},
-                             {p: data for p, data in before.items() if p.suffix == ".jsonl"})
-            self.assertEqual(workflow.storage.read_session_record(directory / "session_record_final.json")
-                             ["final_session_status"]["state"], "completed")
 
     async def test_release_rechecks_current_proof_and_retains_completed_release_steps(self):
         for boundary in ("local_unsubscribe", "read_session_closeout", "release_session", "final_readback"):

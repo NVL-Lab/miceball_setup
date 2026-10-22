@@ -7,6 +7,8 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import AsyncMock, patch
 
+from lab_sync_acquisition import ExperimentConfiguration
+
 from lab_sync_acquisition import (
     ArtifactManifest, InMemoryIngestor, NatsAcquisitionNodeCommunication,
     NatsCommunicationBoundary, NatsIngestorCommunication, RuntimeCommandMessage,
@@ -29,7 +31,7 @@ class ArtifactCollectionHandoffTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             fixture, controller, node = self.workflow(root)
             self.assertTrue(controller.start_experiment(
-                "first", scientific_outputs=(fixture.output("events"),)).succeeded)
+                "first", scientific_outputs=(fixture.output("events"),), configuration=ExperimentConfiguration(60, {"node-001": 1000000}, 1000000)).succeeded)
             initial = node.artifact_manifest_evidence[0]
             self.assertEqual(initial.payload, node.local_storage_manager.manifests[0].to_dict())
             self.assertEqual(initial.evidence_type, "artifact_manifest")
@@ -44,16 +46,18 @@ class ArtifactCollectionHandoffTests(unittest.TestCase):
             node.finalize_experiment_scientific_outputs("first")
             self.assertEqual(len(node.artifact_manifest_evidence), 2)
             self.assertTrue(controller.stop_session().succeeded)
-            result = controller.finalize_session()
-            self.assertTrue(result.succeeded, result.error)
-            handoff = result.details["artifact_collection_handoff"]
+            handoff = fixture.ingestor.compile_artifact_collection_handoff("session-001")
+            paths = fixture.storage.write_evidence_archive(
+                "session-001", fixture.ingestor.compile_persistent_runtime_evidence())
+            record_path = fixture.storage.write_final_session_record(
+                "session-001", **controller._session_record_evidence())
             self.assertEqual(handoff, {"session_id": "session-001", "artifacts": [
                 {"artifact_manifest": finalized.payload, "missing_finalization_evidence": False}]})
-            archive = Path(result.details["evidence_archive_paths"]["runtime_evidence"])
+            archive = paths["runtime_evidence"]
             self.assertEqual([message for line in archive.read_text().splitlines()
                               if (message := json.loads(line))["evidence_type"] == "artifact_manifest"],
                              [initial.to_dict(), finalized.to_dict()])
-            record = json.loads(Path(result.details["session_record_path"]).read_text())
+            record = json.loads(record_path.read_text())
             self.assertEqual([event["event_type"] for event in record["experiment_lifecycle_evidence"]],
                              ["experiment_start", "experiment_stop"])
             self.assertNotIn("artifact_collection_handoff", record)
@@ -83,7 +87,7 @@ class ArtifactCollectionHandoffTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             fixture, controller, node = self.workflow(root)
             self.assertTrue(controller.start_experiment(
-                "first", scientific_outputs=(fixture.output("events"),)).succeeded)
+                "first", scientific_outputs=(fixture.output("events"),), configuration=ExperimentConfiguration(60, {"node-001": 1000000}, 1000000)).succeeded)
             ingestor = InMemoryIngestor()
             ingestor.receive_runtime_evidence(node.artifact_manifest_evidence[0])
             entry = ingestor.compile_artifact_collection_handoff("session-001")["artifacts"][0]

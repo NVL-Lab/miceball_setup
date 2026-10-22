@@ -69,7 +69,6 @@ class KillSessionTests(unittest.IsolatedAsyncioTestCase):
         before = self.normal.products()
         self.assertTrue((await self.kill()).succeeded)
         self.assertEqual(self.normal.products(), before)
-        self.assertFalse(self.fixture.controller.finalize_session().succeeded)
         self.assertTrue((await self.fixture.controller.release_session(
             communication=self.fixture.communication, result_window_s=1)).succeeded)
 
@@ -132,7 +131,6 @@ class KillSessionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.fixture.controller.get_status()["session_state"], "aborted")
         self.assertEqual(self.fixture.ingestor.session_id, self.sid)
         self.assertIsNone(self.baseline())  # Interrupted owner work is not archival confirmation.
-        self.assertFalse(self.fixture.controller.finalize_session().succeeded)
 
     async def test_failed_persistence_preserves_journal_and_refuses_unsafe_retry(self):
         await self.running()

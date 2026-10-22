@@ -1,7 +1,6 @@
 """Durable closeout handoffs through existing compilation and persistence owners."""
 
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import contextmanager
 from copy import deepcopy
 from dataclasses import replace
 import json
@@ -11,7 +10,7 @@ from threading import Event
 import unittest
 from unittest.mock import patch
 
-from lab_sync_acquisition import InMemoryIngestor, LocalStorageManager, PersistentStorageManager, RuntimeEvidenceMessage, SessionConfig
+from lab_sync_acquisition import InMemoryIngestor, LocalStorageManager, PersistentStorageManager, RuntimeEvidenceMessage
 from tests import test_acquisition_stage_archival as stage_fixtures
 
 
@@ -35,6 +34,22 @@ class DurableArtifactHandoffTests(unittest.TestCase):
 
     def handoff(self):
         return self.ingestor.compile_artifact_collection_handoff("session")
+
+    def test_corrupt_handoff_readback_retains_owner_binding_and_original_history(self):
+        expected = self.handoff()
+        path = self.root / "session_session/artifact_collection_handoff.json"
+        path.parent.mkdir(parents=True)
+        # Exercise existing-identical readback, not initial hard-link promotion.
+        path.write_text(json.dumps(expected), encoding="utf-8")
+        self.storage.write_artifact_collection_handoff("session", expected)
+        good = path.read_bytes()
+        path.write_text("{}", encoding="utf-8")
+        with self.assertRaises((ValueError, RuntimeError, KeyError)):
+            self.storage.read_artifact_collection_handoff("session")
+        self.assertEqual(self.ingestor.session_id, "session")
+        path.write_bytes(good)
+        restored = PersistentStorageManager(self.root)
+        self.assertEqual(restored.read_artifact_collection_handoff("session"), expected)
 
     def test_finalized_handoff_roundtrip_and_restart_without_original_bindings(self):
         finalized = self.local.finalize_stream(self.manifest.storage_id)
@@ -240,71 +255,3 @@ class CloseoutArtifactHandoffTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.fixture.ingestor.session_id, self.stage.session_id)
         self.assertIsNotNone(self.storage.get_acquisition_stage_preservation_confirmation(self.stage.session_id))
         self.assertTrue(self.fixture.controller.preserve_artifact_collection_handoff().succeeded)
-
-    async def test_q019_release_requires_current_handoff_and_later_read_needs_no_binding(self):
-        await self.prepare()
-        self.assertTrue(self.fixture.controller.preserve_artifact_collection_handoff().succeeded)
-        sid = self.stage.session_id
-        expected = self.storage.read_artifact_collection_handoff(sid)
-        path = self.fixture.root / f"session_{sid}/artifact_collection_handoff.json"
-        self.assertTrue(self.fixture.controller.finalize_session().succeeded)
-        # Existing finalization is used only to exercise the existing terminal release API.
-        # Full Q019 Normal Stop orchestration remains a separate implementation slice.
-        good = path.read_bytes()
-        alias = deepcopy(expected)
-        self.assertEqual(alias["artifacts"][0]["artifact_manifest"]["details"]["row_count"], 0)
-        alias["artifacts"][0]["artifact_manifest"]["details"]["row_count"] = False
-        for contents in ("{}", json.dumps(alias)):
-            path.write_text(contents, encoding="utf-8")
-            self.assertFalse((await self.fixture.controller.release_session()).succeeded)
-        self.assertEqual(self.fixture.controller.get_status()["session_id"], sid)
-        path.write_bytes(good)
-        released = await self.fixture.controller.release_session()
-        self.assertTrue(released.succeeded, released.error)
-        for contents in ("{}", json.dumps(alias)):
-            path.write_text(contents, encoding="utf-8")
-            with self.assertRaises((ValueError, RuntimeError)):
-                self.fixture.ingestor.release_session(sid, storage_manager=self.storage)
-        self.assertEqual(self.fixture.ingestor.session_id, sid)
-        path.write_bytes(good)
-        self.assertTrue(self.fixture.ingestor.release_session(sid, storage_manager=self.storage))
-        restored = PersistentStorageManager(self.fixture.root)
-        self.assertIsNone(self.fixture.controller.get_status()["session_id"])
-        self.assertIsNone(self.fixture.ingestor.session_id)
-        self.assertEqual(restored.read_artifact_collection_handoff(sid), expected)
-
-    async def test_delayed_handoff_request_cannot_record_failure_in_a_new_binding(self):
-        await self.prepare()
-        controller, intake = self.fixture.controller, self.fixture.ingestor
-        self.assertTrue(controller.preserve_artifact_collection_handoff().succeeded)
-        self.assertTrue(controller.finalize_session().succeeded)
-        original_session = self.stage.session_id
-        history = intake.durable_runtime_evidence_history_guard
-        entered, resume = Event(), Event()
-
-        @contextmanager
-        def paused(*args):
-            entered.set()
-            if not resume.wait(5):
-                raise TimeoutError("test handoff request was not resumed")
-            with history(*args) as confirmed:
-                yield confirmed
-
-        with ThreadPoolExecutor(max_workers=1) as pool, patch.object(intake, "durable_runtime_evidence_history_guard", new=paused):
-            future = pool.submit(controller.preserve_artifact_collection_handoff)
-            try:
-                self.assertTrue(entered.wait(5))
-                self.assertTrue((await controller.release_session()).succeeded)
-                self.assertTrue(intake.release_session(original_session, storage_manager=self.storage))
-                created = controller.create_session(SessionConfig(None, None, None,
-                    str(self.fixture.root / "errors"), session_id="session-b"))
-                self.assertTrue(created.succeeded, created.error)
-                self.assertTrue(intake.prepare_session("session-b").ready)
-                before = controller.get_status()
-            finally:
-                resume.set()
-            stale = future.result(timeout=5)
-        self.assertFalse(stale.succeeded)
-        self.assertEqual(stale.details["session_id"], original_session)
-        self.assertEqual(controller.get_status(), before)
-        self.assertEqual(intake.session_id, "session-b")

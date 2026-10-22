@@ -12221,6 +12221,34 @@ implements history retrieval nor reopens finalized evidence.
 
 ---
 
+## Decision 419: Retire historical in-process Controller Session completion
+
+**Status:** Accepted
+
+The user has selected removal of the obsolete historical in-process Session
+completion workflow for G4-B, rather than adding another completion-proof
+mechanism. Supported deployed Session completion uses Controller orchestration
+through NATS regardless of physical service co-location, preserving Decisions
+375-376 and 382 and the G4-A isolation boundary under Decisions 407-408.
+
+Remove the historical completion path, including `Controller.finalize_session()`
+where appropriate, and supporting code/tests demonstrated to exist exclusively
+for it. Do not retain compatibility wrappers that perpetuate that lifecycle or
+introduce a second completion-proof pipeline. This supersedes earlier acceptance
+of that Controller completion workflow, not its historical validation records.
+Standalone `Session` lifecycle primitives remain where legitimately used; shared
+scientific finalization, evidence compilation, storage, preservation, release
+and development utilities are not obsolete merely because that workflow used them.
+
+Supported NATS completion/closeout retains scientific-owner finalization,
+complete acquisition intake, verified Stage A preservation, cleanup and
+independent release obligations. G4-A's validated behavior is unchanged.
+Recording this decision authorizes architecture synchronization and dependency
+assessment only: implementation requires ICC scope authorization. G4-B remains
+unfinished; Q013 stays OPEN. G4-C and G5 are outside this change.
+
+---
+
 # Accepted Architectural Principles
 
 The following principles summarize the accepted decisions so far.

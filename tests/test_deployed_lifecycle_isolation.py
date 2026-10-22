@@ -51,7 +51,7 @@ class LaunchedEntryPointIsolationTests(unittest.IsolatedAsyncioTestCase):
                        controller.run_one_iteration,
                        lambda: controller.start_experiment("wrong"),
                        lambda: controller.stop_experiment("experiment"), controller.stop_session,
-                       controller.finalize_session, controller.preserve_artifact_collection_handoff,
+                       controller.preserve_artifact_collection_handoff,
                        controller.collect_session_artifacts,
                        lambda: controller.execute_controller_action_decision(decision)):
             with self.subTest(entry=invoke):
@@ -87,15 +87,12 @@ class LaunchedEntryPointIsolationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(controller.get_status()["session_state"], before["session_state"])
         self.assertTrue(self.f.node.experiment_runtime_active)
 
-    async def test_legacy_finalization_cannot_fail_or_complete_stopped_launched_session(self):
+    async def test_stopped_launched_session_requires_nats_closeout(self):
         controller = self.controller
         stopped = await controller.stop_launched_session()
         self.assertTrue(stopped.succeeded, stopped.error)
         before = controller.get_status()
         self.assertEqual(before["session_state"], "stopping")
-        result = controller.finalize_session()
-        self.assertFalse(result.succeeded)
-        self.assertIn("in-process", result.error)
         after = controller.get_status()
         self.assertEqual(after["session_state"], "stopping")
         self.assertEqual(after["experiment_lifecycle_evidence"], before["experiment_lifecycle_evidence"])
@@ -164,7 +161,7 @@ class MultipleScientificOwnerTests(unittest.IsolatedAsyncioTestCase):
 
 
 class InProcessCompatibilityTests(unittest.TestCase):
-    def test_development_session_still_acquires_and_finalizes(self):
+    def test_development_session_still_acquires_and_stops(self):
         import tempfile
         with tempfile.TemporaryDirectory() as directory:
             fixture = development.ControllerActionDecisionTests()
@@ -175,14 +172,68 @@ class InProcessCompatibilityTests(unittest.TestCase):
                 self.assertTrue(controller.run_one_iteration().succeeded)
                 self.assertTrue(controller.stop_experiment("development").succeeded)
                 self.assertTrue(controller.stop_session().succeeded)
-                result = controller.finalize_session()
-                self.assertTrue(result.succeeded, result.error)
-                self.assertEqual(controller.get_status()["session_state"], "completed")
+                self.assertEqual(controller.get_status()["session_state"], "stopping")
             finally:
                 node.local_storage_manager.cleanup()
 
 
 class InProcessAdmissionTests(unittest.IsolatedAsyncioTestCase):
+    async def test_local_release_retains_running_and_stopped_session_without_writing(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fixture = development.ControllerActionDecisionTests()
+            controller, node, storage, _ = fixture._running_controller(root)
+            try:
+                for stopped in (False, True):
+                    if stopped:
+                        self.assertTrue(controller.stop_session().succeeded)
+                    before = controller.get_status()
+                    products = {p: p.read_bytes() for p in root.rglob("*") if p.is_file()}
+                    with patch.object(storage, "write_final_session_record", side_effect=AssertionError("unexpected write")), \
+                            patch.object(node, "stop_runtime", side_effect=AssertionError("unexpected cleanup")):
+                        for _ in range(2):
+                            result = await controller.release_session()
+                            self.assertFalse(result.succeeded)
+                            self.assertIn("launched NATS binding", result.error)
+                    after = controller.get_status()
+                    for key in ("session_id", "session_state", "experiment_lifecycle_evidence", "last_released_session"):
+                        self.assertEqual(after[key], before[key])
+                    self.assertEqual(products, {p: p.read_bytes() for p in root.rglob("*") if p.is_file()})
+            finally:
+                node.local_storage_manager.cleanup()
+
+    async def test_local_failed_session_cannot_release_even_with_owner_archival(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = development.ControllerActionDecisionTests()
+            controller, node, storage, _ = fixture._running_controller(Path(directory))
+            try:
+                self.assertTrue(controller.start_experiment("experiment-001",
+                    configuration=ExperimentConfiguration(60, {}, 1000000)).succeeded)
+                decision = controller.process_health_interpretation(fixture._evidence(1, "session_failure"))
+                self.assertTrue(controller.execute_controller_action_decision(decision).succeeded)
+                before = controller.get_status()
+                self.assertEqual(before["session_state"], "failed")
+                self.assertTrue(any(item.startswith("Controller decision preservation:")
+                    for item in controller.maintenance_blockers(controller._ingestor, storage)))
+                paths = storage.write_evidence_archive(before["session_id"],
+                    controller._ingestor.compile_persistent_runtime_evidence())
+                storage.write_final_session_record(before["session_id"], **controller._session_record_evidence())
+                blockers = controller.maintenance_blockers(controller._ingestor, storage)
+                self.assertIn("Unconfirmed final Session persistence", blockers)
+                self.assertFalse(any(item.startswith("Controller decision preservation:") for item in blockers))
+                paths["runtime_evidence"].write_text("", encoding="utf-8")
+                self.assertTrue(any(item.startswith("Controller decision preservation:")
+                    for item in controller.maintenance_blockers(controller._ingestor, storage)))
+                result = await controller.release_session()
+                self.assertFalse(result.succeeded)
+                self.assertEqual(controller.get_status()["session_id"], before["session_id"])
+                self.assertEqual(controller.get_status()["session_state"], "failed")
+                self.assertEqual(controller.get_status()["last_released_session"], before["last_released_session"])
+            finally:
+                node.local_storage_manager.cleanup()
+
     async def test_launched_closeout_cannot_claim_an_in_process_session(self):
         import tempfile
         with tempfile.TemporaryDirectory() as directory:

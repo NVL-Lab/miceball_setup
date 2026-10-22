@@ -93,9 +93,10 @@ class ExperimentScientificFinalizationTests(unittest.TestCase):
             self.assertTrue(controller.run_one_iteration().succeeded)
             self.assertTrue(controller.stop_session().succeeded)
             self.assertEqual(node.local_storage_manager.manifests[0].lifecycle_state, "finalized")
-            final = controller.finalize_session()
-            self.assertTrue(final.succeeded, final.error)
-            record = json.loads(Path(final.details["session_record_path"]).read_text())
+            record_path = controller._storage_manager.write_final_session_record(
+                "session", **controller._session_record_evidence())
+            record = json.loads(record_path.read_text())
+            self.assertEqual(controller.get_status()["session_state"], "stopping")
             self.assertEqual([e["event_type"] for e in record["experiment_lifecycle_evidence"]],
                              ["experiment_start", "experiment_stop"])
 

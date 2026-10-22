@@ -7,6 +7,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from lab_sync_acquisition import ExperimentConfiguration
+
 from lab_sync_acquisition import (
     AcquisitionNode, Controller, DeviceDeclaration, DeviceManager,
     ExperimentDescriptor, InMemoryIngestor, PersistentStorageManager,
@@ -137,10 +139,11 @@ class ScientificProductConfigurationTests(unittest.TestCase):
                 readiness["device_readiness"], readiness["service_readiness"]).succeeded)
             self.assertTrue(controller.start_session().succeeded)
             self.assertTrue(controller.start_experiment(
-                "experiment-001", scientific_outputs=(self.selection(),)).succeeded)
+                "experiment-001", scientific_outputs=(self.selection(),), configuration=ExperimentConfiguration(60, {"node-001": 1000000}, 1000000)).succeeded)
             self.assertTrue(controller.stop_experiment("experiment-001").succeeded)
             self.assertTrue(controller.stop_session().succeeded)
-            self.assertTrue(controller.finalize_session().succeeded)
+            storage.write_final_session_record(config.session_id, **controller._session_record_evidence())
+            self.assertEqual(controller.get_status()["session_state"], "stopping")
             record = json.loads((root / "session_session-001" / "session_record_final.json").read_text())
             self.assertEqual(record["experiment_descriptors"][0]["scientific_outputs"],
                              [self.selection().to_dict()])

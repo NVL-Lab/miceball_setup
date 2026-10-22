@@ -4,6 +4,16 @@
 
 ### G4 Remote Health Actions (G4-A Closed; Broader G4 Open)
 
+**G4-B implementation (Decision 419; pending independent validation):** The
+obsolete `Controller.finalize_session()` interface and local Controller binding
+release pipeline are removed. Local development acquisition/scientific finalization
+remain available, but do not complete or release a Controller Session. Supported
+completion uses launched `normal_stop_session()` and independent NATS owner proof;
+`release_session(communication=..., result_window_s=...)` requires confirmed
+launched closeout. No compatibility wrapper or second completion pipeline exists.
+Standalone Session lifecycle primitives and owner archival APIs are unchanged.
+G4-A remains CLOSED; G4-B/Q013 remain OPEN and G4-C/G5 are not part of this change.
+
 Decision 407 records the accepted G4-A simplification: already-admitted Normal
 Stop may complete despite fatal health evidence if every existing completion
 guarantee is satisfied. Independent fatal accounting and Session-scoped cleanup

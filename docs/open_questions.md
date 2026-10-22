@@ -814,6 +814,37 @@ The following questions preserve the completed review's pre-408 context. Decisio
 
 ### Completion Entry-Point Coverage
 
+**G4-B implementation under Decision 419 (not independently validated or closed):**
+Removed historical Controller completion and its finalizer-dependent local release,
+record-writing helper and archival snapshot cache. Unsupported local release
+retains lifecycle, resource ownership and binding. Existing NATS closeout/release,
+owner record construction and standalone Session lifecycle remain unchanged.
+Maintenance reuses exact current Controller-owned evidence readback and existing
+handoff verification rather than the deleted snapshot cache; unconfirmed final
+persistence continues to block maintenance. Tests migrate shared owner guarantees
+to archival APIs and launched closeout fixtures, not another completion pipeline.
+G4-B remains OPEN pending ICC validation and independent audit.
+
+Implementation verification: 45 distinct focused methods passed (34 affected
+methods, 10 selected owner/finalization regressions and one standalone Session
+completion control; overlapping reruns are not additional passes). Eighteen
+synchronous checks passed without event-loop substitution. Asynchronous checks
+used controlled scheduling, including the existing-identical-handoff fixture;
+normal Windows asyncio scheduling and initial hard-link promotion are not
+validated. Nine further integration checks remain unconfirmed in the restricted
+environment; hard-link permission failures were observed and are not passes.
+No live NATS, hardware, OS-signal or power-loss validation is claimed.
+
+**Accepted G4-B direction (Decision 419):** Retire the historical in-process
+Controller Session completion workflow instead of adding a second proof pipeline.
+Assess removal of `Controller.finalize_session()` and exclusively supporting
+code/tests; preserve legitimate standalone Session primitives and shared owner
+mechanisms. Supported deployed completion remains NATS-only regardless of service
+co-location. This is accepted architecture, not implemented removal or validation.
+ICC authorized the bounded removal now implemented above. G4-A stays CLOSED; Q013 stays
+OPEN and G4-C/G5 are outside this task. Earlier G4-B proof-gap reports below are
+historical motivation, not authorization to strengthen the retired workflow.
+
 The requirement that every completion guarantee be satisfied is unchanged; no
 legacy or alternate completion entry point receives an exemption. The impact
 review must trace `normal_stop_session()`, `finalize_session()` and their local,
