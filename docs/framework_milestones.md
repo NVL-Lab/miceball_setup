@@ -1731,8 +1731,30 @@ Broader cancellation/replacement and G2/G3 behavior were not exhaustively
 revalidated. See [G4-A closure](validated_workflows.md#g4-a---deployed-lifecycle-isolation-and-fatal-health-accounting)
 for the separate evidence stages and limitations.
 
-G4-B/G4-C remain deferred; G4/Q013, Q022, Q024, M015, Phase 16 and G5 are not
+At G4-A closure, G4-B/G4-C remained deferred; G4/Q013, Q022, Q024, M015, Phase 16 and G5 were not
 closed by G4-A. Prior architectural decisions and validation history are preserved.
+
+## Completed Historical Controller Completion Retirement (G4-B)
+
+**Status:** CLOSED - bounded validated software scope under Decision 419.
+The obsolete in-process `Controller.finalize_session()` pipeline and exclusive
+dependencies are removed; supported NATS completion and independent release
+remain authoritative, with no replacement completion pipeline. Shared owner
+preservation utilities and standalone Session lifecycle primitives remain.
+
+The initial independent audit found an inherited subscription teardown retry P2:
+nats-py locally closed interest before failed UNSUB transport delivery, leaving
+release retries stuck. The correction reconciles pending transport/task cleanup
+without treating local closure as confirmation or releasing unresolved bindings.
+ICC focused validation passed 4/4; independent Codex re-audit PASS with no
+confirmed remaining P0-P3 findings included 14 distinct checks. ICC accepted
+the audit and authorized closure. See [G4-B validation and history](validated_workflows.md#g4-b---historical-controller-completion-retirement-and-release-retry).
+
+No live NATS, initial hard-link promotion, hardware, OS-signal, power-loss or
+normal Windows asyncio validation is established. Nine Windows hard-link-blocked
+integration checks remain unconfirmed, not passes. G4-A stays CLOSED; G4-C is
+OPEN/deferred, G4/Q013 remain OPEN, and G5 is not started by this task. Q022,
+Q024, M015 and Phase 16 are unchanged.
 
 ## Completed Q022 Distributed Session Closeout (W060)
 

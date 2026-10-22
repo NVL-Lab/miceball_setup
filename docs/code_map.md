@@ -1230,7 +1230,7 @@ is complete; W030 records manual validation, focused tests, and audit reassessme
 - Controller.run_one_iteration(): Rejects non-running or closeout-owned local iteration requests before collection and preserves the existing cleanup/failure path for actual acquisition errors.
 - Controller._session_record_evidence(): Gathers Session configuration, lifecycle, readiness, cleanup, command failures and Experiment evidence without duplicating the operational Evidence Archive or scientific observations in the Session Record.
 
-**G4-B / Decision 419 (implemented; pending independent validation):** Removed
+**G4-B / Decision 419 (CLOSED within validated software scope):** Removed
 the historical Controller completion API, tuple-based local release and final
 record-writing helper, plus the finalizer-only decision snapshot cache. Supported
 NATS closeout/release retain their owner proofs and deployed confirmation.
@@ -1240,6 +1240,11 @@ record construction, Ingestor compilation and StorageManager APIs remain intact.
 Regression coverage migrates former hybrid release tests to the existing launched
 closeout fixtures and preserves owner-level archival/recovery tests. See Q013
 for implementation verification and environment limitations; G4-A stays CLOSED.
+The inherited SDK subscription teardown retry P2 is corrected and independently
+confirmed resolved. ICC focused validation passed 4/4; independent Codex re-audit
+passed 14 distinct checks with no confirmed remaining P0-P3 findings. See
+[G4-B closure](validated_workflows.md#g4-b---historical-controller-completion-retirement-and-release-retry).
+G4/Q013 remain OPEN and G4-C remains OPEN/deferred; G5 is not started here.
 
 ### G4-A Local Entry-Point Coverage (Implementation, Not Validation Or Closure)
 
@@ -1266,7 +1271,7 @@ readback remain independent confirmation boundaries.
 | Local entry points versus launched Experiment transitions, Normal Stop and Kill | Existing Experiment lock and closeout ownership remain authoritative | Selected G2/G3, remote-health, fatal-overlap and interrupted Stop regressions |
 | Local/remote Normal Stop retry and launched resource work after cancellation | Original admission context, including None, survives retry; owner/mode rejection cannot replace it; retained closeout fences launched start and shared termination | `NormalStopAdmissionTests`, including successful preservation, permitted Kill conversion and fresh context after verified retirement |
 | Experiment transitions before versus after Normal Stop/Kill admission | Existing Experiment lock excludes closeout before admission mutation; retained closeout excludes subsequent resource work after lock release or cancellation | `ExperimentCloseoutAdmissionTests`, existing local-transition and Kill-admission controls; matrix below |
-| Historical completion, release, maintenance and preservation consumers | Historical G4-A boundary; Decision 419 removes the obsolete completion/local release pipeline in G4-B | Current G4-B implementation is pending independent validation; shared owner proof remains required |
+| Historical completion, release, maintenance and preservation consumers | Historical G4-A boundary; Decision 419 removes the obsolete completion/local release pipeline in G4-B | G4-B CLOSED after independent validation and re-audit; shared owner proof remains required |
 | Launch/start rollback response consumption | Existing implementation unchanged | Wrong-operation rollback correction is deferred G4-C |
 
 New tests are in `tests/test_local_closeout_ownership.py`. Evidence here is
@@ -1449,8 +1454,9 @@ stable cleanup identities and originating-Session guards retain their independen
 trust/concurrency obligations. No public signatures, accepted decisions or
 deployment topology changed. Historical hybrid test compositions are migrated to
 object-free Controller fixtures or pure development fixtures, not supported with
-new fallback behavior. G4-A is CLOSED; G4/Q013 remain OPEN and G4-B/G4-C remain
-deferred. This does not close Q022, Q024, M015 or Phase 16.
+new fallback behavior. At G4-A closure, G4-B/G4-C remained deferred. G4-B is now
+CLOSED as recorded above; G4-C remains OPEN/deferred and G4/Q013 remain OPEN.
+This does not close Q022, Q024, M015 or Phase 16.
 
 ### tests/test_deployed_lifecycle_isolation.py
 

@@ -5757,10 +5757,74 @@ as passing. Broader cancellation/replacement and G2/G3 behavior were not
 exhaustively revalidated by the final audit; source review and existing regression
 coverage are distinct from newly executed independent checks.
 
-G4-A alone is CLOSED. G4-B (legacy completion proof), G4-C (startup/rollback
+At this G4-A closure, G4-A alone was CLOSED. G4-B (legacy completion proof),
+G4-C (startup/rollback
 correlation), broader G4/Q013, G5 live PC-Jetson validation, Q022, Q024, M015 and
-Phase 16 remain open or deferred under their existing tracking. Accepted
+Phase 16 remained open or deferred under their existing tracking. G4-B's
+subsequent closure is recorded below. Accepted
 architectural decisions, numbering and earlier validation history are unchanged.
+
+---
+
+# G4-B - Historical Controller Completion Retirement And Release Retry
+
+**Status: CLOSED within validated software scope.** ICC accepted the independent
+re-audit PASS with no confirmed remaining P0-P3 findings and authorized
+documentation-only closure under Decision 419.
+
+## Implemented scope
+
+The obsolete historical in-process Controller completion workflow, including
+`Controller.finalize_session()`, its exclusive final-record writer, tuple-based
+confirmation handling and finalizer-only archival snapshot dependencies, is
+removed. Unsupported local release fails without lifecycle, resource or binding
+release. Legitimate standalone `Session.complete()` and shared scientific-record,
+compilation, archival and owner preservation mechanisms remain.
+
+Supported deployed completion and release use the existing NATS owner contracts,
+retaining scientific finalization, complete acquisition intake, Stage A
+preservation, required cleanup and independent binding release. No replacement
+completion-proof pipeline was added and G4-A's accepted ownership boundary is
+unchanged.
+
+## Validation and correction history
+
+- Initial implementation verification: 45 distinct focused methods passed;
+  the separate teardown correction passed eight focused release methods under
+  controlled asyncio execution. These implementation results are not independent
+  validation or additive totals.
+- Initial independent G4-B audit: FAIL for one inherited P2, also reproduced
+  against pre-G4-B `770113f`. Actual nats-py 2.15.0 closed local subscription
+  interest before UNSUB transport drain failed; retries then encountered
+  `BadSubscriptionError` and retained the binding indefinitely. No evidence loss
+  or false release confirmation was observed.
+- Correction at `cd10e7e`: existing pending handles remain owned until connected
+  transport UNSUB/flush reconciliation and callback/JetStream task completion.
+  Local closure, transport errors and cancellation are not release confirmation;
+  existing preservation guards and final readback remain required.
+- Independent ICC focused subscription teardown validation: **4/4 PASS**.
+- Separate independent Codex read-only re-audit: **PASS**, no confirmed remaining
+  P0-P3 findings; **14 distinct checks passed**. Eight existing release regressions
+  and six independent workflows covered actual-SDK UNSUB failure/recovery,
+  separate flush failure, flush cancellation, cancellation during task completion,
+  archive corruption during teardown and authorized Kill/release. Checks verified
+  retained bindings, safe explicit recovery, subsequent Session admission,
+  unchanged archived products and no repeated physical device Stop. The original
+  P2 was independently confirmed resolved.
+
+## Limitations and remaining scope
+
+Actual nats-py behavior used simulated I/O, controlled asyncio execution and
+disk-backed owners, not live NATS or real sockets. Existing-identical-handoff
+fixtures do not validate initial hard-link promotion. Nine Windows
+hard-link-blocked integration checks remain unconfirmed and are not counted as
+passes. No hardware, OS-signal, power-loss or normal Windows asyncio validation
+is established. No tests or audit were rerun for documentation closure.
+
+G4-A and G4-B are CLOSED within their validated software scopes. G4-C remains
+OPEN/deferred; G4/Q013 remain OPEN. G5 is not started by this closure. Q022,
+Q024, M015, Phase 16 and all unrelated statuses remain unchanged. Decision 419
+and all accepted decision bodies and historical validation records are preserved.
 
 ---
 

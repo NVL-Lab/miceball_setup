@@ -492,9 +492,10 @@ producer messages. It does not resolve this publication-recovery question.
 
 ## Q013: What further framework behavior follows ControllerActionDecision execution?
 
-**Status:** OPEN. G4-A is CLOSED within its validated software scope at `2672879`;
-G4 remains OPEN and G4-B/G4-C remain deferred. See
-[G4-A closure](validated_workflows.md#g4-a---deployed-lifecycle-isolation-and-fatal-health-accounting).
+**Status:** OPEN. G4-A and G4-B are CLOSED within their validated software scopes;
+G4 remains OPEN and G4-C remains OPEN/deferred. See
+[G4-A closure](validated_workflows.md#g4-a---deployed-lifecycle-isolation-and-fatal-health-accounting)
+at `2672879` and [G4-B closure](validated_workflows.md#g4-b---historical-controller-completion-retirement-and-release-retry).
 
 ### Accepted G4-A Simplification (Decision 407)
 
@@ -557,7 +558,8 @@ Cutoff alone proves neither durability, preservation nor completion eligibility.
 All applicable accepted decisions require accounting and preservation before
 successful completion; Decisions 313, 322, 365 and 382 remain authoritative.
 These architectural requirements are implemented in the bounded restructuring
-and final correction closed below. Q013 remains OPEN; G4-B/G4-C remain deferred.
+and final correction closed below. Q013 remains OPEN; G4-B is CLOSED as recorded
+below and G4-C remains OPEN/deferred.
 
 ### G4-A Closure (Validated Software Scope)
 
@@ -814,7 +816,7 @@ The following questions preserve the completed review's pre-408 context. Decisio
 
 ### Completion Entry-Point Coverage
 
-**G4-B implementation under Decision 419 (not independently validated or closed):**
+**G4-B / Decision 419: CLOSED within validated software scope.**
 Removed historical Controller completion and its finalizer-dependent local release,
 record-writing helper and archival snapshot cache. Unsupported local release
 retains lifecycle, resource ownership and binding. Existing NATS closeout/release,
@@ -823,9 +825,12 @@ Maintenance reuses exact current Controller-owned evidence readback and existing
 handoff verification rather than the deleted snapshot cache; unconfirmed final
 persistence continues to block maintenance. Tests migrate shared owner guarantees
 to archival APIs and launched closeout fixtures, not another completion pipeline.
-G4-B remains OPEN pending ICC validation and independent audit.
+ICC accepted independent validation and the separate Codex re-audit PASS, with
+no confirmed remaining P0-P3 findings, and authorized documentation closure.
+G4-A remains CLOSED; G4/Q013 remain OPEN; G4-C remains OPEN/deferred. G5 is not
+started by this closure. See [G4-B closure](validated_workflows.md#g4-b---historical-controller-completion-retirement-and-release-retry).
 
-**G4-B subscription teardown correction (implementation only):** Actual nats-py
+**G4-B subscription teardown correction and independent re-audit:** Actual nats-py
 2.15.0 can close local subscription interest before UNSUB transport drain fails;
 repeating `unsubscribe()` then raises `BadSubscriptionError`. Controller retains
 the existing pending handle until connected transport reconciliation and local
@@ -838,8 +843,13 @@ eight focused release methods passed under controlled asyncio execution,
 including three SDK regressions, existing cancellation, corruption and failed
 preservation checks. Existing-identical handoff fixtures do not validate initial
 hard-link promotion. No live NATS, real sockets, hardware, OS-signal, power-loss
-or normal Windows asyncio scheduling validation is claimed. Independent
-validation and re-audit remain pending.
+or normal Windows asyncio scheduling validation is claimed. The initial
+independent audit returned FAIL for this inherited P2, also reproduced against
+pre-G4-B `770113f`; no evidence loss or false release was observed. ICC focused
+validation then passed 4/4 checks. The independent Codex re-audit passed 14
+distinct checks (eight release regressions and six independent adversarial
+workflows), confirming the P2 resolved with no remaining confirmed P0-P3 findings.
+These stages are not additive validation totals.
 
 Implementation verification: 45 distinct focused methods passed (34 affected
 methods, 10 selected owner/finalization regressions and one standalone Session
@@ -856,11 +866,12 @@ Controller Session completion workflow instead of adding a second proof pipeline
 Assess removal of `Controller.finalize_session()` and exclusively supporting
 code/tests; preserve legitimate standalone Session primitives and shared owner
 mechanisms. Supported deployed completion remains NATS-only regardless of service
-co-location. This is accepted architecture, not implemented removal or validation.
-ICC authorized the bounded removal now implemented above. G4-A stays CLOSED; Q013 stays
+co-location. This paragraph records the original architectural authorization;
+implementation and closure are recorded above. G4-A stays CLOSED; Q013 stays
 OPEN and G4-C/G5 are outside this task. Earlier G4-B proof-gap reports below are
 historical motivation, not authorization to strengthen the retired workflow.
 
+**Historical pre-removal scope assessment (resolved by Decision 419 removal):**
 The requirement that every completion guarantee be satisfied is unchanged; no
 legacy or alternate completion entry point receives an exemption. The impact
 review must trace `normal_stop_session()`, `finalize_session()` and their local,
