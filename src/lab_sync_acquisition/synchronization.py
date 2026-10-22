@@ -754,6 +754,9 @@ class SynchronizationManager:
     def maintenance_blockers(self, ingestor, storage_manager) -> list[str]:
         """Report only timing, mapping, and synchronization evidence obligations."""
         blockers = []
+        interface = getattr(self, "_maintenance", None)
+        preserved = (ingestor.has_durable_runtime_evidence if ingestor else
+                     interface.evidence_preserved if interface else lambda message: False)
         if self.is_running:
             blockers.append("Session Time is running")
         if self._active_mappings:
@@ -765,7 +768,7 @@ class SynchronizationManager:
             blockers.append("Active Session timing continuity is unresolved")
         if self._timing_reconciliation_evidence:
             if storage_manager is None:
-                unpreserved = any(not self._maintenance.evidence_preserved(m) for m in self._timing_reconciliation_evidence)
+                unpreserved = any(not preserved(m) for m in self._timing_reconciliation_evidence)
             else:
                 confirmation = storage_manager.get_framework_preservation_confirmation()
                 unpreserved = confirmation is None or any(
@@ -774,7 +777,6 @@ class SynchronizationManager:
             if unpreserved:
                 blockers.append("Unpreserved synchronization reconciliation evidence")
         available = ingestor.accepted_runtime_evidence if ingestor else self.maintenance_evidence()
-        preserved = ingestor.has_durable_runtime_evidence if ingestor else self._maintenance.evidence_preserved
         if any(not preserved(message) for message in self._distributed_evidence):
             blockers.append("Unpreserved synchronization quality evidence")
         for update in self._mapping_update_evidence:

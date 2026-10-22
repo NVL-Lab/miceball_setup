@@ -933,14 +933,37 @@ class Controller:
         result_window_s: float,
         scientific_outputs: Iterable[ScientificOutputSelection] = (),
     ) -> ControllerCommandResult:
+        """Serialize new launch admission with prior resource cleanup and transitions."""
+        if self._experiment_operation_lock.locked():
+            return self._record_failed_command("launch_session", RuntimeError("A runtime transition is in progress"))
+        async with self._experiment_operation_lock:
+            if self._session is None and self._runtime_cleanup_progress is not None:
+                progress = self._runtime_cleanup_progress
+                if progress.get("owner") != "launch":
+                    return self._record_failed_command("launch_session", RuntimeError("Unresolved Session cleanup remains"))
+                rollback = await self._rollback_initialization(progress, progress["communication"], result_window_s)
+                if not all(item["confirmed"] for item in rollback):
+                    return self._record_failed_command("launch_session", RuntimeError("Previous launch resources remain unresolved"),
+                        {"session_id": progress["session_id"], "rollback": rollback})
+                try:
+                    await self._finish_launch_subscriptions(progress)
+                except Exception as error:
+                    return self._record_failed_command("launch_session", error,
+                        {"session_id": progress["session_id"], "rollback": rollback})
+                self._runtime_cleanup_progress = None
+            return await self._launch_session(selections, communication=communication, participants=participants,
+                config_parameters=config_parameters, result_window_s=result_window_s, scientific_outputs=scientific_outputs)
+
+    async def _launch_session(self, selections, *, communication, participants, config_parameters,
+                              result_window_s, scientific_outputs):
         """Resolve/reserve resources and confirm distributed preparation before initialization."""
         session_id = uuid4().hex
         acquired = []
-        initializing = []
         subscriptions = []
         rollback = []
         unconfirmed_reservations = []
         initialization_outcomes = []
+        progress = None
         try:
             if self._session is not None:
                 raise RuntimeError("Controller already owns a Session")
@@ -964,18 +987,31 @@ class Controller:
                     raise ValueError(f"Launch requires one configured {component_type}")
                 mandatory.extend(matches)
             nodes = {p.component_id: p for p in participants if p.component_type == "acquisition_node"}
-            subscriptions.append(await communication.subscribe_command_results(None))
-            subscriptions.append(await communication.subscribe_command_results(session_id))
+            progress = self._session_closeout_progress(session_id)
+            progress.update(owner="launch", communication=communication, subscriptions=subscriptions)
 
             async def request(participant, operation, payload=None, session_scoped=True):
-                return await communication.request_command(
+                return await communication.request_runtime_command(
                     participant, operation, session_id if session_scoped else None,
                     payload or {}, result_window_s,
                 )
 
+            async def subscribe(awaitable):
+                task = asyncio.create_task(awaitable)
+                try:
+                    subscription = await asyncio.shield(task)
+                except asyncio.CancelledError:
+                    subscriptions.append(await communication._join_runtime_request_step(task, propagate_cancellation=False))
+                    raise
+                subscriptions.append(subscription)
+
             def confirmed(result):
                 return result is not None and result.success is True and result.status == "succeeded"
 
+            # Keep the established Session result consumers for supported callers;
+            # startup proof itself comes only from each isolated scoped requester.
+            await subscribe(communication.subscribe_command_results(None))
+            await subscribe(communication.subscribe_command_results(session_id))
             for participant in mandatory:
                 result = await request(participant, "check_readiness", session_scoped=False)
                 report = result.payload.get("service_readiness") if confirmed(result) else None
@@ -1049,12 +1085,16 @@ class Controller:
                 if not selected:
                     continue
                 publication_error = None
+                step = self._cleanup_step(session_id, participant)
+                step["reservation_requested"] = True
                 try:
                     reservation = await request(participant, "reserve")
                 except Exception as error:
                     reservation = None
                     publication_error = str(error)
                 if not confirmed(reservation) or reservation.payload.get("confirmed") is not True:
+                    if reservation is not None and reservation.success is False:
+                        progress["participants"].pop((participant.component_type, participant.component_id))
                     if reservation is None:
                         # No initialization was requested: owner-keyed release is safe,
                         # but an absent release result still leaves ownership unresolved.
@@ -1062,11 +1102,14 @@ class Controller:
                         try:
                             release = await request(participant, "release_reservation")
                             release_confirmed = confirmed(release) and release.payload.get("confirmed") is True
+                            step["released"] = release_confirmed
                         except Exception:
                             pass
                         unconfirmed_reservations.append({"participant": participant.to_dict(),
                                                         "release_confirmed": release_confirmed,
                                                         "error": publication_error})
+                        if not release_confirmed:
+                            raise RuntimeError(f"Reservation cleanup is unconfirmed: {node_id}")
                     if any(d.required for d in selected):
                         raise RuntimeError(f"Required node reservation unconfirmed/rejected: {node_id}")
                     continue
@@ -1086,7 +1129,7 @@ class Controller:
             for participant in (*mandatory, *acquired):
                 # Record the cleanup obligation before publication: a missing result
                 # cannot prove participant preparation never started.
-                initializing.append(participant)
+                self._cleanup_step(self._session, participant)["initialization_requested"] = True
                 payload = {}
                 if participant.component_type == "synchronization_manager" and config.synchronization_configuration is not None:
                     payload = {"synchronization_configuration": config.synchronization_configuration}
@@ -1108,42 +1151,34 @@ class Controller:
             self._session.initialize(device_reports, preparation_reports)
             self._launch_communication = communication
             self._reserved_participants = tuple(acquired)
-            subscriptions.append(await communication.subscribe_experiment_expiry_evidence(session_id, self))
+            await subscribe(communication.subscribe_experiment_expiry_evidence(session_id, self))
             self._launch_result_window_s = result_window_s
-            subscriptions.append(await communication.subscribe_health_interpretation_evidence(
+            await subscribe(communication.subscribe_health_interpretation_evidence(
                 session_id, self, self.execute_launched_controller_action_decision))
             self._launch_subscriptions = tuple(subscriptions)
+            self._runtime_cleanup_progress = None
             return self._record_successful_command("launch_session", {"session_id": session_id,
                 "session_state": self._session.current_state.value, "configuration": config.to_dict(),
                 "unconfirmed_reservations": unconfirmed_reservations, "initialization": initialization_outcomes})
-        except Exception as error:
-            clean = set()
-            for participant in initializing:
-                try:
-                    result = await communication.request_command(participant, "abort_session_initialization", session_id, {}, result_window_s)
-                    succeeded = result is not None and result.success is True and result.payload.get("confirmed") is True
-                    if succeeded:
-                        clean.add(participant)
-                    rollback.append({"participant": participant.to_dict(), "operation": "abort_session_initialization", "confirmed": succeeded})
-                except Exception as cleanup_error:
-                    rollback.append({"participant": participant.to_dict(), "operation": "abort_session_initialization", "confirmed": False, "error": str(cleanup_error)})
-            for participant in acquired:
-                if participant in initializing and participant not in clean:
-                    rollback.append({"participant": participant.to_dict(), "operation": "release_reservation", "confirmed": False, "reason": "cleanup_unconfirmed"})
-                    continue
-                try:
-                    result = await communication.request_command(participant, "release_reservation", session_id, {}, result_window_s)
-                    rollback.append({"participant": participant.to_dict(), "operation": "release_reservation", "confirmed": result is not None and result.success is True and result.payload.get("confirmed") is True})
-                except Exception as release_error:
-                    rollback.append({"participant": participant.to_dict(), "operation": "release_reservation", "confirmed": False, "error": str(release_error)})
-            if self._session is not None and self._session.session_id == session_id:
-                self._mark_session_failed(str(error))
-                self._session = None
-            for subscription in subscriptions:
-                try:
-                    await subscription.unsubscribe()
-                except Exception as unsubscribe_error:
-                    rollback.append({"operation": "unsubscribe_command_results", "confirmed": False, "error": str(unsubscribe_error)})
+        except (Exception, asyncio.CancelledError) as error:
+            try:
+                if progress is not None:
+                    rollback = await self._rollback_initialization(progress, communication, result_window_s)
+                    await self._finish_launch_subscriptions(progress)
+                    if all(item["confirmed"] for item in rollback):
+                        self._runtime_cleanup_progress = None
+            except Exception as cleanup_error:
+                rollback.append({"operation": "unsubscribe_command_results", "confirmed": False,
+                                 "error": str(cleanup_error)})
+            finally:
+                if self._session is not None and self._session.session_id == session_id:
+                    self._session = None
+                    self._launch_communication = None
+                    self._reserved_participants = ()
+                    self._launch_result_window_s = None
+                    self._launch_subscriptions = ()
+            if isinstance(error, asyncio.CancelledError):
+                raise
             result = ControllerCommandResult("launch_session", False,
                 {"session_id": session_id, "rollback": rollback,
                  "unconfirmed_reservations": unconfirmed_reservations,
@@ -1174,27 +1209,22 @@ class Controller:
                 await self._request_launched_runtime(self._synchronization_participant(), "start_runtime",
                     {"node_ids": [p.component_id for p in self._reserved_participants]})
             for participant in self._reserved_participants:
-                result = (await self._request_launched_runtime(participant, "start_runtime", {})
-                    if session.configuration.synchronization_configuration is not None else
-                    await self._launch_communication.request_command(participant, "start_runtime", session.session_id, {}, self._launch_result_window_s))
+                result = await self._request_launched_runtime(participant, "start_runtime", {})
                 if result is None or result.success is not True:
                     raise RuntimeError(f"Runtime start unconfirmed/failed: {participant.component_id}")
             session.start()
             return self._record_successful_command("start_session", {"session_state": session.current_state.value})
-        except Exception as error:
-            rollback = []
+        except (Exception, asyncio.CancelledError) as error:
             for participant in session.configuration.expected_runtime_participants:
-                try:
-                    cleanup = await self._launch_communication.request_command(participant, "abort_session_initialization", session.session_id, {}, self._launch_result_window_s)
-                    confirmed = cleanup is not None and cleanup.success is True and cleanup.payload.get("confirmed") is True
-                    if participant in self._reserved_participants and confirmed:
-                        release = await self._launch_communication.request_command(participant, "release_reservation", session.session_id, {}, self._launch_result_window_s)
-                        confirmed = release is not None and release.success is True and release.payload.get("confirmed") is True
-                    rollback.append({"participant": participant.to_dict(), "confirmed": confirmed})
-                except Exception as cleanup_error:
-                    rollback.append({"participant": participant.to_dict(), "confirmed": False, "error": str(cleanup_error)})
+                step = self._cleanup_step(session, participant)
+                step["initialization_requested"] = True
+                step["reservation_requested"] = participant in self._reserved_participants
             self._mark_session_failed(str(error))
+            rollback = await self._rollback_initialization(self._runtime_cleanup_progress,
+                self._launch_communication, self._launch_result_window_s)
             self._runtime_cleanup_confirmed = bool(rollback) and all(item["confirmed"] for item in rollback)
+            if isinstance(error, asyncio.CancelledError):
+                raise
             return self._record_failed_command("start_session", error, {"rollback": rollback})
 
     @service_operation()
@@ -1282,6 +1312,79 @@ class Controller:
         return self._record_successful_command("stop_session", {"session_id": session.session_id,
             "session_state": session.current_state.value, "nodes": outcomes})
 
+    async def _rollback_initialization(self, progress, communication, window):
+        """Resume only original-attempt resource cleanup, never initialization."""
+        sid = progress["session_id"]
+        outcomes = []
+
+        async def request(participant, step, operation):
+            identity = step.setdefault(operation + "_command_id", uuid4().hex)
+            result = await communication.request_runtime_command(participant, operation, sid, {}, window,
+                                                                 command_id=identity)
+            if result is not None and result.success is False:
+                step.pop(operation + "_command_id", None)
+            if result is not None and result.success is True and result.payload.get("confirmed") is True:
+                return
+            # A current empty report alone cannot exclude an earlier queued
+            # acquisition. Require an owner resolution of the original cleanup
+            # command before reconciling an already-cleared node binding.
+            if (participant.component_type == "acquisition_node" and result is not None
+                    and result.success is False and await available(participant)):
+                step["released"] = True
+                step["initialization_aborted"] = True
+                return
+            raise RuntimeError(f"{operation} is unconfirmed")
+
+        async def available(participant):
+            result = await communication.request_runtime_command(participant, "check_readiness", None, {}, window)
+            if result is None or result.success is not True:
+                return False
+            payload = result.payload
+            diagnostics = payload.get("service_diagnostics", {})
+            if participant.component_type == "acquisition_node":
+                report = payload.get("acquisition_node_readiness", {})
+                owned = diagnostics.get("participation", {})
+                return (report.get("node_id") == participant.component_id
+                        and "reserved_for_session_id" in report and report["reserved_for_session_id"] is None
+                        and "session_id" in owned and owned["session_id"] is None
+                        and owned.get("is_running") is False)
+            if participant.component_type == "ingestor":
+                intake = diagnostics.get("session_intake", {})
+                return "session_id" in intake and intake["session_id"] is None
+            return ("prepared_session_id" in diagnostics and diagnostics["prepared_session_id"] is None
+                    and diagnostics.get("active_mappings") == []
+                    and "clock_stop_outcome" in diagnostics
+                    and diagnostics["clock_stop_outcome"] in {None, "completed"})
+
+        for key, step in progress["participants"].items():
+            participant = RuntimeParticipant(*key)
+            node = participant.component_type == "acquisition_node"
+            try:
+                if step.get("initialization_requested") and not step.get("initialization_aborted"):
+                    await request(participant, step, "abort_session_initialization")
+                    step["initialization_aborted"] = True
+                    outcomes.append({"participant": participant.to_dict(), "operation": "abort_session_initialization", "confirmed": True})
+                if node and step.get("reservation_requested") and not step["released"]:
+                    await request(participant, step, "release_reservation")
+                    step["released"] = True
+                    outcomes.append({"participant": participant.to_dict(), "operation": "release_reservation", "confirmed": True})
+                if not await available(participant):
+                    raise RuntimeError("Participant resource availability is unconfirmed")
+                outcomes.append({"participant": participant.to_dict(), "operation": "resource_availability", "confirmed": True})
+            except Exception as error:
+                outcomes.append({"participant": participant.to_dict(), "operation": "abort_session_initialization"
+                    if step.get("initialization_requested") and not step.get("initialization_aborted")
+                    else "release_reservation" if node and not step["released"] else "resource_availability",
+                    "confirmed": False, "reason": "cleanup_unconfirmed", "error": str(error)})
+        return outcomes
+
+    async def _finish_launch_subscriptions(self, progress):
+        """Retain unresolved failed-launch subscription handles through retry."""
+        from lab_sync_acquisition.nats_communication import _unsubscribe_session_subscription
+        for subscription in tuple(progress["subscriptions"]):
+            await _unsubscribe_session_subscription(subscription)
+            progress["subscriptions"].remove(subscription)
+
     def _cleanup_step(self, session, participant, initial_command_id=None):
         """Own each Session participant's cleanup identity independently of a coroutine."""
         progress = self._session_closeout_progress(session)
@@ -1291,12 +1394,14 @@ class Controller:
 
     def _session_closeout_progress(self, session):
         """Retain admission and completed work in the existing Session cleanup progress."""
-        if self._session is not session:
+        session_id = session if isinstance(session, str) else session.session_id
+        if (isinstance(session, str) and self._session is not None or
+                not isinstance(session, str) and self._session is not session):
             raise RuntimeError("Controller Session changed during cleanup")
         if self._runtime_cleanup_progress is None:
-            self._runtime_cleanup_progress = {"session_id": session.session_id, "participants": {}}
+            self._runtime_cleanup_progress = {"session_id": session_id, "participants": {}}
         progress = self._runtime_cleanup_progress
-        if progress["session_id"] != session.session_id:
+        if progress["session_id"] != session_id:
             raise RuntimeError("Cleanup progress belongs to another Session")
         return progress
 
@@ -2713,6 +2818,8 @@ class Controller:
     def maintenance_blockers(self, ingestor, storage_manager) -> list[str]:
         """Report Controller-owned obligations without stopping other services."""
         blockers = []
+        if self._runtime_cleanup_progress is not None and self._runtime_cleanup_progress.get("owner") == "launch":
+            blockers.append("Unresolved failed-launch resource cleanup")
         if self._session is not None:
             if self._session.current_state not in {SessionState.COMPLETED, SessionState.FAILED, SessionState.ABORTED}:
                 blockers.append("Active Session")
@@ -3032,6 +3139,11 @@ class Controller:
                 "administrative_outcome": (interface._administrative_outcome({"session_id": self._session.session_id})
                                             if interface and self._session else None)},
             "last_binding_release": dict(self._last_released_session) if self._last_released_session else None,
+            "failed_launch_cleanup": ({"session_id": self._runtime_cleanup_progress["session_id"],
+                "participants": [RuntimeParticipant(*key).to_dict()
+                    for key in self._runtime_cleanup_progress["participants"]]}
+                if self._runtime_cleanup_progress is not None
+                and self._runtime_cleanup_progress.get("owner") == "launch" else None),
             "last_reconciliation": (deepcopy(self._reconciliation_evidence[-1].payload["findings"])
                                     if self._reconciliation_evidence else None),
             "framework_attempts": {identity: {"actual_outcome": attempt["outcome"],

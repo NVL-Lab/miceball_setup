@@ -882,7 +882,8 @@ contract conflict found there to LLC/HLC rather than weakening proof requirement
 
 ### G4-C Failed-Launch Cleanup Clarification (Decision 420)
 
-**Status: OPEN; accepted architecture synchronized, implementation pending.**
+**Status: OPEN; bounded Decision 420 implementation complete, pending ICC
+validation and independent audit.**
 The user-accepted simplified direction resolves the pre-Session cleanup-entry-point
 question: a failed launch is not recovered as a Session. Only minimum original
 reservation/Session identity, affected participant scope and necessary cleanup
@@ -904,10 +905,36 @@ The earlier pre-Session rollback recommendation was not synchronized as a
 decision; Decision 420 records cleanup-only semantics and qualifies the historical
 no-retry wording in Decisions 293/294/300 without changing their accepted bodies.
 
-G4-C still requires scoped startup/rollback correlation and safe cleanup/admission
-implementation, independent validation and audit. This synchronization claims none
-of those stages complete. G4-A/B remain CLOSED; G4/Q013 remain OPEN. G5 is outside
-this task.
+**G4-C implementation (not independently validated or closed):** Launch and
+runtime-start reserve/initialize/start/abort/release requests use existing scoped
+NATS requests; pre-Session readiness/inventory retain `session_id=None`. The
+existing operation lock serializes launch, cleanup and runtime transitions. One
+existing cleanup-progress envelope retains original-attempt participant scope,
+command identities, uncertain side effects and subscription teardown. Failed
+launches discard their Session object, not unresolved resources. A later launch
+first resolves old cleanup and current participant-owned availability, then
+creates a new Session with a new ID. Readiness alone is insufficient. A Session
+that successfully launched but later failed runtime startup retains its separate
+lifecycle, preservation and release obligations.
+
+Shared abort/release sequencing replaces the duplicate rollback loops. Cached
+service responses echo the current attempt nonce; existing diagnostics report
+resource bindings through NATS. Unconfirmed cleanup remains a Controller
+maintenance blocker. No new recovery API, lifecycle, lock, registry or journal
+is introduced. Implementation verification passed 40 distinct focused methods
+under controlled asyncio execution, including 13 new methods. Four initial
+regressions reproduced the original defects before production edits. A broader
+initial test-discovery attempt also exposed pre-existing test failures; those
+are not claimed as passes or resolved by this slice.
+
+The final checks cover correlation, cancellation, competing admission, missing
+availability proof, lost replies, original-owner protection, new Session identity,
+scientific/evidence retention, and selected G4-A/B Normal Stop/Kill/release paths.
+No live NATS, hardware, OS-signal, power-loss or normal Windows asyncio scheduling
+validation is claimed. Existing-identical-handoff fixtures do not establish
+initial hard-link promotion; the nine previously Windows-blocked checks remain
+unconfirmed. G4-A/B remain CLOSED; G4-C and G4/Q013 remain OPEN. G5 is outside this
+task. ICC independent validation and separate audit remain required.
 
 ### Historical Implementation And Validation Reports
 

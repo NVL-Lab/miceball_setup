@@ -717,10 +717,12 @@ class NatsControllerCommunication:
         return result
 
     async def request_runtime_command(self, participant: RuntimeParticipant, command_type: str,
-                                      session_id: str, payload: dict[str, Any], result_window_s: float,
+                                      session_id: str | None, payload: dict[str, Any], result_window_s: float,
                                       *, command_id: str | None = None) -> RuntimeCommandResultMessage | None:
         """Issue scoped runtime work with fresh per-attempt reply correlation."""
-        if (not isinstance(session_id, str) or not session_id or "request_nonce" in payload
+        if (((not isinstance(session_id, str) or not session_id)
+                and not (session_id is None and command_type in {"check_readiness", "get_inventory"}))
+                or "request_nonce" in payload
                 or not isinstance(participant, RuntimeParticipant)):
             raise ValueError("An explicit Session, participant and caller payload are required")
         nonce = uuid4().hex
@@ -2326,6 +2328,8 @@ class NatsStorageManagerCommunication:
 
 def _participant_result(boundary: NatsCommunicationBoundary, command: RuntimeCommandMessage,
                         success: bool, reason: str | None, payload: dict[str, Any]) -> RuntimeCommandResultMessage:
+    if "request_nonce" in command.payload:
+        payload = {**payload, "request_nonce": command.payload["request_nonce"]}
     return RuntimeCommandResultMessage(f"result-{boundary.component_id}-{command.command_id}",
         command.command_id, command.session_id, boundary.component_id, command.source_id,
         "succeeded" if success else "failed", success, reason, payload)
@@ -2334,7 +2338,9 @@ def _participant_result(boundary: NatsCommunicationBoundary, command: RuntimeCom
 def _execute_service_command(boundary: NatsCommunicationBoundary, service: Any,
                              command: RuntimeCommandMessage, results: dict) -> RuntimeCommandResultMessage:
     if command.command_id in results:
-        return results[command.command_id]
+        previous = results[command.command_id]
+        return (replace(previous, payload={**previous.payload, "request_nonce": command.payload["request_nonce"]})
+                if "request_nonce" in command.payload else previous)
     try:
         if command.target_id != boundary.component_id:
             raise ValueError("Command target does not match participant")
@@ -2349,6 +2355,8 @@ def _execute_service_command(boundary: NatsCommunicationBoundary, service: Any,
                 payload.update(maintenance._diagnostic_payload())
                 payload["participant"] = maintenance.participant.to_dict()
                 payload["operational_retirement_confirmed"] = maintenance.terminated
+            elif callable(getattr(service, "maintenance_diagnostics", None)):
+                payload["service_diagnostics"] = service.maintenance_diagnostics(None, None)
         elif command.command_type == "initialize_session":
             preparation = service.prepare_session(command.session_id)
             if not preparation.ready:
