@@ -1095,9 +1095,9 @@ class Controller:
                 if not confirmed(reservation) or reservation.payload.get("confirmed") is not True:
                     if reservation is not None and reservation.success is False:
                         progress["participants"].pop((participant.component_type, participant.component_id))
-                    if reservation is None:
+                    else:
                         # No initialization was requested: owner-keyed release is safe,
-                        # but an absent release result still leaves ownership unresolved.
+                        # but missing or invalid affirmative proof cannot discard ownership.
                         release_confirmed = False
                         try:
                             release = await request(participant, "release_reservation")

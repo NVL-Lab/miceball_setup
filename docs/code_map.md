@@ -1629,7 +1629,7 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 
 - DurablePublicationError: Reports failed JetStream publication with message class, message identity, subject, intended stream, and reason while leaving the original message caller-owned.
 - NatsCommunicationBoundary: Owns a real nats-py connection, reports NATS availability through ServiceReadiness, creates accepted JetStream streams, and handles JSON serialization, durable publication acknowledgement, and Core NATS telemetry mechanics without domain semantics.
-- _unsubscribe_session_subscription(subscription): Reconciles locally closed SDK subscriptions by resending UNSUB, confirming connected transport flush and joining callback/JetStream tasks before Controller release removes its pending handle; errors and cancellation retain the obligation.
+- _unsubscribe_session_subscription(subscription): Reconciles locally closed SDK subscriptions through UNSUB, connected transport flush and task completion before Controller release or Ingestor initialization-abort removes its owned handle; errors and cancellation retain the obligation.
 - NatsCommunicationBoundary.connect(): Retains the nats-py client before handshake, refuses to replace an owned client, and finishes partial-startup cleanup on failure/cancellation without adding reconnect policy.
 - NatsCommunicationBoundary.close(): Joins one boundary-owned shielded drain/close task through caller cancellations, releases references only on successful cleanup and then propagates cancellation; failed cleanup remains owned and unconfirmed.
 - NatsCommunicationBoundary._subscribe_command_results(subject, callback, **options): Acquires manual-ACK result subscriptions and accounts for exact SDK callback handles registered before construction fails, without closing the shared connection.
@@ -2316,4 +2316,4 @@ automatic. Kill integration and overall closeout validation remain deferred.
 
 ## tests/test_launch_cleanup.py
 
-- LaunchCleanupTests: Exercises Decision 420 through real participant handlers and simulated NATS, covering scoped correlation, cancellation, serialized admission, original-owner cleanup, new Session identity and fail-closed availability.
+- LaunchCleanupTests: Exercises Decision 420 through real handlers and simulated NATS, covering scoped correlation, serialized admission, original-owner cleanup, invalid optional confirmations, SDK-backed Ingestor abort recovery and protected journal/evidence obligations.

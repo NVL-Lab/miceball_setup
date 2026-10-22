@@ -2,8 +2,16 @@
 
 import asyncio
 import json
+from dataclasses import replace
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
+
+from nats.aio.client import Client
+from nats.aio.subscription import Subscription
+from nats.js.client import JetStreamContext
+
+from lab_sync_acquisition import AcquisitionNode, RuntimeEvidenceMessage
 
 from tests import test_session_launch as launch
 
@@ -13,6 +21,144 @@ class LaunchCleanupTests(unittest.IsolatedAsyncioTestCase):
         self.f = launch.SessionLaunchTests()
         self.f.addCleanup = self.addCleanup
         self.f.setUp()
+
+    async def test_invalid_optional_reservation_requires_release_or_retained_cleanup(self):
+        for value in ("missing", False, "true"):
+            for blocked in (False, True):
+                with self.subTest(confirmation=value, cleanup_blocked=blocked):
+                    f = launch.SessionLaunchTests()
+                    f.addCleanup = self.addCleanup
+                    f.setUp()
+                    await f.services()
+                    node, declaration, _ = await f.node()
+                    optional = replace(declaration, required=False)
+
+                    def damage(operation, result):
+                        if operation == "reserve":
+                            if value == "missing":
+                                result["payload"].pop("confirmed", None)
+                            else:
+                                result["payload"]["confirmed"] = value
+                        return result
+
+                    release = node.release_reservation
+                    def release_owner(sid):
+                        if blocked:
+                            raise OSError("resource cleanup unavailable")
+                        return release(sid)
+
+                    with patch.object(f.broker, "change_result", new=damage), \
+                            patch.object(node, "release_reservation", side_effect=release_owner):
+                        result = await f.launch({"node-a": [optional]})
+                        if blocked:
+                            self.assertFalse(result.succeeded)
+                            sid = node.reserved_for_session_id
+                            self.assertIsNotNone(sid)
+                            before = sum(c["command_type"] == "reserve" for c in f.broker.commands)
+                            self.assertFalse((await f.launch({"node-a": [optional]})).succeeded)
+                            self.assertEqual(node.reserved_for_session_id, sid)
+                            self.assertEqual(sum(c["command_type"] == "reserve" for c in f.broker.commands), before)
+                        else:
+                            self.assertTrue(result.succeeded, result.error)
+                            self.assertIsNone(node.reserved_for_session_id)
+                            self.assertFalse(any(p["component_id"] == "node-a" for p in
+                                                 result.details["configuration"]["expected_runtime_participants"]))
+                        self.assertTrue(any(c["command_type"] == "release_reservation"
+                                            and c["target_id"] == "node-a" for c in f.broker.commands))
+                    if blocked:
+                        fresh = await f.launch({"node-a": [optional]})
+                        self.assertTrue(fresh.succeeded, fresh.error)
+                        self.assertNotEqual(fresh.details["session_id"], sid)
+
+    async def sdk_abort_cleanup(self, *, evidence=False, cancellation=False, transport_failure=True):
+        f = self.f
+        await f.services()
+        node, declaration, _ = await f.node(node_class=launch._FailingInitializationNode)
+        client = Client()
+        client._status = Client.CONNECTED
+        client._flush_queue = asyncio.Queue()
+        reached = asyncio.Event()
+
+        class Transport:
+            broken = transport_failure
+            def writelines(self, lines):
+                pass
+            async def drain(self):
+                if self.broken:
+                    reached.set()
+                    if cancellation:
+                        await asyncio.Event().wait()
+                    raise ConnectionResetError("Ingestor UNSUB transport interrupted")
+
+        transport = Transport()
+        client._transport = transport
+        core = Subscription(client, id=505, subject="test.ingestor.evidence")
+        core._jsi = SimpleNamespace(_hbtask=None, _fctask=None)
+        client._subs[505] = core
+        subscription = JetStreamContext.PushSubscription(None, core, "LAB_EVIDENCE", "cleanup-test")
+        original = f.broker.publish
+        sid = None
+
+        async def install(subject, data, stream):
+            nonlocal sid
+            result = await original(subject, data, stream)
+            command = json.loads(data)
+            if (stream == "LAB_COMMANDS" and command["command_type"] == "initialize_session"
+                    and command["target_id"] == "ingestor"):
+                sid = command["session_id"]
+                await f.ingestor_handler._evidence_subscriptions[sid].unsubscribe()
+                f.ingestor_handler._evidence_subscriptions[sid] = subscription
+                if evidence:
+                    f.ingestor.receive_runtime_evidence(RuntimeEvidenceMessage(
+                        "preserved-obligation", sid, "observation", "source", {"value": 1}, True))
+            return result
+
+        with patch.object(f.broker, "publish", side_effect=install):
+            if cancellation:
+                task = asyncio.create_task(f.launch({"node-a": [declaration]}))
+                await asyncio.wait_for(reached.wait(), 1)
+                task.cancel()
+                with self.assertRaises(asyncio.CancelledError):
+                    await task
+            else:
+                self.assertFalse((await f.launch({"node-a": [declaration]})).succeeded)
+        self.assertTrue(subscription._closed)
+        self.assertNotIn(505, client._subs)
+        if transport_failure:
+            self.assertIn(sid, f.ingestor_handler._evidence_subscriptions)
+        else:
+            self.assertNotIn(sid, f.ingestor_handler._evidence_subscriptions)
+        self.assertIsNone(f.controller.get_status()["session_id"])
+        journal = f.root / "journals" / ("session_" + sid + ".jsonl")
+        before = journal.read_bytes()
+        accepted = f.ingestor.accepted_runtime_evidence
+        transport.broken = False
+        reservations = sum(c["command_type"] == "reserve" for c in f.broker.commands)
+        with patch.object(node, "initialize_session", side_effect=lambda *a, **k:
+                          AcquisitionNode.initialize_session(node, *a, **k)):
+            retry = await f.launch({"node-a": [declaration]})
+        self.assertNotIn(sid, f.ingestor_handler._evidence_subscriptions)
+        self.assertEqual(journal.read_bytes(), before)
+        if evidence:
+            self.assertFalse(retry.succeeded)
+            self.assertEqual(f.ingestor.session_id, sid)
+            self.assertEqual(f.ingestor.accepted_runtime_evidence, accepted)
+            self.assertEqual(sum(c["command_type"] == "reserve" for c in f.broker.commands), reservations)
+        else:
+            self.assertTrue(retry.succeeded, retry.error)
+            self.assertNotEqual(retry.details["session_id"], sid)
+
+    async def test_sdk_ingestor_abort_recovers_after_local_close_and_transport_failure(self):
+        await self.sdk_abort_cleanup()
+
+    async def test_sdk_healthy_ingestor_abort_allows_new_session(self):
+        await self.sdk_abort_cleanup(transport_failure=False)
+
+    async def test_sdk_ingestor_abort_cancellation_retains_teardown_for_retry(self):
+        await self.sdk_abort_cleanup(cancellation=True)
+
+    async def test_sdk_ingestor_abort_preserves_evidence_obligations_after_transport_recovery(self):
+        await self.sdk_abort_cleanup(evidence=True)
 
     async def test_cancelled_reservation_is_cleaned_before_new_session(self):
         f = self.f

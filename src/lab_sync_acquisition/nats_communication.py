@@ -1682,7 +1682,7 @@ class NatsIngestorCommunication:
                 subscription = self._evidence_subscriptions.get(command.session_id)
                 if subscription is not None:
                     try:
-                        await subscription.unsubscribe()
+                        await _unsubscribe_session_subscription(subscription)
                         del self._evidence_subscriptions[command.session_id]
                     except Exception as error:
                         result = _participant_result(self._boundary, command, False, str(error), {})

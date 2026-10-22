@@ -936,6 +936,32 @@ initial hard-link promotion; the nine previously Windows-blocked checks remain
 unconfirmed. G4-A/B remain CLOSED; G4-C and G4/Q013 remain OPEN. G5 is outside this
 task. ICC independent validation and separate audit remain required.
 
+**G4-C P2 audit corrections (implementation only):** ICC's initial five behavioral
+scenarios passed 5/5, but the independent source/behavior audit at `4e6c383`
+returned FAIL with two P2 findings. An invalid affirmative optional-node
+reservation reply could omit the node and discard acquired ownership; Ingestor
+initialization-abort teardown could become stuck after SDK-local subscription
+closure followed by transport failure. These remain historical audit findings,
+not an independent PASS for the corrections.
+
+The bounded corrections route every unresolved affirmative reservation outcome
+through the existing release/retention branch, while preserving genuine optional
+reservation rejection. Ingestor abort now reuses existing SDK-aware teardown and
+removes its owned subscription only after that cleanup completes. No new cleanup
+state, mechanism, public API or architectural decision is introduced. Completing
+subscription teardown does not discharge retained Ingestor evidence obligations.
+
+Five permanent regression methods were added; the four initial methods reproduced
+both findings before production changes. Corrected verification passed 31 distinct
+focused methods under controlled asyncio execution, including missing/false/string
+optional confirmations with successful or blocked cleanup, genuine rejection,
+actual nats-py 2.15.0 teardown failure/recovery/cancellation and healthy teardown,
+unchanged journal bytes, retained evidence, and selected ownership/cancellation,
+Normal Stop/Kill/release regressions. This count overlaps earlier runs and is not
+an additive validation total. The existing live-infrastructure, hardware,
+OS-signal, power-loss, Windows scheduling and hard-link limitations above remain.
+Renewed ICC validation and independent re-audit are pending; G4-C/Q013 remain OPEN.
+
 ### Historical Implementation And Validation Reports
 
 The following reports retain their original implementation/architecture context,
