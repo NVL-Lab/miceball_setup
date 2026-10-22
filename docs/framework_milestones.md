@@ -1752,9 +1752,33 @@ the audit and authorized closure. See [G4-B validation and history](validated_wo
 
 No live NATS, initial hard-link promotion, hardware, OS-signal, power-loss or
 normal Windows asyncio validation is established. Nine Windows hard-link-blocked
-integration checks remain unconfirmed, not passes. G4-A stays CLOSED; G4-C is
-OPEN/deferred, G4/Q013 remain OPEN, and G5 is not started by this task. Q022,
+integration checks remain unconfirmed, not passes. At G4-B closure, G4-C and
+G4/Q013 remained OPEN; their subsequent software closure is recorded below.
+G5 was not started by that task. Q022,
 Q024, M015 and Phase 16 are unchanged.
+
+## Completed Startup And Failed-Launch Cleanup (G4-C)
+
+**Status:** CLOSED - validated software scope under Decision 420. G4-A/B/C and
+the corresponding G4/Q013 software scope are complete. Scoped NATS startup and
+rollback, serialized launch admission and original-attempt cleanup retention
+prevent uncertain cleanup from authorizing new reservations. A new launch follows
+confirmed cleanup/availability with a new Session identity, never failed-Session
+recovery. Existing preservation, Normal Stop/Kill and release guarantees remain.
+
+The initial audit at `4e6c383` found two P2 defects: optional reservation ownership
+could be abandoned, and SDK-local subscription closure could strand Ingestor abort
+teardown. Both corrections were independently confirmed resolved. ICC validation
+passed 12/12 scenarios (5 earlier and 7 correction scenarios). Independent Codex
+re-audit at `9f6f73b` passed 16/16 scenarios plus four selected regression checks,
+with no confirmed P0-P3 findings. Implementation campaigns passed 40 and 31
+focused methods respectively; overlapping counts are not additive. See
+[G4-C validation and history](validated_workflows.md#g4-c---scoped-startup-and-failed-launch-resource-cleanup).
+
+Closure is not deployment certification: live NATS, hardware, OS-signals,
+power-loss, normal Windows asyncio and initial hard-link promotion remain
+unverified. Nine Windows-blocked integration checks remain unconfirmed. Q022,
+Q024, M015 and Phase 16 remain open; G5 is not started by this closure.
 
 ## Completed Q022 Distributed Session Closeout (W060)
 

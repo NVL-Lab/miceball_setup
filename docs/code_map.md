@@ -1247,7 +1247,14 @@ The inherited SDK subscription teardown retry P2 is corrected and independently
 confirmed resolved. ICC focused validation passed 4/4; independent Codex re-audit
 passed 14 distinct checks with no confirmed remaining P0-P3 findings. See
 [G4-B closure](validated_workflows.md#g4-b---historical-controller-completion-retirement-and-release-retry).
-G4/Q013 remain OPEN and G4-C remains OPEN/deferred; G5 is not started here.
+G4-C and G4/Q013 are now CLOSED within the accepted software scope; see
+[G4-C closure](validated_workflows.md#g4-c---scoped-startup-and-failed-launch-resource-cleanup).
+Decision 420 retains cleanup obligations, not recoverable failed Sessions. ICC
+validation passed 12/12 scenarios; independent re-audit at `9f6f73b` passed 16/16
+scenarios plus four selected regression checks, with no confirmed P0-P3 findings.
+Live NATS, hardware, OS-signals, power-loss, normal Windows asyncio, initial
+hard-link promotion and nine blocked integration checks remain unverified.
+G5 is not started here; Q022, Q024, M015 and Phase 16 remain open.
 
 ### G4-A Local Entry-Point Coverage (Implementation, Not Validation Or Closure)
 
@@ -1275,7 +1282,7 @@ readback remain independent confirmation boundaries.
 | Local/remote Normal Stop retry and launched resource work after cancellation | Original admission context, including None, survives retry; owner/mode rejection cannot replace it; retained closeout fences launched start and shared termination | `NormalStopAdmissionTests`, including successful preservation, permitted Kill conversion and fresh context after verified retirement |
 | Experiment transitions before versus after Normal Stop/Kill admission | Existing Experiment lock excludes closeout before admission mutation; retained closeout excludes subsequent resource work after lock release or cancellation | `ExperimentCloseoutAdmissionTests`, existing local-transition and Kill-admission controls; matrix below |
 | Historical completion, release, maintenance and preservation consumers | Historical G4-A boundary; Decision 419 removes the obsolete completion/local release pipeline in G4-B | G4-B CLOSED after independent validation and re-audit; shared owner proof remains required |
-| Launch/start rollback response consumption | Decision 420 scoped startup and retained original-attempt resource cleanup | G4-C implemented; ICC validation and independent audit pending |
+| Launch/start rollback response consumption | Decision 420 scoped startup and retained original-attempt resource cleanup | G4-C CLOSED; ICC 12/12 and independent re-audit 16/16 plus four regression checks PASS |
 
 New tests are in `tests/test_local_closeout_ownership.py`. Evidence here is
 implementation verification, not independent validation or an audit. Initial
@@ -1458,7 +1465,7 @@ trust/concurrency obligations. No public signatures, accepted decisions or
 deployment topology changed. Historical hybrid test compositions are migrated to
 object-free Controller fixtures or pure development fixtures, not supported with
 new fallback behavior. At G4-A closure, G4-B/G4-C remained deferred. G4-B is now
-CLOSED as recorded above; G4-C remains OPEN/deferred and G4/Q013 remain OPEN.
+CLOSED as recorded above; G4-C and G4/Q013 are now CLOSED in the accepted software scope.
 This does not close Q022, Q024, M015 or Phase 16.
 
 ### tests/test_deployed_lifecycle_isolation.py

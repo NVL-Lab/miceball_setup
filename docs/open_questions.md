@@ -492,10 +492,13 @@ producer messages. It does not resolve this publication-recovery question.
 
 ## Q013: What further framework behavior follows ControllerActionDecision execution?
 
-**Status:** OPEN. G4-A and G4-B are CLOSED within their validated software scopes;
-G4 remains OPEN and G4-C remains OPEN/deferred. See
+**Status:** CLOSED within the accepted G4 software scope. G4-A, G4-B and G4-C are
+CLOSED; deployment validation remains separate. See
 [G4-A closure](validated_workflows.md#g4-a---deployed-lifecycle-isolation-and-fatal-health-accounting)
-at `2672879` and [G4-B closure](validated_workflows.md#g4-b---historical-controller-completion-retirement-and-release-retry).
+at `2672879`, [G4-B closure](validated_workflows.md#g4-b---historical-controller-completion-retirement-and-release-retry)
+and [G4-C closure](validated_workflows.md#g4-c---scoped-startup-and-failed-launch-resource-cleanup)
+following the accepted independent audit at `9f6f73b`. Historical OPEN/pending
+statements below describe their respective implementation stages, not current status.
 
 ### Accepted G4-A Simplification (Decision 407)
 
@@ -558,8 +561,8 @@ Cutoff alone proves neither durability, preservation nor completion eligibility.
 All applicable accepted decisions require accounting and preservation before
 successful completion; Decisions 313, 322, 365 and 382 remain authoritative.
 These architectural requirements are implemented in the bounded restructuring
-and final correction closed below. Q013 remains OPEN; G4-B is CLOSED as recorded
-below and G4-C remains OPEN/deferred.
+and final correction closed below. G4-B and G4-C are also CLOSED as recorded below;
+Q013 is CLOSED within that accepted software scope.
 
 ### G4-A Closure (Validated Software Scope)
 
@@ -827,8 +830,8 @@ persistence continues to block maintenance. Tests migrate shared owner guarantee
 to archival APIs and launched closeout fixtures, not another completion pipeline.
 ICC accepted independent validation and the separate Codex re-audit PASS, with
 no confirmed remaining P0-P3 findings, and authorized documentation closure.
-G4-A remains CLOSED; G4/Q013 remain OPEN; G4-C remains OPEN/deferred. G5 is not
-started by this closure. See [G4-B closure](validated_workflows.md#g4-b---historical-controller-completion-retirement-and-release-retry).
+At G4-B closure, G4/Q013 and G4-C remained OPEN; their subsequent software closure
+is recorded below. G5 was not started by that closure. See [G4-B closure](validated_workflows.md#g4-b---historical-controller-completion-retirement-and-release-retry).
 
 **G4-B subscription teardown correction and independent re-audit:** Actual nats-py
 2.15.0 can close local subscription interest before UNSUB transport drain fails;
@@ -867,8 +870,8 @@ Assess removal of `Controller.finalize_session()` and exclusively supporting
 code/tests; preserve legitimate standalone Session primitives and shared owner
 mechanisms. Supported deployed completion remains NATS-only regardless of service
 co-location. This paragraph records the original architectural authorization;
-implementation and closure are recorded above. G4-A stays CLOSED; Q013 stays
-OPEN and G4-C/G5 are outside this task. Earlier G4-B proof-gap reports below are
+implementation and closure are recorded above. At that authorization, Q013 remained
+OPEN and G4-C/G5 were outside its scope. Earlier G4-B proof-gap reports below are
 historical motivation, not authorization to strengthen the retired workflow.
 
 **Historical pre-removal scope assessment (resolved by Decision 419 removal):**
@@ -882,8 +885,8 @@ contract conflict found there to LLC/HLC rather than weakening proof requirement
 
 ### G4-C Failed-Launch Cleanup Clarification (Decision 420)
 
-**Status: OPEN; bounded Decision 420 implementation complete, pending ICC
-validation and independent audit.**
+**Status: CLOSED within validated software scope under Decision 420.** The final
+independent validation and audit evidence follows the preserved stage history below.
 The user-accepted simplified direction resolves the pre-Session cleanup-entry-point
 question: a failed launch is not recovered as a Session. Only minimum original
 reservation/Session identity, affected participant scope and necessary cleanup
@@ -905,7 +908,7 @@ The earlier pre-Session rollback recommendation was not synchronized as a
 decision; Decision 420 records cleanup-only semantics and qualifies the historical
 no-retry wording in Decisions 293/294/300 without changing their accepted bodies.
 
-**G4-C implementation (not independently validated or closed):** Launch and
+**G4-C implementation (now independently validated and closed):** Launch and
 runtime-start reserve/initialize/start/abort/release requests use existing scoped
 NATS requests; pre-Session readiness/inventory retain `session_id=None`. The
 existing operation lock serializes launch, cleanup and runtime transitions. One
@@ -933,8 +936,8 @@ scientific/evidence retention, and selected G4-A/B Normal Stop/Kill/release path
 No live NATS, hardware, OS-signal, power-loss or normal Windows asyncio scheduling
 validation is claimed. Existing-identical-handoff fixtures do not establish
 initial hard-link promotion; the nine previously Windows-blocked checks remain
-unconfirmed. G4-A/B remain CLOSED; G4-C and G4/Q013 remain OPEN. G5 is outside this
-task. ICC independent validation and separate audit remain required.
+unconfirmed. At that implementation stage G4-C and G4/Q013 remained OPEN pending
+ICC independent validation and separate audit; their final closure is recorded below.
 
 **G4-C P2 audit corrections (implementation only):** ICC's initial five behavioral
 scenarios passed 5/5, but the independent source/behavior audit at `4e6c383`
@@ -960,7 +963,24 @@ unchanged journal bytes, retained evidence, and selected ownership/cancellation,
 Normal Stop/Kill/release regressions. This count overlaps earlier runs and is not
 an additive validation total. The existing live-infrastructure, hardware,
 OS-signal, power-loss, Windows scheduling and hard-link limitations above remain.
-Renewed ICC validation and independent re-audit are pending; G4-C/Q013 remain OPEN.
+At the correction handoff, renewed ICC validation and independent re-audit were
+pending; the following accepted evidence completes those requirements.
+
+**G4-C / Q013 final software closure:** ICC independently passed 7/7 correction
+scenarios, following the earlier 5/5: **12/12 PASS**. Separate Codex independent
+re-audit at `9f6f73b` returned **PASS, no confirmed P0-P3 findings**, with **16/16
+scenarios plus four selected regression checks PASS**. Independent probes covered
+optional reservation retention/recovery, actual SDK teardown/task cancellation,
+source/requester attribution and abort reply integrity; existing regressions
+covered preservation/corruption blockers and stable closeout retries. Both P2
+findings above were confirmed resolved. ICC accepted the audit and authorized
+documentation-only closure. G4-A/B/C and G4/Q013 are CLOSED within the accepted
+software scope; Decision 420 and prior decisions/history remain unchanged.
+
+This is not deployment certification. Live NATS, hardware, OS-signal, power-loss,
+normal Windows asyncio, initial hard-link promotion and the nine previously blocked
+integration checks remain unverified. Q022, Q024, M015 and Phase 16 remain open;
+G5 is not started here. See [G4-C closure](validated_workflows.md#g4-c---scoped-startup-and-failed-launch-resource-cleanup).
 
 ### Historical Implementation And Validation Reports
 

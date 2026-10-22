@@ -5821,10 +5821,74 @@ hard-link-blocked integration checks remain unconfirmed and are not counted as
 passes. No hardware, OS-signal, power-loss or normal Windows asyncio validation
 is established. No tests or audit were rerun for documentation closure.
 
-G4-A and G4-B are CLOSED within their validated software scopes. G4-C remains
-OPEN/deferred; G4/Q013 remain OPEN. G5 is not started by this closure. Q022,
+At G4-B closure, G4-A and G4-B were CLOSED within their validated software scopes;
+G4-C and G4/Q013 remained OPEN. Their subsequent software closure is recorded
+below. G5 was not started by this closure. Q022,
 Q024, M015, Phase 16 and all unrelated statuses remain unchanged. Decision 419
 and all accepted decision bodies and historical validation records are preserved.
+
+---
+
+# G4-C - Scoped Startup And Failed-Launch Resource Cleanup
+
+**Status: CLOSED within validated software scope.** ICC accepted the independent
+post-correction audit at `9f6f73b`: PASS with no confirmed P0-P3 findings, and
+authorized documentation-only closure of G4-C and the corresponding G4/Q013 scope.
+
+## Implemented scope
+
+Decision 420 remains authoritative: failed launches are not recoverable failed
+Sessions. Controller retains only original-attempt resource cleanup obligations.
+Startup and rollback use existing participant/type/operation-scoped NATS commands,
+including attempt correlation and conflicting-resolution checks. Pre-Session
+readiness and inventory retain `session_id=None`. Controller remains the sole
+Session launcher and communicates through NATS regardless of service placement.
+
+Existing Controller coordination serializes launch admission and leftover cleanup.
+Potential reservation/initialization side effects remain attributable to the
+original attempt despite lost replies or cancellation. A subsequent launch first
+confirms cleanup and participant-owned availability, or rejects admission before
+acquiring new reservations. Successful cleanup permits an entirely new Session
+identity, not continuation of the failed launch. Existing successfully launched
+Session failure, preservation, Normal Stop/Kill and release obligations remain.
+
+## Validation and correction history
+
+- Initial implementation verification: 40 distinct focused methods passed under
+  controlled asyncio execution. Correction verification: 31 focused methods passed.
+  These overlapping implementation campaigns are not additive totals.
+- Earlier ICC independent validation: 5/5 PASS. The independent audit at `4e6c383`
+  nevertheless returned FAIL with two P2 findings: malformed affirmative optional
+  reservation replies could abandon acquired ownership, and Ingestor abort teardown
+  could become stuck after SDK-local subscription closure and transport failure.
+- The corrections retain unresolved reservation obligations and reuse existing
+  SDK-aware teardown reconciliation. Optional omission does not abandon resources;
+  local closure alone is not confirmed transport/task cleanup. Ingestor journal
+  and evidence obligations remain independent of completed subscription teardown.
+- ICC independent correction validation: 7/7 PASS; **12/12 scenarios PASS** across
+  the two independent behavioral validation stages.
+- Separate Codex independent re-audit at `9f6f73b`: **PASS**, no confirmed P0-P3
+  findings; **16/16 scenarios plus four selected regression checks PASS**. Six
+  independent workflows challenged malformed optional confirmations, blocked
+  cleanup and recovery, actual nats-py teardown failure/recovery/cancellation,
+  wrong source/requester, and stale, mismatched, contradictory or duplicate abort
+  responses. Selected regressions covered preservation failure, corrupt terminal
+  proof, closeout contradictions and stable owner-command retries. Both original
+  P2 mechanisms were independently confirmed resolved.
+
+## Limitations and status boundaries
+
+These are controlled software checks using simulated transport and disk-backed
+owners, including actual SDK behavior, not live NATS or hardware validation.
+No OS-signal, physical power-loss or normal Windows asyncio scheduling validation
+is established. Initial hard-link promotion remains unverified; archival-success
+fixtures used existing-identical handoffs. Nine previously Windows hard-link-blocked
+integration checks remain unconfirmed and are not counted as passes.
+
+**G4-A, G4-B and G4-C are CLOSED; G4/Q013 are CLOSED within the accepted software
+scope.** This does not certify deployment or close Q022, Q024, M015 or Phase 16.
+G5 live PC-Jetson integration is not started by this task. Accepted decisions and
+earlier audit history remain unchanged. No tests or audit were rerun for closure.
 
 ---
 
