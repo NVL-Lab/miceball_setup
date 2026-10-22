@@ -22,6 +22,7 @@ from lab_sync_acquisition import (
     DeviceDeclaration,
     DeviceAdapterState,
     DeviceManager,
+    ExperimentConfiguration,
     InMemoryIngestor,
     LocalStorageManager,
     OpenCVCameraConfig,
@@ -269,12 +270,23 @@ def _run_scientific(args, adapter, manager, config) -> int:
         _require_success(controller.start_session())
         experiment_id = "camera-validation"
         start = _require_success(controller.start_experiment(experiment_id,
-            scientific_outputs=(ScientificOutputSelection(adapter.device_id, node.node_id, "frames"),)))
+            scientific_outputs=(ScientificOutputSelection(adapter.device_id, node.node_id, "frames"),),
+            configuration=ExperimentConfiguration(
+                duration_s=args.duration,
+                recording_budgets={node.node_id: args.recording_budget_bytes},
+                preservation_budget_bytes=args.preservation_budget_bytes)))
         origin = start.details["session_time_s"]
         deadline = monotonic() + args.duration
         while monotonic() < deadline:
             _require_success(controller.run_one_iteration())
-        _require_success(controller.stop_experiment(experiment_id))
+            if controller.get_status()["active_experiment_id"] is None:
+                break
+        if controller.get_status()["active_experiment_id"] == experiment_id:
+            _require_success(controller.stop_experiment(experiment_id))
+        else:
+            expiry = node.read_experiment_expiry(experiment_id)
+            if expiry is None or expiry.payload.get("finalization_confirmed") is not True:
+                raise RuntimeError("Experiment ended without confirmed duration-expiry finalization")
         _require_success(controller.stop_session())
         manifest, = node.local_storage_manager.manifests
         report = verify_scientific_artifact(manifest, origin, shape, args.frame_dtype)
@@ -330,6 +342,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--show-frames", action="store_true", help="Visually inspect recorded frames after scientific validation.")
     parser.add_argument("--view-hdf5", type=Path, help="Inspect an existing HDF5 recording without camera acquisition.")
     parser.add_argument("--duration", type=float, default=10.0)
+    parser.add_argument("--recording-budget-bytes", type=int,
+                        help="Explicit all-inclusive node recording budget; required with --scientific.")
+    parser.add_argument("--preservation-budget-bytes", type=int,
+                        help="Explicit all-inclusive preservation budget; required with --scientific.")
     parser.add_argument("--output-dir", type=Path, default=Path("camera_smoke_output"))
     parser.add_argument("--channels", type=int, choices=(1, 3, 4), default=3)
     parser.add_argument("--frame-dtype", default="uint8")
@@ -348,6 +364,9 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("dimensions, collection size and buffer size must be positive")
     args.error_evidence_location = args.error_evidence_location or str(args.output_dir / "errors")
     if args.scientific:
+        if any(value is None or value <= 0 for value in
+               (args.recording_budget_bytes, args.preservation_budget_bytes)):
+            parser.error("--scientific requires positive --recording-budget-bytes and --preservation-budget-bytes")
         args.width = args.width or 640
         args.height = args.height or 480
 

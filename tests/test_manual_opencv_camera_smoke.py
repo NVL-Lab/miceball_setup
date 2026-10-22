@@ -4,6 +4,7 @@ import json
 import importlib.util
 from pathlib import Path
 import tempfile
+from time import monotonic
 import unittest
 from unittest.mock import patch
 
@@ -23,7 +24,9 @@ class ManualOpenCVCameraSmokeTests(unittest.TestCase):
         arguments = ["--output-dir", str(root)]
         if scientific:
             arguments += ["--scientific", "--duration", "1", "--width", "4", "--height", "2",
-                          "--frame-dtype", "uint16", "--max-buffered-rows", "1"]
+                          "--frame-dtype", "uint16", "--max-buffered-rows", "1",
+                          "--recording-budget-bytes", "1000000",
+                          "--preservation-budget-bytes", "1000000"]
         arguments.extend(extra_args)
         with patch.dict("sys.modules", {"cv2": cv2}), \
                 patch.object(smoke, "monotonic", side_effect=[0, 0, 0.5, 1]), \
@@ -64,9 +67,84 @@ class ManualOpenCVCameraSmokeTests(unittest.TestCase):
                 np.testing.assert_array_equal(artifact["frame_index"][:], [0, 1])
                 for metadata in artifact["record_metadata_json"]:
                     self.assertNotIn("device_local_time", json.loads(metadata))
-            self.assertEqual(len(list(Path(root).rglob("session_record_final.json"))), 1)
-            runtime, = Path(root).rglob("runtime_evidence.jsonl")
-            self.assertNotIn('"frame":', runtime.read_text())
+            self.assertEqual(manifest.experiment_id, "camera-validation")
+            self.assertEqual(manifest.details["persisted_frame_count"], 2)
+            self.assertEqual(manifest.acquisition_node_id, "camera-node")
+            self.assertEqual(manifest.details["accepted_frame_count"], 2)
+
+    def test_scientific_start_receives_explicit_duration_and_actual_node_budgets(self):
+        configurations = []
+        start = smoke.Controller.start_experiment
+
+        def observe(controller, *args, **kwargs):
+            configurations.append(kwargs["configuration"].to_dict())
+            return start(controller, *args, **kwargs)
+
+        with tempfile.TemporaryDirectory() as root, patch.object(smoke.Controller, "start_experiment", observe):
+            result, output, errors, capture = self.run_smoke(root, self.frames())
+            self.assertEqual(result, 0, errors)
+            self.assertIn("validation=PASS", output)
+            self.assertTrue(capture.released)
+        self.assertEqual(configurations, [{"duration_s": 1.0,
+            "recording_budgets": {"camera-node": 1000000},
+            "preservation_budget_bytes": 1000000, "device_configurations": None}])
+
+    def test_deadline_expiry_finalizes_once_without_a_second_experiment_stop(self):
+        iterate = smoke.Controller.run_one_iteration
+        iterations = []
+        outcomes = []
+
+        def advance(controller):
+            if not iterations:
+                result = iterate(controller)
+            else:
+                with patch("lab_sync_acquisition.acquisition_node.monotonic", return_value=monotonic() + 10):
+                    result = iterate(controller)
+                status = controller.get_status()
+                outcomes.append(status)
+            iterations.append(result)
+            return result
+
+        with tempfile.TemporaryDirectory() as root, \
+                patch.object(smoke.Controller, "run_one_iteration", advance), \
+                patch.object(smoke.Controller, "stop_experiment", side_effect=AssertionError("Duplicate termination")):
+            result, output, errors, capture = self.run_smoke(root, self.frames())
+            self.assertEqual(result, 0, errors)
+            self.assertIn("frame_count=1", output)
+            self.assertTrue(capture.released)
+            self.assertEqual(self.manifest(root).lifecycle_state, "finalized")
+        self.assertIsNone(outcomes[0]["active_experiment_id"])
+        self.assertEqual([e.event_type for e in outcomes[0]["experiment_lifecycle_evidence"]],
+                         ["experiment_start", "experiment_stop"])
+        self.assertEqual(outcomes[0]["experiment_lifecycle_evidence"][-1].details["reason"],
+                         "configured_duration_expired")
+
+    def test_missing_or_invalid_budgets_are_rejected_before_opening_camera(self):
+        cases = [[], ["--recording-budget-bytes", "100"],
+                 ["--preservation-budget-bytes", "100"]]
+        for flag in ("--recording-budget-bytes", "--preservation-budget-bytes"):
+            for value in ("0", "-1", "not-an-integer"):
+                cases.append(["--recording-budget-bytes", "100",
+                              "--preservation-budget-bytes", "100", flag, value])
+        for arguments in cases:
+            with self.subTest(arguments=arguments), \
+                    patch.object(smoke.SeeedIMX219OpenCVCameraAdapter, "initialize") as initialize, \
+                    contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as raised:
+                smoke.main(["0", "--scientific", "--duration", "3", *arguments])
+            self.assertEqual(raised.exception.code, 2)
+            initialize.assert_not_called()
+
+    def test_insufficient_recording_or_preservation_capacity_rejects_and_cleans_camera(self):
+        for flag in ("--recording-budget-bytes", "--preservation-budget-bytes"):
+            with self.subTest(flag=flag), tempfile.TemporaryDirectory() as root:
+                result, output, errors, capture = self.run_smoke(root, self.frames(),
+                    extra_args=[flag, str(10 ** 30)])
+                self.assertEqual(result, 1)
+                self.assertIn("validation=FAIL", output)
+                self.assertIn("capacity", errors.lower())
+                self.assertEqual(capture.read_count, 0)
+                self.assertTrue(capture.released)
+                self.assertEqual(list(Path(root).rglob("*.h5")), [])
 
     def test_verification_rejects_missing_and_inconsistent_datasets(self):
         for corruption in ("missing", "count", "timing", "metadata", "indices"):
