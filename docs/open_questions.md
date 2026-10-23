@@ -1845,6 +1845,20 @@ verification without another independent re-audit for this test-only cleanup.
 Remaining deployment work is pending.
 Q022 as a whole is not closed. Q019 remains CLOSED in W050.
 
+**Generic installer architecture accepted; implementation pending (Decision 421):**
+The reviewed LLC-to-ICC design adds a small shared Python installation-time
+bootstrap utility, invoked from an existing checkout with compatible Python.
+It prepares/updates the environment and existing-schema service configuration,
+preserves valid configuration and durable scientific data, checks applicable
+configuration/connectivity, reports completed/deferred/blocked work, prints the
+existing launch commands and exits. Runtime loaders and the common service CLI
+remain authoritative. Missing valid node hardware declarations leave AcquisitionNode
+setup incomplete; NATS stays external and is not installed or managed. No new
+Controller, operator interface, runtime lifecycle, scientific hardware installer,
+OS/Python provisioning or migration framework is authorized. This is planned
+functionality, not implementation/validation or closure of Q022/G5. See
+[Decision 421](architecture_decisions.md#decision-421-generic-installation-time-bootstrap-reuses-framework-configuration-and-service-launching).
+
 **G2 CLOSED within validated software scope (Decisions 394-395):** Every Experiment
 has a configured duration before start, governing automatic termination and the
 capacity-estimation horizon. Selected device operating configuration, scientific
@@ -2168,8 +2182,11 @@ Required installation checks cover key-based SSH/SFTP setup, verified dummy-file
 retrieval, node NATS connectivity, and Controller-to-node readiness communication.
 An offline node does not block StorageManager startup, and NATS connectivity is
 not evidence acceptance. Capability-appropriate device acquisition tests are
-strongly recommended but are not certification fields or runtime gates. Initial
-installation is manual, not a GUI/interactive installer. See
+strongly recommended but are not certification fields or runtime gates. The initial
+installation workflow was manual; Decision 421 subsequently accepts a generic
+interactive command-line bootstrap using the same files and loaders, with
+implementation still pending. No GUI installer or runtime service manager is
+introduced. See
 [installation_and_deployment.md](installation_and_deployment.md) for the accepted
 procedure, current reuse/gaps, and validation boundaries. W051 closes only the
 NATS persistence/receipt/compilation foundation, not full independent-service

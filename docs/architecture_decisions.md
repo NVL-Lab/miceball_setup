@@ -12306,6 +12306,63 @@ testing or validation. G4-A/B remain CLOSED; G4-C and Q013 remain OPEN.
 
 ---
 
+## Decision 421: Generic installation-time bootstrap reuses framework configuration and service launching
+
+**Status:** Accepted
+
+This records the user-accepted LLC-to-ICC generic framework installer handoff,
+following the reviewed read-only implementation assessment. It extends Decision
+368's permitted setup utility and the manual installation foundation in Decisions
+367-374, without rewriting their historical text. The initial manual procedure
+remains historical and usable; framework setup is no longer exclusively manual
+in the accepted design. The utility is planned, not implemented or validated.
+
+A small shared Python command-line bootstrap script prepares or updates an
+installation. The operator runs one setup command from an existing repository
+checkout using a compatible Python interpreter. The installer detects platform,
+Python compatibility, checkout and existing environment; offers selection of local
+framework service roles; reuses a compatible virtual environment or creates one;
+and installs the selected checkout's dependencies. It creates required directories
+and generates configuration through the existing schemas and authoritative
+loaders, not a competing configuration authority.
+
+The installer preserves valid existing configuration and durable scientific data,
+requests essential deployment-specific information, checks configuration validity
+and applicable NATS connectivity, and reports completed, deferred and blocked
+setup steps truthfully. It prints the existing common service-launcher commands
+and exits. Setup completion is not service readiness, scientific readiness or
+complete deployment validation.
+
+Multiple local roles are permitted while preserving Decision 376: Ingestor and
+StorageManager remain distinct owners with mandatory shared-process deployment
+and lifetime. AcquisitionNode framework setup does not invent device declarations
+or hardware configuration; missing valid hardware declarations leave that role
+incomplete. The installer is generic across supported Windows/Linux deployments,
+including Jetson where Python and platform compatibility have been verified;
+acceptance does not certify untested platform/dependency combinations.
+
+The installer is an installation-time utility, not a running framework service.
+It does not launch or supervise services. The existing common CLI remains
+responsible for process lifetime and maintenance; existing configuration loaders,
+service launchers and runtime contracts remain authoritative. NATS is an external
+prerequisite: the installer may configure framework clients and check connectivity,
+but does not install, configure, launch, supervise or manage the NATS server.
+
+No new service launcher, runtime lifecycle, Controller instance/ownership model,
+NATS orchestration messages, Controller operator CLI, GUI or Session/Experiment
+operation is authorized. The separate GUI retains its intended operator role.
+No camera-specific hardware installer, service supervisor, automatic Python/OS
+provisioning or elaborate migration framework is introduced. Controller-to-service
+NATS boundaries and existing scientific ownership, cleanup, preservation and
+release obligations are unchanged.
+
+This synchronizes accepted architecture only. Installer implementation requires
+subsequent ICC scope authorization, focused tests, independent validation and
+separate audit under the established workflow. Q022 and G5 remain OPEN/incomplete;
+this decision closes neither installation work nor hardware deployment validation.
+
+---
+
 # Accepted Architectural Principles
 
 The following principles summarize the accepted decisions so far.
