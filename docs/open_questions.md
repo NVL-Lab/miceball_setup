@@ -278,7 +278,28 @@ rewrite earlier products or recorded inputs of completed operations.
 
 **Status:** OPEN - Decision 404 accepts command-authority/result-delivery directions;
 Decisions 412-413 settle GUI independence, reconnection and exclusive control,
-not detailed transport, trust or authority mechanisms.
+not their full transport, trust or authority mechanisms. Decision 422 resolves
+the initial G5 external lifecycle boundary only; it is not implemented or
+validated.
+
+Decision 422 accepts Controller-targeted pre-Session launch requests through a
+minimal external envelope using existing Controller identity and NATS routing,
+without distorting participant runtime commands. The running Controller remains
+the sole lifecycle authority and delegates to existing lifecycle methods.
+Client-generated request IDs prevent duplicate execution during that Controller
+service lifetime: identical requests return the recorded result or pending
+status; conflicting parameters are rejected. Timeout is not failure or
+cancellation. No persistent request journal or cross-restart outcome guarantee
+is required, and uncertain operations must not be automatically replayed after
+Controller restart.
+
+One designated G5 testing client uses minimum existing access restrictions; a
+thin CLI and the future GUI share the reusable external interface, not separate
+lifecycle implementations. The first slice is Session launch only; additional
+external operations await independent validation of that boundary. This resolves
+the initial pre-Session, duplicate-protection and testing-client questions, not
+GUI takeover, reconnection experience, multi-operator management, broad
+authorization or multi-Controller coordination. G5 remains incomplete.
 
 GUI connectivity loss cannot establish operation success/failure or trigger
 automatic repetition. Reopening retrieves authoritative Session/operation state;
@@ -297,8 +318,9 @@ Operations continue during takeover. Independent deployments remain independent.
   without relying on the superseded GUI? No identity, lease, heartbeat, fencing
   or stale-instance mechanism has been selected.
 
-Specific NATS request/result or publish/subscribe designs, detailed authorization,
-correlation, and detailed reconnect mechanisms are proposals only. Occasional small plots
+Beyond Decision 422's bounded accepted external lifecycle contract, specific
+scientific-result NATS request/result or publish/subscribe designs, detailed
+authorization, correlation, and reconnect mechanisms remain unresolved. Occasional small plots
 and structured results do not authorize continuous imaging, general inter-node
 scientific streaming, or a broad transport-recovery/permissions infrastructure.
 

@@ -12363,6 +12363,68 @@ this decision closes neither installation work nor hardware deployment validatio
 
 ---
 
+## Decision 422: External lifecycle requests delegate to the running Controller with lifetime-scoped duplicate protection
+
+**Status:** Accepted
+
+This records the user-accepted External Controller Lifecycle Contract
+Clarification for G5. It extends Decisions 001-002 and 404 while preserving
+Decisions 375-376, 412-413 and existing lifecycle, recovery, scientific
+finalization, preservation and release contracts. This is accepted architecture,
+not implemented or validated functionality.
+
+The independently running production Controller remains the sole authority for
+its Sessions and Experiments. External clients request operations; Controller
+validates them and delegates to its existing lifecycle methods. Clients must not
+construct another Controller to operate the deployment, duplicate orchestration,
+or introduce separate local, remote or testing lifecycles.
+
+Session launch is a Controller-targeted operation because no Session ID exists
+before launch. Use established Controller identity and NATS routing conventions,
+with only the minimum external operator-request envelope needed for these
+operations. Do not distort existing participant runtime command models or create
+generic remote method invocation. Successful launch returns the resulting
+Session ID and operation outcome; rejections return structured errors.
+
+Each logical external lifecycle operation carries a client-generated request ID.
+During one running Controller service lifetime, identical request ID and payload
+must not execute twice: repeated identical requests return the recorded result
+or indicate that the operation remains pending. Reuse of the same request ID
+with different parameters is rejected. Client timeouts imply neither failure nor
+cancellation. Reuse existing correlation and lifecycle-state mechanisms where
+appropriate; no persistent command journal or database is required for G5.
+Request-outcome recovery across Controller process restarts is not guaranteed,
+and clients must not automatically replay uncertain operations after restart.
+
+The G5 CLI is a thin testing client of the same reusable external command
+interface intended for the future GUI. It does not instantiate a Controller,
+own Sessions, implement orchestration or create CLI-specific Controller commands.
+Use the minimum existing access restrictions needed to prevent arbitrary NATS
+participants from issuing lifecycle commands. The current G5 deployment uses one
+designated testing client. This does not implement GUI exclusivity or takeover:
+Decisions 404 and 413 remain authoritative. GUI takeover, reconnection experience,
+multi-operator management, broad authorization infrastructure and multi-Controller
+coordination remain deferred. Decision 412's GUI-independent operation and
+prohibition on automatic scientific-operation repetition remain unchanged.
+
+The first implementation slice exposes Session launch only through the
+already-running Controller. It must demonstrate correct Controller targeting,
+execution of the existing launch method, returned Session ID and outcome,
+duplicate/conflict handling, access restrictions and validation. Client
+disconnection must not terminate or automatically repeat the operation. No second
+Controller or alternative lifecycle is introduced. Additional external lifecycle
+operations remain deferred until this first boundary is independently validated.
+
+This decision does not expand the installer responsibilities in Decision 421 or
+the existing service CLI's service-lifetime and maintenance responsibilities.
+The computers, AcquisitionNode, webcam, duration, storage paths and SFTP endpoint
+used for G5 are test inputs, not universal framework requirements. Q029 remains
+OPEN for its broader GUI contracts; G5 physical recording remains pending.
+Implementation requires subsequent ICC scope authorization and the established
+independent validation and audit sequence.
+
+---
+
 # Accepted Architectural Principles
 
 The following principles summarize the accepted decisions so far.
