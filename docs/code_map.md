@@ -1974,6 +1974,22 @@ recovery is introduced. Phase 16 and M015 remain open.
 - LocalStorageManager.cleanup: Flushes and closes open local stream resources without deletion and records cleanup completion or failure evidence.
 - LocalStorageManager._jsonl_completion_details: Reports JSONL row accounting and write status for failure evidence, manifests, and summaries, leaving `row_count` unknown when a write or file flush leaves an uncertain tail.
 
+## scripts/install_framework.py
+
+- main(argv=None): Interactively prepares the selected checkout's isolated environment and existing-schema service files, preserving existing configuration and data, checking applicable NATS connectivity, and printing existing launcher commands without starting services.
+- _run(arguments, timeout=60): Runs a bounded accountable setup child without shell interpretation or echoing private connection inputs.
+- _ask(label, default=None, allow_empty=False): Collects a required or explicitly optional installation value with an operator-visible proposed value.
+- _confirm(label): Requires an explicit affirmative response before maintenance-sensitive installation changes.
+- _comma(value): Splits explicitly supplied deployment lists for existing configuration fields.
+- _inspect_environment(python, environment): Confirms the selected interpreter is an isolated Python 3.12 environment and reports installed package metadata before reuse.
+- _configuration_plan(roles, directory, existing): Collects missing deployment configuration, checks local identity/dependency relationships, and defers node setup when hardware declarations are unavailable.
+- _validate(python, path, role): Delegates configuration acceptance to the existing loader in the installed target environment.
+- _publish(path, contents): Exclusively creates a validated new configuration and removes its own incomplete write after a handled failure or interruption without replacing existing files.
+
+## tests/test_install_framework.py
+
+- FrameworkInstallerTests: Exercises fresh/update setup, shared-role configuration, preservation, missing hardware, environment incompatibility, publication/interruption failures and bounded connectivity reporting through the installer entry point with actual production configuration loaders and simulated external operations.
+
 ## scripts/manual_opencv_camera_smoke.py
 
 - main(argv=None): Checks camera readiness without scientific reads, explicitly selects scientific acquisition with optional post-validation visualization, or inspects existing HDF5 recordings read-only.

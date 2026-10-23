@@ -1845,7 +1845,8 @@ verification without another independent re-audit for this test-only cleanup.
 Remaining deployment work is pending.
 Q022 as a whole is not closed. Q019 remains CLOSED in W050.
 
-**Generic installer architecture accepted; implementation pending (Decision 421):**
+**Generic installer (Decision 421): bounded implementation; independent validation
+and audit pending.**
 The reviewed LLC-to-ICC design adds a small shared Python installation-time
 bootstrap utility, invoked from an existing checkout with compatible Python.
 It prepares/updates the environment and existing-schema service configuration,
@@ -1855,9 +1856,31 @@ existing launch commands and exits. Runtime loaders and the common service CLI
 remain authoritative. Missing valid node hardware declarations leave AcquisitionNode
 setup incomplete; NATS stays external and is not installed or managed. No new
 Controller, operator interface, runtime lifecycle, scientific hardware installer,
-OS/Python provisioning or migration framework is authorized. This is planned
-functionality, not implementation/validation or closure of Q022/G5. See
+OS/Python provisioning or migration framework is authorized. The accepted design
+is now implemented in the bounded slice below, not independently validated or
+closed. See
 [Decision 421](architecture_decisions.md#decision-421-generic-installation-time-bootstrap-reuses-framework-configuration-and-service-launching).
+
+`scripts/install_framework.py` is a standard-library bootstrap invoked with
+compatible Python from an existing checkout. It reuses or creates `.venv`, installs
+that checkout through its isolated interpreter, validates ordinary role JSON with
+existing loaders, preserves existing files, normalizes shared storage selection,
+checks local identity/dependency relationships, and prints the existing service
+commands. Updates require explicit operator confirmation of resolved retirement;
+missing network replies are never retirement proof. Configuration publication is
+exclusive, with handled incomplete writes removed. A later failure can leave
+complete new files/directories or a partially changed environment; no transactional
+package rollback or physical power-loss guarantee is claimed. Missing hardware
+and unconfirmed NATS checks remain deferred, not readiness success. The installer
+neither starts services nor provisions Python, hardware or the broker. Focused
+implementation checks use real loaders/files with simulated package, Git and network
+operations. Implementation verification passed 20 installer methods and two
+directly reused configuration-loader regressions (22 total), plus the script's
+help entry point; sandbox temporary-directory permissions required approved
+execution outside the sandbox. These are not real installation or live-network
+passes. Real fresh installation/update and Windows/Linux/Jetson deployment
+still require ICC/user validation and separate audit. Canonical-guide synchronization
+and workflow closure are deferred. Q022 and G5 remain OPEN/incomplete.
 
 **G2 CLOSED within validated software scope (Decisions 394-395):** Every Experiment
 has a configured duration before start, governing automatic termination and the
