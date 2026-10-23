@@ -14,6 +14,7 @@ from lab_sync_acquisition.device_manager import DeviceManager
 from lab_sync_acquisition.nats_communication import (
     NatsAcquisitionNodeCommunication, NatsCommunicationBoundary, NatsControllerCommunication,
     NatsServiceMaintenanceCommunication, NatsSynchronizationManagerCommunication,
+    NatsExternalSessionLaunchReceiver,
 )
 from lab_sync_acquisition.opencv_camera import OpenCVCameraConfig, SeeedIMX219OpenCVCameraAdapter
 from lab_sync_acquisition.service_launcher import ServiceLauncher
@@ -80,7 +81,8 @@ def load_acquisition_node(path, synchronization_source_id):
 
 async def launch_independent_service(*, role, servers, service_id, ingestor_id, storage_id,
                                      preservation_window_s, result_window_s,
-                                     synchronization_id=None, known_nodes=None, node_config=None, report=print):
+                                     synchronization_id=None, known_nodes=None, node_config=None,
+                                     external_client_id=None, report=print):
     """Run one explicit owner with remote preservation, readiness and existing maintenance."""
     from math import isfinite
     servers = tuple(servers)
@@ -116,8 +118,13 @@ async def launch_independent_service(*, role, servers, service_id, ingestor_id, 
     boundary = NatsCommunicationBoundary(kind, service_id, servers)
     communication = NatsControllerCommunication(boundary)
     runtime = handler_type(boundary, owner) if handler_type is not None else None
+    external = None
+    if external_client_id is not None and role != "controller":
+        raise ValueError("External launch is supported only by Controller")
 
     async def cleaned(force):
+        if external is not None:
+            await external.close()
         if isinstance(runtime, NatsAcquisitionNodeCommunication):
             await runtime.stop_acquisition_execution()
         if isinstance(runtime, NatsSynchronizationManagerCommunication) and runtime._assessment_task is not None:
@@ -135,6 +142,10 @@ async def launch_independent_service(*, role, servers, service_id, ingestor_id, 
         evidence_publisher=boundary.publish_evidence, framework_communication=communication,
         framework_ingestor=ingestor, framework_storage=storage)
     launcher = ServiceLauncher((maintenance,), (boundary,), report=report)
+    if external_client_id is not None:
+        external = NatsExternalSessionLaunchReceiver(boundary, owner, communication=communication,
+            maintenance=maintenance, client_id=external_client_id, participants=dependencies,
+            result_window_s=result_window_s)
 
     async def startup():
         admitted = False
@@ -155,6 +166,8 @@ async def launch_independent_service(*, role, servers, service_id, ingestor_id, 
                 await runtime.subscribe_commands()
             await maintenance.register_ingestor_dependency()
             status = await startup_interface.start()
+            if external is not None:
+                await external.start()
             if role != "controller":
                 for dependency in dependencies:
                     await startup_interface.check_dependency_readiness(dependency, result_window_s)

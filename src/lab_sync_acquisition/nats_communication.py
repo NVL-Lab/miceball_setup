@@ -22,6 +22,8 @@ from nats.js.errors import NotFoundError
 from lab_sync_acquisition.acquisition_node import AcquisitionNode
 from lab_sync_acquisition.communication import (
     COMMAND_RESULT_STATUSES,
+    ExternalSessionLaunchRequest,
+    ExternalSessionLaunchResult,
     SERVICE_RECOVERY_COMMAND_TYPES,
     GroupCommandOutcome,
     LAB_COMMAND_RESULTS,
@@ -501,6 +503,148 @@ class _RuntimeStopAttempt:
         self.invalid = True
         self.observed = None
         self.confirmation = None
+
+
+class NatsExternalSessionLaunchClient:
+    """Request launch without owning a Controller or automatically retrying work."""
+
+    def __init__(self, boundary: NatsCommunicationBoundary):
+        self._boundary = boundary
+
+    async def request_launch(self, request: ExternalSessionLaunchRequest, *, timeout_s: float) -> ExternalSessionLaunchResult:
+        """Submit the caller's stable request; timeout leaves the outcome uncertain."""
+        from math import isfinite
+        request = ExternalSessionLaunchRequest.from_dict(request.to_dict())
+        if request.client_id != self._boundary.component_id:
+            raise ValueError("Launch client identity must match its communication boundary")
+        if type(timeout_s) not in {int, float} or not isfinite(timeout_s) or timeout_s <= 0:
+            raise ValueError("A positive finite response timeout is required")
+        subject = f"controller_external.{request.controller_id}.{request.client_id}.launch_session"
+        try:
+            message = await self._boundary._require_client().request(
+                subject, self._boundary._encode(request.to_dict()), timeout=timeout_s)
+            result = ExternalSessionLaunchResult.from_dict(json.loads(message.data.decode("utf-8")))
+            if (result.controller_id, result.client_id, result.request_id) != (
+                    request.controller_id, request.client_id, request.request_id):
+                raise ValueError("External launch response identity mismatch")
+            return result
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:
+            return ExternalSessionLaunchResult(request.controller_id, request.client_id,
+                request.request_id, "uncertain", error=str(error))
+
+
+class NatsExternalSessionLaunchReceiver:
+    """Service-owned launch admission and lifetime-only logical request outcomes.
+
+    Broker permissions must restrict this subject to the designated client.
+    A client_id is routing data, never an authentication mechanism.
+    """
+
+    def __init__(self, boundary: NatsCommunicationBoundary, controller: Controller, *,
+                 communication: NatsControllerCommunication, maintenance,
+                 client_id: str, participants: Iterable[RuntimeParticipant], result_window_s: float):
+        from math import isfinite
+        build_runtime_subject(None, "command", "client", client_id, "launch")
+        if boundary.component_type != "controller" or controller._component_id != boundary.component_id:
+            raise ValueError("External receiver must use its existing Controller identity")
+        if maintenance.service is not controller or maintenance.participant != RuntimeParticipant("controller", boundary.component_id):
+            raise ValueError("External receiver requires its Controller's existing maintenance interface")
+        if type(result_window_s) not in {int, float} or not isfinite(result_window_s) or result_window_s <= 0:
+            raise ValueError("A positive finite participant result window is required")
+        self._boundary = boundary
+        self._controller = controller
+        self._communication = communication
+        self._maintenance = maintenance
+        self._client_id = client_id
+        self._participants = tuple(participants)
+        self._window = result_window_s
+        self._requests = {}
+        self._subscription = None
+        self._closed = False
+
+    async def start(self) -> None:
+        """Subscribe only to external launch, disjoint from runtime/maintenance traffic."""
+        if self._closed or self._subscription is not None:
+            raise RuntimeError("External launch receiver cannot be started twice")
+        subject = f"controller_external.{self._boundary.component_id}.{self._client_id}.launch_session"
+        setup = asyncio.create_task(self._boundary._require_client().subscribe(subject, cb=self._receive))
+        try:
+            self._subscription = await asyncio.shield(setup)
+        except asyncio.CancelledError:
+            self._subscription = await NatsControllerCommunication._join_runtime_request_step(setup, propagate_cancellation=False)
+            raise
+        await self._boundary.flush()
+
+    async def _receive(self, message):
+        request = None
+        try:
+            if self._closed:
+                raise RuntimeError("External launch admission is closed")
+            request = ExternalSessionLaunchRequest.from_dict(json.loads(message.data.decode("utf-8")))
+            if (request.controller_id != self._boundary.component_id
+                    or request.client_id != self._client_id):
+                raise ValueError("External launch target/client identity mismatch")
+            if not message.reply or not message.reply.startswith("_INBOX."):
+                raise ValueError("External launch requires a NATS request inbox")
+            parameters = json.dumps(request.to_dict(), sort_keys=True, separators=(",", ":"), allow_nan=False)
+            record = self._requests.get(request.request_id)
+            if record is not None:
+                if record[0] != parameters:
+                    raise ValueError("Conflicting parameters for an existing logical request")
+            else:
+                # No suspension between lookup, registration and task ownership.
+                record = [parameters, None, None]
+                self._requests[request.request_id] = record
+                record[1] = asyncio.create_task(self._execute(request, record))
+            result = record[2] or ExternalSessionLaunchResult(request.controller_id,
+                request.client_id, request.request_id, "pending")
+        except (ValueError, TypeError, KeyError, AttributeError, RuntimeError) as error:
+            # Malformed IDs cannot safely be reflected into a correlated result.
+            data = {}
+            try:
+                data = json.loads(message.data.decode("utf-8"))
+                result = ExternalSessionLaunchResult(self._boundary.component_id, self._client_id,
+                    data["request_id"], "rejected", error=str(error))
+            except (ValueError, TypeError, KeyError, AttributeError):
+                return
+        if message.reply and message.reply.startswith("_INBOX."):
+            await self._boundary._require_client().publish(message.reply, self._boundary._encode(result.to_dict()))
+
+    async def _execute(self, request, record):
+        try:
+            outcome = await self._launch(request)
+            result = ExternalSessionLaunchResult(request.controller_id, request.client_id,
+                request.request_id, "succeeded" if outcome.succeeded else "failed", outcome.to_dict(), outcome.error)
+        except asyncio.CancelledError:
+            result = ExternalSessionLaunchResult(request.controller_id, request.client_id,
+                request.request_id, "failed", error="Service launch execution interrupted; cleanup may remain outstanding")
+        except Exception as error:
+            result = ExternalSessionLaunchResult(request.controller_id, request.client_id,
+                request.request_id, "rejected", error=str(error))
+        record[2] = result
+
+    @service_operation(new_work=True)
+    async def _launch(self, request):
+        known = {p.component_id for p in self._participants if p.component_type == "acquisition_node"}
+        if not set(request.selections) <= known:
+            raise ValueError("Launch selects an unregistered AcquisitionNode")
+        return await self._controller.launch_session(
+            {node: tuple(DeviceDeclaration.from_dict(d) for d in devices)
+             for node, devices in request.selections.items()},
+            communication=self._communication, participants=self._participants,
+            config_parameters=deepcopy(request.config_parameters), result_window_s=self._window,
+            scientific_outputs=tuple(ScientificOutputSelection.from_dict(d) for d in request.scientific_outputs))
+
+    async def close(self) -> None:
+        """Close admission and join owned work; client teardown never calls this."""
+        self._closed = True
+        if self._subscription is not None:
+            await _unsubscribe_session_subscription(self._subscription)
+            self._subscription = None
+        for _, task, _ in self._requests.values():
+            await asyncio.shield(task)
 
 
 class NatsControllerCommunication:

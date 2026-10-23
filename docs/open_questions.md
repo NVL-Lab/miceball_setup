@@ -279,8 +279,10 @@ rewrite earlier products or recorded inputs of completed operations.
 **Status:** OPEN - Decision 404 accepts command-authority/result-delivery directions;
 Decisions 412-413 settle GUI independence, reconnection and exclusive control,
 not their full transport, trust or authority mechanisms. Decision 422 resolves
-the initial G5 external lifecycle boundary only; it is not implemented or
-validated.
+the initial G5 external lifecycle boundary only. Its Session-launch-only receiver,
+reusable client and production wiring are implemented, pending ICC independent
+validation and separate audit; no CLI or additional external operations are
+implemented by this slice. See [code map](code_map.md#decision-422-external-session-launch-implementation-independent-validation-pending).
 
 Decision 422 accepts Controller-targeted pre-Session launch requests through a
 minimal external envelope using existing Controller identity and NATS routing,

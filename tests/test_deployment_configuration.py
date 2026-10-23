@@ -54,6 +54,15 @@ class DeploymentConfigurationTests(unittest.TestCase):
         self.assertEqual(self.load("controller")["known_nodes"], ("node",))
         self.assertEqual(self.load("ingestor")["storage_root"], self.root / "records")
 
+    def test_controller_external_client_is_explicit_optional_and_strictly_validated(self):
+        self.assertNotIn("external_client_id", self.load("controller"))
+        self.assertEqual(self.load("controller", {**self.roles["controller"], "external_client_id": "tester"})["external_client_id"], "tester")
+        for value in (None, "", "*", "two.clients"):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                self.load("controller", {**self.roles["controller"], "external_client_id": value})
+        with self.assertRaises(ValueError):
+            self.load("synchronization-manager", {**self.roles["synchronization-manager"], "external_client_id": "tester"})
+
     def test_node_validation_does_not_construct_an_owner_or_open_hardware(self):
         with patch("lab_sync_acquisition.service_startup.AcquisitionNode") as owner, patch(
                 "lab_sync_acquisition.service_startup.SeeedIMX219OpenCVCameraAdapter") as adapter:

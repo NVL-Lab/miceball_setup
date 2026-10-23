@@ -481,3 +481,95 @@ class RuntimeTelemetryMessage:
             source_id=data["source_id"],
             payload=dict(data["payload"]),
         )
+
+
+@dataclass(frozen=True)
+class ExternalSessionLaunchRequest:
+    """One logical launch request, addressed before Controller allocates a Session."""
+
+    controller_id: str
+    client_id: str
+    request_id: str
+    selections: dict[str, list[dict[str, Any]]]
+    config_parameters: dict[str, Any]
+    scientific_outputs: list[dict[str, Any]]
+
+    def __post_init__(self):
+        for name in ("controller_id", "client_id", "request_id"):
+            _validate_subject_token(name, getattr(self, name))
+        if not isinstance(self.selections, dict) or not self.selections:
+            raise ValueError("Launch requires explicit node selections")
+        if not isinstance(self.config_parameters, dict) or not isinstance(self.scientific_outputs, list):
+            raise ValueError("Launch requires configuration and scientific-output list")
+        from lab_sync_acquisition.device import DeviceDeclaration
+        from lab_sync_acquisition.session import ScientificOutputSelection
+        for node, devices in self.selections.items():
+            _validate_subject_token("node_id", node)
+            if not isinstance(devices, list) or not devices:
+                raise ValueError("Node selections require device declarations")
+            for device in devices:
+                DeviceDeclaration.from_dict(device)
+        for output in self.scientific_outputs:
+            ScientificOutputSelection.from_dict(output)
+        _validate_plain_data(self.to_dict())
+        import json
+        json.dumps(self.to_dict(), allow_nan=False)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return detached JSON-compatible request parameters."""
+        from copy import deepcopy
+        return deepcopy({name: getattr(self, name) for name in self.__dataclass_fields__})
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> ExternalSessionLaunchRequest:
+        """Reject unknown fields and reconstruct a detached request."""
+        from copy import deepcopy
+        if not isinstance(data, dict) or set(data) != set(cls.__dataclass_fields__):
+            raise ValueError("Invalid external Session-launch envelope")
+        return cls(**deepcopy(data))
+
+
+@dataclass(frozen=True)
+class ExternalSessionLaunchResult:
+    """External request outcome; uncertain is client-side transport uncertainty only."""
+
+    controller_id: str
+    client_id: str
+    request_id: str
+    status: str
+    outcome: dict[str, Any] | None = None
+    error: str | None = None
+
+    def __post_init__(self):
+        for name in ("controller_id", "client_id", "request_id"):
+            _validate_subject_token(name, getattr(self, name))
+        if self.status not in {"pending", "succeeded", "failed", "rejected", "uncertain"}:
+            raise ValueError("Invalid external launch status")
+        if self.outcome is not None and not isinstance(self.outcome, dict):
+            raise ValueError("Invalid external launch outcome")
+        if self.error is not None and not isinstance(self.error, str):
+            raise ValueError("Invalid external launch error")
+        if self.status == "succeeded":
+            details = (self.outcome or {}).get("details")
+            if (not isinstance(details, dict) or not isinstance(details.get("session_id"), str)
+                    or not details["session_id"] or self.outcome.get("succeeded") is not True
+                    or self.outcome.get("command") != "launch_session"):
+                raise ValueError("Successful launch requires its Controller outcome and Session identity")
+        elif self.status in {"pending", "rejected", "uncertain"} and self.outcome is not None:
+            raise ValueError("Unconfirmed launch cannot contain a completed outcome")
+        elif self.status == "failed" and self.outcome is not None and self.outcome.get("succeeded") is not False:
+            raise ValueError("Failed launch cannot contain a successful outcome")
+        _validate_plain_data(self.to_dict())
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return detached external outcome data."""
+        from copy import deepcopy
+        return deepcopy({name: getattr(self, name) for name in self.__dataclass_fields__})
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> ExternalSessionLaunchResult:
+        """Reconstruct one strictly shaped external outcome."""
+        from copy import deepcopy
+        if not isinstance(data, dict) or set(data) != set(cls.__dataclass_fields__):
+            raise ValueError("Invalid external Session-launch result")
+        return cls(**deepcopy(data))

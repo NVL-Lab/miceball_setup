@@ -1,5 +1,39 @@
 # Code Map
 
+## Decision 422 External Session Launch (Implementation; Independent Validation Pending)
+
+The first boundary exposes Session launch only on the production Controller;
+it does not add a CLI, further external lifecycle operations or physical G5
+validation. Controller startup enables reception only when deployment-local
+`external_client_id` is explicitly configured. Existing configurations remain
+disabled and valid without that optional Controller-only field.
+
+Requests use Core NATS request/reply on
+`controller_external.CONTROLLER_ID.CLIENT_ID.launch_session`, disjoint from
+participant/maintenance JetStream subjects. The deployment must authenticate
+clients at the broker and permit only the designated testing client to publish
+to that subject; the Controller subscribes and replies to request inboxes.
+Payload client IDs are routing/correlation data, not authentication. Configuring
+`external_client_id` alone does not install or prove broker permissions.
+
+The caller retains its request ID. The initial response can be `pending`; an
+explicit identical request retrieves pending or the recorded terminal outcome.
+Timeout/missing/malformed replies return `uncertain`, never automatic retry or
+Controller cancellation. Request history is in-memory for this service lifetime
+only, with no automatic cross-restart replay or outcome-recovery guarantee.
+
+- communication.ExternalSessionLaunchRequest(controller_id, client_id, request_id, selections, config_parameters, scientific_outputs): Validates a plain-data launch request without allocating a Session or changing runtime command models.
+- ExternalSessionLaunchRequest.to_dict()/from_dict(data): Serialize detached request data and reject malformed envelopes.
+- communication.ExternalSessionLaunchResult(controller_id, client_id, request_id, status, outcome=None, error=None): Carries pending, succeeded, failed, rejected or client-side uncertain outcomes; successful Session identity is in outcome.details.session_id.
+- ExternalSessionLaunchResult.to_dict()/from_dict(data): Serialize detached results and validate outcome shape and successful launch proof.
+- nats_communication.NatsExternalSessionLaunchClient(boundary): Uses an existing connected NATS boundary without constructing a Controller or owning lifecycle execution.
+- NatsExternalSessionLaunchClient.request_launch(request, *, timeout_s): Submits one caller-identified request and checks response correlation without automatically retrying.
+- nats_communication.NatsExternalSessionLaunchReceiver(boundary, controller, *, communication, maintenance, client_id, participants, result_window_s): Retains request identity, pending tasks and results while delegating launch to the existing Controller under its maintenance admission guard.
+- NatsExternalSessionLaunchReceiver.start(): Owns external subscription establishment, including interrupted setup, independently of maintenance subscriptions.
+- NatsExternalSessionLaunchReceiver.close(): Closes external admission, reconciles subscription teardown and joins owned launch work without cancelling it on client disconnection.
+- tests.test_external_session_launch.ExternalLaunchModelTests: Checks invalid request envelopes and rejects unsupported successful outcomes.
+- tests.test_external_session_launch.ExternalLaunchTests: Exercises real restricted local NATS, original-owner launch, duplicates, conflicts, pending outcomes, client interruption, rollback, production wiring and receiver cleanup with existing simulated participant transport and disk-backed owners.
+
 ## G2 Experiment Capacity And Autonomous Expiry (Closed; Software Scope)
 
 G2 is CLOSED after ICC independent validation and final separate Codex audit PASS,
@@ -238,7 +272,7 @@ installation_and_deployment.md and Decisions 383-388.
 
 - read_acquisition_node_configuration(path): Validates the existing hardware JSON contract without constructing an owner or adapter, for both deployment prevalidation and node construction.
 - load_acquisition_node(path, synchronization_source_id): Validates a deployment-local JSON hardware installation, constructs explicitly selected supported adapters without opening hardware, and supplies persistent identity, local paths and per-device initialization baselines to the real node.
-- launch_independent_service(*, role, servers, service_id, ingestor_id, storage_id, preservation_window_s, result_window_s, synchronization_id=None, known_nodes=None, node_config=None, report=print): Constructs one independent owner with remote evidence dependencies, readiness, protected maintenance and node-local sustained execution enabled before admission and joined during cleanup.
+- launch_independent_service(*, role, servers, service_id, ingestor_id, storage_id, preservation_window_s, result_window_s, synchronization_id=None, known_nodes=None, node_config=None, external_client_id=None, report=print): Constructs one independent owner with protected maintenance and sustained node execution, optionally wiring external launch to that same Controller and joining receiver work during cleanup.
 
 ## tests/test_independent_service_startup.py
 
@@ -2222,7 +2256,7 @@ automatic. Kill integration and overall closeout validation remain deferred.
 
 ## tests/nats_server_fixture.py
 
-- temporary_jetstream_server(): Starts an optional isolated local NATS test process on a temporary port/storage directory and always cleans it up; it is not framework service startup or deployment supervision.
+- temporary_jetstream_server(*, authorization=None): Starts an optional isolated local NATS test process with optional real broker authorization rules and temporary storage; it is not framework deployment supervision.
 
 ## tests/test_product_acquisition.py
 
