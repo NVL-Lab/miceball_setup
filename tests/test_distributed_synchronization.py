@@ -48,6 +48,7 @@ class DistributedSynchronizationTests(unittest.IsolatedAsyncioTestCase):
         await self.sync_handler.subscribe_commands()
         self.ingestor = InMemoryIngestor(recovery_journal_root=self.root / "journals")
         storage = self.ingestor._storage_manager or PersistentStorageManager(self.root / "storage")
+        self.ingestor._storage_manager = storage
         await NatsStorageManagerCommunication(_Boundary("storage_manager", "storage", self.broker), storage).subscribe_commands()
         self.ingestor_handler = NatsIngestorCommunication(_Boundary("ingestor", "ingestor", self.broker), self.ingestor)
         await self.ingestor_handler.subscribe_commands()

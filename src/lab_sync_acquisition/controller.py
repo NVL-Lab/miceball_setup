@@ -1151,6 +1151,21 @@ class Controller:
                     raise RuntimeError(f"Participant initialization {outcome}: {participant.component_id}; {initialization_outcomes[-1]['reason']}")
                 preparation_reports.append(ServiceReadiness(participant.component_id, participant.component_type, True, True, "session_prepared"))
             self._session.initialize(device_reports, preparation_reports)
+            accepted = config.to_dict()
+            preservation = await communication.request_persistence_command(
+                mandatory[0], "preserve_initial_session_record", session_id,
+                {"session_record": _to_plain_data(self._session_record_evidence())}, result_window_s,
+                command_id=json.dumps([session_id, "preserve_initial_session_record"], separators=(",", ":")))
+            if (preservation is None or preservation.success is not True or preservation.status != "succeeded"
+                    or preservation.payload.get("session_id") != session_id
+                    or preservation.payload.get("initial_record_preserved") is not True
+                    or not isinstance(preservation.payload.get("storage_id"), str)
+                    or not preservation.payload["storage_id"]
+                    or any(p.component_type == "storage_manager" and p.component_id != preservation.payload["storage_id"]
+                           for p in participants)
+                    or json.dumps(preservation.payload.get("session_record", {}).get("accepted_session_config"), sort_keys=True)
+                        != json.dumps(accepted, sort_keys=True)):
+                raise RuntimeError("Complete accepted Session configuration preservation is unconfirmed")
             self._launch_communication = communication
             self._reserved_participants = tuple(acquired)
             await subscribe(communication.subscribe_experiment_expiry_evidence(session_id, self))
@@ -2789,6 +2804,14 @@ class Controller:
             return self._record_successful_command(name, details)
         except Exception as error:
             return self._record_failed_command(name, error)
+
+    @service_operation()
+    def read_session_configuration(self, *, expected_session_id: str | None = None) -> ControllerCommandResult:
+        """Read the current launched Session's detached accepted values without mutation."""
+        session = self._require_session(expected_session_id=expected_session_id)
+        self._require_launched_workflow()
+        return ControllerCommandResult("read_session_configuration", True,
+            {"session_id": session.session_id, "configuration": session.configuration.to_dict()})
 
     def get_status(self) -> dict[str, Any]:
         """Return a small Controller view without redefining owned lifecycles."""

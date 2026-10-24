@@ -115,12 +115,12 @@ class SessionLifecycleTests(unittest.TestCase):
 
         session.initialize()
 
-        self.assertIs(session.configuration, accepted_config)
+        self.assertEqual(session.configuration, accepted_config)
         self.assertEqual(
             session.configuration.to_dict()["error_evidence_location"],
             "placeholder://errors",
         )
-        self.assertIs(session.configuration.selected_devices[0], declaration)
+        self.assertEqual(session.configuration.selected_devices[0], declaration)
         self.assertEqual(
             session.configuration.device_configurations["camera-001"],
             {

@@ -328,6 +328,35 @@ class ExternalLifecycleTests(unittest.IsolatedAsyncioTestCase):
         stopped = await self.terminal(self.request("normal_stop_session"))
         self.assertEqual(stopped.status, "succeeded", stopped)
 
+    async def test_configuration_read_after_client_reconnect_and_detached_result(self):
+        await self.launch()
+        read = self.request("read_session_configuration")
+        first = await self.terminal(read)
+        self.assertEqual(first.status, "succeeded", first)
+        accepted = first.outcome["details"]["configuration"]
+        self.assertEqual(accepted["session_id"], self.sid)
+        await self.client_boundary.close()
+        await self.client_boundary.connect()
+        self.assertEqual((await self.terminal(read)).to_dict(), first.to_dict())
+        accepted["protocol_plan"]["edited"] = True
+        fresh = await self.terminal(self.request("read_session_configuration"))
+        self.assertNotIn("edited", fresh.outcome["details"]["configuration"]["protocol_plan"])
+        wrong = await self.terminal(self.request("read_session_configuration", session_id="other"))
+        self.assertEqual(wrong.status, "rejected")
+        conflict = self.request("start_launched_session", request_id=read.request_id)
+        self.assertEqual((await self.terminal(conflict)).status, "rejected")
+
+    async def test_experiment_configuration_does_not_change_accepted_session_values(self):
+        await self.start()
+        before = await self.terminal(self.request("read_session_configuration"))
+        await self.experiment(duration=10)
+        await self.wait_for_frames()
+        stopped = await self.terminal(self.request("stop_launched_experiment", {"experiment_id": "experiment"}))
+        self.assertEqual(stopped.status, "succeeded", stopped)
+        after = await self.terminal(self.request("read_session_configuration"))
+        self.assertEqual(before.outcome["details"], after.outcome["details"])
+        self.assertEqual(self.node.local_storage_manager.manifests[0].lifecycle_state, "finalized")
+
     async def test_identity_validation_and_cross_operation_duplicates(self):
         launch = await self.launch()
         before = len(self.broker.commands)

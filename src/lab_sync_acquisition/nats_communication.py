@@ -689,6 +689,8 @@ class NatsExternalSessionLaunchReceiver:
                 raise ValueError("External operation does not target the current Controller Session")
             p = request.parameters
             expected = {"expected_session_id": request.session_id}
+            if request.operation == "read_session_configuration":
+                return self._controller.read_session_configuration(**expected)
             if request.operation == "start_launched_session":
                 return await self._controller.start_launched_session(**expected)
             if request.operation == "start_launched_experiment":
@@ -787,7 +789,8 @@ class NatsControllerCommunication:
                      "ingestor": {"compile_session_evidence", "verify_acquisition_receipt",
                                   "read_runtime_evidence_acceptance", "admit_session_kill",
                                   "preserve_session_acquisition", "read_session_closeout",
-                                  "preserve_session_terminal_record", "release_session", "preserve_service_evidence"}}
+                                  "preserve_session_terminal_record", "release_session", "preserve_service_evidence",
+                                  "preserve_initial_session_record"}}
         if (not isinstance(participant, RuntimeParticipant)
                 or command_type not in supported.get(participant.component_type, set())
                 or "request_nonce" in payload
@@ -797,6 +800,7 @@ class NatsControllerCommunication:
         nonce = uuid4().hex
         requests = NatsControllerCommunication(self._boundary)
         subscription = await requests.subscribe_command_results(session_id, new_only=True,
+            participant=participant, command_type=command_type,
             result_filter=lambda result: result.payload.get("request_nonce") == nonce)
         try:
             return await requests.request_command(participant, command_type, session_id,
@@ -1778,7 +1782,7 @@ class NatsAcquisitionNodeCommunication:
         )
 
 
-SESSION_CLOSEOUT_OPERATIONS = frozenset({"admit_session_kill", "preserve_session_acquisition",
+SESSION_CLOSEOUT_OPERATIONS = frozenset({"preserve_initial_session_record", "admit_session_kill", "preserve_session_acquisition",
     "read_session_closeout", "preserve_session_terminal_record", "release_session"})
 
 
@@ -1810,6 +1814,10 @@ def read_closeout_result(boundary, record, operation):
             raise ValueError("Kill admission is unconfirmed")
         if operation == "release_session" and result.payload.get("released") is not True:
             raise ValueError("Binding release is unconfirmed")
+        if operation == "preserve_initial_session_record" and (
+                result.payload.get("initial_record_preserved") is not True
+                or result.payload.get("session_record", {}).get("accepted_session_config", {}).get("session_id") != result.session_id):
+            raise ValueError("Initial Session Record history is unconfirmed")
         if operation in {"read_session_closeout", "preserve_session_acquisition", "preserve_session_terminal_record"}:
             if (result.payload.get("preservation_confirmed") is not True
                     or not isinstance(result.payload.get("compilation_summary"), dict)
@@ -1945,7 +1953,11 @@ class NatsIngestorCommunication:
             intake = self._ingestor
             operation = command.command_type
             supplied = set(command.payload) - {"request_nonce"}
-            if operation == "admit_session_kill":
+            if operation == "preserve_initial_session_record":
+                if supplied != {"session_record"}:
+                    raise ValueError("Initial persistence requires the complete Session Record")
+                payload = intake.preserve_initial_session_record(command.session_id, command.payload["session_record"])
+            elif operation == "admit_session_kill":
                 if supplied != {"operator_authorized"} or command.payload["operator_authorized"] is not True:
                     raise ValueError("Kill admission requires explicit operator authorization")
                 if intake.session_id is None:

@@ -1041,6 +1041,13 @@ class PersistentStorageManager:
         path = Path(session_record_path)
         with self._preservation_lock:
             self._require_session_record_writable(path)
+            if (path.name in {"session_record_initial.json", "session_record_final.json"}
+                    and path.parent.name.startswith("session_")
+                    and path.parent.parent.resolve() == self._storage_root.resolve()):
+                initial = path.with_name("session_record_initial.json")
+                if initial.exists() and json.dumps(self.read_session_record(initial)["accepted_session_config"], sort_keys=True) != json.dumps(
+                        _to_plain_data(accepted_session_config), sort_keys=True):
+                    raise RuntimeError("Session configuration differs from accepted initial values")
             self._unfinished_record_paths.add(path)
             self._unfinished_record_contents.pop(path, None)
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -1090,6 +1097,34 @@ class PersistentStorageManager:
         path = self._session_directory(session_id) / "session_record_initial.json"
         self.write_session_record(path, **session_record_evidence)
         return path
+
+    @service_operation()
+    def preserve_initial_session_record(self, session_id: str, session_record: dict) -> dict:
+        """Write or verify the original initial record without confirming closeout."""
+        expected = _session_record_from_evidence(**session_record)
+        config = expected.get("accepted_session_config")
+        if not isinstance(config, dict) or config.get("session_id") != session_id:
+            raise ValueError("Initial Session Record identity mismatch")
+        serialized = json.dumps(expected, sort_keys=True, allow_nan=False)
+        path = self._session_directory(session_id) / "session_record_initial.json"
+        with self._preservation_lock:
+            if path in self._unfinished_record_paths:
+                raise RuntimeError("Interrupted initial record requires authorized write recovery")
+            if not path.exists():
+                self.write_initial_session_record(session_id, **session_record)
+            actual = self.read_session_record(path)
+            if json.dumps(actual, sort_keys=True, allow_nan=False) != serialized:
+                raise RuntimeError("Initial Session Record conflicts with accepted configuration/evidence")
+            raw = path.read_bytes()
+            if self._read_preservation_json(raw) != actual:
+                raise RuntimeError("Initial Session Record readback is inconsistent")
+            with path.open("r+b") as source:
+                os.fsync(source.fileno())
+            self._sync_artifact_handoff_directory(path)
+            if path.read_bytes() != raw:
+                raise RuntimeError("Initial Session Record changed during durable readback")
+            return {"session_id": session_id, "storage_id": self._component_id,
+                    "initial_record_preserved": True, "session_record": deepcopy(actual)}
 
     @service_operation()
     def write_final_session_record(

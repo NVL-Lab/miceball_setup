@@ -52,10 +52,14 @@ class SessionConfig:
     expected_runtime_participants: tuple[RuntimeParticipant, ...] = ()
     local_storage_roots: dict[str, str] | None = None
 
+    def __post_init__(self) -> None:
+        for name in self.__dataclass_fields__:
+            object.__setattr__(self, name, deepcopy(getattr(self, name)))
+
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-like plain-data representation."""
 
-        return {
+        return deepcopy({
             "session_id": self.session_id,
             "local_storage_roots": self.local_storage_roots,
             "selected_devices": (
@@ -84,7 +88,7 @@ class SessionConfig:
                 participant.to_dict()
                 for participant in self.expected_runtime_participants
             ],
-        }
+        })
 
 
 @dataclass(frozen=True)
@@ -331,6 +335,24 @@ class Session:
         default_factory=list, init=False, repr=False
     )
     _sequence: int = field(default=0, init=False, repr=False)
+
+    def __setattr__(self, name, value):
+        if name == "configuration":
+            if name in self.__dict__:
+                raise AttributeError("Accepted Session configuration cannot be replaced")
+            value = deepcopy(value)
+        object.__setattr__(self, name, value)
+
+    def __getattribute__(self, name):
+        value = object.__getattribute__(self, name)
+        # Keep the existing dataclass constructor while exposing only detached
+        # configuration values, including nested adapter/product declarations.
+        return deepcopy(value) if name == "configuration" else value
+
+    def __delattr__(self, name):
+        if name == "configuration":
+            raise AttributeError("Accepted Session configuration cannot be deleted")
+        object.__delattr__(self, name)
 
     _ALLOWED_TRANSITIONS: ClassVar[set[tuple[SessionState, SessionState]]] = {
         (SessionState.CREATED, SessionState.INITIALIZED),

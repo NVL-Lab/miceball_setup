@@ -197,12 +197,16 @@ recovery remain unchanged. No failed-Session reconstruction, metadata database,
 automatic recovery or additional failed-launch record repair/deletion policy is
 introduced.
 
-**Implementation pending:** Existing `SessionConfig.session_parameters`, external
-launch transfer and final Session Record preservation provide reusable mechanisms.
-The read-only verification and implementation assessment identified three gaps:
-deep immutability of accepted configuration, external read-only retrieval for
-GUI reconnection under Decision 412, and authoritative durable confirmation before
-launch success. These findings are not implementation or independent validation.
+**Bounded implementation; independent validation and audit pending:** Existing
+`SessionConfig.session_parameters` and configuration transfer are reused. Session
+now retains fixed accepted values with detached readback, the external interface
+adds `read_session_configuration` for a matching bound Session, and launch waits
+for exact durable initial Session Record confirmation from the existing paired
+Ingestor/StorageManager owner. Initial preservation is not Stage A or terminal
+preservation. Failure/cancellation uses existing cleanup; uncertain writes retain
+Decision 342 recovery requirements, without automatic failed-Session recovery.
+Focused automated verification is implementation evidence only, not independent
+validation, audit or Q008 closure. See [implementation interfaces](code_map.md#q008-session-metadata-decision-424-implementation-independent-verification-pending).
 Detailed catalog/template representation beyond this accepted boundary remains
 within Q008; GUI takeover and broader state/result delivery remain under Q029/Q030.
 

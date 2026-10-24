@@ -577,6 +577,7 @@ class ExternalSessionLaunchResult:
 
 # Fixed external operations and their existing Controller result names, not RPC.
 EXTERNAL_CONTROLLER_OPERATIONS = {
+    "read_session_configuration": "read_session_configuration",
     "start_launched_session": "start_session",
     "start_launched_experiment": "start_experiment",
     "stop_launched_experiment": "stop_experiment",
@@ -604,6 +605,7 @@ class ExternalControllerRequest:
         if self.operation not in EXTERNAL_CONTROLLER_OPERATIONS:
             raise ValueError("Unsupported external Controller operation")
         schemas = {
+            "read_session_configuration": (set(), set()),
             "start_launched_session": (set(), set()),
             "start_launched_experiment": ({"experiment_id", "configuration", "scientific_outputs"}, {"details", "runtime_health_mapping"}),
             "stop_launched_experiment": ({"experiment_id"}, {"details"}),

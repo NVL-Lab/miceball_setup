@@ -456,6 +456,15 @@ class InMemoryIngestor:
                 self._recovery_journal_path = None
             return True
 
+    @service_operation()
+    def preserve_initial_session_record(self, session_id: str, session_record: dict) -> dict:
+        """Delegate initial-record preservation to the paired persistence owner."""
+        with self._session_admission_guard(), self._intake_lock:
+            self._require_open_session(session_id)
+            if self._session_id != session_id or not self._session_prepared or self._storage_manager is None:
+                raise RuntimeError("Initial preservation requires prepared intake and paired StorageManager")
+            return self._storage_manager.preserve_initial_session_record(session_id, session_record)
+
     def _require_kill_handoff(self, session_id: str) -> None:
         """Retain an admitted Kill's handoff obligation independently of archive success."""
         with self._intake_lock:

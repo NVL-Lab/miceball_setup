@@ -3,7 +3,7 @@
 ## Decision 422 External Controller Lifecycle (Implementation; Independent Validation Pending)
 
 The original launch-only boundary is preserved. The authorized bounded extension
-adds the seven operations in `EXTERNAL_CONTROLLER_OPERATIONS`, delegating to the
+adds seven lifecycle operations in `EXTERNAL_CONTROLLER_OPERATIONS`, delegating to the
 same Controller without a CLI, combined recording command or physical G5
 validation. Independent deployment validation and separate audit remain pending.
 Controller startup enables reception only when deployment-local
@@ -48,7 +48,7 @@ StorageManager persistence algorithm change is introduced.
 - ExternalSessionLaunchResult.to_dict()/from_dict(data): Serialize detached results and validate outcome shape and successful launch proof.
 - nats_communication.NatsExternalSessionLaunchClient(boundary): Uses an existing connected NATS boundary without constructing a Controller or owning lifecycle execution.
 - NatsExternalSessionLaunchClient.request_launch(request, *, timeout_s): Submits one caller-identified request and checks response correlation without automatically retrying.
-- communication.EXTERNAL_CONTROLLER_OPERATIONS: Lists the seven supported Session operations and their existing Controller result names, without arbitrary remote method invocation.
+- communication.EXTERNAL_CONTROLLER_OPERATIONS: Lists seven supported lifecycle operations plus Decision 424's read-only configuration operation and their Controller result names, without arbitrary remote method invocation.
 - communication.ExternalControllerRequest(controller_id, client_id, request_id, operation, session_id, parameters): Validates explicit operation parameters, expected Session/Experiment identity and existing scientific configuration models without accepting service collaborators.
 - ExternalControllerRequest.to_dict()/from_dict(data): Preserve detached operation parameters and reject extra fields or unsupported operations.
 - communication.ExternalControllerResult(controller_id, client_id, request_id, operation, session_id, status, outcome=None, error=None): Associates the existing Controller outcome with its external operation and Session, preserving failed, rejected, pending and uncertain distinctions.
@@ -63,6 +63,35 @@ StorageManager persistence algorithm change is introduced.
 - tests.test_external_controller_lifecycle.ExternalOperationModelsTests: Rejects unsupported operations, invalid parameters and wrong-operation successful results.
 - tests.test_external_controller_lifecycle.ExternalLifecycleTests: Exercises external lifecycle requests over restricted local NATS with real HDF5/intake/preservation owners and controlled participant/SFTP transport, including expiry, early stop, failures, queued identities, release and repeated Sessions.
 - Controller._require_session(*, expected_session_id=None): Reuses the binding guard to reject an explicitly mismatched Session at lifecycle admission, without changing callers that omit the optional constraint.
+
+## Q008 Session Metadata (Decision 424; Implementation, Independent Verification Pending)
+
+Session launch now requires scoped NATS confirmation of the complete accepted
+configuration in the existing initial Session Record before success. Ingestor
+delegates to its paired StorageManager; durable exact readback is distinct from
+write acknowledgment, terminal preservation and release. Initial records remain
+separate from final records/Evidence Archives. Failed launches retain existing
+Decision 420 cleanup; interrupted writes require existing Decision 342 recovery.
+No template provenance or automatic failed-Session recovery is introduced.
+
+- SessionConfig(...): Keeps existing constructor/fields and serialization, detaching input values and exported dictionaries.
+- Session(session_id, configuration): Keeps its constructor while retaining one fixed accepted configuration and exposing detached values; replacement/deletion is rejected.
+- Controller.launch_session(...): Also requires initial-record preservation through the prepared Ingestor's paired StorageManager before reporting launch success; signature unchanged.
+- Controller.read_session_configuration(*, expected_session_id=None): Returns a detached configuration for the currently bound launched Session, rejecting a mismatched expected identity.
+- InMemoryIngestor.preserve_initial_session_record(session_id, session_record): Requires prepared matching intake and delegates initial-record durability to the paired StorageManager without adding runtime evidence.
+- PersistentStorageManager.preserve_initial_session_record(session_id, session_record): Writes or verifies the existing initial Session Record with exact durable readback, rejecting conflicts and interrupted writes without implicit repair.
+- PersistentStorageManager.write_session_record(...): Rejects changed accepted configuration for managed initial/final records, covering both specialized writers through their existing shared write boundary; signature unchanged.
+- ExternalControllerRequest(...): Also accepts `read_session_configuration` with empty parameters, using existing expected Session identity, client/request correlation and deduplication; constructor unchanged.
+- NatsControllerCommunication.request_persistence_command(...): Scopes response subscription to the requested participant/type/operation in addition to the existing nonce; signature unchanged.
+- tests.test_session_metadata.SessionMetadataTests / SessionMetadataLaunchTests: Exercise fixed values, bounded read requests, disk-backed initial preservation, false confirmations, corruption, cancellation and cleanup/retry through actual owners.
+- tests.test_session_launch._Broker.stream_info()/get_msg(): Expose independent command-result history needed for scoped persistence confirmation in existing transport-double workflows.
+
+The external operation uses the existing client/receiver and requires broker ACL
+permission for `controller_external.CONTROLLER_ID.CLIENT_ID.read_session_configuration`.
+An identical request ID returns its original snapshot; use a new request ID for a
+fresh read. Controller restart still does not restore active Sessions or replay
+launches; accepted metadata survives in StorageManager-owned initial records.
+Q008 remains OPEN pending ICC validation, separate audit and remaining scope.
 
 ## G2 Experiment Capacity And Autonomous Expiry (Closed; Software Scope)
 

@@ -22,7 +22,7 @@ from lab_sync_acquisition import (
     RuntimeCommandResultMessage, RuntimeEvidenceMessage, RuntimeParticipant,
     ScientificOutputSelection, ScientificProductDeclaration, ServiceReadiness,
     OpenCVCameraConfig, SeeedIMX219OpenCVCameraAdapter, DeviceAdapterState,
-    SynchronizationManager, ActiveExperimentRuntimeContext, build_runtime_subject, parse_runtime_subject,
+    SynchronizationManager, ActiveExperimentRuntimeContext, PersistentStorageManager, build_runtime_subject, parse_runtime_subject,
 )
 from tests.fakes import ReadyFakeAdapter
 from tests.evidence_receipt_fixtures import EvidenceReceiptBroker
@@ -53,6 +53,17 @@ class _Broker(EvidenceReceiptBroker):
         self.drop_results = set()
         self.change_result = None
         self.on_command = None
+        self.command_history = EvidenceReceiptBroker()
+
+    async def stream_info(self, name):
+        if name == "LAB_COMMAND_RESULTS":
+            return await self.command_history.stream_info(name)
+        return await super().stream_info(name)
+
+    async def get_msg(self, stream, **options):
+        if stream == "LAB_COMMAND_RESULTS":
+            return await self.command_history.get_msg(stream, **options)
+        return await super().get_msg(stream, **options)
 
     async def subscribe(self, subject, cb, **kwargs):
         self.register(subject, kwargs)
@@ -77,6 +88,7 @@ class _Broker(EvidenceReceiptBroker):
             if self.on_command is not None:
                 self.on_command(payload)
         elif stream == "LAB_COMMAND_RESULTS":
+            await self.command_history.publish(subject, data, stream)
             self.results.append(payload)
             operation = subject.split(".")[-1]
             if (payload["source_id"], operation) in self.drop_results:
@@ -139,7 +151,8 @@ class SessionLaunchTests(unittest.IsolatedAsyncioTestCase):
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
         self.broker = _Broker()
-        self.ingestor = InMemoryIngestor(recovery_journal_root=self.root / "journals")
+        self.storage = PersistentStorageManager(self.root / "storage")
+        self.ingestor = InMemoryIngestor(storage_manager=self.storage, recovery_journal_root=self.root / "journals")
         self.sync = SynchronizationManager()
         self.controller = Controller()
         self.communication = NatsControllerCommunication(_Boundary("controller", "controller", self.broker))
