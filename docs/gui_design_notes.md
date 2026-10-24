@@ -7,7 +7,7 @@ proposals. GUI implementation belongs outside this repository.
 
 ## Accepted Functional Direction
 
-**Status:** User-accepted architecture in Decisions 396-405 and 409-413; documentation only,
+**Status:** User-accepted architecture in Decisions 396-405, 409-413 and 424; documentation only,
 not implemented or software-validated GUI/Analysis functionality.
 
 - The GUI is a general-purpose framework client. The complete scientific workflow
@@ -27,8 +27,8 @@ not implemented or software-validated GUI/Analysis functionality.
   scientific operations, Validation, preparation, annotations or review, not
   necessarily Experiments. Actual executed configuration is preserved independently
   of its starting template. Decisions 409-411 settle catalog and template rules;
-  detailed persistence, identities, transfer and configuration contracts remain
-  unresolved in Q008.
+  Decision 424 settles final accepted Session values and launch-time durability;
+  remaining detailed catalog/template representation stays in Q008.
 - Analysis is lightweight, Session-scoped, and identified by `analysis_id`, not
   a fabricated Experiment. Execution success is distinct from scientific result
   acceptance/selection. Preserve all attempts/results and the actual inputs used
@@ -60,7 +60,7 @@ remains a future possibility, not authorization for general scientific streaming
 
 ### Accepted Catalog, Configuration And Recovery Requirements
 
-Decisions 409-413 supplement the functional direction without implementing it:
+Decisions 409-413 and 424 supplement the functional direction without implementing it:
 
 - The application owns an editable experimenter/project/animal/template catalog.
   Projects have one primary experimenter; another actual Session experimenter is
@@ -78,8 +78,26 @@ Decisions 409-413 supplement the functional direction without implementing it:
   needs one. Reusable templates, working configuration, accepted execution values
   and immutable historical configuration are distinct. Completed Experiment and
   Session history cannot change with later edits; Experiments in one Session may
-  differ. Whole-Session template reconstruction is not required. The exact
-  Session/Experiment settings split remains open.
+  differ. Templates prefill editable fields; experimenters may change values before
+  submission. Only final accepted values matter: no template identity, provenance
+  or comparison with defaults must be preserved. Whole-Session template
+  reconstruction is not required. Detailed settings representation remains open;
+  accepted Session-level configuration and later Experiment-specific configuration
+  remain separate under Decision 424.
+- Controller accepts Session-level metadata and configuration at launch. Accepted
+  values remain fixed throughout that Session; GUI working edits and later catalog
+  changes cannot modify them or historical Session records. Experiment-specific
+  configuration may be prepared during an active Session under existing constraints
+  and validation contracts without changing accepted Session-level values.
+- Under Decision 424, successful Session launch requires authoritative confirmation
+  that all accepted Session metadata and configuration are durably preserved through
+  existing Ingestor/StorageManager mechanisms, independently of Controller memory.
+  A Controller crash after successful launch must not erase them. Missing, failed
+  or uncertain preservation is not launch success. An initial Session Record does
+  not prove scientific finalization, Stage A or terminal preservation, collection,
+  completion or release. Existing failed-launch cleanup and authorized write-recovery
+  rules remain unchanged; no record repair/deletion or automatic recovery policy
+  is added. Implementation and independent verification remain pending in Q008.
 - Browser closure, freezing or disconnection does not automatically interrupt
   Sessions, Experiments, Analyses or services. Reopening retrieves authoritative
   current state; lost connectivity implies neither success nor failure and cannot

@@ -6252,6 +6252,11 @@ Do not introduce category-specific evidence folders in v1.
 
 **Status:** Accepted
 
+**Subsequent clarification:** Decision 424 requires confirmed durable preservation
+of the complete accepted Session metadata and configuration before successful
+Session launch is reported. Its initial-record boundary qualifies the historical
+start-time sequence below; final preservation and completion obligations remain.
+
 The accepted persistence lifecycle is:
 
 ```text
@@ -12474,6 +12479,86 @@ closure, preserving existing subscription, evidence and lifecycle contracts.
 Independent validation and audit remain pending; physical Windows-sleep recovery
 is not claimed. Q011 remains OPEN for unpublished-message recovery. This decision
 does not close G5 or any broader deployment milestone.
+
+---
+
+## Decision 424: Accepted Session metadata and configuration are fixed and durably preserved before launch success
+
+**Status:** Accepted
+
+This records the user-accepted LLC-to-ICC Q008 Session Metadata Implementation
+Handoff. It clarifies Decisions 226-229, 342, 409-412, 420 and 422 while preserving
+their historical text and existing lifecycle, persistence and deployment owners.
+This is architectural synchronization, not implementation authorization or
+validation.
+
+### Catalogs, templates and accepted values
+
+The GUI/application owns experimenter, animal and project catalogs. Templates
+prefill editable configuration fields; experimenters may change those values
+before submission. Only the final accepted values matter to framework execution
+and Session history. No template identity, provenance or comparison with defaults
+is required. Decisions 410-411's application template-editing rules remain
+unchanged; distinguishing working values from accepted history does not require
+preserving their template origin.
+
+Controller accepts Session-level metadata and configuration at launch. The
+accepted Session-level values remain fixed throughout that Session, independently
+of GUI working edits and subsequent catalog changes. Later catalog changes cannot
+modify historical Session records. Experiment-specific configuration remains
+separate and may be prepared during an active Session within existing Session
+constraints, readiness and validation contracts; it cannot rewrite accepted
+Session-level values. This settles these acceptance and history boundaries under
+Q008 without selecting new metadata fields or configuration schemas.
+
+### Launch-time durable preservation
+
+Controller must obtain authoritative confirmation that the complete accepted
+Session metadata and configuration have been durably preserved before reporting
+successful Session launch. A Controller crash after successful launch must not
+erase that preserved metadata. Acceptance in Controller memory, publication or
+command acknowledgment alone does not establish this guarantee. Failed, missing
+or uncertain preservation confirmation cannot be treated as launch success.
+
+Reuse the existing Session Record and Ingestor/StorageManager preservation
+architecture. Controller remains the configuration acceptance and Session
+lifecycle authority; Ingestor and StorageManager retain their applicable
+preservation, persistence and confirmation responsibilities. Decisions 375-376
+and 422 continue to govern Controller-to-service NATS communication and external
+requests. No separate metadata database or persistence authority is introduced.
+
+This explicitly qualifies Decision 228's historical Session-start -> initial
+Session Record sequence: durable preservation of the accepted metadata and
+configuration is a prerequisite to successful launch reporting, not an operation
+that may wait until later Session start or final closeout. Decisions 226-227's
+Session Record/Evidence Archive distinction remains intact. Confirmation of an
+initial Session Record establishes neither scientific finalization nor Stage A
+or terminal preservation, collection eligibility, completion or binding release.
+Later Session Record updates and final closeout retain their existing guarantees,
+including Decision 229's final-persistence prerequisite, without changing the
+accepted Session-level values.
+
+### Failure, interruption and scope limits
+
+Decision 420 remains authoritative when launch fails or is interrupted: a failed
+launch does not become a recoverable Session, and outstanding resource-cleanup
+obligations are not extinguished by absent or uncertain preservation results.
+Confirmed initial-record preservation does not establish participant cleanup or
+safe resource reuse. Decision 342's explicit authorization and trustworthy-input
+requirements for interrupted persistent-write recovery remain unchanged.
+
+This clarification introduces no additional policy for repairing, deleting or
+recovering records from failed launches, no automatic Controller-crash recovery,
+and no automatic lifecycle replay. Decision 412's authoritative GUI reconnection
+readback requirement and Decision 422's request identity, uncertainty and
+lifetime-scoped duplicate protection remain unchanged.
+
+**Implementation status:** Q008 remains OPEN. The completed read-only verification
+and implementation assessment identified existing metadata transfer and final
+Session Record mechanisms, but deep immutability, external read-only accepted
+configuration retrieval and launch-time durable confirmation remain pending
+implementation and independent verification. No production change, validation or
+closure is established by this synchronization.
 
 ---
 

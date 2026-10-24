@@ -151,7 +151,9 @@ Session identity, reusable editable templates, and preservation of actual execut
 configuration independently of its template. Decisions 409-411 additionally
 settle editable application catalog ownership, historical Session metadata,
 lab/personal template editing rules and immutable historical configuration.
-Q008 remains OPEN; no GUI/configuration implementation is established here.
+Decision 424 records the accepted Session metadata and launch-time durability
+clarification below. Q008 remains OPEN; architectural synchronization does not
+establish implementation, validation or closure of the pending metadata slice.
 
 The application catalog contains experimenters, projects, project-local animals
 and templates. A project has one primary experimenter, but records the actual
@@ -169,6 +171,40 @@ Experiments need none. Reusable templates, working configuration, accepted
 execution configuration and immutable history are distinct. Different Experiments
 may use different configurations; whole-Session template reconstruction is not
 required. No project-sharing or permissions infrastructure is authorized.
+
+### Accepted Session metadata and launch boundary (Decision 424)
+
+Templates prefill editable fields, and experimenters may change them before
+submission. Only final accepted values matter; no template identity, provenance
+or comparison with defaults is required. Controller accepts Session-level
+metadata and configuration at launch; those values remain fixed throughout the
+Session. Subsequent GUI catalog edits cannot change historical Session records.
+Experiment-specific configuration remains separate and may be prepared during
+the active Session within existing constraints and validation contracts.
+
+Successful launch requires Controller to obtain authoritative confirmation that
+the complete accepted Session metadata and configuration have been durably
+preserved through the existing Ingestor/StorageManager architecture. A Controller
+crash after launch success must not erase them. Failed or uncertain preservation
+does not authorize successful launch reporting. This qualifies Decision 228's
+historical initial-record timing, without replacing Decisions 226-229's record,
+archive or final-preservation responsibilities.
+
+An initial-record confirmation establishes neither scientific finalization,
+Stage A or terminal preservation, collection nor release. Decision 420's
+failed-launch resource cleanup and Decision 342's authorized persistent-write
+recovery remain unchanged. No failed-Session reconstruction, metadata database,
+automatic recovery or additional failed-launch record repair/deletion policy is
+introduced.
+
+**Implementation pending:** Existing `SessionConfig.session_parameters`, external
+launch transfer and final Session Record preservation provide reusable mechanisms.
+The read-only verification and implementation assessment identified three gaps:
+deep immutability of accepted configuration, external read-only retrieval for
+GUI reconnection under Decision 412, and authoritative durable confirmation before
+launch success. These findings are not implementation or independent validation.
+Detailed catalog/template representation beyond this accepted boundary remains
+within Q008; GUI takeover and broader state/result delivery remain under Q029/Q030.
 
 ### Why this matters
 
@@ -201,13 +237,15 @@ these settled selection and launch semantics are not Q008 schema questions.
 
 * What external configuration representation is needed beyond Q022-A's accepted
   file-based installation scope? Its exact initial file format is an implementation choice.
-* What is the policy for declaring and applying defaults?
+* What broader default declaration/application policy is needed beyond Decision
+  424's settled editable template prefill and final-accepted-value boundary?
 * How are accepted configuration values propagated to runtime owners?
 * What vocabulary and structure should be used for `DeviceDeclaration.declared_capabilities`?
-* How are catalog identities, persistence and transfer represented, and which
-  concrete relevant metadata fields enter historical Session records?
+* Which concrete catalog identities and metadata fields are represented and
+  transferred within Decision 424's accepted ownership and preservation contract?
 * How are lab/personal templates persisted and transferred under their accepted
-  editing rules, and how are working, accepted and historical values represented?
+  editing rules? Decision 424 requires no retained template identity, provenance
+  or default comparison in accepted execution/history.
 * Which settings belong in Session templates versus Experiment templates?
 * How is accepted configuration propagated to the relevant runtime owners?
 
