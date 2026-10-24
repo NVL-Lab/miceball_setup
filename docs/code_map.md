@@ -1701,8 +1701,8 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 - DurablePublicationError: Reports failed JetStream publication with message class, message identity, subject, intended stream, and reason while leaving the original message caller-owned.
 - NatsCommunicationBoundary: Owns a real nats-py connection, reports NATS availability through ServiceReadiness, creates accepted JetStream streams, and handles JSON serialization, durable publication acknowledgement, and Core NATS telemetry mechanics without domain semantics.
 - _unsubscribe_session_subscription(subscription): Reconciles locally closed SDK subscriptions through UNSUB, connected transport flush and task completion before Controller release or Ingestor initialization-abort removes its owned handle; errors and cancellation retain the obligation.
-- NatsCommunicationBoundary.connect(): Retains the nats-py client before handshake, refuses to replace an owned client, and finishes partial-startup cleanup on failure/cancellation without adding reconnect policy.
-- NatsCommunicationBoundary.close(): Joins one boundary-owned shielded drain/close task through caller cancellations, releases references only on successful cleanup and then propagates cancellation; failed cleanup remains owned and unconfirmed.
+- NatsCommunicationBoundary.connect(): Preserves initial handshake failure/cancellation cleanup, then enables Decision 423 SDK-managed runtime reconnection with unlimited attempts and the existing SDK reconnect wait, retaining the same client, JetStream context and subscription handlers without lifecycle replay.
+- NatsCommunicationBoundary.close(): Disables further reconnection and joins one shielded SDK drain/close task through caller cancellations, using SDK close when disconnected or drain rejects reconnect admission; references retire only on successful cleanup and failures remain owned and unconfirmed.
 - NatsCommunicationBoundary._subscribe_command_results(subject, callback, **options): Acquires manual-ACK result subscriptions and accounts for exact SDK callback handles registered before construction fails, without closing the shared connection.
 - NatsCommunicationBoundary._finish_partial_result_subscriptions(): Joins cancellation-protected partial-setup cleanup, removes local routing and callback tasks, and retains unresolved handles for retry.
 - NatsCommunicationBoundary.maintenance_command_handled(command, result): Optional synchronous lifetime observer receiving the exact request and actual result only after publication and delivery ACK; it does not imply requester receipt, execute maintenance or authorize operational retirement.
@@ -2287,6 +2287,14 @@ automatic. Kill integration and overall closeout validation remain deferred.
 ## tests/nats_server_fixture.py
 
 - temporary_jetstream_server(*, authorization=None): Starts an optional isolated local NATS test process with optional real broker authorization rules and temporary storage; it is not framework deployment supervision.
+- JetStreamServer(arguments, url): Owns one isolated test broker process and preserves its address and disk store across interruptions.
+- JetStreamServer.start()/stop(): Starts and awaits broker readiness or stops the owned test process without deleting retained JetStream data.
+- restartable_jetstream_server(*, authorization=None): Supplies the existing isolated broker fixture with explicit interruption/restoration control while keeping ordinary URL-only callers unchanged.
+
+## tests/test_nats_reconnection.py
+
+- NatsReconnectionTests: Exercises real nats-py reconnection with production shared-owner startup, Core/JetStream subscription restoration, durable Session receipt, independent boundaries, uncertain publication, explicit maintenance retry and intentional-close/cancellation safety.
+- NatsReconnectionTests.until(predicate), outage(), restored(): Bound test observations and interrupt/restart only the isolated broker while retaining the existing service owners and storage.
 
 ## tests/test_product_acquisition.py
 

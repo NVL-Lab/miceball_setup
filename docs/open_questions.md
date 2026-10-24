@@ -498,14 +498,24 @@ Design internal records so that NWB export is straightforward, but do not let NW
 
 ## Q011: What is the recovery model for unpublished durable messages?
 
+**Status:** OPEN. Decision 423 resolves automatic transport reconnection, not the
+remaining unpublished-message recovery scope. Its bounded implementation arms
+SDK reconnection after initial handshake and makes intentional closure stop it;
+independent validation and audit remain pending. No publication-replay or lifecycle
+recovery policy is added.
+
 ### Why this matters
 
-Decision 143 keeps durable-message ownership with the producer until successful JetStream publication. Decisions 124 and 142 require communication-failure evidence but intentionally defer reconnect, retry, replay, buffering, and recovery behavior.
+Decision 143 keeps durable-message ownership with the producer until successful
+JetStream publication. Decisions 124 and 142 require communication-failure
+evidence. Decision 423 now resolves their deferred transport-reconnection policy;
+it does not establish successful publication or resolve buffering, publication
+retry/replay, or recovery of uncertain and unpublished messages.
 
 ### Questions
 
 * What future recovery mechanism, if any, is accepted after an explicit `DurablePublicationError`?
-* What automatic reconnection, retry, or replay policy, if any, applies to publication recovery beyond Decisions 320-321's accepted communication reestablishment when a service returns?
+* What publication retry, replay, or reconciliation policy, if any, applies to uncertain or unpublished messages after Decision 423 transport reconnection?
 * May newer durable messages publish after an earlier publication failure?
 * How are successful recovery and permanently unpublished messages recorded?
 * If future local preservation is accepted, what ownership and storage limits apply?
@@ -514,10 +524,22 @@ Decision 143 keeps durable-message ownership with the producer until successful 
 
 Do not infer recovery behavior from JetStream durability. Publication recovery remains a separate future architecture decision.
 
-Decisions 320-321 permit independent service startup and communication
-reestablishment when a service returns, without framework-wide restart. They do
-not define automatic retry/replay, unpublished-message recovery, or automatic
-resumption of interrupted Sessions or transfers; those questions remain open.
+Decision 423 specifies automatic nats-py reconnection for running services, using
+bounded backoff with no fixed overall retry-count or elapsed-time limit.
+Intentional service closure stops reconnection. Reuse SDK-managed subscription
+restoration and inspect existing JetStream readiness/evidence-delivery mechanisms
+before proposing additions. No custom coordinator, unnecessary configuration,
+new command journal or persistence mechanism is authorized. Ingestor and
+StorageManager reconnect independently while retaining their shared process
+lifetime under Decision 376.
+
+Transport restoration does not automatically replay Session, Experiment, Stop,
+Kill, Cancel or release operations. It does not resolve uncertain publication,
+establish preservation, or waive maintenance and shutdown obligations. Existing
+durable-evidence and safety contracts remain authoritative. This specifies the
+transport part of Decisions 320-321 without claiming automatic recovery of
+interrupted Sessions or transfers. The remaining publication-recovery questions
+above stay OPEN.
 
 Slice 27's accepted Ingestor journal recovery (Decisions 276-280) concerns evidence
 after transport publication and normal JetStream redelivery, not unpublished

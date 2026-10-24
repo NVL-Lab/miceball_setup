@@ -15,6 +15,7 @@ from uuid import uuid4
 
 from nats.aio.client import Client as NATS
 from nats.aio.subscription import Subscription
+from nats.errors import ConnectionReconnectingError
 from nats.js.api import AckPolicy, ConsumerConfig, DeliverPolicy, RetentionPolicy, StorageType, StreamConfig
 from nats.js.client import JetStreamContext
 from nats.js.errors import NotFoundError
@@ -160,7 +161,7 @@ class NatsCommunicationBoundary:
         )
 
     async def connect(self) -> None:
-        """Connect to NATS without adding reconnect or recovery policy."""
+        """Preserve startup failure handling, then enable SDK-owned runtime reconnection."""
 
         if self._client is not None:
             raise RuntimeError("Close the owned NATS client before starting another connection")
@@ -169,6 +170,9 @@ class NatsCommunicationBoundary:
         self._jetstream = None
         try:
             await self._client.connect(servers=list(self.servers), allow_reconnect=False)
+            # Arm runtime recovery only after the initial handshake. Passing these
+            # options into connect() would also change initial failure behavior.
+            self._client.options.update(allow_reconnect=True, max_reconnect_attempts=-1)
             self._jetstream = self._client.jetstream()
         except BaseException as error:
             await self.close()
@@ -183,8 +187,21 @@ class NatsCommunicationBoundary:
         if client is None:
             return
         if self._close_task is None:
-            operation = client.close if self._jetstream is None or client.is_closed else client.drain
-            self._close_task = asyncio.create_task(operation())
+            if self._jetstream is not None:
+                client.options["allow_reconnect"] = False
+
+            async def finish():
+                if self._jetstream is None or client.is_closed or not client.is_connected:
+                    await client.close()
+                else:
+                    try:
+                        await client.drain()
+                    except ConnectionReconnectingError:
+                        # SDK drain rejects reconnect admission; close cancels and
+                        # joins that transport work without claiming a drain.
+                        await client.close()
+
+            self._close_task = asyncio.create_task(finish())
         task = self._close_task
         cancellation = None
         # nats-py sets is_closed before closing its transport. Join the original

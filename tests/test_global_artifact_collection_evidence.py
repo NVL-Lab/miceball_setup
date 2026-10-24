@@ -55,7 +55,7 @@ class GlobalArtifactCollectionEvidenceTests(unittest.IsolatedAsyncioTestCase):
         self.retrieval = retrieval_tests.ArtifactRetrievalTests()
         self.writer = hdf5_tests.HDF5ScientificPersistenceTests()
         self.broker = EvidenceBrokerDouble()
-        client = SimpleNamespace(is_connected=True, jetstream=lambda: self.broker, connect=AsyncMock())
+        client = SimpleNamespace(is_connected=True, jetstream=lambda: self.broker, connect=AsyncMock(), options={})
         self.boundary = NatsCommunicationBoundary("storage_manager", "storage-001")
         with patch("lab_sync_acquisition.nats_communication.NATS", return_value=client):
             await self.boundary.connect()

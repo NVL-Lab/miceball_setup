@@ -246,10 +246,12 @@ class NatsConnectionTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_successful_connection_preserves_options_and_graceful_drain(self):
         client = SimpleNamespace(connect=AsyncMock(), flush=AsyncMock(), drain=AsyncMock(),
-            close=AsyncMock(), jetstream=lambda: SimpleNamespace(), is_connected=True, is_closed=False)
+            close=AsyncMock(), jetstream=lambda: SimpleNamespace(), is_connected=True, is_closed=False, options={})
         boundary = NatsCommunicationBoundary("terminal", "requester", ("nats://configured:4222",))
         with patch("lab_sync_acquisition.nats_communication.NATS", return_value=client):
             await boundary.connect()
+        self.assertTrue(client.options["allow_reconnect"])
+        self.assertEqual(client.options["max_reconnect_attempts"], -1)
         self.assertTrue(boundary.check_ready().ready)
         await boundary.flush()
         await boundary.close()
@@ -258,6 +260,20 @@ class NatsConnectionTests(unittest.IsolatedAsyncioTestCase):
         client.drain.assert_awaited_once()
         client.close.assert_not_awaited()
         self.assertFalse(boundary.connected)
+
+    async def test_runtime_drain_failure_remains_owned_and_unconfirmed(self):
+        self.mode = "connected"
+        boundary = NatsCommunicationBoundary("terminal", "requester", ("nats://example:4222",))
+        await boundary.connect()
+        client = boundary._client
+        with patch.object(client, "drain", AsyncMock(side_effect=OSError("transport cleanup failed"))):
+            with self.assertRaisesRegex(OSError, "transport cleanup failed"):
+                await boundary.close()
+            with self.assertRaisesRegex(OSError, "transport cleanup failed"):
+                await boundary.close()
+            with self.assertRaisesRegex(RuntimeError, "owned NATS client"):
+                await boundary.connect()
+        await client.close()
 
     async def test_same_boundary_can_connect_after_failed_handshake(self):
         boundary = NatsCommunicationBoundary("terminal", "requester", ("nats://example:4222",))

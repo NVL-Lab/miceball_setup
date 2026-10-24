@@ -134,7 +134,7 @@ No GUI functionality is implemented or validated by this documentation.
 
 ## Services Tab
 
-**Status:** Accepted functional requirements in Decisions 414-418, not implemented
+**Status:** Accepted functional requirements in Decisions 414-418 and 423, not implemented
 or validated GUI functionality. Detailed widgets, layouts and technical contracts
 remain unresolved under Q030-Q033.
 
@@ -159,6 +159,11 @@ The tab must provide the following accepted readiness and guidance behavior:
   local stop-readiness survey results and actual closeout blockers.
 - Clearly state that services start independently: the GUI does not launch
   services or control operating-system processes.
+- Distinguish each service's connected, reconnecting/disconnected, restored and
+  unknown connectivity under Decision 423. Transport restoration does not imply
+  lifecycle replay, successful prior publication, readiness, cleanup or
+  preservation. This is an accepted future presentation requirement, not
+  implemented GUI functionality or a new service lifecycle state.
 
 Automatically refresh status at a configurable default interval of **10 seconds**;
 relevant incoming framework information updates affected presentation promptly.

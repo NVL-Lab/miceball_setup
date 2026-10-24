@@ -179,7 +179,7 @@ class ExperimentStartRejectionTests(unittest.TestCase):
 
             jetstream = SimpleNamespace(subscribe=subscribe, publish=publish,
                                         stream_info=receipt.stream_info, consumer_info=receipt.consumer_info)
-            client = SimpleNamespace(jetstream=lambda: jetstream, is_connected=True, connect=AsyncMock())
+            client = SimpleNamespace(jetstream=lambda: jetstream, is_connected=True, connect=AsyncMock(), options={})
             publisher = NatsCommunicationBoundary("controller", "controller")
             consumer_boundary = NatsCommunicationBoundary("ingestor", "ingestor")
             ingestor = InMemoryIngestor(PersistentStorageManager(self.enterContext(tempfile.TemporaryDirectory())), session_id=message.session_id,

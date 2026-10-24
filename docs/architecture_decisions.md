@@ -12425,6 +12425,58 @@ independent validation and audit sequence.
 
 ---
 
+## Decision 423: Running services restore NATS transport through SDK-managed reconnection without lifecycle replay
+
+**Status:** Accepted
+
+This records the user-accepted LLC-to-ICC NATS reconnection handoff for G5.
+It resolves Decision 142's deferred transport-reconnection policy and specifies
+Decisions 320-321's communication-reestablishment direction. Historical decisions
+remain preserved; unpublished-message recovery questions not resolved here remain
+in Q011. This is architectural synchronization, not implementation or validation.
+
+Running services automatically reconnect after temporary NATS loss using
+nats-py's existing capabilities. Attempts use bounded backoff between attempts,
+with no fixed overall retry-count or elapsed-time limit while the service remains
+running. Intentional service closure stops reconnection. No custom reconnection
+coordinator or unnecessary configuration is introduced.
+
+Reconnection restores transport, not lifecycle operations. It does not
+automatically replay Session, Experiment, Stop, Kill, Cancel or release operations,
+nor authorize automatic resumption of interrupted scientific work. Existing
+Controller authority, operation identity, uncertainty, cleanup, preservation and
+explicit retry contracts remain authoritative. No new command journal or
+persistence mechanism is authorized.
+
+Reuse SDK-managed subscription restoration. Before proposing additional
+JetStream readiness or evidence-delivery mechanisms, inspect the existing
+mechanisms and reuse them where applicable. Restored connectivity is not proof
+that a prior uncertain publication succeeded, that evidence was consumed or
+archived, or that maintenance or shutdown obligations are satisfied. Decisions
+143-144 and existing durable-evidence, receiving, preservation and Stop/Kill/Cancel
+safety contracts remain unchanged; failed or uncertain publication must not be
+discarded or converted into confirmation by reconnection.
+
+Ingestor and StorageManager reconnect independently through their existing
+communication boundaries while retaining Decision 376's shared process and
+startup/shutdown/restart lifetime. Transport reconnection does not merge their
+ownership or replace their independent evidence and persistence responsibilities.
+
+The future Services tab must distinguish connected, reconnecting/disconnected,
+restored and unknown connectivity for each service. These are connectivity
+presentation distinctions, not new Session lifecycle states or proof of readiness,
+cleanup or preservation. GUI functionality is not implemented by this decision;
+see the existing [GUI planning notes](gui_design_notes.md#services-tab).
+
+**Implementation status:** The bounded communication-boundary correction enables
+SDK reconnection after the initial handshake and stops it during intentional
+closure, preserving existing subscription, evidence and lifecycle contracts.
+Independent validation and audit remain pending; physical Windows-sleep recovery
+is not claimed. Q011 remains OPEN for unpublished-message recovery. This decision
+does not close G5 or any broader deployment milestone.
+
+---
+
 # Accepted Architectural Principles
 
 The following principles summarize the accepted decisions so far.

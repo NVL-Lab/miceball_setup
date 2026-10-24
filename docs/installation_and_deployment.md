@@ -219,8 +219,19 @@ or power-loss certification.
   supplies no discovery, DNS provisioning or dynamic address management. After
   moving networks, recheck broker bind, URLs, SSH endpoints and trusted host keys.
   Do not blindly accept changed fingerprints; apply file changes through safe restart.
-- Current connections use `allow_reconnect=False`; do not promise automatic
-  reconnect/restart. Respect retained-owner obligations after communication loss.
+- After a successful initial connection, Decision 423 enables nats-py's automatic
+  transport reconnection with unlimited runtime attempts and its existing bounded
+  reconnect wait (currently two seconds). Initial connection failure/cancellation
+  handling is unchanged. Intentional boundary closure stops reconnecting.
+  SDK-managed subscriptions and the existing JetStream context are reused; service
+  owners are not recreated. Ingestor and StorageManager reconnect independently
+  while retaining their mandatory shared process lifetime.
+- Transport restoration does not replay Session, Experiment, Stop, Kill, Cancel or
+  release operations, retry uncertain publications, or establish evidence intake,
+  archival or cleanup success. Use existing explicit retry and confirmation
+  contracts. Missing JetStream history is not silently repaired or reprovisioned
+  on reconnect. Q011 remains OPEN for unpublished-message recovery; this software
+  correction does not establish physical Windows-sleep/deployment validation.
 - `ensure_streams()` provisions scoped, file-backed `LAB_COMMANDS`,
   `LAB_COMMAND_RESULTS`, `LAB_EVIDENCE`. Accounts need the existing stream,
   consumer, publish and readback permissions. TCP reachability is insufficient.

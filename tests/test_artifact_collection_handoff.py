@@ -116,7 +116,7 @@ class ArtifactCollectionHandoffTests(unittest.TestCase):
 
             jetstream = SimpleNamespace(subscribe=subscribe, publish=publish,
                                         stream_info=receipt.stream_info, consumer_info=receipt.consumer_info)
-            client = SimpleNamespace(jetstream=lambda: jetstream, is_connected=True, connect=AsyncMock())
+            client = SimpleNamespace(jetstream=lambda: jetstream, is_connected=True, connect=AsyncMock(), options={})
             boundary = NatsCommunicationBoundary("acquisition_node", "node-001")
             sender = NatsCommunicationBoundary("controller", "controller")
             receiver_boundary = NatsCommunicationBoundary("ingestor", "receiver")
