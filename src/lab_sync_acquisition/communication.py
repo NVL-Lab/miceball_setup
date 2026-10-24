@@ -573,3 +573,134 @@ class ExternalSessionLaunchResult:
         if not isinstance(data, dict) or set(data) != set(cls.__dataclass_fields__):
             raise ValueError("Invalid external Session-launch result")
         return cls(**deepcopy(data))
+
+
+# Fixed external operations and their existing Controller result names, not RPC.
+EXTERNAL_CONTROLLER_OPERATIONS = {
+    "start_launched_session": "start_session",
+    "start_launched_experiment": "start_experiment",
+    "stop_launched_experiment": "stop_experiment",
+    "reconcile_launched_experiment_expiry": "reconcile_launched_experiment_expiry",
+    "normal_stop_session": "normal_stop_session",
+    "collect_saved_session_artifacts_remote": "collect_saved_session_artifacts_remote",
+    "release_session": "release_session",
+}
+
+
+@dataclass(frozen=True)
+class ExternalControllerRequest:
+    """One explicitly supported operation on an existing or saved Session."""
+
+    controller_id: str
+    client_id: str
+    request_id: str
+    operation: str
+    session_id: str
+    parameters: dict[str, Any]
+
+    def __post_init__(self):
+        for name in ("controller_id", "client_id", "request_id", "session_id"):
+            _validate_subject_token(name, getattr(self, name))
+        if self.operation not in EXTERNAL_CONTROLLER_OPERATIONS:
+            raise ValueError("Unsupported external Controller operation")
+        schemas = {
+            "start_launched_session": (set(), set()),
+            "start_launched_experiment": ({"experiment_id", "configuration", "scientific_outputs"}, {"details", "runtime_health_mapping"}),
+            "stop_launched_experiment": ({"experiment_id"}, {"details"}),
+            "reconcile_launched_experiment_expiry": ({"experiment_id"}, set()),
+            "normal_stop_session": (set(), {"reason"}),
+            "collect_saved_session_artifacts_remote": ({"evidence_id"}, set()),
+            "release_session": (set(), set()),
+        }
+        required, optional = schemas[self.operation]
+        if (not isinstance(self.parameters, dict) or not required <= self.parameters.keys()
+                or self.parameters.keys() - required - optional):
+            raise ValueError("Invalid parameters for external Controller operation")
+        for name in ("experiment_id", "evidence_id"):
+            if name in self.parameters and (not isinstance(self.parameters[name], str) or not self.parameters[name]):
+                raise ValueError(f"Explicit {name} is required")
+        if self.parameters.get("details") is not None and not isinstance(self.parameters["details"], dict):
+            raise ValueError("Operation details must be an object")
+        if self.parameters.get("reason") is not None and not isinstance(self.parameters["reason"], str):
+            raise ValueError("Operation reason must be a string")
+        if self.operation == "start_launched_experiment":
+            from lab_sync_acquisition.session import ExperimentConfiguration, ScientificOutputSelection
+            from lab_sync_acquisition.experiment_runtime import ExperimentRuntimeHealthMapping
+            ExperimentConfiguration.from_dict(self.parameters["configuration"])
+            outputs = self.parameters["scientific_outputs"]
+            if not isinstance(outputs, list):
+                raise ValueError("Scientific outputs must be explicit")
+            for output in outputs:
+                ScientificOutputSelection.from_dict(output)
+            mapping = self.parameters.get("runtime_health_mapping")
+            if mapping is not None:
+                if not isinstance(mapping, dict) or any(not isinstance(values, list) for values in mapping.values()):
+                    raise ValueError("Health mappings must identify nodes and mapping lists")
+                for values in mapping.values():
+                    for value in values:
+                        ExperimentRuntimeHealthMapping.from_dict(value)
+        _validate_plain_data(self.to_dict())
+        import json
+        json.dumps(self.to_dict(), allow_nan=False)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize detached parameters without service collaborators."""
+        from copy import deepcopy
+        return deepcopy({name: getattr(self, name) for name in self.__dataclass_fields__})
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> ExternalControllerRequest:
+        """Read only the explicit external-operation envelope."""
+        from copy import deepcopy
+        if not isinstance(data, dict) or set(data) != set(cls.__dataclass_fields__):
+            raise ValueError("Invalid external Controller envelope")
+        return cls(**deepcopy(data))
+
+
+@dataclass(frozen=True)
+class ExternalControllerResult:
+    """Correlated operation result; success is the existing method's outcome."""
+
+    controller_id: str
+    client_id: str
+    request_id: str
+    operation: str
+    session_id: str
+    status: str
+    outcome: dict[str, Any] | None = None
+    error: str | None = None
+
+    def __post_init__(self):
+        for name in ("controller_id", "client_id", "request_id", "session_id"):
+            _validate_subject_token(name, getattr(self, name))
+        if self.operation not in EXTERNAL_CONTROLLER_OPERATIONS:
+            raise ValueError("Unsupported external Controller result")
+        if self.status not in {"pending", "succeeded", "failed", "rejected", "uncertain"}:
+            raise ValueError("Invalid external Controller status")
+        if self.error is not None and not isinstance(self.error, str):
+            raise ValueError("Invalid external Controller error")
+        if self.outcome is not None:
+            if (not isinstance(self.outcome, dict)
+                    or self.outcome.get("command") != EXTERNAL_CONTROLLER_OPERATIONS[self.operation]
+                    or type(self.outcome.get("succeeded")) is not bool):
+                raise ValueError("Operation outcome does not match the requested operation")
+        if self.status == "succeeded" and (self.outcome is None or self.outcome["succeeded"] is not True):
+            raise ValueError("Successful operation requires its Controller outcome")
+        if self.status == "failed" and self.outcome is not None and self.outcome["succeeded"] is not False:
+            raise ValueError("Failed operation cannot confirm success")
+        if self.status in {"pending", "rejected", "uncertain"} and self.outcome is not None:
+            raise ValueError("Unconfirmed operation cannot contain a completed outcome")
+        _validate_plain_data(self.to_dict())
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return detached operation identity and outcome."""
+        from copy import deepcopy
+        return deepcopy({name: getattr(self, name) for name in self.__dataclass_fields__})
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> ExternalControllerResult:
+        """Reject malformed or mismatched operation outcomes."""
+        from copy import deepcopy
+        if not isinstance(data, dict) or set(data) != set(cls.__dataclass_fields__):
+            raise ValueError("Invalid external Controller result envelope")
+        return cls(**deepcopy(data))

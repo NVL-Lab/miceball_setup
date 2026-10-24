@@ -1,18 +1,21 @@
 # Code Map
 
-## Decision 422 External Session Launch (Implementation; Independent Validation Pending)
+## Decision 422 External Controller Lifecycle (Implementation; Independent Validation Pending)
 
-The first boundary exposes Session launch only on the production Controller;
-it does not add a CLI, further external lifecycle operations or physical G5
-validation. Controller startup enables reception only when deployment-local
+The original launch-only boundary is preserved. The authorized bounded extension
+adds the seven operations in `EXTERNAL_CONTROLLER_OPERATIONS`, delegating to the
+same Controller without a CLI, combined recording command or physical G5
+validation. Independent deployment validation and separate audit remain pending.
+Controller startup enables reception only when deployment-local
 `external_client_id` is explicitly configured. Existing configurations remain
 disabled and valid without that optional Controller-only field.
 
 Requests use Core NATS request/reply on
-`controller_external.CONTROLLER_ID.CLIENT_ID.launch_session`, disjoint from
+`controller_external.CONTROLLER_ID.CLIENT_ID.OPERATION`, disjoint from
 participant/maintenance JetStream subjects. The deployment must authenticate
 clients at the broker and permit only the designated testing client to publish
-to that subject; the Controller subscribes and replies to request inboxes.
+to the exact authorized operation subjects; the Controller subscribes and replies
+to request inboxes. Broker ACLs must include the added operations explicitly.
 Payload client IDs are routing/correlation data, not authentication. Configuring
 `external_client_id` alone does not install or prove broker permissions.
 
@@ -21,6 +24,23 @@ explicit identical request retrieves pending or the recorded terminal outcome.
 Timeout/missing/malformed replies return `uncertain`, never automatic retry or
 Controller cancellation. Request history is in-memory for this service lifetime
 only, with no automatic cross-restart replay or outcome-recovery guarantee.
+All operations share one request-ID namespace, including launch. After a recorded
+failure, an explicit execution retry uses a new external request ID while
+preserving existing owner command progress and collection evidence identities.
+Session-bound operations validate the expected binding at existing admission
+points, including after Experiment-lock waits. Saved collection instead targets
+an explicit saved Session, even after release or while another Session is active.
+New-work admission is distinct from cleanup/closeout admission.
+
+**Collection/release correction (independent validation pending):** The initial
+workflow exposed a full archive/intake equality comparison in Ingestor release
+and maintenance that rejected valid Stage B evidence. Both now compare the
+Ingestor-origin acquisition evidence and exact intake audit, retaining complete
+StorageManager preservation validation and all journal/handoff/release guards.
+Acquisition-only archives without provenance retain whole-archive equality.
+Disk-backed tests cover both collection/release orders, subsequent Session reuse,
+damaged products and interrupted Stage B persistence. No ordering change or
+StorageManager persistence algorithm change is introduced.
 
 - communication.ExternalSessionLaunchRequest(controller_id, client_id, request_id, selections, config_parameters, scientific_outputs): Validates a plain-data launch request without allocating a Session or changing runtime command models.
 - ExternalSessionLaunchRequest.to_dict()/from_dict(data): Serialize detached request data and reject malformed envelopes.
@@ -28,11 +48,21 @@ only, with no automatic cross-restart replay or outcome-recovery guarantee.
 - ExternalSessionLaunchResult.to_dict()/from_dict(data): Serialize detached results and validate outcome shape and successful launch proof.
 - nats_communication.NatsExternalSessionLaunchClient(boundary): Uses an existing connected NATS boundary without constructing a Controller or owning lifecycle execution.
 - NatsExternalSessionLaunchClient.request_launch(request, *, timeout_s): Submits one caller-identified request and checks response correlation without automatically retrying.
-- nats_communication.NatsExternalSessionLaunchReceiver(boundary, controller, *, communication, maintenance, client_id, participants, result_window_s): Retains request identity, pending tasks and results while delegating launch to the existing Controller under its maintenance admission guard.
-- NatsExternalSessionLaunchReceiver.start(): Owns external subscription establishment, including interrupted setup, independently of maintenance subscriptions.
-- NatsExternalSessionLaunchReceiver.close(): Closes external admission, reconciles subscription teardown and joins owned launch work without cancelling it on client disconnection.
+- communication.EXTERNAL_CONTROLLER_OPERATIONS: Lists the seven supported Session operations and their existing Controller result names, without arbitrary remote method invocation.
+- communication.ExternalControllerRequest(controller_id, client_id, request_id, operation, session_id, parameters): Validates explicit operation parameters, expected Session/Experiment identity and existing scientific configuration models without accepting service collaborators.
+- ExternalControllerRequest.to_dict()/from_dict(data): Preserve detached operation parameters and reject extra fields or unsupported operations.
+- communication.ExternalControllerResult(controller_id, client_id, request_id, operation, session_id, status, outcome=None, error=None): Associates the existing Controller outcome with its external operation and Session, preserving failed, rejected, pending and uncertain distinctions.
+- ExternalControllerResult.to_dict()/from_dict(data): Serialize strict operation results and reject wrong-operation or false-success outcomes.
+- NatsExternalSessionLaunchClient.request_operation(request, *, timeout_s): Requests one allowed operation and validates Controller/client/request/operation/Session correlation without replaying after timeout or restart.
+- nats_communication._external_operation_result(request, status, outcome=None, error=None): Shares result construction while preserving the original launch wire format and distinct Session-operation envelope.
+- nats_communication.NatsExternalSessionLaunchReceiver(boundary, controller, *, communication, maintenance, client_id, participants, result_window_s): Retains shared request identity, pending tasks and results while delegating the fixed operations to the existing Controller under operation-specific maintenance admission.
+- NatsExternalSessionLaunchReceiver.start(): Owns the fixed external operation subscriptions, including partial/interrupted setup, independently of maintenance subscriptions.
+- NatsExternalSessionLaunchReceiver.close(): Closes external admission, reconciles subscription teardown and joins owned operation work without cancelling it on client disconnection.
 - tests.test_external_session_launch.ExternalLaunchModelTests: Checks invalid request envelopes and rejects unsupported successful outcomes.
 - tests.test_external_session_launch.ExternalLaunchTests: Exercises real restricted local NATS, original-owner launch, duplicates, conflicts, pending outcomes, client interruption, rollback, production wiring and receiver cleanup with existing simulated participant transport and disk-backed owners.
+- tests.test_external_controller_lifecycle.ExternalOperationModelsTests: Rejects unsupported operations, invalid parameters and wrong-operation successful results.
+- tests.test_external_controller_lifecycle.ExternalLifecycleTests: Exercises external lifecycle requests over restricted local NATS with real HDF5/intake/preservation owners and controlled participant/SFTP transport, including expiry, early stop, failures, queued identities, release and repeated Sessions.
+- Controller._require_session(*, expected_session_id=None): Reuses the binding guard to reject an explicitly mismatched Session at lifecycle admission, without changing callers that omit the optional constraint.
 
 ## G2 Experiment Capacity And Autonomous Expiry (Closed; Software Scope)
 
@@ -62,12 +92,12 @@ Runtime duration extension remains deferred; broader milestones stay open.
 - AcquisitionNode._experiment_device_parameters(configuration): Retains explicit Session settings or captures initialized local settings once, independently of preparation success, and resolves isolated Experiment overrides.
 - AcquisitionNode.activate_experiment_runtime(context, health_mapping): Rechecks ready/running devices and returns a detached established deadline/mapping, including for identical activation retries; constructor and arguments unchanged.
 - SynchronizationManager.local_deadline_for_session_time(session_time_s): Translates a deadline for co-located users of its running authoritative clock; constructor unchanged.
-- Controller.start_launched_experiment(..., configuration=None, storage_participant=None): Requires per-Experiment capacity and synchronized common-deadline activation over existing NATS boundaries, rejecting resource work during active or interrupted closeout; constructor unchanged.
+- Controller.start_launched_experiment(..., configuration=None, storage_participant=None, expected_session_id=None): Requires the expected binding, per-Experiment capacity and synchronized common-deadline activation over existing NATS boundaries, rejecting resource work during active or interrupted closeout; constructor unchanged.
 - Controller.start_experiment(..., configuration=None): Applies local capacity/preparation and resolves post-start activation errors as experiment_fail with explicit scientific-cleanup confirmation.
 - Controller._end_experiment(experiment_id, event_type, details=None, *, end_time_unconfirmed=False): Requires local transition admission before canonical termination, context clearing and scientific finalization, optionally preserving an unconfirmed end time without another clock read.
 - Controller.accept_experiment_expiry(message): Requires the exact captured activation mapping/deadline plus matching source/Session/Experiment/duration/finality before canonical reconciliation.
 - Controller._remember_experiment_deadline(node_id, experiment_id, deadline): Validates and retains one activation deadline against canonical configuration, common start and synchronization mapping.
-- Controller.reconcile_launched_experiment_expiry(experiment_id): Reads missed owner expiry proof without replaying acquisition or ending a Session.
+- Controller.reconcile_launched_experiment_expiry(experiment_id, *, expected_session_id=None): Reads missed owner expiry proof, checking the original binding before accepting asynchronous results without replaying acquisition or ending a Session.
 - Controller.get_status(): Also exposes active_experiment_id and canonical experiment_lifecycle_evidence.
 - Controller._reconcile_expiry_if_complete(experiment_id): Records one canonical end only after complete matching node proof and current lifecycle checks.
 - NatsControllerCommunication.subscribe_experiment_expiry_evidence(session_id, controller): Validates existing subject/body identity and delivers expiry evidence to Controller.
@@ -1199,12 +1229,12 @@ is complete; W030 records manual validation, focused tests, and audit reassessme
 - Controller.launch_session(selections, *, communication, participants, config_parameters, result_window_s, scientific_outputs=()): Serializes admission and leftover original-attempt cleanup before allocating a new Session, rejecting unresolved resources before any new reservation and never resuming failed scientific initialization.
 - Controller.get_node_inventory(participant, *, communication, result_window_s): Retrieves fresh nonce-correlated installed-device/Session-parameter inventory over existing NATS get_inventory with bounded waiting and temporary response-subscription cleanup.
 - Controller.shutdown_framework(participants, *, communication, stop_attempt_id, administrator_id, result_window_s, authorize_kill=None): Surveys an explicit Session-independent scope and coordinates progressive W036 retirement with StorageManager/Controller preparation, exact pre-Ingestor archival, separately bounded per-service authorization, and retained later confirmations in ControllerCommandResult.details.
-- Controller.start_launched_session(): Establishes configured remote synchronization before starting reserved nodes through correlated NATS commands, returning ControllerCommandResult and attempting cleanup if startup fails.
+- Controller.start_launched_session(*, expected_session_id=None): Checks the requested binding under existing transition admission, establishes remote synchronization and starts reserved nodes through correlated NATS commands, retaining existing rollback on failure.
 - Controller.stop_launched_session(reason=None): Stops and locally finalizes all reserved nodes through NATS, releases only confirmed-clean reservations, records the Controller-owned end of any active Experiment without refinalizing node files, and stops the Session without waiting for global collection.
-- Controller.start_launched_experiment(experiment_id, *, scientific_outputs=(), runtime_health_mapping=None, details=None, configuration=None, storage_participant=None): Fences retained closeout ownership before measured synchronization and preparation, records canonical start before node-specific activation, and preserves failed/cancelled activation outcomes and cleanup uncertainty.
-- Controller._end_launched_experiment(experiment_id, details, event_type): Shares the retained closeout fence and confirmed owner finalization path for manual Experiment Stop and remote experiment_fail.
+- Controller.start_launched_experiment(experiment_id, *, scientific_outputs=(), runtime_health_mapping=None, details=None, configuration=None, storage_participant=None, expected_session_id=None): Rechecks the requested binding after lock acquisition before existing synchronization, preparation, canonical start and node activation, preserving failure/cleanup semantics.
+- Controller._end_launched_experiment(experiment_id, details, event_type, expected_session_id=None): Shares expected-binding validation, the retained closeout fence and owner finalization for manual Experiment Stop and remote experiment_fail.
 - Controller._finalize_launched_experiment_outputs(session, experiment_id): Resumes/verifies every reserved scientific owner exclusively through scoped bounded NATS commands, retaining original-Session attribution and reporting any missing confirmation.
-- Controller.stop_launched_experiment(experiment_id, details=None): Confirms each node's finalization and evidence publication before recording canonical Experiment stop with fresh authoritative Session Time.
+- Controller.stop_launched_experiment(experiment_id, details=None, *, expected_session_id=None): Rechecks the requested binding after lock acquisition, then confirms node finalization/publication before recording Experiment stop with authoritative Session Time.
 - Controller._start_launched_session: Starts configured remote synchronization and nodes through scoped NATS requests, retaining the successfully launched Session's failure/evidence obligations if runtime startup fails or is cancelled.
 - Controller._launch_session: Resolves a new Session's configuration and prepares remote owners while recording possible resource side effects before dispatch; failed attempts retain cleanup only, not a Session to resume.
 - Controller._rollback_initialization(progress, communication, window): Shares original-attempt abort/release sequencing across failed launch and runtime startup, using scoped confirmations and current owner-reported availability while retaining incomplete progress.
@@ -1219,7 +1249,7 @@ is complete; W030 records manual validation, focused tests, and audit reassessme
 - Controller.publish_acquisition_evidence_completion(*, communication, result_window_s): Verifies producer and health prerequisites before marker admission and verifies the same producer confirmations after awaited publication, retaining an unconfirmed published marker for explicit retry if prerequisites change.
 - Controller.archive_acquisition_evidence(*, communication): Verifies receipt of its confirmed W042 marker through the matching NatsIngestorCommunication, archives current protected Ingestor compilation and existing Session Record evidence, and returns confirmed Stage A paths without lifecycle completion, collection, or binding release.
 - Controller.preserve_artifact_collection_handoff(): Compiles journal-backed artifact information after current Stage A confirmation and returns verified durable handoff preservation without changing lifecycle or releasing bindings.
-- Controller.normal_stop_session(*, communication, receiving=None, result_window_s, reason=None, storage_participant=None): Uses launched NATS owners and an explicit StorageManager identity for sole-owner cleanup, verified preservation and terminal reporting under Decisions 407/408; receiving is retained for signature compatibility, not direct-owner access.
+- Controller.normal_stop_session(*, communication, receiving=None, result_window_s, reason=None, storage_participant=None, expected_session_id=None): Validates the requested binding before existing sole-owner NATS cleanup, preservation and terminal reporting; receiving remains signature compatibility only.
 - Controller.kill_session(*, communication, result_window_s, operator_authorized, reason=None, storage_participant=None): Uses launched NATS owners and explicit authorization for forced closeout, retaining partial preservation, cleanup uncertainty and independent release obligations.
 - Controller.reconcile_session_closeout(session_id, *, communication, ingestor_participant, storage_participant, result_window_s): Reads authoritative known-Session preservation over NATS without restoring a Session or transitioning its lifecycle.
 - Controller._closeout_owner_request: Requires a current correlated closeout result and unchanged Controller binding after each owner request.
@@ -1237,7 +1267,7 @@ is complete; W030 records manual validation, focused tests, and audit reassessme
 - Controller.reconciliation_evidence: Returns detached retained persistent informational findings for existing publication and preservation paths.
 - Controller._reconcile_framework_attempt: Correlates confirmed final participant results against the original framework attempt and archived evidence without treating missing results or intent as completion.
 - Controller.check_ready(): Returns Session-independent service readiness, combining confirmed configured dependencies and refusing to fabricate a ready/unready report when dependency availability is unknown.
-- Controller.release_session(*, communication=None, result_window_s=None): Releases only a launched terminal binding after confirmed NATS owner cleanup, preservation and independent release, rejecting unsupported local release without lifecycle or resource mutation.
+- Controller.release_session(*, communication=None, result_window_s=None, expected_session_id=None): Releases only the requested launched terminal binding after existing NATS cleanup, preservation and owner release, rejecting unsupported local release without mutation.
 - Controller._session_ingest_state(): Snapshots accepted operational evidence and complete intake audit for current acquisition-stage verification without performing Controller completion.
 - Controller.start_experiment: Accepts keyword-only `scientific_outputs=()`, `preparation_readiness=()`, and `preparation_outcomes=()`, gates start on required readiness and correlated final remote successes, and reports preparation rejection once as persistent runtime evidence in failed result details without lifecycle activation.
 - Controller._record_failed_command: Records an unsuccessful command with optional plain diagnostic details, including the produced rejection message for a pre-start preparation failure.

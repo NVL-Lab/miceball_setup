@@ -8,7 +8,10 @@ from unittest.mock import AsyncMock, patch
 
 from nats.aio.client import Client as NATS
 
-from lab_sync_acquisition.communication import ExternalSessionLaunchRequest, ExternalSessionLaunchResult, RuntimeParticipant
+from lab_sync_acquisition.communication import (
+    ExternalSessionLaunchRequest, ExternalSessionLaunchResult, RuntimeParticipant,
+    EXTERNAL_CONTROLLER_OPERATIONS,
+)
 from lab_sync_acquisition.controller import Controller
 from lab_sync_acquisition.nats_communication import (
     NatsCommunicationBoundary, NatsExternalSessionLaunchClient, NatsExternalSessionLaunchReceiver,
@@ -28,6 +31,9 @@ AUTHORIZATION = '''users: [
     publish: ["controller_external.controller.tester.launch_session"], subscribe: ["_INBOX.>"]}},
   {user: outsider, password: outsider, permissions: {publish: ["unused.>"], subscribe: ["_INBOX.>"]}}
 ]'''
+AUTHORIZATION = AUTHORIZATION.replace('"controller_external.controller.tester.launch_session"',
+    ", ".join(json.dumps(f"controller_external.controller.tester.{operation}")
+              for operation in ("launch_session", *EXTERNAL_CONTROLLER_OPERATIONS)))
 
 
 class ExternalLaunchModelTests(unittest.TestCase):

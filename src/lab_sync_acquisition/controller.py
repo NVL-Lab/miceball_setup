@@ -219,10 +219,11 @@ class Controller:
         self, *, communication: NatsControllerCommunication,
         receiving: NatsIngestorCommunication | None = None, result_window_s: float,
         reason: str | None = None, storage_participant: RuntimeParticipant | None = None,
+        expected_session_id: str | None = None,
     ) -> ControllerCommandResult:
         """Confirm launched cleanup, Stage A and handoff through NATS owner commands."""
         return await self._close_session_remote(communication, storage_participant,
-            result_window_s, reason, kill=False, operator_authorized=False)
+            result_window_s, reason, kill=False, operator_authorized=False, expected_session_id=expected_session_id)
 
     async def _closeout_owner_request(self, session, participant, operation, payload, window):
         result = await self._launch_communication.request_persistence_command(participant,
@@ -301,10 +302,11 @@ class Controller:
                     or finality.get("receipt", {}).get("durable_receipt_confirmed") is not True):
                 raise RuntimeError("This closeout's finalized acquisition boundary is unconfirmed")
 
-    async def _close_session_remote(self, communication, storage, window, reason, *, kill, operator_authorized):
+    async def _close_session_remote(self, communication, storage, window, reason, *, kill, operator_authorized,
+                                    expected_session_id=None):
         """Coordinate existing participant owners and durable preservation without borrowing their locks."""
         from math import isfinite
-        session = self._require_session()
+        session = self._require_session(expected_session_id=expected_session_id)
         name = "kill_session" if kill else "normal_stop_session"
         admitted = False
         try:
@@ -1189,15 +1191,15 @@ class Controller:
 
     @service_operation(new_work=True)
     @_session_command
-    async def start_launched_session(self) -> ControllerCommandResult:
+    async def start_launched_session(self, *, expected_session_id: str | None = None) -> ControllerCommandResult:
         """Start reserved distributed acquisition through existing runtime commands."""
         if self._experiment_operation_lock.locked():
             return self._record_failed_command("start_session", RuntimeError("A runtime transition is in progress"))
         async with self._experiment_operation_lock:
-            return await self._start_launched_session()
+            return await self._start_launched_session(expected_session_id)
 
-    async def _start_launched_session(self) -> ControllerCommandResult:
-        session = self._require_session()
+    async def _start_launched_session(self, expected_session_id=None) -> ControllerCommandResult:
+        session = self._require_session(expected_session_id=expected_session_id)
         if self._launch_communication is None:
             return self._record_failed_command("start_session",
                 RuntimeError("A launched Session communication binding is required"))
@@ -1510,10 +1512,11 @@ class Controller:
             runtime_health_mapping: Mapping[str, Iterable[ExperimentRuntimeHealthMapping]] | None = None,
             details: dict[str, Any] | None = None,
             configuration: ExperimentConfiguration | None = None,
-            storage_participant: RuntimeParticipant | None = None) -> ControllerCommandResult:
+            storage_participant: RuntimeParticipant | None = None,
+            expected_session_id: str | None = None) -> ControllerCommandResult:
         """Prepare, synchronize and activate Experiment runtime exclusively through NATS."""
         async with self._experiment_operation_lock:
-            session = self._require_session()
+            session = self._require_session(expected_session_id=expected_session_id)
             prepared = []
             canonical_started = False
             try:
@@ -1715,12 +1718,16 @@ class Controller:
 
     @service_operation()
     @_session_command
-    async def reconcile_launched_experiment_expiry(self, experiment_id: str) -> bool:
+    async def reconcile_launched_experiment_expiry(self, experiment_id: str, *,
+                                                  expected_session_id: str | None = None) -> bool:
         """Read current owner proof after missed publication; absent proof never ends an Experiment."""
+        session = self._require_session(expected_session_id=expected_session_id)
         self._require_launched_workflow()
         for participant in self._reserved_participants:
             result = await self._request_launched_runtime(participant, "read_experiment_expiry",
                                                           {"experiment_id": experiment_id})
+            if self._session is not session:
+                raise RuntimeError("Session binding changed during expiry readback")
             message = result.payload.get("expiry_evidence")
             if message is None:
                 return False
@@ -1730,15 +1737,16 @@ class Controller:
     @service_operation()
     @_session_command
     async def stop_launched_experiment(self, experiment_id: str,
-                                       details: dict[str, Any] | None = None) -> ControllerCommandResult:
+                                       details: dict[str, Any] | None = None, *,
+                                       expected_session_id: str | None = None) -> ControllerCommandResult:
         """Confirm node finalization/publication before recording canonical Experiment stop."""
         async with self._experiment_operation_lock:
-            return await self._end_launched_experiment(experiment_id, details, "experiment_stop")
+            return await self._end_launched_experiment(experiment_id, details, "experiment_stop", expected_session_id)
 
-    async def _end_launched_experiment(self, experiment_id, details, event_type):
+    async def _end_launched_experiment(self, experiment_id, details, event_type, expected_session_id=None):
         name = "stop_experiment" if event_type == "experiment_stop" else "execute_controller_action_decision"
         try:
-            session = self._require_session()
+            session = self._require_session(expected_session_id=expected_session_id)
             self._require_launched_workflow()
             if (self._normal_stop_owns_cleanup(session) or self._normal_stop_task is not None or self._acquisition_marker_session is session
                     or session.current_state != SessionState.RUNNING
@@ -2505,10 +2513,11 @@ class Controller:
     @service_operation()
     @_session_command
     async def release_session(self, *, communication: NatsControllerCommunication | None = None,
-                              result_window_s: float | None = None) -> ControllerCommandResult:
+                              result_window_s: float | None = None,
+                              expected_session_id: str | None = None) -> ControllerCommandResult:
         """Release a launched terminal binding after confirmed cleanup and persistence."""
         if self._launch_communication is not None:
-            return await self._release_session_remote(communication, result_window_s)
+            return await self._release_session_remote(communication, result_window_s, expected_session_id)
         return self._record_failed_command("release_session",
             RuntimeError("Session release requires a launched NATS binding"))
 
@@ -2534,9 +2543,9 @@ class Controller:
         self._active_experiment_runtime_health_mapping = ()
         self._command_results.clear()
 
-    async def _release_session_remote(self, communication, window):
+    async def _release_session_remote(self, communication, window, expected_session_id=None):
         from math import isfinite
-        session = self._require_session()
+        session = self._require_session(expected_session_id=expected_session_id)
         admitted = False
         try:
             self._require_runtime_cleanup(session)
@@ -3162,9 +3171,11 @@ class Controller:
         self._launch_subscriptions = ()
 
     @service_operation()
-    def _require_session(self) -> Session:
+    def _require_session(self, *, expected_session_id: str | None = None) -> Session:
         if self._session is None:
             raise RuntimeError("Controller has no Session")
+        if expected_session_id is not None and self._session.session_id != expected_session_id:
+            raise RuntimeError("Controller Session does not match the requested Session")
         return self._session
 
     def _require_in_process_workflow(self) -> None:

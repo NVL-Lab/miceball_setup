@@ -279,10 +279,21 @@ rewrite earlier products or recorded inputs of completed operations.
 **Status:** OPEN - Decision 404 accepts command-authority/result-delivery directions;
 Decisions 412-413 settle GUI independence, reconnection and exclusive control,
 not their full transport, trust or authority mechanisms. Decision 422 resolves
-the initial G5 external lifecycle boundary only. Its Session-launch-only receiver,
-reusable client and production wiring are implemented, pending ICC independent
-validation and separate audit; no CLI or additional external operations are
-implemented by this slice. See [code map](code_map.md#decision-422-external-session-launch-implementation-independent-validation-pending).
+the initial G5 external lifecycle boundary. Following launch-boundary validation,
+the authorized bounded extension implements Session start, Experiment start/stop
+and expiry readback, Normal Stop, saved collection and release through the same
+Controller. Independent deployment validation and separate audit remain pending;
+no CLI or combined orchestration command is added. See
+[code map](code_map.md#decision-422-external-controller-lifecycle-implementation-independent-validation-pending).
+
+The initial collection-before-release blocker was reproduced as an overly broad
+Ingestor archive/intake comparison. The bounded correction applies existing
+origin-scoped acquisition coverage and exact audit equality to release and
+maintenance, preserving StorageManager confirmation and other release guards.
+Acquisition-only archives without provenance retain exact whole-archive equality.
+Focused tests cover both operation orders and fail-closed damaged/interrupted
+preservation. Independent validation and audit of this correction remain pending;
+no lifecycle ordering or recovery policy change is introduced.
 
 Decision 422 accepts Controller-targeted pre-Session launch requests through a
 minimal external envelope using existing Controller identity and NATS routing,
@@ -297,8 +308,8 @@ Controller restart.
 
 One designated G5 testing client uses minimum existing access restrictions; a
 thin CLI and the future GUI share the reusable external interface, not separate
-lifecycle implementations. The first slice is Session launch only; additional
-external operations await independent validation of that boundary. This resolves
+lifecycle implementations. The original first slice remains the launch-only
+foundation; the authorized extension is pending its own validation. This resolves
 the initial pre-Session, duplicate-protection and testing-client questions, not
 GUI takeover, reconnection experience, multi-operator management, broad
 authorization or multi-Controller coordination. G5 remains incomplete.

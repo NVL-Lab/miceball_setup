@@ -24,6 +24,9 @@ from lab_sync_acquisition.communication import (
     COMMAND_RESULT_STATUSES,
     ExternalSessionLaunchRequest,
     ExternalSessionLaunchResult,
+    ExternalControllerRequest,
+    ExternalControllerResult,
+    EXTERNAL_CONTROLLER_OPERATIONS,
     SERVICE_RECOVERY_COMMAND_TYPES,
     GroupCommandOutcome,
     LAB_COMMAND_RESULTS,
@@ -40,7 +43,7 @@ from lab_sync_acquisition.communication import (
     build_group_command_messages,
 )
 from lab_sync_acquisition.ingestor import InMemoryIngestor
-from lab_sync_acquisition.controller import Controller, ControllerActionDecision, _HealthAdmissionClosed
+from lab_sync_acquisition.controller import Controller, ControllerActionDecision, ControllerCommandResult, _HealthAdmissionClosed
 from lab_sync_acquisition.session import ScientificOutputSelection, ExperimentConfiguration
 from lab_sync_acquisition.device import DeviceDeclaration
 from lab_sync_acquisition.synchronization import SynchronizationManager
@@ -48,7 +51,7 @@ from lab_sync_acquisition.experiment_runtime import ActiveExperimentRuntimeConte
 from lab_sync_acquisition.service_readiness import ServiceReadiness
 from lab_sync_acquisition.service_maintenance import service_operation
 from lab_sync_acquisition.communication import DEPENDENT_MAINTENANCE_COMMANDS
-from lab_sync_acquisition.storage import PersistentStorageManager
+from lab_sync_acquisition.storage import PersistentStorageManager, _to_plain_data
 
 
 RuntimeResultCallback = Callable[[RuntimeCommandResultMessage], Awaitable[None]]
@@ -505,38 +508,57 @@ class _RuntimeStopAttempt:
         self.confirmation = None
 
 
+def _external_operation_result(request, status, outcome=None, error=None):
+    """Keep legacy launch and bounded Session-operation wire formats distinct."""
+    if isinstance(request, ExternalSessionLaunchRequest):
+        return ExternalSessionLaunchResult(request.controller_id, request.client_id,
+            request.request_id, status, outcome, error)
+    return ExternalControllerResult(request.controller_id, request.client_id, request.request_id,
+        request.operation, request.session_id, status, outcome, error)
+
+
 class NatsExternalSessionLaunchClient:
-    """Request launch without owning a Controller or automatically retrying work."""
+    """Request explicit Controller operations without owning or replaying execution."""
 
     def __init__(self, boundary: NatsCommunicationBoundary):
         self._boundary = boundary
 
     async def request_launch(self, request: ExternalSessionLaunchRequest, *, timeout_s: float) -> ExternalSessionLaunchResult:
         """Submit the caller's stable request; timeout leaves the outcome uncertain."""
-        from math import isfinite
         request = ExternalSessionLaunchRequest.from_dict(request.to_dict())
+        return await self._request(request, "launch_session", ExternalSessionLaunchResult, timeout_s)
+
+    async def request_operation(self, request: ExternalControllerRequest, *, timeout_s: float) -> ExternalControllerResult:
+        """Submit one fixed Session/Experiment operation, never arbitrary RPC."""
+        request = ExternalControllerRequest.from_dict(request.to_dict())
+        return await self._request(request, request.operation, ExternalControllerResult, timeout_s)
+
+    async def _request(self, request, operation, result_type, timeout_s):
+        from math import isfinite
         if request.client_id != self._boundary.component_id:
-            raise ValueError("Launch client identity must match its communication boundary")
+            raise ValueError("External client identity must match its communication boundary")
         if type(timeout_s) not in {int, float} or not isfinite(timeout_s) or timeout_s <= 0:
             raise ValueError("A positive finite response timeout is required")
-        subject = f"controller_external.{request.controller_id}.{request.client_id}.launch_session"
+        subject = f"controller_external.{request.controller_id}.{request.client_id}.{operation}"
         try:
             message = await self._boundary._require_client().request(
                 subject, self._boundary._encode(request.to_dict()), timeout=timeout_s)
-            result = ExternalSessionLaunchResult.from_dict(json.loads(message.data.decode("utf-8")))
+            result = result_type.from_dict(json.loads(message.data.decode("utf-8")))
             if (result.controller_id, result.client_id, result.request_id) != (
                     request.controller_id, request.client_id, request.request_id):
-                raise ValueError("External launch response identity mismatch")
+                raise ValueError("External Controller response identity mismatch")
+            if isinstance(request, ExternalControllerRequest) and (result.operation, result.session_id) != (
+                    request.operation, request.session_id):
+                raise ValueError("External operation or Session response identity mismatch")
             return result
         except asyncio.CancelledError:
             raise
         except Exception as error:
-            return ExternalSessionLaunchResult(request.controller_id, request.client_id,
-                request.request_id, "uncertain", error=str(error))
+            return _external_operation_result(request, "uncertain", error=str(error))
 
 
 class NatsExternalSessionLaunchReceiver:
-    """Service-owned launch admission and lifetime-only logical request outcomes.
+    """Service-owned bounded lifecycle dispatch and lifetime-only request outcomes.
 
     Broker permissions must restrict this subject to the designated client.
     A client_id is routing data, never an authentication mechanism.
@@ -561,34 +583,40 @@ class NatsExternalSessionLaunchReceiver:
         self._participants = tuple(participants)
         self._window = result_window_s
         self._requests = {}
-        self._subscription = None
+        self._subscriptions = []
         self._closed = False
 
     async def start(self) -> None:
-        """Subscribe only to external launch, disjoint from runtime/maintenance traffic."""
-        if self._closed or self._subscription is not None:
-            raise RuntimeError("External launch receiver cannot be started twice")
-        subject = f"controller_external.{self._boundary.component_id}.{self._client_id}.launch_session"
-        setup = asyncio.create_task(self._boundary._require_client().subscribe(subject, cb=self._receive))
-        try:
-            self._subscription = await asyncio.shield(setup)
-        except asyncio.CancelledError:
-            self._subscription = await NatsControllerCommunication._join_runtime_request_step(setup, propagate_cancellation=False)
-            raise
+        """Own exact supported subscriptions, disjoint from runtime/maintenance."""
+        if self._closed or self._subscriptions:
+            raise RuntimeError("External Controller receiver cannot be started twice")
+        for operation in ("launch_session", *EXTERNAL_CONTROLLER_OPERATIONS):
+            subject = f"controller_external.{self._boundary.component_id}.{self._client_id}.{operation}"
+            async def receive(message, operation=operation):
+                await self._receive(message, operation)
+            setup = asyncio.create_task(self._boundary._require_client().subscribe(subject, cb=receive))
+            try:
+                self._subscriptions.append(await asyncio.shield(setup))
+            except asyncio.CancelledError:
+                self._subscriptions.append(await NatsControllerCommunication._join_runtime_request_step(setup, propagate_cancellation=False))
+                raise
         await self._boundary.flush()
 
-    async def _receive(self, message):
-        request = None
+    async def _receive(self, message, operation):
         try:
             if self._closed:
                 raise RuntimeError("External launch admission is closed")
-            request = ExternalSessionLaunchRequest.from_dict(json.loads(message.data.decode("utf-8")))
+            model = ExternalSessionLaunchRequest if operation == "launch_session" else ExternalControllerRequest
+            request = model.from_dict(json.loads(message.data.decode("utf-8")))
+            if isinstance(request, ExternalControllerRequest) and request.operation != operation:
+                raise ValueError("External request operation does not match routing")
             if (request.controller_id != self._boundary.component_id
                     or request.client_id != self._client_id):
                 raise ValueError("External launch target/client identity mismatch")
             if not message.reply or not message.reply.startswith("_INBOX."):
                 raise ValueError("External launch requires a NATS request inbox")
-            parameters = json.dumps(request.to_dict(), sort_keys=True, separators=(",", ":"), allow_nan=False)
+            parameters = json.dumps({"operation": operation, "request": request.to_dict()},
+                sort_keys=True, separators=(",", ":"), allow_nan=False)
             record = self._requests.get(request.request_id)
             if record is not None:
                 if record[0] != parameters:
@@ -598,15 +626,17 @@ class NatsExternalSessionLaunchReceiver:
                 record = [parameters, None, None]
                 self._requests[request.request_id] = record
                 record[1] = asyncio.create_task(self._execute(request, record))
-            result = record[2] or ExternalSessionLaunchResult(request.controller_id,
-                request.client_id, request.request_id, "pending")
+            result = record[2] or _external_operation_result(request, "pending")
         except (ValueError, TypeError, KeyError, AttributeError, RuntimeError) as error:
             # Malformed IDs cannot safely be reflected into a correlated result.
-            data = {}
             try:
                 data = json.loads(message.data.decode("utf-8"))
-                result = ExternalSessionLaunchResult(self._boundary.component_id, self._client_id,
-                    data["request_id"], "rejected", error=str(error))
+                if operation == "launch_session":
+                    result = ExternalSessionLaunchResult(self._boundary.component_id, self._client_id,
+                        data["request_id"], "rejected", error=str(error))
+                else:
+                    result = ExternalControllerResult(self._boundary.component_id, self._client_id,
+                        data["request_id"], operation, data["session_id"], "rejected", error=str(error))
             except (ValueError, TypeError, KeyError, AttributeError):
                 return
         if message.reply and message.reply.startswith("_INBOX."):
@@ -614,19 +644,66 @@ class NatsExternalSessionLaunchReceiver:
 
     async def _execute(self, request, record):
         try:
-            outcome = await self._launch(request)
-            result = ExternalSessionLaunchResult(request.controller_id, request.client_id,
-                request.request_id, "succeeded" if outcome.succeeded else "failed", outcome.to_dict(), outcome.error)
+            new_work = isinstance(request, ExternalSessionLaunchRequest) or request.operation in {
+                "start_launched_session", "start_launched_experiment"}
+            outcome = await (self._execute_new_work(request) if new_work else self._execute_existing_work(request))
+            result = _external_operation_result(request, "succeeded" if outcome.succeeded else "failed",
+                _to_plain_data(outcome.to_dict()), outcome.error)
         except asyncio.CancelledError:
-            result = ExternalSessionLaunchResult(request.controller_id, request.client_id,
-                request.request_id, "failed", error="Service launch execution interrupted; cleanup may remain outstanding")
+            result = _external_operation_result(request, "failed",
+                error="Service execution interrupted; cleanup may remain outstanding")
         except Exception as error:
-            result = ExternalSessionLaunchResult(request.controller_id, request.client_id,
-                request.request_id, "rejected", error=str(error))
+            result = _external_operation_result(request, "rejected", error=str(error))
         record[2] = result
 
     @service_operation(new_work=True)
-    async def _launch(self, request):
+    async def _execute_new_work(self, request):
+        return await self._dispatch(request)
+
+    @service_operation()
+    async def _execute_existing_work(self, request):
+        return await self._dispatch(request)
+
+    async def _dispatch(self, request):
+        if isinstance(request, ExternalControllerRequest):
+            # Trust-boundary check; Controller also rechecks after lifecycle lock waits.
+            if (request.operation != "collect_saved_session_artifacts_remote"
+                    and self._controller.get_status()["session_id"] != request.session_id):
+                raise ValueError("External operation does not target the current Controller Session")
+            p = request.parameters
+            expected = {"expected_session_id": request.session_id}
+            if request.operation == "start_launched_session":
+                return await self._controller.start_launched_session(**expected)
+            if request.operation == "start_launched_experiment":
+                mappings = p.get("runtime_health_mapping")
+                if mappings is not None:
+                    mappings = {node: tuple(ExperimentRuntimeHealthMapping.from_dict(m) for m in values)
+                                for node, values in mappings.items()}
+                return await self._controller.start_launched_experiment(p["experiment_id"],
+                    scientific_outputs=tuple(ScientificOutputSelection.from_dict(o) for o in p["scientific_outputs"]),
+                    configuration=ExperimentConfiguration.from_dict(p["configuration"]),
+                    details=deepcopy(p.get("details")), runtime_health_mapping=mappings,
+                    storage_participant=self._storage_participant(), **expected)
+            if request.operation == "stop_launched_experiment":
+                return await self._controller.stop_launched_experiment(p["experiment_id"],
+                    details=deepcopy(p.get("details")), **expected)
+            if request.operation == "reconcile_launched_experiment_expiry":
+                confirmed = await self._controller.reconcile_launched_experiment_expiry(p["experiment_id"], **expected)
+                return ControllerCommandResult(request.operation, confirmed,
+                    {"session_id": request.session_id, "experiment_id": p["experiment_id"], "expiry_confirmed": confirmed},
+                    None if confirmed else "Experiment expiry remains unconfirmed")
+            if request.operation == "normal_stop_session":
+                return await self._controller.normal_stop_session(communication=self._communication,
+                    storage_participant=self._storage_participant(), result_window_s=self._window,
+                    reason=p.get("reason"), **expected)
+            if request.operation == "collect_saved_session_artifacts_remote":
+                return await self._controller.collect_saved_session_artifacts_remote(request.session_id,
+                    evidence_id=p["evidence_id"], communication=self._communication,
+                    storage_participant=self._storage_participant(), result_window_s=self._window)
+            if request.operation == "release_session":
+                return await self._controller.release_session(communication=self._communication,
+                    result_window_s=self._window, **expected)
+            raise ValueError("Unsupported external Controller operation")
         known = {p.component_id for p in self._participants if p.component_type == "acquisition_node"}
         if not set(request.selections) <= known:
             raise ValueError("Launch selects an unregistered AcquisitionNode")
@@ -637,12 +714,18 @@ class NatsExternalSessionLaunchReceiver:
             config_parameters=deepcopy(request.config_parameters), result_window_s=self._window,
             scientific_outputs=tuple(ScientificOutputSelection.from_dict(d) for d in request.scientific_outputs))
 
+    def _storage_participant(self):
+        matches = [p for p in self._participants if p.component_type == "storage_manager"]
+        if len(matches) != 1:
+            raise ValueError("External operation requires one configured StorageManager")
+        return matches[0]
+
     async def close(self) -> None:
         """Close admission and join owned work; client teardown never calls this."""
         self._closed = True
-        if self._subscription is not None:
-            await _unsubscribe_session_subscription(self._subscription)
-            self._subscription = None
+        for subscription in tuple(self._subscriptions):
+            await _unsubscribe_session_subscription(subscription)
+            self._subscriptions.remove(subscription)
         for _, task, _ in self._requests.values():
             await asyncio.shield(task)
 

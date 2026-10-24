@@ -833,8 +833,12 @@ class InMemoryIngestor:
                         or not lifecycle or lifecycle[-1].get("to_state") != state):
                     raise RuntimeError("Terminal Session completion evidence is unconfirmed")
                 compiled = self.compile_persistent_runtime_evidence()
-                if any(confirmation[name] != [item.to_dict() for item in compiled[name]]
-                       for name in ("runtime_evidence", "ingest_audit")):
+                origins = confirmation["compilation_summary"].get("runtime_evidence_origins")
+                acquisition = (confirmation["runtime_evidence"] if origins is None else
+                               [item for item in confirmation["runtime_evidence"] if item["evidence_id"] in origins["ingestor"]])
+                if (acquisition
+                        != [item.to_dict() for item in compiled["runtime_evidence"]]
+                        or confirmation["ingest_audit"] != [item.to_dict() for item in compiled["ingest_audit"]]):
                     raise RuntimeError("Archive confirmation does not cover current runtime intake")
                 if partial_kill or any(message.evidence_type == "acquisition_evidence_completion"
                                        for message in self._accepted_runtime_evidence):
@@ -1223,8 +1227,12 @@ class InMemoryIngestor:
                 if confirmation is None:
                     return ["Session evidence archival is unconfirmed"]
                 compiled = self.compile_persistent_runtime_evidence()
-                if (any(confirmation[name] != [item.to_dict() for item in compiled[name]]
-                        for name in ("runtime_evidence", "ingest_audit"))):
+                origins = confirmation["compilation_summary"].get("runtime_evidence_origins")
+                acquisition = (confirmation["runtime_evidence"] if origins is None else
+                               [item for item in confirmation["runtime_evidence"] if item["evidence_id"] in origins["ingestor"]])
+                if (acquisition
+                        != [item.to_dict() for item in compiled["runtime_evidence"]]
+                        or confirmation["ingest_audit"] != [item.to_dict() for item in compiled["ingest_audit"]]):
                     return ["Session intake is not completely preserved"]
             return []
 
