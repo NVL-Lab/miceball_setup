@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="description" content="Miceball scientific acquisition interface">
+  <title>Miceball · Setup</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <svg class="icon-sprite" aria-hidden="true">
+    <symbol id="icon-setup" viewBox="0 0 24 24">
+      <path d="M4 7h10M18 7h2M4 17h2M10 17h10M14 4v6M6 14v6"/>
+    </symbol>
+    <symbol id="icon-session" viewBox="0 0 24 24">
+      <path d="M7 3h10v4H7zM5 5H3v16h18V5h-2M8 12h8M8 16h5"/>
+    </symbol>
+    <symbol id="icon-parameters" viewBox="0 0 24 24">
+      <circle cx="7" cy="7" r="2"/><circle cx="17" cy="17" r="2"/>
+      <path d="M9 7h11M4 7h1M4 17h11M19 17h1M7 9v11M17 4v11"/>
+    </symbol>
+    <symbol id="icon-experiment" viewBox="0 0 24 24">
+      <path d="M9 3h6M10 3v6l-5 9a2 2 0 0 0 2 3h10a2 2 0 0 0 2-3l-5-9V3M8 15h8"/>
+    </symbol>
+    <symbol id="icon-analysis" viewBox="0 0 24 24">
+      <path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>
+      <circle cx="16" cy="8" r="3"/>
+    </symbol>
+    <symbol id="icon-services" viewBox="0 0 24 24">
+      <rect x="3" y="4" width="18" height="6" rx="2"/>
+      <rect x="3" y="14" width="18" height="6" rx="2"/>
+      <path d="M7 7h.01M7 17h.01M11 7h6M11 17h6"/>
+    </symbol>
+    <symbol id="icon-pin" viewBox="0 0 24 24">
+      <path d="m9 4 6 0-1 5 3 3v2H7v-2l3-3-1-5ZM12 14v7"/>
+    </symbol>
+    <symbol id="icon-alerts" viewBox="0 0 24 24">
+      <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/>
+    </symbol>
+  </svg>
+
+  <div class="app-shell" id="app-shell">
+    <aside class="sidebar" id="sidebar" aria-label="Primary navigation">
+      <div class="sidebar__brand" aria-label="Miceball">
+        <span class="brand-mark" aria-hidden="true">
+          <span></span><span></span><span></span>
+        </span>
+        <span class="brand-name">Miceball</span>
+      </div>
+
+      <nav class="section-nav" aria-label="Application sections">
+        <button class="nav-item is-selected" type="button" data-section="setup"
+                aria-current="page" aria-controls="panel-setup" title="Setup">
+          <svg aria-hidden="true"><use href="#icon-setup"></use></svg>
+          <span>Setup</span>
+        </button>
+        <button class="nav-item" type="button" data-section="session"
+                aria-controls="panel-session" title="Session">
+          <svg aria-hidden="true"><use href="#icon-session"></use></svg>
+          <span>Session</span>
+        </button>
+        <button class="nav-item" type="button" data-section="parameters"
+                aria-controls="panel-parameters" title="Parameters">
+          <svg aria-hidden="true"><use href="#icon-parameters"></use></svg>
+          <span>Parameters</span>
+        </button>
+        <button class="nav-item" type="button" data-section="experiment"
+                aria-controls="panel-experiment" title="Experiment">
+          <svg aria-hidden="true"><use href="#icon-experiment"></use></svg>
+          <span>Experiment</span>
+        </button>
+        <button class="nav-item" type="button" data-section="analysis"
+                aria-controls="panel-analysis" title="Analysis">
+          <svg aria-hidden="true"><use href="#icon-analysis"></use></svg>
+          <span>Analysis</span>
+        </button>
+        <button class="nav-item" type="button" data-section="services"
+                aria-controls="panel-services" title="Services">
+          <svg aria-hidden="true"><use href="#icon-services"></use></svg>
+          <span>Services</span>
+        </button>
+      </nav>
+
+      <div class="alerts" id="alerts">
+        <button class="alerts__trigger" id="alerts-trigger" type="button"
+                aria-expanded="false" aria-controls="alerts-panel"
+                aria-haspopup="dialog" aria-label="Warnings and errors: 1 error, 2 warnings">
+          <span class="alerts__icon">
+            <svg aria-hidden="true"><use href="#icon-alerts"></use></svg>
+            <span class="alerts__badge" id="alerts-badge" aria-hidden="true" hidden></span>
+          </span>
+          <span class="alerts__label">Warnings &amp; Errors</span>
+        </button>
+
+        <section class="alerts-panel" id="alerts-panel" role="dialog" aria-label="Warnings and errors"
+                 aria-describedby="alerts-demo-note" hidden>
+          <div class="alerts-panel__header">
+            <div>
+              <p class="alerts-panel__eyebrow">Demonstration only</p>
+              <h2>Warnings and errors</h2>
+            </div>
+            <button class="alerts-panel__close" id="alerts-close" type="button"
+                    aria-label="Close warnings and errors">×</button>
+          </div>
+          <p class="alerts-panel__note" id="alerts-demo-note">
+            Fictional entries for visual testing—not live framework notifications.
+          </p>
+          <div class="alerts-list" id="alerts-list" aria-live="polite"></div>
+          <div class="alerts-panel__footer">
+            <button class="restore-alerts" id="restore-alerts" type="button">
+              Restore demonstration entries
+            </button>
+          </div>
+        </section>
+      </div>
+
+      <button class="pin-button" id="pin-button" type="button"
+              aria-pressed="false" title="Pin sidebar">
+        <svg aria-hidden="true"><use href="#icon-pin"></use></svg>
+        <span class="pin-button__label">Pin sidebar</span>
+      </button>
+    </aside>
+
+    <main class="workspace" tabindex="-1">
+      <header class="topbar">
+        <div>
+          <p class="topbar__eyebrow">Miceball workspace</p>
+          <h1 id="section-title">Setup</h1>
+        </div>
+      </header>
+
+      <div class="workspace__content" id="workspace-content">
+        <section class="section-panel is-active" id="panel-setup" data-panel="setup"
+                 aria-labelledby="heading-setup">
+          <h2 class="visually-hidden" id="heading-setup">Setup</h2>
+          <div class="setup-demo-note">Demonstration interface — values shown here are fictional and are not connected to framework services.</div>
+          <div class="setup-layout">
+            <div class="setup-column setup-column--primary">
+              <section class="setup-card identity-card" aria-labelledby="identity-card-title">
+                <h3 id="identity-card-title"><span aria-hidden="true">♙</span> Experimenter / Project / Animal</h3>
+                <div class="identity-selects">
+                  <label>Experimenter
+                    <select id="experimenter-select" data-catalog-select="experimenter">
+                      <option>Taylor Kim</option>
+                      <option>Morgan Lee</option>
+                      <option value="__new_experimenter">New Experimenter...</option>
+                    </select>
+                  </label>
+                  <label>Project
+                    <select id="project-select" data-catalog-select="project">
+                      <option>Visual Learning</option>
+                      <option>Motor Adaptation</option>
+                      <option value="__new_project">New Project...</option>
+                    </select>
+                  </label>
+                  <label>Animal
+                    <select id="animal-select" data-catalog-select="animal">
+                      <option>M1023</option>
+                      <option>M1041</option>
+                      <option value="__new_animal">New Animal...</option>
+                    </select>
+                  </label>
+                </div>
+                <div class="animal-summary" id="animal-summary">
+                  <div><span>Animal name</span><strong id="animal-name">Pip</strong></div>
+                  <div><span>Species</span><strong id="animal-species"><i>Mus musculus</i></strong></div>
+                  <div><span>Strain</span><strong id="animal-strain">C57BL/6J</strong></div>
+                  <div><span>Sex</span><strong id="animal-sex">Male</strong></div>
+                  <div><span>Date of birth</span><strong id="animal-dob">Sep 16, 2026</strong></div>
+                </div>
+              </section>
+
+              <section class="setup-card" aria-labelledby="session-identity-title">
+                <h3 id="session-identity-title"><span aria-hidden="true">▤</span> Session name &amp; identity</h3>
+                <div class="session-identity-grid">
+                  <label>Session name
+                    <input type="text" value="M1023_session1" aria-describedby="session-name-help">
+                    <small id="session-name-help">A descriptive name for this demonstration Session</small>
+                  </label>
+                  <label>Session date
+                    <input type="date" value="2026-10-24">
+                  </label>
+                  <label>Session number
+                    <input type="number" value="1" min="1" aria-describedby="session-number-help">
+                    <small id="session-number-help">Visual placeholder only</small>
+                  </label>
+                </div>
+              </section>
+
+              <section class="setup-card" aria-labelledby="template-title">
+                <h3 id="template-title"><span aria-hidden="true">◇</span> Session template selection</h3>
+                <div class="template-grid">
+                  <label>Session template
+                    <select>
+                      <option>Widefield behavior session</option>
+                      <option>Camera-only observation</option>
+                      <option>No template</option>
+                    </select>
+                  </label>
+                  <div class="template-description">
+                    <span>Template description</span>
+                    <p>Demonstration configuration for synchronized imaging, behavior, and visual stimulation.</p>
+                  </div>
+                </div>
+              </section>
+
+              <section class="setup-card setup-card--notes" aria-labelledby="notes-title">
+                <h3 id="notes-title"><span aria-hidden="true">□</span> Session notes</h3>
+                <label class="notes-field">Notes
+                  <textarea rows="5">First imaging session for this animal. Check focus and LED power before beginning.</textarea>
+                </label>
+              </section>
+            </div>
+
+            <div class="setup-column setup-column--secondary">
+              <section class="setup-card device-card" aria-labelledby="devices-title">
+                <div class="setup-card__heading-row">
+                  <h3 id="devices-title"><span aria-hidden="true">▣</span> Device selection</h3>
+                  <span class="demo-chip">Fictional inventory</span>
+                </div>
+                <div class="device-list">
+                  <label class="device-row"><input type="checkbox" checked><span><strong>Camera</strong><small>Hamamatsu ORCA-Fusion</small></span><span class="device-state is-ready">Connected</span><code>S/N 123456</code></label>
+                  <label class="device-row"><input type="checkbox" checked><span><strong>Stage</strong><small>ASI Tiger</small></span><span class="device-state is-ready">Connected</span><code>S/N 987654</code></label>
+                  <label class="device-row"><input type="checkbox" checked><span><strong>Stimulus display</strong><small>Acer XB273U</small></span><span class="device-state is-ready">Detected</span><code>2560 × 1440</code></label>
+                  <label class="device-row"><input type="checkbox"><span><strong>Behavior I/O</strong><small>National Instruments</small></span><span class="device-state">Not detected</span><code>—</code></label>
+                </div>
+              </section>
+
+              <section class="setup-card" aria-labelledby="storage-title">
+                <h3 id="storage-title"><span aria-hidden="true">▱</span> Storage information</h3>
+                <label>Base data directory
+                  <div class="input-with-button"><input type="text" value="/data/miceball/experiments" readonly><button type="button" title="Demonstration only">Browse...</button></div>
+                </label>
+                <div class="storage-path"><span>Target Session path</span><code>/data/miceball/experiments/Visual_Learning/M1023/session1</code></div>
+                <dl class="storage-stats"><div><dt>Available space</dt><dd>5.2 TB</dd></div><div><dt>Estimated Session size</dt><dd>~ 12 GB</dd></div><div><dt>File system</dt><dd>ext4 (local)</dd></div></dl>
+              </section>
+
+              <section class="setup-card readiness-card" aria-labelledby="readiness-title">
+                <h3 id="readiness-title"><span aria-hidden="true">✓</span> Readiness summary</h3>
+                <ul>
+                  <li><span>✓</span> Required devices connected <strong>3 / 3</strong></li>
+                  <li><span>✓</span> Valid storage location <strong>5.2 TB free</strong></li>
+                  <li><span>✓</span> Session information complete</li>
+                  <li><span>✓</span> Template loaded <strong>Widefield behavior session</strong></li>
+                </ul>
+              </section>
+
+              <button class="launch-session-demo" type="button" aria-describedby="launch-demo-note">
+                <strong>▶ &nbsp;Launch Session</strong><span>Presentation control only—no Session will start</span>
+              </button>
+              <p class="visually-hidden" id="launch-demo-note">This demonstration button does not contact Controller or launch a Session.</p>
+            </div>
+          </div>
+        </section>
+        <section class="section-panel" id="panel-session" data-panel="session"
+                 aria-labelledby="heading-session" hidden>
+          <div class="placeholder">
+            <svg aria-hidden="true"><use href="#icon-session"></use></svg>
+            <p class="placeholder__kicker">Section workspace</p>
+            <h2 id="heading-session">Session</h2>
+            <p>Protocol and Session controls will appear here in a future functional slice.</p>
+          </div>
+        </section>
+        <section class="section-panel" id="panel-parameters" data-panel="parameters"
+                 aria-labelledby="heading-parameters" hidden>
+          <div class="placeholder">
+            <svg aria-hidden="true"><use href="#icon-parameters"></use></svg>
+            <p class="placeholder__kicker">Section workspace</p>
+            <h2 id="heading-parameters">Parameters</h2>
+            <p>Device-specific settings will appear here in a future functional slice.</p>
+          </div>
+        </section>
+        <section class="section-panel" id="panel-experiment" data-panel="experiment"
+                 aria-labelledby="heading-experiment" hidden>
+          <div class="placeholder">
+            <svg aria-hidden="true"><use href="#icon-experiment"></use></svg>
+            <p class="placeholder__kicker">Section workspace</p>
+            <h2 id="heading-experiment">Experiment</h2>
+            <p>Experiment status and visual feedback will appear here in a future functional slice.</p>
+          </div>
+        </section>
+        <section class="section-panel" id="panel-analysis" data-panel="analysis"
+                 aria-labelledby="heading-analysis" hidden>
+          <div class="placeholder">
+            <svg aria-hidden="true"><use href="#icon-analysis"></use></svg>
+            <p class="placeholder__kicker">Section workspace</p>
+            <h2 id="heading-analysis">Analysis</h2>
+            <p>Selected Analysis interactions will appear here in a future functional slice.</p>
+          </div>
+        </section>
+        <section class="section-panel" id="panel-services" data-panel="services"
+                 aria-labelledby="heading-services" hidden>
+          <div class="placeholder">
+            <svg aria-hidden="true"><use href="#icon-services"></use></svg>
+            <p class="placeholder__kicker">Section workspace</p>
+            <h2 id="heading-services">Services</h2>
+            <p>Service status and guidance will appear here in a future functional slice.</p>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <dialog class="catalog-dialog" id="catalog-dialog" aria-labelledby="catalog-dialog-title">
+    <form method="dialog" id="catalog-form">
+      <div class="catalog-dialog__header">
+        <div><p>Demonstration entry</p><h2 id="catalog-dialog-title">New entry</h2></div>
+        <button class="catalog-dialog__close" type="button" data-dialog-dismiss
+                aria-label="Close popup">×</button>
+      </div>
+      <p class="catalog-dialog__note">This example is added only to the current browser view and is not saved as a catalog record.</p>
+      <div class="catalog-fields" id="catalog-fields"></div>
+      <div class="catalog-dialog__actions">
+        <button class="dialog-button" type="button" data-dialog-dismiss>Cancel</button>
+        <button class="dialog-button dialog-button--primary" id="catalog-save"
+                type="submit" value="save">Save example</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

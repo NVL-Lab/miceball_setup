@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "miceball-gui"
+version = "0.1.0"
+description = "Browser interface for the miceball acquisition framework"
+requires-python = ">=3.12,<3.13"
+dependencies = []
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+miceball_gui = ["static/*.html", "static/*.css", "static/*.js"]
