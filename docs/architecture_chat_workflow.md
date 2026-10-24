@@ -8,10 +8,11 @@ closure. It governs how development is conducted, not the scientific framework's
 architecture. It is neither an implementation roadmap nor a new architecture
 decision. [AGENTS.md](../AGENTS.md) retains mandatory repository engineering rules.
 
-All handoffs between HLC, LLC, ICC, Codex, and successor chats, including successor
-chats within the same role, must reference this authoritative workflow document
-rather than restate, duplicate, redefine, or reinterpret its roles,
-responsibilities, authority, or workflow rules. Every handoff must:
+All handoffs between HLC, LLC, ICC, GUI Visual Design Chat, Codex, and successor
+chats, including successor chats within the same role, must reference this
+authoritative workflow document rather than restate, duplicate, redefine, or
+reinterpret its roles, responsibilities, authority, or workflow rules. Every
+handoff must:
 
 1. Direct the receiving chat or agent to read
    `docs/architecture_chat_workflow.md` and the relevant current architecture
@@ -47,6 +48,8 @@ HLC -> LLC -> ICC -> Codex
 
 Moving right increases implementation involvement, not architectural authority.
 No development, validation, or auditing role independently accepts architecture.
+GUI Visual Design Chat is a presentation role outside this architectural
+responsibility gradient and has no architectural authority.
 
 ## HLC - High-Level Chat
 
@@ -88,9 +91,31 @@ or acceptance.
 - Does not independently propose, select, accept, or modify architecture; returns
   unresolved architectural questions to LLC or HLC.
 
+## GUI Visual Design Chat
+
+GUI Visual Design Chat works directly with the user on presentation and usability
+within accepted architecture.
+
+- Designs layouts, colors, typography, navigation presentation, responsive
+  behavior, graphical controls and visual interactions.
+- Creates mockups and prototypes, obtains user approval, prepares bounded visual
+  implementation instructions for dedicated GUI Codex, and reviews implemented
+  appearance with the user.
+- May coordinate and authorize ordinary presentation-only implementation and
+  refinements after user approval without routing every adjustment through ICC.
+- Does not accept architecture, redefine framework behavior, authorize functional
+  integration, or transfer authority from Controller or another framework owner.
+- Visual approval is not architectural approval.
+
+The dedicated GUI Codex chat implements user-approved presentation-only work under
+the lightweight workflow below. It follows the normal ICC-coordinated workflow
+whenever work includes framework functionality or integration.
+
 ## Codex - Coding Agent
 
-Codex implements accepted architecture under ICC instructions.
+Codex implements accepted architecture under ICC instructions. Dedicated GUI
+Codex may also implement presentation-only changes authorized through the
+lightweight GUI visual workflow below.
 
 - Inspects and modifies source within the authorized scope, adds and runs
   appropriate tests, and updates required implementation documentation.
@@ -115,6 +140,9 @@ distinct stages, not alternate names for the same check.
 
 ## Required Implementation Sequence
 
+This sequence remains mandatory for framework functionality and GUI functional
+integration. The narrow presentation-only exception is defined separately below.
+
 ```text
 Accepted architecture
     -> Documentation synchronization
@@ -132,6 +160,46 @@ No implementation begins before accepted architecture is synchronized. ICC revie
 the implementation report before manual validation. Documentation-only tasks do
 not automatically require implementation validation, but must preserve accepted
 architecture and authorized scope.
+
+## Lightweight GUI Visual Implementation Workflow
+
+This proportional workflow applies only to presentation-only work in the
+separately packaged top-level `gui/` project. Presentation-only work changes how
+already-authorized or static information is arranged or rendered without adding,
+changing or invoking framework behavior.
+
+1. GUI Visual Design Chat and the user agree on a design or visual adjustment.
+2. GUI Visual Design Chat prepares bounded instructions for dedicated GUI Codex.
+3. GUI Codex implements only the authorized presentation change.
+4. GUI Codex runs appropriate basic checks, such as application startup,
+   navigation and rendering checks.
+5. The user opens the GUI and reviews actual appearance and usability.
+6. The design and implementation may iterate until the user approves the result.
+
+Ordinary visual-only changes do not require an independent implementation audit,
+a formal framework validation campaign, an architectural decision or
+documentation closure. They still require proportionate testing and must respect
+accepted architecture, repository boundaries and existing functional behavior.
+
+Presentation-only examples include colors, fonts, spacing, layout, sidebar
+expansion/collapse, tab-navigation presentation, static placeholders or mock
+scientific plots, and visual reorganization of controls that does not connect them
+to framework operations.
+
+The normal ICC-coordinated implementation sequence remains mandatory when a change
+implements or modifies Controller/service communication, NATS contracts, Session,
+Experiment, Analysis or Validation behavior, device inventory/readiness/reservation,
+configuration semantics, authoritative framework state, persistence, scientific
+processing, control ownership/takeover, notification acknowledgment, or any other
+framework functional requirement. Connecting controls to operations, authoritative
+inventory or state retrieval, Session configuration/launch, Controller status,
+live acquisition streaming and GUI control takeover are functional integration.
+
+GUI Visual Design Chat may propose the presentation of functional behavior but
+cannot authorize its implementation independently. If one slice combines visual
+and functional integration, the entire slice follows the normal ICC-coordinated
+workflow. When classification is unclear, identify the specific behavior or
+authority affected; do not treat every visual detail as functional integration.
 
 ## Pre-Implementation Impact And Invariant Review
 
@@ -210,3 +278,8 @@ verification, unless they require architectural clarification. ICC coordinates
 documentation closure after successful validation and audit. Preserve historical
 records, distinguish reported evidence from newly executed checks, and do not
 close a broader phase or milestone solely because one narrow slice is complete.
+
+Routine presentation-only GUI adjustments under the lightweight workflow are not
+framework implementation slices and do not require this formal validation,
+independent audit and closure sequence. Any functional integration in the same
+slice restores all requirements in this section.

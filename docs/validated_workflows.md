@@ -3573,6 +3573,9 @@ deployment, or power-loss guarantees. Existing filesystem, journal, receiving,
 and authorized-recovery prerequisites remain applicable. GUI presentation remains
 future work outside this repository; no new lifecycle, registry, or recovery
 infrastructure is introduced. W041-W048 historical records remain unchanged.
+Decision 426 later places the separately packaged GUI project under top-level
+`gui/` in this repository; that placement amendment does not change W049's scope,
+evidence or limitations.
 
 Q019 remains OPEN for overall integration validation across its completed bounded
 slices, including their combined lifecycle, preservation, recovery, and collection

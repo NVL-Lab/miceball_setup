@@ -495,6 +495,12 @@ Clear repository scope prevents architectural drift.
 **Consequence:**
 GUI code, analysis pipelines, and experiment-specific scripts should remain outside the core unless they are needed for framework validation.
 
+**Subsequent qualification:** Decision 426 permits the separately packaged GUI
+client to share this Git repository under the top-level `gui/` project. The core
+boundary remains: GUI source is not part of `src/lab_sync_acquisition/` or the
+existing `lab-sync-acquisition` Python distribution. Scientific analysis pipelines
+and experiment-specific scripts remain outside the core as stated here.
+
 ---
 
 ## Decision 020: Utilities are allowed but must not become a junk drawer
@@ -11538,6 +11544,11 @@ uses authoritative framework readiness and cannot bypass failed capacity readine
 This requirement is recorded in `gui_design_notes.md`; GUI implementation remains
 outside this repository.
 
+**Subsequent repository-placement qualification:** Decision 426 places the
+separately packaged GUI project in this Git repository under top-level `gui/`.
+That later placement decision does not change this capacity-readiness requirement,
+its ownership, or its implementation/validation status.
+
 **Implementation history:** Initial inspection found no configured-duration
 automatic Experiment termination mechanism to reuse; implementation waited for
 the expiry execution/delegation clarification accepted in Decision 395.
@@ -11627,6 +11638,12 @@ GUIs and protocols; a CaBMI-specific GUI is not mandatory.
 This extends Decisions 001-002 while preserving Decisions 019 and 021: GUI code
 and scientific analysis pipelines remain outside the core repository. Recording
 framework integration requirements does not authorize their implementation.
+
+**Subsequent repository-placement qualification:** Decision 426 interprets the
+core boundary here as the existing `lab-sync-acquisition` project, package and
+distribution, not the Git repository as a whole. The separately packaged GUI
+client resides under top-level `gui/`; scientific analysis pipelines remain
+outside the core.
 
 ---
 
@@ -12829,13 +12846,69 @@ deployment validation and closure. This synchronization starts no implementation
 slice and closes no question or milestone. Independent review of these documents
 remains a separate workflow stage.
 
+**Subsequent repository-placement qualification:** Decision 426 supersedes only
+the statement above that GUI code remains outside the core framework repository.
+The GUI now shares this Git repository under the top-level `gui/` project while
+remaining outside `src/lab_sync_acquisition/` and the existing
+`lab-sync-acquisition` distribution. All runtime, authority, communication,
+six-section and unresolved-contract boundaries in this decision remain unchanged.
+
+---
+
+## Decision 426: The GUI shares the repository while remaining separately packaged and independently executable
+
+**Status:** Accepted
+
+This records the project owner's explicit approval of the GUI repository-placement
+amendment. It qualifies Decisions 019, 394, 396 and 425 only where their historical
+wording placed GUI implementation outside this Git repository. It does not change
+the GUI's accepted runtime architecture, authority, communication direction or
+scientific-computation boundaries.
+
+The GUI source resides in the repository's top-level `gui/` directory as a
+separate Python project with this approved organizational boundary:
+
+```text
+miceball_setup/
+    pyproject.toml
+    src/
+        lab_sync_acquisition/
+    gui/
+        pyproject.toml
+        src/
+            miceball_gui/
+        tests/
+    docs/
+```
+
+The `gui/` project owns its Python package and dependency declarations. It is not
+included in the existing root `lab-sync-acquisition` Python distribution and does
+not place GUI source under `src/lab_sync_acquisition/`. The GUI remains separately
+executable: its Python backend process and browser frontend start and deploy
+independently of framework service startup.
+
+Repository co-location changes no runtime ownership. The GUI backend continues to
+communicate with Controller through the existing authorized external NATS
+interface. Controller remains authoritative for framework lifecycle and
+operations. The GUI gains no Controller, installation, service-startup or
+scientific-computation authority. The six permanent sections remain Setup,
+Session, Parameters, Experiment, Analysis and Services.
+
+Detailed internal GUI module organization remains deferred to implementation.
+This decision does not require `core/`, `sections/` or application-specific
+scientific-interface directories, select web/frontend frameworks or a visual
+style, create the approved directories, or implement/validate any GUI behavior.
+Q030 remains open for its other presentation, deployment and implementation
+details.
+
 ---
 
 # Accepted Architectural Principles
 
 The following principles summarize the accepted decisions so far.
 
-Decision 425 governs current GUI requirements, including six-tab web/Python
+Decision 426 governs GUI repository placement and separate packaging; Decision
+425 governs current GUI requirements, including six-tab web/Python
 deployment, Analysis/Validation cleanup, browser control and acknowledged
 notifications. Older summary entries referring to Services as a proposal or GUI
 contracts as wholly unresolved retain historical status only; they do not
@@ -12936,7 +13009,7 @@ requirements remain authoritative.
 36. Human-readable intermediate outputs are required.
 37. Utilities must not become a junk drawer for domain logic.
 38. Plotting is allowed only for framework validation and debugging.
-39. This repository is for synchronization and acquisition, not GUI development or neuroscience analysis.
+39. The core `lab-sync-acquisition` project and distribution remain for synchronization and acquisition; Decision 426 permits the separately packaged GUI client under top-level `gui/` in the same Git repository, without admitting neuroscience analysis into the core.
 40. Architectural decisions are documented before implementation begins.
 41. Session completion is independent of NWB export.
 42. The Ingestor manages records, not necessarily all raw bytes online.

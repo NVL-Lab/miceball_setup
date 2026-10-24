@@ -3,7 +3,9 @@
 This document preserves ideas for future GUI discussions. It is not an
 implementation roadmap or architecture decision record. Explicitly identified
 accepted requirements are referenced below; other presentation ideas remain
-proposals. GUI implementation belongs outside this repository.
+proposals. Under Decision 426, GUI implementation belongs in the separately
+packaged top-level `gui/` project in this repository, outside the existing
+`lab-sync-acquisition` package and distribution.
 
 ## Accepted Functional Direction
 
@@ -214,8 +216,11 @@ and trust, presentation/deployment, and catalog/template persistence, identities
 transfer and Session/Experiment settings boundaries. No general
 protocol editor, template installation framework, historical Analysis platform,
 generic workflow engine or broad online processing is required. Decisions 019/021
-continue to exclude GUI implementation and scientific analysis pipelines from
-this core repository. G4/G5 integration and hardware validation are separate.
+continue to exclude GUI implementation and scientific analysis pipelines from the
+core `lab-sync-acquisition` package and distribution. Decision 426 places the
+separately packaged GUI project under top-level `gui/` in this repository; it does
+not admit scientific analysis pipelines into the core. G4/G5 integration and
+hardware validation are separate.
 
 ---
 

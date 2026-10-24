@@ -429,8 +429,10 @@ interfaces remain implementation work; large artifact transfer is not visualizat
 ## Q030: What GUI presentation and deployment design implements the accepted functional areas?
 
 **Status:** OPEN - Decision 425 settles web/Python deployment and six permanent
-tabs, supplementing Decisions 396-405 and 409-418. GUI implementation and remaining
-library/widget choices are outstanding; these accepted choices are not reopened.
+tabs, supplementing Decisions 396-405 and 409-418. Decision 426 settles repository
+placement and separate packaging under top-level `gui/`. GUI implementation and
+remaining library/widget choices are outstanding; these accepted choices are not
+reopened.
 
 The UI must distinguish immutable lab references, editable personal templates,
 working edits and immutable execution history, and offer Take Over or View Only.
@@ -438,8 +440,10 @@ Other browsers may observe; simultaneous control is not permitted. The GUI is
 not the sole holder of execution history/provenance. A separate Python backend
 uses external NATS even when hosted by default on the Controller computer.
 The browser UI operates on the laboratory network without cloud dependence;
-GUI implementation remains outside this repository. Q008 tracks configuration,
-Q029 communication/control; web frameworks/libraries remain implementation choices.
+GUI implementation resides in this repository's separately packaged top-level
+`gui/` project and remains outside the existing `lab-sync-acquisition` distribution.
+Q008 tracks configuration, Q029 communication/control; web frameworks/libraries
+remain implementation choices.
 
 Six permanent tabs are Setup, Session, Parameters, Experiment, Analysis and
 Services. Accepted interactions include application protocol checklist/selected-step
@@ -461,8 +465,9 @@ technical work and the deferred non-initial Experiment Kill scope; no GUI featur
 is implemented or validated by this documentation.
 
 Detailed Services presentation, status-refresh mechanisms, maintenance interaction,
-remaining frontend/backend packaging, frameworks and widgets require implementation
-design within the accepted web/Python/six-tab contract. See
+internal frontend/backend packaging details, frameworks and widgets require
+implementation design within the accepted web/Python/six-tab and Decision 426
+project boundary. See
 [GUI design notes](gui_design_notes.md) for accepted requirements versus unapproved
 presentation proposals. Existing readiness, service lifecycle, and
 shutdown contracts remain authoritative; no GUI implementation is claimed.

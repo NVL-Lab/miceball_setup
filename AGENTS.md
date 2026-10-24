@@ -34,6 +34,9 @@ Do not treat unresolved architectural questions as implementation requirements.
    for the complete role boundaries, implementation sequence, and closure rules.
    Documentation-only tasks preserve accepted architecture and authorized scope
    without automatically requiring implementation validation.
+7. User-approved presentation-only GUI work may follow the lightweight GUI visual
+   workflow in the authoritative workflow document. Any framework functionality
+   or mixed visual/functional slice retains the normal ICC-coordinated workflow.
 
 ---
 
@@ -54,16 +57,20 @@ If a requested change conflicts with an accepted architecture decision, stop and
 
 # Repository Scope
 
-This repository is for a modular synchronization and acquisition framework for neuroscience experiments.
+This repository contains a modular synchronization and acquisition framework for
+neuroscience experiments and, under Decision 426, a separately packaged GUI client
+in the top-level `gui/` project.
 
-It is not:
+The core `lab-sync-acquisition` project and Python distribution are not:
 
-* a GUI repository
+* a GUI package
 * a neuroscience analysis repository
 * a publication plotting repository
 * a one-off experiment script repository
 
-The GUI is a client of this framework.
+The GUI is a client of this framework. It remains outside
+`src/lab_sync_acquisition/` and outside the existing `lab-sync-acquisition`
+distribution.
 
 ---
 
@@ -178,6 +185,9 @@ and obtain ICC scope review and implementation authorization before coding.
 Keep the analysis proportional to the change and preserve Reuse Before Adding
 and Simplicity First. Missing or conflicting architectural requirements must be
 reported through the existing clarification workflow, not resolved in code.
+The ICC scope-review requirement applies to framework behavior and functional GUI
+integration. Presentation-only GUI work uses the separately defined lightweight
+workflow and proportionate rendering/navigation checks.
 
 ---
 
@@ -330,11 +340,32 @@ Not allowed:
 
 # GUI Boundary
 
-Do not add GUI code to this repository.
+GUI code belongs only in the separately packaged top-level `gui/` project accepted
+by Decision 426. Do not add GUI code to `src/lab_sync_acquisition/` or include it
+in the existing `lab-sync-acquisition` distribution.
 
-This repository may define interfaces, contracts, or data structures that a GUI can use.
+The framework project may define interfaces, contracts, or data structures that
+the GUI can use.
 
-The GUI itself belongs elsewhere.
+The GUI remains an independently executable client with its own dependency
+declarations and startup. Repository co-location does not transfer Controller,
+installation, lifecycle, or scientific-computation authority to the GUI.
+
+## GUI Visual Design Work
+
+Follow the [authoritative workflow](docs/architecture_chat_workflow.md#lightweight-gui-visual-implementation-workflow)
+for user-approved presentation-only GUI work. GUI Visual Design Chat may prepare
+and refine layouts, colors, typography, responsive behavior, mockups and other
+visual interactions with the user, then give bounded instructions to dedicated GUI
+Codex. Dedicated GUI Codex implements those presentation changes and performs
+appropriate startup, navigation and rendering checks.
+
+This lightweight path does not authorize architecture or framework behavior.
+Controller/NATS integration, lifecycle operations, authoritative state,
+configuration semantics, device readiness/reservation, persistence, scientific
+processing, control takeover and notification acknowledgment remain under the
+normal ICC-coordinated implementation, validation, audit and closure workflow.
+Mixed visual/functional slices use that normal workflow for the whole slice.
 
 ---
 
@@ -490,14 +521,17 @@ The cost of complexity is paid during debugging, validation, and scientific inte
 
 ## Agent Testing Behavior
 
-Agents must add or update tests in the repository `tests/` folder for any behavior they implement or change.
+Agents must add or update tests for any behavior they implement or change.
+Framework tests belong in the repository `tests/` folder. Under Decision 426,
+GUI-project tests belong in `gui/tests/` once that separately packaged project is
+created.
 
 Agents may run tests locally to check their work, but they must not treat local execution as the deliverable.
 
 The deliverable is:
 
 * source changes
-* test files in `tests/`
+* test files in the applicable `tests/` or `gui/tests/` project folder
 * a short explanation of how the user can run the tests
 
 Agents must not rely on temporary scripts, notebook cells, REPL commands, or private scratch files as the only test.
@@ -556,7 +590,8 @@ then it probably does not belong in the committed public test suite.
 
 ## Tests And Demos
 
-* `tests/` contains automated, deterministic public behavior checks that are normally hardware-independent.
+* `tests/` contains automated, deterministic framework public behavior checks that are normally hardware-independent.
+* `gui/tests/` contains automated, deterministic GUI-project behavior checks once the Decision 426 project exists.
 * `scripts/demo_*` contains manual architecture and runtime demonstrations.
 * `scripts/manual_*` contains optional hardware smoke checks and is not required for normal tests or CI.
 
