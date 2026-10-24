@@ -7,19 +7,19 @@ proposals. GUI implementation belongs outside this repository.
 
 ## Accepted Functional Direction
 
-**Status:** User-accepted architecture in Decisions 396-405, 409-413 and 424; documentation only,
-not implemented or software-validated GUI/Analysis functionality.
+**Status:** User-accepted architecture in Decisions 396-405, 409-418 and 424-425.
+GUI/Analysis/Validation/visualization implementation is pending; Decision 424's
+bounded framework metadata implementation and independent audit are complete/PASS,
+with deployment validation and Q008 closure still pending.
 
 - The GUI is a general-purpose framework client. The complete scientific workflow
-  must be operable from the microscope workstation; browser accessibility is
-  preferred, while the backend and central services may run elsewhere.
-- Services, Setup, and Experiment / Run are conceptual functional areas, not
-  approved tabs, tab count, widgets, frontend technology, or a layout. Services
-  concerns connectivity/readiness/status/maintenance; Setup concerns identities,
-  templates, configuration and products; Run concerns guided scientific steps,
-  plots, selections, calibration, progress and results.
-  Decision 414 subsequently requires the permanently accessible Services tab
-  specifically; the remaining tab count and layout are still unresolved.
+  must be operable from the microscope workstation through a laboratory-network
+  web GUI without cloud dependence. A separate Python backend process runs by
+  default, not obligatorily, on the Controller computer; it uses external NATS,
+  never Controller-internal shortcuts. Web frameworks/libraries remain unselected.
+- Decision 425 supplements the older conceptual areas with six permanent tabs:
+  **Setup, Session, Parameters, Experiment, Analysis, Services**. Navigation never
+  interrupts operations. These are presentation boundaries, not lifecycle owners.
 - One Session corresponds to one animal and may contain Experiments, Analyses,
   Validation and interactions. Successive animals must not require restarting
   GUI/services; existing closeout and resource-reuse obligations still apply.
@@ -31,19 +31,25 @@ not implemented or software-validated GUI/Analysis functionality.
   remaining detailed catalog/template representation stays in Q008.
 - Analysis is lightweight, Session-scoped, and identified by `analysis_id`, not
   a fabricated Experiment. Execution success is distinct from scientific result
-  acceptance/selection. Preserve all attempts/results and the actual inputs used
-  later; new selections cannot rewrite completed operations. Application-specific
+  acceptance/selection. Preserve completed valid results, including unselected
+  results, and actual inputs/parameters. Discard incomplete failed/cancelled
+  computational outputs without altering original inputs or earlier valid results;
+  retain applicable operational evidence. New selections cannot rewrite completed
+  operations. Application-specific
   dependency interpretation does not become a framework workflow engine.
 - Scientific products from Experiments and Analyses share existing local storage
-  and collection ownership. Analysis-compatible schemas/invocation are not yet
-  designed or implemented. Scientific calculations execute locally where data and
+  and collection ownership. Results require no timestamps, fabricated Experiment
+  identity or Experiment timing fields; acquired-data timing remains unchanged.
+  Technical schema/invocation implementation is pending. Scientific calculations
+  execute locally where data and
   resources reside, with an existing AcquisitionNode as the intended coordinator,
   not GUI/Controller calculation or a DeviceManager analysis scheduler.
-- Commands follow GUI application -> Controller -> AcquisitionNode; requested small
-  plots/structured results may flow AcquisitionNode -> GUI application/backend
-  without Controller payload relay. Ingestor is not a visualization relay. Detailed
-  transport, recipient authorization, correlation and reconnect mechanisms remain
-  open; shared paths/overwritten PNGs are not the general result transport.
+- Commands follow GUI application -> Controller -> AcquisitionNode through NATS;
+  selected visualization flows AcquisitionNode -> NATS -> GUI backend -> browser,
+  without Controller payload relay or backend scientific calculation. Ingestor is
+  not a visualization relay. Detailed schemas, recipient authorization, correlation,
+  buffering and reconnect implementation remain pending; shared paths/overwritten
+  PNGs are not the general result transport.
 - Time-critical acquisition/closed-loop execution is independent of browser,
   Controller and network round trips. Framework services remain GUI-independent.
 
@@ -55,12 +61,80 @@ closed-loop CaBMI. Imaging/baseline/closed-loop runs are candidate Experiments;
 ROI identification, baseline calculations, neuron selection and target calibration
 are Analyses. Operational tests remain Validation. This is not a mandatory protocol
 or a specified Suite2p/CaBMI integration interface. Legacy GUI/MATLAB code is a
-scientific/UX reference, not architectural authority. Decimated cursor display
-remains a future possibility, not authorization for general scientific streaming.
+scientific/UX reference, not architectural authority. Decision 425 accepts selected
+bounded scientific feedback, not general scientific streaming or large artifacts.
+
+### Accepted Tab Interactions And Device Scope
+
+Setup prepares experimenter/project/animal context, Session name/identity,
+templates, editable Session values, storage information under existing owner
+authority, device choices, readiness and launch. Installed nodes/devices remain
+visible when offline/unreachable with explanations; installation membership is
+not live readiness, and communication loss is not hardware failure. Reuse node
+declarations/inventory, not a GUI registry. Controller confirms applicable
+availability/readiness before Session selection/launch. Accepted Setup becomes
+read-only after launch; after closeout it supports the next Session without restart.
+
+Session shows the application protocol checklist on the left and selected-step
+controls on the right, including optional/repeated/revisited steps. The selected
+step determines Experiment type; edit duration/Experiment values before launch,
+select participating Session devices with template-prefilled checkboxes, and use
+Configure Parameters to navigate to Parameters. Non-Experiment steps have their
+own controls/navigation. Keep Session status/readiness/notifications and applicable
+Session Stop/Kill accessible; do not create a core workflow engine or mandatory
+historical scientific browser.
+
+Controller reserves whole AcquisitionNodes, not devices independently across
+Sessions. Session inclusion selects individual devices; each Experiment selects
+participants independently of recorded products, including outputless devices.
+Apply Experiment overrides only to participants as appropriate; deselected devices
+remain in the Session's node reservation. Parameters groups actual supported
+settings by selected device, adds/hides controls as participation changes and
+shares working values with any legitimate duplicate view. Executed settings are
+read-only during the active Experiment.
+
+Successful Experiment start navigates to Experiment: show identity/status,
+elapsed/configured duration, progress, relevant feedback/notifications and Stop.
+Completion leaves final status/results visible until the next Experiment; Session
+permits subsequent preparation. Duration/capacity gates and autonomous expiry stay
+under Decisions 394-395; runtime duration extension remains deferred.
+
+Analysis presents the selected Analysis step's application-specific interaction,
+controls and results according to actual state; with none selected, direct the
+operator to select a step in Session. CaBMI examples do not mandate universal
+Analysis types or widgets. Only one Analysis is active per Session; required
+cleanup precedes another admission.
+
+### Accepted Validation, Visualization And Closeout
+
+Validation is selected-device acquisition into memory inside a Session, not an
+Experiment or persistent test recording. Successful data acquisition without
+reported errors suffices for the recording-function check. Allow manual Stop,
+automatic Stop at a Setup-configurable maximum duration and applicable preview;
+clean temporary activity without changing installation/reservations. Incompatible
+device activation is prohibited; compatible use requires existing ownership and
+isolation guarantees. Applicable operational evidence remains required.
+
+Only experimenter-selected visualization streams transmit, initially one image
+and up to two scientific streams; multiple traces in a plot may count as one.
+Initial targets are approximately 1-2 fps previews and 5-10 scientific updates/s
+where appropriate, not permanent limits or guarantees. Camera inspection belongs
+to applicable Validation/operation presentation, not required Setup preview.
+Optional bounded visualization must degrade/drop safely for slow/disconnected
+viewers without delaying acquisition, storage, synchronization or local closed-loop
+computation. No extra transport is authorized; full-resolution video is deferred.
+
+Normal Session Stop coordinates active Experiment Stop with acquired-data
+preservation, Analysis cancellation with incomplete-result disposal and confirmed
+cleanup, and Validation Stop/cleanup before existing closeout. No relevant active
+work means existing closeout. No separate lifecycle/cleanup authority is added;
+emergency Kill, Stage A, intake finality, preservation, binding release and safe
+retry remain unchanged. Early Experiment Stop permits another Experiment in the
+Session; independent Experiment Kill is not required initially.
 
 ### Accepted Catalog, Configuration And Recovery Requirements
 
-Decisions 409-413 and 424 supplement the functional direction without implementing it:
+Decisions 409-413 and 424-425 govern these requirements; the GUI remains pending:
 
 - The application owns an editable experimenter/project/animal/template catalog.
   Projects have one primary experimenter; another actual Session experimenter is
@@ -97,38 +171,45 @@ Decisions 409-413 and 424 supplement the functional direction without implementi
   not prove scientific finalization, Stage A or terminal preservation, collection,
   completion or release. Existing failed-launch cleanup and authorized write-recovery
   rules remain unchanged; no record repair/deletion or automatic recovery policy
-  is added. Implementation and independent verification remain pending in Q008.
+  is added. Bounded implementation and independent Codex audit PASS at `5da9b35`
+  are recorded in Q008; deployment validation and final closure remain pending.
+  Reuse configuration readback and initial-record preservation; do not restart them.
 - Browser closure, freezing or disconnection does not automatically interrupt
   Sessions, Experiments, Analyses or services. Reopening retrieves authoritative
   current state; lost connectivity implies neither success nor failure and cannot
   trigger automatic repetition. Backend restart permits reconnection without
   restarting Controller/services. GUI is not the sole holder of authoritative
   history or provenance. This is not a general service-restart/recovery policy.
-- One controlling GUI is permitted per deployment. A new connection offers Cancel
-  or Take Over. Successful takeover invalidates old command authority without
-  requiring an old-GUI response; a recovered superseded GUI must obtain authority
-  again. Operations/services continue uninterrupted. Independent deployments have
-  independent controlling GUIs. Simultaneous control, a monitoring GUI and killing
-  the previous browser are not required.
+- One GUI connection controls at a time; others may observe. A new connection
+  offers Take Over or View Only. Takeover makes the previous controller read-only
+  without its response; reconnect cannot restore superseded authority. Distinct
+  browser identities pass through the shared Python backend's existing authorized
+  NATS identity; backend prevents impersonation and Controller owns grants,
+  observer permissions and enforcement. No per-browser NATS clients/credentials
+  or general authentication infrastructure are required. Exact identity mechanism
+  and takeover ordering remain implementation details under existing broker,
+  request-correlation, Session-binding and deduplication guarantees.
+- Reconnect retrieves Controller-authoritative configuration, lifecycle/operation
+  state, control ownership, relevant device/service status and unacknowledged
+  notifications, including work that continued while disconnected, without replay.
 
-No project-sharing infrastructure, permissions system, configuration schema or
-control-authority mechanism is selected. Existing lifecycle, provenance,
-deployment-local configuration, SessionConfig, device configuration and node-owned
+No project-sharing or general authentication infrastructure is introduced. Concrete
+configuration schemas/control-grant implementation remain bounded technical work.
+Existing lifecycle, provenance, deployment-local configuration, SessionConfig,
+device configuration and node-owned
 storage-root authority remain unchanged.
 
 ### Unapproved Approaches And Unresolved Contracts
 
-Candidate approaches include a minimal local Analysis invocation interface,
-lightweight Controller-authorized request/outcome records, specific NATS result
-delivery, tagged operation-origin product identities, concrete input/output and
-selection provenance structures, application dependency/invalidation rules,
-frontend/backend packaging and widgets, installed-software integration, and
-detailed result authorization/correlation/reconnect mechanisms, and control
-identity, fencing, lease, heartbeat or stale-instance mechanisms. None is selected
-by this synchronization.
+Remaining implementation choices include concrete node-hosted Analysis invocation,
+request/outcome and provenance schemas, installed-software integration, selected
+NATS visualization schemas/buffering/recipient checks, bounded authoritative state
+reads, browser identity/grant details, notification acknowledgment/history reads,
+web frameworks and widgets. These choices must satisfy Decision 425 rather than
+reopen accepted architecture or add a general scheduler, registry or recovery system.
 
 See Q026-Q030 and Q008 in [open questions](open_questions.md) for execution and
-interruption, persistence/timing/collection, acceptance/provenance, communication
+interruption implementation, persistence/collection, acceptance/provenance, communication
 and trust, presentation/deployment, and catalog/template persistence, identities,
 transfer and Session/Experiment settings boundaries. No general
 protocol editor, template installation framework, historical Analysis platform,
@@ -152,14 +233,14 @@ No GUI functionality is implemented or validated by this documentation.
 
 ## Services Tab
 
-**Status:** Accepted functional requirements in Decisions 414-418 and 423, not implemented
+**Status:** Accepted functional requirements in Decisions 414-418, 423 and 425, not implemented
 or validated GUI functionality. Detailed widgets, layouts and technical contracts
 remain unresolved under Q030-Q033.
 
 A permanently accessible **Services tab** shows all configured framework services
 for inspection, startup guidance and existing administrative operations. This
-supplements Decision 398's conceptual functional areas without fixing the rest
-of the GUI layout.
+implements the Services presentation within Decision 425's six-tab layout; it does
+not become a service/process owner.
 
 ### Readiness and startup guidance
 
@@ -225,8 +306,8 @@ shutdown and supported recovery/abandonment operations:
 Ordinary experimenters retain applicable normal Session/Experiment operations,
 including established Stop/Kill controls. Session Kill differs from service Kill,
 framework shutdown and administrative recovery. Its active-Experiment consequence
-follows Decision 365. Independent Experiment Kill is not accepted; Q033 returns
-that question to HLC without inventing a command or cleanup policy.
+follows Decision 365. Decision 425 resolves the initial GUI requirement: no
+independent Experiment Kill is required; Q033 retains only deferred future scope.
 
 ### Operator-facing recovery guidance
 
@@ -274,32 +355,37 @@ operator-authorized execution boundaries; their supported framework implementati
 is independently validated and audited after correction in W039. The newly
 accepted GUI controls themselves remain unimplemented and unvalidated.
 
-Decisions 414-418 accept the GUI requirements identified here; concrete widgets
-and control layout remain proposals. Those decisions do not change existing
+Decisions 414-418 and 425 accept the GUI requirements identified here; widget
+details beyond the accepted layout remain implementation choices/proposals. They
+do not change existing
 service states, lifecycle behavior, startup or recovery policy. No GUI implementation
 or validation is claimed; Q019 is closed in W050 while Q024 and other open
 questions retain their existing status.
 
 ### Accepted Operational Warnings And Session History
 
-Problems affecting active Sessions/Experiments generate prominent Experiment/Run
-warnings. A persistent indicator remains visible throughout the GUI, including
-Setup and Services. Distinguish confirmed failures, unknown availability, historical
-reports and framework-confirmed resolution. A service problem alone is not an
-Experiment failure; GUI cannot independently terminate scientific operations.
+Decision 425 replaces automatic resolution-based notification removal with
+operator acknowledgment, qualifying Decisions 417-418. Both warnings and errors
+show severity, source, description and occurrence timestamp and remain visible
+until acknowledged. Controller owns notifications and acknowledgment state across
+reconnection; the GUI cannot override it. The persistent bottom-left indicator
+across all six tabs shows current unacknowledged notifications, distinguishes
+severity and opens details; Session/Experiment views show relevant notifications.
 
-Experiment/Run provides reviewable Session-associated warning/error history,
-including resolved conditions. Experimenters may minimize or dismiss prominent
-notifications without erasing historical evidence, hiding every indication of
-unresolved critical conditions, implying technical resolution, authorizing recovery
-or discharging obligations. Indicators follow authoritative framework information.
+Acknowledgment removes a notification from that indicator, not historical Services
+evidence. It proves neither underlying resolution, service recovery, deletion,
+authorization nor permission to resume unsafe operations. Do not automatically
+remove notifications on inferred service recovery. Existing health monitoring,
+readiness, safety decisions and restrictions are unaffected; a service problem
+alone is not canonical Experiment failure and GUI cannot terminate operations.
+Decision 418's reviewable Session-associated history in Experiment/Run remains
+available independently of acknowledgment and Services history access.
 
-Reuse existing health, readiness, operational evidence, ControllerActionDecision
-and lifecycle contracts. Notification delivery, correlation, reconciliation,
-dismissal representation and complete historical retrieval remain open in Q032.
-Existing persistent evidence is not assumed to provide that query interface.
-No GUI scientific log, duplicate archive or general event-history subsystem is
-authorized. Exact warning widgets and layouts remain presentation proposals.
+Reuse Controller, service evidence, Ingestor and StorageManager. Notification
+delivery/correlation, acknowledgment reconciliation and historical readback remain
+implementation work in Q032; persistence alone is not a completed query interface.
+No GUI warning database, duplicate archive or automatic-resolution subsystem is
+authorized. Presentation minimization cannot replace Controller acknowledgment.
 
 ## Session Closeout, Collection, and Archived Evidence
 

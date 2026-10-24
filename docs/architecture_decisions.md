@@ -3190,6 +3190,10 @@ local execution evidence
 
 **Status:** Accepted
 
+**Subsequent clarification:** Decision 425 specifies bounded in-memory Validation
+and its Normal Session Stop cleanup, without creating an Experiment or requiring
+scientific recording artifacts. Its operational-evidence distinction remains.
+
 **Slice 28 clarification (Decisions 284 and 289):** Readiness also occurs before
 Session creation under Controller-owned launch. The historical initialization-only
 description below is broadened, without turning readiness into Validation or
@@ -7497,6 +7501,10 @@ registration, discovery, and address resolution remain deferred under Q022.
 
 **Status:** Accepted
 
+**Subsequent clarification:** Decision 425 requires installed nodes/devices to
+remain visible even when the node is unreachable, without moving installation
+authority to a GUI registry or substituting inventory for current readiness.
+
 Each AcquisitionNode owns a node-scoped declared device inventory independent
 of Session creation. Reuse DeviceDeclaration and ScientificProductDeclaration.
 Inventory membership associates a declaration with its node; do not add a
@@ -11601,6 +11609,9 @@ hardware, OS-signal, power-loss or normal Windows asynchronous scheduling behavi
 
 **Status:** Accepted
 
+**Subsequent clarification:** Decision 425 selects a laboratory-network web GUI
+with a separate Python backend, retaining the framework-client boundary below.
+
 The experimenter must be able to operate the complete scientific workflow from
 the microscope workstation. Browser-accessible deployment is preferred; the GUI
 application/backend and central services may execute elsewhere. AcquisitionNode
@@ -11644,6 +11655,10 @@ authority is unchanged; service lifetimes remain independent under Decision 304.
 
 **Status:** Accepted
 
+**Subsequently supplemented by Decision 425:** The six permanent tabs and their
+accepted interactions are now specified. The original conceptual description
+below is retained as history, not a statement that tab count remains unresolved.
+
 The GUI conceptually separates:
 
 - Services: connectivity, readiness, operational status, maintenance, and service information.
@@ -11684,6 +11699,11 @@ framework, nor a core workflow engine is required by the initial scope.
 
 **Status:** Accepted
 
+**Qualified by Decision 425:** Completed valid Analysis results remain preserved,
+including unselected results; incomplete failed/cancelled computational outputs
+are discarded. This does not discard original inputs, earlier valid results or
+required operational evidence, or change Experiment partial-data preservation.
+
 Repeating an operation never erases earlier scientific results. Every executed
 attempt and its products remain scientifically traceable. The GUI/application
 interprets protocol-specific dependencies; the framework preserves necessary
@@ -11705,6 +11725,10 @@ selection, approval, and provenance representations remain unresolved.
 ## Decision 401: Analysis is a lightweight first-class Session-scoped scientific operation
 
 **Status:** Accepted
+
+**Subsequent clarification:** Decision 425 settles Normal Stop cancellation,
+cleanup before readmission and one active Analysis per Session. Detailed invocation
+and installed-software integration remain implementation work, not a new lifecycle.
 
 Each Analysis has a unique `analysis_id` and may consume products from earlier
 Experiments or Analyses and produce new scientific products. Its originating
@@ -11728,6 +11752,10 @@ defines no new lifecycle states or executable interface.
 ## Decision 402: Experiment and Analysis products share scientific persistence ownership
 
 **Status:** Accepted
+
+**Subsequent clarification:** Decision 425 requires input provenance and Analysis
+parameters but no timestamps or synthetic Experiment identity in Analysis results.
+Existing acquisition-artifact timing and common preservation ownership remain.
 
 Scientific products may originate from an Experiment (`experiment_id`) or an
 Analysis (`analysis_id`) with equal standing under existing local scientific
@@ -11777,6 +11805,11 @@ boundaries are unchanged; no Analysis timing schema is defined here.
 ## Decision 404: Controller command authority is distinct from direct GUI scientific-result delivery
 
 **Status:** Accepted
+
+**Partially superseded/supplemented by Decision 425:** Selected bounded NATS
+visualization, including low-rate images and responsive scientific feedback, is
+accepted. The former occasional-only initial scope below is historical; large
+artifact transport, scientific authority and acquisition-first isolation remain.
 
 Command/control direction is `GUI application -> Controller -> appropriate
 AcquisitionNode`. Controller coordinates framework-controlled operations,
@@ -12094,6 +12127,12 @@ and reconnection design; Analysis execution contracts remain open in Q026.
 
 **Status:** Accepted
 
+**Partially superseded/supplemented by Decision 425:** Offer Take Over or View
+Only; other browsers may observe and a superseded controller becomes read-only.
+Distinct browser identities pass through the shared authorized Python backend;
+Controller enforces grants. The older Cancel/Take Over and monitoring-not-required
+wording below is retained historically, not the current presentation contract.
+
 Each framework deployment permits one active controlling GUI connection. When
 another GUI attempts to connect, offer Cancel or Take Over. Successful takeover
 invalidates the previous GUI's command authority without depending on that GUI
@@ -12113,6 +12152,10 @@ not implement control authority or authorize a new lifecycle authority.
 ## Decision 414: A permanently accessible Services tab presents configured services and refreshed status
 
 **Status:** Accepted
+
+**Subsequently supplemented by Decision 425:** Services belongs to the accepted
+six-tab web GUI. Its refresh, independent startup and readiness guarantees below
+remain unchanged; other tab/layout choices are no longer wholly unresolved.
 
 This and Decisions 415-418 record the user-accepted HLC/LLC handoff "Services
 Tab, Administrative Controls, and Operational Warnings". They supplement
@@ -12191,6 +12234,10 @@ and Q024 retains outstanding recovery implementation work.
 
 **Status:** Accepted
 
+**Subsequent clarification:** Decision 425 makes the persistent indicator reflect
+Controller-owned unacknowledged warnings/errors, not inferred condition recovery.
+Acknowledgment changes notification presentation only, never safety restrictions.
+
 Problems affecting active Sessions or Experiments generate prominent warnings
 in Experiment/Run. A persistent warning indicator remains visible throughout the
 GUI, including Setup and Services. Distinguish confirmed failures, unknown
@@ -12208,6 +12255,12 @@ no new lifecycle state, monitoring subsystem or scientific command.
 ## Decision 418: Session warning history survives notification dismissal
 
 **Status:** Accepted
+
+**Partially superseded by Decision 425:** Notifications remain until operator
+acknowledgment, which removes them from the current unacknowledged indicator even
+if the underlying condition remains unresolved. The older dismissal/indicator
+wording below must not require automatic resolution-based removal or forbid this
+acknowledgment. Historical evidence and operational restrictions remain intact.
 
 Experiment/Run provides reviewable history of Session-associated warnings and
 errors, including resolved conditions. Experimenters may minimize or dismiss
@@ -12553,18 +12606,240 @@ and no automatic lifecycle replay. Decision 412's authoritative GUI reconnection
 readback requirement and Decision 422's request identity, uncertainty and
 lifetime-scoped duplicate protection remain unchanged.
 
-**Implementation status:** Q008 remains OPEN. The completed read-only verification
+**Historical synchronization status (before implementation):** Q008 remains OPEN.
+The completed read-only verification
 and implementation assessment identified existing metadata transfer and final
 Session Record mechanisms, but deep immutability, external read-only accepted
 configuration retrieval and launch-time durable confirmation remain pending
 implementation and independent verification. No production change, validation or
 closure is established by this synchronization.
 
+**Current bounded implementation status:** Decision 424 implementation at commit
+`5da9b35` and its separate independent Codex audit are complete, with audit PASS
+and no confirmed P0-P3 findings, as accepted in the ICC handoff. Deployment
+validation remains pending; Q008 is OPEN. Reuse deep immutability, authoritative
+configuration readback and initial-record preservation; do not restart this work.
+
+---
+
+## Decision 425: Consolidated GUI operation, control, visualization and notification contracts
+
+**Status:** Accepted
+
+This records the user-accepted GUI direction and LLC clarifications conveyed in
+the Consolidated GUI Architecture Documentation Synchronization handoff, following
+the repository-grounded reconciliation at `5da9b35`. It supplements Decisions
+096, 283-302, 394-405 and 409-424, retaining their historical text. Its explicit
+qualifications below govern where earlier scope or presentation wording differs.
+This is documentation synchronization, not GUI implementation or validation.
+
+### Application deployment and six-tab interaction
+
+The GUI is browser-accessible on the laboratory network without cloud dependence,
+with a separate Python backend process hosted by default, not obligatorily, on
+the Controller computer. Co-location permits no Controller-internal shortcuts:
+the backend uses the existing external NATS interface. The frontend/Python web
+frameworks are not selected here. GUI code and scientific application algorithms
+remain outside the core framework repository. Selectively reuse compatible
+legacy presentation concepts, not obsolete lifecycle/configuration authority.
+
+Six permanent tabs are Setup, Session, Parameters, Experiment, Analysis and
+Services. Navigation never interrupts scientific operations. Setup prepares
+experimenter/project/animal context, editable template-prefilled Session values,
+device selections, storage information within existing owner authority, readiness
+and launch; after launch it displays accepted configuration read-only. Successive
+Sessions do not require GUI or service restarts. Decision 424's fixed accepted
+values, catalog independence and durable launch confirmation remain authoritative;
+no template provenance or comparison with defaults is required.
+
+Session presents the application-owned protocol checklist and selected-step
+controls, accommodating optional/repeated/revisited steps, not a core workflow
+engine. Experiment duration and other Experiment-level working values are editable
+before start; template-prefilled device checkboxes select participation, and
+Configure Parameters opens the device-specific Parameters tab. Non-Experiment
+steps expose appropriate controls, including Analysis navigation. Session status,
+readiness, notifications and applicable Session Stop/Kill remain accessible.
+
+Parameters groups actual supported settings by participating device, updating
+controls on selection/deselection; settings need not be uniform across devices.
+Legitimate duplicate views share the same working configuration. During an active
+Experiment, executed device settings are read-only. After successful Experiment
+start, navigate to Experiment; show identity, status, elapsed/configured duration,
+progress, applicable scientific feedback, notifications and Stop. On completion,
+remain there with final status/results until the next Experiment starts. Session
+allows subsequent preparation. No general historical scientific browser is required.
+
+Analysis presents the selected protocol Analysis's application-specific controls,
+interaction and results; with none selected, direct the operator to select a step
+in Session. Controls reflect actual context/state, not a universal Analysis UI.
+CaBMI/Suite2p examples remain examples under Decision 405, not mandatory protocols.
+
+### Installed inventory, reservations and Experiment participation
+
+Installation membership and runtime discovery/readiness are separate. Installed
+nodes and devices remain visible when offline or unreachable, with availability
+information/explanations; communication loss alone is not hardware failure.
+Reuse node-owned installation declarations/inventory, not a GUI-owned registry.
+Controller remains authoritative for current status and launch readiness; only
+devices with confirmed applicable availability/readiness are eligible for selection.
+
+Controller reserves an entire AcquisitionNode for a Session. Different Sessions
+cannot reserve different devices on the same node simultaneously. GUI selects
+individual devices for Session inclusion; each Experiment separately selects
+participating devices from that set. Participation is independent of recorded
+outputs, including input-only, control and actuator devices. Experiment-specific
+configuration applies to participating devices as appropriate. Nonparticipants
+remain within the Session's node reservation; deselection neither uninstalls nor
+releases resources. No device-level reservation hierarchy is introduced.
+
+Decisions 394-395 retain mandatory Experiment duration, per-Experiment capacity
+readiness, truthful insufficient-storage explanations and autonomous node deadline
+enforcement. Runtime duration extension remains deferred. Early Experiment Stop
+preserves available acquired data and permits another Experiment in the Session.
+Independent Experiment Kill is not required for the initial GUI; existing Session
+Kill, service Kill, authorization and preservation contracts are unchanged.
+
+### Analysis, Validation and Normal Session Stop
+
+GUI requests Analysis through Controller; Controller coordinates through NATS with
+the appropriate scientific AcquisitionNode. Scientific computation runs there,
+not in GUI/backend/Controller or a DeviceManager analysis scheduler. It must not
+interfere with acquisition or time-critical local closed-loop computation.
+Application-defined scientific dependencies/output expectations remain application
+responsibilities. Analysis is Session-scoped, not an Experiment or a parallel
+lifecycle/cleanup authority. Only one Analysis may be active per Session; another
+may start after completion, failure or cancellation and required cleanup.
+
+The application configures expected outputs. Use existing `analysis_id`, actual
+input-data provenance and Analysis parameters, reusing artifact identities,
+manifests, LocalStorageManager and Ingestor/StorageManager preservation/collection
+ownership. Analysis results require no timing information: no acquisition or
+execution timestamps, fabricated `experiment_id` or Experiment timing fields.
+Existing scientific/Session/node timing requirements for acquired artifacts are
+unchanged. Technical schema representation is an implementation choice, not a
+new storage system or additional identity requirement.
+
+Preserve completed valid Analysis outputs, even when not selected for immediate
+use. Execution success and scientific acceptance/selection remain distinct.
+Failed/cancelled attempts produce no accepted results; discard incomplete
+temporary computational outputs while retaining original inputs, earlier valid
+results and applicable operational evidence. Reruns may use the same inputs and
+different parameters; later choices cannot rewrite completed operations/history.
+This qualifies Decision 400's all-attempt/product wording only for invalid
+incomplete Analysis outputs, not Experiment partial recordings.
+
+Validation is a simple operator-selected device-function check inside a Session,
+distinct from Experiment: activate the selected device and acquire data into
+memory. Acquisition without reported errors suffices for the recording-function
+check; persistent test recording/scientific artifact preservation is not required.
+Allow manual Stop and automatic Stop at a Setup-configurable maximum duration,
+with applicable low-rate preview. Clean temporary activity without altering
+installation or Session reservation. Preserve applicable operational evidence.
+Validation must not activate a device engaged in incompatible work; compatible
+usage may be permitted under existing ownership/isolation guarantees.
+
+Normal Session Stop coordinates active work before completing existing closeout:
+stop an active Experiment under its existing acquired-data preservation contract;
+cancel active Analysis, discard incomplete results and confirm cleanup; stop
+Validation and confirm cleanup. With no relevant active work, use existing
+closeout. Do not add a separate lifecycle/cleanup authority or alter emergency
+Kill. Scientific finalization, Stage A, intake finality, binding release,
+interrupted cleanup and safe retry remain governed by existing contracts,
+including Decisions 313, 322, 365, 382 and 407-408.
+
+### Browser control identity and authoritative reconnection
+
+One GUI connection controls at a time; others may observe in View Only mode.
+A new connection offers Take Over or View Only. Take Over transfers control and
+makes the previous controller read-only without its cooperation. Controller owns
+grants, observer permissions and enforcement; a superseded GUI cannot regain
+authority merely by reconnecting. Scientific operations continue during takeover
+or disconnection. This qualifies Decision 413's older presentation/scope wording.
+
+Distinct browser connection identities pass through the shared Python backend,
+which retains its existing authorized NATS identity. The backend must prevent
+browser control-identity impersonation; no per-browser NATS client/credentials
+are required. Exact identity mechanism and takeover ordering are implementation
+details subject to these guarantees. Preserve existing broker authorization,
+request correlation, Session binding and deduplication; no general authentication
+infrastructure is introduced without separate justification.
+
+On reconnect, retrieve authoritative Controller state: accepted Session
+configuration, lifecycle/operation state, control ownership, relevant device/service
+status and current unacknowledged notifications. Reflect work that continued
+while disconnected, not cached GUI assumptions or automatic lifecycle replay.
+Reuse Decision 424's completed configuration readback and preservation, not GUI
+takeover of configuration authority or a second Controller.
+
+### Selected bounded NATS visualization
+
+Visualization follows AcquisitionNode -> NATS -> GUI backend -> browser.
+Controller coordinates/authorizes requests, not payload relay; Ingestor is not a
+visualization relay. Backend forwards data without executing scientific algorithms.
+Transmit only experimenter-selected streams, initially one image stream and up
+to two simultaneous scientific visualization streams; multiple traces in one plot
+may count as one. Camera preview targets approximately 1-2 fps and scientific
+visualization approximately 5-10 updates/s where appropriate. These are initial
+targets, not delivery/scientific timing guarantees or permanent restrictions.
+Camera inspection is available through applicable Validation/operation presentation,
+not a required Setup preview. Full-resolution video remains deferred.
+
+Visualization is optional, non-authoritative and bounded. Slow/disconnected viewers
+must not compromise acquisition, storage, synchronization or closed-loop computation;
+display work may degrade or be discarded, never delay required work or cause
+unbounded buffering. Local time-critical execution remains GUI-independent.
+This supplements Decision 404's former occasional-only scope while preserving
+Decision 119's exclusion of large scientific artifact transport. No additional
+visualization transport, broker or scientific streaming authority is authorized.
+
+### Services and operator-acknowledged notifications
+
+Preserve Decisions 414-416 and 423: configurable Services refresh with 10-second
+default, confirmation freshness, current/last-known/unknown distinctions,
+independent service startup, trust-based administrator presentation, explicit
+per-service Kill/recovery authorization and inspectable service obligations.
+Reconnection restores transport, not lifecycle operations or uncertain publications.
+No GUI process supervision, automatic recovery or new service status authority.
+
+Both warning and error notifications contain severity, source, description and
+occurrence timestamp. They remain visible until operator acknowledgment; Controller
+owns notification/acknowledgment state, including after reconnect. Acknowledgment
+removes the notification from the current unacknowledged indicator, not historical
+evidence. The persistent bottom-left indicator is accessible across all six tabs,
+distinguishes severity and opens details; applicable Session/Experiment views show
+relevant notifications. Services retains historical warning/error access through
+existing evidence/preservation mechanisms, not another GUI warning database.
+Decision 418's reviewable Session-associated history in Experiment/Run remains
+available independently of notification acknowledgment and Services history access.
+
+This explicitly replaces earlier automatic notification removal on condition
+resolution, and qualifies Decisions 417-418's dismissal/indicator wording. Do not
+infer removal from service recovery. Acknowledgment is not underlying resolution,
+recovery, historical deletion, authorization or permission to resume unsafe work.
+Health monitoring, readiness, safety decisions, error handling and operational
+restrictions remain unchanged; GUI cannot override Controller notification state.
+
+### Implementation and question status
+
+These requirements are accepted, not newly implemented or validated. Q026-Q033
+retain outstanding implementation/detail work; initial independent Experiment Kill
+is not required. Decision 424's bounded implementation and independent audit are
+complete/PASS at `5da9b35` per the accepted ICC evidence; Q008 remains OPEN pending
+deployment validation and closure. This synchronization starts no implementation
+slice and closes no question or milestone. Independent review of these documents
+remains a separate workflow stage.
+
 ---
 
 # Accepted Architectural Principles
 
 The following principles summarize the accepted decisions so far.
+
+Decision 425 governs current GUI requirements, including six-tab web/Python
+deployment, Analysis/Validation cleanup, browser control and acknowledged
+notifications. Older summary entries referring to Services as a proposal or GUI
+contracts as wholly unresolved retain historical status only; they do not
+override that accepted clarification or claim its implementation.
 
 Decisions 356-360 qualify the historical Session closeout and collection-evidence
 contracts in Decisions 223-225, 228-229, 240, 243, and 274-275. Stage A confirms

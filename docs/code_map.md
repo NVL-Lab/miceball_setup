@@ -64,7 +64,7 @@ StorageManager persistence algorithm change is introduced.
 - tests.test_external_controller_lifecycle.ExternalLifecycleTests: Exercises external lifecycle requests over restricted local NATS with real HDF5/intake/preservation owners and controlled participant/SFTP transport, including expiry, early stop, failures, queued identities, release and repeated Sessions.
 - Controller._require_session(*, expected_session_id=None): Reuses the binding guard to reject an explicitly mismatched Session at lifecycle admission, without changing callers that omit the optional constraint.
 
-## Q008 Session Metadata (Decision 424; Implementation, Independent Verification Pending)
+## Q008 Session Metadata (Decision 424; Implemented, Audit PASS, Deployment Validation Pending)
 
 Session launch now requires scoped NATS confirmation of the complete accepted
 configuration in the existing initial Session Record before success. Ingestor
@@ -91,7 +91,11 @@ permission for `controller_external.CONTROLLER_ID.CLIENT_ID.read_session_configu
 An identical request ID returns its original snapshot; use a new request ID for a
 fresh read. Controller restart still does not restore active Sessions or replay
 launches; accepted metadata survives in StorageManager-owned initial records.
-Q008 remains OPEN pending ICC validation, separate audit and remaining scope.
+The accepted ICC handoff records completed implementation at `5da9b35` and
+separate independent Codex audit PASS with no confirmed P0-P3 findings. Q008
+remains OPEN pending deployment validation, closure and remaining configuration
+scope; this status update starts no implementation or repeat audit. Decision 425
+reuses these interfaces without asserting broader GUI readiness.
 
 ## G2 Experiment Capacity And Autonomous Expiry (Closed; Software Scope)
 
