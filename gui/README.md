@@ -53,7 +53,8 @@ The first two included steps have explicitly illustrative existing results.
 Run/Repeat starts an indeterminate simulation; Complete simulation or Simulate
 error ends it. No acquisition, computation, file loading or framework commands occur.
 
-Repeating an earlier step marks later completed mock results Needs review without
+Completing, repeating or loading a replacement result for an earlier step marks
+later completed mock results Needs review without
 removing them. Validate existing result confirms only the local example. This is
 a design proposal, not accepted framework dependency policy or Controller acceptance.
 Previous-result examples are offered only for the illustrative ROI/calibration

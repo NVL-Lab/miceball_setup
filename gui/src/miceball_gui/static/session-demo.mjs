@@ -52,16 +52,6 @@ export function actOnSessionStep(state, stepId, action) {
   if (!view.actions.includes(action)) throw new Error('This demonstration action is not available for the selected step.');
   const record = view.record;
   if (action === 'run' || action === 'repeat') {
-    if (action === 'repeat') {
-      const progress = sessionProgress(state);
-      protocol.steps.slice(protocol.steps.indexOf(step) + 1).forEach(later => {
-        const downstream = progress.steps[later.id];
-        if (!['completed', 'needs-review'].includes(downstream.status)) return;
-        downstream.status = 'needs-review';
-        downstream.reviewReason = `Earlier step “${step.name}” was repeated in this design simulation. Its existing result is retained; this is not automatic scientific invalidation.`;
-        downstream.history.push(downstream.reviewReason);
-      });
-    }
     record.status = 'running';
     record.history.push(action === 'repeat' ? 'Repeat simulation started; earlier mock results retained.' : 'Run simulation started; no framework command sent.');
   } else if (action === 'complete' || action === 'load') {
@@ -79,6 +69,19 @@ export function actOnSessionStep(state, stepId, action) {
   } else if (action === 'error') {
     record.status = 'error';
     record.history.push('Simulated error: no new result produced. Earlier mock results are retained.');
+  }
+  // One review mechanism for repeats, first completions and replacement results.
+  if (['repeat', 'complete', 'load'].includes(action)) {
+    const progress = sessionProgress(state);
+    const change = { repeat: 'was repeated', complete: 'was completed', load: 'loaded a replacement result' }[action];
+    protocol.steps.slice(protocol.steps.indexOf(step) + 1).forEach(later => {
+      const downstream = progress.steps[later.id];
+      if (!later.mandatory && !state.included.includes(later.id)) return;
+      if (!downstream.results.length || !['completed', 'needs-review'].includes(downstream.status)) return;
+      downstream.status = 'needs-review';
+      downstream.reviewReason = `Earlier step “${step.name}” ${change} in this design simulation. Its existing result is retained; this is not automatic scientific invalidation.`;
+      downstream.history.push(downstream.reviewReason);
+    });
   }
   return sessionStepView(state, step);
 }

@@ -200,6 +200,51 @@ test('Session actions reflect simulated capability availability, operation suppo
   assert.equal(sessionProgress(state).steps['step-1'].results.at(-1).origin, 'Simulated previous result');
 });
 
+test('out-of-order completion requests downstream review while preserving skipped steps and results', () => {
+  const state = createDemo();
+  const steps = state.protocols[0].steps;
+  actOnSessionStep(state, 'step-4', 'run');
+  actOnSessionStep(state, 'step-4', 'complete');
+  assert.equal(sessionStepView(state, steps[2]).status, 'ready');
+  assert.equal(sessionStepView(state, steps[3]).status, 'skipped');
+  assert.equal(sessionStepView(state, steps[4]).status, 'completed');
+  const previous = clone(sessionProgress(state).steps['step-4']);
+  actOnSessionStep(state, 'step-2', 'run');
+  actOnSessionStep(state, 'step-2', 'complete');
+  const downstream = sessionStepView(state, steps[4]);
+  assert.equal(downstream.status, 'needs-review');
+  assert.ok(downstream.actions.includes('validate') && downstream.actions.includes('repeat'));
+  assert.match(downstream.record.reviewReason, /completed/);
+  assert.deepEqual(downstream.record.results, previous.results);
+  assert.deepEqual(downstream.record.history.slice(0, previous.history.length), previous.history);
+  assert.equal(sessionStepView(state, steps[3]).status, 'skipped');
+  assert.equal(sessionStepView(state, steps[5]).status, 'not-started');
+  actOnSessionStep(state, 'step-4', 'validate');
+  assert.equal(sessionStepView(state, steps[4]).status, 'completed');
+  assert.deepEqual(downstream.record.results, previous.results);
+});
+
+test('sequential completion leaves later unstarted and skipped steps unchanged', () => {
+  const state = createDemo();
+  const before = clone(sessionProgress(state));
+  actOnSessionStep(state, 'step-2', 'run');
+  actOnSessionStep(state, 'step-2', 'complete');
+  for (const id of ['step-3', 'step-4', 'step-5', 'step-6']) {
+    assert.deepEqual(sessionProgress(state).steps[id], before.steps[id]);
+  }
+  assert.equal(sessionStepView(state, state.protocols[0].steps[3]).status, 'skipped');
+});
+
+test('loading a replacement result uses the same downstream review behavior', () => {
+  const state = createDemo();
+  actOnSessionStep(state, 'step-4', 'run');
+  actOnSessionStep(state, 'step-4', 'complete');
+  const results = clone(sessionProgress(state).steps['step-4'].results);
+  actOnSessionStep(state, 'step-1', 'load');
+  assert.equal(sessionProgress(state).steps['step-4'].status, 'needs-review');
+  assert.deepEqual(sessionProgress(state).steps['step-4'].results, results);
+});
+
 test('simulated running/error/retry preserves earlier mock results and prevents concurrent demo runs', () => {
   const state = createDemo();
   const original = clone(state.protocols[0].steps[0]);

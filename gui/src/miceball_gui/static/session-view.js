@@ -42,7 +42,7 @@ function renderSession() {
         <h3 id="session-protocol-title"><span aria-hidden="true">▤</span> Protocol steps (${protocol.steps.length})</h3>
         <ol class="session-protocol-list">${protocol.steps.map((item, index) => {
           const view = sessionStepView(state, item);
-          return `<li><button type="button" data-session-step="${escape(item.id)}" aria-pressed="${item.id === progress.selectedId}" class="${item.id === progress.selectedId ? 'is-selected' : ''}"><span class="session-step-number">${index + 1}.</span><span class="session-step-copy"><strong>${escape(item.name)}</strong><small>${escape(item.description || 'No description supplied.')}</small></span><span class="session-step-state">${statusBadge(view.status)}${view.status === 'needs-review' ? '<small>Earlier step repeated (demo)</small>' : view.status === 'skipped' ? '<small>Optional step</small>' : ''}</span></button></li>`;
+          return `<li><button type="button" data-session-step="${escape(item.id)}" aria-pressed="${item.id === progress.selectedId}" class="${item.id === progress.selectedId ? 'is-selected' : ''}"><span class="session-step-number">${index + 1}.</span><span class="session-step-copy"><strong>${escape(item.name)}</strong><small>${escape(item.description || 'No description supplied.')}</small></span><span class="session-step-state">${statusBadge(view.status)}${view.status === 'needs-review' ? '<small>Earlier step updated (demo)</small>' : view.status === 'skipped' ? '<small>Optional step</small>' : ''}</span></button></li>`;
         }).join('')}</ol>
       </section>
       <section class="session-card session-selected-card" aria-label="Selected step">
