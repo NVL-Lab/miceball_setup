@@ -1,0 +1,58 @@
+name: Deploy GUI demo to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'gui/src/miceball_gui/static/**'
+      - 'gui/tests/**'
+      - '.github/workflows/deploy-gui-pages.yml'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: gui-pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.repository == 'NVL-Lab/miceball_setup' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Check out the reviewed revision
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      # These tests use only Python/Node standard libraries and local GUI assets.
+      # No package installation, backend, broker, or framework services are needed.
+      - name: Check browser demonstration
+        run: |
+          python3 -B -m unittest discover -s gui/tests -v
+          node --test gui/tests/test_protocol_demo.mjs
+          node --check gui/src/miceball_gui/static/app.js
+          node --check gui/src/miceball_gui/static/protocol-setup.js
+          node --check gui/src/miceball_gui/static/protocol-demo.mjs
+
+      - name: Configure project Pages
+        uses: actions/configure-pages@v5
+        with:
+          enablement: false
+
+      - name: Upload only the static GUI
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: gui/src/miceball_gui/static
+
+      - name: Deploy project Pages artifact
+        id: deployment
+        uses: actions/deploy-pages@v4
