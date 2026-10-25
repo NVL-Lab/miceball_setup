@@ -1,6 +1,6 @@
 import { createDemo, operations, devices, clone, selectProtocol, selectTemplate, coverage, saveProtocol, moveStep, assignCapability, preparedSteps, savedOccurrence, copyStepToEdit, saveReusableStep } from './protocol-demo.mjs';
 
-const state = createDemo();
+export const state = createDemo();
 const $ = selector => document.querySelector(selector);
 const escape = value => String(value).replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
 const option = (value, text) => `<option value="${escape(value)}">${escape(text)}</option>`;

@@ -1,0 +1,76 @@
+/* Session preview only; inherits the existing shell and theme tokens. */
+#panel-session { overflow-y: auto; border: 0; box-shadow: none; background: transparent; background-image: none; padding: 0 0 18px; }
+.session-information { display: grid; grid-template-columns: 1.2fr .8fr 1fr 1fr .65fr 1.6fr 1.15fr; gap: 14px; margin: 0; padding: 16px 18px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); }
+.session-information > div { min-width: 0; }
+.session-information dt { margin-bottom: 7px; color: var(--ink-600); font-size: 10px; }
+.session-information dd { margin: 0; color: var(--ink-900); font-size: 12px; font-weight: 650; overflow-wrap: anywhere; }
+.session-demo-notice { margin: 10px 2px 14px; font-size: 10px; line-height: 1.5; color: var(--ink-600); }
+.session-columns { display: grid; grid-template-columns: minmax(0, .95fr) minmax(0, 1.15fr); gap: 16px; align-items: start; }
+.session-card { min-width: 0; padding: 18px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.session-card h3 { margin: 0 0 16px; font-size: 17px; font-weight: 650; }
+.session-protocol-card h3 > span { color: var(--blue-500); margin-right: 8px; }
+.session-protocol-list { max-height: calc(100dvh - 290px); min-height: 210px; overflow-y: auto; overscroll-behavior: contain; list-style: none; padding: 0; margin: 0; border: 1px solid var(--line); border-radius: 7px; }
+.session-protocol-list li + li { border-top: 1px solid var(--line); }
+.session-protocol-list button { width: 100%; display: grid; grid-template-columns: 20px minmax(0, 1fr) 112px; align-items: start; gap: 9px; padding: 16px 12px; border: 0; border-left: 3px solid transparent; background: transparent; color: var(--ink-900); font: inherit; text-align: left; cursor: pointer; }
+.session-protocol-list button:hover { background: var(--workspace); }
+.session-protocol-list button.is-selected { background: #eaf3ff; border-left-color: #2878d5; }
+.session-step-number { padding-top: 2px; font-size: 12px; font-weight: 650; }
+.session-step-copy strong { display: block; font-size: 12px; line-height: 1.5; }
+.session-step-copy small, .session-step-state > small { display: block; margin-top: 5px; color: var(--ink-600); font-size: 10px; line-height: 1.5; }
+.session-status { display: inline-flex; align-items: center; gap: 7px; font-size: 11px; font-weight: 600; line-height: 1.5; }
+.session-status > span, .readiness-mark { display: inline-grid; place-items: center; flex: 0 0 20px; width: 20px; height: 20px; border: 1px solid currentColor; border-radius: 50%; font-size: 12px; }
+.status-completed { color: #21814c; }
+.status-ready, .status-running { color: #236dd0; }
+.status-needs-review { color: #96670a; }
+.status-not-started, .status-unavailable, .status-skipped { color: var(--ink-600); }
+.status-error { color: #ba3d43; }
+.session-selected-heading { display: flex; justify-content: space-between; align-items: start; gap: 12px; }
+.session-selected-heading p { margin: 0 0 6px; font-size: 12px; color: var(--ink-500); }
+.session-selected-heading h3 { margin: 0; font-size: 23px; line-height: 1.25; }
+.session-selected-heading > .session-status { flex-shrink: 0; padding: 5px 9px; background: var(--workspace); border-radius: 20px; }
+.session-step-description { margin: 12px 0 18px; color: var(--ink-600); font-size: 12px; line-height: 1.6; }
+.session-detail-grid { display: grid; grid-template-columns: 1.15fr 1fr; gap: 12px; }
+.session-detail-box { min-width: 0; padding: 12px; border: 1px solid var(--line); border-radius: 7px; }
+.session-card h4 { margin: 0 0 12px; color: var(--ink-900); font-size: 12px; font-weight: 650; }
+.session-card h4 > small { font-size: 9px; font-weight: 450; color: var(--ink-500); }
+.session-step-information { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: 9px; margin: 0; font-size: 10px; color: var(--ink-600); line-height: 1.5; }
+.session-step-information dd { margin: 0; overflow-wrap: anywhere; color: var(--ink-900); }
+.session-readiness { background: var(--workspace); }
+.session-readiness ul { list-style: none; padding: 0; margin: 0; }
+.session-readiness li { display: flex; gap: 8px; align-items: start; margin-bottom: 10px; color: var(--ink-600); font-size: 10px; line-height: 1.5; }
+.session-readiness strong { font-weight: 550; overflow-wrap: anywhere; }
+.session-readiness small { display: block; margin-top: 4px; font-size: 9px; color: var(--ink-500); line-height: 1.5; }
+.session-readiness p { color: var(--ink-600); font-size: 10px; line-height: 1.5; }
+.session-action-section, .session-progress, .session-output { margin-top: 20px; }
+.session-action-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+.session-card button:not([data-session-step]) { padding: 9px 12px; min-height: 36px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink-900); font: inherit; font-size: 11px; cursor: pointer; }
+.session-card button.session-primary { background: #286fcd; border-color: #286fcd; color: #fff; }
+.session-card button small { font-size: 9px; }
+.session-card button:focus-visible, .session-history summary:focus-visible { outline: 2px solid var(--blue-400); outline-offset: -2px; }
+.session-action-section p, .session-progress p, .session-output p { color: var(--ink-600); font-size: 10px; line-height: 1.6; }
+.session-feedback:empty { display: none; }
+.session-progress progress { width: 100%; height: 10px; accent-color: var(--blue-500); }
+.session-review-explanation { margin-top: 16px; padding: 12px; border: 1px solid #d8ba74; border-radius: 7px; background: #fff8e6; color: #7a570c; font-size: 10px; line-height: 1.6; }
+.session-review-explanation p { margin: 5px 0 0; }
+.session-empty-output { display: flex; gap: 12px; padding: 13px; border: 1px solid var(--line); border-radius: 7px; background: var(--workspace); color: var(--ink-600); }
+.session-empty-output > span { font-size: 24px; }
+.session-empty-output p { margin: 0; }
+.session-empty-output strong, .session-empty-output p span { display: block; margin-bottom: 4px; }
+.session-output ol, .session-history ol { padding-left: 20px; max-height: 165px; overflow-y: auto; color: var(--ink-600); font-size: 10px; line-height: 1.6; }
+.session-output li { margin-bottom: 9px; }
+.session-output li span { display: block; }
+.session-detail-footer { display: flex; align-items: start; justify-content: space-between; gap: 12px; margin-top: 20px; }
+.session-history { flex: 1; min-width: 0; }
+.session-history summary { padding: 9px 0; cursor: pointer; color: var(--ink-600); font-size: 11px; }
+.session-context-links { display: flex; flex-wrap: wrap; justify-content: end; gap: 8px; max-width: 65%; }
+html[data-theme="dark"] #panel-session { background: transparent; background-image: none; }
+html[data-theme="dark"] .session-protocol-list button.is-selected { background: #263c54; border-left-color: #739bc7; }
+html[data-theme="dark"] .status-completed { color: #84c89b; }
+html[data-theme="dark"] .status-ready, html[data-theme="dark"] .status-running { color: #9abde8; }
+html[data-theme="dark"] .status-needs-review { color: #e1c071; }
+html[data-theme="dark"] .status-error { color: #f0a0a5; }
+html[data-theme="dark"] .session-review-explanation { background: #352e20; border-color: #7e6b3e; color: #e1c58b; }
+html[data-theme="dark"] .session-card button.session-primary { background: #426f9f; border-color: #426f9f; }
+@media (max-width: 1150px) { .session-information { grid-template-columns: repeat(4, minmax(0, 1fr)); } .session-detail-grid { grid-template-columns: 1fr; } }
+@media (max-width: 1000px) { .session-columns { grid-template-columns: 1fr; } .session-protocol-list { max-height: 340px; } .session-detail-grid { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 650px) { .session-information, .session-detail-grid { grid-template-columns: 1fr 1fr; } .session-card { padding: 12px; } .session-detail-grid { grid-template-columns: 1fr; } .session-protocol-list button { grid-template-columns: 18px minmax(0, 1fr); } .session-step-state { grid-column: 2; } .session-selected-heading { flex-wrap: wrap; } .session-detail-footer { flex-direction: column; } .session-context-links { max-width: 100%; justify-content: start; } }

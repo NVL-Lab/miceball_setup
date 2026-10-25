@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { sessionProgress, sessionStepView, actOnSessionStep } from '../src/miceball_gui/static/session-demo.mjs';
 import { createDemo, selectProtocol, selectTemplate, coverage, saveProtocol, clone, moveStep, assignCapability, preparedSteps, savedOccurrence, copyStepToEdit, saveReusableStep } from '../src/miceball_gui/static/protocol-demo.mjs';
 
 test('optional step inclusion updates requirements without editing the protocol', () => {
@@ -138,4 +139,78 @@ test('optional coverage reports all selected providers and missing coverage with
   state.selectedDevices = state.selectedDevices.filter(id => !['logitech', 'extra'].includes(id));
   assert.equal(coverage(state).optional.find(row => row.capability === 'behavior_video').providers.length, 0);
   assert.deepEqual(coverage(state).required, required);
+});
+
+test('Session preview uses the selected protocol and stable independent step occurrences', () => {
+  const state = createDemo();
+  selectProtocol(state, 'reference');
+  const progress = sessionProgress(state);
+  assert.equal(Object.keys(progress.steps).length, 3);
+  const draft = clone(state.protocols[1]);
+  draft.id = 'custom'; draft.name = 'Different scientific workflow'; draft.protected = false;
+  draft.steps.push(savedOccurrence(state, draft.steps[0].definitionId, 'repeat-initial'));
+  saveProtocol(state, draft);
+  const custom = sessionProgress(state);
+  assert.equal(custom.steps['repeat-initial'].status, 'not-started');
+  assert.equal(custom.steps['step-0'].status, 'completed');
+  custom.selectedId = 'repeat-initial';
+  moveStep(state.protocols.at(-1).steps, 'repeat-initial', 'step-0');
+  assert.equal(sessionProgress(state).selectedId, 'repeat-initial');
+  assert.equal(state.protocols.at(-1).steps[0].id, 'repeat-initial');
+  selectProtocol(state, 'reference');
+  assert.equal(sessionProgress(state), progress);
+});
+
+test('repeat review simulation retains results and supports explicit validation without editing definitions', () => {
+  const state = createDemo();
+  const original = clone(state.protocols);
+  const progress = sessionProgress(state);
+  const previousResults = clone(progress.steps['step-1'].results);
+  actOnSessionStep(state, 'step-0', 'repeat');
+  assert.equal(progress.steps['step-0'].status, 'running');
+  assert.equal(progress.steps['step-1'].status, 'needs-review');
+  assert.match(progress.steps['step-1'].reviewReason, /not automatic scientific invalidation/);
+  assert.deepEqual(progress.steps['step-1'].results, previousResults);
+  actOnSessionStep(state, 'step-0', 'complete');
+  assert.equal(progress.steps['step-0'].results.length, 2);
+  actOnSessionStep(state, 'step-1', 'validate');
+  assert.equal(progress.steps['step-1'].status, 'completed');
+  assert.deepEqual(progress.steps['step-1'].results, previousResults);
+  assert.match(progress.steps['step-1'].history.at(-1), /No Controller acceptance/);
+  assert.deepEqual(state.protocols, original);
+});
+
+test('Session actions reflect simulated capability availability, operation support and optionality', () => {
+  const state = createDemo();
+  const protocol = state.protocols[0];
+  const baseline = protocol.steps[2], holo = protocol.steps[3], loop = protocol.steps[6];
+  assert.equal(sessionStepView(state, baseline).status, 'ready');
+  assert.equal(sessionStepView(state, loop).status, 'unavailable');
+  assert.ok(sessionStepView(state, baseline).actions.includes('run'));
+  assert.ok(!sessionStepView(state, baseline).actions.includes('load'));
+  assert.throws(() => actOnSessionStep(state, baseline.id, 'skip'), /not available/);
+  assert.throws(() => actOnSessionStep(state, loop.id, 'run'), /not available/);
+  assert.equal(sessionStepView(state, holo).status, 'skipped');
+  state.included.push(holo.id);
+  assert.equal(sessionStepView(state, holo).status, 'unavailable');
+  actOnSessionStep(state, holo.id, 'skip');
+  assert.equal(sessionStepView(state, holo).status, 'skipped');
+  assert.ok(state.included.includes(holo.id));
+  actOnSessionStep(state, 'step-1', 'load');
+  assert.equal(sessionProgress(state).steps['step-1'].results.at(-1).origin, 'Simulated previous result');
+});
+
+test('simulated running/error/retry preserves earlier mock results and prevents concurrent demo runs', () => {
+  const state = createDemo();
+  const original = clone(state.protocols[0].steps[0]);
+  const progress = sessionProgress(state);
+  actOnSessionStep(state, 'step-0', 'repeat');
+  assert.throws(() => actOnSessionStep(state, 'step-2', 'run'), /not available/);
+  actOnSessionStep(state, 'step-0', 'error');
+  assert.equal(progress.steps['step-0'].status, 'error');
+  assert.equal(progress.steps['step-0'].results.length, 1);
+  actOnSessionStep(state, 'step-0', 'repeat');
+  actOnSessionStep(state, 'step-0', 'complete');
+  assert.equal(progress.steps['step-0'].results.length, 2);
+  assert.deepEqual(state.protocols[0].steps[0], original);
 });

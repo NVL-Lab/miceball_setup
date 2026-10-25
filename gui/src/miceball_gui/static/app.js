@@ -217,6 +217,7 @@ function setSection(sectionId) {
 
   sectionTitle.textContent = sectionNames[sectionId];
   document.title = `Miceball · ${sectionNames[sectionId]}`;
+  document.dispatchEvent(new CustomEvent('gui-section-changed', { detail: sectionId }));
 }
 
 function setPinned(pinned) {

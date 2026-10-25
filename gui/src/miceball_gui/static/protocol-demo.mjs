@@ -95,13 +95,17 @@ export function selectTemplate(state, id) {
   state.included = protocol.steps.filter(s => s.mandatory || template.included.includes(s.id)).map(s => s.id);
   state.selectedDevices = [...template.devices];
 }
+export function declaredCoverage(capabilities, selectedDeviceIds) {
+  const selected = devices.filter(device => selectedDeviceIds.includes(device.id));
+  return capabilities.map(capability => ({ capability, providers: selected.filter(device => device.capabilities.includes(capability)) }));
+}
 export function coverage(state) {
   const protocol = state.protocols.find(p => p.id === state.protocolId);
   const steps = protocol.steps.filter(s => s.mandatory || state.included.includes(s.id));
   const required = [...new Set(steps.flatMap(s => s.required))];
   const optional = [...new Set(steps.flatMap(s => s.optional))].filter(c => !required.includes(c));
   const selected = devices.filter(d => state.selectedDevices.includes(d.id));
-  const rows = capabilities => capabilities.map(capability => ({ capability, providers: selected.filter(d => d.capabilities.includes(capability)) }));
+  const rows = capabilities => declaredCoverage(capabilities, state.selectedDevices);
   return { required: rows(required), optional: rows(optional), unavailable: selected.filter(d => !d.available), skipped: protocol.steps.filter(s => !s.mandatory && !state.included.includes(s.id)).length };
 }
 export function saveProtocol(state, draft) {

@@ -2485,8 +2485,22 @@ automatic. Kill integration and overall closeout validation remain deferred.
 - savedOccurrence: Creates an independently identified occurrence referencing an immutable saved demonstration definition.
 - copyStepToEdit: Copies a step into an editable working occurrence with a suggested unique name.
 - saveReusableStep: Explicitly saves a globally uniquely named immutable personal demonstration definition without saving a protocol.
+- declaredCoverage: Matches exact capability identifiers to selected demonstration device declarations for both Setup and Session.
 
 ## gui/src/miceball_gui/static/protocol-setup.js
 
 - renderPreparedSteps: Refreshes the existing Add step selector for the selected demonstration experimenter.
 - coverageRows: Renders the same selected-device coverage columns for required and optional capabilities.
+
+## gui/src/miceball_gui/static/session-demo.mjs
+
+- sessionProgress: Initializes and retrieves protocol-occurrence-scoped page-memory progress for the Session visual scenario.
+- sessionStepView: Derives display status, declaration coverage and permitted illustrative actions for one protocol step.
+- actOnSessionStep: Applies a browser-local run/repeat/review/validate/skip/result scenario while retaining earlier mock results and history.
+
+## gui/src/miceball_gui/static/session-view.js
+
+- statusBadge: Renders a text-labeled and color-coded Session mock status indicator.
+- readinessRows: Renders selected-provider declaration coverage without asserting framework readiness.
+- renderSession: Renders Setup identity, the current protocol list and the selected-step preview using existing shared demo state.
+- selectedStepMarkup: Renders state-dependent step information, simulated actions, mock outputs and history.

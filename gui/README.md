@@ -44,6 +44,24 @@ reset on refresh. Protocol Save/Cancel actions are at the editor's bottom-right.
 Optional capabilities show selected-device coverage separately in Setup; enabling them for an
 individual Session is not implemented in this demonstration.
 
+## Session preview
+
+Session reads the selected protocol, Session identity and device declarations from
+Setup. It shows a scrollable step list and selected-step information, simulated
+readiness, state-dependent demonstration actions, output summaries and history.
+The first two included steps have explicitly illustrative existing results.
+Run/Repeat starts an indeterminate simulation; Complete simulation or Simulate
+error ends it. No acquisition, computation, file loading or framework commands occur.
+
+Repeating an earlier step marks later completed mock results Needs review without
+removing them. Validate existing result confirms only the local example. This is
+a design proposal, not accepted framework dependency policy or Controller acceptance.
+Previous-result examples are offered only for the illustrative ROI/calibration
+operations; optional steps can be skipped locally. View parameters and the contextual
+workspace buttons only navigate to existing tabs. No parameter or participant editor,
+scientific plot, Session launch or closeout is added. Progress/results/history reset
+on refresh. Switching tabs does not stop the local simulation.
+
 ## GitHub Pages demonstration
 
 The intended public URL is <https://nvl-lab.github.io/miceball_setup/>. The workflow
