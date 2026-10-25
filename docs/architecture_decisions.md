@@ -808,6 +808,11 @@ Device metadata, stream schemas, and event schemas should be designed so that la
 
 **Status:** Accepted
 
+**Subsequent clarification:** Decisions 399 and 427 distinguish application-owned
+protocol authoring from Controller's accepted Session configuration and operation
+intent. Retain the selected protocol name, not a mandatory full protocol snapshot;
+actual configurations and execution evidence preserve what was performed.
+
 The Controller owns the protocol plan.
 
 The Acquisition Node executes time-critical protocol actions locally and records what actually happened.
@@ -7685,6 +7690,10 @@ existing required scientific-preparation contract of Decisions 209 and 235-239.
 
 **Status:** Accepted
 
+**Subsequent clarification:** Decision 427 retains fixed accepted device identities
+and node-level reservation; replacement requires a new Session. Protocol association
+is name-only, without weakening immutable accepted configuration under Decision 424.
+
 SessionConfig is the final resolved configuration of the Session that will
 actually run, not an unresolved prospective resource wish list. Controller
 constructs it after readiness checks, reservation outcomes, and optional-resource
@@ -11510,6 +11519,10 @@ provenance retain their journal-based verification and are not retirement-eligib
 
 **Status:** Accepted
 
+**Subsequent clarification:** Decision 427 scopes required device readiness to each
+Experiment's applicable participants, including those using supported recorded
+inputs. Duration, capacity, health and other lifecycle guarantees below remain.
+
 Every Experiment has a configured duration established before it begins. That
 duration determines automatic Experiment termination under the existing accepted
 lifecycle architecture and defines the recording time horizon for storage-capacity
@@ -11695,6 +11708,12 @@ Presentation proposals remain in [GUI design notes](gui_design_notes.md).
 
 **Status:** Accepted
 
+**Subsequently supplemented/qualified by Decision 427:** Experimenters create,
+edit, reorder, copy and save protocols through the Setup-accessible application
+editor. Its earlier omission from initial requirements below is historical; no
+generic core execution engine or automatic scientific dependency validator is
+required. Session templates supply defaults, not protocol execution authority.
+
 The GUI/application owns scientific protocols and templates, not the core
 framework. A protocol defines ordered steps, dependencies, and optional operations.
 A step may be an Experiment, Validation, Analysis, operator preparation or
@@ -11721,6 +11740,11 @@ including unselected results; incomplete failed/cancelled computational outputs
 are discarded. This does not discard original inputs, earlier valid results or
 required operational evidence, or change Experiment partial-data preservation.
 
+**Further clarification:** Decision 427 permits supported scientific inputs from
+the current Session, another Session or another project. The experimenter owns
+scientific suitability; existing input identity/provenance and historical integrity
+remain authoritative without a universal scientific-input validator.
+
 Repeating an operation never erases earlier scientific results. Every executed
 attempt and its products remain scientifically traceable. The GUI/application
 interprets protocol-specific dependencies; the framework preserves necessary
@@ -11746,6 +11770,11 @@ selection, approval, and provenance representations remain unresolved.
 **Subsequent clarification:** Decision 425 settles Normal Stop cancellation,
 cleanup before readmission and one active Analysis per Session. Detailed invocation
 and installed-software integration remain implementation work, not a new lifecycle.
+
+**Recorded-input clarification:** Decision 427's supported inputs from other
+Sessions/projects do not reopen their lifecycle or create a general historical
+processing platform. The originating operation and existing Analysis distinction
+remain unchanged.
 
 Each Analysis has a unique `analysis_id` and may consume products from earlier
 Experiments or Analyses and produce new scientific products. Its originating
@@ -12102,6 +12131,11 @@ component is selected here.
 ## Decision 411: Historical execution configuration is independent of templates and working edits
 
 **Status:** Accepted
+
+**Subsequent clarification:** Decision 427 explicitly removes any full immutable
+protocol-snapshot/versioning requirement. The selected name remains in fixed
+Session configuration; actual accepted operation configurations and execution
+evidence retain historical integrity independently of mutable protocol definitions.
 
 Distinguish reusable templates, editable working configuration, accepted execution
 configuration and immutable historical configuration. Completed Experiment
@@ -12556,6 +12590,12 @@ does not close G5 or any broader deployment milestone.
 
 **Status:** Accepted
 
+**Protocol-association clarification:** Decision 427 explicitly supersedes an
+earlier fixed-protocol-snapshot requirement/interpretation. Complete accepted
+Session configuration includes the selected protocol name, not a required copy
+of every ordered step or protocol definition. Immutable accepted values, external
+readback, durable launch confirmation and historical integrity below are unchanged.
+
 This records the user-accepted LLC-to-ICC Q008 Session Metadata Implementation
 Handoff. It clarifies Decisions 226-229, 342, 409-412, 420 and 422 while preserving
 their historical text and existing lifecycle, persistence and deployment owners.
@@ -12642,6 +12682,12 @@ configuration readback and initial-record preservation; do not restart this work
 ## Decision 425: Consolidated GUI operation, control, visualization and notification contracts
 
 **Status:** Accepted
+
+**Subsequent clarification:** Decision 427 specifies user-authored protocols,
+name-only Session association, exact capability matching, fixed Session device
+identities, Experiment-scoped readiness and supported cross-Session/project inputs.
+Its protocol-snapshot supersession does not weaken accepted configuration or
+evidence preservation. Decision 426 continues to govern separate GUI packaging.
 
 This records the user-accepted GUI direction and LLC clarifications conveyed in
 the Consolidated GUI Architecture Documentation Synchronization handoff, following
@@ -12903,9 +12949,123 @@ details.
 
 ---
 
+## Decision 427: Scientific protocols are application-owned procedures associated by name with fixed Session configuration
+
+**Status:** Accepted
+
+This records the already accepted HLC/LLC protocol reconciliation conveyed in the
+Protocol Architecture Reconciliation and Documentation Synchronization handoff.
+It clarifies Decisions 031, 281-286, 291, 370, 394-395, 399-411 and 424-426.
+Historical decisions remain intact. This is documentation synchronization only,
+not authorization, implementation, independent audit or deployment validation.
+
+### Protocol authoring and Session association
+
+Experimenters create, edit, reorder, copy and save protocols using operations
+supplied by the scientific application. The protocol editor is accessible from
+the existing Setup tab. Ordinary Session preparation selects a protocol and
+adjusts permitted optional steps and capabilities. Scientific coherence is the
+experimenter's responsibility; no generic protocol execution engine or automatic
+scientific dependency validator is required. Application ownership of definitions,
+step progression and operator choices does not transfer Controller lifecycle or
+configuration acceptance authority to the GUI.
+
+The project owner explicitly supersedes the earlier fixed-protocol-snapshot
+requirement. Session configuration retains the selected protocol name; complete
+definitions are not copied into every Session configuration. Protocols are expected
+to remain stable during a scientific project, but the framework does not enforce
+this. No protocol snapshot or version-management system is required. In particular,
+the existing `protocol_plan` field must not be interpreted as requiring a complete
+ordered snapshot. Existing code accepts generic protocol values; this decision
+does not claim that a fixed-snapshot mechanism was implemented or change an API.
+
+Decisions 291/424 remain authoritative: accepted Session configuration, including
+the selected protocol name, is fixed, externally readable and durably preserved
+before successful launch. Session and Experiment configurations together with
+execution evidence preserve what was actually configured and performed. Later
+protocol/template changes cannot rewrite those historical values or records.
+Do not add protocol-version/template-provenance obligations or remove existing
+scientific provenance, identity and historical integrity requirements.
+
+### Capability matching and actual device selection
+
+Reuse installation-time `DeviceDeclaration.declared_capabilities`; protocol
+requirements use exact identifiers, without inference from device type. One device
+may satisfy several capabilities, or several devices may collectively satisfy a
+step's requirements. Respect explicit distinct-device requirements; devices may
+be reused across sequential steps. Steps without hardware requirements need no
+capabilities. No GUI-owned capability catalog, automatic allocation or resource
+scheduler is introduced. Declared matching is not proof of runtime readiness.
+
+The experimenter selects actual devices before Session launch. Their accepted
+identities remain fixed for that Session; manual or automatic device replacement
+requires a new Session. Node-level Session reservation remains authoritative;
+there is no device-level cross-Session reservation or new reservation hierarchy.
+Each Experiment uses its applicable participating devices independently of output
+recording, under Decision 425. Preferred template devices are starting defaults,
+not authority to replace an accepted device or bypass readiness/reservation.
+
+Verify required-device readiness before each Experiment starts. An unavailable
+device blocks Experiments requiring it, not unrelated Experiments; unavailability
+does not necessarily terminate the Session. Preserve existing service prerequisites,
+health decisions, duration/capacity, lifecycle and reservation guarantees rather
+than infer a new failure policy or bypass an authoritative safety consequence.
+
+### Previously recorded inputs and Session templates
+
+The experimenter may select previously recorded scientific inputs when supported
+by the scientific application. Inputs may come from the current Session, another
+Session or another project. Experiments may use those inputs instead of acquiring
+new data. The GUI does not judge scientific suitability; the experimenter is
+responsible for it. Existing access, identity, provenance, readiness, lifecycle
+and historical integrity requirements still apply. Selecting older inputs neither
+rewrites historical evidence nor reopens their originating Session. No universal
+scientific-input validator or new recorded-input execution contract is specified
+by this documentation; existing Analysis distinctions are unchanged.
+
+Protocols define scientific procedures. Session templates supply reusable starting
+defaults, which may include protocol selection, optional functionality, Session
+settings and preferred devices. Templates are not execution authorities; final
+accepted Session configuration remains authoritative. Templates require no
+immutable copies of complete protocol definitions, new template service or
+version-management mechanism. Decisions 410/424's editing and accepted-value
+boundaries remain intact.
+
+### Confirmed implementation gaps and status
+
+The existing launch/configuration preservation boundary is reused, not restarted.
+The read-only reconciliation found that Experiment startup prepares all reserved
+nodes and checks all Session-selected adapters, rather than isolating readiness
+to the Experiment's required participants. This is an implementation gap against
+the accepted scope above, not a reservation redesign or new architectural question.
+See `Controller.start_launched_experiment()` and
+`AcquisitionNode._prepare_experiment_scientific_outputs()` /
+`_experiment_device_parameters()` in the existing code map.
+
+There is also no general recorded-input execution contract delivering selected
+existing-input references to scientific execution. Existing artifact identities,
+metadata and preservation do not by themselves implement that invocation. Keep
+this implementation gap visible without inventing the contract here.
+
+Protocol/template authoring, exact capability matching and the remaining inventory,
+participation and input interfaces require separately authorized implementation.
+Q008 and related GUI questions remain OPEN for their outstanding implementation,
+deployment validation or detailed representation work. Decision 424's completed
+implementation/audit is not repeated; no question or milestone is closed here.
+No Controller/NATS, lifecycle, reservation, scientific-input validation or GUI
+implementation is performed or authorized by this synchronization.
+
+---
+
 # Accepted Architectural Principles
 
 The following principles summarize the accepted decisions so far.
+
+Decision 427 governs current protocol authoring, name-only association and template
+defaults, exact capability matching, fixed selected device identities, scoped
+Experiment readiness and supported recorded inputs. Historical protocol-plan or
+editor-scope wording below does not impose a full protocol snapshot or override
+that clarification; accepted configuration/evidence integrity remains unchanged.
 
 Decision 426 governs GUI repository placement and separate packaging; Decision
 425 governs current GUI requirements, including six-tab web/Python

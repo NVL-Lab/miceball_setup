@@ -28,6 +28,24 @@ const catalogDialogTitle = document.querySelector("#catalog-dialog-title");
 const catalogFields = document.querySelector("#catalog-fields");
 const catalogSelects = [...document.querySelectorAll("[data-catalog-select]")];
 const catalogDismissButtons = [...document.querySelectorAll("[data-dialog-dismiss]")];
+const themeToggle = document.querySelector("#theme-toggle");
+const themeLabel = themeToggle.querySelector(".theme-toggle__label");
+const themeIconUse = document.querySelector("#theme-icon-use");
+
+function setTheme(theme, persist = true) {
+  const dark = theme === "dark";
+  document.documentElement.dataset.theme = dark ? "dark" : "light";
+  themeToggle.setAttribute("aria-pressed", String(dark));
+  themeToggle.title = dark ? "Switch to light mode" : "Switch to dark mode";
+  themeLabel.textContent = dark ? "Light mode" : "Dark mode";
+  themeIconUse.setAttribute("href", dark ? "#icon-sun" : "#icon-moon");
+
+  if (persist) {
+    try {
+      localStorage.setItem("miceball-theme", dark ? "dark" : "light");
+    } catch (_) {}
+  }
+}
 
 const catalogForms = {
   experimenter: {
@@ -239,6 +257,10 @@ pinButton.addEventListener("click", () => {
   setPinned(pinButton.getAttribute("aria-pressed") !== "true");
 });
 
+themeToggle.addEventListener("click", () => {
+  setTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
+});
+
 sidebar.addEventListener("pointerenter", () => {
   if (!sidebar.classList.contains("is-pinned")) {
     sidebar.classList.add("is-temporary-expanded");
@@ -325,6 +347,7 @@ catalogDialog.addEventListener("close", () => {
   activeCatalogSelect = null;
 });
 
+setTheme(document.documentElement.dataset.theme, false);
 setPinned(false);
 setSection("setup");
 renderNotifications();

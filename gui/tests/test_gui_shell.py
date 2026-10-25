@@ -16,6 +16,7 @@ class ShellParser(HTMLParser):
         self.section_title = None
         self.alerts_trigger = None
         self.alerts_panel = None
+        self.theme_toggle = None
 
     def handle_starttag(self, tag, attrs):
         values = dict(attrs)
@@ -31,6 +32,8 @@ class ShellParser(HTMLParser):
             self.alerts_trigger = values
         if values.get("id") == "alerts-panel":
             self.alerts_panel = values
+        if values.get("id") == "theme-toggle":
+            self.theme_toggle = values
 
 
 class GuiShellTests(unittest.TestCase):
@@ -135,6 +138,20 @@ class GuiShellTests(unittest.TestCase):
         self.assertIn('id="catalog-save"\n                type="submit" value="save"', self.html)
         self.assertIn('button.addEventListener("click", () => catalogDialog.close("cancel"))', self.javascript)
         self.assertIn('catalogDialog.returnValue = ""', self.javascript)
+
+    def test_theme_control_and_browser_local_persistence_are_available(self):
+        self.assertEqual(self.parser.theme_toggle["aria-pressed"], "false")
+        self.assertLess(self.html.index('id="theme-toggle"'), self.html.index('id="alerts"'))
+        for expected in (
+            'data-theme="light"',
+            'localStorage.getItem("miceball-theme")',
+            "function setTheme(theme, persist = true)",
+            'localStorage.setItem("miceball-theme"',
+            'themeToggle.addEventListener("click"',
+            'html[data-theme="dark"]',
+            "color-scheme: dark",
+        ):
+            self.assertIn(expected, self.html + self.css + self.javascript)
 
 if __name__ == "__main__":
     unittest.main()

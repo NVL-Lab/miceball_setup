@@ -9,7 +9,7 @@ packaged top-level `gui/` project in this repository, outside the existing
 
 ## Accepted Functional Direction
 
-**Status:** User-accepted architecture in Decisions 396-405, 409-418 and 424-425.
+**Status:** User-accepted architecture in Decisions 396-405, 409-418 and 424-427.
 GUI/Analysis/Validation/visualization implementation is pending; Decision 424's
 bounded framework metadata implementation and independent audit are complete/PASS,
 with deployment validation and Q008 closure still pending.
@@ -30,7 +30,9 @@ with deployment validation and Q008 closure still pending.
   necessarily Experiments. Actual executed configuration is preserved independently
   of its starting template. Decisions 409-411 settle catalog and template rules;
   Decision 424 settles final accepted Session values and launch-time durability;
-  remaining detailed catalog/template representation stays in Q008.
+  Decision 427 settles protocol authoring, name-only association and reusable
+  template defaults without a protocol snapshot/version requirement. Remaining
+  detailed catalog/template representation stays in Q008.
 - Analysis is lightweight, Session-scoped, and identified by `analysis_id`, not
   a fabricated Experiment. Execution success is distinct from scientific result
   acceptance/selection. Preserve completed valid results, including unselected
@@ -66,6 +68,44 @@ or a specified Suite2p/CaBMI integration interface. Legacy GUI/MATLAB code is a
 scientific/UX reference, not architectural authority. Decision 425 accepts selected
 bounded scientific feedback, not general scientific streaming or large artifacts.
 
+### Accepted Protocols, Templates And Recorded Inputs
+
+Decision 427 records the accepted reconciliation, not implemented functionality.
+Experimenters create, edit, reorder, copy and save protocols from the existing
+Setup tab using scientific-application-supplied operations. Ordinary Session
+preparation selects a protocol and adjusts permitted optional steps/capabilities.
+Scientific coherence belongs to the experimenter; no generic protocol execution
+engine or automatic scientific dependency validator is required.
+
+Session configuration retains the selected protocol name, not a complete ordered
+protocol definition copied into every Session. The owner explicitly supersedes
+the earlier fixed-protocol-snapshot requirement; `protocol_plan` does not require
+such a snapshot. Expected project-level protocol stability is not framework-enforced.
+No snapshot/version-management system is required. Accepted Session values remain
+immutable, externally readable and durably preserved under Decisions 291/424.
+Session/Experiment configuration and execution evidence preserve actual configured
+and performed work; later protocol edits cannot rewrite historical records.
+
+Session templates supply reusable starting defaults, potentially protocol
+selection, optional functionality, Session settings and preferred devices, not
+execution authority. Final accepted Session configuration governs. Templates need
+no immutable full protocol copies, new service or version mechanism; retain existing
+template editing rules and no template-provenance requirement.
+
+Match exact protocol capability identifiers to installation-time
+`DeviceDeclaration.declared_capabilities`, never infer them from device type.
+One device may supply several capabilities; multiple devices may collectively
+satisfy requirements, respecting explicit distinct-device requirements. Sequential
+steps may reuse devices; hardware-free steps need no capabilities. No GUI capability
+catalog, automatic device allocation or resource scheduler is introduced.
+
+When supported by the scientific application, operators may select recorded inputs
+from this Session, another Session or another project, including for Experiments
+instead of new acquisition. The experimenter, not GUI, judges scientific suitability.
+Preserve existing access, identity, provenance, readiness and historical integrity;
+no universal scientific-input validator or historical Session reopening is implied.
+The general recorded-input execution interface is missing, not defined here.
+
 ### Accepted Tab Interactions And Device Scope
 
 Setup prepares experimenter/project/animal context, Session name/identity,
@@ -89,6 +129,14 @@ historical scientific browser.
 Controller reserves whole AcquisitionNodes, not devices independently across
 Sessions. Session inclusion selects individual devices; each Experiment selects
 participants independently of recorded products, including outputless devices.
+The experimenter selects actual devices before launch; final accepted identities
+remain fixed throughout that Session. Manual or automatic replacement requires a
+new Session. Required-device readiness
+must be checked before each Experiment; an unavailable device blocks Experiments
+requiring it, not unrelated Experiments, and does not necessarily end the Session.
+Existing health/safety consequences remain authoritative. Current startup still
+prepares all reserved nodes and checks all Session adapters, a confirmed
+participation/readiness-scope implementation gap under Decision 427.
 Apply Experiment overrides only to participants as appropriate; deselected devices
 remain in the Session's node reservation. Parameters groups actual supported
 settings by selected device, adds/hides controls as participation changes and
@@ -213,9 +261,10 @@ reopen accepted architecture or add a general scheduler, registry or recovery sy
 See Q026-Q030 and Q008 in [open questions](open_questions.md) for execution and
 interruption implementation, persistence/collection, acceptance/provenance, communication
 and trust, presentation/deployment, and catalog/template persistence, identities,
-transfer and Session/Experiment settings boundaries. No general
-protocol editor, template installation framework, historical Analysis platform,
-generic workflow engine or broad online processing is required. Decisions 019/021
+transfer and Session/Experiment settings boundaries. The application protocol
+editor is accepted under Decision 427; no template installation framework,
+historical Analysis platform, generic workflow engine or broad online processing
+is required. Decisions 019/021
 continue to exclude GUI implementation and scientific analysis pipelines from the
 core `lab-sync-acquisition` package and distribution. Decision 426 places the
 separately packaged GUI project under top-level `gui/` in this repository; it does

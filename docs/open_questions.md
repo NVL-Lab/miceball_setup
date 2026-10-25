@@ -152,7 +152,9 @@ configuration independently of its template. Decisions 409-411 additionally
 settle editable application catalog ownership, historical Session metadata,
 lab/personal template editing rules and immutable historical configuration.
 Decision 424 records the accepted Session metadata and launch-time durability
-clarification below. Decision 425 records the completed bounded implementation
+clarification below. Decision 427 settles protocol name association, template
+defaults and capability matching without a snapshot requirement. Decision 425
+records the completed bounded implementation
 and independent audit PASS at `5da9b35`. Q008 remains OPEN pending deployment
 validation, closure and remaining configuration-model scope.
 
@@ -172,6 +174,46 @@ Experiments need none. Reusable templates, working configuration, accepted
 execution configuration and immutable history are distinct. Different Experiments
 may use different configurations; whole-Session template reconstruction is not
 required. No project-sharing or permissions infrastructure is authorized.
+
+### Accepted protocol, capability and input boundaries (Decision 427)
+
+Experimenters create, edit, reorder, copy and save protocols using application
+operations via the existing Setup tab. Ordinary preparation selects a protocol
+and adjusts permitted optional steps/capabilities. Scientific coherence belongs
+to the experimenter; no generic protocol engine/dependency validator is required.
+Session templates supply reusable defaults such as protocol selection, optional
+functionality, Session settings and preferred devices, not execution authority.
+
+The owner explicitly supersedes the earlier fixed-protocol-snapshot requirement.
+Retain the selected protocol name in immutable accepted Session configuration;
+do not copy complete protocol definitions into every Session or interpret
+`protocol_plan` as requiring them. Protocol stability during a project is expected,
+not enforced. No protocol snapshot, version-management system or new template service is
+required. Decisions 291/424 still govern accepted-value immutability, readback and
+durable launch confirmation; actual Session/Experiment configurations and execution
+evidence preserve what was configured/performed without new provenance obligations.
+
+Use installation-time `DeviceDeclaration.declared_capabilities` and exact matching,
+not inferred device types. A device may supply several capabilities; several
+devices may jointly satisfy step requirements, respecting distinct-device
+requirements. Reuse devices across sequential steps; hardware-free steps need no
+capabilities. No GUI capability catalog, automatic allocation or scheduler.
+Actual Session-selected identities are fixed; any replacement requires a new
+Session. Node reservations and Experiment participation remain distinct.
+
+Required-device readiness is checked before each Experiment. An unavailable
+device blocks dependent Experiments, not unrelated ones, without necessarily
+terminating the Session or bypassing existing health/safety consequences. Current
+startup checks all Session-selected adapters and prepares all reserved nodes:
+this participation/readiness-scope mismatch is an implementation gap.
+
+Supported recorded inputs may come from the current Session, another Session or
+another project, including for Experiments instead of new acquisition. Scientific
+suitability belongs to the experimenter, not GUI. Existing access, identity,
+provenance and historical integrity remain; there is no universal input validator.
+The general recorded-input execution contract remains missing and is not invented
+here. Protocol/template authoring and matching implementation also remain pending.
+These settled boundaries do not close Q008 or repeat Decision 424 implementation.
 
 ### Accepted Session metadata and launch boundary (Decision 424)
 
@@ -244,15 +286,18 @@ these settled selection and launch semantics are not Q008 schema questions.
 * What external configuration representation is needed beyond Q022-A's accepted
   file-based installation scope? Its exact initial file format is an implementation choice.
 * What broader default declaration/application policy is needed beyond Decision
-  424's settled editable template prefill and final-accepted-value boundary?
+  427's settled Session-template defaults and Decision 424's accepted-value boundary?
 * How are accepted configuration values propagated to runtime owners?
-* What vocabulary and structure should be used for `DeviceDeclaration.declared_capabilities`?
+* Which concrete capability identifiers/representations implement Decision 427's
+  exact matching, collective capability coverage and distinct-device requirements?
+  Installation declarations and no GUI capability catalog are already settled.
 * Which concrete catalog identities and metadata fields are represented and
   transferred within Decision 424's accepted ownership and preservation contract?
 * How are lab/personal templates persisted and transferred under their accepted
   editing rules? Decision 424 requires no retained template identity, provenance
   or default comparison in accepted execution/history.
-* Which settings belong in Session templates versus Experiment templates?
+* Which detailed settings representations implement Session-template defaults
+  versus separate Experiment configuration under Decisions 424/427?
 * How is accepted configuration propagated to the relevant runtime owners?
 
 Remaining low-level metadata/configuration contracts require accepted design. They do not
@@ -348,6 +393,11 @@ after cleanup. This is not permission to discard partial Experiment recordings.
 Concrete input/output structures, selected-result identifiers, and application
 dependency/invalidation representations remain proposals. Later selections cannot
 rewrite earlier products or recorded inputs of completed operations.
+Decision 427 settles input scope: supported recordings may originate in this
+Session, another Session or another project. Scientific suitability remains the
+experimenter's responsibility, not a GUI validator. Existing identity/access and
+provenance apply; the missing general recorded-input execution contract is an
+implementation gap, not authority to reopen historical Sessions or alter evidence.
 
 ## Q029: What contracts deliver authorized scientific results to the GUI?
 
@@ -451,6 +501,11 @@ controls, read-only accepted Setup after launch, participant-specific Parameters
 read-only during execution, navigation without interruption, and final Experiment
 results remaining visible until the next Experiment. Analysis is application-specific;
 no mandatory historical scientific browser or core workflow engine is introduced.
+Decision 427 adds Setup-accessible creation/editing/reordering/copying/saving of
+application protocols, name-only Session association and reusable template defaults.
+This accepted editor direction is not implemented by presentation placeholders;
+no protocol snapshot/versioning or automatic scientific dependency validator is
+required. Functional implementation remains under the normal ICC workflow.
 
 Decisions 414-418 now require a permanently accessible Services tab, automatic
 status refresh (configurable default 10 seconds), trust-based administrator mode,

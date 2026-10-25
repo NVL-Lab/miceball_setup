@@ -97,6 +97,16 @@ remains OPEN pending deployment validation, closure and remaining configuration
 scope; this status update starts no implementation or repeat audit. Decision 425
 reuses these interfaces without asserting broader GUI readiness.
 
+Decision 427 qualifies protocol interpretation without changing these interfaces:
+the selected protocol name belongs to fixed accepted Session configuration, not
+a required complete ordered `protocol_plan` snapshot. Current fields accept
+generic protocol values; no protocol resolver, version manager or editor is
+implemented by that fact. Existing Session/Experiment configuration and evidence
+preserve actual work. The reconciliation also records two implementation gaps:
+Experiment startup prepares all reserved nodes/checks all Session adapters rather
+than only required participants, and no general recorded-input execution contract
+exists. These remain separately authorized work, not new lifecycle/NATS APIs here.
+
 ## G2 Experiment Capacity And Autonomous Expiry (Closed; Software Scope)
 
 G2 is CLOSED after ICC independent validation and final separate Codex audit PASS,
