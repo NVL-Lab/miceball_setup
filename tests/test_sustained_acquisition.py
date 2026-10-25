@@ -88,7 +88,7 @@ class SustainedAcquisitionTests(unittest.IsolatedAsyncioTestCase):
     async def experiment(self, identity="experiment"):
         result = await self.controller.start_launched_experiment(identity,
             scientific_outputs=(ScientificOutputSelection("camera", "node", "frames"),),
-            configuration=ExperimentConfiguration(60, {"node": 1000000}, 1000000),
+            configuration=ExperimentConfiguration(60, {"node": 1000000}, 1000000, participating_devices={"node": ["camera"]}),
             storage_participant=RuntimeParticipant("storage_manager", "storage"))
         self.assertTrue(result.succeeded, result.error)
 
@@ -192,7 +192,7 @@ class SustainedAcquisitionTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_experiment_without_selected_products_keeps_expiry_without_reads(self):
         result = await self.controller.start_launched_experiment("idle",
-            configuration=ExperimentConfiguration(60, {"node": 0}, 1000000),
+            configuration=ExperimentConfiguration(60, {"node": 0}, 1000000, participating_devices={"node": ["camera"]}),
             storage_participant=RuntimeParticipant("storage_manager", "storage"))
         self.assertTrue(result.succeeded, result.error)
         for _ in range(5):

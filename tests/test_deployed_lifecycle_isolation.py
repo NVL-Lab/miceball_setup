@@ -130,7 +130,8 @@ class MultipleScientificOwnerTests(unittest.IsolatedAsyncioTestCase):
         result = await f.controller.start_launched_experiment("experiment",
             scientific_outputs=tuple(ScientificOutputSelection(devices[0].device_id, identity, "events")
                                      for identity, devices in selections.items()),
-            configuration=ExperimentConfiguration(60, {identity: 1000000 for identity in selections}, 1000000),
+            configuration=ExperimentConfiguration(60, {identity: 1000000 for identity in selections}, 1000000,
+                participating_devices={identity: [d.device_id for d in devices] for identity, devices in selections.items()}),
             storage_participant=RuntimeParticipant("storage_manager", "storage"))
         self.assertTrue(result.succeeded, result.error)
         for identity in selections:
@@ -168,7 +169,8 @@ class InProcessCompatibilityTests(unittest.TestCase):
             controller, node, _, _ = fixture._running_controller(Path(directory))
             try:
                 self.assertTrue(controller.start_experiment("development",
-                    configuration=ExperimentConfiguration(60, {}, 1000000)).succeeded)
+                    configuration=ExperimentConfiguration(60, {}, 1000000,
+                        participating_devices={"node": ["source-001"]})).succeeded)
                 self.assertTrue(controller.run_one_iteration().succeeded)
                 self.assertTrue(controller.stop_experiment("development").succeeded)
                 self.assertTrue(controller.stop_session().succeeded)
@@ -210,7 +212,8 @@ class InProcessAdmissionTests(unittest.IsolatedAsyncioTestCase):
             controller, node, storage, _ = fixture._running_controller(Path(directory))
             try:
                 self.assertTrue(controller.start_experiment("experiment-001",
-                    configuration=ExperimentConfiguration(60, {}, 1000000)).succeeded)
+                    configuration=ExperimentConfiguration(60, {}, 1000000,
+                        participating_devices={"node": ["source-001"]})).succeeded)
                 decision = controller.process_health_interpretation(fixture._evidence(1, "session_failure"))
                 self.assertTrue(controller.execute_controller_action_decision(decision).succeeded)
                 before = controller.get_status()
@@ -241,7 +244,8 @@ class InProcessAdmissionTests(unittest.IsolatedAsyncioTestCase):
             controller, node, _, _ = fixture._running_controller(Path(directory))
             try:
                 self.assertTrue(controller.start_experiment("development",
-                    configuration=ExperimentConfiguration(60, {}, 1000000)).succeeded)
+                    configuration=ExperimentConfiguration(60, {}, 1000000,
+                        participating_devices={"node": ["source-001"]})).succeeded)
                 before = controller.get_status()
                 for invoke in (controller.stop_launched_session,
                                lambda: controller.stop_launched_experiment("development"),

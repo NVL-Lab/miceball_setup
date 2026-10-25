@@ -66,7 +66,7 @@ class LocalActivationFailureTests(unittest.TestCase):
         outputs = tuple(ScientificOutputSelection("camera", "node", name)
                         for name in (("frames", "second") if both else ("frames",)))
         return self.controller.start_experiment(identity, scientific_outputs=outputs,
-            configuration=ExperimentConfiguration(60, {"node": 1000000}, 1000000))
+            configuration=ExperimentConfiguration(60, {"node": 1000000}, 1000000, participating_devices={"node": ["camera"]}))
 
     def assert_resolved(self, result, identity, *, confirmed=True):
         self.assertFalse(result.succeeded)
@@ -169,11 +169,11 @@ class ExperimentCapacityTests(unittest.TestCase):
     def test_configuration_requires_a_finite_duration_and_explicit_valid_budgets(self):
         for duration in (None, True, 0, -1, float("nan"), float("inf")):
             with self.subTest(duration=duration), self.assertRaises(ValueError):
-                ExperimentConfiguration(duration)
+                ExperimentConfiguration(duration, participating_devices={"node": ["camera"]})
         for budget in (True, -1, 1.5):
             with self.subTest(budget=budget), self.assertRaises(ValueError):
-                ExperimentConfiguration(1, {"node": budget})
-        config = ExperimentConfiguration(2, {"node": 100}, 200)
+                ExperimentConfiguration(1, {"node": budget}, participating_devices={"node": ["camera"]})
+        config = ExperimentConfiguration(2, {"node": 100}, 200, participating_devices={"node": ["camera"]})
         self.assertEqual(config, ExperimentConfiguration.from_dict(config.to_dict()))
 
     def test_encoded_estimate_uses_duration_selected_rate_and_inflight_batch(self):
@@ -255,7 +255,7 @@ class ExperimentPreflightWorkflows(unittest.IsolatedAsyncioTestCase):
 
     async def test_sufficient_budgets_and_each_experiment_is_checked_again(self):
         f = self.fixture
-        config = ExperimentConfiguration(60, {"node": 100}, 100)
+        config = ExperimentConfiguration(60, {"node": 100}, 100, participating_devices={"node": ["camera"]})
         self.assertTrue((await self.start(configuration=config)).succeeded)
         await f.until(lambda: f.camera.capture.read_count >= 2)
         self.assertTrue((await f.controller.stop_launched_experiment("experiment")).succeeded)
@@ -267,15 +267,15 @@ class ExperimentPreflightWorkflows(unittest.IsolatedAsyncioTestCase):
 
     async def test_missing_configuration_or_budget_never_begins_recording(self):
         f = self.fixture
-        for config in (None, ExperimentConfiguration(1), ExperimentConfiguration(1, {"node": 100})):
+        for config in (None, ExperimentConfiguration(1, participating_devices={"node": ["camera"]}), ExperimentConfiguration(1, {"node": 100}, participating_devices={"node": ["camera"]})):
             result = await self.start(configuration=config)
             self.assertFalse(result.succeeded, result)
             self.assertFalse(f.node.scientific_acquisition_active)
         self.assertEqual(f.camera.capture.read_count, 0)
 
     async def test_insufficient_recording_and_preservation_are_reported(self):
-        for config in (ExperimentConfiguration(1, {"node": 1000}, 1),
-                       ExperimentConfiguration(1, {"node": 1}, 1000)):
+        for config in (ExperimentConfiguration(1, {"node": 1000}, 1, participating_devices={"node": ["camera"]}),
+                       ExperimentConfiguration(1, {"node": 1}, 1000, participating_devices={"node": ["camera"]})):
             with patch("lab_sync_acquisition.local_storage.shutil.disk_usage", return_value=SimpleNamespace(free=100)):
                 result = await self.start(configuration=config)
             self.assertFalse(result.succeeded)
@@ -284,7 +284,7 @@ class ExperimentPreflightWorkflows(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.fixture.camera.capture.read_count, 0)
 
     async def test_unknown_capacity_and_failed_synchronization_block_start(self):
-        config = ExperimentConfiguration(1, {"node": 100}, 100)
+        config = ExperimentConfiguration(1, {"node": 100}, 100, participating_devices={"node": ["camera"]})
         with patch("lab_sync_acquisition.local_storage.shutil.disk_usage", side_effect=OSError("unavailable")):
             self.assertFalse((await self.start(configuration=config)).succeeded)
         with patch.object(self.fixture.clock, "assess_cross_clock_exchanges", side_effect=RuntimeError("unconfirmed sync")):
@@ -295,7 +295,7 @@ class ExperimentPreflightWorkflows(unittest.IsolatedAsyncioTestCase):
     async def test_operating_overrides_are_selected_per_experiment_and_do_not_leak(self):
         f = self.fixture
         config = ExperimentConfiguration(60, {"node": 1000000}, 1000,
-            {"node": {"camera": {"fps": 5}}})
+            {"node": {"camera": {"fps": 5}}}, participating_devices={"node": ["camera"]})
         original = f.camera.VideoCapture
 
         def reopen(*args):
@@ -309,7 +309,7 @@ class ExperimentPreflightWorkflows(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(f.adapter.initialization_config.fps, 5)
             await f.until(lambda: f.camera.capture.read_count >= 2)
             self.assertTrue((await f.controller.stop_launched_experiment("experiment")).succeeded)
-            result = await self.start("second", ExperimentConfiguration(60, {"node": 1000000}, 1000))
+            result = await self.start("second", ExperimentConfiguration(60, {"node": 1000000}, 1000, participating_devices={"node": ["camera"]}))
             self.assertTrue(result.succeeded, result.error)
             self.assertIsNone(f.adapter.initialization_config.fps)
 
@@ -352,7 +352,7 @@ class ExperimentPreflightWorkflows(unittest.IsolatedAsyncioTestCase):
                  patch.object(f.adapter, "check_ready", side_effect=check_ready), \
                  patch.object(f.adapter, "start", side_effect=start_device):
                 result = await self.start(identity + "-failed", ExperimentConfiguration(60,
-                    {"node": 1000000}, 1000, {"node": {"camera": {"fps": 5}}}))
+                    {"node": 1000000}, 1000, {"node": {"camera": {"fps": 5}}}, participating_devices={"node": ["camera"]}))
             self.assertFalse(result.succeeded)
             self.assertIsNone(f.controller.get_status()["active_experiment_id"])
             self.assertFalse(f.node.scientific_acquisition_active)
@@ -360,7 +360,7 @@ class ExperimentPreflightWorkflows(unittest.IsolatedAsyncioTestCase):
             overrides = None if next_fps is None else {"node": {"camera": {"fps": next_fps}}}
             count = f.camera.capture.read_count
             result = await self.start(identity + "-recovered", ExperimentConfiguration(60,
-                {"node": 1000000}, 1000, overrides))
+                {"node": 1000000}, 1000, overrides, participating_devices={"node": ["camera"]}))
             self.assertTrue(result.succeeded, result.error)
             self.assertEqual(f.adapter.initialization_config.fps, next_fps)
             self.assertEqual(f.adapter.state.value, "running")
@@ -401,7 +401,7 @@ class ExperimentPreflightWorkflows(unittest.IsolatedAsyncioTestCase):
         f.broker.on_command = on_command
         try:
             with patch.object(f.adapter, "check_ready", side_effect=check_ready):
-                result = await self.start(configuration=ExperimentConfiguration(60, {"node": 1000000}, 1000))
+                result = await self.start(configuration=ExperimentConfiguration(60, {"node": 1000000}, 1000, participating_devices={"node": ["camera"]}))
         finally:
             f.broker.on_command = None
         self.assertFalse(result.succeeded)
@@ -412,7 +412,7 @@ class ExperimentPreflightWorkflows(unittest.IsolatedAsyncioTestCase):
 
     async def test_failed_expiry_finalization_is_not_canonical_completion(self):
         f = self.fixture
-        self.assertTrue((await self.start(configuration=ExperimentConfiguration(60, {"node": 1000000}, 1000))).succeeded)
+        self.assertTrue((await self.start(configuration=ExperimentConfiguration(60, {"node": 1000000}, 1000, participating_devices={"node": ["camera"]}))).succeeded)
         await f.until(lambda: f.camera.capture.read_count >= 2)
         with patch.object(f.local, "finalize_stream", side_effect=OSError("unconfirmed")), \
              patch("lab_sync_acquisition.acquisition_node.monotonic", return_value=10**12), \
@@ -426,7 +426,7 @@ class ExperimentPreflightWorkflows(unittest.IsolatedAsyncioTestCase):
 
     async def test_resolution_must_match_stored_representation_even_with_budget(self):
         config = ExperimentConfiguration(60, {"node": 1000000}, 1000,
-            {"node": {"camera": {"frame_width": 8}}})
+            {"node": {"camera": {"frame_width": 8}}}, participating_devices={"node": ["camera"]})
         result = await self.start(configuration=config)
         self.assertFalse(result.succeeded)
         self.assertIn("representation", result.error)
@@ -434,12 +434,12 @@ class ExperimentPreflightWorkflows(unittest.IsolatedAsyncioTestCase):
 
     async def test_ended_preparation_cannot_reconfigure_a_device(self):
         f = self.fixture
-        config = ExperimentConfiguration(60, {"node": 1000000}, 1000)
+        config = ExperimentConfiguration(60, {"node": 1000000}, 1000, participating_devices={"node": ["camera"]})
         self.assertTrue((await self.start(configuration=config)).succeeded)
         self.assertTrue((await f.controller.stop_launched_experiment("experiment")).succeeded)
         original = f.adapter.initialization_config
         altered = ExperimentConfiguration(60, {"node": 1000000}, 1000,
-            {"node": {"camera": {"fps": 12}}})
+            {"node": {"camera": {"fps": 12}}}, participating_devices={"node": ["camera"]})
         result = await f.request("prepare_experiment_scientific_outputs", {
             "experiment_id": "experiment", "scientific_outputs": [self.output.to_dict()],
             "configuration": altered.to_dict()})
@@ -449,7 +449,7 @@ class ExperimentPreflightWorkflows(unittest.IsolatedAsyncioTestCase):
 
     async def test_expiry_finalizes_locally_and_controller_reconciles_only_experiment(self):
         f = self.fixture
-        self.assertTrue((await self.start(configuration=ExperimentConfiguration(60, {"node": 1000000}, 1000))).succeeded)
+        self.assertTrue((await self.start(configuration=ExperimentConfiguration(60, {"node": 1000000}, 1000, participating_devices={"node": ["camera"]}))).succeeded)
         await f.until(lambda: f.camera.capture.read_count >= 2)
         context = f.node.status()["active_experiment_runtime_context"]
         mapping = f.node.mapping_activation_history[-1]["mapping"]
@@ -472,14 +472,14 @@ class ExperimentPreflightWorkflows(unittest.IsolatedAsyncioTestCase):
         bad = replace(proof, payload={**proof.payload, "duration_s": 1})
         with self.assertRaises(ValueError):
             f.controller.accept_experiment_expiry(bad)
-        later = await self.start("later", ExperimentConfiguration(60, {"node": 1000000}, 1000))
+        later = await self.start("later", ExperimentConfiguration(60, {"node": 1000000}, 1000, participating_devices={"node": ["camera"]}))
         self.assertTrue(later.succeeded, later.error)
         self.assertFalse(f.controller.accept_experiment_expiry(proof))
         self.assertEqual(f.controller.get_status()["active_experiment_id"], "later")
 
     async def test_bounded_iteration_enforces_the_same_prepared_deadline(self):
         f = self.fixture
-        self.assertTrue((await self.start(configuration=ExperimentConfiguration(60, {"node": 1000000}, 1000))).succeeded)
+        self.assertTrue((await self.start(configuration=ExperimentConfiguration(60, {"node": 1000000}, 1000, participating_devices={"node": ["camera"]}))).succeeded)
         await f.handler.stop_acquisition_execution()
         count = f.camera.capture.read_count
         with patch("lab_sync_acquisition.acquisition_node.monotonic", return_value=10**12):
@@ -492,7 +492,7 @@ class ExperimentPreflightWorkflows(unittest.IsolatedAsyncioTestCase):
 
     async def test_offline_controller_and_degraded_sync_do_not_disable_captured_deadline(self):
         f = self.fixture
-        self.assertTrue((await self.start(configuration=ExperimentConfiguration(60, {"node": 1000000}, 1000))).succeeded)
+        self.assertTrue((await self.start(configuration=ExperimentConfiguration(60, {"node": 1000000}, 1000, participating_devices={"node": ["camera"]}))).succeeded)
         await f.until(lambda: f.camera.capture.read_count >= 2)
         subscription = next(s for s in f.broker.subscriptions if s.subject.endswith(".experiment_duration_expired"))
         subscription.active = False
@@ -511,7 +511,7 @@ class ExperimentPreflightWorkflows(unittest.IsolatedAsyncioTestCase):
 
     async def test_publication_wait_cannot_extend_recording_deadline(self):
         f = self.fixture
-        self.assertTrue((await self.start(configuration=ExperimentConfiguration(0.2, {"node": 1000000}, 1000))).succeeded)
+        self.assertTrue((await self.start(configuration=ExperimentConfiguration(0.2, {"node": 1000000}, 1000, participating_devices={"node": ["camera"]}))).succeeded)
         entered = asyncio.Event()
 
         async def unavailable():
@@ -530,7 +530,7 @@ class ExperimentPreflightWorkflows(unittest.IsolatedAsyncioTestCase):
 
     async def test_malformed_or_contradictory_expiry_cannot_end_recording(self):
         f = self.fixture
-        self.assertTrue((await self.start(configuration=ExperimentConfiguration(60, {"node": 1000000}, 1000))).succeeded)
+        self.assertTrue((await self.start(configuration=ExperimentConfiguration(60, {"node": 1000000}, 1000, participating_devices={"node": ["camera"]}))).succeeded)
         await f.until(lambda: f.camera.capture.read_count >= 2)
         context = f.node.status()["active_experiment_runtime_context"]
         mapping = f.node.mapping_activation_history[-1]["mapping"]
@@ -559,7 +559,7 @@ class ExperimentPreflightWorkflows(unittest.IsolatedAsyncioTestCase):
 
     async def test_early_transport_timeout_followed_by_pending_publication_still_expires(self):
         f = self.fixture
-        self.assertTrue((await self.start(configuration=ExperimentConfiguration(0.2, {"node": 1000000}, 1000))).succeeded)
+        self.assertTrue((await self.start(configuration=ExperimentConfiguration(0.2, {"node": 1000000}, 1000, participating_devices={"node": ["camera"]}))).succeeded)
         pending = asyncio.Event()
         release = asyncio.Event()
         calls = 0
@@ -587,7 +587,7 @@ class ExperimentPreflightWorkflows(unittest.IsolatedAsyncioTestCase):
 
     async def test_delayed_expiry_uses_activation_mapping_after_resynchronization(self):
         f = self.fixture
-        self.assertTrue((await self.start(configuration=ExperimentConfiguration(60, {"node": 1000000}, 1000))).succeeded)
+        self.assertTrue((await self.start(configuration=ExperimentConfiguration(60, {"node": 1000000}, 1000, participating_devices={"node": ["camera"]}))).succeeded)
         mapping = f.node.mapping_activation_history[-1]["mapping"]
         context = f.node.status()["active_experiment_runtime_context"]
         deadline = mapping["local_time_anchor_s"] + (
@@ -619,7 +619,7 @@ class ExperimentPreflightWorkflows(unittest.IsolatedAsyncioTestCase):
             return result
 
         f.broker.change_result = replace_mapping
-        result = await self.start(configuration=ExperimentConfiguration(60, {"node": 1000000}, 1000))
+        result = await self.start(configuration=ExperimentConfiguration(60, {"node": 1000000}, 1000, participating_devices={"node": ["camera"]}))
         self.assertFalse(result.succeeded)
         self.assertIn("authorized synchronization mapping", result.error)
         self.assertFalse(f.node.scientific_acquisition_active)
@@ -645,7 +645,7 @@ class ExperimentPreflightWorkflows(unittest.IsolatedAsyncioTestCase):
             with patch.object(f.storage, "check_experiment_capacity", side_effect=owner.check_experiment_capacity), \
                  patch("lab_sync_acquisition.local_storage.shutil.disk_usage", side_effect=capacity), \
                  patch("lab_sync_acquisition.local_storage._local_filesystem_identity", side_effect=filesystem):
-                result = await self.start(configuration=ExperimentConfiguration(60, {"node": 100}, 100))
+                result = await self.start(configuration=ExperimentConfiguration(60, {"node": 100}, 100, participating_devices={"node": ["camera"]}))
             self.assertIn(destination, visited)
             self.assertEqual(result.succeeded, free == 10000, result.error)
             if result.succeeded:
@@ -655,7 +655,7 @@ class ExperimentPreflightWorkflows(unittest.IsolatedAsyncioTestCase):
 
     async def test_idle_experiment_expires_without_camera_reads(self):
         f = self.fixture
-        result = await self.start(configuration=ExperimentConfiguration(0.02, {"node": 0}, 1000), outputs=())
+        result = await self.start(configuration=ExperimentConfiguration(0.02, {"node": 0}, 1000, participating_devices={"node": ["camera"]}), outputs=())
         self.assertTrue(result.succeeded, result.error)
         await asyncio.wait_for(asyncio.shield(f.handler._acquisition_task), 2)
         self.assertEqual(f.camera.capture.read_count, 0)

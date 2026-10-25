@@ -197,6 +197,7 @@ class ExperimentConfiguration:
     recording_budgets: dict[str, int] | None = None
     preservation_budget_bytes: int | None = None
     device_configurations: dict[str, dict[str, dict[str, Any]]] | None = None
+    participating_devices: dict[str, list[str]] | None = None
 
     def __post_init__(self) -> None:
         if type(self.duration_s) not in (int, float) or not isfinite(self.duration_s) or self.duration_s <= 0:
@@ -217,11 +218,20 @@ class ExperimentConfiguration:
             raise ValueError("Operating overrides must identify nodes, devices and parameter dictionaries")
         object.__setattr__(self, "recording_budgets", deepcopy(budgets))
         object.__setattr__(self, "device_configurations", deepcopy(overrides))
+        devices = self.participating_devices
+        if devices is not None and (not isinstance(devices, dict) or any(
+                not isinstance(node, str) or not node or not isinstance(ids, (list, tuple)) or not ids
+                or any(not isinstance(identity, str) or not identity for identity in ids)
+                or len(set(ids)) != len(ids) for node, ids in devices.items())):
+            raise ValueError("Experiment participation must identify nodes and distinct nonempty device lists")
+        object.__setattr__(self, "participating_devices",
+                           {node: list(ids) for node, ids in devices.items()} if devices is not None else None)
 
     def to_dict(self) -> dict[str, Any]:
         return deepcopy({"duration_s": self.duration_s, "recording_budgets": self.recording_budgets,
                          "preservation_budget_bytes": self.preservation_budget_bytes,
-                         "device_configurations": self.device_configurations})
+                         "device_configurations": self.device_configurations,
+                         "participating_devices": self.participating_devices})
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ExperimentConfiguration:
@@ -405,7 +415,7 @@ class Session:
     def experiment_descriptors(self) -> tuple[ExperimentDescriptor, ...]:
         """Experiment descriptors in first-start order."""
 
-        return tuple(self._experiment_descriptors)
+        return deepcopy(tuple(self._experiment_descriptors))
 
     def ensure_experiment_descriptor(
         self,
@@ -425,7 +435,7 @@ class Session:
                     raise ValueError("Experiment configuration conflicts with existing descriptor")
                 if outputs and outputs != descriptor.scientific_outputs:
                     raise ValueError("Scientific outputs conflict with existing Experiment descriptor")
-                return descriptor
+                return deepcopy(descriptor)
 
         descriptor = ExperimentDescriptor(
             experiment_id=experiment_id,
@@ -434,8 +444,8 @@ class Session:
             scientific_outputs=outputs,
             configuration=configuration,
         )
-        self._experiment_descriptors.append(descriptor)
-        return descriptor
+        self._experiment_descriptors.append(deepcopy(descriptor))
+        return deepcopy(descriptor)
 
     def record_experiment_lifecycle(
         self,

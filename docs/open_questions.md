@@ -203,12 +203,23 @@ Session. Node reservations and Experiment participation remain distinct.
 
 Required-device readiness is checked before each Experiment. An unavailable
 device blocks dependent Experiments, not unrelated ones, without necessarily
-terminating the Session or bypassing existing health/safety consequences. Current
-startup checks all Session-selected adapters and prepares all reserved nodes:
-this participation/readiness-scope mismatch is an implementation gap.
+terminating the Session or bypassing existing health/safety consequences. Decision
+427 Slice 1 implements explicit participation through preparation, activation,
+collection, expiry and finalization, correcting the all-adapter/all-node mismatch.
+Independent validation and audit remain pending; this does not close Q008.
+
+Decision 428 resolves the zero-device admission boundary: an Experiment acquires
+scientific data using at least one participating data-acquisition device.
+Hardware-free protocol steps remain permitted as Analysis, Validation or operator
+interaction, not zero-device Experiments. Analysis processes existing scientific
+data; Validation and operator interaction remain distinct operations under their
+existing contracts. Zero recorded outputs as an execution outcome do not mean
+zero configured participants. Existing autonomous AcquisitionNode deadline
+ownership is unchanged; participation/admission enforcement remains pending.
 
 Supported recorded inputs may come from the current Session, another Session or
-another project, including for Experiments instead of new acquisition. Scientific
+another project. Processing existing data alone is Analysis, not an Experiment,
+under Decision 428's qualification of Decision 427. Scientific
 suitability belongs to the experimenter, not GUI. Existing access, identity,
 provenance and historical integrity remain; there is no universal input validator.
 The general recorded-input execution contract remains missing and is not invented

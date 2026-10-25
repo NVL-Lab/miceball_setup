@@ -82,7 +82,7 @@ class ProducerPublicationCompletionTests(unittest.IsolatedAsyncioTestCase):
                 result = await f.communication.request_command(RuntimeParticipant("acquisition_node", node_id),
                     "prepare_experiment_scientific_outputs", sid,
                     {"experiment_id": "experiment",
-                     "configuration": ExperimentConfiguration(60, {node_id: 1000000}, 1000000).to_dict(),
+                     "configuration": ExperimentConfiguration(60, {node_id: 1000000}, 1000000, participating_devices={node_id: [declarations[0].device_id]}).to_dict(),
                      "scientific_outputs": [
                         ScientificOutputSelection(declarations[0].device_id, node_id, "events").to_dict()]}, 1)
                 self.assertTrue(result.success, result.reason)

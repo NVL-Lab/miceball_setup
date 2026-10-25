@@ -323,7 +323,7 @@ class ArtifactRetrievalTests(unittest.TestCase):
                            side_effect=configured_storage):
                     preparation, controller, node = fixture.workflow(root)
                 self.assertTrue(controller.start_experiment(
-                    "experiment", scientific_outputs=(preparation.output("events"),), configuration=ExperimentConfiguration(60, {"node-001": 1000000}, 1000000)).succeeded)
+                    "experiment", scientific_outputs=(preparation.output("events"),), configuration=ExperimentConfiguration(60, {"node-001": 1000000}, 1000000, participating_devices={"node-001": ["camera-001"]})).succeeded)
                 self.assertTrue(controller.stop_experiment("experiment").succeeded)
                 self.assertTrue(controller.stop_session().succeeded)
                 paths = preparation.storage.write_evidence_archive(

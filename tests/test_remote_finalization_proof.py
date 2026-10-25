@@ -145,7 +145,7 @@ class RemoteFinalizationProofTests(unittest.IsolatedAsyncioTestCase):
     async def test_owner_confirms_experiment_with_no_selected_scientific_products(self):
         self.assertTrue((await self.controller.stop_launched_experiment("experiment")).succeeded)
         result = await self.controller.start_launched_experiment("empty",
-            configuration=ExperimentConfiguration(60, {"node": 1000000}, 1000000),
+            configuration=ExperimentConfiguration(60, {"node": 1000000}, 1000000, participating_devices={"node": ["device"]}),
             storage_participant=RuntimeParticipant("storage_manager", "storage"))
         self.assertTrue(result.succeeded, result.error)
         decision = self.controller.process_health_interpretation(replace(interpretation("empty-failure"),

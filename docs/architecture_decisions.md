@@ -11579,6 +11579,10 @@ claimed. G3 remains CLOSED; Q022, Q024, M015 and Phase 16 remain OPEN.
 
 **Status:** Accepted
 
+**Subsequent clarification:** Decision 428 requires at least one participating
+data-acquisition device per Experiment. Autonomous deadline ownership remains
+with participating AcquisitionNodes; no zero-device deadline mechanism is added.
+
 Every Experiment has a duration configured before start; it governs both expiry
 and the storage-estimation horizon under Decision 394. Runtime duration extension
 remains deferred. Duration is measured from one common Experiment start time, not
@@ -12953,6 +12957,12 @@ details.
 
 **Status:** Accepted
 
+**Subsequently qualified by Decision 428:** Hardware-free protocol steps remain
+permitted, but zero-device Experiments are inadmissible. The recorded-input wording
+below does not authorize an Experiment that only processes existing data instead
+of acquiring scientific data; that operation is Analysis. Experiment-specific
+participation/readiness and all other accepted boundaries remain authoritative.
+
 This records the already accepted HLC/LLC protocol reconciliation conveyed in the
 Protocol Architecture Reconciliation and Documentation Synchronization handoff.
 It clarifies Decisions 031, 281-286, 291, 370, 394-395, 399-411 and 424-426.
@@ -13057,9 +13067,53 @@ implementation is performed or authorized by this synchronization.
 
 ---
 
+## Decision 428: Experiments require at least one participating data-acquisition device
+
+**Status:** Accepted
+
+This records the explicitly user-accepted zero-device Experiment clarification
+following the Decision 427 Slice 1 pre-implementation review. It qualifies
+Decision 427's hardware-free-step and recorded-input interpretation while
+preserving Decision 395's existing autonomous AcquisitionNode deadline ownership.
+Historical decisions and validation evidence remain intact.
+
+An Experiment acquires scientific data using at least one participating
+data-acquisition device. An Experiment configured with zero participating devices
+is not admissible. An execution outcome with zero recorded outputs is different
+from configuring an Experiment with zero participating devices; it does not
+remove this admission requirement or discard existing zero-record evidence.
+
+Analysis processes existing scientific data. Validation is a scientific validation
+operation distinct from an Experiment. Operator interaction is an experimenter
+action or decision distinct from an Experiment. Protocols may contain all these
+step types; hardware-free protocol steps remain permitted but are not represented
+as zero-device Experiments. Their existing accepted ownership, execution and
+preservation contracts are unchanged. In particular, Decision 427's permission
+to select recorded inputs does not authorize representing processing existing
+data alone as an Experiment.
+
+Preserve fixed Session device identities, node-level reservations and
+Experiment-specific participation/readiness under Decision 427. Participation
+remains independent of selected recorded outputs; outputless participating
+devices do not replace the requirement for a participating data-acquisition
+device. Decision 395's participating AcquisitionNodes retain autonomous deadline
+enforcement and Controller retains canonical lifecycle ownership. No synthetic
+participants, unrelated device requirements, new deadline owners or Controller
+lifecycle mechanisms are introduced.
+
+This resolves the zero-device admission question only. Enforcement remains
+pending separately authorized implementation, validation and audit; no question
+or milestone is closed by this documentation synchronization.
+
+---
+
 # Accepted Architectural Principles
 
 The following principles summarize the accepted decisions so far.
+
+Decision 428 qualifies the protocol summary below: every Experiment requires at
+least one participating data-acquisition device; hardware-free protocol steps
+use the appropriate non-Experiment operation rather than a zero-device Experiment.
 
 Decision 427 governs current protocol authoring, name-only association and template
 defaults, exact capability matching, fixed selected device identities, scoped

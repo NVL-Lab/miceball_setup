@@ -78,7 +78,8 @@ class LocalCloseoutOwnershipTests(unittest.IsolatedAsyncioTestCase):
     async def start_experiment(self, identity="experiment"):
         return await self.controller.start_launched_experiment(identity,
             scientific_outputs=(ScientificOutputSelection(self.declaration.device_id, "node-a", "events"),),
-            configuration=ExperimentConfiguration(60, {"node-a": 1000000}, 1000000),
+            configuration=ExperimentConfiguration(60, {"node-a": 1000000}, 1000000,
+                participating_devices={"node-a": [self.declaration.device_id]}),
             storage_participant=RuntimeParticipant("storage_manager", "storage"))
 
     def fatal(self, identity="fatal", experiment_id=None):
@@ -469,7 +470,8 @@ class NormalStopAdmissionTests(unittest.IsolatedAsyncioTestCase):
                  patch.object(self.node, "activate_experiment_runtime", wraps=self.node.activate_experiment_runtime) as activate:
                 result = await self.controller.start_launched_experiment("competing",
                     scientific_outputs=(ScientificOutputSelection("device", "node", "events"),),
-                    configuration=ExperimentConfiguration(60, {"node": 1000000}, 1000000),
+                    configuration=ExperimentConfiguration(60, {"node": 1000000}, 1000000,
+                        participating_devices={"node": ["device"]}),
                     storage_participant=self.workflow.storage_participant)
             self.assertFalse(result.succeeded)
             prepare.assert_not_called()
@@ -724,7 +726,8 @@ class ExperimentCloseoutAdmissionTests(unittest.IsolatedAsyncioTestCase):
     async def start(self, case):
         outputs = case.controller._session.experiment_descriptors[0].scientific_outputs
         return await case.controller.start_launched_experiment("next", scientific_outputs=outputs,
-            configuration=ExperimentConfiguration(60, {case.node.node_id: 1000000}, 1000000),
+            configuration=ExperimentConfiguration(60, {case.node.node_id: 1000000}, 1000000,
+                participating_devices={o.source_node_id: [o.source_device_id] for o in outputs}),
             storage_participant=RuntimeParticipant("storage_manager", "storage"))
 
     async def reject_closeout(self, case, *, kill=False):

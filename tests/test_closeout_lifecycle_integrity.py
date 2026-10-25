@@ -221,7 +221,7 @@ class CloseoutLifecycleIntegrityTests(unittest.IsolatedAsyncioTestCase):
                     return ack
 
                 output = ScientificOutputSelection("device", "node", "events")
-                configuration = ExperimentConfiguration(60, {"node": 1000000}, 1000000)
+                configuration = ExperimentConfiguration(60, {"node": 1000000}, 1000000, participating_devices={"node": ["device"]})
                 with patch.object(f.broker, "publish", side_effect=wire), patch.object(
                         f.node, "stop_runtime", wraps=f.node.stop_runtime) as stopped:
                     starting = asyncio.create_task(f.controller.start_launched_experiment("next",
@@ -267,7 +267,7 @@ class CloseoutLifecycleIntegrityTests(unittest.IsolatedAsyncioTestCase):
                 await asyncio.wait_for(entered.wait(), 2)
                 before = len(f.broker.commands)
                 rejected = await f.controller.start_launched_experiment("rejected",
-                    configuration=ExperimentConfiguration(60, {"node": 1000000}, 1000000),
+                    configuration=ExperimentConfiguration(60, {"node": 1000000}, 1000000, participating_devices={"node": ["device"]}),
                     storage_participant=workflow.storage_participant)
                 self.assertFalse(rejected.succeeded)
                 self.assertEqual(len(f.broker.commands), before)
@@ -295,7 +295,7 @@ class CloseoutLifecycleIntegrityTests(unittest.IsolatedAsyncioTestCase):
         with ThreadPoolExecutor(max_workers=2) as workers, patch.object(local, "create_stream", side_effect=pause):
             preparing = workers.submit(f.node.prepare_experiment_scientific_outputs, "owner-preparation",
                 (ScientificOutputSelection("device", "node", "events"),),
-                configuration=ExperimentConfiguration(60, {"node": 1000000}, 1000000))
+                configuration=ExperimentConfiguration(60, {"node": 1000000}, 1000000, participating_devices={"node": ["device"]}))
             try:
                 self.assertTrue(entered.wait(2))
                 closing = workers.submit(stop)

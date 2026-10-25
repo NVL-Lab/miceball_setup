@@ -102,10 +102,33 @@ the selected protocol name belongs to fixed accepted Session configuration, not
 a required complete ordered `protocol_plan` snapshot. Current fields accept
 generic protocol values; no protocol resolver, version manager or editor is
 implemented by that fact. Existing Session/Experiment configuration and evidence
-preserve actual work. The reconciliation also records two implementation gaps:
-Experiment startup prepares all reserved nodes/checks all Session adapters rather
-than only required participants, and no general recorded-input execution contract
-exists. These remain separately authorized work, not new lifecycle/NATS APIs here.
+preserve actual work. The reconciliation identified participation/readiness and
+recorded-input execution gaps. The participation correction below is implemented
+pending independent validation/audit; the general recorded-input execution contract
+remains outside this slice.
+
+## Decision 427 Slice 1: Experiment Participation (Implementation; Validation Pending)
+
+- ExperimentConfiguration(duration_s, recording_budgets=None, preservation_budget_bytes=None, device_configurations=None, participating_devices=None): Carries explicit node-to-device-list participation independently of recordings; missing or empty participation cannot start an Experiment.
+- Session.experiment_descriptors / ensure_experiment_descriptor(...): Return detached descriptors and retain detached accepted configurations so later caller mutation cannot change execution ownership or history.
+- Controller.start_launched_experiment(...): Validates participating devices against fixed Session selections and reserved nodes, requires a declared scientific-product source, and scopes synchronization, capacity, preparation and activation without changing Session reservations.
+- Controller.start_experiment(...): Applies explicit fixed-selection participation admission to the surviving local smoke-test composition; deployed Sessions still require NATS.
+- Controller._experiment_nodes(session, experiment_id): Resolves finalization and expiry owners from the accepted Experiment configuration rather than all Session reservations.
+- AcquisitionNode._experiment_adapters(configuration): Resolves only participating adapters within the node's accepted Session selection.
+- AcquisitionNode._experiment_device_parameters(configuration): Reuses the fixed Session baseline while resolving overrides only for participating adapters.
+- AcquisitionNode.activate_experiment_runtime(context, health_mapping): Rechecks participating adapter readiness/running state at activation while preserving autonomous deadline ownership.
+- DeviceManager.check_readiness(*, device_ids=None): Reports readiness for an explicit subset, or all owned adapters for existing Session-level callers.
+- DeviceManager.collect_products(..., device_ids=None): Collects only explicitly participating adapters, including outputless participants, while preserving selected-product validation and partial-result reporting.
+- tests.test_experiment_participation: Exercises NATS-driven subsets, required/nonrequired failures, outputless participants, empty/control-only rejection, expiry, cancellation, fixed reservations and detached accepted configuration using real owners and disk-backed artifacts.
+
+The external Experiment-start operation already decodes/forwards the complete
+ExperimentConfiguration; no new NATS operation, owner, cache, timer or reservation
+mechanism is added. Installed scientific-product declarations establish the
+data-acquisition source without inferring device types or requiring selected
+recorded outputs. Session-level Stop/Kill still clean all reserved resources.
+The manual OpenCV smoke script and existing test callers now supply explicit
+participation. Constructor and public lifecycle method signatures otherwise
+remain unchanged. Decisions 427/428 and Q008 are not closed here.
 
 ## G2 Experiment Capacity And Autonomous Expiry (Closed; Software Scope)
 

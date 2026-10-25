@@ -20,7 +20,7 @@ class LocalDecisionAccountingTests(unittest.TestCase):
             fixture = local_fixtures.ControllerActionDecisionTests()
             controller, node, _, _ = fixture._running_controller(Path(directory))
             self.assertTrue(controller.start_experiment("experiment-001",
-                configuration=ExperimentConfiguration(60, {}, 1000000)).succeeded)
+                configuration=ExperimentConfiguration(60, {}, 1000000, participating_devices={"node": ["source-001"]})).succeeded)
             decisions = [controller.process_health_interpretation(
                 fixture._evidence(i, "session_failure")) for i in (1, 2)]
             for decision in decisions:

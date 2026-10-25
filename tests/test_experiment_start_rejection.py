@@ -39,7 +39,7 @@ class ExperimentStartRejectionTests(unittest.TestCase):
     def test_required_preparation_success_records_one_canonical_start(self):
         with tempfile.TemporaryDirectory() as root:
             fixture, controller, node = self.workflow(root)
-            result = controller.start_experiment("experiment", scientific_outputs=(fixture.output(),), configuration=ExperimentConfiguration(60, {"node-001": 1000000}, 1000000))
+            result = controller.start_experiment("experiment", scientific_outputs=(fixture.output(),), configuration=ExperimentConfiguration(60, {"node-001": 1000000}, 1000000, participating_devices={"node-001": ["camera-001"]}))
             self.assertTrue(result.succeeded, result.error)
             paths = self.archive(controller, node)
             record = json.loads(Path(paths["session_record_path"]).read_text())
@@ -50,7 +50,7 @@ class ExperimentStartRejectionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             fixture, controller, node = self.workflow(root)
             with patch.object(node.local_storage_manager, "create_stream", side_effect=OSError("disk unavailable")):
-                result = controller.start_experiment("experiment", scientific_outputs=(fixture.output(),), configuration=ExperimentConfiguration(60, {"node-001": 1000000}, 1000000))
+                result = controller.start_experiment("experiment", scientific_outputs=(fixture.output(),), configuration=ExperimentConfiguration(60, {"node-001": 1000000}, 1000000, participating_devices={"node-001": ["camera-001"]}))
             self.assertFalse(result.succeeded)
             message = RuntimeEvidenceMessage.from_dict(result.details["rejection_evidence"])
             self.assertTrue(message.is_persistent)
@@ -73,7 +73,7 @@ class ExperimentStartRejectionTests(unittest.TestCase):
             checks = (ServiceReadiness("optional", "preparation", False, False, "unavailable"),
                       ServiceReadiness("required", "preparation", True, True, "ready"))
             result = controller.start_experiment("experiment", scientific_outputs=(fixture.output(),),
-                                                 preparation_readiness=checks, configuration=ExperimentConfiguration(60, {"node-001": 1000000}, 1000000))
+                                                 preparation_readiness=checks, configuration=ExperimentConfiguration(60, {"node-001": 1000000}, 1000000, participating_devices={"node-001": ["camera-001"]}))
             self.assertTrue(result.succeeded, result.error)
             paths = self.archive(controller, node)
             record = json.loads(Path(paths["session_record_path"]).read_text())
@@ -83,7 +83,7 @@ class ExperimentStartRejectionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             _, controller, node = self.workflow(root)
             result = controller.start_experiment("experiment", preparation_readiness=(
-                ServiceReadiness("required", "preparation", True, False, "device unavailable"),), configuration=ExperimentConfiguration(60, {"node-001": 1000000}, 1000000))
+                ServiceReadiness("required", "preparation", True, False, "device unavailable"),), configuration=ExperimentConfiguration(60, {"node-001": 1000000}, 1000000, participating_devices={"node-001": ["camera-001"]}))
             self.assertFalse(result.succeeded)
             self.assertIsNone(node.status()["active_experiment_runtime_context"])
             self.assertIn("device unavailable", json.dumps(result.details))
@@ -100,7 +100,7 @@ class ExperimentStartRejectionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             _, controller, node = self.workflow(root)
             outcome = self.remote_outcome()
-            result = controller.start_experiment("experiment", preparation_outcomes=(outcome,), configuration=ExperimentConfiguration(60, {"node-001": 1000000}, 1000000))
+            result = controller.start_experiment("experiment", preparation_outcomes=(outcome,), configuration=ExperimentConfiguration(60, {"node-001": 1000000}, 1000000, participating_devices={"node-001": ["camera-001"]}))
             self.assertFalse(result.succeeded)
             recorded = result.details["rejection_evidence"]["payload"]["command_outcomes"][0]
             self.assertEqual(recorded["outcome"], "unresolved")
@@ -119,7 +119,7 @@ class ExperimentStartRejectionTests(unittest.TestCase):
                 response = RuntimeCommandResultMessage("result", "prepare-1", "session-001", "remote-node",
                     "controller", status, True, None, {"experiment_id": experiment,
                     "preparation": ServiceReadiness("remote-node", "scientific_output_preparation", True, True, "ready").to_dict()})
-                result = controller.start_experiment("experiment", preparation_outcomes=(self.remote_outcome((response,)),), configuration=ExperimentConfiguration(60, {"node-001": 1000000}, 1000000))
+                result = controller.start_experiment("experiment", preparation_outcomes=(self.remote_outcome((response,)),), configuration=ExperimentConfiguration(60, {"node-001": 1000000}, 1000000, participating_devices={"node-001": ["camera-001"]}))
                 self.assertEqual(result.succeeded, expected, result.error)
                 self.archive(controller, node)
 
@@ -130,7 +130,7 @@ class ExperimentStartRejectionTests(unittest.TestCase):
             receiver = NatsAcquisitionNodeCommunication(NatsCommunicationBoundary("acquisition_node", "node-001"), node)
             command = RuntimeCommandMessage("prepare-1", "session-001", "prepare_experiment_scientific_outputs",
                 "controller", "node-001", {"experiment_id": "experiment",
-                "configuration": ExperimentConfiguration(60, {"node-001": 1000000}, 1000000).to_dict(),
+                "configuration": ExperimentConfiguration(60, {"node-001": 1000000}, 1000000, participating_devices={"node-001": ["camera-001"]}).to_dict(),
                 "scientific_outputs": [fixture.output().to_dict()]})
             result = receiver.execute_command(command)
             self.assertTrue(result.success, result.reason)
@@ -142,7 +142,7 @@ class ExperimentStartRejectionTests(unittest.TestCase):
             failed = receiver.execute_command(RuntimeCommandMessage("prepare-2", "session-001",
                 "prepare_experiment_scientific_outputs", "controller", "node-001",
                 {"experiment_id": "other",
-                 "configuration": ExperimentConfiguration(60, {"node-001": 1000000}, 1000000).to_dict(),
+                 "configuration": ExperimentConfiguration(60, {"node-001": 1000000}, 1000000, participating_devices={"node-001": ["camera-001"]}).to_dict(),
                  "scientific_outputs": [fixture.output("unknown").to_dict()]}))
             self.assertFalse(failed.success)
             self.assertFalse(failed.payload["preparation"]["ready"])
@@ -153,11 +153,11 @@ class ExperimentStartRejectionTests(unittest.TestCase):
     def test_metadata_only_overlap_and_terminal_identity_rules_remain_intact(self):
         with tempfile.TemporaryDirectory() as root:
             _, controller, node = self.workflow(root)
-            self.assertTrue(controller.start_experiment("first", configuration=ExperimentConfiguration(60, {"node-001": 1000000}, 1000000)).succeeded)
-            self.assertFalse(controller.start_experiment("overlap", configuration=ExperimentConfiguration(60, {"node-001": 1000000}, 1000000)).succeeded)
+            self.assertTrue(controller.start_experiment("first", configuration=ExperimentConfiguration(60, {"node-001": 1000000}, 1000000, participating_devices={"node-001": ["camera-001"]})).succeeded)
+            self.assertFalse(controller.start_experiment("overlap", configuration=ExperimentConfiguration(60, {"node-001": 1000000}, 1000000, participating_devices={"node-001": ["camera-001"]})).succeeded)
             self.assertTrue(controller.stop_experiment("first").succeeded)
-            self.assertFalse(controller.start_experiment("first", configuration=ExperimentConfiguration(60, {"node-001": 1000000}, 1000000)).succeeded)
-            self.assertTrue(controller.start_experiment("second", configuration=ExperimentConfiguration(60, {"node-001": 1000000}, 1000000)).succeeded)
+            self.assertFalse(controller.start_experiment("first", configuration=ExperimentConfiguration(60, {"node-001": 1000000}, 1000000, participating_devices={"node-001": ["camera-001"]})).succeeded)
+            self.assertTrue(controller.start_experiment("second", configuration=ExperimentConfiguration(60, {"node-001": 1000000}, 1000000, participating_devices={"node-001": ["camera-001"]})).succeeded)
             self.archive(controller, node)
 
     def test_rejection_message_uses_existing_jetstream_evidence_intake(self):
@@ -195,7 +195,7 @@ class ExperimentStartRejectionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             _, controller, node = self.workflow(root)
             result = controller.start_experiment("experiment", preparation_readiness=(
-                ServiceReadiness("required", "preparation", True, False, "not ready"),), configuration=ExperimentConfiguration(60, {"node-001": 1000000}, 1000000))
+                ServiceReadiness("required", "preparation", True, False, "not ready"),), configuration=ExperimentConfiguration(60, {"node-001": 1000000}, 1000000, participating_devices={"node-001": ["camera-001"]}))
             asyncio.run(transfer(RuntimeEvidenceMessage.from_dict(result.details["rejection_evidence"])))
             self.archive(controller, node)
 

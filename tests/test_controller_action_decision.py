@@ -13,6 +13,7 @@ from lab_sync_acquisition import (
     InMemoryIngestor,
     PersistentStorageManager,
     SessionConfig,
+    ScientificProductDeclaration,
     SynchronizationManager,
 )
 from tests.fakes import ReadyFakeAdapter
@@ -32,7 +33,7 @@ class ControllerActionDecisionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             controller, node, _, _ = self._running_controller(Path(directory))
             self.assertTrue(controller.start_experiment("experiment-001",
-                configuration=ExperimentConfiguration(60, {}, 1000000)).succeeded)
+                configuration=ExperimentConfiguration(60, {}, 1000000, participating_devices={"node": ["source-001"]})).succeeded)
             before = controller.get_status()
 
             for index, (interpretation, expected_decision) in enumerate(
@@ -140,7 +141,7 @@ class ControllerActionDecisionTests(unittest.TestCase):
             root = Path(directory)
             controller, node, storage, manager = self._running_controller(root)
             started = controller.start_experiment("experiment-001",
-                configuration=ExperimentConfiguration(60, {}, 1000000))
+                configuration=ExperimentConfiguration(60, {}, 1000000, participating_devices={"node": ["source-001"]}))
             self.assertTrue(started.succeeded)
             decision = controller.process_health_interpretation(
                 self._evidence(1, "experiment_failure")
@@ -190,7 +191,7 @@ class ControllerActionDecisionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             controller, node, _, manager = self._running_controller(Path(directory))
             started = controller.start_experiment("experiment-001",
-                configuration=ExperimentConfiguration(60, {}, 1000000))
+                configuration=ExperimentConfiguration(60, {}, 1000000, participating_devices={"node": ["source-001"]}))
             self.assertTrue(started.succeeded, started.error)
             decision = controller.process_health_interpretation(
                 self._evidence(1, "session_failure")
@@ -209,7 +210,7 @@ class ControllerActionDecisionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             controller, _, _, _ = self._running_controller(Path(directory))
             controller.start_experiment("experiment-001",
-                configuration=ExperimentConfiguration(60, {}, 1000000))
+                configuration=ExperimentConfiguration(60, {}, 1000000, participating_devices={"node": ["source-001"]}))
 
             result = controller.stop_experiment("experiment-001")
 
@@ -264,6 +265,8 @@ class ControllerActionDecisionTests(unittest.TestCase):
         ingestor = InMemoryIngestor(storage_manager=storage, recovery_journal_root=root / "journals")
         ingestor.prepare_session("controller-action-session")
         synchronization = SynchronizationManager()
+        declarations = (DeviceDeclaration("source-001", "fake", True, True, ("stream",), (
+            ScientificProductDeclaration("events", "event", {"value": "int"}, "jsonl"),)),)
         node = AcquisitionNode(
             session_id="controller-action-session",
             device_manager=manager,
@@ -271,6 +274,7 @@ class ControllerActionDecisionTests(unittest.TestCase):
             ingestor=ingestor,
             default_local_storage_root=root / "local",
             node_id="node",
+            device_declarations=declarations,
             error_evidence_location=str(root / "errors"),
         )
         controller = Controller(
@@ -281,21 +285,12 @@ class ControllerActionDecisionTests(unittest.TestCase):
             synchronization_manager=synchronization,
         )
         manager.initialize_all(config={"mode": "phase-8b"})
-        node.prepare_local_storage("controller-action-session", (
-            DeviceDeclaration("source-001", "fake", True, True, ("stream",)),))
+        node.prepare_local_storage("controller-action-session", declarations)
         readiness = node.check_ready()
         created = controller.create_session(
             SessionConfig(
                 session_id="controller-action-session",
-                selected_devices=[
-                    DeviceDeclaration(
-                        device_id="source-001",
-                        device_type="fake",
-                        enabled=True,
-                        required=True,
-                        declared_capabilities=("stream",),
-                    )
-                ],
+                selected_devices=list(declarations),
                 storage_location=str(root / "accepted.jsonl"),
                 protocol_plan={"name": "phase-8b"},
                 error_evidence_location=str(root / "errors"),

@@ -77,11 +77,16 @@ class DeviceManager:
             for adapter in self._adapters
         )
 
-    def check_readiness(self) -> DeviceReadinessSummary:
+    def check_readiness(self, *, device_ids: Iterable[str] | None = None) -> DeviceReadinessSummary:
         """Collect readiness from each already-created adapter."""
 
+        ids = {a.device_id for a in self._adapters} if device_ids is None else set(device_ids)
+        if ids - {a.device_id for a in self._adapters}:
+            raise ValueError("Readiness references an unknown device")
         results = []
         for adapter in self._adapters:
+            if adapter.device_id not in ids:
+                continue
             try:
                 readiness = adapter.check_ready()
             except Exception as error:
@@ -130,13 +135,18 @@ class DeviceManager:
     def collect_products(
         self, products_by_device: Mapping[str, Iterable[ScientificProductDeclaration]], *,
         session_id: str, experiment_id: str | None,
-        acquisition_node_id: str,
+        acquisition_node_id: str, device_ids: Iterable[str] | None = None,
     ) -> tuple[DeviceCollectionResult, ...]:
         """Collect selected products once per device, retaining completed partial results."""
         if set(products_by_device) - {adapter.device_id for adapter in self._adapters}:
             raise ValueError("Selected product source has no adapter")
+        ids = {a.device_id for a in self._adapters} if device_ids is None else set(device_ids)
+        if ids - {a.device_id for a in self._adapters} or set(products_by_device) - ids:
+            raise ValueError("Product selection references a nonparticipating or unknown device")
         results = []
         for adapter in self._adapters:
+            if adapter.device_id not in ids:
+                continue
             products = tuple(products_by_device.get(adapter.device_id, ()))
             try:
                 collected = adapter.collect_products(products, session_id=session_id,

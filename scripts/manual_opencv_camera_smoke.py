@@ -273,6 +273,7 @@ def _run_scientific(args, adapter, manager, config) -> int:
             scientific_outputs=(ScientificOutputSelection(adapter.device_id, node.node_id, "frames"),),
             configuration=ExperimentConfiguration(
                 duration_s=args.duration,
+                participating_devices={node.node_id: [adapter.device_id]},
                 recording_budgets={node.node_id: args.recording_budget_bytes},
                 preservation_budget_bytes=args.preservation_budget_bytes)))
         origin = start.details["session_time_s"]

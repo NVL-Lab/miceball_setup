@@ -1553,18 +1553,31 @@ class Controller:
                     if outputs and outputs != descriptor.scientific_outputs:
                         raise ValueError("Scientific outputs conflict with the Experiment descriptor")
                     outputs = descriptor.scientific_outputs
-                nodes = {p.component_id: p for p in self._reserved_participants}
+                selected = configuration.participating_devices
+                if not selected:
+                    raise ValueError("An Experiment requires explicit participating data-acquisition devices")
+                reserved = {p.component_id: p for p in self._reserved_participants}
+                accepted_ids = {d.device_id for d in session.configuration.selected_devices}
+                if (set(selected) - set(reserved)
+                        or any(identity not in accepted_ids for ids in selected.values() for identity in ids)):
+                    raise ValueError("Experiment participation must use Session-selected devices on reserved nodes")
+                if not any(d.scientific_products and any(d.device_id in ids for ids in selected.values())
+                           for d in session.configuration.selected_devices):
+                    raise ValueError("An Experiment requires a participating device with declared scientific products")
+                nodes = {node: reserved[node] for node in selected}
                 health_by_node = {node_id: tuple(values) for node_id, values in (runtime_health_mapping or {}).items()}
                 if any(node_id not in nodes for node_id in health_by_node):
                     raise ValueError("Health context references an unreserved AcquisitionNode")
                 health = tuple(item for values in health_by_node.values() for item in values)
                 if any(not isinstance(item, ExperimentRuntimeHealthMapping) for item in health):
                     raise TypeError("Health context must use ExperimentRuntimeHealthMapping")
-                if any(output.source_node_id not in nodes for output in outputs):
-                    raise ValueError("Scientific output references an unreserved AcquisitionNode")
-                if (set(configuration.recording_budgets or {}) - set(nodes)
-                        or set(configuration.device_configurations or {}) - set(nodes)):
-                    raise ValueError("Experiment configuration references an unreserved AcquisitionNode")
+                if any(output.source_device_id not in selected.get(output.source_node_id, ()) for output in outputs):
+                    raise ValueError("Scientific output references a nonparticipating device")
+                if (set(configuration.recording_budgets or {}) - set(reserved)
+                        or set(configuration.device_configurations or {}) - set(nodes)
+                        or any(set(devices) - set(selected.get(node, ()))
+                               for node, devices in (configuration.device_configurations or {}).items())):
+                    raise ValueError("Experiment configuration references a nonparticipating device or unreserved node")
                 assessment = await self._request_launched_runtime(self._synchronization_participant(),
                     "assess_synchronization", {"node_ids": list(nodes)})
                 authorized_mappings = {q["acquisition_node_id"]: q.get("mapping")
@@ -1674,6 +1687,14 @@ class Controller:
             raise ValueError("Conflicting Experiment activation deadline")
         self._experiment_deadlines[key] = deepcopy(deadline)
 
+    def _experiment_nodes(self, session, experiment_id):
+        """Resolve execution owners from the accepted Experiment, not the Session reservation scope."""
+        descriptor = next((d for d in session.experiment_descriptors if d.experiment_id == experiment_id), None)
+        if descriptor is None or descriptor.configuration is None or not descriptor.configuration.participating_devices:
+            raise RuntimeError("Experiment participation is not established")
+        return tuple(p for p in self._reserved_participants
+                     if p.component_id in descriptor.configuration.participating_devices)
+
     @service_operation()
     def accept_experiment_expiry(self, message: RuntimeEvidenceMessage) -> bool:
         """Reconcile exact node expiry proof without transferring canonical lifecycle authority."""
@@ -1686,7 +1707,7 @@ class Controller:
         descriptor = next((d for d in session.experiment_descriptors if d.experiment_id == experiment_id), None)
         start = next((e for e in session.experiment_lifecycle_evidence
                       if e.experiment_id == experiment_id and e.event_type == "experiment_start"), None)
-        nodes = ({p.component_id for p in self._reserved_participants} if self._launch_communication is not None
+        nodes = ({p.component_id for p in self._experiment_nodes(session, experiment_id)} if self._launch_communication is not None
                  else {self._acquisition_node.node_id})
         deadline = self._experiment_deadlines.get((session.session_id, experiment_id, message.source_id))
         if (descriptor is None or descriptor.configuration is None or start is None or message.source_id not in nodes
@@ -1720,7 +1741,7 @@ class Controller:
         if (self._normal_stop_owns_cleanup(session) or session.current_state != SessionState.RUNNING
                 or self._active_experiment_id != experiment_id):
             return False
-        nodes = ({p.component_id for p in self._reserved_participants} if self._launch_communication is not None
+        nodes = ({p.component_id for p in self._experiment_nodes(session, experiment_id)} if self._launch_communication is not None
                  else {self._acquisition_node.node_id})
         proofs = [self._experiment_expiry_evidence.get((session.session_id, experiment_id, node)) for node in nodes]
         if not proofs or any(p is None for p in proofs):
@@ -1738,7 +1759,7 @@ class Controller:
         """Read current owner proof after missed publication; absent proof never ends an Experiment."""
         session = self._require_session(expected_session_id=expected_session_id)
         self._require_launched_workflow()
-        for participant in self._reserved_participants:
+        for participant in self._experiment_nodes(session, experiment_id):
             result = await self._request_launched_runtime(participant, "read_experiment_expiry",
                                                           {"experiment_id": experiment_id})
             if self._session is not session:
@@ -1785,7 +1806,7 @@ class Controller:
         if self._session is not session:
             raise RuntimeError("Session binding changed before Experiment finalization")
         failures = []
-        for participant in self._reserved_participants:
+        for participant in self._experiment_nodes(session, experiment_id):
             if self._session is not session:
                 raise RuntimeError("Session binding changed during Experiment finalization")
             try:
@@ -2345,6 +2366,14 @@ class Controller:
             if not isinstance(configuration, ExperimentConfiguration):
                 raise ValueError("An explicit ExperimentConfiguration is required")
             accepted_configuration = ExperimentConfiguration.from_dict(configuration.to_dict())
+            selected = accepted_configuration.participating_devices
+            if (not selected or set(selected) != {self._acquisition_node.node_id}
+                    or any(identity not in {d.device_id for d in session.configuration.selected_devices}
+                           for ids in selected.values() for identity in ids)):
+                raise ValueError("Experiment participation must explicitly use Session-selected local devices")
+            if not any(d.scientific_products and d.device_id in selected[self._acquisition_node.node_id]
+                       for d in session.configuration.selected_devices):
+                raise ValueError("An Experiment requires a participating device with declared scientific products")
             if session.current_state != SessionState.RUNNING:
                 raise RuntimeError("Experiment start requires a running Session")
             if self._active_experiment_id is not None:

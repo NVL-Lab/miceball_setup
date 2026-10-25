@@ -90,7 +90,7 @@ class KillSessionTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue((await f.controller.start_launched_session()).succeeded)
         self.assertTrue((await f.controller.start_launched_experiment("experiment", scientific_outputs=(
             ScientificOutputSelection(declaration.device_id, "node-a", "events"),),
-            configuration=ExperimentConfiguration(60, {"node-a": 1000000}, 1000000),
+            configuration=ExperimentConfiguration(60, {"node-a": 1000000}, 1000000, participating_devices={"node-a": [declaration.device_id]}),
             storage_participant=RuntimeParticipant("storage_manager", "storage"))).succeeded)
         result = await self.kill()
         self.assertTrue(result.succeeded, result.error)

@@ -87,7 +87,8 @@ class ManualOpenCVCameraSmokeTests(unittest.TestCase):
             self.assertTrue(capture.released)
         self.assertEqual(configurations, [{"duration_s": 1.0,
             "recording_budgets": {"camera-node": 1000000},
-            "preservation_budget_bytes": 1000000, "device_configurations": None}])
+            "preservation_budget_bytes": 1000000, "device_configurations": None,
+            "participating_devices": {"camera-node": ["manual-opencv-camera"]}}])
 
     def test_deadline_expiry_finalizes_once_without_a_second_experiment_stop(self):
         iterate = smoke.Controller.run_one_iteration

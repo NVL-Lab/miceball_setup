@@ -31,7 +31,7 @@ class ArtifactCollectionHandoffTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             fixture, controller, node = self.workflow(root)
             self.assertTrue(controller.start_experiment(
-                "first", scientific_outputs=(fixture.output("events"),), configuration=ExperimentConfiguration(60, {"node-001": 1000000}, 1000000)).succeeded)
+                "first", scientific_outputs=(fixture.output("events"),), configuration=ExperimentConfiguration(60, {"node-001": 1000000}, 1000000, participating_devices={"node-001": ["camera-001"]})).succeeded)
             initial = node.artifact_manifest_evidence[0]
             self.assertEqual(initial.payload, node.local_storage_manager.manifests[0].to_dict())
             self.assertEqual(initial.evidence_type, "artifact_manifest")
@@ -87,7 +87,7 @@ class ArtifactCollectionHandoffTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             fixture, controller, node = self.workflow(root)
             self.assertTrue(controller.start_experiment(
-                "first", scientific_outputs=(fixture.output("events"),), configuration=ExperimentConfiguration(60, {"node-001": 1000000}, 1000000)).succeeded)
+                "first", scientific_outputs=(fixture.output("events"),), configuration=ExperimentConfiguration(60, {"node-001": 1000000}, 1000000, participating_devices={"node-001": ["camera-001"]})).succeeded)
             ingestor = InMemoryIngestor()
             ingestor.receive_runtime_evidence(node.artifact_manifest_evidence[0])
             entry = ingestor.compile_artifact_collection_handoff("session-001")["artifacts"][0]

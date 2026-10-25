@@ -9,7 +9,7 @@ packaged top-level `gui/` project in this repository, outside the existing
 
 ## Accepted Functional Direction
 
-**Status:** User-accepted architecture in Decisions 396-405, 409-418 and 424-427.
+**Status:** User-accepted architecture in Decisions 396-405, 409-418 and 424-428.
 GUI/Analysis/Validation/visualization implementation is pending; Decision 424's
 bounded framework metadata implementation and independent audit are complete/PASS,
 with deployment validation and Q008 closure still pending.
@@ -99,9 +99,18 @@ satisfy requirements, respecting explicit distinct-device requirements. Sequenti
 steps may reuse devices; hardware-free steps need no capabilities. No GUI capability
 catalog, automatic device allocation or resource scheduler is introduced.
 
+Decision 428 requires each Experiment to acquire scientific data using at least
+one participating data-acquisition device. Hardware-free protocol steps remain
+permitted as non-Experiment operations: Analysis processes existing scientific
+data, Validation is a distinct scientific validation operation, and operator
+interaction is an experimenter action or decision. Their existing contracts
+remain unchanged. Zero recorded outputs as an execution outcome are not zero
+configured participants. No new deadline owner or Controller mechanism is added.
+
 When supported by the scientific application, operators may select recorded inputs
-from this Session, another Session or another project, including for Experiments
-instead of new acquisition. The experimenter, not GUI, judges scientific suitability.
+from this Session, another Session or another project. Processing those inputs
+alone is Analysis, not an Experiment; this qualifies Decision 427's earlier
+recorded-input wording. The experimenter, not GUI, judges scientific suitability.
 Preserve existing access, identity, provenance, readiness and historical integrity;
 no universal scientific-input validator or historical Session reopening is implied.
 The general recorded-input execution interface is missing, not defined here.
@@ -134,9 +143,10 @@ remain fixed throughout that Session. Manual or automatic replacement requires a
 new Session. Required-device readiness
 must be checked before each Experiment; an unavailable device blocks Experiments
 requiring it, not unrelated Experiments, and does not necessarily end the Session.
-Existing health/safety consequences remain authoritative. Current startup still
-prepares all reserved nodes and checks all Session adapters, a confirmed
-participation/readiness-scope implementation gap under Decision 427.
+Existing health/safety consequences remain authoritative. Decision 427 Slice 1
+now scopes Experiment preparation/readiness/activation to explicit participants
+and retains that scope through expiry/finalization; independent validation and
+audit remain pending. See the implementation interfaces in `code_map.md`.
 Apply Experiment overrides only to participants as appropriate; deselected devices
 remain in the Session's node reservation. Parameters groups actual supported
 settings by selected device, adds/hides controls as participation changes and

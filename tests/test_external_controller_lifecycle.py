@@ -162,7 +162,7 @@ class ExternalLifecycleTests(unittest.IsolatedAsyncioTestCase):
 
     async def experiment(self, identity="experiment", duration=0.2):
         request = self.request("start_launched_experiment", {"experiment_id": identity,
-            "configuration": ExperimentConfiguration(duration, {"node": 1000000}, 1000000).to_dict(),
+            "configuration": ExperimentConfiguration(duration, {"node": 1000000}, 1000000, participating_devices={"node": ["device"]}).to_dict(),
             "scientific_outputs": [ScientificOutputSelection("device", "node", "frames").to_dict()]})
         result = await self.terminal(request)
         self.assertEqual(result.status, "succeeded", result)
@@ -467,7 +467,7 @@ class ExternalLifecycleTests(unittest.IsolatedAsyncioTestCase):
         await self.experiment(duration=10)
         self.maintenance._closeout_started = True
         new = self.request("start_launched_experiment", {"experiment_id": "other",
-            "configuration": ExperimentConfiguration(10, {"node": 1000000}, 1000000).to_dict(), "scientific_outputs": []})
+            "configuration": ExperimentConfiguration(10, {"node": 1000000}, 1000000, participating_devices={"node": ["device"]}).to_dict(), "scientific_outputs": []})
         self.assertEqual((await self.terminal(new)).status, "rejected")
         self.assertEqual((await self.terminal(self.request("stop_launched_experiment", {"experiment_id": "experiment"}))).status, "succeeded")
         stopped = await self.terminal(self.request("normal_stop_session"))
@@ -526,7 +526,7 @@ class ExternalLifecycleTests(unittest.IsolatedAsyncioTestCase):
         old = self.sid
         if operation == "start_launched_experiment":
             parameters = {"experiment_id": "late", "scientific_outputs": [],
-                "configuration": ExperimentConfiguration(10, {"node": 1000000}, 1000000).to_dict()}
+                "configuration": ExperimentConfiguration(10, {"node": 1000000}, 1000000, participating_devices={"node": ["device"]}).to_dict()}
         else:
             parameters = {"experiment_id": "late"}
         request = self.request(operation, parameters)

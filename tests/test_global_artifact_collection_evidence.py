@@ -283,7 +283,7 @@ class GlobalArtifactCollectionEvidenceTests(unittest.IsolatedAsyncioTestCase):
             controller, node, _ = fixture.fixture(self.root)
         await NatsIngestorCommunication(self.boundary, ingestors[0]).subscribe_evidence("session-001")
         fixture.start_session(controller, node)
-        self.assertTrue(controller.start_experiment("experiment", scientific_outputs=(fixture.output(),), configuration=ExperimentConfiguration(60, {"node-001": 1000000}, 1000000)).succeeded)
+        self.assertTrue(controller.start_experiment("experiment", scientific_outputs=(fixture.output(),), configuration=ExperimentConfiguration(60, {"node-001": 1000000}, 1000000, participating_devices={"node-001": ["camera-001"]})).succeeded)
         self.assertTrue(controller.stop_experiment("experiment").succeeded)
         self.assertEqual(self.broker.messages, [])
         rejected = await controller.collect_session_artifacts_with_evidence()

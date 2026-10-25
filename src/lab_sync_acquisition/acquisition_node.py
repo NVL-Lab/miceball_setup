@@ -438,6 +438,10 @@ class AcquisitionNode:
                 raise ValueError("Conflicting Experiment configuration")
             if self._active_experiment_runtime_context is not None:
                 raise RuntimeError("Cannot prepare while an Experiment is active")
+            participating = {a.device_id for a in self._experiment_adapters(configuration)}
+            if any(output.source_node_id != self._node_id or output.source_device_id not in participating
+                   for output in outputs):
+                raise ValueError("Scientific output references a nonparticipating device")
             capacity = self.check_experiment_capacity(outputs, configuration)
             if capacity["ready"] is not True:
                 raise RuntimeError(str(capacity))
@@ -516,6 +520,16 @@ class AcquisitionNode:
         return ServiceReadiness(self._node_id or "acquisition_node", "scientific_output_preparation",
                                 True, True, "ready")
 
+    def _experiment_adapters(self, configuration):
+        """Resolve this node's participating adapters within its fixed Session selection."""
+        ids = (configuration.participating_devices or {}).get(self._node_id)
+        if not ids:
+            raise ValueError("An Experiment requires explicit participating data-acquisition devices")
+        adapters = self._runtime_device_manager.adapters
+        if set(ids) - {a.device_id for a in adapters}:
+            raise ValueError("Experiment participation references a device outside the Session selection")
+        return tuple(a for a in adapters if a.device_id in ids)
+
     def _experiment_device_parameters(self, configuration):
         if self._session_device_configurations is None:
             # Capture initialized local settings once, before any Experiment can
@@ -524,7 +538,7 @@ class AcquisitionNode:
                 a.device_id: deepcopy(a.initialization_config)
                 for a in self._runtime_device_manager.adapters}
         overrides = (configuration.device_configurations or {}).get(self._node_id, {})
-        adapters = self._runtime_device_manager.adapters
+        adapters = self._experiment_adapters(configuration)
         if set(overrides) - {a.device_id for a in adapters}:
             raise ValueError("Experiment configuration references an unavailable device")
         return tuple((a, a.resolve_session_configuration(self._session_device_configurations[a.device_id],
@@ -831,8 +845,10 @@ class AcquisitionNode:
             configuration = self._experiment_configurations.get(context.experiment_id)
             if configuration is None or context.duration_s != configuration.duration_s:
                 raise RuntimeError("Experiment deadline requires the exact prepared duration")
-            if (not self._running or not self._runtime_device_manager.check_readiness().all_ready
-                    or any(a.state != DeviceAdapterState.RUNNING for a in self._runtime_device_manager.adapters)):
+            adapters = self._experiment_adapters(configuration)
+            if (not self._running or not self._runtime_device_manager.check_readiness(
+                    device_ids=tuple(a.device_id for a in adapters)).all_ready
+                    or any(a.state != DeviceAdapterState.RUNNING for a in adapters)):
                 raise RuntimeError("Experiment activation requires ready, running devices")
             if self._active_experiment_runtime_context is not None:
                 if (self._active_experiment_runtime_context != context
@@ -992,7 +1008,9 @@ class AcquisitionNode:
         try:
             results = self._runtime_device_manager.collect_products(products_by_device,
                 session_id=self._session_id, experiment_id=context.experiment_id if context else None,
-                acquisition_node_id=self._node_id or "acquisition_node")
+                acquisition_node_id=self._node_id or "acquisition_node",
+                device_ids=tuple(a.device_id for a in self._experiment_adapters(
+                    self._experiment_configurations[context.experiment_id])) if context else ())
         except _PartialDeviceCollectionError as error:
             collection_error = error
             results = error.partial_results

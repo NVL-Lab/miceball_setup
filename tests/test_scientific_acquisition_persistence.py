@@ -88,7 +88,7 @@ class ScientificAcquisitionPersistenceTests(unittest.TestCase):
             outputs = tuple(ScientificOutputSelection("camera", "node", product.data_product_id)
                             for product in (products if select_all else products[:1])) if selected else ()
             self.assertTrue(controller.start_experiment("experiment", scientific_outputs=outputs,
-                configuration=ExperimentConfiguration(60, {"node": 1000000}, 1000000)).succeeded)
+                configuration=ExperimentConfiguration(60, {"node": 1000000}, 1000000, participating_devices={"node": ["camera"]})).succeeded)
             try:
                 yield controller, node, ingestor, capture
             finally:

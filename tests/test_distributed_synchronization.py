@@ -96,7 +96,7 @@ class DistributedSynchronizationTests(unittest.IsolatedAsyncioTestCase):
     async def experiment(self, name="experiment"):
         result = await self.controller.start_launched_experiment(name,
             scientific_outputs=(ScientificOutputSelection("device", "node", "events"),),
-            configuration=ExperimentConfiguration(60, {"node": 1000000}, 1000000),
+            configuration=ExperimentConfiguration(60, {"node": 1000000}, 1000000, participating_devices={"node": ["device"]}),
             storage_participant=RuntimeParticipant("storage_manager", "storage"))
         self.assertTrue(result.succeeded, result.error)
 
@@ -269,7 +269,7 @@ class DistributedSynchronizationTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(self.handler._boundary, "publish_command_result", side_effect=pause):
             task = asyncio.create_task(self.controller.start_launched_experiment("experiment",
                 scientific_outputs=(ScientificOutputSelection("device", "node", "events"),),
-                configuration=ExperimentConfiguration(60, {"node": 1000000}, 1000000),
+                configuration=ExperimentConfiguration(60, {"node": 1000000}, 1000000, participating_devices={"node": ["device"]}),
                 storage_participant=RuntimeParticipant("storage_manager", "storage")))
             await asyncio.wait_for(reached.wait(), 2)
             task.cancel()

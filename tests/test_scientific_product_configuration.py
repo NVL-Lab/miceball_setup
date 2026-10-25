@@ -139,7 +139,7 @@ class ScientificProductConfigurationTests(unittest.TestCase):
                 readiness["device_readiness"], readiness["service_readiness"]).succeeded)
             self.assertTrue(controller.start_session().succeeded)
             self.assertTrue(controller.start_experiment(
-                "experiment-001", scientific_outputs=(self.selection(),), configuration=ExperimentConfiguration(60, {"node-001": 1000000}, 1000000)).succeeded)
+                "experiment-001", scientific_outputs=(self.selection(),), configuration=ExperimentConfiguration(60, {"node-001": 1000000}, 1000000, participating_devices={"node-001": ["camera-001"]})).succeeded)
             self.assertTrue(controller.stop_experiment("experiment-001").succeeded)
             self.assertTrue(controller.stop_session().succeeded)
             storage.write_final_session_record(config.session_id, **controller._session_record_evidence())

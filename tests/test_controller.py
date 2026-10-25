@@ -334,23 +334,23 @@ class ControllerWorkflowTests(unittest.TestCase):
                     ),
                 ),
                 runtime_health_mapping=runtime_mapping,
-             configuration=ExperimentConfiguration(60, {"node-001": 1000000}, 1000000))
+             configuration=ExperimentConfiguration(60, {"node-001": 1000000}, 1000000, participating_devices={"node-001": ["declared-source-001"]}))
             active_status = controller.get_status()
             overlapping = controller.start_experiment(
                 "experiment-002",
                 runtime_health_mapping=replacement_mapping,
-             configuration=ExperimentConfiguration(60, {"node-001": 1000000}, 1000000))
+             configuration=ExperimentConfiguration(60, {"node-001": 1000000}, 1000000, participating_devices={"node-001": ["declared-source-001"]}))
             status_after_overlap = controller.get_status()
             mismatched_stop = controller.stop_experiment("experiment-002")
             node_status_after_mismatched_stop = node.status()
             stopped = controller.stop_experiment("experiment-001")
             status_after_stop = controller.get_status()
-            second_started = controller.start_experiment("experiment-002", configuration=ExperimentConfiguration(60, {"node-001": 1000000}, 1000000))
+            second_started = controller.start_experiment("experiment-002", configuration=ExperimentConfiguration(60, {"node-001": 1000000}, 1000000, participating_devices={"node-001": ["declared-source-001"]}))
             second_stopped = controller.stop_experiment("experiment-002")
             restarted = controller.start_experiment(
                 "experiment-001",
                 details={"protocol": "replacement"},
-             configuration=ExperimentConfiguration(60, {"node-001": 1000000}, 1000000))
+             configuration=ExperimentConfiguration(60, {"node-001": 1000000}, 1000000, participating_devices={"node-001": ["declared-source-001"]}))
             restopped = controller.stop_experiment("experiment-001")
 
             running_status = controller.get_status()
@@ -461,7 +461,7 @@ class ControllerWorkflowTests(unittest.TestCase):
                     {
                         "experiment_id": "experiment-001",
                         "details": {"protocol": "baseline"},
-                        "configuration": ExperimentConfiguration(60, {"node-001": 1000000}, 1000000).to_dict(),
+                        "configuration": ExperimentConfiguration(60, {"node-001": 1000000}, 1000000, participating_devices={"node-001": ["declared-source-001"]}).to_dict(),
                         "scientific_outputs": [],
                         "expected_participants": [
                             {
@@ -481,7 +481,7 @@ class ControllerWorkflowTests(unittest.TestCase):
                     {
                         "experiment_id": "experiment-002",
                         "details": None,
-                        "configuration": ExperimentConfiguration(60, {"node-001": 1000000}, 1000000).to_dict(),
+                        "configuration": ExperimentConfiguration(60, {"node-001": 1000000}, 1000000, participating_devices={"node-001": ["declared-source-001"]}).to_dict(),
                         "scientific_outputs": [],
                         "expected_participants": [],
                     },
