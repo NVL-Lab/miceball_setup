@@ -13,4 +13,4 @@ dependencies = []
 where = ["src"]
 
 [tool.setuptools.package-data]
-miceball_gui = ["static/*.html", "static/*.css", "static/*.js"]
+miceball_gui = ["static/*.html", "static/*.css", "static/*.js", "static/*.mjs"]

@@ -5,6 +5,7 @@ const sectionNames = {
   experiment: "Experiment",
   analysis: "Analysis",
   services: "Services",
+  "protocol-editor": "Protocol Editor",
 };
 
 const appShell = document.querySelector("#app-shell");
@@ -13,7 +14,6 @@ const pinButton = document.querySelector("#pin-button");
 const pinLabel = pinButton.querySelector(".pin-button__label");
 const sectionTitle = document.querySelector("#section-title");
 const navItems = [...document.querySelectorAll(".nav-item")];
-const panels = [...document.querySelectorAll(".section-panel")];
 const workspace = document.querySelector(".workspace");
 const alerts = document.querySelector("#alerts");
 const alertsTrigger = document.querySelector("#alerts-trigger");
@@ -202,14 +202,14 @@ function setAlertsPanelOpen(open, returnFocus = false) {
 function setSection(sectionId) {
   if (!sectionNames[sectionId]) return;
 
-  navItems.forEach((item) => {
+  document.querySelectorAll(".nav-item").forEach((item) => {
     const selected = item.dataset.section === sectionId;
     item.classList.toggle("is-selected", selected);
     if (selected) item.setAttribute("aria-current", "page");
     else item.removeAttribute("aria-current");
   });
 
-  panels.forEach((panel) => {
+  document.querySelectorAll(".section-panel").forEach((panel) => {
     const selected = panel.dataset.panel === sectionId;
     panel.hidden = !selected;
     panel.classList.toggle("is-active", selected);
@@ -348,6 +348,7 @@ catalogDialog.addEventListener("close", () => {
 });
 
 setTheme(document.documentElement.dataset.theme, false);
+document.addEventListener("gui-section", event => setSection(event.detail));
 setPinned(false);
 setSection("setup");
 renderNotifications();
