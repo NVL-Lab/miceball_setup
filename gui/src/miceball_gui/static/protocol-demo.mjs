@@ -19,6 +19,35 @@ export const devices = [
   { id: 'stage', name: 'Stage (ASI Tiger)', detail: 'S/N 987654', capabilities: ['positioning'], available: true },
 ];
 export const clone = value => JSON.parse(JSON.stringify(value));
+const freezeDefinition = value => Object.freeze({ ...value, required: Object.freeze([...value.required]), optional: Object.freeze([...value.optional]) });
+export function preparedSteps(state, owner) {
+  return state.definitions.filter(step => step.owner === null || step.owner === owner);
+}
+export function savedOccurrence(state, definitionId, id) {
+  const definition = state.definitions.find(step => step.id === definitionId);
+  if (!definition) throw new Error('Saved step not found.');
+  return { ...clone(definition), id, definitionId };
+}
+export function copyStepToEdit(state, step, otherSteps = []) {
+  const names = [...state.definitions, ...otherSteps].map(item => item.name.toLowerCase());
+  const base = `${step.name} - copy`;
+  let name = base, suffix = 2;
+  while (names.includes(name.toLowerCase())) name = `${base} ${suffix++}`;
+  const copy = clone(step);
+  delete copy.definitionId;
+  delete copy.owner;
+  return { ...copy, name };
+}
+export function saveReusableStep(state, step, owner) {
+  if (step.definitionId) throw new Error('Copy saved steps before editing.');
+  const name = step.name.trim();
+  if (!name || !operations.some(op => op.id === step.operation)) throw new Error('Provide a step name and scientific operation.');
+  if (state.definitions.some(item => item.name.toLowerCase() === name.toLowerCase())) throw new Error('A saved step with this name already exists. Choose a unique name.');
+  const id = `personal-step-${state.definitions.length}`;
+  const definition = freezeDefinition({ ...clone(step), id, name, owner });
+  state.definitions.push(definition);
+  return savedOccurrence(state, id, step.id);
+}
 export function moveStep(steps, stepId, targetId, after = false) {
   if (stepId === targetId) return;
   const from = steps.findIndex(step => step.id === stepId);
@@ -37,7 +66,10 @@ export function assignCapability(step, kind, capability, selected) {
 }
 export function createDemo() {
   const steps = operations.map((op, i) => ({ ...clone(op), id: `step-${i}`, operation: op.id, mandatory: op.id !== 'holo', configuration: '' }));
+  const definitions = steps.map(step => freezeDefinition({ ...clone(step), id: `shared-${step.operation}`, owner: null }));
+  steps.forEach(step => { step.definitionId = `shared-${step.operation}`; });
   return {
+    definitions,
     protocols: [
       { id: 'cabmi', name: 'CaBMI Closed-Loop Protocol', description: 'Initial imaging, ROI identification, baseline recording, neuron selection, cursor calibration, and closed-loop acquisition. Includes optional holographic stimulation.', protected: false, steps },
       { id: 'reference', name: 'Lab reference — imaging', description: 'Protected laboratory reference. Copy to make a personal protocol.', protected: true, steps: clone(steps.slice(0, 3)) },
@@ -69,12 +101,16 @@ export function coverage(state) {
   const required = [...new Set(steps.flatMap(s => s.required))];
   const optional = [...new Set(steps.flatMap(s => s.optional))].filter(c => !required.includes(c));
   const selected = devices.filter(d => state.selectedDevices.includes(d.id));
-  return { required: required.map(capability => ({ capability, providers: selected.filter(d => d.capabilities.includes(capability)) })), optional, unavailable: selected.filter(d => !d.available), skipped: protocol.steps.filter(s => !s.mandatory && !state.included.includes(s.id)).length };
+  const rows = capabilities => capabilities.map(capability => ({ capability, providers: selected.filter(d => d.capabilities.includes(capability)) }));
+  return { required: rows(required), optional: rows(optional), unavailable: selected.filter(d => !d.available), skipped: protocol.steps.filter(s => !s.mandatory && !state.included.includes(s.id)).length };
 }
 export function saveProtocol(state, draft) {
   const existing = state.protocols.find(p => p.id === draft.id);
   if (existing?.protected) throw new Error('Copy protected references before editing.');
-  if (existing) state.protocols[state.protocols.indexOf(existing)] = clone(draft);
-  else state.protocols.push(clone(draft));
+  const saved = clone(draft);
+  // References are authoritative; occurrence-local edits cannot mutate a saved definition.
+  saved.steps = saved.steps.map(step => step.definitionId ? savedOccurrence(state, step.definitionId, step.id) : step);
+  if (existing) state.protocols[state.protocols.indexOf(existing)] = saved;
+  else state.protocols.push(saved);
   selectProtocol(state, draft.id);
 }

@@ -1,4 +1,5 @@
 :root {
+  color-scheme: light;
   --navy-950: #07111f;
   --navy-900: #0b1a2d;
   --navy-800: #122743;
@@ -820,7 +821,11 @@ button {
   display: grid;
   grid-template-columns: minmax(0, 2fr) minmax(130px, 1fr) minmax(105px, .7fr);
   gap: 14px;
+  align-items: start;
 }
+
+.session-identity-grid > label { grid-template-rows: auto 36px auto; align-content: start; }
+.session-identity-grid input { height: 36px; }
 
 .template-grid {
   display: grid;
@@ -1048,6 +1053,7 @@ button {
 }
 
 .catalog-dialog {
+  background: var(--surface);
   width: min(520px, calc(100vw - 40px));
   max-height: calc(100vh - 48px);
   padding: 0;

@@ -2478,3 +2478,15 @@ automatic. Kill integration and overall closeout validation remain deferred.
 ## tests/test_launch_cleanup.py
 
 - LaunchCleanupTests: Exercises Decision 420 through real handlers and simulated NATS, covering scoped correlation, serialized admission, original-owner cleanup, invalid optional confirmations, SDK-backed Ingestor abort recovery and protected journal/evidence obligations.
+
+## gui/src/miceball_gui/static/protocol-demo.mjs
+
+- preparedSteps: Lists shared and current-experimenter saved demonstration definitions for the existing step selector.
+- savedOccurrence: Creates an independently identified occurrence referencing an immutable saved demonstration definition.
+- copyStepToEdit: Copies a step into an editable working occurrence with a suggested unique name.
+- saveReusableStep: Explicitly saves a globally uniquely named immutable personal demonstration definition without saving a protocol.
+
+## gui/src/miceball_gui/static/protocol-setup.js
+
+- renderPreparedSteps: Refreshes the existing Add step selector for the selected demonstration experimenter.
+- coverageRows: Renders the same selected-device coverage columns for required and optional capabilities.

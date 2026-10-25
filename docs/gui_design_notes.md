@@ -9,7 +9,7 @@ packaged top-level `gui/` project in this repository, outside the existing
 
 ## Accepted Functional Direction
 
-**Status:** User-accepted architecture in Decisions 396-405, 409-418 and 424-428.
+**Status:** User-accepted architecture in Decisions 396-405, 409-418 and 424-429.
 GUI/Analysis/Validation/visualization implementation is pending; Decision 424's
 bounded framework metadata implementation and independent audit are complete/PASS,
 with deployment validation and Q008 closure still pending.
@@ -86,11 +86,36 @@ immutable, externally readable and durably preserved under Decisions 291/424.
 Session/Experiment configuration and execution evidence preserve actual configured
 and performed work; later protocol edits cannot rewrite historical records.
 
+Decision 429 settles reusable scientific steps; this functionality remains
+unimplemented. Applications maintain saved definitions with name, description,
+configured scientific operation, required/optional status and applicable
+capabilities. Display names remain distinct from scientific operation identities.
+All saved definitions are immutable, including laboratory/application and personal
+definitions. Customize by copying and editing the copy, leaving the original
+unchanged. Blank steps and unsaved copies remain editable working steps.
+
+Explicit reusable saving requires a name unique across the application's entire
+saved-step collection, including different experimenters' definitions. Selection
+includes shared laboratory/application definitions and the current experimenter's
+saved personal definitions; personal steps are not automatically shared.
+Uniqueness does not make other experimenters' personal definitions selectable.
+
+One saved definition may occur repeatedly within or across protocols; each
+occurrence is independently ordered and removable. Saving a protocol does not
+automatically save working steps as reusable definitions. Creating or copying
+saved steps must not silently change saved protocols or historical scientific
+evidence. These rules do not change name-only Session association, introduce
+snapshots/version management/provenance mechanisms or add a protocol engine.
+Decision 428's operation distinctions remain authoritative.
+
 Session templates supply reusable starting defaults, potentially protocol
 selection, optional functionality, Session settings and preferred devices, not
 execution authority. Final accepted Session configuration governs. Templates need
 no immutable full protocol copies, new service or version mechanism; retain existing
 template editing rules and no template-provenance requirement.
+
+Decision 410's editable personal templates are distinct from Decision 429's
+immutable saved personal steps; neither rule changes the other.
 
 Match exact protocol capability identifiers to installation-time
 `DeviceDeclaration.declared_capabilities`, never infer them from device type.

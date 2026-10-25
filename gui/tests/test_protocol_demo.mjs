@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createDemo, selectProtocol, selectTemplate, coverage, saveProtocol, clone, moveStep, assignCapability } from '../src/miceball_gui/static/protocol-demo.mjs';
+import { createDemo, selectProtocol, selectTemplate, coverage, saveProtocol, clone, moveStep, assignCapability, preparedSteps, savedOccurrence, copyStepToEdit, saveReusableStep } from '../src/miceball_gui/static/protocol-demo.mjs';
 
 test('optional step inclusion updates requirements without editing the protocol', () => {
   const state = createDemo();
@@ -57,6 +57,7 @@ test('personal edits save order and duplicate operations while references cannot
 test('identity-based reorder preserves every field through bottom/top and adjacent moves', () => {
   const state = createDemo();
   const draft = clone(state.protocols[0]);
+  draft.steps[3] = copyStepToEdit(state, draft.steps[3]);
   draft.steps[3].configuration = 'Keep demonstration settings';
   const original = clone(draft.steps);
   moveStep(draft.steps, 'step-6', 'step-0');
@@ -74,7 +75,7 @@ test('identity-based reorder preserves every field through bottom/top and adjace
 test('capability selections move between lists, deduplicate, remove, and survive Save', () => {
   const state = createDemo();
   const draft = clone(state.protocols[0]);
-  const step = draft.steps[0];
+  const step = draft.steps[0] = copyStepToEdit(state, draft.steps[0]);
   assignCapability(step, 'required', 'behavior_video', true);
   assignCapability(step, 'required', 'behavior_video', true);
   assert.equal(step.required.filter(id => id === 'behavior_video').length, 1);
@@ -87,4 +88,54 @@ test('capability selections move between lists, deduplicate, remove, and survive
   saveProtocol(state, draft);
   assert.deepEqual(state.protocols[0].steps[0].optional, ['imaging_camera']);
   assert.ok(!coverage(state).required.some(row => row.capability === 'behavior_video'));
+});
+
+test('saved definitions are immutable, repeated occurrences retain independent identity', () => {
+  const state = createDemo();
+  const definition = state.definitions[0];
+  assert.throws(() => { definition.name = 'Changed'; }, TypeError);
+  assert.throws(() => { definition.required.push('other'); }, TypeError);
+  const draft = clone(state.protocols[0]);
+  draft.steps.push(savedOccurrence(state, definition.id, 'repeat'));
+  moveStep(draft.steps, 'repeat', 'step-0');
+  assert.equal(draft.steps[0].definitionId, draft.steps[1].definitionId);
+  draft.steps.splice(1, 1);
+  // Even a modified occurrence snapshot cannot overwrite its saved definition.
+  draft.steps[0].name = 'Attempted mutation';
+  saveProtocol(state, draft);
+  assert.equal(state.protocols[0].steps[0].name, definition.name);
+  assert.equal(state.protocols[0].steps[0].id, 'repeat');
+  assert.equal(state.definitions[0], definition);
+});
+
+test('explicit reusable save is personal, globally unique, and independent of protocol save/cancel', () => {
+  const state = createDemo();
+  const original = clone(state.protocols[0]);
+  const working = copyStepToEdit(state, original.steps[0]);
+  assert.equal(working.name, 'Initial imaging - copy');
+  working.description = 'Personal demonstration settings';
+  const saved = saveReusableStep(state, working, 'Taylor');
+  assert.ok(saved.definitionId);
+  assert.equal(saved.operation, 'initial');
+  assert.ok(preparedSteps(state, 'Taylor').some(item => item.id === saved.definitionId));
+  assert.ok(!preparedSteps(state, 'Morgan').some(item => item.id === saved.definitionId));
+  assert.throws(() => saveReusableStep(state, { ...working, name: ` ${working.name.toUpperCase()} ` }, 'Morgan'), /already exists/);
+  assert.throws(() => saveReusableStep(state, saved, 'Taylor'), /Copy/);
+  assert.deepEqual(state.protocols[0], original);
+  const count = state.definitions.length;
+  const draft = clone(original);
+  draft.steps[0] = copyStepToEdit(state, saved);
+  saveProtocol(state, draft);
+  assert.equal(state.definitions.length, count);
+  assert.equal(state.protocols[0].steps[0].definitionId, undefined);
+  assert.equal(state.definitions.find(item => item.id === saved.definitionId).description, working.description);
+});
+
+test('optional coverage reports all selected providers and missing coverage without required blockers', () => {
+  const state = createDemo();
+  assert.equal(coverage(state).optional.find(row => row.capability === 'behavior_video').providers.length, 2);
+  const required = clone(coverage(state).required);
+  state.selectedDevices = state.selectedDevices.filter(id => !['logitech', 'extra'].includes(id));
+  assert.equal(coverage(state).optional.find(row => row.capability === 'behavior_video').providers.length, 0);
+  assert.deepEqual(coverage(state).required, required);
 });

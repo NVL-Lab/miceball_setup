@@ -226,6 +226,33 @@ The general recorded-input execution contract remains missing and is not invente
 here. Protocol/template authoring and matching implementation also remain pending.
 These settled boundaries do not close Q008 or repeat Decision 424 implementation.
 
+### Accepted reusable scientific steps (Decision 429)
+
+Applications own reusable saved step definitions with name, description,
+configured scientific operation, required/optional status and applicable
+capabilities. Display names and scientific operation identities are distinct.
+Every saved definition is immutable, including laboratory/application and personal
+definitions. Customize only by copying and editing the copy; originals remain
+unchanged. Blank steps and unsaved copies are editable working steps.
+
+Explicit reusable saving requires a unique name across the entire application
+saved-step collection, including other experimenters' definitions. Prepared-step
+selection includes shared laboratory/application definitions and the current
+experimenter's saved personal definitions; personal steps are not automatically
+shared. A saved definition supports repeated, independently ordered/removable
+occurrences within and across protocols. Saving a protocol does not automatically
+persist working steps as reusable definitions. Creating/copying saved steps cannot
+silently change previously saved protocols or historical scientific evidence.
+
+These accepted rules remain unimplemented; authoring, persistence, selection and
+name-uniqueness enforcement remain pending. Decision 410's editable personal
+templates are a different object and remain unchanged. Decisions 427/428's
+name-only Session association and operation distinctions remain authoritative;
+no snapshot/version system, new provenance mechanism or protocol engine is added.
+This resolves the reusable-step semantics, not Q008's remaining implementation,
+configuration or deployment-validation scope. Existing validation status and
+related GUI questions remain unchanged and OPEN.
+
 ### Accepted Session metadata and launch boundary (Decision 424)
 
 Templates prefill editable fields, and experimenters may change them before

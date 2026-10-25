@@ -1,4 +1,4 @@
-import { createDemo, operations, devices, clone, selectProtocol, selectTemplate, coverage, saveProtocol, moveStep, assignCapability } from './protocol-demo.mjs';
+import { createDemo, operations, devices, clone, selectProtocol, selectTemplate, coverage, saveProtocol, moveStep, assignCapability, preparedSteps, savedOccurrence, copyStepToEdit, saveReusableStep } from './protocol-demo.mjs';
 
 const state = createDemo();
 const $ = selector => document.querySelector(selector);
@@ -40,6 +40,27 @@ editor.setAttribute('aria-label', 'Protocol Editor');
 editor.hidden = true;
 editor.innerHTML = `<div class="editor-heading"><div><label>Protocol name<input id="protocol-name" required></label><p class="prototype-caption">Personal demonstration protocol · browser memory only</p></div><div class="editor-actions"><button id="cancel-protocol" type="button">Cancel</button><button id="save-protocol" type="button" class="proto-primary">Save Protocol</button></div></div><label class="protocol-description-field">Protocol description<textarea id="protocol-summary" rows="2"></textarea></label><div class="editor-layout"><section class="setup-card"><div class="editor-step-heading"><h3>Protocol steps</h3><div class="add-step"><label class="visually-hidden" for="add-operation">Application-supported operation</label><select id="add-operation">${operations.map(op => option(op.id, op.name)).join('')}</select><button id="add-step" type="button">+ Add step</button></div></div><ol id="editor-steps"></ol></section><section class="setup-card"><h3>Step configuration</h3><form id="step-form"><label>Step name<input name="name" required></label><div class="step-fields-row"><label>Application-supplied operation<select name="operation">${operations.map(op => option(op.id, `${op.name} (${op.type})`)).join('')}</select></label><label>Required / optional<select name="mandatory"><option value="true">Required</option><option value="false">Optional</option></select></label></div><label>Description<textarea name="description" rows="3"></textarea></label><label>Required capabilities<input name="required" placeholder="imaging_camera, visual_stimulation"></label><label>Optional capabilities<input name="optional" placeholder="behavior_video"></label><p class="prototype-caption">Illustrative exact identifiers, separated by commas. Optional capabilities do not block coverage.</p><label>Demonstration configuration / notes<textarea name="configuration" rows="3" placeholder="Example settings for this operation"></textarea></label></form><p id="no-step" hidden>Add an application-supported operation to begin.</p></section></div><p id="editor-message" role="status"></p>`;
 $('#workspace-content').append(editor);
+// Reuse the existing controls and selector; no separate step library.
+const footer = document.createElement('footer');
+footer.className = 'editor-footer';
+footer.append($('.editor-actions'));
+editor.append(footer);
+const stepActions = document.createElement('div');
+stepActions.className = 'reusable-step-actions';
+stepActions.innerHTML = '<p id="step-definition-status" class="prototype-caption"></p><button type="button" id="copy-step">Copy to edit</button><button type="button" id="save-reusable-step">Save as reusable step</button><p class="prototype-caption">Reusable definitions are saved separately from this protocol, in demonstration memory only.</p>';
+$('#step-form').before(stepActions);
+const currentExperimenter = () => $('#experimenter-select').value;
+function renderPreparedSteps() {
+  const select = $('#add-operation');
+  const previous = select.value;
+  select.innerHTML = option('blank', 'Blank step') + preparedSteps(state, currentExperimenter()).map(step => option(step.id, `${step.name} · ${step.owner === null ? 'Lab / application' : 'Personal'}`)).join('');
+  if ([...select.options].some(item => item.value === previous)) select.value = previous;
+}
+$('#experimenter-select').addEventListener('change', renderPreparedSteps);
+const optionalTable = document.createElement('div');
+optionalTable.className = 'prototype-table-wrap';
+optionalTable.innerHTML = '<table class="prototype-table"><thead><tr><th>Capability</th><th>Status</th><th>Provided by selected device(s)</th></tr></thead><tbody id="optional-capabilities"></tbody></table>';
+$('#optional-capabilities').replaceWith(optionalTable);
 const capabilityNames = [...new Set(devices.flatMap(device => device.capabilities))];
 const capabilityLabel = id => id.replaceAll('_', ' ').replace(/^./, letter => letter.toUpperCase());
 for (const kind of ['required', 'optional']) {
@@ -66,6 +87,7 @@ function renderCapabilityPickers(step) {
     const group = $(`.capability-picker[data-kind="${kind}"]`);
     group.querySelector('.capability-chips').innerHTML = step[kind].map(id => `<button type="button" class="capability-chip" data-remove-capability="${escape(id)}" data-kind="${kind}" aria-label="Remove ${escape(capabilityLabel(id))} from ${kind}">${escape(capabilityLabel(id))} <span aria-hidden="true">×</span></button>`).join('') || '<span class="prototype-caption">None selected</span>';
     group.querySelector('.capability-options').innerHTML = [...new Set([...capabilityNames, ...step.required, ...step.optional])].map(id => `<label><input type="checkbox" data-capability="${escape(id)}" data-kind="${kind}" ${step[kind].includes(id) ? 'checked' : ''}><span>${escape(capabilityLabel(id))}<small>${escape(id)}</small></span></label>`).join('');
+    group.disabled = !!step.definitionId;
   }
 }
 const discardDialog = document.createElement('dialog');
@@ -78,6 +100,9 @@ function showSection(section) {
   document.dispatchEvent(new CustomEvent('gui-section', { detail: section }));
 }
 function currentProtocol() { return state.protocols.find(p => p.id === state.protocolId); }
+function coverageRows(rows, empty) {
+  return rows.length ? rows.map(row => `<tr><td>${escape(row.capability)}</td><td class="${row.providers.length ? 'coverage-good' : 'coverage-missing'}">${row.providers.length ? '✓ Covered' : '○ Missing'}</td><td>${row.providers.map(device => escape(device.name)).join(', ') || '—'}</td></tr>`).join('') : `<tr><td colspan="3">${empty}</td></tr>`;
+}
 function renderSetup() {
   const protocol = currentProtocol();
   $('#protocol-select').innerHTML = state.protocols.map(p => option(p.id, p.name + (p.protected ? ' · Lab reference' : ''))).join('');
@@ -90,8 +115,8 @@ function renderSetup() {
   $('#template-description').textContent = state.templates.find(t => t.id === state.templateId)?.description || 'Configure this Session manually. No template selected.';
   $('#session-steps').innerHTML = protocol.steps.map((s, i) => `<tr><td>${i + 1}</td><td>${escape(s.name)}</td><td><input type="checkbox" data-step="${escape(s.id)}" aria-label="Include ${escape(s.name)}" ${s.mandatory || state.included.includes(s.id) ? 'checked' : ''} ${s.mandatory ? 'disabled' : ''}></td><td>${s.mandatory ? 'Yes' : 'No'}</td><td class="step-description-cell">${escape(s.description)}</td></tr>`).join('');
   const result = coverage(state);
-  $('#capability-rows').innerHTML = result.required.length ? result.required.map(row => `<tr><td>${escape(row.capability)}</td><td class="${row.providers.length ? 'coverage-good' : 'coverage-missing'}">${row.providers.length ? '✓ Covered' : '○ Missing'}</td><td>${row.providers.map(d => escape(d.name)).join(', ') || '—'}</td></tr>`).join('') : '<tr><td colspan="3">No required hardware capabilities for these steps.</td></tr>';
-  $('#optional-capabilities').textContent = result.optional.join(', ') || 'No additional optional capabilities.';
+  $('#capability-rows').innerHTML = coverageRows(result.required, 'No required hardware capabilities for these steps.');
+  $('#optional-capabilities').innerHTML = coverageRows(result.optional, 'No additional optional capabilities.');
   $('#session-device-list').innerHTML = devices.map(d => `<label class="session-device"><input type="checkbox" data-device="${d.id}" aria-label="Select ${escape(d.name)}" ${state.selectedDevices.includes(d.id) ? 'checked' : ''}><span><strong>${escape(d.name)}</strong><small>${escape(d.detail)} · ${d.capabilities.map(escape).join(', ')}</small></span><span class="device-state ${d.available ? 'is-ready' : ''}">${d.available ? 'Connected (demo)' : 'Unavailable (demo)'}</span></label>`).join('');
   const missing = result.required.filter(r => !r.providers.length).length;
   readiness.innerHTML = `<li><span class="${missing ? 'missing-dot' : ''}">${missing ? '!' : '✓'}</span> Capability coverage <strong>${missing ? `${missing} missing` : 'All covered'}</strong></li><li><span class="${result.unavailable.length ? 'missing-dot' : ''}">·</span> Selected device availability <strong>${result.unavailable.length ? `${result.unavailable.length} unavailable` : 'Available (demo)'}</strong></li><li><span>·</span> Optional steps intentionally skipped <strong>${result.skipped}</strong></li><li><span>·</span> Runtime readiness <strong>Not checked — visual demo</strong></li>`;
@@ -104,12 +129,17 @@ function renderEditor() {
   $('#protocol-summary').value = draft.description;
   $('#editor-steps').innerHTML = draft.steps.map((s, i) => `<li data-step-id="${escape(s.id)}" class="${i === selectedStep ? 'selected' : ''}"><button type="button" class="step-drag-handle" data-drag-step="${escape(s.id)}" aria-label="Drag ${escape(s.name)} to reorder" title="Drag to reorder; or use Move Up / Move Down"><svg viewBox="0 0 12 18" aria-hidden="true"><circle cx="3" cy="3" r="1.3"/><circle cx="9" cy="3" r="1.3"/><circle cx="3" cy="9" r="1.3"/><circle cx="9" cy="9" r="1.3"/><circle cx="3" cy="15" r="1.3"/><circle cx="9" cy="15" r="1.3"/></svg></button><button type="button" data-select-step="${i}" aria-pressed="${i === selectedStep}"><span>${i + 1}</span><strong>${escape(s.name)}</strong><small>${escape(operations.find(o => o.id === s.operation)?.type || 'Operation')}</small><em>${s.mandatory ? 'Required' : 'Optional'}</em></button><div class="step-reorder"><button type="button" data-move="${i}" data-delta="-1" aria-label="Move ${escape(s.name)} up" ${i === 0 ? 'disabled' : ''}>↑</button><button type="button" data-move="${i}" data-delta="1" aria-label="Move ${escape(s.name)} down" ${i === draft.steps.length - 1 ? 'disabled' : ''}>↓</button><button type="button" data-remove="${i}" aria-label="Remove ${escape(s.name)}">×</button></div></li>`).join('');
   const step = draft.steps[selectedStep];
+  stepActions.hidden = !step;
   $('#step-form').hidden = !step;
   $('#no-step').hidden = !!step;
   if (step) {
     for (const name of ['name', 'operation', 'description', 'configuration']) $('#step-form').elements[name].value = step[name];
     $('#step-form').elements.mandatory.value = String(step.mandatory);
     renderCapabilityPickers(step);
+    for (const name of ['name', 'operation', 'description', 'configuration', 'mandatory']) $('#step-form').elements[name].disabled = !!step.definitionId;
+    $('#copy-step').hidden = !step.definitionId;
+    $('#save-reusable-step').hidden = !!step.definitionId;
+    $('#step-definition-status').textContent = step.definitionId ? 'Saved reusable definition · read-only. Copy to edit.' : 'Editable working step · not saved as reusable.';
   }
   updateDirty();
 }
@@ -123,6 +153,7 @@ function openEditor(mode) {
   originalDraft = JSON.stringify(draft);
   $('#editor-message').textContent = '';
   editorTab.hidden = false;
+  renderPreparedSteps();
   renderEditor();
   showSection('protocol-editor');
 }
@@ -154,7 +185,7 @@ $('#protocol-summary').addEventListener('input', event => { draft.description = 
 $('#step-form').addEventListener('submit', event => event.preventDefault());
 $('#step-form').addEventListener('change', event => {
   const control = event.target;
-  if (!control.dataset.capability) return;
+  if (!control.dataset.capability || draft.steps[selectedStep]?.definitionId) return;
   assignCapability(draft.steps[selectedStep], control.dataset.kind, control.dataset.capability, control.checked);
   const kind = control.dataset.kind, id = control.dataset.capability;
   const scroll = control.closest('.capability-options').scrollTop;
@@ -166,7 +197,7 @@ $('#step-form').addEventListener('change', event => {
 });
 $('#step-form').addEventListener('click', event => {
   const button = event.target.closest('[data-remove-capability]');
-  if (!button) return;
+  if (!button || draft.steps[selectedStep]?.definitionId) return;
   const kind = button.dataset.kind;
   assignCapability(draft.steps[selectedStep], kind, button.dataset.removeCapability, false);
   renderCapabilityPickers(draft.steps[selectedStep]);
@@ -177,7 +208,7 @@ $('#step-form').addEventListener('input', event => {
   const control = event.target;
   if (control.dataset.capability) return;
   const step = draft.steps[selectedStep];
-  if (!step) return;
+  if (!step || step.definitionId) return;
   if (control.name === 'mandatory') step.mandatory = control.value === 'true';
   else if (control.name === 'operation') {
     const op = operations.find(o => o.id === control.value);
@@ -193,10 +224,24 @@ $('#step-form').addEventListener('input', event => {
   if (start !== null && ['text', 'textarea'].includes(replacement.type)) replacement.setSelectionRange(start, end);
 });
 $('#add-step').addEventListener('click', () => {
-  const op = operations.find(o => o.id === $('#add-operation').value);
-  draft.steps.push({ ...clone(op), id: `added-${++sequence}`, operation: op.id, mandatory: true, configuration: '' });
+  const definitionId = $('#add-operation').value;
+  const id = `added-${++sequence}`;
+  draft.steps.push(definitionId === 'blank' ? { id, name: '', operation: operations[0].id, description: '', mandatory: true, required: [], optional: [], configuration: '' } : savedOccurrence(state, definitionId, id));
   selectedStep = draft.steps.length - 1;
   renderEditor();
+});
+$('#copy-step').addEventListener('click', () => {
+  draft.steps[selectedStep] = copyStepToEdit(state, draft.steps[selectedStep], draft.steps);
+  $('#editor-message').textContent = 'Editable copy created. The saved definition is unchanged.';
+  renderEditor();
+});
+$('#save-reusable-step').addEventListener('click', () => {
+  try {
+    draft.steps[selectedStep] = saveReusableStep(state, draft.steps[selectedStep], currentExperimenter());
+    renderPreparedSteps();
+    renderEditor();
+    $('#editor-message').textContent = 'Reusable step saved for the current demonstration experimenter. Protocol changes are not yet saved.';
+  } catch (error) { $('#editor-message').textContent = error.message; }
 });
 $('#editor-steps').addEventListener('click', event => {
   if (event.target.closest('[data-drag-step]')) return;

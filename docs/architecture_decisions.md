@@ -11712,6 +11712,11 @@ Presentation proposals remain in [GUI design notes](gui_design_notes.md).
 
 **Status:** Accepted
 
+**Reusable-step clarification:** Decision 429 distinguishes immutable saved
+scientific step definitions from editable working steps and protocol occurrences.
+Application ownership remains unchanged; the template rules are not step-editing
+authority.
+
 **Subsequently supplemented/qualified by Decision 427:** Experimenters create,
 edit, reorder, copy and save protocols through the Setup-accessible application
 editor. Its earlier omission from initial requirements below is historical; no
@@ -12114,6 +12119,10 @@ without changing existing scientific-record ownership.
 ## Decision 410: Lab reference templates and personal templates have distinct editing rules
 
 **Status:** Accepted
+
+**Scope clarification:** Decision 429's saved reusable steps are distinct from
+these templates. Every saved step, including a personal definition, is immutable;
+this does not change the personal-template editing rules below.
 
 Lab templates are shared immutable reference configurations. Experimenters may
 copy them but cannot overwrite them. Personal templates belong to individual
@@ -12957,6 +12966,10 @@ details.
 
 **Status:** Accepted
 
+**Further clarification:** Decision 429 records reusable saved-step immutability,
+copy-based customization, collection-wide unique names, scoped selection and
+independent protocol occurrences. Name-only Session association remains unchanged.
+
 **Subsequently qualified by Decision 428:** Hardware-free protocol steps remain
 permitted, but zero-device Experiments are inadmissible. The recorded-input wording
 below does not authorize an Experiment that only processes existing data instead
@@ -13104,6 +13117,55 @@ lifecycle mechanisms are introduced.
 This resolves the zero-device admission question only. Enforcement remains
 pending separately authorized implementation, validation and audit; no question
 or milestone is closed by this documentation synchronization.
+
+---
+
+## Decision 429: Reusable scientific step definitions are immutable application-owned records
+
+**Status:** Accepted
+
+This records the explicitly user-accepted LLC clarification concerning reusable
+scientific protocol steps. It supplements Decisions 399-400, 410-411 and 427-428,
+preserving historical decisions and their implementation/validation evidence.
+
+Scientific applications maintain reusable saved step definitions containing a
+name, description, configured scientific operation, required/optional status and
+applicable capabilities. Display names and scientific operation identities remain
+distinct; naming a step does not redefine its scientific operation.
+
+Every saved reusable definition is immutable, including shared laboratory/
+application definitions and personal definitions. Customization requires copying
+a step and editing the copy; the original remains unchanged. A blank step or an
+unsaved copy is an editable working step. Saving a reusable copy is explicit and
+requires a unique name across the application's entire saved-step collection,
+including definitions belonging to different experimenters.
+
+Prepared-step selection includes shared laboratory/application definitions and
+the current experimenter's saved personal definitions. Personal definitions are
+not automatically shared. Collection-wide name uniqueness does not imply that
+other experimenters' personal definitions become available for selection.
+
+A saved definition may be used repeatedly in one protocol or across different
+protocols. Each occurrence can be independently ordered and removed; occurrences
+are distinct from their reusable definition. Saving a protocol does not
+automatically save its working steps as reusable definitions. Protocol saving and
+explicit reusable-step saving remain separate operations. Creating or copying
+saved steps must not silently change previously saved protocols or historical
+scientific evidence.
+
+Saved step definitions are not Decision 410's templates: lab reference and personal
+template editing rules remain unchanged. Decision 427's name-only Session protocol
+association remains authoritative, together with preservation of actual accepted
+configuration and execution evidence under Decisions 400/411/424. This adds no
+mandatory protocol snapshots, version management, provenance mechanism or generic
+protocol execution engine. Decision 428's distinction between Experiments,
+Analysis, Validation and operator interactions is unchanged.
+
+These are accepted requirements, not implemented functionality. Reusable-step
+authoring, saving, selection and name-uniqueness enforcement remain unimplemented;
+their synchronization does not authorize implementation or change existing slice
+validation status. Q008 and related GUI questions remain OPEN; no closure is
+performed here.
 
 ---
 

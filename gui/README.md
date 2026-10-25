@@ -34,7 +34,14 @@ Down buttons. Reordering keeps the selected step and its configuration together;
 Save applies the order to Setup and Cancel discards the draft after confirmation.
 Required and optional capabilities use multi-selection dropdowns with removable
 chips. Assigning a capability to either list removes it from the other list.
-Optional capabilities are displayed separately in Setup; enabling them for an
+Saved reusable steps (shared or personal) are read-only. Use **Copy to edit** or
+choose **Blank step** in the existing Add step selector. **Save as reusable step**
+explicitly saves a uniquely named personal definition for the selected demonstration
+experimenter; Save Protocol does not implicitly add definitions to that selector.
+Repeated occurrences keep independent identities and refer to the same definition.
+Reusable saves survive cancelling a protocol draft, but all demonstration records
+reset on refresh. Protocol Save/Cancel actions are at the editor's bottom-right.
+Optional capabilities show selected-device coverage separately in Setup; enabling them for an
 individual Session is not implemented in this demonstration.
 
 ## GitHub Pages demonstration
