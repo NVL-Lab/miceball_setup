@@ -378,6 +378,49 @@ No GUI functionality is implemented or validated by this documentation.
 
 ## Services Tab
 
+### Browser-local presentation implementation
+
+The static demo now provides a full-width continuous configured-service list with
+whole-row pointer/keyboard expansion, inline service details and expandable warning
+history: latest three by default, Show more / Show less in normal page flow without
+an inner scroll container. The three decorative standalone obligation, startup-guidance and readiness
+panels are removed; useful service-owned context remains in expanded rows. All reports
+are explicit fixtures. A local refresh does not update confirmation timestamps or
+infer readiness, recovery, archival preservation or failure from communication loss.
+Notification history reuses the existing demonstration notifications and acknowledgment
+path; acknowledgment retains history and never resolves the represented problem.
+
+Per Decision 415 and the user's explicit clarification, administrative controls remain
+hidden in Experimenter mode. Administrator entry has a Danger Zone confirmation;
+returning is immediate. Mode is not authorization. Administrative buttons expose only
+operation-specific risk/scope previews, not executable commands or invented recovery
+procedures. Session's prominent red Stop control is beneath protocol steps; no outcome
+selector is exposed to the experimenter. Its fixed blocker scenario is presentation-only;
+only a reported blocker offers a separately warned Kill preview. Timeout/unknown
+does not enable escalation. Cancel leaves the local run unchanged. These previews
+add no lifecycle protocol or framework validation claim; Q030–Q033 stay open.
+
+Administrator expanded rows offer orderly Stop Service before any Kill escalation.
+A separate Shutdown Framework action retains whole-framework scope. Confirmation,
+pending local progress and participant-level fictional reports remain distinct. Only
+a blocked participant offers explicit service-specific Kill authorization; unknown
+or ineligible outcomes do not. Other participant outcomes and all service reports,
+results and obligations are retained. These previews do not implement dependency
+ordering or establish real shutdown, forced termination or preservation. Decision 314
+already accepts independent service-owned maintenance; GUI integration remains pending.
+
+Stop-report fixtures no longer branch on service identity. All configured services
+share the explicit blocked example; tests supply successful, failed and unknown
+outcomes for each service. Decision 315's retained blocked-attempt requirement for
+Kill remains authoritative: terminal failed examples require assessment, not an
+invented new forced command. No automatic Kill or transport integration is added.
+
+The Session/Parameters/Experiment presentation described above is retained. References
+to devices outside the Session set are warnings/removable references, not selectable
+Experiment devices. Services uses the same six-tab shell and light/dark styling.
+
+### Accepted functional direction (integration remains pending)
+
 **Status:** Accepted functional requirements in Decisions 414-418, 423 and 425, not implemented
 or validated GUI functionality. Detailed widgets, layouts and technical contracts
 remain unresolved under Q030-Q033.

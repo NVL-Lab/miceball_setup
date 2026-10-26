@@ -2,6 +2,7 @@ import { state } from './protocol-setup.js';
 import { sessionProgress, sessionStepView, actOnSessionStep } from './session-demo.mjs';
 import { experimentTemplates, loadExperimentTemplate, prepareExperimentRepeat, updateExperiment, experimentDeviceGroups, deviceExamples } from './experiment-demo.mjs';
 import { devices } from './protocol-demo.mjs';
+import { sessionStopPreview } from './services-demo.mjs';
 import { escapeText as escape, sessionIdentity, navigate } from './gui-presentation.js';
 
 const panel = document.querySelector('#panel-session');
@@ -17,6 +18,25 @@ const actionLabels = {
 };
 let feedback = '';
 let pendingTemplateLoad = null;
+// Fixed presentation example; alternate outcomes are exercised by model tests.
+const stopScenario = 'blocked';
+let stopEscalation = false;
+const stopDialog = document.createElement('dialog');
+stopDialog.className = 'catalog-dialog session-stop-preview';
+stopDialog.setAttribute('aria-labelledby', 'session-stop-title');
+document.body.append(stopDialog);
+stopDialog.addEventListener('close', () => { stopEscalation = false; });
+stopDialog.addEventListener('click', event => {
+  if (event.target.closest('[data-stop-dismiss]')) stopDialog.close();
+  if (event.target.closest('[data-session-kill]') && stopEscalation) {
+    stopDialog.innerHTML = `<h2 id="session-stop-title">Kill Session — forced termination warning</h2><p>Session Kill is not service Kill or framework shutdown. It may stop active acquisition and leave only partial data preservation and unresolved cleanup. Authorization does not prove preservation or safe resource reuse.</p><p>This is a browser-local preview only. No lifecycle authorization or current prerequisites are connected.</p><div class="catalog-dialog__actions"><button type="button" data-stop-dismiss>Cancel</button><button type="button" data-kill-preview-confirm>Confirm fictional Kill preview</button></div>`;
+    stopDialog.querySelector('[data-stop-dismiss]').focus();
+  }
+  if (event.target.closest('[data-kill-preview-confirm]') && stopEscalation) {
+    stopDialog.innerHTML = '<h2 id="session-stop-title">Kill preview recorded locally</h2><p>No real Session was terminated. Cleanup, preservation and resource safety remain unconfirmed. Mock results and history have not been erased.</p><button type="button" data-stop-dismiss>Close</button>';
+    stopDialog.querySelector('[data-stop-dismiss]').focus();
+  }
+});
 const templateConfirmation = document.createElement('dialog');
 templateConfirmation.className = 'catalog-dialog';
 templateConfirmation.id = 'experiment-template-confirmation';
@@ -65,6 +85,7 @@ function renderSession() {
           const view = sessionStepView(state, item);
           return `<li><button type="button" data-session-step="${escape(item.id)}" aria-pressed="${item.id === progress.selectedId}" class="${item.id === progress.selectedId ? 'is-selected' : ''}"><span class="session-step-number">${index + 1}.</span><span class="session-step-copy"><strong>${escape(item.name)}</strong><small>${escape(item.description || 'No description supplied.')}</small></span><span class="session-step-state">${statusBadge(view.stopPending ? 'stop-requested' : view.status)}${view.status === 'needs-review' ? '<small>Earlier step updated (demo)</small>' : view.status === 'skipped' ? '<small>Optional step</small>' : ''}</span></button></li>`;
         }).join('')}</ol>
+        <button type="button" class="stop-session-demo" data-stop-session>Stop Session<small>Browser-local orderly Stop demonstration</small></button>
       </section>
       <section class="session-card session-selected-card" aria-label="Selected step">
         ${step ? selectedStepMarkup(state, protocol, step) : '<h3>No protocol steps</h3><p>Add steps using the Protocol Editor in Setup.</p>'}
@@ -138,7 +159,7 @@ function experimentConfigurationMarkup(step, view) {
     <section class="experiment-devices"><h4>Experiment devices</h4><p>Choose participants from the Session devices selected in Setup.</p>
       ${groups.map(group => `<section class="experiment-device-group" data-capability="${escape(group.capability)}"><h5>${escape(group.capability.replaceAll('_', ' '))} — ${group.required ? 'Required' : 'Optional'}</h5><div>${group.options.map(device => experimentDeviceOption(device, configuration, readOnly)).join('') || '<p>No Session devices provide this capability.</p>'}</div></section>`).join('')}
       ${additional.length ? `<details class="experiment-additional-devices" ${additional.some(device => configuration.participants.includes(device.id)) ? 'open' : ''}><summary>Additional Session devices (optional)</summary>${additional.map(device => experimentDeviceOption(device, configuration, readOnly)).join('')}</details>` : ''}
-      ${outside.length ? `<div class="experiment-device-warning"><p>Template devices not selected for this Session — remove before launch:</p>${outside.map(device => experimentDeviceOption(device, configuration, readOnly)).join('')}</div>` : ''}
+      ${outside.length ? `<div class="experiment-device-warning"><p>Template refers to devices outside this Session: ${outside.map(device => escape(device.name)).join(', ')}. They are not eligible for selection.</p><button type="button" data-remove-outside-devices ${readOnly ? 'disabled' : ''}>Remove out-of-Session references</button></div>` : ''}
       <div class="experiment-coverage ${missing.length ? 'coverage-missing' : 'coverage-good'}" role="status">${missing.length ? 'Missing required capability: ' + missing.map(escape).join(', ') : step.required.length ? '✓ All required capabilities covered' : 'No required hardware capabilities declared'} <small>(demo)</small></div>
       ${otherIssues.length ? `<p class="experiment-device-warning">${otherIssues.map(escape).join(' ')}</p>` : ''}
       <p class="experiment-readiness-note">Declaration coverage and illustrative checks only — not full Controller readiness or storage-capacity confirmation.</p>
@@ -158,6 +179,18 @@ function experimentHistoryMarkup(record) {
 }
 
 panel.addEventListener('click', event => {
+  if (event.target.closest('[data-remove-outside-devices]')) {
+    const progress = sessionProgress(state);
+    const step = state.protocols.find(item => item.id === state.protocolId).steps.find(item => item.id === progress.selectedId);
+    const participants = sessionStepView(state, step).experiment.configuration.participants.filter(id => state.selectedDevices.includes(id));
+    updateExperiment(state, step, progress.steps[step.id], { participants }); renderSession(); return;
+  }
+  if (event.target.closest('[data-stop-session]')) {
+    const preview = sessionStopPreview(stopScenario);
+    stopEscalation = preview.canKill;
+    stopDialog.innerHTML = `<h2 id="session-stop-title">${preview.canKill ? 'Session Stop blocked — demonstration' : 'Session Stop — demonstration'}</h2><p>${escape(preview.message)}</p><p>Fixture only: no Session command is sent and the current demonstration run is unchanged.</p><div class="catalog-dialog__actions"><button type="button" data-stop-dismiss>${preview.canKill ? 'Cancel' : 'Close'}</button>${preview.canKill ? '<button type="button" data-session-kill>Kill Session… (preview)</button>' : ''}</div>`;
+    stopDialog.showModal(); return;
+  }
   const select = event.target.closest('[data-session-step]');
   const action = event.target.closest('[data-session-action]');
   const navigation = event.target.closest('[data-session-navigate]');

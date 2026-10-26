@@ -98,7 +98,7 @@ class GuiShellTests(unittest.TestCase):
             "function setAlertsPanelOpen(open, returnFocus = false)",
             'event.key === "Escape"',
             'restoreAlerts.addEventListener("click"',
-            'notifications.filter(({ id }) => id !== button.dataset.notificationId)',
+            'acknowledgeNotification(button.dataset.notificationId)',
             "alertsBadge.hidden = totalCount === 0",
         ):
             self.assertIn(expected, self.javascript)
@@ -152,6 +152,43 @@ class GuiShellTests(unittest.TestCase):
             "color-scheme: dark",
         ):
             self.assertIn(expected, self.html + self.css + self.javascript)
+
+    def test_services_list_and_warning_history_have_responsive_accessible_containers(self):
+        view = (STATIC / 'services-view.js').read_text(encoding='utf-8')
+        css = (STATIC / 'services-view.css').read_text(encoding='utf-8')
+        for expected in ('class="service-row ', 'class="service-row-actions"',
+                         'data-expand-service=', 'aria-expanded=', 'Check readiness',
+                         'aria-label="Warning and error history" tabindex="0"',
+                         'Acknowledged · retained in history', 'data-service-ack='):
+            self.assertIn(expected, view)
+        self.assertIn('.services-history { overflow: visible; }', css)
+        self.assertNotIn('.services-history { max-height:', css)
+        self.assertIn('data-toggle-history aria-controls="services-history"', view)
+        self.assertIn("'Show less' : 'Show more'", view)
+        self.assertIn('white-space: normal', css)
+        self.assertIn('@media (max-width: 760px)', css)
+
+    def test_services_administrator_entry_and_operation_review_are_separate(self):
+        view = (STATIC / 'services-view.js').read_text(encoding='utf-8')
+        for expected in ('Danger Zone — Administrator Mode', 'data-danger-cancel',
+                         'Enter Administrator Mode', 'if (!model.administrator) return',
+                         'aria-label="Administrative operations"',
+                         'Selected-service administration', 'name="confirm-scope"',
+                         'data-admin-review disabled', 'Record local scope review',
+                         'Recovery execution is unavailable'):
+            self.assertIn(expected, view)
+
+    def test_session_stop_is_under_protocol_steps_without_fixture_selector(self):
+        view = (STATIC / 'session-view.js').read_text(encoding='utf-8')
+        self.assertNotIn('id="session-stop-scenario"', view)
+        self.assertIn('class="stop-session-demo" data-stop-session>Stop Session', view)
+        self.assertLess(view.index("}).join('')}</ol>"), view.index('class="stop-session-demo"'))
+
+    def test_notification_history_includes_more_than_ten_fixtures_without_replacing_active_alerts(self):
+        self.assertIn('Array.from({ length: 10 }', self.javascript)
+        self.assertIn('acknowledged: true', self.javascript)
+        self.assertIn('notifications = notifications.filter(item => item.id !== id)', self.javascript)
+        self.assertIn('acknowledgedNotifications.has(item.id)', self.javascript)
 
 if __name__ == "__main__":
     unittest.main()

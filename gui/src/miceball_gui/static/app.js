@@ -149,7 +149,31 @@ const demonstrationNotifications = [
   },
 ];
 
-let notifications = demonstrationNotifications.map((notification) => ({ ...notification }));
+// Older acknowledged fixtures exercise the scrollable history without changing
+// the existing three unacknowledged examples or implying new live notifications.
+demonstrationNotifications.push(...Array.from({ length: 10 }, (_, index) => ({
+  id: `historical-example-${index + 1}`,
+  severity: index % 3 === 0 ? 'error' : 'warning',
+  source: ['Controller', 'AcquisitionNode', 'StorageManager'][index % 3],
+  occurredAt: `2026-10-23T10:${String(index).padStart(2, '0')}:00-05:00`,
+  displayTime: `Oct 23, 2026 · 10:${String(index).padStart(2, '0')} AM`,
+  description: `Historical demonstration ${index + 1}: an earlier fictional operational warning. Acknowledgment does not establish resolution.`,
+  acknowledged: true,
+})));
+let notifications = demonstrationNotifications.filter(item => !item.acknowledged).map((notification) => ({ ...notification }));
+let acknowledgedNotifications = new Set(demonstrationNotifications.filter(item => item.acknowledged).map(item => item.id));
+
+export function notificationHistory() {
+  return demonstrationNotifications.map(item => ({ ...item, acknowledged: acknowledgedNotifications.has(item.id) }));
+}
+
+export function acknowledgeNotification(id) {
+  if (!demonstrationNotifications.some(item => item.id === id)) return;
+  acknowledgedNotifications.add(id);
+  notifications = notifications.filter(item => item.id !== id);
+  renderNotifications();
+  document.dispatchEvent(new CustomEvent('gui-notifications-changed'));
+}
 
 function renderNotifications() {
   const errorCount = notifications.filter(({ severity }) => severity === "error").length;
@@ -293,15 +317,16 @@ alertsClose.addEventListener("click", () => setAlertsPanelOpen(false, true));
 alertsList.addEventListener("click", (event) => {
   const button = event.target.closest(".acknowledge-alert");
   if (!button) return;
-  notifications = notifications.filter(({ id }) => id !== button.dataset.notificationId);
-  renderNotifications();
+  acknowledgeNotification(button.dataset.notificationId);
   const nextButton = alertsList.querySelector(".acknowledge-alert");
   (nextButton ?? restoreAlerts).focus();
 });
 
 restoreAlerts.addEventListener("click", () => {
-  notifications = demonstrationNotifications.map((notification) => ({ ...notification }));
+  acknowledgedNotifications = new Set(demonstrationNotifications.filter(item => item.acknowledged).map(item => item.id));
+  notifications = demonstrationNotifications.filter(item => !item.acknowledged).map((notification) => ({ ...notification }));
   renderNotifications();
+  document.dispatchEvent(new CustomEvent('gui-notifications-changed'));
   alertsList.querySelector(".acknowledge-alert").focus();
 });
 

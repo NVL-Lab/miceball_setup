@@ -427,3 +427,112 @@ test('Normal Stop preview remains pending until explicit local completion and re
   assert.equal(state.experimentMonitor.configuration, snapshot);
   assert.throws(() => requestExperimentStop(state), /No running/);
 });
+import { createServicesDemo, setServicesAdministrator, refreshServicesPreview, serviceReadinessLabel, sessionStopPreview, beginShutdownPreview, finishShutdownPreview, authorizeKillPreview, notificationHistoryView } from '../src/miceball_gui/static/services-demo.mjs';
+
+test('Service Stop preview targets one service and scopes Kill authorization to its reported blocker', () => {
+  const model = createServicesDemo();
+  assert.throws(()=>beginShutdownPreview(model,'storage'), /Administrator/);
+  setServicesAdministrator(model,true,true);
+  const reports = structuredClone(model.services), obligations = structuredClone(model.obligations);
+  const attempt = beginShutdownPreview(model,'storage');
+  assert.equal(attempt.phase,'pending');
+  assert.deepEqual(attempt.participants.map(r=>r.id),['storage']);
+  assert.throws(()=>authorizeKillPreview(attempt,'storage',true));
+  finishShutdownPreview(attempt);
+  assert.equal(attempt.participants[0].outcome,'blocked');
+  assert.throws(()=>authorizeKillPreview(attempt,'storage',false));
+  assert.throws(()=>authorizeKillPreview(attempt,'node-imaging',true));
+  authorizeKillPreview(attempt,'storage',true);
+  assert.equal(attempt.participants[0].outcome,'failed');
+  assert.equal(attempt.participants[0].orderlyReport.outcome,'blocked');
+  assert.match(attempt.participants[0].orderlyReport.note,/preservation/);
+  assert.match(attempt.participants[0].note,/unconfirmed/);
+  assert.deepEqual(model.services,reports);
+  assert.deepEqual(model.obligations,obligations);
+});
+
+test('Framework preview retains individual outcomes without automatic Kill or whole-framework success', () => {
+  const model = createServicesDemo(); setServicesAdministrator(model,true,true);
+  const attempt = finishShutdownPreview(beginShutdownPreview(model));
+  assert.equal(attempt.scope,'framework');
+  assert.equal(attempt.participants.length,6);
+  assert.equal(attempt.participants.find(r=>r.id==='node-microscope').outcome,'blocked');
+  assert.equal(attempt.participants.find(r=>r.id==='storage').outcome,'blocked');
+  const unknown = finishShutdownPreview(beginShutdownPreview(model,'node-imaging'), 'unknown');
+  assert.equal(unknown.participants[0].outcome,'unknown');
+  assert.throws(()=>authorizeKillPreview(unknown,'node-imaging',true));
+  const before = structuredClone(attempt.participants.filter(r=>r.id!=='storage'));
+  authorizeKillPreview(attempt,'storage',true);
+  assert.deepEqual(attempt.participants.filter(r=>r.id!=='storage'),before);
+  const failed = finishShutdownPreview(beginShutdownPreview(model,'controller'), 'failed');
+  assert.equal(failed.participants[0].outcome,'failed');
+  assert.throws(()=>authorizeKillPreview(failed,'controller',true));
+});
+
+test('Every configured service supports identical blocked/completed/failed/unknown presentation branches', () => {
+  const model = createServicesDemo(); setServicesAdministrator(model,true,true);
+  const reports = structuredClone(model.services), obligations = structuredClone(model.obligations);
+  for (const service of model.services) {
+    for (const outcome of ['blocked','completed','failed','unknown']) {
+      const attempt = finishShutdownPreview(beginShutdownPreview(model,service.id),outcome);
+      assert.equal(attempt.participants.length,1);
+      assert.equal(attempt.participants[0].id,service.id);
+      assert.equal(attempt.participants[0].outcome,outcome);
+      if (outcome === 'blocked') {
+        assert.throws(()=>authorizeKillPreview(attempt,service.id,false));
+        authorizeKillPreview(attempt,service.id,true);
+        assert.equal(attempt.participants[0].orderlyReport.outcome,'blocked');
+        assert.match(attempt.participants[0].note,/unconfirmed/);
+      } else {
+        assert.throws(()=>authorizeKillPreview(attempt,service.id,true));
+        if (outcome === 'failed') assert.match(attempt.participants[0].note,/Decision 315/);
+      }
+    }
+  }
+  assert.deepEqual(model.services,reports);
+  assert.deepEqual(model.obligations,obligations);
+});
+
+test('Notification history defaults to latest three and expands/collapses without discarding acknowledgments', () => {
+  const history = Array.from({length:13},(_,i)=>({id:String(i),occurredAt:new Date(2026,9,1+i).toISOString(),acknowledged:i%2===0}));
+  const original = structuredClone(history);
+  assert.deepEqual(notificationHistoryView(history).map(x=>x.id),['12','11','10']);
+  assert.equal(notificationHistoryView(history,true).length,13);
+  assert.equal(notificationHistoryView(history)[0].acknowledged,true);
+  assert.deepEqual(notificationHistoryView(history).map(x=>x.id),['12','11','10']);
+  assert.deepEqual(history,original);
+});
+
+test('Services requires Danger Zone confirmation and allows immediate return to Experimenter mode', () => {
+  const demo = createServicesDemo();
+  assert.equal(demo.administrator, false);
+  assert.equal(demo.refreshSeconds, 10);
+  assert.throws(() => setServicesAdministrator(demo, true), /Confirm/);
+  assert.equal(demo.administrator, false);
+  setServicesAdministrator(demo, true, true);
+  assert.equal(demo.administrator, true);
+  setServicesAdministrator(demo, false);
+  assert.equal(demo.administrator, false);
+});
+
+test('Services refresh preserves stale reports, connectivity uncertainty and obligations', () => {
+  const demo = createServicesDemo();
+  const reports = structuredClone(demo.services), obligations = structuredClone(demo.obligations);
+  refreshServicesPreview(demo, '12:00:00');
+  assert.equal(demo.lastPreviewRefresh, '12:00:00');
+  assert.deepEqual(demo.services, reports);
+  assert.deepEqual(demo.obligations, obligations);
+  assert.equal(demo.services.length, 6);
+  assert.match(serviceReadinessLabel(demo.services.find(s=>s.id === 'node-imaging')), /Last known.*availability unknown/);
+  assert.equal(serviceReadinessLabel(demo.services.find(s=>s.id === 'sync')), 'Unknown availability');
+  assert.match(serviceReadinessLabel(demo.services.find(s=>s.id === 'storage')), /Unhealthy/);
+});
+
+test('Session Stop offers escalation only for a reported blocker, never inferred from timeout', () => {
+  assert.equal(sessionStopPreview('blocked').canKill, true);
+  assert.equal(sessionStopPreview('unknown').canKill, false);
+  assert.match(sessionStopPreview('unknown').message, /not proof/);
+  assert.equal(sessionStopPreview('completed').canKill, false);
+  assert.match(sessionStopPreview('completed').message, /fictional scenario only/);
+  assert.throws(() => sessionStopPreview('unrecognized'));
+});

@@ -2502,6 +2502,35 @@ automatic. Kill integration and overall closeout validation remain deferred.
 - requestExperimentStop: Marks a running mock Experiment's Normal Stop preview pending without confirming cleanup or changing its executed configuration.
 - finishExperimentStop: Reuses local completion for the monitored mock Experiment while retaining results/history and explicitly leaving real preservation unverified.
 
+## gui/src/miceball_gui/static/services-demo.mjs
+
+- createServicesDemo(): Creates page-memory service reports and obligation fixtures, with Experimenter mode and 10-second refresh defaults.
+- setServicesAdministrator(model, enabled, confirmed=false): Requires explicit Danger Zone confirmation on administrator entry but permits immediate exit.
+- refreshServicesPreview(model, at): Records a local refresh time without changing fixture confirmation, readiness or obligations.
+- serviceReadinessLabel(service): Distinguishes fixture-confirmed, last-known and unknown availability.
+- sessionStopPreview(outcome): Returns explicit fictional Stop outcomes, excluding Kill escalation for unknown results.
+- beginShutdownPreview(model, serviceId=null): Creates an administrator-only single-service or framework presentation attempt without changing service reports.
+- finishShutdownPreview(attempt, outcome='blocked'): Applies an explicit identity-independent fixture outcome, with alternative branches available to tests rather than ordinary GUI selectors.
+- notificationHistoryView(history, expanded=false): Returns the latest three or full timestamp-sorted notification history without mutating or filtering acknowledged entries.
+- authorizeKillPreview(attempt, serviceId, authorized=false): Requires explicit authorization for one blocked fixture participant while retaining all other outcomes.
+
+## gui/src/miceball_gui/static/services-view.js
+
+- serviceRows(): Renders compact wrapping service rows with readiness and detail actions, including unavailable/unknown examples.
+- serviceDetails(service): Renders inline service status, dependencies, history, obligations and mode-gated orderly Stop previews.
+- notificationRows(): Renders the latest three or expanded retained history in page flow with individual acknowledgment controls.
+- administrativeOperations(): Renders the separate whole-framework shutdown control only in Administrator mode.
+- selectService(id): Selects/toggles one expanded service from whole-row pointer or keyboard interaction.
+- openShutdownConfirmation(serviceId): Shows scoped single-service or whole-framework confirmation before a local orderly-stop preview.
+- renderShutdownPreview(): Shows participant-level local progress/outcomes and offers only scoped blocked-service Kill escalation.
+- renderServices(): Presents Services fixtures, mode-dependent administrative previews and obligations within the existing shell.
+- scheduleServicesRefresh(): Repaints visible idle Services on the selected interval without authoritative polling.
+
+## gui/src/miceball_gui/static/app.js — shared notification presentation
+
+- notificationHistory(): Returns fictional notifications with their local acknowledgment state, including historical entries.
+- acknowledgeNotification(id): Updates the existing indicator and notifies Services without deleting history or resolving conditions.
+
 ## gui/src/miceball_gui/static/session-view.js
 
 - statusBadge: Renders a text-labeled and color-coded Session mock status indicator.

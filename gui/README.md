@@ -93,6 +93,63 @@ explicitly finishes the local scenario using the existing mock completion path.
 This is not Kill and confirms no real distributed cleanup or preservation. Earlier
 results, immutable attempt configurations and output-panel state are retained.
 
+## Services and Session closeout previews
+
+Services presents six fictional configured services in compact wrapping rows,
+inline expandable status/dependency/history details, per-service readiness-check
+affordances and warning history showing the latest three entries by default, with
+Show more / Show less expanding within normal page flow (no nested scrolling).
+The standalone obligations, startup-guidance and readiness panels are removed;
+accepted functional requirements and obligation fixtures remain unchanged.
+The existing bottom-left indicator and Services
+share acknowledgment state: acknowledgment removes the current alert but retains
+its historical entry. Restore demonstration resets those local acknowledgments.
+All fixture reports and history reset on refresh; there is no notification database.
+Ten older acknowledged fixtures exercise scrolling without changing the original
+three active notifications. History expansion survives acknowledgment and repaint.
+
+Automatic refresh defaults to 10 seconds (configurable or Off), repaints only while
+Services is visible and idle, and never advances a fixture's confirmation timestamp
+or promotes unknown/stale reports to readiness. Manual checks send no commands.
+Services start independently; no process launch, live polling or discovery exists.
+
+Administrative controls are **hidden** in Experimenter mode (Decision 415).
+Entering Administrator mode requires Danger Zone confirmation; returning is immediate.
+This is a trust-based presentation safeguard, not authentication. Each administrative
+affordance opens a scope/risk/limitation preview only. Execution remains unavailable
+because service authorization, prerequisites and supported recovery contracts are
+not connected. No shutdown, service Kill, recovery or abandonment is performed.
+
+Session has a prominent red Stop Session button beneath its protocol list. The
+ordinary GUI has no outcome selector; it uses a fixed browser-local blocker example.
+Other outcome branches remain covered by model tests. Only the reported-blocker modal offers a Kill
+preview, with a second forced-termination warning. Cancel/Escape leave the demo run
+unchanged. Unknown results never authorize Kill. These dialogs do not stop a real
+Session, mutate operation results, or claim real cleanup/preservation. They are
+distinct from Stop Experiment and service-level administration.
+
+Click a service row (or press Enter/Space) to expand its details inline. Administrator
+mode adds Stop Service, recovery-availability and abandonment-review controls there,
+plus a separate Shutdown Framework action below warning history. Stop previews require
+confirmation, show pending progress, and then explicit fictional reports. Only a
+reported blocked participant exposes Kill; each Kill needs a target-specific risk
+warning and authorization checkbox. Forced outcomes remain unconfirmed, not success.
+Fixtures never mutate live service reports or obligations. Framework participants'
+outcomes are retained separately; no whole-framework completion is inferred.
+
+Every configured service uses the same explicit blocked-stop presentation scenario;
+service identity no longer selects the outcome or Kill eligibility. Model tests pass
+completed, failed and unknown reports for every service without an ordinary GUI
+fixture selector. Decision 315 permits forced continuation of a retained blocked
+attempt, not a new Kill after an arbitrary terminal failed attempt. Failed examples
+explain this limitation and require service-owned assessment/manual intervention.
+
+Independent individual service maintenance is accepted in Decision 314 and implemented
+by the existing service-owned maintenance interface, not necessarily Controller
+orchestration. This demo does not connect that interface or establish the GUI transport,
+authorization or readback contracts. It does not simulate actual dependency ordering,
+restart, supported recovery execution or preservation confirmation.
+
 ## GitHub Pages demonstration
 
 The intended public URL is <https://nvl-lab.github.io/miceball_setup/>. The workflow
