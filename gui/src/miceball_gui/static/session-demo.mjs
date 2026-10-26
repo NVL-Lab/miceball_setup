@@ -1,5 +1,6 @@
 // Presentation scenarios only: no execution, dependency policy or scientific results.
 import { declaredCoverage, operations } from './protocol-demo.mjs';
+import { experimentView, experimentIssues, captureExperiment } from './experiment-demo.mjs';
 
 export function sessionProgress(state) {
   const protocol = state.protocols.find(item => item.id === state.protocolId);
@@ -22,14 +23,16 @@ export function sessionProgress(state) {
 export function sessionStepView(state, step) {
   const progress = sessionProgress(state);
   const record = progress.steps[step.id];
-  const rows = capabilities => declaredCoverage(capabilities, state.selectedDevices);
+  const operation = operations.find(item => item.id === step.operation);
+  const experiment = operation?.type === 'Experiment' ? experimentView(state, step, record) : null;
+  const rows = capabilities => declaredCoverage(capabilities, experiment ? experiment.configuration.participants : state.selectedDevices);
   const required = rows(step.required), optional = rows(step.optional);
-  const ready = required.every(row => row.providers.some(device => device.available));
+  const issues = experiment ? experimentIssues(state, step, experiment.configuration) : [];
+  const ready = !issues.length && required.every(row => row.providers.some(device => device.available));
   const included = step.mandatory || state.included.includes(step.id);
   let status = record.status;
   if (!included) status = 'skipped';
   else if (!ready && ['ready', 'not-started'].includes(status)) status = 'unavailable';
-  const operation = operations.find(item => item.id === step.operation);
   const supports = { run: !!operation, load: ['roi', 'calibrate'].includes(operation?.id), skip: !step.mandatory };
   const running = Object.values(progress.steps).some(item => item.status === 'running');
   const actions = [];
@@ -41,7 +44,14 @@ export function sessionStepView(state, step) {
   if (included && status === 'needs-review' && record.results.length && !running) actions.push('validate');
   if (included && !step.mandatory && !running && !['completed', 'needs-review', 'skipped'].includes(status)) actions.push('skip');
   if (status === 'running') actions.push('complete', 'error');
-  return { record, status, operation, supports, required, optional, ready, included, actions, running };
+  return { record, status, stopPending: !!record.stopRequested, operation, experiment, issues, supports, required, optional, ready, included, actions, running };
+}
+
+export function selectedStepContext(state) {
+  const protocol = state.protocols.find(item => item.id === state.protocolId);
+  const progress = sessionProgress(state);
+  const step = protocol.steps.find(item => item.id === progress.selectedId);
+  return { protocol, step, record: step ? progress.steps[step.id] : null };
 }
 
 export function actOnSessionStep(state, stepId, action) {
@@ -52,9 +62,11 @@ export function actOnSessionStep(state, stepId, action) {
   if (!view.actions.includes(action)) throw new Error('This demonstration action is not available for the selected step.');
   const record = view.record;
   if (action === 'run' || action === 'repeat') {
+    if (view.experiment) captureExperiment(state, step, record);
     record.status = 'running';
     record.history.push(action === 'repeat' ? 'Repeat simulation started; earlier mock results retained.' : 'Run simulation started; no framework command sent.');
   } else if (action === 'complete' || action === 'load') {
+    if (view.experiment) record.stopRequested = false;
     record.status = 'completed';
     record.reviewReason = '';
     record.results.push({ name: step.name, operation: step.operation, summary: 'Illustrative result only — no data acquired or processed.', origin: action === 'load' ? 'Simulated previous result' : 'Completed simulation' });
@@ -67,6 +79,7 @@ export function actOnSessionStep(state, stepId, action) {
     record.status = 'skipped';
     record.history.push('Optional step skipped in this preview; Setup inclusion and earlier mock results are unchanged.');
   } else if (action === 'error') {
+    if (view.experiment) record.stopRequested = false;
     record.status = 'error';
     record.history.push('Simulated error: no new result produced. Earlier mock results are retained.');
   }
@@ -84,4 +97,30 @@ export function actOnSessionStep(state, stepId, action) {
     });
   }
   return sessionStepView(state, step);
+}
+
+export function monitoredExperiment(state) {
+  const monitor = state.experimentMonitor;
+  return { monitor, record: monitor ? state.sessionDemo?.[monitor.protocolId]?.steps[monitor.stepId] : null };
+}
+export function requestExperimentStop(state) {
+  const { record } = monitoredExperiment(state);
+  if (!record || record.status !== 'running') throw new Error('No running demonstration Experiment to stop.');
+  if (!record.stopRequested) {
+    record.stopRequested = true;
+    record.history.push('Normal Stop requested in the browser demo. No Controller command, cleanup or preservation confirmation.');
+  }
+  return record;
+}
+export function finishExperimentStop(state) {
+  const { monitor, record } = monitoredExperiment(state);
+  if (!record?.stopRequested || record.status !== 'running') throw new Error('Request a demonstration Normal Stop first.');
+  // Reuse completion with the monitored protocol context, not the current UI selection.
+  // Records are shared references; this does not navigate or create parallel state.
+  actOnSessionStep({ ...state, protocolId: monitor.protocolId }, monitor.stepId, 'complete');
+  const result = record.results.at(-1);
+  result.origin = 'Simulated Normal Stop';
+  result.summary = 'Local early-stop example only; no acquisition, distributed cleanup or preservation was performed.';
+  record.history.push('Local Normal Stop scenario finished. Real cleanup and preservation remain unverified; earlier mock results and output views are retained.');
+  return record;
 }

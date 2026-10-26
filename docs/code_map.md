@@ -2497,6 +2497,10 @@ automatic. Kill integration and overall closeout validation remain deferred.
 - sessionProgress: Initializes and retrieves protocol-occurrence-scoped page-memory progress for the Session visual scenario.
 - sessionStepView: Derives display status, declaration coverage and permitted illustrative actions for one protocol step.
 - actOnSessionStep: Applies a browser-local run/repeat/review/validate/skip/result scenario while retaining earlier mock results and history.
+- selectedStepContext: Resolves the single Session-selected protocol occurrence and record for contextual GUI views.
+- monitoredExperiment: Resolves the last simulated Experiment and shared record independently of the currently selected Session step.
+- requestExperimentStop: Marks a running mock Experiment's Normal Stop preview pending without confirming cleanup or changing its executed configuration.
+- finishExperimentStop: Reuses local completion for the monitored mock Experiment while retaining results/history and explicitly leaving real preservation unverified.
 
 ## gui/src/miceball_gui/static/session-view.js
 
@@ -2504,3 +2508,45 @@ automatic. Kill integration and overall closeout validation remain deferred.
 - readinessRows: Renders selected-provider declaration coverage without asserting framework readiness.
 - renderSession: Renders Setup identity, the current protocol list and the selected-step preview using existing shared demo state.
 - selectedStepMarkup: Renders state-dependent step information, simulated actions, mock outputs and history.
+- experimentConfigurationMarkup: Renders optional Experiment template loading, the current configuration summary and Session-only simulated launch controls.
+- experimentDeviceOption: Renders a checkbox backed by the shared physical-device participation list.
+- experimentHistoryMarkup: Renders retained Experiment mock results/history in a compact disclosure without empty output cards.
+
+## gui/src/miceball_gui/static/experiment-demo.mjs
+
+- exampleConfiguration: Builds visible fictional starting values for the supported example Experiment operations.
+- freezeConfiguration: Copies and freezes the primitive-valued mock configuration and its participant/value containers.
+- experimentTemplates: Lists shared and current-owner personal fictional Experiment templates separately from Session templates and step definitions.
+- experimentView: Resolves editable working or immutable executed demonstration configuration for a protocol occurrence.
+- updateExperiment: Updates working demonstration values while rejecting edits to executed configurations.
+- loadExperimentTemplate: Copies an available Experiment template into editable working values, requiring confirmation before replacing modified values.
+- saveExperimentTemplate: Creates a new named personal Experiment template without overwriting existing references.
+- prepareExperimentRepeat: Makes editable values for another demonstration attempt without modifying historical snapshots.
+- experimentIssues: Reports explicitly simulated duration, participation, availability, parameter and capability checks.
+- captureExperiment: Freezes a separate mock attempt configuration and identifies the latest simulated Experiment for monitoring.
+- experimentDeviceGroups: Lists every eligible Session device per required/optional capability and derives coverage from the shared participant selection.
+
+## gui/src/miceball_gui/static/gui-presentation.js
+
+- escapeText: Escapes dynamic values inserted into GUI markup.
+- navigate: Uses the existing GUI section-navigation event without changing operation state.
+- sessionIdentity: Reads the existing Setup identity fields for presentation without creating a second configuration model.
+
+## gui/src/miceball_gui/static/parameters-view.js
+
+- parameterField: Renders a typed control from an explicitly fictional device-parameter fixture.
+- renderParameters: Renders the single Session-selected Experiment's working or read-only configuration and optional personal-template saving.
+- updateParameterWorking: Applies typed parameter input to shared working values while leaving participation selection in Session.
+
+## gui/src/miceball_gui/static/output-panels.js
+
+- restoreOutputPanel: Restores the original expanded output node and its button state without replacing contents.
+
+## gui/src/miceball_gui/static/scientific-views.js
+
+- outputPanel: Renders a generic scientific-output surface with the shared expansion control.
+- tracePlot: Renders fixed illustrative traces with theme-aware axes and local legend controls.
+- distributionPlot: Renders a fixed illustrative distribution without scientific computation.
+- imageMarkup: Presents a theme-independent synthetic image with optional local example-selection controls.
+- renderExperiment: Updates latest simulated Experiment monitoring information while preserving scientific-output DOM state.
+- renderAnalysis: Updates the selected Analysis context above persistent generic demonstration output panels.

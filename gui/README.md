@@ -59,9 +59,39 @@ removing them. Validate existing result confirms only the local example. This is
 a design proposal, not accepted framework dependency policy or Controller acceptance.
 Previous-result examples are offered only for the illustrative ROI/calibration
 operations; optional steps can be skipped locally. View parameters and the contextual
-workspace buttons only navigate to existing tabs. No parameter or participant editor,
-scientific plot, Session launch or closeout is added. Progress/results/history reset
-on refresh. Switching tabs does not stop the local simulation.
+workspace buttons navigate to the corresponding full-width views. Progress/results/
+history reset on refresh. Switching tabs does not stop the local simulation.
+
+Experiment steps show balanced template/current-configuration cards and a working
+parameter summary. Capability-grouped checkboxes in Session select participating
+Setup devices, allowing multiple providers and one consistent state per physical
+device. Missing required coverage blocks simulated launch; unused optional
+capabilities do not. Template loading confirms replacement of modified working
+values. Retained results/history remain accessible without empty Experiment cards.
+View / Edit Parameters opens contextual collapsible timing and participating-device
+settings with fictional control definitions, plus Expand all /
+Collapse all and optional Save as personal template. There is no step selector in
+Parameters, and no device-participation controls there. Edits survive navigation without requiring a template save. Launch
+Experiment exists only in Session and is explicitly simulated. It checks example
+duration, participant inclusion/availability, acquisition-device presence and exact
+declared capability coverage, not real Controller readiness or storage capacity.
+Running/completed mock configurations are read-only; Prepare repeat makes a new
+working copy while retaining previous immutable attempt configurations.
+
+Experiment shows information and a fixed synthetic image on the left and two plots
+on the right. Analysis uses a 2×2 grid of illustrative traces, image/selection,
+metrics/table and distribution outputs. Neither calculates scientific results.
+Each output panel supports Expand/Restore and Escape within the workspace, without
+browser fullscreen or replacing the panel contents. Legend choices and example ROI
+selection survive expansion and tab navigation. Dark mode changes plot presentation,
+not image content or underlying data. No live streams are implemented. All records
+remain page-local; only the existing theme preference persists in browser storage.
+
+Only a running example shows the red **Stop Experiment** button in Experiment,
+not Session. It starts a pending Normal Stop preview; **Complete stop simulation**
+explicitly finishes the local scenario using the existing mock completion path.
+This is not Kill and confirms no real distributed cleanup or preservation. Earlier
+results, immutable attempt configurations and output-panel state are retained.
 
 ## GitHub Pages demonstration
 

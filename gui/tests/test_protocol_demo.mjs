@@ -1,6 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { sessionProgress, sessionStepView, actOnSessionStep } from '../src/miceball_gui/static/session-demo.mjs';
+import { sessionProgress, sessionStepView, actOnSessionStep, selectedStepContext, monitoredExperiment, requestExperimentStop, finishExperimentStop } from '../src/miceball_gui/static/session-demo.mjs';
+import { experimentTemplates, experimentView, updateExperiment, loadExperimentTemplate, saveExperimentTemplate, prepareExperimentRepeat, experimentDeviceGroups } from '../src/miceball_gui/static/experiment-demo.mjs';
+import { devices } from '../src/miceball_gui/static/protocol-demo.mjs';
+import { traceExamples, distributionExample } from '../src/miceball_gui/static/output-examples.mjs';
 import { createDemo, selectProtocol, selectTemplate, coverage, saveProtocol, clone, moveStep, assignCapability, preparedSteps, savedOccurrence, copyStepToEdit, saveReusableStep } from '../src/miceball_gui/static/protocol-demo.mjs';
 
 test('optional step inclusion updates requirements without editing the protocol', () => {
@@ -258,4 +261,169 @@ test('simulated running/error/retry preserves earlier mock results and prevents 
   actOnSessionStep(state, 'step-0', 'complete');
   assert.equal(progress.steps['step-0'].results.length, 2);
   assert.deepEqual(state.protocols[0].steps[0], original);
+});
+
+test('Parameters context follows Session selection and working values survive revisiting steps', () => {
+  const state = createDemo();
+  const progress = sessionProgress(state);
+  progress.selectedId = 'step-2';
+  const { step, record } = selectedStepContext(state);
+  updateExperiment(state, step, record, { durationSeconds: 360 });
+  progress.selectedId = 'step-1';
+  assert.equal(selectedStepContext(state).step.operation, 'roi');
+  progress.selectedId = 'step-2';
+  assert.equal(selectedStepContext(state).record, record);
+  assert.equal(experimentView(state, step, record).configuration.durationSeconds, 360);
+  assert.equal(experimentView(state, step, record).bundle.templateId, '');
+  actOnSessionStep(state, step.id, 'run');
+  assert.equal(state.experimentMonitor.configuration.durationSeconds, 360);
+});
+
+test('Experiment templates load copies and personal saves never overwrite laboratory or Session templates', () => {
+  const state = createDemo();
+  const sessionTemplates = clone(state.templates), definitions = clone(state.definitions);
+  const step = state.protocols[0].steps[2], record = sessionProgress(state).steps[step.id];
+  const lab = experimentTemplates(state, step.operation, 'Taylor')[0];
+  const original = clone(lab.configuration);
+  loadExperimentTemplate(state, step, record, lab.id, 'Taylor');
+  assert.deepEqual(experimentView(state, step, record).configuration, original);
+  assert.notEqual(experimentView(state, step, record).configuration, lab.configuration);
+  assert.equal(experimentView(state, step, record).modified, false);
+  updateExperiment(state, step, record, { durationSeconds: 450 });
+  assert.equal(experimentView(state, step, record).modified, true);
+  assert.throws(() => saveExperimentTemplate(state, step, record, lab.name, 'Taylor'), /new personal template name/);
+  const personal = saveExperimentTemplate(state, step, record, 'Taylor baseline', 'Taylor');
+  assert.equal(personal.owner, 'Taylor');
+  assert.equal(personal.configuration.durationSeconds, 450);
+  assert.ok(experimentTemplates(state, step.operation, 'Taylor').includes(personal));
+  assert.ok(!experimentTemplates(state, step.operation, 'Morgan').includes(personal));
+  assert.throws(() => loadExperimentTemplate(state, step, record, personal.id, 'Morgan'), /available Experiment template/);
+  assert.deepEqual(lab.configuration, original);
+  assert.deepEqual(state.templates, sessionTemplates);
+  assert.deepEqual(state.definitions, definitions);
+});
+
+test('running and completed Experiment snapshots are read-only and repeat editing cannot rewrite history', () => {
+  const state = createDemo();
+  const step = state.protocols[0].steps[2], record = sessionProgress(state).steps[step.id];
+  updateExperiment(state, step, record, { durationSeconds: 240 });
+  actOnSessionStep(state, step.id, 'run');
+  const first = state.experimentMonitor.configuration;
+  assert.throws(() => updateExperiment(state, step, record, { durationSeconds: 5 }), /read-only/);
+  assert.throws(() => { first.values['orca.exposure'] = 99; }, TypeError);
+  assert.throws(() => first.participants.push('reward'), TypeError);
+  actOnSessionStep(state, step.id, 'complete');
+  assert.throws(() => loadExperimentTemplate(state, step, record, 'experiment-baseline', 'Taylor'), /read-only/);
+  prepareExperimentRepeat(state, step, record);
+  updateExperiment(state, step, record, { durationSeconds: 480 });
+  actOnSessionStep(state, step.id, 'repeat');
+  assert.equal(first.durationSeconds, 240);
+  assert.equal(state.experimentMonitor.configuration.durationSeconds, 480);
+  assert.equal(record.experiment.attempts[0], first);
+});
+
+test('Experiment simulation gates duration and participating devices without changing Session inclusion', () => {
+  const state = createDemo();
+  const step = state.protocols[0].steps[2], record = sessionProgress(state).steps[step.id];
+  const selected = [...state.selectedDevices];
+  updateExperiment(state, step, record, { participants: ['display'] });
+  assert.ok(sessionStepView(state, step).issues.some(issue => issue.includes('data-acquisition')));
+  assert.throws(() => actOnSessionStep(state, step.id, 'run'), /not available/);
+  updateExperiment(state, step, record, { participants: ['orca'], durationSeconds: 0 });
+  assert.ok(!sessionStepView(state, step).ready);
+  updateExperiment(state, step, record, { durationSeconds: 60 });
+  assert.ok(sessionStepView(state, step).ready);
+  updateExperiment(state, step, record, { participants: ['orca', 'reward'] });
+  assert.ok(sessionStepView(state, step).issues.some(issue => issue.includes('not selected in Setup')));
+  assert.deepEqual(state.selectedDevices, selected);
+});
+
+test('scientific drawing fixtures remain immutable presentation examples', () => {
+  assert.throws(() => traceExamples[0].points.push(3), TypeError);
+  assert.throws(() => { distributionExample[0] = 999; }, TypeError);
+  assert.equal(traceExamples[0].color, '#238e9b');
+});
+
+test('loading a template requires confirmation before replacing edited working values', () => {
+  const state = createDemo();
+  const step = state.protocols[0].steps[2], record = sessionProgress(state).steps[step.id];
+  updateExperiment(state, step, record, { durationSeconds: 360 });
+  const edited = clone(experimentView(state, step, record).configuration);
+  assert.throws(() => loadExperimentTemplate(state, step, record, 'experiment-baseline', 'Taylor'), /Confirm replacing/);
+  assert.deepEqual(experimentView(state, step, record).configuration, edited);
+  loadExperimentTemplate(state, step, record, 'experiment-baseline', 'Taylor', true);
+  assert.equal(experimentView(state, step, record).configuration.durationSeconds, 900);
+  assert.equal(experimentView(state, step, record).workingModified, false);
+  loadExperimentTemplate(state, step, record, 'experiment-baseline', 'Taylor');
+  assert.equal(experimentView(state, step, record).workingModified, false);
+});
+
+test('capability groups expose all Session providers and share Experiment participation with readiness', () => {
+  const state = createDemo();
+  const step = state.protocols[0].steps[2], record = sessionProgress(state).steps[step.id];
+  const setup = clone(coverage(state));
+  updateExperiment(state, step, record, { participants: ['orca', 'logitech', 'extra'] });
+  let configuration = experimentView(state, step, record).configuration;
+  let groups = experimentDeviceGroups(state, step, configuration);
+  assert.deepEqual(groups.find(group => group.capability === 'behavior_video').options.map(device => device.id), ['logitech', 'extra']);
+  assert.ok(groups.every(group => group.options.every(device => state.selectedDevices.includes(device.id))));
+  assert.ok(groups.find(group => group.required).covered);
+  updateExperiment(state, step, record, { participants: ['orca'] });
+  groups = experimentDeviceGroups(state, step, experimentView(state, step, record).configuration);
+  assert.equal(groups.find(group => !group.required).covered, false);
+  assert.equal(sessionStepView(state, step).ready, true);
+  updateExperiment(state, step, record, { participants: ['logitech'] });
+  assert.equal(sessionStepView(state, step).ready, false);
+  assert.throws(() => actOnSessionStep(state, step.id, 'run'), /not available/);
+  assert.deepEqual(coverage(state), setup);
+  const loop = state.protocols[0].steps[6];
+  const reward = experimentDeviceGroups(state, loop, { ...configuration, participants: ['orca', 'display', 'reward'] }).find(group => group.capability === 'reward_delivery');
+  assert.equal(reward.options.length, 0);
+  assert.equal(reward.covered, false);
+});
+
+test('one physical multi-capability device has one participation state across groups', () => {
+  const state = createDemo();
+  const step = state.protocols[0].steps[2], record = sessionProgress(state).steps[step.id];
+  const camera = devices.find(device => device.id === 'orca');
+  const original = camera.capabilities;
+  try {
+    camera.capabilities = [...original, 'behavior_video'];
+    updateExperiment(state, step, record, { participants: ['orca'] });
+    let groups = experimentDeviceGroups(state, step, experimentView(state, step, record).configuration);
+    assert.ok(groups.every(group => group.options.includes(camera) && group.covered));
+    updateExperiment(state, step, record, { participants: [] });
+    groups = experimentDeviceGroups(state, step, experimentView(state, step, record).configuration);
+    assert.ok(groups.every(group => !group.covered));
+  } finally { camera.capabilities = original; }
+});
+
+test('Normal Stop preview remains pending until explicit local completion and retains results/configuration', () => {
+  const state = createDemo();
+  assert.throws(() => requestExperimentStop(state), /No running/);
+  const step = state.protocols[0].steps[2], record = sessionProgress(state).steps[step.id];
+  actOnSessionStep(state, step.id, 'run');
+  actOnSessionStep(state, step.id, 'complete');
+  const previous = clone(record.results);
+  actOnSessionStep(state, step.id, 'repeat');
+  const snapshot = state.experimentMonitor.configuration;
+  requestExperimentStop(state);
+  assert.equal(record.status, 'running');
+  assert.equal(sessionStepView(state, step).stopPending, true);
+  assert.deepEqual(record.results, previous);
+  assert.throws(() => updateExperiment(state, step, record, { durationSeconds: 1 }), /read-only/);
+  const historyLength = record.history.length;
+  requestExperimentStop(state);
+  assert.equal(record.history.length, historyLength);
+  selectProtocol(state, 'reference');
+  finishExperimentStop(state);
+  assert.equal(state.protocolId, 'reference');
+  assert.equal(monitoredExperiment(state).record, record);
+  assert.equal(record.status, 'completed');
+  assert.equal(record.stopRequested, false);
+  assert.deepEqual(record.results.slice(0, previous.length), previous);
+  assert.equal(record.results.at(-1).origin, 'Simulated Normal Stop');
+  assert.match(record.history.at(-1), /cleanup and preservation remain unverified/);
+  assert.equal(state.experimentMonitor.configuration, snapshot);
+  assert.throws(() => requestExperimentStop(state), /No running/);
 });

@@ -1,18 +1,40 @@
 import { state } from './protocol-setup.js';
 import { sessionProgress, sessionStepView, actOnSessionStep } from './session-demo.mjs';
+import { experimentTemplates, loadExperimentTemplate, prepareExperimentRepeat, updateExperiment, experimentDeviceGroups, deviceExamples } from './experiment-demo.mjs';
+import { devices } from './protocol-demo.mjs';
+import { escapeText as escape, sessionIdentity, navigate } from './gui-presentation.js';
 
 const panel = document.querySelector('#panel-session');
-const escape = value => String(value).replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
 const statusLabels = {
   completed: ['✓', 'Completed'], ready: ['▶', 'Ready'], running: ['▶', 'Running'],
   'needs-review': ['!', 'Needs review'], 'not-started': ['○', 'Not started'],
   unavailable: ['○', 'Unavailable'], error: ['!', 'Error'], skipped: ['↷', 'Skipped'],
+  'stop-requested': ['○', 'Stop requested (demo)'],
 };
 const actionLabels = {
   repeat: 'Repeat step', load: 'Load previous result', validate: 'Validate existing result',
   skip: 'Skip optional step', complete: 'Complete simulation', error: 'Simulate error',
 };
 let feedback = '';
+let pendingTemplateLoad = null;
+const templateConfirmation = document.createElement('dialog');
+templateConfirmation.className = 'catalog-dialog';
+templateConfirmation.id = 'experiment-template-confirmation';
+templateConfirmation.setAttribute('aria-labelledby', 'experiment-template-confirmation-title');
+templateConfirmation.innerHTML = '<form method="dialog"><h2 id="experiment-template-confirmation-title">Replace modified working values?</h2><p>The selected template will replace your unsaved working configuration. Executed settings and previous results will not change.</p><div class="catalog-dialog__actions"><button type="button" class="dialog-button" data-cancel-template-load>Cancel</button><button type="button" class="dialog-button dialog-button--primary" data-confirm-template-load>Load template</button></div></form>';
+document.body.append(templateConfirmation);
+templateConfirmation.querySelector('[data-cancel-template-load]').addEventListener('click', () => templateConfirmation.close());
+templateConfirmation.addEventListener('close', () => { pendingTemplateLoad = null; });
+templateConfirmation.querySelector('[data-confirm-template-load]').addEventListener('click', () => {
+  const pending = pendingTemplateLoad;
+  if (!pending) return;
+  try {
+    loadExperimentTemplate(state, pending.step, pending.record, pending.id, pending.owner, true);
+    feedback = 'Template loaded into working values only.';
+  } catch (error) { feedback = error.message; }
+  templateConfirmation.close();
+  renderSession();
+});
 
 function statusBadge(status) {
   const [icon, label] = statusLabels[status];
@@ -27,12 +49,11 @@ function renderSession() {
   const protocol = state.protocols.find(item => item.id === state.protocolId);
   const progress = sessionProgress(state);
   const step = protocol.steps.find(item => item.id === progress.selectedId);
-  const identityFields = [...document.querySelectorAll('.session-identity-grid input')];
-  const selectedText = id => document.querySelector(`#${id}`).selectedOptions[0]?.textContent || 'Not selected';
+  const identity = sessionIdentity();
   const header = [
-    ['Session', identityFields[0].value || 'Unnamed Session'], ['Date', identityFields[1].value || 'Not set'],
-    ['Experimenter', selectedText('experimenter-select')], ['Project', selectedText('project-select')],
-    ['Animal', selectedText('animal-select')], ['Protocol', protocol.name], ['Session status', 'Preview · not launched'],
+    ['Session', identity.name], ['Date', identity.date],
+    ['Experimenter', identity.experimenter], ['Project', identity.project],
+    ['Animal', identity.animal], ['Protocol', protocol.name], ['Session status', 'Preview · not launched'],
   ];
   panel.innerHTML = `<h2 id="heading-session" class="visually-hidden">Session</h2>
     <dl class="session-information">${header.map(([label, value]) => `<div><dt>${label}</dt><dd>${escape(value)}</dd></div>`).join('')}</dl>
@@ -42,7 +63,7 @@ function renderSession() {
         <h3 id="session-protocol-title"><span aria-hidden="true">▤</span> Protocol steps (${protocol.steps.length})</h3>
         <ol class="session-protocol-list">${protocol.steps.map((item, index) => {
           const view = sessionStepView(state, item);
-          return `<li><button type="button" data-session-step="${escape(item.id)}" aria-pressed="${item.id === progress.selectedId}" class="${item.id === progress.selectedId ? 'is-selected' : ''}"><span class="session-step-number">${index + 1}.</span><span class="session-step-copy"><strong>${escape(item.name)}</strong><small>${escape(item.description || 'No description supplied.')}</small></span><span class="session-step-state">${statusBadge(view.status)}${view.status === 'needs-review' ? '<small>Earlier step updated (demo)</small>' : view.status === 'skipped' ? '<small>Optional step</small>' : ''}</span></button></li>`;
+          return `<li><button type="button" data-session-step="${escape(item.id)}" aria-pressed="${item.id === progress.selectedId}" class="${item.id === progress.selectedId ? 'is-selected' : ''}"><span class="session-step-number">${index + 1}.</span><span class="session-step-copy"><strong>${escape(item.name)}</strong><small>${escape(item.description || 'No description supplied.')}</small></span><span class="session-step-state">${statusBadge(view.stopPending ? 'stop-requested' : view.status)}${view.status === 'needs-review' ? '<small>Earlier step updated (demo)</small>' : view.status === 'skipped' ? '<small>Optional step</small>' : ''}</span></button></li>`;
         }).join('')}</ol>
       </section>
       <section class="session-card session-selected-card" aria-label="Selected step">
@@ -56,8 +77,13 @@ function selectedStepMarkup(state, protocol, step) {
   const { record, operation } = view;
   const operationType = operation?.type || 'Unsupported operation';
   const capabilities = values => values.length ? values.map(escape).join(', ') : 'None';
+  if (view.experiment) return `<div class="session-selected-heading"><div><p>Step ${protocol.steps.indexOf(step) + 1} of ${protocol.steps.length}</p><h3>${escape(step.name)}</h3></div>${statusBadge(view.stopPending ? 'stop-requested' : view.status)}</div>
+    <p class="session-step-description">${escape(step.description || 'No description supplied.')}</p>
+    ${experimentConfigurationMarkup(step, view)}
+    ${record.reviewReason ? `<div class="session-review-explanation"><strong>Design proposal · review requested</strong><p>${escape(record.reviewReason)}</p></div>` : ''}
+    ${experimentHistoryMarkup(record)}<p class="session-feedback" id="session-feedback" role="status">${escape(feedback)}</p>`;
   const actions = view.actions.map(action => {
-    const label = action === 'run' ? operationType === 'Experiment' ? 'Start Experiment' : 'Run step' : actionLabels[action];
+    const label = action === 'run' ? 'Run step' : actionLabels[action];
     return `<button type="button" data-session-action="${action}" class="${['run', 'repeat', 'complete', 'validate'].includes(action) ? 'session-primary' : ''}">${label} <small>(demo)</small></button>`;
   }).join('');
   return `<div class="session-selected-heading"><div><p>Step ${protocol.steps.indexOf(step) + 1} of ${protocol.steps.length}</p><h3>${escape(step.name)}</h3></div>${statusBadge(view.status)}</div>
@@ -74,7 +100,8 @@ function selectedStepMarkup(state, protocol, step) {
       </dl></section>
       <section class="session-detail-box session-readiness"><h4>Step readiness <small>Simulated</small></h4><ul>${view.required.length ? readinessRows(view.required) : '<li><span aria-hidden="true">○</span><div>No required hardware capabilities declared.</div></li>'}</ul>
         <p>${view.ready ? 'Required declaration coverage is available in the demo.' : 'A required provider is unselected or unavailable in the demo.'}</p>
-        <small>Not Controller readiness. Experiment participation, acquisition-device admission, capacity and runtime checks are not implemented here.</small>
+        <small>Illustrative checks only, not Controller readiness. No real storage-capacity, health, reservation or runtime checks.</small>
+        ${view.issues.length ? `<ul>${view.issues.map(issue => `<li>${escape(issue)}</li>`).join('')}</ul>` : ''}
       </section>
     </div>
     ${record.reviewReason ? `<div class="session-review-explanation"><strong>Design proposal · review requested</strong><p>${escape(record.reviewReason)}</p><p>Validate confirms only that this mock result is acceptable to the experimenter.</p></div>` : ''}
@@ -91,12 +118,51 @@ function selectedStepMarkup(state, protocol, step) {
     </div></div>`;
 }
 
+function experimentConfigurationMarkup(step, view) {
+  const { configuration, readOnly, modified, template } = view.experiment;
+  const templates = experimentTemplates(state, step.operation, sessionIdentity().owner);
+  const canLaunch = view.actions.some(action => ['run', 'repeat'].includes(action)) && !readOnly;
+  const participants = configuration.participants.map(id => devices.find(device => device.id === id)?.name || id);
+  const groups = experimentDeviceGroups(state, step, configuration);
+  const listed = new Set(groups.flatMap(group => group.options.map(device => device.id)));
+  const additional = devices.filter(device => state.selectedDevices.includes(device.id) && !listed.has(device.id));
+  const outside = devices.filter(device => configuration.participants.includes(device.id) && !state.selectedDevices.includes(device.id));
+  const missing = groups.filter(group => group.required && !group.covered).map(group => group.capability);
+  const parameters = configuration.participants.flatMap(id => (deviceExamples[id]?.fields || []).map(field => `${field.label}: ${configuration.values[field.id] === true ? 'Yes' : configuration.values[field.id] === false ? 'No' : configuration.values[field.id]}`));
+  const otherIssues = view.issues.filter(issue => !issue.includes('required capability'));
+  const auxiliary = view.actions.filter(action => ['validate', 'skip'].includes(action));
+  return `<div class="experiment-summary-grid">
+    <section class="session-detail-box experiment-template-card"><h4>Experiment template</h4><p>Optional starting configuration</p><label class="visually-hidden" for="experiment-template-select">Experiment template</label><select id="experiment-template-select" ${readOnly ? 'disabled' : ''}><option value="">None / current working values</option>${templates.map(item => `<option value="${escape(item.id)}" ${item.id === view.experiment.bundle.templateId ? 'selected' : ''}>${escape(item.name)} · ${item.owner === null ? 'Laboratory / shared' : 'Personal'}</option>`).join('')}</select><button type="button" data-load-experiment-template ${readOnly ? 'disabled' : ''}>Load template</button></section>
+    <section class="session-detail-box experiment-current-card"><h4>Current ${readOnly ? 'executed' : 'working'} configuration</h4><dl class="session-step-information"><dt>Duration</dt><dd>${Number.isFinite(configuration.durationSeconds) ? escape(configuration.durationSeconds) + ' s' : 'Not set'}</dd><dt>Participating devices</dt><dd>${participants.map(escape).join(', ') || 'None selected'}</dd></dl><p class="experiment-parameter-summary">${parameters.slice(0, 4).map(escape).join(' · ') || 'No applicable example parameters.'}</p>${modified ? `<p class="configuration-modified">Modified from ${escape(template.name)}</p>` : ''}${readOnly && view.status !== 'running' ? '<button type="button" data-prepare-experiment>Prepare repeat (demo)</button>' : ''}${readOnly ? '<p>Executed settings are read-only.</p>' : ''}</section>
+    </div>
+    <section class="experiment-devices"><h4>Experiment devices</h4><p>Choose participants from the Session devices selected in Setup.</p>
+      ${groups.map(group => `<section class="experiment-device-group" data-capability="${escape(group.capability)}"><h5>${escape(group.capability.replaceAll('_', ' '))} — ${group.required ? 'Required' : 'Optional'}</h5><div>${group.options.map(device => experimentDeviceOption(device, configuration, readOnly)).join('') || '<p>No Session devices provide this capability.</p>'}</div></section>`).join('')}
+      ${additional.length ? `<details class="experiment-additional-devices" ${additional.some(device => configuration.participants.includes(device.id)) ? 'open' : ''}><summary>Additional Session devices (optional)</summary>${additional.map(device => experimentDeviceOption(device, configuration, readOnly)).join('')}</details>` : ''}
+      ${outside.length ? `<div class="experiment-device-warning"><p>Template devices not selected for this Session — remove before launch:</p>${outside.map(device => experimentDeviceOption(device, configuration, readOnly)).join('')}</div>` : ''}
+      <div class="experiment-coverage ${missing.length ? 'coverage-missing' : 'coverage-good'}" role="status">${missing.length ? 'Missing required capability: ' + missing.map(escape).join(', ') : step.required.length ? '✓ All required capabilities covered' : 'No required hardware capabilities declared'} <small>(demo)</small></div>
+      ${otherIssues.length ? `<p class="experiment-device-warning">${otherIssues.map(escape).join(' ')}</p>` : ''}
+      <p class="experiment-readiness-note">Declaration coverage and illustrative checks only — not full Controller readiness or storage-capacity confirmation.</p>
+    </section>
+    <div class="experiment-launch-stack"><button type="button" data-session-navigate="parameters">View / Edit Parameters ↗</button><button type="button" class="session-primary launch-experiment-demo" data-launch-experiment ${canLaunch ? '' : 'disabled'}>▶ Launch Experiment <small>Simulation only — no acquisition</small></button></div>
+    ${auxiliary.length ? `<div class="experiment-step-actions">${auxiliary.map(action => `<button type="button" data-session-action="${action}">${actionLabels[action]} (demo)</button>`).join('')}</div>` : ''}
+    ${view.status === 'running' && !view.stopPending ? '<details class="experiment-simulation-controls"><summary>Simulation controls</summary><button type="button" data-session-action="complete">Complete simulation</button><button type="button" data-session-action="error">Simulate error</button></details>' : ''}
+    ${view.stopPending ? '<p class="experiment-readiness-note">Normal Stop requested in Experiment. The local stop scenario is pending; cleanup and preservation are not confirmed.</p>' : ''}`;
+}
+
+function experimentDeviceOption(device, configuration, readOnly) {
+  const checked = configuration.participants.includes(device.id);
+  return `<label class="experiment-device-option"><input type="checkbox" data-session-experiment-device="${device.id}" ${checked ? 'checked' : ''} ${readOnly || (!device.available && !checked) ? 'disabled' : ''}><span>${escape(device.name)}${device.available ? '' : ' · unavailable (demo)'}</span></label>`;
+}
+function experimentHistoryMarkup(record) {
+  return `<details class="experiment-history"><summary>Results &amp; history (${record.results.length} mock results · ${record.history.length} entries)</summary>${record.results.length ? `<div class="session-output"><h4>Retained mock results</h4><ol>${record.results.map(result => `<li><strong>${escape(result.name)}</strong><span>${escape(result.origin)} · ${escape(result.summary)}</span></li>`).join('')}</ol></div>` : ''}<ol>${record.history.map(entry => `<li>${escape(entry)}</li>`).join('')}</ol></details>`;
+}
+
 panel.addEventListener('click', event => {
   const select = event.target.closest('[data-session-step]');
   const action = event.target.closest('[data-session-action]');
-  const navigate = event.target.closest('[data-session-navigate]');
-  if (navigate) {
-    document.dispatchEvent(new CustomEvent('gui-section', { detail: navigate.dataset.sessionNavigate }));
+  const navigation = event.target.closest('[data-session-navigate]');
+  if (navigation) {
+    navigate(navigation.dataset.sessionNavigate);
     return;
   }
   if (select) {
@@ -119,6 +185,49 @@ panel.addEventListener('click', event => {
     const next = panel.querySelector('[data-session-action]');
     next?.focus({ preventScroll: true });
   }
+  if (event.target.closest('[data-load-experiment-template], [data-prepare-experiment], [data-launch-experiment]')) {
+    const progress = sessionProgress(state);
+    const step = state.protocols.find(item => item.id === state.protocolId).steps.find(item => item.id === progress.selectedId);
+    try {
+      if (event.target.closest('[data-load-experiment-template]')) {
+        const id = panel.querySelector('#experiment-template-select').value;
+        const owner = sessionIdentity().owner;
+        const record = progress.steps[step.id];
+        if (id && sessionStepView(state, step).experiment.workingModified) {
+          pendingTemplateLoad = { step, record, id, owner };
+          templateConfirmation.showModal();
+          return;
+        }
+        loadExperimentTemplate(state, step, record, id, owner);
+      }
+      else if (event.target.closest('[data-prepare-experiment]')) prepareExperimentRepeat(state, step, progress.steps[step.id]);
+      else {
+        const view = sessionStepView(state, step);
+        actOnSessionStep(state, step.id, view.actions.includes('repeat') ? 'repeat' : 'run');
+        state.experimentMonitor.identity = sessionIdentity();
+        navigate('experiment');
+      }
+      feedback = 'Demonstration configuration updated in page memory only.';
+    } catch (error) { feedback = error.message; }
+    renderSession();
+  }
+});
+panel.addEventListener('change', event => {
+  const id = event.target.dataset.sessionExperimentDevice;
+  if (!id) return;
+  const progress = sessionProgress(state);
+  const step = state.protocols.find(item => item.id === state.protocolId).steps.find(item => item.id === progress.selectedId);
+  const view = sessionStepView(state, step);
+  const participants = view.experiment.configuration.participants.filter(value => value !== id);
+  if (event.target.checked) participants.push(id);
+  const scroll = panel.scrollTop;
+  const additionalOpen = panel.querySelector('.experiment-additional-devices')?.open;
+  try { updateExperiment(state, step, progress.steps[step.id], { participants }); feedback = 'Experiment participation updated; Session inclusion is unchanged.'; }
+  catch (error) { feedback = error.message; }
+  renderSession();
+  panel.scrollTop = scroll;
+  if (panel.querySelector('.experiment-additional-devices')) panel.querySelector('.experiment-additional-devices').open = additionalOpen;
+  panel.querySelector(`[data-session-experiment-device="${CSS.escape(id)}"]`)?.focus({ preventScroll: true });
 });
 document.addEventListener('gui-section-changed', event => {
   if (event.detail === 'session') { feedback = ''; renderSession(); }

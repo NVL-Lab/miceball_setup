@@ -7,6 +7,62 @@ proposals. Under Decision 426, GUI implementation belongs in the separately
 packaged top-level `gui/` project in this repository, outside the existing
 `lab-sync-acquisition` package and distribution.
 
+## Implemented browser-demo presentation (not framework integration)
+
+The static `gui/` demonstration now presents Session, Parameters, Experiment and
+Analysis as separate full-width views within the existing six-tab shell and themes.
+This records presentation implementation only; accepted framework requirements and
+the unresolved contracts below remain unchanged.
+
+- Session retains its protocol checklist, selected-step details, history and local
+  review simulation. Experiment steps show balanced template/current-configuration
+  cards, followed by capability-grouped participant checkboxes populated from
+  Setup-selected devices. One physical device has one participation state across
+  groups; multiple providers are permitted. Concise required-coverage and other
+  illustrative checks precede View / Edit Parameters and simulated Launch Experiment.
+  Replacing modified working values with a template requires confirmation. Generic
+  Experiment information/readiness cards, empty actions/output and redundant workspace
+  navigation are removed; retained results and history remain in a compact disclosure.
+  Modified-from-template wording is an ephemeral hint, not authoritative provenance.
+- Parameters follows the single Session step selection, with no second step
+  selector or participation controls. Collapsible timing and participating-device settings use explicitly
+  fictional control definitions, not a universal scientific or SDK parameter schema.
+  Working edits survive navigation and can be used without saving a template. New
+  named personal Experiment templates are distinct from Session templates and
+  immutable reusable scientific step definitions; laboratory references are not
+  overwritten. Launch captures a separate read-only mock configuration. Preparing
+  a repeat creates editable working values without changing earlier attempts.
+- Experiment is a monitoring view: compact identity/status/duration information
+  above a synthetic image on the left, two example plots stacked on the right.
+  It has no launch button. Elapsed time is not measured; running progress is an
+  explicitly indeterminate simulation, not scientific telemetry.
+  Only a running example exposes the large red Stop Experiment control here, never
+  in Session. It requests a local Normal Stop preview, not Kill. A pending flag keeps
+  the existing mock run/configuration protected until explicit Complete stop simulation
+  reuses local completion. No new canonical framework state or stop protocol is
+  introduced. Results, configuration snapshots and output nodes remain intact;
+  distributed cleanup and preservation remain explicitly unverified, including after
+  the local stop scenario finishes.
+- Analysis uses four equally sized output panels in a 2×2 desktop grid: example
+  traces, image/selection interaction, numerical results/table and distribution.
+  These are replaceable application-output examples, not required Analysis types.
+  Existing result/review interactions remain in Session; no shell or algorithms
+  are introduced.
+- Both output views share one workspace-local expand/restore mechanism. Escape or
+  navigation restores the layout without cloning or replacing output nodes. Local
+  legend and example-selection state survives expansion and tab navigation. Theme
+  changes recolor plot surfaces/axes/text, not the fixed trace data/colors or the
+  synthetic image content, brightness or colors.
+
+All configuration, templates, attempt snapshots and results remain page-memory
+examples and reset on refresh. Demonstration duration, capability and participant
+checks establish no Controller readiness, storage-capacity estimate, reservation,
+scientific acceptance or execution authority. No NATS, hardware, persistence,
+scientific processing, actual Experiment launch or framework integration is added.
+The existing downstream review behavior remains a GUI design proposal, not an
+accepted framework dependency policy. Production parameter definitions, template
+representation and scientific-output transport still require authorized work.
+
 ## Accepted Functional Direction
 
 **Status:** User-accepted architecture in Decisions 396-405, 409-418 and 424-429.
