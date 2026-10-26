@@ -1,5 +1,13 @@
 import { createDemo, operations, devices, clone, selectProtocol, selectTemplate, coverage, saveProtocol, moveStep, assignCapability, preparedSteps, savedOccurrence, copyStepToEdit, saveReusableStep } from './protocol-demo.mjs';
 
+import { launchSessionDemo } from './session-context.mjs';
+import { sessionIdentity, navigate } from './gui-presentation.js';
+
+const validationLimit = document.createElement('label');
+validationLimit.className = 'validation-duration-field';
+validationLimit.innerHTML = 'Device Validation maximum (seconds)<input id="device-validation-maximum" type="number" min="0" step="any" placeholder="Enter a positive limit"><small>Required for device Validation only. Set before Session launch; no default or real hardware safety enforcement.</small>';
+document.querySelector('.launch-session-demo').before(validationLimit);
+
 export const state = createDemo();
 const $ = selector => document.querySelector(selector);
 const escape = value => String(value).replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
@@ -105,15 +113,18 @@ function coverageRows(rows, empty) {
 }
 function renderSetup() {
   const protocol = currentProtocol();
-  $('#protocol-select').innerHTML = state.protocols.map(p => option(p.id, p.name + (p.protected ? ' · Lab reference' : ''))).join('');
-  $('#protocol-select').value = protocol.id;
-  $('#protocol-description').textContent = protocol.description;
-  $('#edit-protocol').disabled = protocol.protected;
-  $('#edit-protocol').title = protocol.protected ? 'Protected reference: use Copy Protocol to create a personal copy.' : 'Edit personal protocol';
-  $('#session-template').innerHTML = option('', 'None / Custom') + state.templates.filter(t => t.protocol === protocol.id).map(t => option(t.id, t.name)).join('');
+  $('#protocol-select').innerHTML = option('', 'None — Free Mode') + state.protocols.map(p => option(p.id, p.name + (p.protected ? ' · Lab reference' : ''))).join('');
+  $('#protocol-select').value = protocol?.id || '';
+  $('#protocol-description').textContent = protocol?.description || 'Free Mode: launch without a predefined protocol, then choose supported scientific operations in Session.';
+  $('#edit-protocol').disabled = !protocol || protocol.protected;
+  $('#copy-protocol').disabled = !protocol;
+  $('#edit-protocol').title = protocol?.protected ? 'Protected reference: use Copy Protocol to create a personal copy.' : 'Edit personal protocol';
+  $('#session-template').disabled = !protocol;
+  $('#session-template').innerHTML = option('', 'None / Custom') + state.templates.filter(t => t.protocol === protocol?.id).map(t => option(t.id, t.name)).join('');
   $('#session-template').value = state.templateId;
   $('#template-description').textContent = state.templates.find(t => t.id === state.templateId)?.description || 'Configure this Session manually. No template selected.';
-  $('#session-steps').innerHTML = protocol.steps.map((s, i) => `<tr><td>${i + 1}</td><td>${escape(s.name)}</td><td><input type="checkbox" data-step="${escape(s.id)}" aria-label="Include ${escape(s.name)}" ${s.mandatory || state.included.includes(s.id) ? 'checked' : ''} ${s.mandatory ? 'disabled' : ''}></td><td>${s.mandatory ? 'Yes' : 'No'}</td><td class="step-description-cell">${escape(s.description)}</td></tr>`).join('');
+  $('#session-steps').closest('section').hidden = !protocol;
+  $('#session-steps').innerHTML = (protocol?.steps || []).map((s, i) => `<tr><td>${i + 1}</td><td>${escape(s.name)}</td><td><input type="checkbox" data-step="${escape(s.id)}" aria-label="Include ${escape(s.name)}" ${s.mandatory || state.included.includes(s.id) ? 'checked' : ''} ${s.mandatory ? 'disabled' : ''}></td><td>${s.mandatory ? 'Yes' : 'No'}</td><td class="step-description-cell">${escape(s.description)}</td></tr>`).join('');
   const result = coverage(state);
   $('#capability-rows').innerHTML = coverageRows(result.required, 'No required hardware capabilities for these steps.');
   $('#optional-capabilities').innerHTML = coverageRows(result.optional, 'No additional optional capabilities.');
@@ -146,6 +157,7 @@ function renderEditor() {
 function openEditor(mode) {
   if (draft) { showSection('protocol-editor'); return; }
   const source = currentProtocol();
+  if (!source && mode !== 'new') return;
   if (mode === 'edit' && source.protected) return;
   draft = mode === 'new' ? { id: `personal-${++sequence}`, name: 'New personal protocol', description: '', protected: false, steps: [] } : clone(source);
   if (mode === 'copy') { draft.id = `personal-${++sequence}`; draft.name += ' (copy)'; draft.protected = false; }
@@ -162,7 +174,7 @@ function closeEditor() {
   editorTab.hidden = true;
   showSection('setup');
 }
-$('#protocol-select').addEventListener('change', event => { selectProtocol(state, event.target.value); renderSetup(); });
+$('#protocol-select').addEventListener('change', event => { selectProtocol(state, event.target.value || null); renderSetup(); });
 $('#session-template').addEventListener('change', event => { selectTemplate(state, event.target.value); renderSetup(); });
 $('#session-steps').addEventListener('change', event => {
   const step = currentProtocol().steps.find(s => s.id === event.target.dataset.step);
@@ -310,4 +322,22 @@ $('#cancel-protocol').addEventListener('click', () => {
   else discardDialog.showModal();
 });
 discardDialog.addEventListener('close', () => { if (discardDialog.returnValue === 'discard') closeEditor(); discardDialog.returnValue = ''; });
+$('.launch-session-demo').addEventListener('click', () => {
+  try {
+    launchSessionDemo(state, sessionIdentity(), {
+      number: $('.session-identity-grid input[type="number"]').value,
+      maxDeviceValidationSeconds: Number($('#device-validation-maximum').value) || null,
+      notes: $('[aria-labelledby="notes-title"] textarea')?.value || '',
+      templateId: state.templateId,
+      baseDirectory: $('[aria-labelledby="storage-title"] input').value,
+      targetPath: $('.storage-path code').textContent,
+    });
+    $('.launch-session-demo').disabled = true;
+    $('.launch-session-demo span').textContent = 'Browser-local Session active · reload to start another';
+    $('.setup-demo-note').textContent = 'Browser-local Session active. Setup changes prepare a future Session and do not change the active context. No framework connection.';
+    navigate('session');
+  } catch (error) {
+    $('.setup-demo-note').textContent = error.message;
+  }
+});
 renderSetup();

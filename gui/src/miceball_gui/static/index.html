@@ -60,13 +60,13 @@
   <div class="app-shell" id="app-shell">
     <aside class="sidebar" id="sidebar" aria-label="Primary navigation">
       <div class="sidebar__brand" aria-label="Miceball">
-        <span class="brand-mark" aria-hidden="true">
+        <button class="brand-mark navigation-toggle" id="navigation-toggle" type="button" aria-label="Open navigation" title="Open navigation" aria-expanded="false" aria-controls="section-navigation">
           <span></span><span></span><span></span>
-        </span>
+        </button>
         <span class="brand-name">Miceball</span>
       </div>
 
-      <nav class="section-nav" aria-label="Application sections">
+      <nav class="section-nav" id="section-navigation" aria-label="Application sections">
         <button class="nav-item is-selected" type="button" data-section="setup"
                 aria-current="page" aria-controls="panel-setup" title="Setup">
           <svg aria-hidden="true"><use href="#icon-setup"></use></svg>
@@ -270,9 +270,9 @@
               </section>
 
               <button class="launch-session-demo" type="button" aria-describedby="launch-demo-note">
-                <strong>▶ &nbsp;Launch Session</strong><span>Presentation control only—no Session will start</span>
+                <strong>▶ &nbsp;Launch Session</strong><span>Start browser-local simulation · no Experiment starts automatically</span>
               </button>
-              <p class="visually-hidden" id="launch-demo-note">This demonstration button does not contact Controller or launch a Session.</p>
+              <p class="visually-hidden" id="launch-demo-note">Captures a fixed demonstration Session context in browser memory only. No Controller communication or device reservation.</p>
             </div>
           </div>
         </section>

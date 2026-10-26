@@ -2494,10 +2494,14 @@ automatic. Kill integration and overall closeout validation remain deferred.
 
 ## gui/src/miceball_gui/static/session-demo.mjs
 
-- sessionProgress: Initializes and retrieves protocol-occurrence-scoped page-memory progress for the Session visual scenario.
+- sessionProgress: Initializes and retrieves shared page-memory progress for fixed protocol or independently prepared Free Mode occurrences.
+- freeOperationChoices: Matches existing application operation fixtures against the fixed Session device pool without equating capability compatibility with readiness.
+- prepareFreeOperation: Creates a stable independent Free Mode occurrence for the shared configuration, execution and history mechanisms without creating a protocol.
 - sessionStepView: Derives display status, declaration coverage and permitted illustrative actions for one protocol step.
 - actOnSessionStep: Applies a browser-local run/repeat/review/validate/skip/result scenario while retaining earlier mock results and history.
-- selectedStepContext: Resolves the single Session-selected protocol occurrence and record for contextual GUI views.
+- selectedStepContext: Resolves the single Session-selected protocol or Free Mode occurrence and record for contextual GUI views.
+- selectRecording: Stages detached browser-provided recording metadata for one supported occurrence without executing it or changing history.
+- clearRecordingSelection: Discards the current staged input without altering execution state or retained input decisions.
 - monitoredExperiment: Resolves the last simulated Experiment and shared record independently of the currently selected Session step.
 - requestExperimentStop: Marks a running mock Experiment's Normal Stop preview pending without confirming cleanup or changing its executed configuration.
 - finishExperimentStop: Reuses local completion for the monitored mock Experiment while retaining results/history and explicitly leaving real preservation unverified.
@@ -2555,11 +2559,37 @@ automatic. Kill integration and overall closeout validation remain deferred.
 - captureExperiment: Freezes a separate mock attempt configuration and identifies the latest simulated Experiment for monitoring.
 - experimentDeviceGroups: Lists every eligible Session device per required/optional capability and derives coverage from the shared participant selection.
 
+## gui/src/miceball_gui/static/navigation-menu.mjs
+
+- createNavigationMenu: Owns explicit navigation expansion, outside/Escape dismissal and pinned-state synchronization without hover/focus reopening; returns close and syncPinned controls.
+
+## gui/src/miceball_gui/static/protocol-demo.mjs — category presentation
+
+- operationCategoryAvailability: Reports supplied definition counts for the four accepted categories without populating missing scientific procedures or outcomes.
+
+## gui/src/miceball_gui/static/animal-demo.mjs
+
+- createAnimalCatalog: Creates independent fictional page-memory metadata for the existing animal options.
+- saveAnimalDemo: Retains a copy of entered animal metadata under an ephemeral selector key without overwriting same-label examples.
+
+## gui/src/miceball_gui/static/stop-confirmation.mjs
+
+- confirmStop: Opens a shared pre-Stop dialog and invokes the existing caller workflow once only on explicit confirmation.
+
 ## gui/src/miceball_gui/static/gui-presentation.js
 
 - escapeText: Escapes dynamic values inserted into GUI markup.
 - navigate: Uses the existing GUI section-navigation event without changing operation state.
 - sessionIdentity: Reads the existing Setup identity fields for presentation without creating a second configuration model.
+- executionIdentity: Resolves the captured active Session identity, falling back to Setup only before launch.
+
+## gui/src/miceball_gui/static/session-context.mjs
+
+- freezeSnapshot: Recursively freezes detached browser-local launch values and executed configuration snapshots.
+- executionContext: Resolves the single active demonstration Session or the existing pre-launch preview.
+- executionProtocol: Resolves the fixed active protocol or the absent protocol in Free Mode.
+- executionSteps: Resolves fixed protocol occurrences or independently prepared Free Mode occurrences for the shared execution consumers.
+- launchSessionDemo: Captures a detached fixed protocol or protocol absence, inclusion, device pool, identity and Session values without starting an Experiment or contacting the framework.
 
 ## gui/src/miceball_gui/static/parameters-view.js
 
@@ -2578,4 +2608,25 @@ automatic. Kill integration and overall closeout validation remain deferred.
 - distributionPlot: Renders a fixed illustrative distribution without scientific computation.
 - imageMarkup: Presents a theme-independent synthetic image with optional local example-selection controls.
 - renderExperiment: Updates latest simulated Experiment monitoring information while preserving scientific-output DOM state.
+- renderDeviceValidation: Presents transient device-function activity and fixture output with a browser timer while preserving the normal Experiment output nodes.
 - renderAnalysis: Updates the selected Analysis context above persistent generic demonstration output panels.
+
+## gui/src/miceball_gui/static/session-view.js — attempt history
+
+- attemptHistoryMarkup: Renders stable browser-local attempt identities and statuses within the existing result/history components.
+- recordingSelectionMarkup: Displays occurrence-scoped recording metadata and simulated input-outcome history without claiming real processing.
+
+## gui/src/miceball_gui/static/recording-identity.mjs
+
+- describeRecordingSelection: Copies native file/folder selection metadata without reading File contents or inventing absolute paths.
+
+## gui/src/miceball_gui/static/recording-picker.js
+
+- openRecordingPicker: Opens native file/folder controls in the shared dialog styling and delivers metadata only after Use selection, leaving cancellation inert.
+
+## gui/src/miceball_gui/static/device-validation-demo.mjs
+
+- deviceValidationEligibility: Explains fixed-pool/participation, fixture, configured-maximum and unverified concurrent-use constraints without claiming real readiness or authorization.
+- startDeviceValidation: Creates only a transient browser-local device activity or honest non-started presentation, separate from scientific execution records.
+- stopDeviceValidation: Clears device activity and retains transient manual/deadline feedback without invoking scientific or lifecycle Stop handling.
+- tickDeviceValidation: Advances simulated elapsed/update counters and ends activity at the captured configured maximum.

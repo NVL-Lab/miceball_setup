@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { selectRecording } from '../src/miceball_gui/static/session-demo.mjs';
 import { sessionProgress, sessionStepView, actOnSessionStep, selectedStepContext, monitoredExperiment, requestExperimentStop, finishExperimentStop } from '../src/miceball_gui/static/session-demo.mjs';
 import { experimentTemplates, experimentView, updateExperiment, loadExperimentTemplate, saveExperimentTemplate, prepareExperimentRepeat, experimentDeviceGroups } from '../src/miceball_gui/static/experiment-demo.mjs';
 import { devices } from '../src/miceball_gui/static/protocol-demo.mjs';
@@ -199,8 +200,9 @@ test('Session actions reflect simulated capability availability, operation suppo
   actOnSessionStep(state, holo.id, 'skip');
   assert.equal(sessionStepView(state, holo).status, 'skipped');
   assert.ok(state.included.includes(holo.id));
-  actOnSessionStep(state, 'step-1', 'load');
-  assert.equal(sessionProgress(state).steps['step-1'].results.at(-1).origin, 'Simulated previous result');
+  selectRecording(state, 'step-1', { kind: 'file', name: 'recording.example', entries: [{ name: 'recording.example' }] });
+  actOnSessionStep(state, 'step-1', 'accept-recording');
+  assert.equal(sessionProgress(state).steps['step-1'].status, 'satisfied');
 });
 
 test('out-of-order completion requests downstream review while preserving skipped steps and results', () => {
@@ -238,12 +240,13 @@ test('sequential completion leaves later unstarted and skipped steps unchanged',
   assert.equal(sessionStepView(state, state.protocols[0].steps[3]).status, 'skipped');
 });
 
-test('loading a replacement result uses the same downstream review behavior', () => {
+test('simulated previous-recording acceptance uses the same downstream review behavior', () => {
   const state = createDemo();
   actOnSessionStep(state, 'step-4', 'run');
   actOnSessionStep(state, 'step-4', 'complete');
   const results = clone(sessionProgress(state).steps['step-4'].results);
-  actOnSessionStep(state, 'step-1', 'load');
+  selectRecording(state, 'step-1', { kind: 'file', name: 'recording.example', entries: [{ name: 'recording.example' }] });
+  actOnSessionStep(state, 'step-1', 'accept-recording');
   assert.equal(sessionProgress(state).steps['step-4'].status, 'needs-review');
   assert.deepEqual(sessionProgress(state).steps['step-4'].results, results);
 });
@@ -334,7 +337,7 @@ test('Experiment simulation gates duration and participating devices without cha
   updateExperiment(state, step, record, { durationSeconds: 60 });
   assert.ok(sessionStepView(state, step).ready);
   updateExperiment(state, step, record, { participants: ['orca', 'reward'] });
-  assert.ok(sessionStepView(state, step).issues.some(issue => issue.includes('not selected in Setup')));
+  assert.ok(sessionStepView(state, step).issues.some(issue => issue.includes('outside this Session device pool')));
   assert.deepEqual(state.selectedDevices, selected);
 });
 

@@ -1,11 +1,17 @@
 // Fictional application data and browser-memory preparation state.
+export const operationCategories = Object.freeze(['Experiment', 'Analysis', 'Scientific Validation', 'Operator interaction']);
+
+export function operationCategoryAvailability() {
+  return operationCategories.map(category => ({ category, count: operations.filter(operation => operation.type === category).length }));
+}
+
 export const operations = [
   { id: 'initial', name: 'Initial imaging', type: 'Experiment', description: 'Acquire initial imaging for ROI identification.', required: ['imaging_camera'], optional: ['behavior_video'] },
-  { id: 'roi', name: 'Suite2p ROI identification', type: 'Analysis', description: 'Identify ROIs using the application-supplied Suite2p operation.', required: [], optional: [] },
+  { id: 'roi', name: 'Suite2p ROI identification', type: 'Analysis', recordedInput: true, description: 'Identify ROIs using the application-supplied Suite2p operation.', required: [], optional: [] },
   { id: 'baseline', name: 'Baseline recording', type: 'Experiment', description: 'Record baseline activity.', required: ['imaging_camera'], optional: ['behavior_video'] },
   { id: 'holo', name: 'Holographic stimulation', type: 'Experiment', description: 'Optional holographic stimulation demonstration.', required: ['imaging_camera', 'holographic_stimulation'], optional: [] },
   { id: 'neurons', name: 'Neuron selection', type: 'Analysis', description: 'Select neurons for the cursor.', required: [], optional: [] },
-  { id: 'calibrate', name: 'Cursor calibration', type: 'Analysis', description: 'Calibrate the neural cursor.', required: [], optional: [] },
+  { id: 'calibrate', name: 'Cursor calibration', type: 'Analysis', recordedInput: true, description: 'Calibrate the neural cursor.', required: [], optional: [] },
   { id: 'loop', name: 'Closed-loop acquisition', type: 'Experiment', description: 'Run the application-supplied closed-loop operation.', required: ['imaging_camera', 'visual_stimulation', 'reward_delivery'], optional: ['behavior_video'] },
 ];
 export const devices = [
@@ -85,7 +91,7 @@ export function createDemo() {
 export function selectProtocol(state, id) {
   state.protocolId = id;
   state.templateId = '';
-  state.included = state.protocols.find(p => p.id === id).steps.filter(s => s.mandatory).map(s => s.id);
+  state.included = state.protocols.find(p => p.id === id)?.steps.filter(s => s.mandatory).map(s => s.id) || [];
 }
 export function selectTemplate(state, id) {
   const template = state.templates.find(t => t.id === id && t.protocol === state.protocolId);
@@ -101,12 +107,12 @@ export function declaredCoverage(capabilities, selectedDeviceIds) {
 }
 export function coverage(state) {
   const protocol = state.protocols.find(p => p.id === state.protocolId);
-  const steps = protocol.steps.filter(s => s.mandatory || state.included.includes(s.id));
+  const steps = protocol?.steps.filter(s => s.mandatory || state.included.includes(s.id)) || [];
   const required = [...new Set(steps.flatMap(s => s.required))];
   const optional = [...new Set(steps.flatMap(s => s.optional))].filter(c => !required.includes(c));
   const selected = devices.filter(d => state.selectedDevices.includes(d.id));
   const rows = capabilities => declaredCoverage(capabilities, state.selectedDevices);
-  return { required: rows(required), optional: rows(optional), unavailable: selected.filter(d => !d.available), skipped: protocol.steps.filter(s => !s.mandatory && !state.included.includes(s.id)).length };
+  return { required: rows(required), optional: rows(optional), unavailable: selected.filter(d => !d.available), skipped: protocol?.steps.filter(s => !s.mandatory && !state.included.includes(s.id)).length || 0 };
 }
 export function saveProtocol(state, draft) {
   const existing = state.protocols.find(p => p.id === draft.id);

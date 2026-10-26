@@ -3,10 +3,14 @@ import { state } from './protocol-setup.js';
 import { selectedStepContext, monitoredExperiment, requestExperimentStop, finishExperimentStop } from './session-demo.mjs';
 import { operations } from './protocol-demo.mjs';
 import { traceExamples, distributionExample, scientificImageExample } from './output-examples.mjs';
-import { escapeText as escape, sessionIdentity, navigate } from './gui-presentation.js';
+import { escapeText as escape, executionIdentity, navigate } from './gui-presentation.js';
+import { confirmStop } from './stop-confirmation.mjs';
+import { executionContext } from './session-context.mjs';
+import { tickDeviceValidation, stopDeviceValidation } from './device-validation-demo.mjs';
 
 const experimentPanel = document.querySelector('#panel-experiment');
 const analysisPanel = document.querySelector('#panel-analysis');
+let validationTimer = null;
 
 function outputPanel(id, title, content, caption) {
   return `<section class="output-panel" id="${id}" data-output-title="${escape(title)}" aria-label="${escape(title)}"><header><h3>${escape(title)}</h3><button type="button" data-expand-output aria-expanded="false" aria-label="Expand ${escape(title)}">Expand ↗</button></header><div class="output-content">${content}</div><p class="output-caption">${escape(caption)}</p></section>`;
@@ -23,9 +27,10 @@ function imageMarkup(interactive = false) {
 
 function renderExperiment() {
   const { monitor, record } = monitoredExperiment(state);
-  const identity = monitor?.identity || sessionIdentity();
+  const identity = monitor?.identity || executionIdentity(state);
   const information = [
     ['Animal', identity.animal], ['Session', identity.name], ['Experiment', monitor?.name || 'No demonstration launched'],
+    ['Attempt', monitor?.attemptId || 'No demonstration attempt'],
     ['Status', record ? record.stopRequested ? 'Stop requested (demo)' : `${record.status} (demo)` : 'Preview only'], ['Elapsed time', 'Not measured'],
     ['Planned duration', monitor ? `${monitor.configuration.durationSeconds} s` : 'Not selected'],
   ];
@@ -40,6 +45,38 @@ function renderExperiment() {
     : record?.results.at(-1)?.origin === 'Simulated Normal Stop'
       ? '<p role="status">Local Normal Stop demonstration finished; outputs are retained. No real distributed cleanup or preservation is confirmed.</p>'
       : '<p>Launch is available only in Session. Scientific output shown below is illustrative, including before any demonstration launch.</p>';
+  const lastValidation = executionContext(state).lastDeviceValidation;
+  if (lastValidation) experimentPanel.querySelector('#experiment-monitor-progress').insertAdjacentHTML('beforeend', `<p class="validation-ended" role="status">Device Validation for ${escape(lastValidation.deviceName)} ended: ${lastValidation.endedBy === 'maximum-duration' ? 'configured maximum duration reached' : 'manual Stop Validation'}. Browser-local only; physical cleanup remains unverified.</p>`);
+  renderDeviceValidation();
+}
+
+function renderDeviceValidation() {
+  const validation = executionContext(state).deviceValidation;
+  let panel = experimentPanel.querySelector('#device-validation-view');
+  if (!panel) {
+    panel = document.createElement('section'); panel.id = 'device-validation-view'; panel.className = 'device-validation-view'; experimentPanel.append(panel);
+  }
+  for (const child of experimentPanel.children) child.hidden = child === panel ? !validation : !!validation;
+  if (!validation) {
+    clearInterval(validationTimer); validationTimer = null; panel.replaceChildren(); return;
+  }
+  if (panel.dataset.device !== validation.deviceId || !panel.children.length) {
+    panel.dataset.device = validation.deviceId;
+    const output = validation.output === 'image' ? `<section class="output-panel"><h3>Simulated camera preview</h3>${imageMarkup()}<p>Repeated fixed synthetic image, not a camera connection.</p></section>` : validation.output === 'plot' ? `<section class="output-panel"><h3>Simulated position/measurement preview</h3>${tracePlot('device-validation')}<p>Fixed illustrative traces, not sensor measurements.</p></section>` : `<section class="session-detail-box"><h3>${validation.output === 'actuator' ? 'Simulated actuator operation' : 'Device operation'}</h3><p>${validation.output === 'actuator' ? 'Water-delivery operation is represented by status only. No delivery, pulse command or physical action occurs.' : 'No visualization is declared for this device fixture.'}</p></section>`;
+    panel.innerHTML = `<div class="view-heading"><div><h2>Device Validation · simulation</h2><p>${escape(validation.deviceName)} · ${escape(validation.deviceId)}</p></div><button type="button" data-science-session>Session</button></div><p class="view-notice">Device-function operation, not readiness-only checking and not a scientific Validation protocol step. No real activation, recording, reservation or safety confirmation. Actual readiness and ownership require future framework integration.</p><p id="device-validation-status" role="status"></p><p id="device-validation-elapsed"></p><button type="button" class="stop-validation-demo" data-stop-validation>Stop Validation</button><button type="button" data-close-validation>Return to Experiment</button><div id="device-validation-output">${output}</div>`;
+  }
+  const active = validation.status === 'running';
+  panel.querySelector('#device-validation-status').textContent = active ? `Active simulated device operation · real readiness/ownership unverified${validation.notice ? ` · ${validation.notice}` : ''}` : `Validation not started: ${validation.reason}`;
+  panel.querySelector('#device-validation-elapsed').textContent = active ? `Simulated elapsed: ${validation.elapsedSeconds.toFixed(1)} s · Configured maximum: ${validation.maximumSeconds} s · Preview update: ${validation.updates}` : 'No device activation or Experiment change was simulated.';
+  panel.querySelector('[data-stop-validation]').hidden = !active;
+  panel.querySelector('[data-close-validation]').hidden = active;
+  panel.querySelector('#device-validation-output').hidden = !active;
+  if (active && !validationTimer) validationTimer = setInterval(() => {
+    tickDeviceValidation(state, performance.now());
+    if (!executionContext(state).deviceValidation) renderExperiment();
+    else renderDeviceValidation();
+  }, 500);
+  if (!active) { clearInterval(validationTimer); validationTimer = null; }
 }
 
 function renderAnalysis() {
@@ -47,17 +84,28 @@ function renderAnalysis() {
     const metrics = '<table class="example-metrics"><caption>Illustrative numerical results</caption><thead><tr><th>Example metric</th><th>Value</th></tr></thead><tbody><tr><td>Regions</td><td>14</td></tr><tr><td>Quality score</td><td>0.87</td></tr><tr><td>Selected examples</td><td>4</td></tr><tr><td>Result status</td><td>Demonstration only</td></tr></tbody></table>';
     analysisPanel.innerHTML = `<h2 id="heading-analysis" class="visually-hidden">Analysis</h2><div class="view-heading"><div><h2>Analysis</h2><p id="analysis-context"></p></div><button type="button" data-science-session>Back to Session</button></div><p class="view-notice">Generic output surfaces with fictional examples, not mandatory Analysis outputs. No algorithms or code execution. Existing result/review actions remain in Session.</p><div class="analysis-output-grid">${outputPanel('analysis-traces', 'Activity traces · example', tracePlot('analysis'), 'Fixed trace data. Legend selections are local display choices.')}${outputPanel('analysis-image', 'Image / interaction · example', imageMarkup(true), 'Selection demonstration only. No ROI identification or neuron-selection algorithm.')}${outputPanel('analysis-metrics', 'Numerical results / table · example', metrics, 'Fictional numbers, not computed scientific metrics.')}${outputPanel('analysis-distribution', 'Distribution · example', distributionPlot(), 'Application-defined output example. Other applications may use different panel contents.')}</div>`;
   }
-  const { step } = selectedStepContext(state);
+  const { step, record } = selectedStepContext(state);
   const isAnalysis = step && operations.find(operation => operation.id === step.operation)?.type === 'Analysis';
-  analysisPanel.querySelector('#analysis-context').textContent = isAnalysis ? `Session selection: ${step.name} · output examples only` : 'No Analysis step selected. Select one in Session; generic examples remain available for visual review.';
+  const retainedInput = record?.recordedInputs?.findLast(input => input.outcome === 'accepted');
+  const inputContext = record?.recordingSelection ? ` · Selected input: ${record.recordingSelection.selection.name} (${record.recordingSelection.review}; no real processing)` : record?.status === 'satisfied' && retainedInput ? ` · Retained accepted input: ${retainedInput.selection.name} (simulated; no real processing)` : '';
+  analysisPanel.querySelector('#analysis-context').textContent = isAnalysis ? `Session selection: ${step.name} · ${record.status === 'satisfied' ? 'Satisfied using previous recording (simulated acceptance)' : 'output examples only'}${inputContext}` : 'No Analysis step selected. Select one in Session; generic examples remain available for visual review.';
 }
 
 for (const panel of [experimentPanel, analysisPanel]) {
   panel.addEventListener('click', event => {
+    if (event.target.closest('[data-stop-validation], [data-close-validation]')) {
+      stopDeviceValidation(state); renderExperiment(); return;
+    }
     if (event.target.closest('[data-science-session]')) navigate('session');
     if (event.target.closest('[data-stop-experiment], [data-finish-experiment-stop]')) {
       try {
-        if (event.target.closest('[data-stop-experiment]')) requestExperimentStop(state);
+        if (event.target.closest('[data-stop-experiment]')) {
+          confirmStop('Experiment', () => {
+            try { requestExperimentStop(state); renderExperiment(); }
+            catch (error) { experimentPanel.querySelector('#experiment-monitor-progress').textContent = error.message; }
+          });
+          return;
+        }
         else finishExperimentStop(state);
         renderExperiment();
       } catch (error) { experimentPanel.querySelector('#experiment-monitor-progress').textContent = error.message; }

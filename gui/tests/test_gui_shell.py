@@ -69,8 +69,8 @@ class GuiShellTests(unittest.TestCase):
         for behavior in (
             "function setSection(sectionId)",
             "function setPinned(pinned)",
-            'sidebar.addEventListener("pointerenter"',
-            'sidebar.addEventListener("pointerleave"',
+            'navigationMenu.close()',
+            'navigationMenu.syncPinned()',
             'document.addEventListener("pointerdown"',
             'item.addEventListener("keydown"',
         ):

@@ -2,7 +2,7 @@ import { state } from './protocol-setup.js';
 import { devices, operations } from './protocol-demo.mjs';
 import { selectedStepContext } from './session-demo.mjs';
 import { deviceExamples, experimentView, updateExperiment, saveExperimentTemplate } from './experiment-demo.mjs';
-import { escapeText as escape, sessionIdentity, navigate } from './gui-presentation.js';
+import { escapeText as escape, executionIdentity, navigate } from './gui-presentation.js';
 
 const panel = document.querySelector('#panel-parameters');
 let message = '';
@@ -30,7 +30,7 @@ function renderParameters() {
       <details class="parameter-section" open><summary>Experiment timing</summary><div class="parameter-section-body"><label>Planned duration (seconds)<input type="number" id="experiment-duration" value="${escape(configuration.durationSeconds)}" min="1" step="any" required></label><p>Explicit demonstration duration, not a real acquisition deadline.</p></div></details>
       ${participants.map(device => `<details class="parameter-section" open><summary>${escape(device.name)} <small>Illustrative settings</small></summary><div class="parameter-section-body">${(deviceExamples[device.id]?.fields || []).map(field => parameterField(field, configuration.values[field.id])).join('') || '<p>No example parameters supplied for this device.</p>'}</div></details>`).join('')}
     </fieldset>
-    <section class="personal-template-area"><h3>Save as personal template <small>Optional</small></h3><p>A new name creates an independent Experiment template for ${escape(sessionIdentity().experimenter)}. Laboratory templates are never overwritten.</p><form id="personal-experiment-template"><label>New personal template name<input name="templateName" required ${readOnly ? 'disabled' : ''} placeholder="My baseline configuration"></label><button type="submit" ${readOnly ? 'disabled' : ''}>Save as personal template</button></form></section>
+    <section class="personal-template-area"><h3>Save as personal template <small>Optional</small></h3><p>A new name creates an independent Experiment template for ${escape(executionIdentity(state).experimenter)}. Laboratory templates are never overwritten.</p><form id="personal-experiment-template"><label>New personal template name<input name="templateName" required ${readOnly ? 'disabled' : ''} placeholder="My baseline configuration"></label><button type="submit" ${readOnly ? 'disabled' : ''}>Save as personal template</button></form></section>
     <p id="parameter-feedback" role="status">${escape(message)}</p>`;
 }
 
@@ -61,7 +61,7 @@ panel.addEventListener('submit', event => {
   if (invalid) { invalid.reportValidity(); return; }
   const { step, record } = selectedStepContext(state);
   try {
-    const template = saveExperimentTemplate(state, step, record, event.target.elements.templateName.value, sessionIdentity().owner);
+    const template = saveExperimentTemplate(state, step, record, event.target.elements.templateName.value, executionIdentity(state).owner);
     message = `Saved personal Experiment template “${template.name}” in page memory. No shared template or previous attempt changed.`;
   } catch (error) { message = error.message; }
   panel.querySelector('#parameter-feedback').textContent = message;

@@ -71,7 +71,10 @@ button {
   transition: width var(--ease), box-shadow var(--ease);
 }
 
-.sidebar:not(.is-pinned):not(.is-suppress-hover):is(:hover, :focus-within, .is-temporary-expanded),
+.navigation-toggle { padding: 0; border: 0; background: transparent; color: inherit; cursor: pointer; }
+.navigation-toggle:focus-visible { outline: 2px solid var(--blue-400); outline-offset: 4px; border-radius: 3px; }
+
+.sidebar:not(.is-pinned).is-temporary-expanded,
 .sidebar.is-pinned {
   width: var(--sidebar-expanded);
   box-shadow: 8px 0 28px rgb(5 18 34 / 18%);
@@ -131,7 +134,7 @@ button {
   transition: opacity 100ms ease, transform var(--ease);
 }
 
-.sidebar:not(.is-pinned):not(.is-suppress-hover):is(:hover, :focus-within, .is-temporary-expanded) .brand-name,
+.sidebar:not(.is-pinned).is-temporary-expanded .brand-name,
 .sidebar.is-pinned .brand-name {
   opacity: 1;
   transform: none;
@@ -212,7 +215,7 @@ button {
   transition: opacity 100ms ease, transform var(--ease);
 }
 
-.sidebar:not(.is-pinned):not(.is-suppress-hover):is(:hover, :focus-within, .is-temporary-expanded) .theme-toggle__label,
+.sidebar:not(.is-pinned).is-temporary-expanded .theme-toggle__label,
 .sidebar.is-pinned .theme-toggle__label {
   opacity: 1;
   transform: none;
@@ -251,7 +254,7 @@ button {
   transition: opacity 100ms ease, transform var(--ease);
 }
 
-.sidebar:not(.is-pinned):not(.is-suppress-hover):is(:hover, :focus-within, .is-temporary-expanded) :is(.nav-item span, .pin-button__label),
+.sidebar:not(.is-pinned).is-temporary-expanded :is(.nav-item span, .pin-button__label),
 .sidebar.is-pinned :is(.nav-item span, .pin-button__label) {
   opacity: 1;
   transform: none;
@@ -419,7 +422,7 @@ button {
   transition: opacity 100ms ease, transform var(--ease);
 }
 
-.sidebar:not(.is-pinned):not(.is-suppress-hover):is(:hover, :focus-within, .is-temporary-expanded) .alerts__label,
+.sidebar:not(.is-pinned).is-temporary-expanded .alerts__label,
 .sidebar.is-pinned .alerts__label {
   opacity: 1;
   transform: none;

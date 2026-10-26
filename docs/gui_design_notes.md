@@ -9,6 +9,83 @@ packaged top-level `gui/` project in this repository, outside the existing
 
 ## Implemented browser-demo presentation (not framework integration)
 
+Slice 6, as corrected by the project owner, adds read-only availability
+presentation for the four accepted operation categories. Scientific Validation
+and operator interaction remain unpopulated; no new procedure, input, duration,
+decision, acceptance/rejection outcome or application API is supplied or inferred.
+Their concrete application definitions are deferred work, not architectural
+blockers. Existing Experiment, Analysis, recorded-input and independent Device
+Validation behavior remains unchanged.
+
+The owner's navigation correction replaces hover/focus expansion with the
+explicit top-left navigation toggle. Tab selection closes the unpinned menu,
+and it stays closed until explicitly reopened. Outside click and Escape dismiss
+it, keyboard tab navigation is retained, and pinned layout remains available.
+The former pointerleave/suppression/focus-within interaction was removed rather
+than masked by timing delays.
+
+Slice 5 adds active **Device Validation** presentation under Decision 425, not
+scientific Validation under Decision 428. A Validate button beside each selected
+Experiment participant remains usable with editable, running or completed
+configuration and opens Experiment. Browser-local fixtures show repeated synthetic
+camera images, fixed sensor/position traces with update counters, actuator status,
+or no visualization as appropriate. They do not activate hardware or create
+scientific execution, recording, progression or preservation evidence.
+
+Setup now exposes the Device Validation maximum in seconds, without a default.
+Its positive value is captured at simulated Session launch. Without it the demo
+explains why activity cannot start; it does not run indefinitely or block ordinary
+Session launch. Manual Stop Validation and the configured deadline return to the
+normal Experiment view, leaving scientific records and recorded inputs intact.
+The browser timer is presentation-only and may be delayed by suspension/throttling;
+it is not physical safety enforcement. The last end reason is transient feedback,
+not durable operational evidence. Unavailable/unsupported fixtures and unverified
+concurrent use of a running device are explained without asserting real readiness
+or interrupting the Experiment. Reverse-order conflicting demo starts are likewise
+refused. Actual permission, compatibility, reservations, activation, cleanup and
+deadline enforcement remain framework-owner integration responsibilities.
+
+Slice 4 replaces the one-click previous-result mock with native file/folder
+selection for the existing ROI-identification and cursor-calibration Analysis
+fixtures. No Experiment fixture currently declares recorded-input support;
+normal Experiment execution is unchanged. Metadata selection is occurrence-local
+and does not change status/history. Explicit simulated scientific-application
+acceptance marks **Satisfied using previous recording**, distinct from **Executed**
+and **Skipped**, without adding an execution attempt or scientific output.
+Rejection preserves earlier status/results; input-outcome history is retained.
+The existing protocol downstream-review proposal also retains this distinction.
+The GUI copies filenames, available folder-relative paths, sizes and modification
+timestamps only: it does not read/upload contents, fabricate absolute paths,
+ingest data or establish suitability. Folder selection depends on browser support
+and may omit empty folders. Cancellation leaves the prior selection unchanged.
+Real recording resolution, suitability, scientific acceptance and processing
+remain scientific-application/framework integration work.
+
+Slice 3 demonstrates Decision 430's Protocol Mode and Free Mode within the six
+existing tabs. Setup's None selection captures an absent protocol (JavaScript
+`null`), not a fabricated definition. Mode and physical Session devices remain
+fixed at simulated launch. Protocol Mode retains its fixed checklist; Free Mode
+prepares independent occurrences from the existing application fixtures and shows
+operation history, not a predefined sequence or completion requirement.
+Capability compatibility is separate from readiness. Both modes reuse the same
+Parameters, execution, attempt/result history and confirmed Stop mechanisms.
+Browser-local attempt identifiers are not framework execution identities. No
+scientific dependency policy is inferred from Free Mode history. New Validation
+and operator-interaction examples remain deferred, as does
+real scientific-application/framework integration; Slice 4 adds the bounded
+browser-local recorded-input selection described above.
+
+Slice 2 corrects animal selection using page-memory metadata: selecting an
+existing or newly created example restores all supported summary fields; dismissing
+New Animal leaves selection and metadata unchanged. Setup edits do not change
+the active Session's captured animal identity. Nothing is durably cataloged.
+
+Session Stop and Experiment Stop now first ask **Confirm Stop / Keep Running**.
+Dismissal initiates no Stop, lifecycle change, history entry or escalation.
+Confirmation alone invokes the existing browser-local Stop workflow; the later
+blocked Stop, Cancel and Kill authorization previews remain separate and unchanged.
+This records implementation only, not independent audit or slice closure.
+
 The static `gui/` demonstration now presents Session, Parameters, Experiment and
 Analysis as separate full-width views within the existing six-tab shell and themes.
 This records presentation implementation only; accepted framework requirements and
@@ -682,6 +759,15 @@ both Session closeout and operational framework shutdown.
 ## GUI Closure Versus Framework Shutdown
 
 **Closing the GUI and shutting down the operational framework are separate actions.**
+
+Browser-local Slice 1 now provides a simulated Setup launch that captures a
+detached application-owned Session context (Decision 430): protocol occurrences,
+order, inclusion/capabilities, identity, Session values and physical device pool.
+Execution views use this context while Setup remains editable for future work.
+Launch does not start an Experiment or establish Controller acceptance,
+reservation or persistence. One active context is supported until reload; prior
+illustrative results/attempts remain demonstrations. This is not framework
+integration, independent validation/audit or closure of the wider GUI work.
 
 This distinction is already accepted by Decisions 304 and 314: operational
 services have GUI-independent lifetimes, and GUI closure is separate from

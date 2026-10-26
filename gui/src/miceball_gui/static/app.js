@@ -1,3 +1,7 @@
+import { createAnimalCatalog, saveAnimalDemo } from './animal-demo.mjs';
+import { createNavigationMenu } from './navigation-menu.mjs';
+
+const animalCatalog = createAnimalCatalog();
 const sectionNames = {
   setup: "Setup",
   session: "Session",
@@ -10,6 +14,7 @@ const sectionNames = {
 
 const appShell = document.querySelector("#app-shell");
 const sidebar = document.querySelector("#sidebar");
+const navigationMenu = createNavigationMenu(sidebar, document.querySelector('#navigation-toggle'), document, () => setPinned(false));
 const pinButton = document.querySelector("#pin-button");
 const pinLabel = pinButton.querySelector(".pin-button__label");
 const sectionTitle = document.querySelector("#section-title");
@@ -225,6 +230,9 @@ function setAlertsPanelOpen(open, returnFocus = false) {
 
 function setSection(sectionId) {
   if (!sectionNames[sectionId]) return;
+  if (!sidebar.classList.contains('is-pinned')) {
+    navigationMenu.close();
+  }
 
   document.querySelectorAll(".nav-item").forEach((item) => {
     const selected = item.dataset.section === sectionId;
@@ -245,10 +253,8 @@ function setSection(sectionId) {
 }
 
 function setPinned(pinned) {
-  const wasPinned = sidebar.classList.contains("is-pinned");
   sidebar.classList.toggle("is-pinned", pinned);
-  sidebar.classList.remove("is-temporary-expanded");
-  sidebar.classList.toggle("is-suppress-hover", wasPinned && !pinned);
+  navigationMenu.syncPinned();
   appShell.classList.toggle("is-pinned", pinned);
   pinButton.setAttribute("aria-pressed", String(pinned));
   pinButton.title = pinned ? "Unpin sidebar" : "Pin sidebar";
@@ -286,23 +292,7 @@ themeToggle.addEventListener("click", () => {
   setTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
 });
 
-sidebar.addEventListener("pointerenter", () => {
-  if (!sidebar.classList.contains("is-pinned")) {
-    sidebar.classList.add("is-temporary-expanded");
-  }
-});
-
-sidebar.addEventListener("pointerleave", () => {
-  sidebar.classList.remove("is-temporary-expanded");
-  sidebar.classList.remove("is-suppress-hover");
-});
-
 document.addEventListener("pointerdown", (event) => {
-  if (!sidebar.contains(event.target) && !sidebar.classList.contains("is-pinned")) {
-    sidebar.classList.remove("is-temporary-expanded");
-    workspace.focus({ preventScroll: true });
-  }
-
   if (!alerts.contains(event.target) && !alertsPanel.hidden) {
     setAlertsPanelOpen(false);
   }
@@ -341,7 +331,10 @@ catalogSelects.forEach((select) => {
   select.dataset.previousValue = select.value;
   select.addEventListener("change", () => {
     if (select.value.startsWith("__new_")) openCatalogDialog(select);
-    else select.dataset.previousValue = select.value;
+    else {
+      select.dataset.previousValue = select.value;
+      if (select.dataset.catalogSelect === 'animal') updateAnimalSummary(animalCatalog.get(select.value) || {});
+    }
   });
 });
 
@@ -357,10 +350,14 @@ catalogForm.addEventListener("submit", (event) => {
   const catalogType = catalogDialog.dataset.catalogType;
   const values = Object.fromEntries(new FormData(catalogForm));
   const displayValue = values[catalogForms[catalogType].valueField].trim();
-  const newOption = new Option(displayValue, displayValue, true, true);
+  // An ephemeral option key keeps same-label examples independent without catalog identity rules.
+  const optionValue = catalogType === 'animal' ? saveAnimalDemo(animalCatalog, values) : displayValue;
+  const newOption = new Option(displayValue, optionValue, true, true);
   activeCatalogSelect.add(newOption, activeCatalogSelect.lastElementChild);
-  activeCatalogSelect.dataset.previousValue = displayValue;
-  if (catalogType === "animal") updateAnimalSummary(values);
+  activeCatalogSelect.dataset.previousValue = optionValue;
+  if (catalogType === "animal") {
+    updateAnimalSummary(animalCatalog.get(optionValue));
+  }
   catalogDialog.close("save");
 });
 

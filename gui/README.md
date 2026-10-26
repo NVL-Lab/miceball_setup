@@ -211,3 +211,90 @@ stays the same across deployments while the repository name/domain stays the sam
 Protocol edits, acknowledgments and catalog examples remain page-local and reset
 on refresh. Only the theme preference uses browser-local storage, per origin; it
 is not a framework record. GitHub Pages does not host an operational GUI backend.
+
+### Active Session demonstration
+
+**Navigation:** Use the top-left logo button (**Open navigation**) to expand the
+unpinned menu. Selecting a tab closes it; hover/focus does not reopen it. The same
+toggle, clicking outside, or Escape dismisses it. Pinning retains the expanded
+workspace layout; the toggle can unpin and close it. Existing keyboard navigation
+among tabs is preserved.
+
+**Operation categories:** Session reports the available application definitions
+for Experiment, Analysis, scientific Validation and operator interaction. The last
+two remain unpopulated: no procedures, bounds, decisions or acknowledgment/outcome
+fixtures have been supplied. Slice 6 adds no scientific examples or execution
+semantics for them. This is deferred application work, not an architectural blocker.
+
+**Device Validation:** Before Session launch, enter a positive **Device Validation
+maximum (seconds)** in Setup. No default is assumed. This field is needed only
+for Validation; a missing value does not prevent normal Session/Experiment demos.
+The captured limit cannot be changed by editing future Setup preparation.
+
+In Session, participating Experiment devices have **Validate** controls even when
+their configuration is read-only. Validate opens the separate Device Validation
+view in Experiment. **Stop Validation** immediately returns to normal monitoring,
+without Session/Experiment Stop confirmation or history. The configured maximum
+also ends the demonstration and reports its reason. Camera and position examples
+reuse fixed synthetic output with an elapsed/update counter; water-delivery
+actuators need only status. All activity is simulated; no physical actions occur.
+
+Unavailable/unsupported cases or unverified concurrent device use show an
+explanation rather than simulated activation. Stop a running device's activity
+before trying the conflicting demo. These are not real authorization/readiness
+decisions. Browser clocks can be throttled or suspended, so this timer is not a
+hardware safety mechanism. Real activation, device ownership/compatibility,
+autonomous deadline enforcement, cleanup and evidence remain future integration.
+Device Validation does not count as a scientific Validation operation or alter
+protocol/Free Mode history, configurations, results or recorded inputs.
+
+Run focused checks with `node --test gui/tests/test_device_validation.mjs`.
+
+**Previous recordings:** ROI identification and cursor calibration offer **Load
+previous recording**, alongside their normal execution action. These are the
+existing Analysis fixtures with recorded-input support; other operations do not
+gain inferred support. Choose a file or, in supporting browsers, a nonempty folder
+from any accessible Session/project. **Use selection** stages metadata only.
+Choose an explicitly labeled simulated acceptance/rejection afterward; selecting
+a file alone never satisfies the occurrence. Acceptance shows **Satisfied using
+previous recording**, not new execution or acquisition. Prior results and input
+decisions remain in history. Cancel/Escape preserves the old selection and adds
+no history. Clear selection removes the staged input, not earlier decisions.
+
+Only browser-provided names, relative paths (when available), sizes and timestamps
+are retained in page memory. No absolute path, content reading, upload, import,
+scientific suitability check or processing is performed. Folder support and empty
+folder selection depend on the browser. Reload discards selection metadata.
+Run focused checks with `node --test gui/tests/test_recording_selection.mjs`.
+
+Choose an existing protocol for Protocol Mode or **None — Free Mode** before
+launch. None is stored as an absent protocol (`null` in this JavaScript demo),
+without creating a protocol definition. In Free Mode, use **Prepare operation**
+in Session to choose from the existing Experiment/Analysis fixtures. Configure
+Experiments in Parameters and launch them explicitly from Session. Operation
+history retains separate occurrences, attempts and results; there is no required
+next step or protocol-completion condition. Missing capabilities disable choices;
+compatible does not mean ready. Both modes retain the launched physical device
+pool despite subsequent Setup edits, and use the same Stop confirmations.
+
+Run Free Mode model regressions with `node --test gui/tests/test_free_mode.mjs`.
+
+Animal selections now restore their own summary metadata, including newly created
+examples, in page memory only. Reload discards added animals. Setup animal changes
+after launch do not change the active Session's captured animal identity.
+
+Both Stop controls first require **Confirm Stop**. **Keep Running** or Escape
+dismisses the dialog without starting any Stop or adding execution history.
+After confirmation, the existing Stop/blocked-Stop/Kill previews are unchanged.
+
+Setup's **Launch Session** captures a fixed browser-memory Session context and
+opens Session; it does not start an Experiment. Subsequent Setup edits prepare a
+future Session without changing the active procedure, identity, included steps or
+device pool. Session, Parameters and Experiment use that captured context.
+Existing illustrative results remain explicitly fictional. Finish any running
+pre-launch preview before launching. Only one active demonstration Session is
+supported; reload resets it. No Controller acceptance, reservations or durable
+Session persistence are simulated by launch.
+
+Run the focused active-context checks with
+`node --test gui/tests/test_active_session.mjs` from the repository root.

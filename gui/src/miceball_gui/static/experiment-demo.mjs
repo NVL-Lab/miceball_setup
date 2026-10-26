@@ -1,5 +1,6 @@
 // Explicitly fictional fixtures, not device SDK definitions or a framework schema.
 import { clone, devices, declaredCoverage } from './protocol-demo.mjs';
+import { executionContext } from './session-context.mjs';
 
 export const deviceExamples = {
   orca: { acquisition: true, fields: [{ id: 'orca.exposure', label: 'Example exposure (ms)', type: 'number', value: 10, min: 1, max: 1000 }, { id: 'orca.trigger', label: 'Example trigger mode', type: 'select', value: 'Internal', options: ['Internal', 'External'] }] },
@@ -27,10 +28,12 @@ function freezeConfiguration(configuration) {
   return Object.freeze(copy);
 }
 export function experimentTemplates(state, operation, owner) {
+  state = executionContext(state);
   state.experimentTemplates ??= Object.entries(operationExamples).map(([id, example]) => Object.freeze({ id: `experiment-${id}`, operation: id, owner: null, name: example.name, configuration: freezeConfiguration(exampleConfiguration(id)) }));
   return state.experimentTemplates.filter(template => template.operation === operation && (template.owner === null || template.owner === owner));
 }
 export function experimentView(state, step, record) {
+  state = executionContext(state);
   if (!record.experiment) {
     const working = exampleConfiguration(step.operation);
     working.participants = working.participants.filter(id => state.selectedDevices.includes(id));
@@ -62,6 +65,7 @@ export function loadExperimentTemplate(state, step, record, id, owner, replaceMo
   record.experiment.templateId = template.id;
 }
 export function saveExperimentTemplate(state, step, record, name, owner) {
+  state = executionContext(state);
   const view = experimentView(state, step, record);
   if (view.readOnly) throw new Error('Prepare an editable configuration before saving a new template.');
   const available = experimentTemplates(state, step.operation, owner);
@@ -81,9 +85,10 @@ export function prepareExperimentRepeat(state, step, record) {
   view.bundle.editing = true;
 }
 export function experimentIssues(state, step, configuration) {
+  state = executionContext(state);
   const issues = [];
   if (!Number.isFinite(configuration.durationSeconds) || configuration.durationSeconds <= 0) issues.push('Set a positive planned duration.');
-  if (configuration.participants.some(id => !state.selectedDevices.includes(id))) issues.push('Remove participants that are not selected in Setup.');
+  if (configuration.participants.some(id => !state.selectedDevices.includes(id))) issues.push('Remove participants outside this Session device pool.');
   const participants = devices.filter(device => configuration.participants.includes(device.id));
   if (!participants.some(device => deviceExamples[device.id]?.acquisition)) issues.push('Select at least one demonstration data-acquisition device.');
   if (participants.some(device => !device.available)) issues.push('A participating demonstration device is unavailable.');
@@ -98,7 +103,9 @@ export function experimentIssues(state, step, configuration) {
   return issues;
 }
 export function captureExperiment(state, step, record) {
+  state = executionContext(state);
   const view = experimentView(state, step, record);
+  if (state.deviceValidation?.status === 'running' && view.configuration.participants.includes(state.deviceValidation.deviceId)) throw new Error('A participating device has active browser-local Validation. Compatible concurrent use is unverified; Stop Validation before launching this simulation.');
   const issues = experimentIssues(state, step, view.configuration);
   if (issues.length) throw new Error(issues.join(' '));
   const snapshot = freezeConfiguration(view.configuration);
@@ -109,6 +116,7 @@ export function captureExperiment(state, step, record) {
 }
 
 export function experimentDeviceGroups(state, step, configuration) {
+  state = executionContext(state);
   const groups = [...step.required.map(capability => ({ capability, required: true })), ...step.optional.filter(capability => !step.required.includes(capability)).map(capability => ({ capability, required: false }))];
   const coverage = declaredCoverage(groups.map(group => group.capability), configuration.participants.filter(id => state.selectedDevices.includes(id)));
   return groups.map((group, index) => ({ ...group, options: devices.filter(device => state.selectedDevices.includes(device.id) && device.capabilities.includes(group.capability)), covered: coverage[index].providers.some(device => device.available) }));

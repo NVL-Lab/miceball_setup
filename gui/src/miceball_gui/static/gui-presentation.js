@@ -1,4 +1,7 @@
 export const escapeText = value => String(value).replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
+export function executionIdentity(state) {
+  return state.activeSession?.identity || sessionIdentity();
+}
 export function navigate(section) {
   document.dispatchEvent(new CustomEvent('gui-section', { detail: section }));
 }
