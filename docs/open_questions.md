@@ -153,7 +153,9 @@ settle editable application catalog ownership, historical Session metadata,
 lab/personal template editing rules and immutable historical configuration.
 Decision 424 records the accepted Session metadata and launch-time durability
 clarification below. Decision 427 settles protocol name association, template
-defaults and capability matching without a snapshot requirement. Decision 425
+defaults and capability matching without a snapshot requirement. Decision 430
+settles Protocol Mode/Free Mode and the fixed active procedure as described below.
+Decision 425
 records the completed bounded implementation
 and independent audit PASS at `5da9b35`. Q008 remains OPEN pending deployment
 validation, closure and remaining configuration-model scope.
@@ -178,14 +180,16 @@ required. No project-sharing or permissions infrastructure is authorized.
 ### Accepted protocol, capability and input boundaries (Decision 427)
 
 Experimenters create, edit, reorder, copy and save protocols using application
-operations via the existing Setup tab. Ordinary preparation selects a protocol
-and adjusts permitted optional steps/capabilities. Scientific coherence belongs
+operations via the existing Setup tab. Protocol Mode preparation selects a
+protocol and adjusts permitted optional steps/capabilities; Free Mode selects no
+protocol under Decision 430. Scientific coherence belongs
 to the experimenter; no generic protocol engine/dependency validator is required.
 Session templates supply reusable defaults such as protocol selection, optional
 functionality, Session settings and preferred devices, not execution authority.
 
 The owner explicitly supersedes the earlier fixed-protocol-snapshot requirement.
-Retain the selected protocol name in immutable accepted Session configuration;
+Retain the selected protocol name (Protocol Mode) or `None` (Free Mode) in
+immutable accepted Session configuration under Decision 430;
 do not copy complete protocol definitions into every Session or interpret
 `protocol_plan` as requiring them. Protocol stability during a project is expected,
 not enforced. No protocol snapshot, version-management system or new template service is
@@ -225,6 +229,41 @@ provenance and historical integrity remain; there is no universal input validato
 The general recorded-input execution contract remains missing and is not invented
 here. Protocol/template authoring and matching implementation also remain pending.
 These settled boundaries do not close Q008 or repeat Decision 424 implementation.
+
+### Accepted Session modes and fixed active procedure (Decision 430)
+
+The mode is fixed at launch using the accepted protocol name or `None`; no
+separate mode identifier is required, and `None` is not a fictitious protocol
+name. Decision 424's immutability, readback and authoritative durable launch
+preservation remain unchanged.
+
+In Protocol Mode, the application fixes the ordered steps at launch. Replacing
+the active protocol, adding/removing/reordering defined steps, or changing their
+required/optional status or declared capability requirements is not permitted.
+Reusable protocols remain editable for future Sessions, independently of the
+active procedure. Permitted skipping, repetition, recorded inputs and
+pre-execution Experiment configuration remain available. Controller keeps only
+the name; no mandatory persistent snapshot, versioning or new authority is added.
+
+In Free Mode, the experimenter selects application-supplied scientific operations
+during the Session, including order and repetition. Expose compatible operations
+using the fixed Session device pool and applicable capability/execution
+requirements, not operations inferred from device capabilities alone. No adding
+or replacing Session devices is permitted in either mode; Experiment subsets,
+sequential reuse and Experiment-specific settings remain available. Technical
+readiness, whole-node reservations and all existing safety contracts still apply.
+
+Progression distinguishes Executed, Satisfied using previous recording, and
+Skipped. Satisfaction may count as completed without new acquisition; skipping
+does not claim execution or outputs. Preserve actual input provenance. Existing
+data processing alone is Analysis; Validation and operator interactions remain
+distinct, and Experiments still require acquisition participants. Accepted
+Experiment execution configuration becomes immutable at execution start.
+
+These architectural semantics are resolved; GUI/application representation and
+functional integration remain implementation work under existing contracts, not
+a new Free Mode lifecycle. Q008 remains OPEN for its remaining configuration,
+implementation and deployment-validation scope. No validation status is changed.
 
 ### Accepted reusable scientific steps (Decision 429)
 
@@ -541,6 +580,11 @@ results remaining visible until the next Experiment. Analysis is application-spe
 no mandatory historical scientific browser or core workflow engine is introduced.
 Decision 427 adds Setup-accessible creation/editing/reordering/copying/saving of
 application protocols, name-only Session association and reusable template defaults.
+Decision 430 fixes the application's active Protocol Mode procedure at launch and
+adds Free Mode operation selection with accepted protocol `None`. Both retain the
+fixed Session device pool and existing execution/preservation contracts; no
+separate lifecycle or persistent protocol snapshot is required. These mode
+interactions await implementation and do not change Q008 or Q030 closure status.
 This accepted editor direction is not implemented by presentation placeholders;
 no protocol snapshot/versioning or automatic scientific dependency validator is
 required. Functional implementation remains under the normal ICC workflow.

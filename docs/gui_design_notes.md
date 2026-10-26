@@ -65,7 +65,7 @@ representation and scientific-output transport still require authorized work.
 
 ## Accepted Functional Direction
 
-**Status:** User-accepted architecture in Decisions 396-405, 409-418 and 424-429.
+**Status:** User-accepted architecture in Decisions 396-405, 409-418 and 424-430.
 GUI/Analysis/Validation/visualization implementation is pending; Decision 424's
 bounded framework metadata implementation and independent audit are complete/PASS,
 with deployment validation and Q008 closure still pending.
@@ -126,21 +126,61 @@ bounded scientific feedback, not general scientific streaming or large artifacts
 
 ### Accepted Protocols, Templates And Recorded Inputs
 
-Decision 427 records the accepted reconciliation, not implemented functionality.
+Decisions 427/430 record the accepted reconciliation, not implemented functionality.
 Experimenters create, edit, reorder, copy and save protocols from the existing
-Setup tab using scientific-application-supplied operations. Ordinary Session
-preparation selects a protocol and adjusts permitted optional steps/capabilities.
+Setup tab using scientific-application-supplied operations. Protocol Mode
+preparation selects a protocol and adjusts permitted optional steps/capabilities;
+Free Mode preparation selects no protocol.
 Scientific coherence belongs to the experimenter; no generic protocol execution
 engine or automatic scientific dependency validator is required.
 
-Session configuration retains the selected protocol name, not a complete ordered
-protocol definition copied into every Session. The owner explicitly supersedes
+Session configuration retains the selected protocol name in Protocol Mode or
+`None` in Free Mode, not a complete ordered protocol definition copied into every
+Session. The owner explicitly supersedes
 the earlier fixed-protocol-snapshot requirement; `protocol_plan` does not require
 such a snapshot. Expected project-level protocol stability is not framework-enforced.
 No snapshot/version-management system is required. Accepted Session values remain
 immutable, externally readable and durably preserved under Decisions 291/424.
 Session/Experiment configuration and execution evidence preserve actual configured
 and performed work; later protocol edits cannot rewrite historical records.
+
+#### Protocol Mode And Free Mode (Decision 430)
+
+The mode is fixed at Session launch by the accepted protocol name or `None`;
+`None` means no protocol association, not a protocol named "Free Mode". No separate
+mode identifier is required. Decision 424's immutable accepted configuration,
+external readback and authoritative durable launch confirmation remain unchanged.
+
+For Protocol Mode, the scientific application fixes the ordered procedure at
+launch. The active Session cannot replace its protocol, add/remove/reorder its
+defined steps, or change their required/optional status or declared capability
+requirements. Reusable protocols remain separately editable for future Sessions;
+those edits cannot alter the active procedure. Permitted skipping, repetition,
+recorded-input selection and pre-execution Experiment configuration remain
+available. The Controller stores only the selected name, not the full procedure;
+no mandatory persistent snapshot, version management or second protocol authority
+is introduced.
+
+For Free Mode, the experimenter selects supported application-supplied operations
+during the Session, including order and repetition: Experiments, Analysis,
+Validation and operator interactions remain distinct operations. Expose operations
+compatible with the fixed Session device pool and applicable capabilities and
+execution prerequisites. Device capabilities alone do not define scientific
+operations. Respect multi-capability and distinct-device requirements; matching
+does not prove technical readiness. Reuse existing lifecycle/readiness/preservation
+mechanisms, not a Free Mode engine or automatic allocator.
+
+Step presentation distinguishes **Executed**, **Satisfied using previous
+recording**, and **Skipped**. A satisfied step may count as completed for protocol
+progression without claiming new acquisition; skipping does not claim successful
+execution or scientific outputs. Preserve actual input identities/provenance.
+Processing existing data alone is Analysis, never a zero-device Experiment.
+Accepted Experiment execution configuration is immutable from execution start.
+
+This is accepted architecture awaiting separately authorized implementation, not
+a description of the browser demonstration or evidence of functional validation.
+Decision 429 reusable-step immutability, Decision 410 template editing and
+Decision 411 historical integrity remain unchanged.
 
 Decision 429 settles reusable scientific steps; this functionality remains
 unimplemented. Applications maintain saved definitions with name, description,
@@ -207,9 +247,12 @@ declarations/inventory, not a GUI registry. Controller confirms applicable
 availability/readiness before Session selection/launch. Accepted Setup becomes
 read-only after launch; after closeout it supports the next Session without restart.
 
-Session shows the application protocol checklist on the left and selected-step
-controls on the right, including optional/repeated/revisited steps. The selected
-step determines Experiment type; edit duration/Experiment values before launch,
+In Protocol Mode, Session shows the application's fixed protocol checklist on
+the left and selected-step controls on the right, including permitted
+optional/repeated/revisited steps. In Free Mode, it exposes selection of supported
+application operations compatible with the fixed Session devices; no protocol
+checklist or new execution engine is required. The selected operation determines
+Experiment type where applicable; edit duration/Experiment values before launch,
 select participating Session devices with template-prefilled checkboxes, and use
 Configure Parameters to navigate to Parameters. Non-Experiment steps have their
 own controls/navigation. Keep Session status/readiness/notifications and applicable
@@ -220,7 +263,8 @@ Controller reserves whole AcquisitionNodes, not devices independently across
 Sessions. Session inclusion selects individual devices; each Experiment selects
 participants independently of recorded products, including outputless devices.
 The experimenter selects actual devices before launch; final accepted identities
-remain fixed throughout that Session. Manual or automatic replacement requires a
+remain fixed throughout that Session in both modes; devices cannot be added during
+an active Session. Manual or automatic replacement requires a
 new Session. Required-device readiness
 must be checked before each Experiment; an unavailable device blocks Experiments
 requiring it, not unrelated Experiments, and does not necessarily end the Session.

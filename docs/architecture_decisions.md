@@ -12609,6 +12609,10 @@ Session configuration includes the selected protocol name, not a required copy
 of every ordered step or protocol definition. Immutable accepted values, external
 readback, durable launch confirmation and historical integrity below are unchanged.
 
+**Operating-mode clarification:** Decision 430 specifies the selected protocol
+name for Protocol Mode and `None` for Free Mode. Both remain subject to the fixed
+accepted-value, readback and durable launch-preservation requirements below.
+
 This records the user-accepted LLC-to-ICC Q008 Session Metadata Implementation
 Handoff. It clarifies Decisions 226-229, 342, 409-412, 420 and 422 while preserving
 their historical text and existing lifecycle, persistence and deployment owners.
@@ -12966,6 +12970,11 @@ details.
 
 **Status:** Accepted
 
+**Operating-mode clarification:** Decision 430 fixes the active application's
+ordered procedure at Protocol Mode launch and permits Free Mode with protocol
+`None`. Reusable protocols remain editable for future Sessions; name-only
+Controller association and the absence of mandatory persistent snapshots remain.
+
 **Further clarification:** Decision 429 records reusable saved-step immutability,
 copy-based customization, collection-wide unique names, scoped selection and
 independent protocol occurrences. Name-only Session association remains unchanged.
@@ -13169,9 +13178,108 @@ performed here.
 
 ---
 
+## Decision 430: Protocol Mode fixes the active procedure while Free Mode selects operations within a fixed Session device pool
+
+**Status:** Accepted
+
+This records the explicitly accepted LLC handoff concerning Protocol Mode and
+Free Mode (No Protocol). It clarifies Decisions 281-286, 370, 394-405, 409-412 and
+424-429 without changing their historical text or validation evidence. This is
+documentation synchronization only, not implementation authorization or closure.
+
+### Operating mode and accepted Session configuration
+
+In Protocol Mode, a scientific protocol is selected before Session launch. The
+accepted Session configuration contains its name. In Free Mode, no protocol is
+selected and the accepted protocol value is `None`, meaning no protocol
+association, not a fictitious protocol name. The mode is fixed at Session launch;
+no separate mode identifier is required.
+
+Decision 424 remains authoritative: complete accepted Session configuration is
+immutable, externally readable and durably preserved with authoritative
+confirmation before successful launch reporting. The mode distinction does not
+introduce another configuration authority or change preservation ownership.
+
+### Fixed active procedure and editable reusable protocols
+
+The scientific application fixes the ordered steps for a Protocol Mode Session
+at launch. The experimenter cannot replace that active protocol, add, remove or
+reorder its defined steps, change their required/optional status or change their
+declared capability requirements. Changes to reusable protocols cannot alter the
+active Session's procedure; reusable protocols remain separately editable for
+future Sessions. Permitted skipping, repetition, recorded-input selection and
+pre-execution Experiment configuration remain available.
+
+This qualifies Decision 427's editing scope, not its name-only association. The
+Controller retains the selected protocol name; the scientific application owns
+the fixed active procedure. No full protocol definition in Controller, mandatory
+persistent protocol snapshot, version management or additional protocol authority
+is required. Decision 429's immutable reusable saved steps and Decision 410's
+template editing rules remain unchanged.
+
+### Free Mode operation selection
+
+In Free Mode, the experimenter chooses supported scientific operations during
+the Session, including their order and repetition. Operations may be Experiments,
+Analysis, Validation or operator interactions. The installed scientific
+application supplies executable operations; device capabilities alone do not
+define them. Expose operations compatible with the selected Session devices and
+applicable capability requirements, preserving multi-capability and explicit
+distinct-device requirements and all existing execution prerequisites.
+
+Free Mode reuses existing Session, Experiment, readiness, lifecycle and
+preservation mechanisms. It does not introduce a separate execution engine,
+workflow engine, scheduler, automatic scientific dependency inference or
+GUI-owned lifecycle authority.
+
+### Step progression, execution configuration and actual inputs
+
+Distinguish a scientific operation that actually ran (**Executed**), an applicable
+step requirement fulfilled by existing recorded data without new acquisition
+(**Satisfied using previous recording**), and an intentionally bypassed step
+(**Skipped**). A satisfied step may count as completed for protocol progression.
+Skipping does not claim successful execution or produced scientific outputs.
+Preserve actual scientific input identity/provenance and earlier historical
+evidence under Decisions 400/411; do not substitute a progression label for proof
+of execution.
+
+Processing existing data alone remains Analysis under Decision 428, not a
+zero-device Experiment. Accepted Experiment execution configuration becomes
+immutable when execution begins. Permitted pre-execution edits cannot change
+accepted Session values or historical execution configuration.
+
+### Fixed devices and unchanged framework ownership
+
+The physical devices selected at Session launch remain fixed in both modes:
+devices cannot be added or replaced during the active Session. Experiments may
+use different subsets, devices may participate in multiple sequential operations,
+and device-specific settings may vary between Experiments within existing
+configuration contracts. Capability compatibility does not establish technical
+readiness. Reuse installation declarations, exact capability matching,
+whole-node Session reservations, Experiment-specific readiness and safety
+contracts; no device allocation mechanism is introduced.
+
+Controller remains the launch/orchestration authority. Scientific applications
+retain protocol/operation ownership, participating AcquisitionNodes retain
+Decision 395 autonomous deadline ownership, and Decision 428's acquisition-device
+requirement remains unchanged. GUI-independent execution, reconnection and
+existing scientific finalization/preservation obligations remain authoritative.
+
+**Implementation status:** These are accepted requirements, not a claim that
+Protocol Mode/Free Mode functionality or integration is implemented or validated.
+Existing implementation and audit history is unchanged. Q008 and related GUI
+questions remain OPEN for their outstanding scope; no milestone is closed here.
+
+---
+
 # Accepted Architectural Principles
 
 The following principles summarize the accepted decisions so far.
+
+Decision 430 distinguishes Protocol Mode (selected name, application-fixed active
+procedure) from Free Mode (protocol `None`, application-supplied operation
+selection). Both retain immutable accepted Session configuration and fixed device
+identities without mandatory persistent protocol snapshots or another lifecycle.
 
 Decision 428 qualifies the protocol summary below: every Experiment requires at
 least one participating data-acquisition device; hardware-free protocol steps
