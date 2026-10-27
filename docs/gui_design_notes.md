@@ -142,7 +142,7 @@ representation and scientific-output transport still require authorized work.
 
 ## Accepted Functional Direction
 
-**Status:** User-accepted architecture in Decisions 396-405, 409-418 and 424-430.
+**Status:** User-accepted architecture in Decisions 396-405, 409-418 and 424-432.
 GUI/Analysis/Validation/visualization implementation is pending; Decision 424's
 bounded framework metadata implementation and independent audit are complete/PASS,
 with deployment validation and Q008 closure still pending.
@@ -152,8 +152,9 @@ with deployment validation and Q008 closure still pending.
   web GUI without cloud dependence. A separate Python backend process runs by
   default, not obligatorily, on the Controller computer; it uses external NATS,
   never Controller-internal shortcuts. Web frameworks/libraries remain unselected.
-- Decision 425 supplements the older conceptual areas with six permanent tabs:
-  **Setup, Session, Parameters, Experiment, Analysis, Services**. Navigation never
+- Decision 431 adds Storage to Decision 425's historical six-tab layout. The seven
+  permanent tabs are **Setup, Session, Parameters, Experiment, Analysis, Storage,
+  Services**. Navigation never
   interrupts operations. These are presentation boundaries, not lifecycle owners.
 - One Session corresponds to one animal and may contain Experiments, Analyses,
   Validation and interactions. Successive animals must not require restarting
@@ -497,6 +498,116 @@ GUI cannot bypass failed capacity readiness or substitute its own readiness
 authority. Headless Controller operation is subject to the same framework gate.
 No GUI functionality is implemented or validated by this documentation.
 
+## Storage Tab
+
+**Status:** Accepted requirements under Decisions 431-432; not implemented or validated
+by this synchronization. The browser-demo implementation descriptions above
+retain their historical six-tab scope and do not establish Storage functionality.
+
+Storage is the seventh permanent tab, placed between Analysis and Services:
+**Setup, Session, Parameters, Experiment, Analysis, Storage, Services**. It handles
+scientific-data collection, recording management and collection history. Services
+continues to own the presentation of service health, readiness, dependencies and
+administrative operational controls, not scientific-recording management.
+
+Experimenters see only their own Sessions in Storage and may request deletion
+only from those Sessions. Administrators see all Sessions and may request deletion
+from any Session. Decision 432 fixes ownership to the experimenter identity
+accepted at launch. Controller enforces authorization independently of visibility
+or administrator-mode presentation; unknown or ambiguous ownership cannot authorize
+ordinary-experimenter deletion. Reuse existing client identity/authorization
+mechanisms; no new user-management system is accepted.
+
+### Collection selection and outcomes
+
+Provide expandable Sessions, Experiments and recordings, a collection-selection
+bucket, and drag-and-drop and click selection. **Collect everything pending**
+populates the bucket only; the explicit **Store** action initiates collection.
+Collection remains whole-Session only, even when individual recordings are shown.
+Individual-recording collection remains deferred. Apply existing independently
+verified eligibility/availability under Decision 364; selection cannot bypass it.
+
+Present independent results for multiple selected Sessions, progress, verification,
+preservation results, capacity and searchable history. Controller coordinates;
+StorageManager retrieves, verifies and preserves using existing mechanisms.
+Artifact bytes never traverse GUI, Controller or Ingestor. Capacity displays do
+not replace authoritative checks or Decision 394's per-Experiment admission gate.
+
+### Original recording deletion
+
+Offer **Delete original recordings from AcquisitionNodes after verified
+collection**, unchecked by default. Deletion requires successful collection,
+required verification, durable collection evidence and confirmation that the
+exact originals are safe to delete. Failed or uncertain collection is not
+permission to delete. Deletion failure does not invalidate successful collection.
+
+Alternatively, an authorized operator may explicitly select individual original
+recordings for manual deletion without prior collection or verification. Require
+clear warnings, explicit confirmation and local safety checks. Selecting all
+recordings is necessary to request deletion of all recordings; do not expand
+scope implicitly. Manual deletion is not collection or preservation success.
+
+Decision 432 defines one logical recording as its associated scientific artifacts,
+including applicable timing/index files. Deletion selects that recording as one
+unit and targets only positively identified original files using existing
+artifact identities. Incomplete or damaged recordings may be manually deleted;
+report missing/uncertain files without guessing targets. Both policies use the
+same exact-target LocalStorageManager mechanism, not separate deletion pipelines.
+
+Controller coordinates authorized requests. LocalStorageManager on each
+AcquisitionNode performs deletion; StorageManager establishes applicable
+preservation status; GUI presents authoritative outcomes. Use exact recording
+identities, reject unsafe active/recovery-dependent recordings and durably retain
+required deletion evidence. Do not add an allocator, cleanup policy or transfer
+engine, or equate device cleanup with recording deletion.
+
+Deletion does not require permanent archive closure or implicitly request it.
+Decision 362's separate explicit closure authorization and immutable closed
+archives remain authoritative. Decision 432 supplies the separate local durability
+and framework-evidence contracts below, without reopening Session intake/archives.
+
+### Durable deletion outcomes and explicit retry
+
+Before deleting any original file, LocalStorageManager durably retains the stable
+operation identity, authorization, original Session/recording identities, exact
+targets, policy and eligibility confirmation. Actual per-file outcomes are durably
+recorded for restart reconciliation; this is not another scientific archive or
+general-purpose database.
+
+Preserve confirmed partial outcomes and show **Missing — deletion unconfirmed**
+when a file is absent without confirmed deletion evidence. Duplicate delivery must
+not initiate another destructive operation; a lost reply is not success.
+Cancellation cannot undo completed deletion. No automatic retry occurs after
+restart. Explicit retry uses a new linked operation identity, renewed authorization
+and safety admission, and only exact originals confirmed to remain. Previously
+confirmed deletions are not repeated.
+
+Outcomes use LocalStorageManager -> AcquisitionNode -> NATS -> Ingestor -> existing
+framework evidence preservation -> StorageManager monthly archive. The envelope
+has `session_id=None`; the payload retains original Session, recording, artifact,
+operator, operation and outcome relationships. Reuse journal-before-ACK,
+deduplication, preservation confirmation and monthly archival, with evidence
+identities distinguishing identical redelivery from later observations/retries.
+Physical deletion, local durable recording, publication, durable intake and
+permanent archival must not be conflated. Closed Session archives remain immutable;
+no separate StorageManager deletion-history database is introduced.
+
+### History visibility and remaining contracts
+
+Use a default 30-day visibility window for successfully collected Sessions,
+measured from confirmed collection completion. Pending, active, failed, incomplete
+and unresolved collections stay visible regardless of age; older successful
+collections remain searchable. This is a display filter, not data deletion.
+
+Reuse existing saved-Session enumeration, records, manifests, collection outcomes
+and preservation mechanisms. Authoritative Session, Experiment, recording,
+collection, capacity and deletion-history readback uses Controller-mediated
+interfaces with authoritative ownership filtering. Q034 remains OPEN for concrete
+readback/grouping, identity/authorization integration, local record/safety,
+interruption/retry, framework evidence and GUI implementation plus independent
+verification. Those dependencies do not reopen Decision 432's accepted policies
+or introduce a registry, permanent GUI database, service or lifecycle authority.
+
 ## Services Tab
 
 ### Browser-local presentation implementation
@@ -542,13 +653,15 @@ Experiment devices. Services uses the same six-tab shell and light/dark styling.
 
 ### Accepted functional direction (integration remains pending)
 
-**Status:** Accepted functional requirements in Decisions 414-418, 423 and 425, not implemented
+**Status:** Accepted functional requirements in Decisions 414-418, 423 and 425,
+with layout qualified by Decision 431, not implemented
 or validated GUI functionality. Detailed widgets, layouts and technical contracts
 remain unresolved under Q030-Q033.
 
 A permanently accessible **Services tab** shows all configured framework services
 for inspection, startup guidance and existing administrative operations. This
-implements the Services presentation within Decision 425's six-tab layout; it does
+implements Services within Decision 431's seven-tab layout, qualifying Decision
+425's historical six-tab layout; it does
 not become a service/process owner.
 
 ### Readiness and startup guidance
@@ -678,8 +791,9 @@ operator acknowledgment, qualifying Decisions 417-418. Both warnings and errors
 show severity, source, description and occurrence timestamp and remain visible
 until acknowledged. Controller owns notifications and acknowledgment state across
 reconnection; the GUI cannot override it. The persistent bottom-left indicator
-across all six tabs shows current unacknowledged notifications, distinguishes
-severity and opens details; Session/Experiment views show relevant notifications.
+across all seven permanent tabs shows current unacknowledged notifications,
+distinguishes severity and opens details; Session/Experiment views show relevant
+notifications.
 
 Acknowledgment removes a notification from that indicator, not historical Services
 evidence. It proves neither underlying resolution, service recovery, deletion,
@@ -698,7 +812,11 @@ authorized. Presentation minimization cannot replace Controller acknowledgment.
 
 ## Session Closeout, Collection, and Archived Evidence
 
-**Status:** Future GUI design ideas, not accepted GUI architecture or implementation requirements.
+**Status:** Historical presentation proposals. Decision 431 now accepts the Storage
+tab, whole-Session collection selection/history and recording-deletion requirements
+above; the other proposals below remain proposals unless separately accepted.
+The historical table/dropdown suggestions do not replace the accepted bucket and
+explicit Store interaction. No implementation or validation is claimed.
 
 The future GUI could:
 
@@ -747,13 +865,16 @@ The future GUI could:
   metadata is not artifact bytes; NWB conversion and Cheaha upload remain separate
   later processing stages, not newly specified GUI execution mechanisms.
 
-Decisions 356-365 accept the framework boundaries, not these presentation ideas.
-W041-W049 backend slices are complete; overall Q019 software integration validation is complete in W050, and all GUI features here remain future ideas. Decision 364 accepts StorageManager enumeration
+Decisions 356-365 accept the framework boundaries. Decision 431 subsequently
+accepts the Storage subset described above, not every historical presentation idea.
+W041-W049 backend slices are complete; overall Q019 software integration validation
+is complete in W050. GUI integration remains pending; the accepted Storage direction
+is no longer merely a future idea. Decision 364 accepts StorageManager enumeration
 from existing persistent directories/records and Controller-coordinated operator
 selection, with independent eligibility validation for each candidate, not these
-GUI presentation ideas or unresolved collection-status semantics. These notes add
-no GUI commands, lifecycle states, recovery authority, or implementation
-requirements. Closing the GUI remains distinct from
+GUI presentation ideas or unresolved collection-status semantics. These historical
+proposals add no commands, lifecycle states, recovery authority or requirements
+beyond the separately accepted Storage direction. Closing the GUI remains distinct from
 both Session closeout and operational framework shutdown.
 
 ## GUI Closure Versus Framework Shutdown

@@ -555,8 +555,9 @@ interfaces remain implementation work; large artifact transfer is not visualizat
 
 ## Q030: What GUI presentation and deployment design implements the accepted functional areas?
 
-**Status:** OPEN - Decision 425 settles web/Python deployment and six permanent
-tabs, supplementing Decisions 396-405 and 409-418. Decision 426 settles repository
+**Status:** OPEN - Decision 425 settles web/Python deployment; Decision 431 adds
+Storage as the seventh permanent tab, qualifying the historical six-tab layout
+and supplementing Decisions 396-405 and 409-418. Decision 426 settles repository
 placement and separate packaging under top-level `gui/`. GUI implementation and
 remaining library/widget choices are outstanding; these accepted choices are not
 reopened.
@@ -572,8 +573,11 @@ GUI implementation resides in this repository's separately packaged top-level
 Q008 tracks configuration, Q029 communication/control; web frameworks/libraries
 remain implementation choices.
 
-Six permanent tabs are Setup, Session, Parameters, Experiment, Analysis and
-Services. Accepted interactions include application protocol checklist/selected-step
+Seven permanent tabs are Setup, Session, Parameters, Experiment, Analysis, Storage
+and Services, in that order. Decision 431 accepts whole-Session collection,
+recording management and history in Storage, distinct from Services operations;
+Q034 tracks remaining readback, authorization, deletion and evidence contracts.
+Accepted interactions include application protocol checklist/selected-step
 controls, read-only accepted Setup after launch, participant-specific Parameters
 read-only during execution, navigation without interruption, and final Experiment
 results remaining visible until the next Experiment. Analysis is application-specific;
@@ -603,7 +607,7 @@ is implemented or validated by this documentation.
 
 Detailed Services presentation, status-refresh mechanisms, maintenance interaction,
 internal frontend/backend packaging details, frameworks and widgets require
-implementation design within the accepted web/Python/six-tab and Decision 426
+implementation design within the accepted web/Python/seven-tab and Decision 426
 project boundary. See
 [GUI design notes](gui_design_notes.md) for accepted requirements versus unapproved
 presentation proposals. Existing readiness, service lifecycle, and
@@ -680,6 +684,133 @@ command authority,
 authorization, lifecycle consequence, scientific finalization and cleanup behavior
 require explicit accepted architecture. Do not implement or infer those semantics
 from GUI controls or service-level Kill.
+
+---
+
+## Q034: What low-level contracts implement Storage readback and authorized original-recording deletion?
+
+**Status:** OPEN - Decisions 431-432 settle the Storage direction and scientific
+recording deletion contracts. Decision 432 resolves the identified recording-unit,
+launch-time ownership, durable local operation-record, interruption/retry and
+framework evidence-routing choices. Implementation, independent validation and
+audit remain outstanding. Q019/W050 and other historical validated scopes are
+not reopened or closed by this question.
+
+### Existing mechanisms and fixed boundaries
+
+Decision 364 already assigns saved-Session enumeration to StorageManager using
+existing persistent directories/records, with independently checked eligibility
+and availability and independent multi-Session collection. Existing Session
+metadata, ArtifactManifests, durable handoffs and collection evidence supply
+identities and outcomes, not automatically a complete GUI query interface.
+Controller coordinates requests over existing NATS boundaries. LocalStorageManager
+retains original artifact ownership; StorageManager establishes preservation,
+and Ingestor retains acquisition intake/compilation responsibilities.
+
+### Accepted clarification (Decision 432)
+
+One logical recording includes its associated scientific artifacts and applicable
+timing/index files. Select it as one unit, reuse existing artifact identities and
+target only positively identified original files. Incomplete or damaged recordings
+may be manually deleted; missing/uncertain files are reported, not guessed targets.
+There is no new permanent recording registry.
+
+Session ownership derives from the experimenter identity accepted at launch.
+Experimenters see/manage their own Sessions; administrators may manage all.
+Controller independently enforces authorization; unknown or ambiguous ownership
+cannot authorize ordinary-experimenter deletion. Reuse existing client identity
+and authorization rather than a GUI visibility check or new user-management system.
+
+Both deletion policies use one exact-target LocalStorageManager mechanism.
+Conditional post-collection deletion requires successful applicable collection,
+verification, durable preservation, exact-original coverage and local safety
+admission. Manual deletion requires authorized selection, warning, confirmation
+and local safety, but not collection/verification. Unsafe active/recovery-dependent
+targets remain protected. Permanent archive closure is not a prerequisite.
+
+Before any original file is deleted, LocalStorageManager durably retains the
+stable operation identity, authorization, original Session/recording identities,
+exact targets, policy and eligibility confirmation. Actual per-file outcomes are
+durably recorded for restart reconciliation. Preserve confirmed partial outcomes;
+a missing file without confirmed deletion evidence is **Missing — deletion
+unconfirmed**. Duplicate delivery cannot initiate a second destructive operation,
+lost replies cannot prove success, and cancellation cannot undo completed deletion.
+There is no automatic retry after restart. Explicit retry requires a new linked
+operation identity, renewed authorization/safety admission and only exact originals
+confirmed to remain; previously confirmed deletions are not repeated.
+
+Deletion evidence follows LocalStorageManager -> AcquisitionNode -> NATS ->
+Ingestor -> existing framework evidence preservation -> StorageManager monthly
+archive. Its envelope uses `session_id=None`; its payload retains original
+Session, recording, artifact, operator, operation and outcome relationships.
+Reuse journal-before-ACK, deduplication and preservation confirmation. Identical
+redelivery retains evidence identity; later observations and explicit retries are
+distinguished by their evidence identities. Do not reopen finalized acquisition
+intake or closed Session archives, or introduce a separate StorageManager
+deletion-history database. Decision 362's separate closure authorization remains.
+
+### Remaining implementation dependencies
+
+- **Slice 1 owner inventory (implemented; independent verification pending):**
+  `LocalStorageManager.read_historical_artifacts(root_path, acquisition_node_id,
+  *, session_id=None)` and `AcquisitionNode.read_historical_artifacts(*,
+  session_id=None)` read persisted manifest/metadata pairs without rebinding old
+  Sessions or changing current reservations. They distinguish exact scientific
+  source fields from auxiliary managed paths and report missing, malformed,
+  inconsistent, duplicate and aliased information. Separate timing/index
+  manifests remain individual artifacts; logical recording associations are
+  explicitly unresolved rather than inferred from Experiment IDs or directories.
+  Readback is a point-in-time inventory, not scientific-content validation,
+  durable preservation proof or deletion admission. Sources outside the configured
+  root and relocated/aliased paths remain unconfirmed. No Controller/NATS/GUI
+  exposure, authorization, collection or deletion is added by this owner slice.
+  Q034 remains OPEN; independent manual validation and audit are still required.
+- **Readback and ownership enforcement:** Implement authoritative Session,
+  Experiment, recording, collection, capacity and deletion-history queries through
+  Controller-mediated interfaces, binding existing client identity to accepted
+  launch-time experimenter ownership and enforcing it independently of GUI state.
+- **Exact recording targets:** Represent the accepted logical recording and its
+  associated original artifacts/timing/index files using existing identities;
+  support positive identification and explicit missing/uncertain information
+  without a registry, guessed paths or individual-recording collection.
+- **Local record and safety admission:** Implement durable operation/per-file
+  records and their serialization with existing active-write, reservation and
+  recovery protections. Preserve exact scope across historical Sessions and
+  replacement bindings. No concrete local record layout is selected here.
+- **Policy checks and routing:** Connect Controller authorization, StorageManager
+  conditional preservation proof and the shared LocalStorageManager deletion
+  mechanism through existing NATS boundaries; retain both distinct policies.
+- **Interruption and explicit retry:** Implement restart reconciliation, duplicate
+  suppression, partial/uncertain readback and new linked retry operations with
+  renewed authorization/safety checks, including cancellation and lost replies.
+- **Framework preservation and history:** Implement deletion-specific evidence
+  payloads/correlation, publication, exact journal/archival confirmation and
+  ownership-filtered historical readback using existing framework infrastructure,
+  independently of immutable Session archives. Local durability, physical outcome,
+  transport publication and permanent preservation remain separate confirmations.
+- **GUI integration and verification:** Implement Storage selection, warnings,
+  confirmation and truthful outcomes; reuse confirmed collection history for the
+  default 30-day display window and older-history search. The filter is not a
+  retention rule. Add focused failure/restart/retry and authorization coverage,
+  followed by separate independent validation and audit under the normal workflow.
+
+### Historical investigation context
+
+The pre-Decision-432 readiness/evidence investigations identified incomplete
+ownership/readback interfaces, recording grouping, destructive-operation crash
+windows and deletion history after Session closure. They found reusable framework
+evidence infrastructure, not an implemented deletion workflow. Decision 432 now
+settles the associated policies, including the required durable local operation
+record and framework-scoped outcomes. Preserve the earlier findings as historical
+evidence; this synchronization performs no implementation audit or validation.
+
+No recording-level collection, new user-management system, registry, permanent
+GUI database, transfer/cleanup service, automatic retention policy or lifecycle
+authority is authorized. Manual original deletion without collection remains
+distinct from verified-collection-dependent deletion and from deletion of
+permanent archives under Decision 355. Decision 432's local deletion-operation
+record is accepted, not a new scientific archive or general-purpose database.
+Q020/Q021/Q024/Q030 retain broader scope; Q034 remains OPEN.
 
 ---
 
@@ -2107,7 +2238,12 @@ remains distinct under Q023, and evidence-consumption coordination remains Q019.
 What future format/layout contracts should cover JSONL, additional HDF5 layouts, binary electrophysiology, and other scientific products?
 What future checksum or deeper verification policy, if any, extends the bounded Slice 24 contract?
 How should a future broader ScientificProduct structural contract describe arbitrary products and instantiated expectations, relate device/component capabilities to Experiment selections, and relate persisted layouts to verification contracts without assuming a universal HDF5 schema?
-What retention or deletion policies separate local and global copies?
+Decision 431 accepts explicit deletion of original AcquisitionNode recordings,
+with LocalStorageManager execution and separate conditional post-collection versus
+manual paths. StorageManager still cannot delete transfer sources. Exact identity,
+authorization, local safety and durable-outcome contracts remain Q034; this does
+not authorize deletion of global copies or permanent archives, or automatic cleanup.
+What further retention or deletion policies separate local and global copies?
 What future cleanup policy applies to local and global copies?
 Blocks
 Global scientific storage
@@ -2139,6 +2275,11 @@ ownership/granularity question. Session-wide archive-finalization coordination
 remains Q019.
 What additional operational progress evidence, if any, is required during future
 scheduled or resumable transfer beyond the accepted completed-pass evidence?
+Decision 431 accepts Storage presentation of existing whole-Session collection,
+explicit Store, independent multi-Session outcomes and searchable history; Q034
+tracks the missing query/progress and separate deletion contracts. This adds no
+scheduling policy, resumable transfer engine, individual-recording collection or
+automatic source cleanup. Stage B routing/closure remains under Decisions 358/362.
 Blocks
 Online deployment
 Large-artifact movement

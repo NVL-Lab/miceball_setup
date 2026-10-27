@@ -7,6 +7,7 @@ import math
 import os
 import shutil
 import socket
+import stat
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from time import monotonic
@@ -255,6 +256,94 @@ class _OpenStream:
     durable_row_count: int = 0
 
 
+def _historical_path(path: Path, root: Path) -> Path:
+    """Reject escaped or aliased persisted paths rather than remapping originals."""
+    resolved = path.resolve()
+    if not resolved.is_relative_to(root):
+        raise ValueError("path_outside_storage_root")
+    if resolved != path.absolute():
+        raise ValueError("path_alias_unresolved")
+    return resolved
+
+
+def _read_inventory_record(path: Path) -> dict[str, Any]:
+    """Read plain JSON without accepting ambiguous keys or nonfinite values."""
+    if not stat.S_ISREG(path.stat().st_mode):
+        raise ValueError("record_not_regular_file")
+
+    def unique_fields(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("duplicate_record_field")
+            result[key] = value
+        return result
+
+    def invalid_constant(value):
+        raise ValueError(f"nonfinite_record_value: {value}")
+
+    value = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=unique_fields,
+                       parse_constant=invalid_constant)
+    if not isinstance(value, dict):
+        raise ValueError("record_must_be_an_object")
+    return value
+
+
+def _read_historical_artifact(entry, root: Path, node_id: str, claims: dict) -> None:
+    """Cross-check the existing manifest/metadata pair, retaining partial readback."""
+    manifest_path = _historical_path(Path(entry["manifest_path"]), root)
+    if not manifest_path.exists():
+        raise ValueError("missing_manifest")
+    data = _read_inventory_record(manifest_path)
+    entry["manifest"] = data
+    for field in ("artifact_manifest_id", "storage_id"):
+        value = data.get(field)
+        if isinstance(value, str) and value.strip():
+            claims.setdefault((field, value), []).append(entry)
+    fields = ("artifact_manifest_id", "session_id", "experiment_id", "acquisition_node_id",
+              "source_component_id", "artifact_type", "lifecycle_state", "storage_id",
+              "local_storage_path")
+    if any(not isinstance(data.get(key), str) or not data[key].strip() for key in fields):
+        raise ValueError("invalid_manifest_identity")
+    paths = data.get("local_managed_paths")
+    if (not isinstance(paths, list) or not paths
+            or any(not isinstance(p, str) or not p.strip() for p in paths)
+            or not isinstance(data.get("details"), dict)
+            or (data.get("external_artifact_path") is not None and
+                (not isinstance(data["external_artifact_path"], str) or not data["external_artifact_path"].strip()))):
+        raise ValueError("invalid_manifest_structure")
+    manifest = ArtifactManifest.from_dict(data)
+    expected = (manifest.session_id, manifest.experiment_id, manifest.storage_id)
+    if (manifest_path.parent.relative_to(root).parts != expected
+            or manifest.acquisition_node_id != node_id):
+        raise ValueError("manifest_location_or_owner_mismatch")
+    if manifest.lifecycle_state not in {"open", "finalized"}:
+        raise ValueError("unknown_artifact_lifecycle_state")
+    metadata_path = _historical_path(manifest_path.with_name("metadata.json"), root)
+    managed = [_historical_path(Path(p), root) for p in manifest.local_managed_paths]
+    if manifest_path not in managed or metadata_path not in managed or len(set(managed)) != len(managed):
+        raise ValueError("inconsistent_managed_paths")
+    metadata = _read_inventory_record(metadata_path)
+    entry["metadata"] = metadata
+    if any(metadata.get(key) != data[key] for key in (
+            "session_id", "experiment_id", "acquisition_node_id", "source_component_id", "artifact_type")):
+        raise ValueError("metadata_identity_mismatch")
+    if (not isinstance(metadata.get("data_product_id"), str) or not metadata["data_product_id"].strip()
+            or not isinstance(metadata.get("schema"), dict) or not isinstance(metadata.get("details"), dict)
+            or metadata.get("storage_format") not in {"jsonl", "hdf5"}
+            or any(data["details"].get(key) != value for key, value in metadata["details"].items())):
+        raise ValueError("invalid_or_inconsistent_scientific_metadata")
+    source = manifest.external_artifact_path or manifest.local_storage_path
+    original = _historical_path(Path(source), root)
+    if manifest.external_artifact_path is None and (
+            original not in managed or original.parent != manifest_path.parent):
+        raise ValueError("inconsistent_local_scientific_source")
+    entry["original_path"] = str(original)
+    entry["identity_confirmed"] = True
+    if manifest.lifecycle_state != "finalized":
+        entry["issues"].append("not_finalized")
+
+
 class LocalStorageManager:
     """Incrementally persists scientific streams for one AcquisitionNode."""
 
@@ -306,6 +395,121 @@ class LocalStorageManager:
     @property
     def manifests(self) -> tuple[ArtifactManifest, ...]:
         return tuple(stream.manifest for stream in self._streams.values())
+
+    @staticmethod
+    def read_historical_artifacts(
+        root_path: str | Path,
+        acquisition_node_id: str,
+        *,
+        session_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Inspect persisted manifests without creating or attaching a Session owner.
+
+        Identity confirmation cross-checks disk records, not scientific contents,
+        durability, recording membership or eligibility for collection/deletion.
+        Missing originals retain their recorded identity and explicit missing status.
+        Paths are not relocated; aliases and sources outside this root are unresolved.
+        The result is a point-in-time inventory, not an atomic filesystem snapshot.
+        Each artifact includes partial manifest/metadata, identity_confirmed,
+        original_path, file_status (present/missing/unconfirmed), issues and an
+        unresolved recording_id. Top-level issues describe discovery failures.
+        """
+        if not isinstance(acquisition_node_id, str) or not acquisition_node_id.strip():
+            raise ValueError("A configured acquisition_node_id is required")
+        if session_id is not None and (not isinstance(session_id, str) or not session_id.strip()
+                or session_id in {".", ".."} or any(c in session_id for c in "/\\\x00")):
+            raise ValueError("session_id must be one nonempty path component")
+        root = Path(root_path)
+        report = {"acquisition_node_id": acquisition_node_id, "root_path": str(root),
+                  "artifacts": [], "issues": [],
+                  "recording_associations": "unresolved: manifests identify files, not logical recordings"}
+        try:
+            root = root.resolve()
+            report["root_path"] = str(root)
+            if not root.is_dir():
+                raise ValueError("storage_root_unavailable")
+        except (OSError, ValueError, RuntimeError) as error:
+            report["issues"].append({"path": str(root), "reason": str(error)})
+            return report
+        administrative = {root / "local_storage_evidence.jsonl"}
+        entries = report["artifacts"]
+        claims: dict[tuple, list] = {}
+        sources: dict[tuple, list] = {}
+
+        def scan_error(error):
+            report["issues"].append({"path": str(error.filename), "reason": str(error)})
+
+        # Walk directories only to discover persisted records, never to infer
+        # scientific membership from data filenames or directory contents.
+        for directory, children, files in os.walk(root, followlinks=False, onerror=scan_error):
+            location = Path(directory)
+            for name in children[:]:
+                child = location / name
+                if child.is_symlink() or child.is_junction():
+                    children.remove(name)
+                    report["issues"].append({"path": str(child), "reason": "directory_alias_not_followed"})
+            depth = len(location.relative_to(root).parts)
+            if depth != 3 and not {"artifact_manifest.json", "metadata.json"}.intersection(files):
+                continue
+            entry = {"manifest_path": str(location / "artifact_manifest.json"),
+                     "manifest": None, "metadata": None, "identity_confirmed": False,
+                     "original_path": None, "file_status": "unconfirmed", "recording_id": None,
+                     "issues": []}
+            entries.append(entry)
+            administrative.update((location / "artifact_manifest.json", location / "metadata.json"))
+            try:
+                _read_historical_artifact(entry, root, acquisition_node_id, claims)
+            except (OSError, ValueError, TypeError, KeyError, RuntimeError) as error:
+                entry["issues"].append(str(error))
+            if entry["identity_confirmed"]:
+                source = Path(entry["original_path"])
+                sources.setdefault(("path", str(source)), []).append(entry)
+                try:
+                    info = source.stat()
+                    if not stat.S_ISREG(info.st_mode):
+                        raise ValueError("original_not_regular_file")
+                    entry["file_status"] = "present"
+                    if info.st_ino:
+                        sources.setdefault(("file", info.st_dev, info.st_ino), []).append(entry)
+                except FileNotFoundError:
+                    entry["file_status"] = "missing"
+                    entry["issues"].append("missing_original")
+                except (OSError, ValueError) as error:
+                    entry["issues"].append(str(error))
+                    entry["identity_confirmed"] = False
+
+        # Reconcile all claims before filtering: a conflicting historical record
+        # outside the requested Session must not turn a duplicate into a unique ID.
+        for key, owners in claims.items():
+            if len(owners) > 1:
+                for entry in owners:
+                    entry["issues"].append(f"duplicate_{key[0]}")
+                    entry["identity_confirmed"] = False
+        admin_files = set()
+        for path in administrative:
+            try:
+                info = path.stat(follow_symlinks=False)
+                if stat.S_ISREG(info.st_mode) and info.st_ino:
+                    admin_files.add((info.st_dev, info.st_ino))
+            except OSError:
+                pass
+        for key, owners in sources.items():
+            if len(owners) > 1 or (key[0] == "file" and key[1:] in admin_files):
+                for entry in owners:
+                    entry["issues"].append("aliased_original")
+                    entry["identity_confirmed"] = False
+        for entry in entries:
+            if entry["original_path"] is not None and Path(entry["original_path"]) in administrative:
+                entry["issues"].append("administrative_source")
+                entry["identity_confirmed"] = False
+            if not entry["identity_confirmed"]:
+                entry["original_path"] = None
+                entry["file_status"] = "unconfirmed"
+        if session_id is not None:
+            report["artifacts"] = [entry for entry in entries
+                if Path(entry["manifest_path"]).relative_to(root).parts[0] == session_id]
+        report["artifacts"].sort(key=lambda entry: entry["manifest_path"])
+        return report
 
     def check_ready(self) -> ServiceReadiness:
         """Verify that the configured local root can preserve data."""

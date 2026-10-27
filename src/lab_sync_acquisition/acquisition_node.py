@@ -171,6 +171,18 @@ class AcquisitionNode:
                     adapter.device_id: deepcopy(adapter.get_session_parameter_definitions())
                     for adapter in self._device_manager.adapters if adapter.device_id in declared_ids}}
 
+    @service_operation()
+    def read_historical_artifacts(self, *, session_id: str | None = None) -> dict[str, Any]:
+        """Read the configured node storage root without rebinding historical Sessions.
+
+        This owner interface does not authorize collection/deletion or expose an
+        external GUI query. Current reservation, adapters and stream owners are untouched.
+        """
+        if self._default_local_storage_root is None or not self._node_id:
+            raise ValueError("Node local storage root and identity must be configured")
+        return LocalStorageManager.read_historical_artifacts(
+            self._default_local_storage_root, self._node_id, session_id=session_id)
+
     @property
     def reserved_for_session_id(self) -> str | None:
         with self._reservation_lock:

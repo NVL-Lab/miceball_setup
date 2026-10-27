@@ -6895,6 +6895,11 @@ an elaborate new error taxonomy or stopping remaining attempts.
 
 **Status:** Accepted
 
+**Subsequent clarification:** Decision 431 permits separately authorized deletion
+of exact original recordings by their AcquisitionNode LocalStorageManager. It
+does not permit StorageManager or the transfer itself to mutate source artifacts;
+collection and deletion remain separate operations and outcomes.
+
 Transfer creates an additional StorageManager-owned global copy. LocalStorageManager
 continues owning the authoritative local artifact and manifest. StorageManager must
 not delete, modify, rename, move, or otherwise mutate the source artifact.
@@ -8694,6 +8699,11 @@ Existing accepted requirements and historical validation records are preserved.
 
 **Status:** Accepted
 
+**Deletion-outcome clarification:** Decision 432 uses this framework scope for
+recording-deletion outcomes with `session_id=None`, retaining original Session
+and recording relationships in the payload without reopening Session intake.
+Decision 354's monthly partitioning and existing preservation guarantees remain.
+
 The existing Evidence Archive supports two evidence scopes. Session evidence
 retains its current layout and behavior:
 
@@ -10000,6 +10010,17 @@ no narrower publication-interval boundary is invented. Q019 is CLOSED following 
 ## Decision 362: The existing compilation summary distinguishes archive stages and confirmed permanent closure
 
 **Status:** Accepted
+
+**Recording-deletion clarification:** Decision 431 does not make permanent
+archive closure a prerequisite for authorized deletion of original recordings.
+The separate explicit closure request, preservation checks and closed-archive
+immutability below remain authoritative. The missing deletion-evidence contract,
+including outcomes after closure, remains open in Q034.
+
+**Subsequent resolution:** Decision 432 assigns deletion outcomes to existing
+framework-scoped Ingestor evidence and monthly archival, independently of closed
+Session archives. The preceding deferral is historical; Q034 remains OPEN for
+implementation and verification of the accepted contracts.
 
 Retain the single Session Evidence Archive and its existing three evidence
 products. Stage A durably preserves Ingestor-compiled persistent acquisition
@@ -12700,6 +12721,11 @@ configuration readback and initial-record preservation; do not restart this work
 
 **Status:** Accepted
 
+**Subsequent layout/storage clarification:** Decision 431 adds Storage as the
+seventh permanent tab, before Services, and accepts whole-Session collection and
+recording-management interactions. The six-tab wording below is historical;
+other ownership, lifecycle, visualization and notification contracts remain.
+
 **Subsequent clarification:** Decision 427 specifies user-authored protocols,
 name-only Session association, exact capability matching, fixed Session device
 identities, Experiment-scoped readiness and supported cross-Session/project inputs.
@@ -13272,9 +13298,247 @@ questions remain OPEN for their outstanding scope; no milestone is closed here.
 
 ---
 
+## Decision 431: Storage is the seventh GUI tab for whole-Session collection and explicitly authorized recording deletion
+
+**Status:** Accepted
+
+**Further clarification:** Decision 432 resolves the recording-unit, ownership,
+durable local operation-record, interruption/retry and framework evidence-routing
+questions identified below. Earlier deferrals are retained as historical scope;
+Q034 tracks remaining implementation dependencies, not reopening those policies.
+
+This records the user-accepted LLC direction conveyed through ICC's Storage Tab
+and Recording Deletion Architecture Synchronization handoff. It supplements
+Decisions 245-274, 344, 355, 357-364, 376, 394 and 425-430 while preserving
+historical decisions and validation records. This is documentation synchronization
+only, not implementation authorization, validation or milestone closure.
+
+### Storage presentation and access
+
+The permanent GUI tab order is **Setup, Session, Parameters, Experiment, Analysis,
+Storage, Services**. Storage presents scientific-data collection, recording
+management and collection history. Services retains service health, readiness,
+dependencies and administrative operational controls. Navigation and GUI lifetime
+do not acquire lifecycle or scientific-storage authority.
+
+Experimenters see only their own Sessions in Storage and may request deletion
+only of recordings belonging to those Sessions. Administrators see all Sessions
+and may request deletion from any Session. Reuse existing identity and
+authorization mechanisms; do not create a user-management system. Deletion
+authorization must be enforced independently of GUI visibility. The mapping of
+existing identities to these checks remains a low-level contract in Q034; a
+visible control or administrator presentation mode is not authorization proof.
+
+### Explicit whole-Session collection
+
+Storage provides expandable Sessions, Experiments and recordings; a collection-
+selection bucket; drag-and-drop and click selection; and an explicit **Store**
+action. **Collect everything pending** populates the bucket without starting
+collection. Collection remains whole-Session only: expanding or inspecting an
+individual recording does not authorize individual-recording collection, which
+remains deferred.
+
+Show progress, separate collection/verification/preservation results, capacity
+and searchable history. Multiple selected Sessions have independent results;
+one Session's failure must not be presented as success or prevent the others'
+applicable attempts. Decision 364's independently checked eligibility and
+availability remain authoritative; selection is not proof that collection can
+proceed.
+
+Controller coordinates collection; StorageManager performs retrieval, verification
+and preservation using existing handoff, transfer and evidence contracts. Artifact
+bytes do not traverse GUI, Controller or Ingestor. No transfer engine, new
+collection granularity, registry or permanent GUI database is introduced.
+Decision 376's shared Ingestor/StorageManager deployment does not merge ownership.
+Capacity presentation does not replace applicable authoritative capacity checks,
+including Decision 394's separate per-Experiment requirements.
+
+### Optional deletion after verified collection
+
+Provide an optional checkbox, **unchecked by default**: **Delete original
+recordings from AcquisitionNodes after verified collection.** It requests a
+separate authorized deletion, not an automatic retention/cleanup policy.
+
+Deletion requires successful collection, required verification, durable collection
+evidence and confirmation that the exact originals are safe to delete. Failed,
+missing or uncertain collection/verification/preservation cannot grant permission
+to delete. Collection success alone is insufficient. A failed deletion does not
+invalidate an independently successful collection.
+
+Permanent Evidence Archive closure is not a mandatory deletion prerequisite.
+Deletion need not be coupled to closure; applicable safety, authorization and
+durable-evidence requirements still hold. Decision 362 retains its separate,
+explicit operator request for permanent closure and verified archive consistency
+and durability. Neither Store nor a deletion request implicitly authorizes
+closure. Already closed archives remain immutable; this decision does not choose
+where subsequent deletion evidence is preserved or permit reopening them. That
+low-level boundary remains Q034, not an invented archive mechanism.
+
+### Explicit manual deletion and local authority
+
+An authorized operator may select individual original recordings for deletion
+without prior collection or verification. Require clear warnings, explicit
+confirmation and local safety checks. Deleting all recordings requires selecting
+all recordings; a Session-level selection must not silently expand deletion scope.
+Manual deletion does not establish successful collection or preservation.
+
+Controller coordinates authorized deletion requests; LocalStorageManager on each
+AcquisitionNode performs actual deletion. StorageManager establishes applicable
+preservation status; GUI presents warnings, controls and authoritative outcomes.
+Use exact recording identities, reject unsafe active or recovery-dependent
+recordings, and durably retain required deletion evidence. This does not transfer
+local artifact ownership to StorageManager, equate Decision 344 resource cleanup
+with scientific-recording deletion, or authorize deletion of permanent Evidence
+Archives under Decision 355.
+
+### Collection history visibility
+
+Successfully collected Sessions use a default **30-day visibility window**,
+measured from confirmed collection completion. Pending, active, failed, incomplete
+and unresolved collections remain visible regardless of age. Older successful
+collections remain searchable. This is a display filter, not data deletion,
+retention expiry, automatic cleanup or a new Session lifecycle state.
+
+### Unresolved contracts and implementation status
+
+Q034 records the remaining Session enumeration/ownership-filtering and
+Experiment/recording readback contracts; exact recording identity; collection
+eligibility, progress and history readback; authorization enforcement;
+LocalStorageManager deletion admission; durable deletion outcomes; interrupted
+requests, idempotency and retry; and compatibility with Stage B and immutable
+archive closure. Existing contracts are reused wherever sufficient; this decision
+does not invent solutions for absent interfaces or evidence obligations.
+
+No new collection service, user-management system, permanent GUI database,
+automatic cleanup policy, archive mechanism or lifecycle authority is accepted.
+The Storage tab and recording-deletion integration are accepted requirements,
+not implemented or validated functionality. Existing implementation/audit history
+and milestone status remain unchanged; Q034 and related outstanding questions
+remain OPEN.
+
+---
+
+## Decision 432: Scientific recording deletion uses durable local operation records and existing framework evidence preservation
+
+**Status:** Accepted
+
+This records the explicitly user-accepted LLC-to-ICC handoff, **Q034: Accepted
+Scientific Recording Deletion Contracts**. Decision 431 remains authoritative;
+this clarification resolves its identified deletion-contract deferrals without
+rewriting historical decisions, investigations or validation evidence. It reuses
+Decisions 223-225, 260, 276-280, 323, 344, 354-355, 357-364, 376-378 and 424.
+Documentation synchronization does not authorize implementation or claim closure.
+
+### Logical recording identity and Session ownership
+
+One logical scientific recording consists of its associated scientific artifacts,
+including applicable timing and index files. Deletion selects the recording as
+one unit and targets only positively identified original files. Incomplete or
+damaged recordings may be manually deleted; missing or uncertain files must be
+reported without guessing targets. Reuse existing artifact identities, not a new
+permanent recording registry. Decision 248's one-manifest/one-file rule is unchanged.
+
+The experimenter identity accepted at Session launch determines Session ownership.
+Experimenters see and manage their own Sessions; administrators may manage all
+Sessions. Controller enforces authorization independently of GUI visibility.
+Unknown or ambiguous ownership cannot authorize ordinary-experimenter deletion.
+Reuse existing client identity and authorization mechanisms; no new user-management
+system or GUI-owned authorization authority is introduced. Decision 424's fixed
+accepted Session values and historical integrity remain authoritative.
+
+### Two policies, one local deletion mechanism
+
+Conditional post-collection deletion requires successful applicable collection,
+verification, durable preservation confirmation, exact-original coverage and local
+safety admission. Explicit manual deletion requires authorized selection, warning,
+confirmation and local safety admission, but not collection or verification.
+Both policies use the same exact-target LocalStorageManager deletion mechanism.
+Decision 431's unchecked-by-default post-collection option and explicit selection
+of all recordings to delete all recordings remain unchanged.
+
+Controller coordinates authorization; LocalStorageManager performs actual deletion
+on each AcquisitionNode. StorageManager establishes applicable preservation status,
+not authority to mutate AcquisitionNode transfer sources under Decision 260.
+Reject unsafe active or recovery-dependent targets. Manual deletion is not
+successful collection or preservation, and deletion failure does not invalidate
+an independently successful collection.
+
+### Durable local operation record
+
+Before deleting any original file, LocalStorageManager must durably retain the
+stable operation identity, authorization, original Session and recording
+identities, exact targets, applicable policy and eligibility confirmation.
+Actual per-file outcomes must be durably recorded. This local deletion-operation
+record supports restart reconciliation; it is not a new scientific archive,
+permanent recording registry, general-purpose database or separate StorageManager
+deletion-history database. No concrete file layout or schema is selected here.
+
+### Interruption, duplicate delivery and explicit retry
+
+Preserve confirmed partial outcomes and report uncertainty accurately. A missing
+file without confirmed deletion evidence is **Missing — deletion unconfirmed**.
+Duplicate delivery must not initiate a second destructive operation; lost replies
+cannot establish success. Cancellation cannot undo completed deletion.
+
+There is no automatic retry after restart. Explicit retry requires a new linked
+operation identity, renewed authorization and safety admission, and only exact
+originals confirmed to remain. Previously confirmed deletions are not repeated.
+Preserve earlier outcomes rather than overwriting partial or uncertain history.
+
+### Existing Ingestor evidence and permanent archival
+
+Use the existing path: **LocalStorageManager -> AcquisitionNode -> NATS ->
+Ingestor -> framework evidence preservation -> StorageManager monthly archive**.
+Deletion evidence uses `session_id=None` in the framework envelope while retaining
+the original Session, recording, artifact, operator, operation and outcome
+relationships in its payload. AcquisitionNode publication does not transfer local
+deletion authority to Ingestor or StorageManager.
+
+Reuse producer-controlled persistence intent, journal-before-ACK, deduplication,
+preservation confirmation and monthly archival. Identical evidence redelivery
+retains its identity; later observations and explicit retries have distinct
+evidence identities with their applicable relationships preserved. Publication,
+durable intake, permanent archival and physical deletion are distinct confirmations;
+neither a lost reply nor a successful publication proves the others.
+
+Do not reopen finalized Session acquisition intake or modify closed Session
+Evidence Archives. Permanent Session archive closure is not a deletion prerequisite
+and remains separately authorized under Decision 362. Framework-scoped deletion
+history can be preserved after that closure without rewriting Session products.
+No new evidence subsystem or separate StorageManager deletion-history database is
+introduced; existing framework archival and recovery guarantees remain in force.
+
+### Authoritative Storage readback and implementation status
+
+Preserve authoritative Session, Experiment, recording, collection, capacity and
+deletion-history readback through Controller-mediated interfaces. Ownership
+filtering must be authoritative. Decision 431's 30-day successful-collection
+history window is a GUI display filter, not a retention or deletion rule.
+
+These are accepted contracts, not implemented deletion functionality. Q034 remains
+OPEN for exact-target grouping/readback, identity/authorization integration, the
+local durable operation-record and safety implementation, linked retry/restart
+reconciliation, framework evidence production/confirmation, historical queries
+and their independent validation/audit. Existing lifecycle, whole-Session collection,
+preservation and historical validation status are unchanged. No functionality,
+implementation authorization or milestone closure is established here.
+
+---
+
 # Accepted Architectural Principles
 
 The following principles summarize the accepted decisions so far.
+
+Decision 432 fixes launch-time experimenter ownership, logical recording deletion
+scope, durable LocalStorageManager operation records, explicit linked retries and
+framework-scoped deletion evidence through existing Ingestor/monthly preservation.
+Session intake and closed archives are not reopened; Q034 remains OPEN for
+implementation and verification rather than unresolved deletion-policy choices.
+
+Decision 431 adds Storage before Services as the seventh permanent GUI tab.
+Collection remains whole-Session and Controller-coordinated; exact-recording
+deletion is separately authorized and LocalStorageManager-owned, with unresolved
+readback, safety, authorization and durable-outcome contracts in Q034.
 
 Decision 430 distinguishes Protocol Mode (selected name, application-fixed active
 procedure) from Free Mode (protocol `None`, application-supplied operation
@@ -13292,7 +13556,8 @@ editor-scope wording below does not impose a full protocol snapshot or override
 that clarification; accepted configuration/evidence integrity remains unchanged.
 
 Decision 426 governs GUI repository placement and separate packaging; Decision
-425 governs current GUI requirements, including six-tab web/Python
+425 governs GUI requirements, with its six-tab layout qualified by Decision 431,
+including web/Python
 deployment, Analysis/Validation cleanup, browser control and acknowledged
 notifications. Older summary entries referring to Services as a proposal or GUI
 contracts as wholly unresolved retain historical status only; they do not

@@ -1201,6 +1201,7 @@ guarantee remain deferred. M014/W034 retain completed Slice 27 scope and status.
 - AcquisitionNode.maintenance_evidence(): Returns retained node operational, health and manifest evidence required at service retirement.
 - AcquisitionNode.declared_devices: Returns the node's declared DeviceDeclaration/ScientificProductDeclaration inventory independently of Session selection and device availability.
 - AcquisitionNode.get_inventory(): Returns existing installed device/product declarations, synchronization authority and detached adapter-owned Session parameter definitions without hardware initialization or Session selection.
+- AcquisitionNode.read_historical_artifacts(*, session_id=None): Delegates read-only manifest/metadata inventory to LocalStorageManager using the configured node root and identity without attaching historical storage, touching devices or changing the current reservation.
 - AcquisitionNode.reserved_for_session_id: Returns the current exclusive Session reservation or None under the node-owned lock.
 - AcquisitionNode.reserve(session_id): Atomically acquires an unreserved node, confirms the same owner's reservation idempotently, or rejects another owner without changing state.
 - AcquisitionNode.release_reservation(session_id): Clears only the owner's confirmed-clean, nonrunning, locally finalized binding without deleting artifacts or waiting for global retrieval.
@@ -2096,6 +2097,10 @@ recovery is introduced. Phase 16 and M015 remain open.
 - LocalStorageCompletionSummary: Immutable plain-data summary of local finalization without implying global Session Record completion.
 - LocalStorageManager: Owns explicitly selected JSONL or fixed-shape HDF5 incremental local stream persistence with bounded buffering, append-time flush intervals, manifests, evidence, readiness, cleanup, and finalization for one Session and co-located AcquisitionNode.
 - LocalStorageManager.check_ready: Verifies that the configured local persistence root is writable using the shared ServiceReadiness contract.
+- LocalStorageManager.read_historical_artifacts(root_path, acquisition_node_id, *, session_id=None): Statelessly reads historical artifact manifests and metadata, checks identities and exact scientific source paths across the configured root before Session filtering, and reports missing, inconsistent or aliased sources without claiming logical recording membership, preservation or deletion eligibility.
+- _historical_path: Checks a persisted inventory path for configured-root containment and unresolved aliases without relocating it.
+- _read_inventory_record: Reads an inventory JSON object while rejecting duplicate fields and nonfinite values.
+- _read_historical_artifact: Cross-checks one persisted manifest/metadata pair and retains partial information and identity claims for inventory-wide conflict reporting.
 - LocalStorageManager.create_stream: Creates one framework scientific file and manifest using keyword-only `storage_format="jsonl"` or `"hdf5"` (explicit HDF5 shape/dtype), with `external_artifact_path=None`; the obsolete combined external-file argument is removed and external files/timing files require separate manifests.
 - LocalStorageManager.append_rows: Validates scientific timing/context and appends JSONL plain-data rows or HDF5 rows containing a NumPy `frame`, integer `frame_index`, and plain per-frame metadata by storage ID.
 - LocalStorageManager.flush: Flushes current writes without finalizing, counting complete JSONL file writes separately from rows whose durability is confirmed by successful file flush and `fsync`.
