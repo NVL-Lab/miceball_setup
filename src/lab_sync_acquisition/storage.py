@@ -20,7 +20,7 @@ from typing import Any, Iterable, Iterator, Mapping
 from uuid import uuid4
 
 from lab_sync_acquisition.service_readiness import ServiceReadiness, apply_dependency_readiness
-from lab_sync_acquisition.local_storage import ArtifactManifest, inspect_storage_capacity
+from lab_sync_acquisition.local_storage import ArtifactManifest, inspect_storage_capacity, validate_deletion_evidence
 from lab_sync_acquisition.communication import RuntimeEvidenceMessage
 from lab_sync_acquisition.service_maintenance import service_operation
 
@@ -1825,6 +1825,8 @@ class PersistentStorageManager:
                 message = RuntimeEvidenceMessage.from_dict(row)
                 if message.session_id is not None or not message.is_persistent:
                     raise ValueError("Framework archive contains invalid evidence scope")
+                if message.evidence_type == "scientific_original_deletion":
+                    validate_deletion_evidence(message)
             evidence.extend(rows)
             audit.extend(audits)
             partitions.append((directory, products))
@@ -1846,6 +1848,9 @@ class PersistentStorageManager:
             audit = deepcopy([_to_plain_data(item) for item in compiled_runtime_evidence.get("ingest_audit", ())])
             if any(item.get("session_id") is not None for item in evidence):
                 raise ValueError("Framework archive cannot contain Session-scoped evidence")
+            for row in evidence:
+                if row.get("evidence_type") == "scientific_original_deletion":
+                    validate_deletion_evidence(RuntimeEvidenceMessage.from_dict(row))
             root = self._storage_root / "framework" / "evidence"
             excluded = None
             if authorized_recovery and None in self._unfinished_archive_scopes:

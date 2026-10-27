@@ -87,17 +87,22 @@ contradictory historical ownership requires administrator mode, not inference.
 - AcquisitionNode.read_storage_history(*, session_id): Reads historical exact-original inventory, capacity and durable deletion operations without device preparation or Session rebinding.
 - AcquisitionNode.delete_original_artifacts(*, operation_id, request): Applies current node participation/cleanup safety under its existing reservation lock and delegates physical deletion to LocalStorageManager.
 - AcquisitionNode.deletion_evidence(*, session_id=None): Reconstructs stable persistent framework-scoped evidence from durable local operation records, including after restart.
-- LocalStorageManager.read_deletion_operations(root_path, acquisition_node_id, *, session_id=None): Reads per-file history and reconciles pending present/missing outcomes without modifying files or automatically retrying deletion.
+- LocalStorageManager.read_deletion_operations(root_path, acquisition_node_id, *, session_id=None): Validates complete admitted per-file history and reconciles pending originals by their recorded file identity, retaining missing/replacement uncertainty without modifying files or automatically retrying deletion.
 - LocalStorageManager.delete_original_artifacts(root_path, acquisition_node_id, *, operation_id, request): Revalidates exact original files, durably records admitted intent before unlink, records per-file outcomes and never repeats physical execution for a duplicate operation ID.
 - local_storage._deletion_record_path: Validates operation identifiers and contains operation records within the configured node storage root.
 - local_storage._write_deletion_record: Fsyncs initial intent and atomically replaces/readback-checks subsequent local outcomes.
 - local_storage._sync_deletion_directories: Confirms local operation-file directory entries where supported, shared by writes and duplicate-outcome durability confirmation.
 - local_storage._read_deletion_record: Validates durable operation scope, file identities and outcomes without inventing success for damaged or contradictory records.
+- local_storage._validate_deletion_request: Shares existing Session/Experiment selection, cooperative operator, confirmation and policy validation between admission and retained-record checks.
+- local_storage._deletion_inventory_scope: Establishes the complete local subset from authoritative cross-Session inventory and rejects changed or incomplete scoped targets.
+- local_storage.validate_deletion_operation(record, *, manifests=None): Checks complete admitted-target and per-file outcome coverage, optionally against an independently obtained exact inventory, without claiming physical success.
+- local_storage.validate_deletion_evidence(message): Checks the complete operation payload, original producer/framework scope and existing content-derived evidence identity before intake, preservation or historical archive confirmation.
 - PersistentStorageManager.list_storage_sessions(): Enumerates existing candidates and capacity through existing saved-Session mechanisms without another registry.
 - PersistentStorageManager.read_storage_session(session_id): Cross-checks accepted ownership/configuration and reads Experiment records, collection outcomes/progress and validated monthly deletion evidence without collection or recovery.
 - PersistentStorageManager.confirm_collected_originals(session_id, manifests): Checks exact durable handoff coverage, archived collection outcomes and current verified global files before conditional deletion.
 - NatsAcquisitionNodeCommunication._execute_storage_command: Routes scoped historical/deletion commands and confirms exact framework evidence through existing Ingestor preservation, retaining local outcomes on missing replies.
 - tests.test_storage_backend.StorageBackendTests: Exercises actual disk-backed owners over existing controlled NATS transport for ownership, exact deletion, aliases, uncertainty, retries, restart history and maintenance retention.
+- tests.test_storage_backend.StorageBackendTests.connect_storage_transport: Reuses the isolated broker fixture with the existing disk-backed owners for distributed scope, duplicate-proof and partial-retry regressions.
 - tests.test_storage_backend.CollectedOriginalDeletionTests: Exercises HDF5 collection proof, conditional deletion, corrupted copies and preservation of global copies and historical products.
 - tests.test_storage_backend.StorageExternalModelsTests: Checks shared-client operator context and strict external Storage request/result identity.
 
@@ -109,6 +114,19 @@ original targets. Session participation/cleanup and unresolved closeout remain
 protected. Existing Slice 1 alias reconciliation is retained across Sessions.
 All Controller-to-service operations use NATS; Ingestor/StorageManager retain
 their existing shared process and independent persistence responsibilities.
+
+The bounded post-audit correction keeps global `experiment_ids` unchanged and
+adds each node's exact `artifact_manifests` to the existing internal deletion
+request and durable intent. Standalone owner calls derive that list from the
+same inventory. Every selected original has an outcome, including previously
+confirmed deletions carried into a linked retry without another unlink.
+Controller checks returned operation/request/producer identity, full local
+coverage and physical-outcome durability separately from intake/archive flags.
+Ingestor and StorageManager reuse the same payload/evidence checks at their
+independent receiving and persistence boundaries. Records lacking complete
+admitted-target proof remain unconfirmed; no migration, repair or destructive
+reconciliation is performed. Public lifecycle signatures and external request
+parameters are unchanged. Independent validation and audit remain pending.
 
 Collection remains whole-Session. Optional `deletion` parameters explicitly select
 its Experiment/Session scope, operation identity, confirmation and warning

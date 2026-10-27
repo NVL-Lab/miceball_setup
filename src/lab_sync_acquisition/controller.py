@@ -32,7 +32,7 @@ from lab_sync_acquisition.experiment_runtime import (
 )
 from lab_sync_acquisition.ingestor import InMemoryIngestor
 from lab_sync_acquisition.service_readiness import ServiceReadiness, apply_dependency_readiness
-from lab_sync_acquisition.local_storage import validate_storage_capacity
+from lab_sync_acquisition.local_storage import validate_storage_capacity, validate_deletion_operation
 from lab_sync_acquisition.session import (
     ExpectedParticipant,
     Session,
@@ -2985,11 +2985,21 @@ class Controller:
             for participant in participants:
                 if participant.component_type != "acquisition_node" or not selected.get(participant.component_id):
                     continue
+                local_manifests = [e["manifest"] for e in selected[participant.component_id]]
+                local_request = {**request, "artifact_manifests": local_manifests}
                 result = await communication.request_runtime_command(participant, "delete_original_artifacts", session_id,
-                    {"operation_id": operation_id, "request": request, "ingestor_participant": ingestors[0].to_dict(),
+                    {"operation_id": operation_id, "request": local_request, "ingestor_participant": ingestors[0].to_dict(),
                      "storage_participant": storage_participant.to_dict(),
                      "result_window_s": result_window_s}, result_window_s, command_id=uuid4().hex)
                 outcomes[participant.component_id] = (result.to_dict() if result else {"success": False, "reason": "Deletion outcome is unconfirmed"})
+                if result is not None and result.success:
+                    record = result.payload.get("operation")
+                    validate_deletion_operation(record, manifests=local_manifests)
+                    if (record["operation_id"] != operation_id or record["request"] != local_request
+                            or record["acquisition_node_id"] != participant.component_id
+                            or result.payload.get("local_outcomes_durable") is not True
+                            or not record["finished"] or any(f["status"] != "deleted" for f in record["files"])):
+                        raise RuntimeError("Owner confirmation does not establish complete exact deletion")
             success = bool(outcomes) and all(r.get("success") is True
                 and r.get("payload", {}).get("acceptance_confirmed") is True
                 and r.get("payload", {}).get("archival_confirmed") is True

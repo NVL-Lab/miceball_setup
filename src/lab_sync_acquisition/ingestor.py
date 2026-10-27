@@ -20,7 +20,7 @@ from typing import Any
 from uuid import uuid4
 
 from lab_sync_acquisition.communication import ARTIFACT_MANIFEST_EVIDENCE_TYPE, RuntimeEvidenceMessage
-from lab_sync_acquisition.local_storage import ArtifactManifest
+from lab_sync_acquisition.local_storage import ArtifactManifest, validate_deletion_evidence
 from lab_sync_acquisition.service_readiness import ServiceReadiness, apply_dependency_readiness
 from lab_sync_acquisition.service_maintenance import service_operation
 from lab_sync_acquisition.storage import (
@@ -230,6 +230,8 @@ class InMemoryIngestor:
         if storage is None or self._framework_ingestor is None:
             raise RuntimeError("Framework journal and paired StorageManager are required")
         for message in messages:
+            if message.evidence_type == "scientific_original_deletion":
+                validate_deletion_evidence(message)
             if message.session_id is None:
                 if not await self.await_durable_runtime_evidence(message, acceptance_window_s):
                     raise RuntimeError("Producer framework evidence lacks journal-backed acceptance")
@@ -1173,6 +1175,8 @@ class InMemoryIngestor:
         """Journal new evidence before acceptance when configured; deduplicate intake."""
 
         with self._intake_lock, ExitStack() as admission:
+            if evidence.evidence_type == "scientific_original_deletion":
+                validate_deletion_evidence(evidence)
             if evidence.session_id is None and self._evidence_scope == "session":
                 if self._framework_ingestor is None:
                     raise RuntimeError("Framework recovery journal is not configured")

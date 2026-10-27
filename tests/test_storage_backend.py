@@ -1,6 +1,9 @@
 """Controller-mediated Storage workflows with real owners and simulated NATS transport."""
 
 import asyncio
+from copy import deepcopy
+from dataclasses import replace
+from hashlib import sha256
 import json
 import os
 from pathlib import Path
@@ -11,11 +14,12 @@ from unittest.mock import AsyncMock, patch
 from lab_sync_acquisition import (
     AcquisitionNode, Controller, DeviceManager, InMemoryIngestor, LocalStorageManager,
     NatsAcquisitionNodeCommunication, NatsControllerCommunication, NatsIngestorCommunication,
-    NatsStorageManagerCommunication, PersistentStorageManager, RuntimeParticipant, ServiceMaintenanceInterface, SessionConfig,
+    NatsStorageManagerCommunication, NatsCommunicationBoundary, PersistentStorageManager, RuntimeParticipant, ServiceMaintenanceInterface, SessionConfig,
 )
 from lab_sync_acquisition.communication import ExternalControllerRequest, ExternalControllerResult
 from tests.test_session_launch import _Boundary, _Broker
 from tests.fakes import ReadyFakeAdapter
+from tests.nats_server_fixture import NATS_SERVER, temporary_jetstream_server
 
 
 class StorageBackendTests(unittest.IsolatedAsyncioTestCase):
@@ -49,19 +53,42 @@ class StorageBackendTests(unittest.IsolatedAsyncioTestCase):
     def record(self, session_id, owner):
         self.storage.write_initial_session_record(session_id,
             accepted_session_config={"session_id": session_id, "session_parameters": {"experimenter": owner},
-                                     "expected_runtime_participants": [self.peers[0].to_dict()]},
+                                     "expected_runtime_participants": [p.to_dict() for p in self.peers if p.component_type == "acquisition_node"]},
             lifecycle_evidence=[], readiness_evidence=[], device_readiness_evidence=[], service_readiness_evidence=[],
             final_session_status=None, cleanup_evidence={})
 
-    def artifact(self, sid, eid, product):
-        manager = LocalStorageManager(self.originals, sid, "node")
-        manifest = manager.create_stream(session_id=sid, experiment_id=eid, acquisition_node_id="node",
+    def artifact(self, sid, eid, product, *, root=None, node_id="node"):
+        manager = LocalStorageManager(self.originals if root is None else root, sid, node_id)
+        manifest = manager.create_stream(session_id=sid, experiment_id=eid, acquisition_node_id=node_id,
             source_component_id="camera", data_product_id=product, artifact_type=product, schema={})
         manager.append_rows(manifest.storage_id, [{"session_time_s": 1., "experiment_time_s": 0.,
             "acquisition_node_local_time_s": 1., "timestamp_status": "runtime_timestamped", "experiment_id": eid,
             "payload": {"value": 7}}])
         manager.finalize_all()
         return manager.manifests[0]
+
+    async def connect_storage_transport(self, *additional_nodes):
+        url = await self.enterAsyncContext(temporary_jetstream_server())
+        self.arguments["result_window_s"] = 2.
+        for kind, identity, owner, handler in (
+            ("controller", "controller", None, None),
+            ("ingestor", "ingestor", self.ingestor, NatsIngestorCommunication),
+            ("storage_manager", "storage", self.storage, NatsStorageManagerCommunication),
+            *(("acquisition_node", node.node_id, node, NatsAcquisitionNodeCommunication)
+              for node in (self.node, *additional_nodes)),
+        ):
+            boundary = NatsCommunicationBoundary(kind, identity, (url,))
+            await boundary.connect()
+            self.addAsyncCleanup(boundary.close)
+            await boundary.ensure_streams()
+            if handler is None:
+                self.communication = NatsControllerCommunication(boundary)
+                self.arguments["communication"] = self.communication
+            else:
+                receiver = handler(boundary, owner)
+                if kind == "ingestor":
+                    await receiver.subscribe_evidence(None)
+                await receiver.subscribe_commands()
 
     async def delete(self, operation="delete-one", experiments=None, **changes):
         args = {**self.arguments, "participants": self.peers, "operation_id": operation,
@@ -374,6 +401,242 @@ class StorageBackendTests(unittest.IsolatedAsyncioTestCase):
             ExternalControllerRequest("controller", "shared", "invalid", "collect_saved_session_artifacts_remote", "old",
                 {"evidence_id": "unused", "experimenter_name": "Alice", "administrator_mode": False,
                  "deletion": {"policy": "manual"}})
+
+    @unittest.skipUnless(NATS_SERVER, "optional local nats-server unavailable")
+    async def test_damaged_duplicate_cannot_omit_failed_timing_outcome_or_archive_success(self):
+        await self.connect_storage_transport()
+        original = Path.unlink
+        remaining = Path(self.manifests[1].local_storage_path)
+        def locked(path, *args, **kwargs):
+            if path == remaining:
+                raise PermissionError("timing original is locked")
+            return original(path, *args, **kwargs)
+        with patch.object(Path, "unlink", locked):
+            self.assertFalse((await self.delete()).succeeded)
+        preserved = self.storage.read_storage_session("old")["deletion_history"]
+        path = self.originals / "deletion_operations/delete-one.json"
+        record = json.loads(path.read_bytes())
+        record["files"] = [f for f in record["files"] if f["status"] == "deleted"]
+        path.write_text(json.dumps(record))
+        with patch.object(Path, "unlink", side_effect=AssertionError("damaged duplicate must not unlink")):
+            result = await self.delete()
+        self.assertFalse(result.succeeded, result.to_dict())
+        self.assertTrue(remaining.exists())
+        self.assertTrue(self.node.read_storage_history(session_id="old")["deletions"]["issues"])
+        self.assertEqual(self.storage.read_storage_session("old")["deletion_history"], preserved)
+
+    async def test_empty_duplicate_outcomes_are_not_confirmed_after_restart(self):
+        with patch.object(Path, "unlink", side_effect=PermissionError("all originals locked")):
+            self.assertFalse((await self.delete()).succeeded)
+        path = self.originals / "deletion_operations/delete-one.json"
+        record = json.loads(path.read_bytes())
+        record["files"] = []
+        path.write_text(json.dumps(record))
+        restarted = AcquisitionNode(device_manager=DeviceManager([self.adapter]), node_id="node",
+            synchronization_source_id="sync", default_local_storage_root=self.originals)
+        self.assertTrue(restarted.read_storage_history(session_id="old")["deletions"]["issues"])
+        with self.assertRaises((ValueError, RuntimeError)):
+            restarted.delete_original_artifacts(operation_id="delete-one", request=record["request"])
+        self.assertEqual(self.originals_present(), [True] * 3)
+
+    @unittest.skipUnless(NATS_SERVER, "optional local nats-server unavailable")
+    async def test_disjoint_and_shared_experiments_delete_exact_node_subsets(self):
+        other_root = self.root / "other-node"
+        other = AcquisitionNode(device_manager=DeviceManager([ReadyFakeAdapter("other", "camera", ("frames",), True)]),
+            node_id="other-node", synchronization_source_id="sync", default_local_storage_root=other_root)
+        self.peers += (RuntimeParticipant("acquisition_node", "other-node"),)
+        await self.connect_storage_transport(other)
+        for sid, shared in (("disjoint", False), ("overlap", True)):
+            with self.subTest(sid=sid):
+                self.record(sid, "Alice")
+                targets = [self.artifact(sid, "one", "frames"),
+                    self.artifact(sid, "two", "index", root=other_root, node_id="other-node")]
+                if shared:
+                    targets.append(self.artifact(sid, "one", "timing", root=other_root, node_id="other-node"))
+                untouched = self.artifact(sid, "three", "frames")
+                result = await self.controller.delete_original_artifacts(sid, operation_id=sid, experiment_ids=["one", "two"],
+                    confirmed=True, warning_acknowledged=True, participants=self.peers, **self.arguments)
+                self.assertTrue(result.succeeded, result.to_dict())
+                self.assertFalse(any(Path(m.local_storage_path).exists() for m in targets))
+                self.assertTrue(Path(untouched.local_storage_path).exists())
+                for node in (self.node, other):
+                    saved = node.read_storage_history(session_id=sid)["deletions"]["operations"][0]
+                    self.assertEqual(saved["operation_id"], sid)
+                    self.assertEqual(saved["request"]["experiment_ids"], ["one", "two"])
+                self.assertEqual(len(self.storage.read_storage_session(sid)["deletion_history"]), 2)
+                with patch.object(Path, "unlink", side_effect=AssertionError("duplicate must not unlink")):
+                    duplicate = await self.controller.delete_original_artifacts(sid, operation_id=sid,
+                        experiment_ids=["one", "two"], confirmed=True, warning_acknowledged=True,
+                        participants=self.peers, **self.arguments)
+                self.assertTrue(duplicate.succeeded, duplicate.to_dict())
+
+    async def test_pending_replacement_remains_uncertain_and_cannot_be_retried(self):
+        original = Path.unlink
+        target = Path(self.manifests[0].local_storage_path)
+        def interrupted(path, *args, **kwargs):
+            original(path, *args, **kwargs)
+            raise asyncio.CancelledError()
+        with patch.object(Path, "unlink", interrupted), self.assertRaises(asyncio.CancelledError):
+            await self.delete()
+        target.write_bytes(b"replacement, not the deleted original")
+        restarted = AcquisitionNode(device_manager=DeviceManager([self.adapter]), node_id="node",
+            synchronization_source_id="sync", default_local_storage_root=self.originals)
+        report = restarted.read_storage_history(session_id="old")["deletions"]
+        reconciliation = next(r for r in report["reconciliation"] if r["artifact_manifest_id"] == self.manifests[0].artifact_manifest_id)
+        self.assertEqual(reconciliation["status"], "unconfirmed")
+        self.assertFalse((await self.delete(operation="retry", retry_of="delete-one")).succeeded)
+        self.assertEqual(target.read_bytes(), b"replacement, not the deleted original")
+
+    async def test_pending_original_identity_allows_linked_retry_without_repeating_completed_work(self):
+        with patch.object(Path, "unlink", side_effect=asyncio.CancelledError()), self.assertRaises(asyncio.CancelledError):
+            await self.delete()
+        report = self.node.read_storage_history(session_id="old")["deletions"]
+        self.assertEqual({r["status"] for r in report["reconciliation"]}, {"not_deleted"})
+        self.assertTrue((await self.delete(operation="retry", retry_of="delete-one")).succeeded)
+        self.assertEqual(self.originals_present(), [False] * 3)
+        records = self.node.read_storage_history(session_id="old")["deletions"]["operations"]
+        self.assertFalse(records[0]["finished"])
+        self.assertEqual(len(records[1]["files"]), 3)
+
+    async def test_controller_rejects_incomplete_or_contradictory_owner_success(self):
+        send = self.broker.publish
+        for mutation in ("missing", "duplicate", "operation", "session", "node", "unfinished", "failed", "durability"):
+            async def changed(subject, data, stream):
+                if stream == "LAB_COMMAND_RESULTS" and subject.endswith("delete_original_artifacts"):
+                    envelope = json.loads(data)
+                    record = envelope["payload"]["operation"]
+                    if mutation == "missing": record["files"].pop()
+                    elif mutation == "duplicate": record["files"].append(record["files"][0])
+                    elif mutation == "operation": record["operation_id"] = "another-operation"
+                    elif mutation == "session": record["request"]["session_id"] = "another-session"
+                    elif mutation == "node": record["acquisition_node_id"] = "another-node"
+                    elif mutation == "unfinished": record["finished"] = False
+                    elif mutation == "failed": record["files"][0].update(status="failed", error="contradictory outcome")
+                    else: envelope["payload"]["local_outcomes_durable"] = False
+                    data = json.dumps(envelope).encode()
+                return await send(subject, data, stream)
+            with self.subTest(mutation=mutation), patch.object(self.broker, "publish", changed):
+                self.assertFalse((await self.delete()).succeeded)
+        self.assertTrue((await self.delete()).succeeded)
+        self.assertEqual(self.originals_present(), [False] * 3)
+
+    async def test_incomplete_evidence_is_rejected_before_intake_and_archival(self):
+        self.assertTrue((await self.delete()).succeeded)
+        message = self.node.deletion_evidence()[0]
+        before = {p: p.read_bytes() for p in self.root.rglob("*") if p.is_file()}
+        for mutation in ("missing", "empty", "duplicate", "identity", "scope", "admission", "hash"):
+            payload = deepcopy(message.payload)
+            if mutation == "missing": payload["files"].pop()
+            elif mutation == "empty": payload["files"] = []
+            elif mutation == "duplicate": payload["files"].append(payload["files"][0])
+            elif mutation == "identity": payload["files"][0]["file_identity"] = None
+            elif mutation == "scope": payload["request"].pop("artifact_manifests")
+            elif mutation == "admission": payload["admission"]["local_safety_confirmed"] = 1
+            else: payload["recorded_at"] += 1
+            identity = message.evidence_id if mutation == "hash" else "deletion-" + sha256(
+                json.dumps(payload, sort_keys=True, allow_nan=False).encode()).hexdigest()
+            damaged = replace(message, payload=payload, evidence_id=identity)
+            with self.subTest(mutation=mutation):
+                with self.assertRaises((ValueError, RuntimeError)):
+                    self.ingestor.receive_runtime_evidence(damaged)
+                with self.assertRaises((ValueError, RuntimeError)):
+                    await self.ingestor.preserve_service_evidence([damaged.to_dict()], "node", .1)
+                with self.assertRaises((ValueError, RuntimeError)):
+                    self.storage.write_framework_evidence_archive({"runtime_evidence": [damaged], "ingest_audit": []})
+        self.assertEqual(before, {p: p.read_bytes() for p in before})
+
+    async def test_damaged_archived_deletion_outcomes_cannot_confirm_history(self):
+        self.assertTrue((await self.delete()).succeeded)
+        archive = next((self.root / "storage/framework/evidence").glob("*/runtime_evidence.jsonl"))
+        rows = [json.loads(line) for line in archive.read_text().splitlines()]
+        rows[0]["payload"]["files"].pop()
+        archive.write_text("\n".join(json.dumps(row) for row in rows) + "\n")
+        restored = PersistentStorageManager(self.root / "storage")
+        report = restored.read_storage_session("old")
+        self.assertFalse(report["deletion_history_confirmed"])
+        self.assertTrue(report["issues"])
+
+    async def test_changed_inventory_or_injected_local_scope_cannot_expand_deletion(self):
+        send = self.broker.publish
+        for mutation in ("missing", "foreign", "expanded"):
+            async def changed(subject, data, stream):
+                if stream == "LAB_COMMANDS" and subject.endswith("delete_original_artifacts"):
+                    command = json.loads(data)
+                    if mutation == "missing": command["payload"]["request"]["artifact_manifests"].pop()
+                    elif mutation == "foreign":
+                        command["payload"]["request"]["artifact_manifests"][0]["acquisition_node_id"] = "foreign"
+                    else: self.artifact("old", "one", "unexpected")
+                    data = json.dumps(command).encode()
+                return await send(subject, data, stream)
+            with self.subTest(mutation=mutation), patch.object(self.broker, "publish", changed):
+                self.assertFalse((await self.delete()).succeeded)
+                self.assertEqual(self.originals_present(), [True] * 3)
+        self.assertFalse((await self.delete(experiments=["one", "absent"])).succeeded)
+        self.assertEqual(self.originals_present(), [True] * 3)
+
+    async def test_damaged_scientific_content_can_be_manually_deleted_without_touching_metadata(self):
+        metadata = {p: p.read_bytes() for p in self.originals.rglob("*.json")}
+        Path(self.manifests[0].local_storage_path).write_bytes(b"damaged scientific content")
+        self.assertTrue((await self.delete(experiments=["one"])).succeeded)
+        self.assertEqual(self.originals_present(), [False, False, True])
+        self.assertEqual(metadata, {p: p.read_bytes() for p in metadata})
+
+    @unittest.skipUnless(NATS_SERVER, "optional local nats-server unavailable")
+    async def test_multi_node_partial_deletion_retries_only_originals_that_remain(self):
+        other_root = self.root / "other-node"
+        other = AcquisitionNode(device_manager=DeviceManager([ReadyFakeAdapter("other", "camera", ("frames",), True)]),
+            node_id="other-node", synchronization_source_id="sync", default_local_storage_root=other_root)
+        self.peers += (RuntimeParticipant("acquisition_node", "other-node"),)
+        self.record("partial", "Alice")
+        one = self.artifact("partial", "one", "frames")
+        two = self.artifact("partial", "two", "timing", root=other_root, node_id="other-node")
+        await self.connect_storage_transport(other)
+        original = Path.unlink
+        calls = []
+        def locked(path, *args, **kwargs):
+            if str(path) == two.local_storage_path:
+                raise PermissionError("second node original locked")
+            return original(path, *args, **kwargs)
+        arguments = {**self.arguments, "participants": self.peers, "experiment_ids": ["one", "two"],
+                     "confirmed": True, "warning_acknowledged": True}
+        with patch.object(Path, "unlink", locked):
+            first = await self.controller.delete_original_artifacts("partial", operation_id="partial", **arguments)
+        self.assertFalse(first.succeeded)
+        self.assertFalse(Path(one.local_storage_path).exists())
+        self.assertTrue(Path(two.local_storage_path).exists())
+        prior = {p: p.read_bytes() for root in (self.originals, other_root)
+                 for p in root.glob("deletion_operations/partial.json")}
+        def counted(path, *args, **kwargs):
+            calls.append(str(path))
+            return original(path, *args, **kwargs)
+        with patch.object(Path, "unlink", counted):
+            result = await self.controller.delete_original_artifacts("partial", operation_id="partial-retry", retry_of="partial", **arguments)
+        self.assertTrue(result.succeeded, result.to_dict())
+        self.assertEqual(calls, [two.local_storage_path])
+        self.assertEqual(prior, {p: p.read_bytes() for p in prior})
+        for node in (self.node, other):
+            records = node.read_storage_history(session_id="partial")["deletions"]["operations"]
+            self.assertEqual(len(records), 2)
+            self.assertEqual(len(records[1]["files"]), 1)
+
+    async def test_interrupted_outcome_write_retains_uncertainty_after_owner_restart(self):
+        replace_file = os.replace
+        def failed(source, destination):
+            if Path(destination).parent == self.originals / "deletion_operations":
+                raise OSError("outcome replacement unavailable after unlink")
+            return replace_file(source, destination)
+        with patch("lab_sync_acquisition.local_storage.os.replace", failed):
+            self.assertFalse((await self.delete()).succeeded)
+        self.assertEqual(self.originals_present().count(True), 2)
+        restarted = AcquisitionNode(device_manager=DeviceManager([self.adapter]), node_id="node",
+            synchronization_source_id="sync", default_local_storage_root=self.originals)
+        report = restarted.read_storage_history(session_id="old")["deletions"]
+        self.assertFalse(report["operations"][0]["finished"])
+        self.assertIn("missing_deletion_unconfirmed", [r["status"] for r in report["reconciliation"]])
+        before = self.originals_present()
+        with patch.object(Path, "unlink", side_effect=AssertionError("duplicate must not retry unlink")):
+            self.assertFalse((await self.delete()).succeeded)
+        self.assertEqual(self.originals_present(), before)
 
 
 class CollectedOriginalDeletionTests(unittest.IsolatedAsyncioTestCase):

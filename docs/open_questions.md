@@ -774,6 +774,31 @@ checks do not establish independent validation/audit or deployment readiness.
 Storage GUI integration and its 30-day successful-collection presentation filter
 remain deferred, without limiting evidence retention.
 
+**Post-implementation audit correction (independent verification pending):** The
+independent audit of `1ee6d948bb18f5144bf53ca41c6937a955f83429` returned FAIL with
+two P2 findings (omitted failed outcomes could falsely confirm duplicate deletion;
+global Experiment selection was incorrectly required on every node) and one P3
+(a pending original's replacement was reported as not deleted). The bounded
+correction retains each node's exact admitted manifests within the existing
+request/operation record, cross-checks complete outcomes against authoritative
+inventory and Controller scope, and validates deletion evidence at existing
+intake/archive boundaries. Linked retries retain earlier confirmed outcomes
+without repeating unlink. Pending readback compares recorded file identity and
+reports replacements as unconfirmed. No new lifecycle, registry or recovery API
+is introduced. Records without sufficient admitted-target proof remain
+unconfirmed; no automatic migration, repair or additional deletion is attempted.
+
+Developer verification passed 42 distinct Storage backend methods and six selected
+existing lifecycle/framework-archive regressions (48 distinct methods; no skips).
+The original findings were reproduced before production edits. Real isolated
+NATS/JetStream, actual SDK and disk-backed owners exercised disjoint/overlapping
+two-node scope, duplicate proof and partial-retry evidence preservation; other
+cases reused controlled transport. These are implementation checks, not the
+subsequent independent IPython validation or independent audit. No hardware,
+cross-machine, process-crash or power-loss validation is claimed. Initial hard-link
+promotion and previously blocked integration checks remain unconfirmed. Slice 2
+and Q034 remain OPEN; no documentation closure is performed by this handoff.
+
 **Codex implementation verification:** 79 distinct selected methods passed and one
 filesystem-alias method was skipped across the final focused runs (79-method
 regression run: 78 passed, one skipped; final 31-method directly affected rerun:

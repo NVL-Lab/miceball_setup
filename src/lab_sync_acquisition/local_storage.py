@@ -325,33 +325,114 @@ def _write_deletion_record(path: Path, record: dict, *, initial=False) -> None:
         raise RuntimeError("Deletion operation readback differs from durable intent/outcome")
 
 
-def _read_deletion_record(root: Path, node_id: str, path: Path) -> dict:
-    record = _read_inventory_record(_historical_path(path, root))
-    if (record.get("acquisition_node_id") != node_id
-            or path != _deletion_record_path(root, record.get("operation_id"))
-            or not isinstance(record.get("request"), dict)
+def _validate_deletion_request(request):
+    if not isinstance(request, dict):
+        raise ValueError("Deletion requires an explicit request")
+    sid, experiments = request.get("session_id"), request.get("experiment_ids")
+    if (not isinstance(sid, str) or not sid or any(c in sid for c in "/\\\x00") or sid in {".", ".."}
+            or (experiments is not None and (not isinstance(experiments, list) or not experiments
+                or any(not isinstance(e, str) or not e for e in experiments)
+                or len(set(experiments)) != len(experiments)))
+            or request.get("confirmed") is not True or request.get("warning_acknowledged") is not True
+            or type(request.get("administrator_mode")) is not bool
+            or (not request["administrator_mode"] and (
+                not isinstance(request.get("experimenter_name"), str) or not request["experimenter_name"].strip()))
+            or request.get("policy") not in {"manual", "after_collection"}):
+        raise ValueError("Explicit deletion scope, operator, confirmation, warning and policy are required")
+    return sid, experiments
+
+
+def validate_deletion_operation(record: dict, *, manifests: list[dict] | None = None) -> None:
+    """Validate exact admitted targets and every outcome, without claiming physical success."""
+    if (not isinstance(record, dict) or not isinstance(record.get("request"), dict)
             or not isinstance(record.get("files"), list)
             or type(record.get("finished")) is not bool
             or type(record.get("recorded_at")) not in (int, float)
             or not math.isfinite(record["recorded_at"])
-            or record.get("admission") != {"exact_originals_confirmed": True, "local_safety_confirmed": True}):
+            or not isinstance(record.get("admission"), dict)
+            or set(record["admission"]) != {"exact_originals_confirmed", "local_safety_confirmed"}
+            or any(value is not True for value in record["admission"].values())):
         raise ValueError("Invalid deletion operation record")
+    if (any(not isinstance(record.get(name), str) or not record[name].strip()
+            for name in ("operation_id", "acquisition_node_id"))
+            or any(c not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-" for c in record["operation_id"])):
+        raise ValueError("Invalid deletion operation identity")
+    sid, experiments = _validate_deletion_request(record["request"])
+    admitted = record["request"].get("artifact_manifests")
+    if not isinstance(admitted, list) or not admitted:
+        raise ValueError("Deletion intent lacks its complete exact original scope")
+    expected = {}
+    for data in admitted:
+        manifest = ArtifactManifest.from_dict(data)
+        identity = manifest.artifact_manifest_id
+        if (identity in expected or manifest.session_id != sid
+                or manifest.acquisition_node_id != record.get("acquisition_node_id")
+                or (experiments is not None and manifest.experiment_id not in experiments)):
+            raise ValueError("Invalid deletion admitted target scope")
+        expected[identity] = data
+    if manifests is not None and (len(manifests) != len(expected)
+            or {m["artifact_manifest_id"]: m for m in manifests} != expected):
+        raise ValueError("Deletion intent does not cover the current exact original scope")
     seen = set()
     for item in record["files"]:
+        if not isinstance(item, dict) or not {"artifact_manifest", "original_path", "status", "error", "file_identity"} <= item.keys():
+            raise ValueError("Deletion per-file outcome is incomplete")
         manifest = ArtifactManifest.from_dict(item["artifact_manifest"])
         identity = manifest.artifact_manifest_id
         if (identity in seen or item["status"] not in {
                 "pending", "deleted", "missing_deletion_unconfirmed", "failed", "unconfirmed"}
-                or item["artifact_manifest"]["session_id"] != record["request"]["session_id"]
-                or item["artifact_manifest"]["acquisition_node_id"] != node_id):
+                or expected.get(identity) != item["artifact_manifest"]
+                or (record["finished"] and item["status"] == "pending")
+                or (item["status"] in {"pending", "deleted", "missing_deletion_unconfirmed"} and item["error"] is not None)
+                or (item.get("error") is not None and not isinstance(item["error"], str))):
             raise ValueError("Invalid deletion per-file scope or outcome")
         seen.add(identity)
-        original = _historical_path(Path(item["original_path"]), root)
+        signature = item.get("file_identity")
+        if (signature is None and item["status"] != "missing_deletion_unconfirmed"
+                or signature is not None and (not isinstance(signature, list) or len(signature) != 4
+                    or any(type(value) is not int for value in signature) or signature[2] < 0)):
+            raise ValueError("Deletion original file identity is unconfirmed")
         source = manifest.external_artifact_path or manifest.local_storage_path
-        if (original != _historical_path(Path(source), root)
-                or (record["request"].get("experiment_ids") is not None
-                    and manifest.experiment_id not in record["request"]["experiment_ids"])):
+        if not isinstance(item.get("original_path"), str) or Path(item["original_path"]) != Path(source):
             raise ValueError("Deletion record target identity mismatch")
+    if seen != expected.keys():
+        raise ValueError("Deletion record omits admitted per-file outcomes")
+
+
+def validate_deletion_evidence(message) -> None:
+    """Require a complete producer-scoped deletion record and its stable content identity."""
+    from hashlib import sha256
+    validate_deletion_operation(message.payload)
+    identity = "deletion-" + sha256(json.dumps(message.payload, sort_keys=True, allow_nan=False).encode()).hexdigest()
+    if (message.session_id is not None or not message.is_persistent
+            or message.source_id != message.payload["acquisition_node_id"] or message.evidence_id != identity):
+        raise ValueError("Deletion evidence identity or producer scope is inconsistent")
+
+
+def _deletion_inventory_scope(root, node_id, request):
+    sid, experiments = _validate_deletion_request(request)
+    inventory = LocalStorageManager.read_historical_artifacts(root, node_id, session_id=sid)
+    selected = [e for e in inventory["artifacts"] if experiments is None
+                or Path(e["manifest_path"]).relative_to(root).parts[1] in experiments]
+    if (inventory["issues"] or not selected or any(not e["identity_confirmed"] for e in selected)
+            or ("artifact_manifests" not in request and experiments is not None
+                and set(experiments) != {e["manifest"]["experiment_id"] for e in selected})):
+        raise RuntimeError("Exact original scope is incomplete, inconsistent or ambiguous")
+    manifests = [entry["manifest"] for entry in selected]
+    if "artifact_manifests" in request and request["artifact_manifests"] != manifests:
+        raise ValueError("Deletion request original scope changed or is incomplete")
+    return selected
+
+
+def _read_deletion_record(root: Path, node_id: str, path: Path) -> dict:
+    record = _read_inventory_record(_historical_path(path, root))
+    if (record.get("acquisition_node_id") != node_id
+            or path != _deletion_record_path(root, record.get("operation_id"))):
+        raise ValueError("Invalid deletion operation identity")
+    selected = _deletion_inventory_scope(root, node_id, record["request"])
+    validate_deletion_operation(record, manifests=[e["manifest"] for e in selected])
+    for item in record["files"]:
+        original = _historical_path(Path(item["original_path"]), root)
         if item["status"] == "deleted" and original.exists():
             raise ValueError("A confirmed deleted original has reappeared")
     return record
@@ -603,10 +684,16 @@ class LocalStorageManager:
                     for item in record["files"]:
                         if item["status"] == "pending":
                             original = _historical_path(Path(item["original_path"]), root)
+                            status = "missing_deletion_unconfirmed"
+                            if original.exists():
+                                info = original.stat()
+                                status = ("not_deleted" if original.is_file() and
+                                    [info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns] == item["file_identity"]
+                                    else "unconfirmed")
                             report["reconciliation"].append({"operation_id": record["operation_id"],
                                 "artifact_manifest_id": item["artifact_manifest"]["artifact_manifest_id"],
-                                "status": "not_deleted" if original.is_file() else "missing_deletion_unconfirmed"})
-            except (OSError, ValueError, KeyError, TypeError) as error:
+                                "status": status})
+            except (OSError, ValueError, KeyError, TypeError, RuntimeError) as error:
                 report["issues"].append({"path": str(path), "reason": str(error)})
         return report
 
@@ -621,18 +708,9 @@ class LocalStorageManager:
         root = Path(root_path).resolve(strict=True)
         path = _deletion_record_path(root, operation_id)
         request = deepcopy(request)
-        sid = request.get("session_id")
-        experiments = request.get("experiment_ids")
-        if (not isinstance(sid, str) or not sid or any(c in sid for c in "/\\\x00") or sid in {".", ".."}
-                or (experiments is not None and (not isinstance(experiments, list) or not experiments
-                    or any(not isinstance(e, str) or not e for e in experiments)
-                    or len(set(experiments)) != len(experiments)))
-                or request.get("confirmed") is not True or request.get("warning_acknowledged") is not True
-                or type(request.get("administrator_mode")) is not bool
-                or (not request["administrator_mode"] and (
-                    not isinstance(request.get("experimenter_name"), str) or not request["experimenter_name"].strip()))
-                or request.get("policy") not in {"manual", "after_collection"}):
-            raise ValueError("Explicit deletion scope, operator, confirmation, warning and policy are required")
+        selected = _deletion_inventory_scope(root, acquisition_node_id, request)
+        sid = request["session_id"]
+        request["artifact_manifests"] = [e["manifest"] for e in selected]
         if path.exists():
             record = _read_deletion_record(root, acquisition_node_id, path)
             if record["request"] != request:
@@ -649,17 +727,8 @@ class LocalStorageManager:
         prior_id = request.get("retry_of")
         prior = next((r for r in history["operations"] if r["operation_id"] == prior_id), None)
         if prior_id is not None and (prior is None or any(prior["request"].get(k) != request.get(k)
-                for k in ("session_id", "experiment_ids"))):
+                for k in ("session_id", "experiment_ids", "artifact_manifests"))):
             raise ValueError("Explicit retry must link the same original scope")
-        inventory = LocalStorageManager.read_historical_artifacts(root, acquisition_node_id, session_id=sid)
-        if inventory["issues"]:
-            raise RuntimeError("Original discovery is incomplete")
-        selected = [e for e in inventory["artifacts"] if experiments is None
-                    or Path(e["manifest_path"]).relative_to(root).parts[1] in experiments]
-        if (not selected or (experiments is not None and set(experiments) != {
-                (e.get("manifest") or {}).get("experiment_id") for e in selected})
-                or any(not e["identity_confirmed"] for e in selected)):
-            raise RuntimeError("Exact original scope is incomplete, inconsistent or ambiguous")
         targets = []
         for entry in selected:
             manifest = entry["manifest"]
@@ -667,9 +736,11 @@ class LocalStorageManager:
                     "status": "pending", "error": None, "file_identity": None}
             prior_files = [f for r in history["operations"] for f in r["files"]
                            if f["artifact_manifest"]["artifact_manifest_id"] == manifest["artifact_manifest_id"]]
-            if any(f["status"] == "deleted" for f in prior_files):
+            completed = next((f for f in prior_files if f["status"] == "deleted"), None)
+            if completed is not None:
                 if entry["file_status"] != "missing":
                     raise RuntimeError("A previously deleted original has reappeared")
+                targets.append(deepcopy(completed))
                 continue
             unresolved = [r for r in history["operations"] if any(
                 f["artifact_manifest"]["artifact_manifest_id"] == manifest["artifact_manifest_id"]
@@ -700,6 +771,7 @@ class LocalStorageManager:
         record = {"operation_id": operation_id, "acquisition_node_id": acquisition_node_id,
                   "request": request, "files": targets, "finished": False, "recorded_at": time(),
                   "admission": {"exact_originals_confirmed": True, "local_safety_confirmed": True}}
+        validate_deletion_operation(record)
         _write_deletion_record(path, record, initial=True)
         for item in record["files"]:
             if item["status"] != "pending":
