@@ -5895,6 +5895,83 @@ earlier audit history remain unchanged. No tests or audit were rerun for closure
 
 ---
 
+# Q034 Slice 1 - Historical Scientific-Artifact Inventory
+
+**Status: CLOSED within validated read-only software scope.** ICC accepted the
+final independent Codex re-audit PASS with no confirmed P0-P3 findings and
+authorized documentation-only closure. Decisions 431-432 remain authoritative,
+not fully implemented. Q034 remains OPEN for the remaining Storage backend and
+later GUI integration.
+
+## Implemented scope
+
+LocalStorageManager discovers persisted ArtifactManifest/metadata pairs from the
+configured node root; AcquisitionNode delegates through its owner interface
+without attaching historical storage or reconstructing an old Session. Readback
+works after reservation release and during another Session without changing
+current bindings, adapter status, evidence, manifests or scientific bytes.
+
+Existing Session, Experiment, node, storage and artifact identities are reused.
+Exact scientific source fields, not auxiliary managed paths or broad directories,
+identify individual originals. Separate timing/index manifests remain separate
+artifacts; an Experiment is not assumed to be one recording. Logical recording
+associations remain explicitly unresolved. Missing, damaged, inconsistent,
+duplicate and aliased information is reported without guessing targets.
+
+Safe claim extraction checks the readable/unambiguous manifest, owner and
+directory identities, explicit source selection and path containment/alias safety.
+Safely established path/file claims survive later manifest or sidecar validation
+failures. Complete validation still gates positive confirmation; cross-Session
+identity, alias and administrative-file reconciliation precedes Session filtering.
+
+## Validation and correction history
+
+- The initial independent audit of `539e7a5e8b27b4531cbd00b185015290ee4cd0c6`
+  returned FAIL for a P2: damaged metadata could suppress a competing source
+  claim and falsely confirm another original. Shared external paths, JSONL hard
+  links and real HDF5 hard links reproduced the defect.
+- The first correction moved registration before sidecar validation. The next
+  independent re-audit returned FAIL for a second P2: auxiliary manifest checks
+  (`details=[]`, null managed paths or unknown lifecycle) could still suppress
+  safely detectable conflicts. Nine combinations reproduced false confirmations.
+- The second correction separates safe source extraction from complete artifact
+  validation, reusing existing reconciliation maps rather than adding a registry.
+  The accepted final audit covers these uncommitted working-tree corrections
+  based on `539e7a5`, not the original commit alone. Both P2 findings are resolved.
+- Final implementation verification: **21 passed, 1 skipped** across 22 inventory
+  methods, including 44 manifest/sidecar combinations, HDF5, JSONL, external
+  sources, unsafe-source controls and current-Session isolation.
+- Independent manual IPython validation: **38 PASS, 0 FAIL** across the initial
+  20 checks, 5 Round 1 checks and 13 Round 2 checks.
+- Separate independent Codex re-audit: **PASS**, no confirmed P0-P3 findings;
+  **26 additional adversarial scenarios passed**. Probes covered simultaneous
+  failures, out-of-root auxiliary paths, metadata filesystem errors, reversed
+  discovery, three-way conflicts, source-stat failure after path registration,
+  junctions, administrative hard links and AcquisitionNode/HDF5 binding isolation.
+  These scenario counts are distinct from implementation test-method counts.
+
+## Limitations and remaining scope
+
+Direct-symlink testing remains skipped. Permission failures were injected; Windows
+junctions and hard links were exercised. No live NATS, hardware, power-loss or
+crash-recovery validation is established. Inventory is point-in-time readback,
+not an atomic filesystem snapshot, scientific-content integrity validation,
+durable preservation confirmation or deletion eligibility. When the manifest
+itself cannot be read or parsed unambiguously, no source claim is guessed;
+unreadable or malformed sidecars do not erase safely established manifest claims.
+Unsafe and outside-root sources remain unconfirmed. No deployment certification
+is claimed.
+
+This owner slice adds no Controller/NATS/GUI query exposure, collection, deletion,
+authorization, durable deletion-operation records or retry workflow. Existing
+lifecycle and preservation behavior is unchanged. The planned next boundary is
+the complete remaining Storage backend, excluding GUI integration, with scope
+review and implementation authorization still separate. This closure neither
+starts that work nor closes Q034 or Decisions 431-432's remaining scope. No tests,
+manual validation or audit were rerun for documentation closure.
+
+---
+
 # Future Workflows
 
 The following workflows are expected to be added as the framework evolves.

@@ -692,8 +692,10 @@ from GUI controls or service-level Kill.
 **Status:** OPEN - Decisions 431-432 settle the Storage direction and scientific
 recording deletion contracts. Decision 432 resolves the identified recording-unit,
 launch-time ownership, durable local operation-record, interruption/retry and
-framework evidence-routing choices. Implementation, independent validation and
-audit remain outstanding. Q019/W050 and other historical validated scopes are
+framework evidence-routing choices. Slice 1 is CLOSED within its validated
+read-only owner-inventory scope. Remaining Storage backend implementation and
+verification, and later GUI integration, remain outstanding; Decisions 431-432
+are not fully implemented. Q019/W050 and other historical validated scopes are
 not reopened or closed by this question.
 
 ### Existing mechanisms and fixed boundaries
@@ -749,22 +751,52 @@ distinguished by their evidence identities. Do not reopen finalized acquisition
 intake or closed Session archives, or introduce a separate StorageManager
 deletion-history database. Decision 362's separate closure authorization remains.
 
+### Closed Slice 1: Read-only historical scientific-artifact inventory
+
+**Status:** CLOSED within validated software scope; ICC accepted the final
+independent Codex re-audit PASS with no confirmed P0-P3 findings and authorized
+documentation-only closure.
+
+`LocalStorageManager.read_historical_artifacts(root_path, acquisition_node_id,
+*, session_id=None)` and `AcquisitionNode.read_historical_artifacts(*,
+session_id=None)` read persisted manifest/metadata pairs after reservation release
+or while another Session is active, without rebinding old Sessions or changing
+current reservations. They distinguish exact scientific source fields from
+auxiliary managed paths and report missing, malformed, inconsistent, duplicate
+and aliased information. Separate timing/index manifests remain individual
+artifacts; logical recording associations are explicitly unresolved rather than
+inferred from Experiment IDs or directories.
+
+The initial independent audit of `539e7a5` found a P2: damaged competing metadata
+could hide an original-file alias. The first correction registered claims before
+sidecar validation, but a subsequent independent re-audit found a second P2:
+earlier auxiliary-manifest validation could still hide those conflicts. The
+second correction separates minimal owner/directory/source-path claim extraction
+from complete artifact validation. Both P2 findings are resolved in the accepted
+final re-audit. The validated implementation includes the uncommitted corrections
+based on `539e7a5`, not that original commit alone.
+
+Accepted evidence: implementation regression suite **21 passed, 1 skipped**;
+independent manual IPython validation **38 PASS, 0 FAIL** (20 initial, 5 Round 1,
+13 Round 2); final independent Codex re-audit **PASS**, including **26 additional
+adversarial scenarios passed**. See the
+[Slice 1 validation and correction history](validated_workflows.md#q034-slice-1---historical-scientific-artifact-inventory).
+
+Readback is a point-in-time inventory, not an atomic filesystem snapshot,
+scientific-content validation, durable preservation proof or deletion admission.
+Sources outside the configured root and relocated/aliased paths remain
+unconfirmed. Direct-symlink testing remains skipped; permission failures were
+injected, while Windows junctions and hard links were exercised. No live NATS,
+hardware, power-loss or crash-recovery validation is established. No
+Controller/NATS/GUI exposure, authorization, collection or deletion is added by
+this owner slice.
+
 ### Remaining implementation dependencies
 
-- **Slice 1 owner inventory (implemented; independent verification pending):**
-  `LocalStorageManager.read_historical_artifacts(root_path, acquisition_node_id,
-  *, session_id=None)` and `AcquisitionNode.read_historical_artifacts(*,
-  session_id=None)` read persisted manifest/metadata pairs without rebinding old
-  Sessions or changing current reservations. They distinguish exact scientific
-  source fields from auxiliary managed paths and report missing, malformed,
-  inconsistent, duplicate and aliased information. Separate timing/index
-  manifests remain individual artifacts; logical recording associations are
-  explicitly unresolved rather than inferred from Experiment IDs or directories.
-  Readback is a point-in-time inventory, not scientific-content validation,
-  durable preservation proof or deletion admission. Sources outside the configured
-  root and relocated/aliased paths remain unconfirmed. No Controller/NATS/GUI
-  exposure, authorization, collection or deletion is added by this owner slice.
-  Q034 remains OPEN; independent manual validation and audit are still required.
+**Planned next implementation boundary:** Complete the remaining Storage backend,
+excluding GUI integration. This closure does not start or authorize that work;
+bounded implementation scope review remains separate. Q034 remains OPEN.
+
 - **Readback and ownership enforcement:** Implement authoritative Session,
   Experiment, recording, collection, capacity and deletion-history queries through
   Controller-mediated interfaces, binding existing client identity to accepted

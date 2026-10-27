@@ -2092,6 +2092,16 @@ recovery is introduced. Phase 16 and M015 remain open.
 
 ## src/lab_sync_acquisition/local_storage.py
 
+**Q034 Slice 1: CLOSED within validated read-only owner scope.** Historical
+inventory through LocalStorageManager and AcquisitionNode has completed
+implementation, independent IPython validation and independent Codex re-audit;
+both source-conflict P2 findings are resolved. See the
+[accepted validation record](validated_workflows.md#q034-slice-1---historical-scientific-artifact-inventory)
+for evidence and environmental limits. Q034 remains OPEN for the remaining
+Storage backend; this slice adds no collection, deletion, authorization or GUI
+integration. Planned next work is the complete remaining backend, excluding GUI,
+subject to separate implementation scope review and authorization.
+
 - ArtifactManifest: Immutable plain-data authoritative local discovery record for one LocalStorageManager-owned scientific artifact.
 - LocalStorageEvidence: Immutable plain-data evidence for local stream, manifest, write, finalization, and cleanup operations.
 - LocalStorageCompletionSummary: Immutable plain-data summary of local finalization without implying global Session Record completion.
@@ -2100,7 +2110,8 @@ recovery is introduced. Phase 16 and M015 remain open.
 - LocalStorageManager.read_historical_artifacts(root_path, acquisition_node_id, *, session_id=None): Statelessly reads historical artifact manifests and metadata, checks identities and exact scientific source paths across the configured root before Session filtering, and reports missing, inconsistent or aliased sources without claiming logical recording membership, preservation or deletion eligibility.
 - _historical_path: Checks a persisted inventory path for configured-root containment and unresolved aliases without relocating it.
 - _read_inventory_record: Reads an inventory JSON object while rejecting duplicate fields and nonfinite values.
-- _read_historical_artifact: Cross-checks one persisted manifest/metadata pair and retains partial information and identity claims for inventory-wide conflict reporting.
+- _register_historical_source: Registers exact source paths and regular-file identities after checking manifest ownership, directory identity and path safety, independently of auxiliary manifest fields and sidecars.
+- _read_historical_artifact: Reads the manifest, retains safely established source claims before complete artifact validation, and cross-checks remaining manifest and metadata requirements before confirming identity.
 - LocalStorageManager.create_stream: Creates one framework scientific file and manifest using keyword-only `storage_format="jsonl"` or `"hdf5"` (explicit HDF5 shape/dtype), with `external_artifact_path=None`; the obsolete combined external-file argument is removed and external files/timing files require separate manifests.
 - LocalStorageManager.append_rows: Validates scientific timing/context and appends JSONL plain-data rows or HDF5 rows containing a NumPy `frame`, integer `frame_index`, and plain per-frame metadata by storage ID.
 - LocalStorageManager.flush: Flushes current writes without finalizing, counting complete JSONL file writes separately from rows whose durability is confirmed by successful file flush and `fsync`.

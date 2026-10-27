@@ -1780,6 +1780,31 @@ power-loss, normal Windows asyncio and initial hard-link promotion remain
 unverified. Nine Windows-blocked integration checks remain unconfirmed. Q022,
 Q024, M015 and Phase 16 remain open; G5 is not started by this closure.
 
+## Completed Q034 Slice 1 Historical Artifact Inventory
+
+**Status:** CLOSED - bounded read-only software scope under Decisions 431-432.
+LocalStorageManager and AcquisitionNode can inspect historical artifact identities
+and exact source paths after release or during another Session without mutating
+current ownership or persisted products. Missing, damaged, duplicate and aliased
+information remains explicit; logical recording associations are not inferred.
+
+ICC accepted implementation verification (21 passed, 1 skipped), independent
+manual IPython validation (38 PASS, 0 FAIL), and separate independent Codex
+re-audit PASS with 26 additional adversarial scenarios passed and no confirmed
+P0-P3 findings. Both earlier source-conflict P2 findings were corrected and
+independently confirmed resolved. The validated tree includes uncommitted
+corrections based on `539e7a5`, not the original failing commit alone. See
+[Slice 1 validation and correction history](validated_workflows.md#q034-slice-1---historical-scientific-artifact-inventory).
+
+Direct-symlink testing remains skipped; permission failures were injected.
+Windows junctions and hard links were exercised, but live NATS, hardware,
+power-loss and crash recovery are not validated. This is not scientific-content,
+atomic-snapshot, preservation or deletion-eligibility proof. Q034 remains OPEN;
+Decisions 431-432 are not fully implemented. The planned next boundary is the
+remaining complete Storage backend, excluding GUI integration, under separate
+implementation authorization. No collection, deletion, authorization or GUI
+integration is added or closed by Slice 1. No tests or audit were rerun for closure.
+
 ## Completed Q022 Distributed Session Closeout (W060)
 
 **Status:** CLOSED - implemented, independently validated and audited under

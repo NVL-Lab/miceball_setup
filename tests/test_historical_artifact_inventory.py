@@ -6,6 +6,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import h5py
 import numpy as np
@@ -24,16 +25,21 @@ class HistoricalArtifactInventoryTests(unittest.TestCase):
             device_manager=DeviceManager([self.adapter]), node_id="node",
             synchronization_source_id="sync", default_local_storage_root=self.root)
 
-    def stream(self, manager, product="frames", artifact_type="camera_frames"):
+    def stream(self, manager, product="frames", artifact_type="camera_frames", *, storage_format="jsonl"):
         manifest = manager.create_stream(
             session_id=manager.session_id, experiment_id="experiment",
             acquisition_node_id="node", source_component_id="camera",
-            data_product_id=product, artifact_type=artifact_type, schema={})
-        manager.append_rows(manifest.storage_id, [{
+            data_product_id=product, artifact_type=artifact_type,
+            schema={"frame_shape": [2, 3], "frame_dtype": "uint8"} if storage_format == "hdf5" else {},
+            storage_format=storage_format)
+        row = {
             "session_time_s": 1.0, "experiment_time_s": 0.0,
             "acquisition_node_local_time_s": 2.0,
             "timestamp_status": "runtime_timestamped", "experiment_id": "experiment",
-            "payload": {"frame": 1}}])
+            "payload": {"frame": 1}}
+        if storage_format == "hdf5":
+            row.update(frame=np.full((2, 3), 7, dtype="uint8"), frame_index=0)
+        manager.append_rows(manifest.storage_id, [row])
         return manifest
 
     def saved(self):
@@ -54,6 +60,22 @@ class HistoricalArtifactInventoryTests(unittest.TestCase):
         value = json.loads(path.read_text())
         value.update(changes)
         path.write_text(json.dumps(value))
+
+    def _conflicting_originals(self, root, source_kind):
+        storage_format = "hdf5" if source_kind == "hdf5" else "jsonl"
+        old_manager = LocalStorageManager(root, "old", "node")
+        old = self.stream(old_manager, storage_format=storage_format)
+        independent = self.stream(old_manager, "independent", storage_format=storage_format)
+        old_manager.finalize_all()
+        other_manager = LocalStorageManager(root, "other", "node")
+        competing = self.stream(other_manager, storage_format=storage_format)
+        other_manager.finalize_all()
+        if source_kind == "external":
+            self.edit_manifest(competing, external_artifact_path=old.local_storage_path)
+        else:
+            Path(competing.local_storage_path).unlink()
+            os.link(old.local_storage_path, competing.local_storage_path)
+        return old, competing, independent
 
     def test_readback_after_release_and_during_replacement_session(self):
         self.assertTrue(self.node.reserve("old"))
@@ -91,15 +113,7 @@ class HistoricalArtifactInventoryTests(unittest.TestCase):
 
     def test_hdf5_readback_preserves_pixels_timing_manifest_and_metadata(self):
         manager = LocalStorageManager(self.root, "old", "node")
-        manifest = manager.create_stream(
-            session_id="old", experiment_id="experiment", acquisition_node_id="node",
-            source_component_id="camera", data_product_id="frames", artifact_type="camera_frames",
-            schema={"frame_shape": [2, 3], "frame_dtype": "uint8"}, storage_format="hdf5")
-        manager.append_rows(manifest.storage_id, [{
-            "session_time_s": 1.0, "experiment_time_s": 0.0,
-            "acquisition_node_local_time_s": 2.0, "timestamp_status": "runtime_timestamped",
-            "experiment_id": "experiment", "frame_index": 0,
-            "frame": np.full((2, 3), 7, dtype="uint8")}])
+        manifest = self.stream(manager, storage_format="hdf5")
         manager.finalize_all()
         before = self.snapshot()
         artifact = self.inventory()["artifacts"][0]
@@ -280,6 +294,212 @@ class HistoricalArtifactInventoryTests(unittest.TestCase):
         for artifact in self.inventory()["artifacts"]:
             self.assertFalse(artifact["identity_confirmed"])
             self.assertIn("aliased_original", artifact["issues"])
+
+    def test_hdf5_alias_survives_damaged_active_session_records(self):
+        self.assertTrue(self.node.reserve("old"))
+        self.node.initialize_session("old", self.node.declared_devices)
+        old_manager = self.node.local_storage_manager
+        old = self.stream(old_manager, storage_format="hdf5")
+        independent = self.stream(old_manager, "independent", storage_format="hdf5")
+        old_manager.finalize_all()
+        self.assertTrue(self.node.abort_session_initialization("old"))
+        self.assertTrue(self.node.release_reservation("old"))
+        self.assertTrue(self.node.reserve("new"))
+        self.node.initialize_session("new", self.node.declared_devices)
+        current_manager = self.node.local_storage_manager
+        current = self.stream(current_manager, storage_format="hdf5")
+        current_manager.finalize_all()
+        Path(old.local_storage_path).unlink()
+        os.link(current.local_storage_path, old.local_storage_path)
+        control = {a["manifest"]["artifact_manifest_id"]: a for a in self.inventory("old")["artifacts"]}
+        self.assertIn("aliased_original", control[old.artifact_manifest_id]["issues"])
+        with h5py.File(old.local_storage_path, "r") as recording:
+            self.assertEqual(recording.attrs["artifact_manifest_id"], current.artifact_manifest_id)
+        metadata_path = Path(current.local_managed_paths[0])
+        manifest_path = Path(current.local_managed_paths[2])
+        saved_metadata = metadata_path.read_bytes()
+        saved_manifest = manifest_path.read_bytes()
+        evidence = current_manager.evidence
+        manifests = current_manager.manifests
+        node_evidence = self.node.artifact_manifest_evidence
+        adapter_status = self.adapter.get_status()
+        for damage in ("metadata", "manifest", "combined"):
+            with self.subTest(damage=damage):
+                metadata_path.write_bytes(saved_metadata)
+                manifest_path.write_bytes(saved_manifest)
+                if damage in {"metadata", "combined"}:
+                    metadata_path.write_text("{")
+                if damage in {"manifest", "combined"}:
+                    self.edit_manifest(current, details=[])
+                before = self.snapshot()
+                artifacts = {a["manifest"]["artifact_manifest_id"]: a
+                             for a in self.inventory("old")["artifacts"]}
+                disputed = artifacts[old.artifact_manifest_id]
+                self.assertFalse(disputed["identity_confirmed"])
+                self.assertIsNone(disputed["original_path"])
+                self.assertEqual(disputed["file_status"], "unconfirmed")
+                self.assertIn("aliased_original", disputed["issues"])
+                self.assertTrue(artifacts[independent.artifact_manifest_id]["identity_confirmed"])
+                self.assertEqual(self.snapshot(), before)
+                self.assertEqual(self.node.reserved_for_session_id, "new")
+                self.assertIs(self.node.local_storage_manager, current_manager)
+                self.assertEqual(current_manager.evidence, evidence)
+                self.assertEqual(current_manager.manifests, manifests)
+                self.assertEqual(self.node.artifact_manifest_evidence, node_evidence)
+                self.assertEqual(self.adapter.get_status(), adapter_status)
+        self.assertTrue(self.node.abort_session_initialization("new"))
+        self.assertTrue(self.node.release_reservation("new"))
+
+    def test_source_conflicts_survive_damaged_competing_metadata(self):
+        original_read_text = Path.read_text
+        for source_kind in ("external", "jsonl", "hdf5"):
+            with self.subTest(source_kind=source_kind), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                old, competing, independent = self._conflicting_originals(root, source_kind)
+                metadata = Path(competing.local_managed_paths[0])
+                saved_metadata = metadata.read_bytes()
+                control = LocalStorageManager.read_historical_artifacts(root, "node", session_id="old")
+                disputed = next(a for a in control["artifacts"]
+                                if a["manifest"]["artifact_manifest_id"] == old.artifact_manifest_id)
+                self.assertIn("aliased_original", disputed["issues"])
+                for damage in ("missing", "corrupt", "inconsistent", "unreadable"):
+                    with self.subTest(damage=damage):
+                        metadata.write_bytes(saved_metadata)
+                        if damage == "missing":
+                            metadata.unlink()
+                        elif damage == "corrupt":
+                            metadata.write_text("{")
+                        elif damage == "inconsistent":
+                            value = json.loads(saved_metadata)
+                            metadata.write_text(json.dumps({**value, "session_id": "wrong"}))
+
+                        def read_text(path, *args, **kwargs):
+                            if damage == "unreadable" and path == metadata:
+                                raise PermissionError("Injected metadata read failure")
+                            return original_read_text(path, *args, **kwargs)
+
+                        before = {p: p.read_bytes() for p in root.rglob("*") if p.is_file()}
+                        with patch.object(Path, "read_text", read_text):
+                            report = LocalStorageManager.read_historical_artifacts(root, "node")
+                            filtered = LocalStorageManager.read_historical_artifacts(root, "node", session_id="old")
+                        artifacts = {a["manifest"]["artifact_manifest_id"]: a for a in report["artifacts"]}
+                        for artifact in (artifacts[old.artifact_manifest_id], artifacts[competing.artifact_manifest_id]):
+                            self.assertFalse(artifact["identity_confirmed"])
+                            self.assertIsNone(artifact["original_path"])
+                            self.assertIn("aliased_original", artifact["issues"])
+                        self.assertTrue(any(issue != "aliased_original"
+                                            for issue in artifacts[competing.artifact_manifest_id]["issues"]))
+                        self.assertTrue(artifacts[independent.artifact_manifest_id]["identity_confirmed"])
+                        self.assertEqual(filtered["artifacts"], [a for a in report["artifacts"]
+                                                               if a["manifest"]["session_id"] == "old"])
+                        self.assertEqual(before, {p: p.read_bytes() for p in root.rglob("*") if p.is_file()})
+
+    def test_safe_source_claims_survive_incomplete_manifest_and_sidecar_validation(self):
+        damages = (
+            ("details_list", {"details": []}, ()),
+            ("managed_paths_null", {"local_managed_paths": None}, ()),
+            ("unknown_lifecycle", {"lifecycle_state": "damaged"}, ()),
+            ("missing_auxiliary_fields", {}, ("details", "local_managed_paths", "lifecycle_state")),
+            ("missing_artifact_id", {}, ("artifact_manifest_id",)),
+            ("bad_descriptive_fields", {"source_component_id": None, "artifact_type": []}, ()),
+            ("combined_manifest_damage", {"details": [], "local_managed_paths": None,
+                                          "lifecycle_state": "damaged", "source_component_id": None}, ()),
+        )
+        for source_kind in ("jsonl", "hdf5", "external"):
+            with self.subTest(source_kind=source_kind), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                old, competing, independent = self._conflicting_originals(root, source_kind)
+                manifest_path = Path(competing.local_managed_paths[2])
+                metadata_path = Path(competing.local_managed_paths[0])
+                saved_manifest = json.loads(manifest_path.read_bytes())
+                saved_metadata = metadata_path.read_bytes()
+                cases = damages
+                if source_kind == "external":
+                    cases += (("unused_local_source", {"local_storage_path": None}, ()),)
+                for label, changes, omitted in cases:
+                    for damaged_metadata in (False, True):
+                        with self.subTest(manifest_damage=label, damaged_metadata=damaged_metadata):
+                            value = {**saved_manifest, **changes}
+                            for key in omitted:
+                                value.pop(key)
+                            manifest_path.write_text(json.dumps(value))
+                            metadata_path.write_bytes(b"{" if damaged_metadata else saved_metadata)
+                            before = {p: p.read_bytes() for p in root.rglob("*") if p.is_file()}
+                            report = LocalStorageManager.read_historical_artifacts(root, "node")
+                            artifacts = {a["manifest_path"]: a for a in report["artifacts"]}
+                            disputed = artifacts[str(Path(old.local_managed_paths[2]))]
+                            rejected = artifacts[str(manifest_path)]
+                            for artifact in (disputed, rejected):
+                                self.assertFalse(artifact["identity_confirmed"])
+                                self.assertIsNone(artifact["original_path"])
+                                self.assertEqual(artifact["file_status"], "unconfirmed")
+                                self.assertIn("aliased_original", artifact["issues"])
+                            self.assertTrue(any(issue != "aliased_original" for issue in rejected["issues"]))
+                            self.assertTrue(artifacts[str(Path(independent.local_managed_paths[2]))]["identity_confirmed"])
+                            filtered = LocalStorageManager.read_historical_artifacts(root, "node", session_id="old")
+                            self.assertEqual(filtered["artifacts"], [a for a in report["artifacts"]
+                                                                   if a["manifest"]["session_id"] == "old"])
+                            self.assertEqual(before, {p: p.read_bytes() for p in root.rglob("*") if p.is_file()})
+
+    def test_untrusted_source_claims_do_not_invalidate_independent_originals(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "originals"
+            old, competing, independent = self._conflicting_originals(root, "external")
+            manifest_path = Path(competing.local_managed_paths[2])
+            saved = json.loads(manifest_path.read_bytes())
+            outside = Path(directory) / "outside.bin"
+            os.link(old.local_storage_path, outside)
+            changes = [
+                {"acquisition_node_id": "unrelated-node"}, {"acquisition_node_id": None},
+                {"session_id": "unrelated-session"}, {"experiment_id": "unrelated-experiment"},
+                {"storage_id": "unrelated-storage"},
+                {"external_artifact_path": str(outside)}, {"external_artifact_path": []},
+                {"external_artifact_path": ""},
+                {"external_artifact_path": None, "local_storage_path": old.local_storage_path},
+            ]
+            if os.name == "nt":
+                link = root / "alias"
+                subprocess.run(["cmd", "/c", "mklink", "/J", str(link), str(Path(old.local_storage_path).parent)],
+                               check=True, capture_output=True)
+                changes.append({"external_artifact_path": str(link / Path(old.local_storage_path).name)})
+            for change in changes:
+                with self.subTest(change=change):
+                    manifest_path.write_text(json.dumps({**saved, **change}))
+                    before = {p: p.read_bytes() for p in root.rglob("*") if p.is_file()}
+                    report = LocalStorageManager.read_historical_artifacts(root, "node")
+                    artifacts = {a["manifest_path"]: a for a in report["artifacts"]}
+                    for manifest in (old, independent):
+                        self.assertTrue(artifacts[str(Path(manifest.local_managed_paths[2]))]["identity_confirmed"])
+                    self.assertFalse(artifacts[str(manifest_path)]["identity_confirmed"])
+                    self.assertNotIn("aliased_original", artifacts[str(manifest_path)]["issues"])
+                    self.assertEqual(before, {p: p.read_bytes() for p in root.rglob("*") if p.is_file()})
+
+    def test_unstructured_manifests_do_not_create_guessed_source_claims(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            old, competing, independent = self._conflicting_originals(root, "external")
+            manifest_path = Path(competing.local_managed_paths[2])
+            saved = manifest_path.read_text()
+            no_source_kind = json.loads(saved)
+            no_source_kind.pop("external_artifact_path")
+            for contents in (None, "{", "[]", '{"session_id":"ambiguous",' + saved[1:],
+                             json.dumps(no_source_kind)):
+                with self.subTest(contents=contents):
+                    if contents is None:
+                        manifest_path.unlink()
+                    else:
+                        manifest_path.write_text(contents)
+                    before = {p: p.read_bytes() for p in root.rglob("*") if p.is_file()}
+                    report = LocalStorageManager.read_historical_artifacts(root, "node")
+                    artifacts = {a["manifest_path"]: a for a in report["artifacts"]}
+                    for manifest in (old, independent):
+                        self.assertTrue(artifacts[str(Path(manifest.local_managed_paths[2]))]["identity_confirmed"])
+                    rejected = artifacts[str(manifest_path)]
+                    self.assertFalse(rejected["identity_confirmed"])
+                    self.assertIsNone(rejected["original_path"])
+                    self.assertTrue(rejected["issues"])
+                    self.assertNotIn("aliased_original", rejected["issues"])
+                    self.assertEqual(before, {p: p.read_bytes() for p in root.rglob("*") if p.is_file()})
 
     @unittest.skipUnless(os.name == "nt", "Windows directory junction")
     def test_windows_junction_is_not_followed(self):

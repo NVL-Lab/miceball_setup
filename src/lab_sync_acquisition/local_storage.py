@@ -289,8 +289,37 @@ def _read_inventory_record(path: Path) -> dict[str, Any]:
     return value
 
 
-def _read_historical_artifact(entry, root: Path, node_id: str, claims: dict) -> None:
-    """Cross-check the existing manifest/metadata pair, retaining partial readback."""
+def _register_historical_source(entry, manifest_path: Path, root: Path, node_id: str, sources: dict) -> Path:
+    """Retain a safely scoped source claim independently of artifact completeness."""
+    data = entry["manifest"]
+    expected = tuple(data.get(key) for key in ("session_id", "experiment_id", "storage_id"))
+    if (manifest_path.parent.relative_to(root).parts != expected
+            or data.get("acquisition_node_id") != node_id):
+        raise ValueError("manifest_location_or_owner_mismatch")
+    external = data["external_artifact_path"]
+    source = data.get("local_storage_path") if external is None else external
+    if not isinstance(source, str) or not source.strip():
+        raise ValueError("invalid_scientific_source")
+    original = _historical_path(Path(source), root)
+    if external is None and original.parent != manifest_path.parent:
+        raise ValueError("inconsistent_local_scientific_source")
+    entry["original_path"] = str(original)
+    sources.setdefault(("path", str(original)), []).append(entry)
+    try:
+        info = original.stat()
+        if not stat.S_ISREG(info.st_mode):
+            raise ValueError("original_not_regular_file")
+        entry["file_status"] = "present"
+        if info.st_ino:
+            sources.setdefault(("file", info.st_dev, info.st_ino), []).append(entry)
+    except FileNotFoundError:
+        entry["file_status"] = "missing"
+        entry["issues"].append("missing_original")
+    return original
+
+
+def _read_historical_artifact(entry, root: Path, node_id: str, claims: dict, sources: dict) -> None:
+    """Retain safe claims first; only a complete manifest/sidecar can confirm identity."""
     manifest_path = _historical_path(Path(entry["manifest_path"]), root)
     if not manifest_path.exists():
         raise ValueError("missing_manifest")
@@ -300,29 +329,26 @@ def _read_historical_artifact(entry, root: Path, node_id: str, claims: dict) -> 
         value = data.get(field)
         if isinstance(value, str) and value.strip():
             claims.setdefault((field, value), []).append(entry)
-    fields = ("artifact_manifest_id", "session_id", "experiment_id", "acquisition_node_id",
-              "source_component_id", "artifact_type", "lifecycle_state", "storage_id",
+    original = _register_historical_source(entry, manifest_path, root, node_id, sources)
+
+    fields = ("artifact_manifest_id", "source_component_id", "artifact_type", "lifecycle_state",
               "local_storage_path")
     if any(not isinstance(data.get(key), str) or not data[key].strip() for key in fields):
         raise ValueError("invalid_manifest_identity")
     paths = data.get("local_managed_paths")
     if (not isinstance(paths, list) or not paths
             or any(not isinstance(p, str) or not p.strip() for p in paths)
-            or not isinstance(data.get("details"), dict)
-            or (data.get("external_artifact_path") is not None and
-                (not isinstance(data["external_artifact_path"], str) or not data["external_artifact_path"].strip()))):
+            or not isinstance(data.get("details"), dict)):
         raise ValueError("invalid_manifest_structure")
     manifest = ArtifactManifest.from_dict(data)
-    expected = (manifest.session_id, manifest.experiment_id, manifest.storage_id)
-    if (manifest_path.parent.relative_to(root).parts != expected
-            or manifest.acquisition_node_id != node_id):
-        raise ValueError("manifest_location_or_owner_mismatch")
     if manifest.lifecycle_state not in {"open", "finalized"}:
         raise ValueError("unknown_artifact_lifecycle_state")
     metadata_path = _historical_path(manifest_path.with_name("metadata.json"), root)
     managed = [_historical_path(Path(p), root) for p in manifest.local_managed_paths]
     if manifest_path not in managed or metadata_path not in managed or len(set(managed)) != len(managed):
         raise ValueError("inconsistent_managed_paths")
+    if manifest.external_artifact_path is None and original not in managed:
+        raise ValueError("inconsistent_local_scientific_source")
     metadata = _read_inventory_record(metadata_path)
     entry["metadata"] = metadata
     if any(metadata.get(key) != data[key] for key in (
@@ -333,12 +359,6 @@ def _read_historical_artifact(entry, root: Path, node_id: str, claims: dict) -> 
             or metadata.get("storage_format") not in {"jsonl", "hdf5"}
             or any(data["details"].get(key) != value for key, value in metadata["details"].items())):
         raise ValueError("invalid_or_inconsistent_scientific_metadata")
-    source = manifest.external_artifact_path or manifest.local_storage_path
-    original = _historical_path(Path(source), root)
-    if manifest.external_artifact_path is None and (
-            original not in managed or original.parent != manifest_path.parent):
-        raise ValueError("inconsistent_local_scientific_source")
-    entry["original_path"] = str(original)
     entry["identity_confirmed"] = True
     if manifest.lifecycle_state != "finalized":
         entry["issues"].append("not_finalized")
@@ -458,25 +478,9 @@ class LocalStorageManager:
             entries.append(entry)
             administrative.update((location / "artifact_manifest.json", location / "metadata.json"))
             try:
-                _read_historical_artifact(entry, root, acquisition_node_id, claims)
+                _read_historical_artifact(entry, root, acquisition_node_id, claims, sources)
             except (OSError, ValueError, TypeError, KeyError, RuntimeError) as error:
                 entry["issues"].append(str(error))
-            if entry["identity_confirmed"]:
-                source = Path(entry["original_path"])
-                sources.setdefault(("path", str(source)), []).append(entry)
-                try:
-                    info = source.stat()
-                    if not stat.S_ISREG(info.st_mode):
-                        raise ValueError("original_not_regular_file")
-                    entry["file_status"] = "present"
-                    if info.st_ino:
-                        sources.setdefault(("file", info.st_dev, info.st_ino), []).append(entry)
-                except FileNotFoundError:
-                    entry["file_status"] = "missing"
-                    entry["issues"].append("missing_original")
-                except (OSError, ValueError) as error:
-                    entry["issues"].append(str(error))
-                    entry["identity_confirmed"] = False
 
         # Reconcile all claims before filtering: a conflicting historical record
         # outside the requested Session must not turn a duplicate into a unique ID.
