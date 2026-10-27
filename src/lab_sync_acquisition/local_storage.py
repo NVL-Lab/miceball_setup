@@ -9,8 +9,9 @@ import shutil
 import socket
 import stat
 from dataclasses import dataclass, field, replace
+from copy import deepcopy
 from pathlib import Path
-from time import monotonic
+from time import monotonic, time
 from typing import Any, Iterable
 from uuid import uuid4
 
@@ -289,6 +290,73 @@ def _read_inventory_record(path: Path) -> dict[str, Any]:
     return value
 
 
+def _deletion_record_path(root: Path, operation_id: str) -> Path:
+    if (not isinstance(operation_id, str) or not operation_id.strip()
+            or any(c not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-" for c in operation_id)):
+        raise ValueError("Deletion operation_id must be a nonempty safe identifier")
+    return _historical_path(root / "deletion_operations" / (operation_id + ".json"), root)
+
+
+def _sync_deletion_directories(path: Path) -> None:
+    """Confirm local operation-file directory entries on platforms supporting directory fsync."""
+    if os.name == "posix":
+        for directory in (path.parent, path.parent.parent):
+            descriptor = os.open(directory, os.O_RDONLY)
+            try:
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+
+
+def _write_deletion_record(path: Path, record: dict, *, initial=False) -> None:
+    """Fsync intent before unlink; atomically replace outcomes without losing intent."""
+    path.parent.mkdir(exist_ok=True)
+    temporary = path.with_suffix(".pending")
+    _historical_path(temporary, path.parent.parent)
+    destination = path if initial else temporary
+    with destination.open("x" if initial else "w", encoding="utf-8") as output:
+        json.dump(record, output, sort_keys=True, allow_nan=False)
+        output.flush()
+        os.fsync(output.fileno())
+    if not initial:
+        os.replace(temporary, path)
+    _sync_deletion_directories(path)
+    if _read_inventory_record(path) != record:
+        raise RuntimeError("Deletion operation readback differs from durable intent/outcome")
+
+
+def _read_deletion_record(root: Path, node_id: str, path: Path) -> dict:
+    record = _read_inventory_record(_historical_path(path, root))
+    if (record.get("acquisition_node_id") != node_id
+            or path != _deletion_record_path(root, record.get("operation_id"))
+            or not isinstance(record.get("request"), dict)
+            or not isinstance(record.get("files"), list)
+            or type(record.get("finished")) is not bool
+            or type(record.get("recorded_at")) not in (int, float)
+            or not math.isfinite(record["recorded_at"])
+            or record.get("admission") != {"exact_originals_confirmed": True, "local_safety_confirmed": True}):
+        raise ValueError("Invalid deletion operation record")
+    seen = set()
+    for item in record["files"]:
+        manifest = ArtifactManifest.from_dict(item["artifact_manifest"])
+        identity = manifest.artifact_manifest_id
+        if (identity in seen or item["status"] not in {
+                "pending", "deleted", "missing_deletion_unconfirmed", "failed", "unconfirmed"}
+                or item["artifact_manifest"]["session_id"] != record["request"]["session_id"]
+                or item["artifact_manifest"]["acquisition_node_id"] != node_id):
+            raise ValueError("Invalid deletion per-file scope or outcome")
+        seen.add(identity)
+        original = _historical_path(Path(item["original_path"]), root)
+        source = manifest.external_artifact_path or manifest.local_storage_path
+        if (original != _historical_path(Path(source), root)
+                or (record["request"].get("experiment_ids") is not None
+                    and manifest.experiment_id not in record["request"]["experiment_ids"])):
+            raise ValueError("Deletion record target identity mismatch")
+        if item["status"] == "deleted" and original.exists():
+            raise ValueError("A confirmed deleted original has reappeared")
+    return record
+
+
 def _register_historical_source(entry, manifest_path: Path, root: Path, node_id: str, sources: dict) -> Path:
     """Retain a safely scoped source claim independently of artifact completeness."""
     data = entry["manifest"]
@@ -452,6 +520,9 @@ class LocalStorageManager:
             report["issues"].append({"path": str(root), "reason": str(error)})
             return report
         administrative = {root / "local_storage_evidence.jsonl"}
+        operation_directory = root / "deletion_operations"
+        if operation_directory.is_dir() and not operation_directory.is_symlink() and not operation_directory.is_junction():
+            administrative.update(operation_directory.iterdir())
         entries = report["artifacts"]
         claims: dict[tuple, list] = {}
         sources: dict[tuple, list] = {}
@@ -514,6 +585,148 @@ class LocalStorageManager:
                 if Path(entry["manifest_path"]).relative_to(root).parts[0] == session_id]
         report["artifacts"].sort(key=lambda entry: entry["manifest_path"])
         return report
+
+    @staticmethod
+    def read_deletion_operations(root_path: str | Path, acquisition_node_id: str,
+                                 *, session_id: str | None = None) -> dict[str, Any]:
+        """Read durable outcomes; interrupted unlink is uncertainty, never automatic retry."""
+        root = Path(root_path).resolve()
+        directory = _historical_path(root / "deletion_operations", root)
+        report = {"operations": [], "issues": [], "reconciliation": []}
+        if not directory.exists():
+            return report
+        for path in sorted(directory.glob("*.json")):
+            try:
+                record = _read_deletion_record(root, acquisition_node_id, path)
+                if session_id is None or record["request"]["session_id"] == session_id:
+                    report["operations"].append(record)
+                    for item in record["files"]:
+                        if item["status"] == "pending":
+                            original = _historical_path(Path(item["original_path"]), root)
+                            report["reconciliation"].append({"operation_id": record["operation_id"],
+                                "artifact_manifest_id": item["artifact_manifest"]["artifact_manifest_id"],
+                                "status": "not_deleted" if original.is_file() else "missing_deletion_unconfirmed"})
+            except (OSError, ValueError, KeyError, TypeError) as error:
+                report["issues"].append({"path": str(path), "reason": str(error)})
+        return report
+
+    @staticmethod
+    def delete_original_artifacts(root_path: str | Path, acquisition_node_id: str, *,
+                                  operation_id: str, request: dict[str, Any]) -> dict[str, Any]:
+        """Execute one admitted exact scope; the AcquisitionNode serializes local safety.
+
+        Duplicate operation IDs only read outcomes. A new linked explicit request is
+        required to retry remaining originals after failure, interruption or restart.
+        """
+        root = Path(root_path).resolve(strict=True)
+        path = _deletion_record_path(root, operation_id)
+        request = deepcopy(request)
+        sid = request.get("session_id")
+        experiments = request.get("experiment_ids")
+        if (not isinstance(sid, str) or not sid or any(c in sid for c in "/\\\x00") or sid in {".", ".."}
+                or (experiments is not None and (not isinstance(experiments, list) or not experiments
+                    or any(not isinstance(e, str) or not e for e in experiments)
+                    or len(set(experiments)) != len(experiments)))
+                or request.get("confirmed") is not True or request.get("warning_acknowledged") is not True
+                or type(request.get("administrator_mode")) is not bool
+                or (not request["administrator_mode"] and (
+                    not isinstance(request.get("experimenter_name"), str) or not request["experimenter_name"].strip()))
+                or request.get("policy") not in {"manual", "after_collection"}):
+            raise ValueError("Explicit deletion scope, operator, confirmation, warning and policy are required")
+        if path.exists():
+            record = _read_deletion_record(root, acquisition_node_id, path)
+            if record["request"] != request:
+                raise ValueError("Conflicting deletion operation identity")
+            with path.open("r+b") as saved:
+                os.fsync(saved.fileno())
+            _sync_deletion_directories(path)
+            if _read_deletion_record(root, acquisition_node_id, path) != record:
+                raise RuntimeError("Deletion outcome changed during durability confirmation")
+            return record
+        history = LocalStorageManager.read_deletion_operations(root, acquisition_node_id)
+        if history["issues"]:
+            raise RuntimeError("Deletion operation history is damaged; outcomes are unconfirmed")
+        prior_id = request.get("retry_of")
+        prior = next((r for r in history["operations"] if r["operation_id"] == prior_id), None)
+        if prior_id is not None and (prior is None or any(prior["request"].get(k) != request.get(k)
+                for k in ("session_id", "experiment_ids"))):
+            raise ValueError("Explicit retry must link the same original scope")
+        inventory = LocalStorageManager.read_historical_artifacts(root, acquisition_node_id, session_id=sid)
+        if inventory["issues"]:
+            raise RuntimeError("Original discovery is incomplete")
+        selected = [e for e in inventory["artifacts"] if experiments is None
+                    or Path(e["manifest_path"]).relative_to(root).parts[1] in experiments]
+        if (not selected or (experiments is not None and set(experiments) != {
+                (e.get("manifest") or {}).get("experiment_id") for e in selected})
+                or any(not e["identity_confirmed"] for e in selected)):
+            raise RuntimeError("Exact original scope is incomplete, inconsistent or ambiguous")
+        targets = []
+        for entry in selected:
+            manifest = entry["manifest"]
+            item = {"artifact_manifest": manifest, "original_path": entry["original_path"],
+                    "status": "pending", "error": None, "file_identity": None}
+            prior_files = [f for r in history["operations"] for f in r["files"]
+                           if f["artifact_manifest"]["artifact_manifest_id"] == manifest["artifact_manifest_id"]]
+            if any(f["status"] == "deleted" for f in prior_files):
+                if entry["file_status"] != "missing":
+                    raise RuntimeError("A previously deleted original has reappeared")
+                continue
+            unresolved = [r for r in history["operations"] if any(
+                f["artifact_manifest"]["artifact_manifest_id"] == manifest["artifact_manifest_id"]
+                for f in r["files"])]
+            if unresolved and (prior is None or prior not in unresolved):
+                raise RuntimeError("Outstanding deletion requires a new linked explicit retry")
+            if prior is not None and not any(f["artifact_manifest"] == manifest for f in prior["files"]):
+                raise RuntimeError("Retry original targets changed; renewed exact selection is required")
+            if entry["file_status"] == "present":
+                info = Path(entry["original_path"]).stat()
+                item["file_identity"] = [info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns]
+                if prior is not None:
+                    original_claim = next(f for f in prior["files"] if f["artifact_manifest"] == manifest)
+                    if original_claim["file_identity"] != item["file_identity"]:
+                        raise RuntimeError("Retry original file changed; its identity is unconfirmed")
+            else:
+                item["status"] = "missing_deletion_unconfirmed"
+            targets.append(item)
+        if request["policy"] == "after_collection":
+            proof = request.get("collection_proof")
+            if (not isinstance(proof, dict) or proof.get("session_id") != sid
+                    or proof.get("archival_confirmed") is not True
+                    or proof.get("verification_confirmed") is not True):
+                raise ValueError("Post-collection deletion requires verified preservation")
+            for item in targets:
+                if proof.get("exact_originals", []).count(item["artifact_manifest"]) != 1:
+                    raise ValueError("Collection proof does not cover each exact original")
+        record = {"operation_id": operation_id, "acquisition_node_id": acquisition_node_id,
+                  "request": request, "files": targets, "finished": False, "recorded_at": time(),
+                  "admission": {"exact_originals_confirmed": True, "local_safety_confirmed": True}}
+        _write_deletion_record(path, record, initial=True)
+        for item in record["files"]:
+            if item["status"] != "pending":
+                continue
+            try:
+                original = _historical_path(Path(item["original_path"]), root)
+                info = original.stat()
+                if [info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns] != item["file_identity"]:
+                    raise RuntimeError("Original changed after admission")
+                original.unlink()
+                if os.name == "posix":
+                    descriptor = os.open(original.parent, os.O_RDONLY)
+                    try:
+                        os.fsync(descriptor)
+                    finally:
+                        os.close(descriptor)
+                item["status"] = "deleted"
+            except FileNotFoundError:
+                item["status"] = "missing_deletion_unconfirmed"
+            except OSError as error:
+                item.update(status="failed", error=str(error))
+            except RuntimeError as error:
+                item.update(status="unconfirmed", error=str(error))
+            _write_deletion_record(path, record)
+        record["finished"] = True
+        _write_deletion_record(path, record)
+        return record
 
     def check_ready(self) -> ServiceReadiness:
         """Verify that the configured local root can preserve data."""

@@ -183,6 +183,47 @@ class AcquisitionNode:
         return LocalStorageManager.read_historical_artifacts(
             self._default_local_storage_root, self._node_id, session_id=session_id)
 
+    @service_operation()
+    def read_storage_history(self, *, session_id: str) -> dict[str, Any]:
+        """Read exact historical originals and durable deletion outcomes without rebinding."""
+        with self._reservation_lock:
+            inventory = self.read_historical_artifacts(session_id=session_id)
+            import shutil
+            try:
+                usage = shutil.disk_usage(self._default_local_storage_root)
+                capacity = {"total_bytes": usage.total, "available_bytes": usage.free, "confirmed": True}
+            except OSError as error:
+                capacity = {"confirmed": False, "reason": str(error)}
+            return {"inventory": inventory, "deletions": LocalStorageManager.read_deletion_operations(
+                self._default_local_storage_root, self._node_id, session_id=session_id), "capacity": capacity}
+
+    @service_operation(new_work=True)
+    def delete_original_artifacts(self, *, operation_id: str, request: dict[str, Any]) -> dict[str, Any]:
+        """Execute Controller-admitted historical deletion under existing node ownership."""
+        with self._reservation_lock:
+            if self._default_local_storage_root is None:
+                raise ValueError("Node local storage root must be configured")
+            sid = request.get("session_id")
+            if sid in {self._session_id, self._reserved_for_session_id}:
+                raise RuntimeError("Originals still belong to active participation or cleanup obligations")
+            return LocalStorageManager.delete_original_artifacts(
+                self._default_local_storage_root, self._node_id, operation_id=operation_id, request=request)
+
+    def deletion_evidence(self, *, session_id: str | None = None) -> tuple[RuntimeEvidenceMessage, ...]:
+        """Reconstruct stable framework evidence from durable per-file outcomes after restart."""
+        import hashlib
+        import json
+        if self._default_local_storage_root is None:
+            return ()
+        history = LocalStorageManager.read_deletion_operations(
+            self._default_local_storage_root, self._node_id, session_id=session_id)
+        if history["issues"]:
+            raise RuntimeError("Deletion evidence history is damaged")
+        return tuple(RuntimeEvidenceMessage(
+            "deletion-" + hashlib.sha256(json.dumps(record, sort_keys=True, allow_nan=False).encode()).hexdigest(),
+            None, "scientific_original_deletion", self._node_id, record, True)
+            for record in history["operations"])
+
     @property
     def reserved_for_session_id(self) -> str | None:
         with self._reservation_lock:
@@ -1201,7 +1242,8 @@ class AcquisitionNode:
 
     def maintenance_evidence(self):
         """Return retained operational evidence required before service retirement."""
-        return (*self._runtime_evidence, *self._health_runtime_evidence, *self._artifact_manifest_evidence)
+        return (*self._runtime_evidence, *self._health_runtime_evidence, *self._artifact_manifest_evidence,
+                *self.deletion_evidence())
 
     def maintenance_blockers(self, ingestor, storage_manager) -> list[str]:
         """Report node-owned runtime, local persistence, evidence, and device obligations."""
@@ -1222,6 +1264,12 @@ class AcquisitionNode:
         if any(not (ingestor.has_durable_runtime_evidence(m) if ingestor is not None
                     else self._maintenance.evidence_preserved(m)) for m in self._artifact_manifest_evidence):
             blockers.append("Unpreserved artifact evidence")
+        try:
+            if any(not (getattr(self, "_maintenance", None) and self._maintenance.evidence_preserved(m))
+                   for m in self.deletion_evidence()):
+                blockers.append("Unpreserved deletion evidence")
+        except (RuntimeError, OSError, ValueError) as error:
+            blockers.append(f"Deletion history: {error}")
         return blockers
 
     def _preserve_scientific_artifact(self, command, authorization, attempt) -> dict[str, Any]:

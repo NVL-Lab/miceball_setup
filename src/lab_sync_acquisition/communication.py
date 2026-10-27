@@ -246,7 +246,7 @@ class RuntimeCommandMessage:
     payload: dict[str, Any]
 
     def __post_init__(self) -> None:
-        if self.session_id is None and self.command_type not in ({"check_readiness", "get_inventory", "stop", "kill", "cancel", "check_stop_readiness", "prepare_stop", "preserve_service_evidence"} | SERVICE_RECOVERY_COMMAND_TYPES | DEPENDENT_MAINTENANCE_COMMANDS):
+        if self.session_id is None and self.command_type not in ({"check_readiness", "get_inventory", "list_storage_sessions", "stop", "kill", "cancel", "check_stop_readiness", "prepare_stop", "preserve_service_evidence"} | SERVICE_RECOVERY_COMMAND_TYPES | DEPENDENT_MAINTENANCE_COMMANDS):
             raise ValueError("Session-specific command requires session_id")
         if self.session_id is not None:
             _validate_subject_token("session_id", self.session_id)
@@ -585,6 +585,9 @@ EXTERNAL_CONTROLLER_OPERATIONS = {
     "normal_stop_session": "normal_stop_session",
     "collect_saved_session_artifacts_remote": "collect_saved_session_artifacts_remote",
     "release_session": "release_session",
+    "read_storage_sessions": "read_storage_sessions",
+    "read_storage_session": "read_storage_session",
+    "delete_original_artifacts": "delete_original_artifacts",
 }
 
 
@@ -596,12 +599,17 @@ class ExternalControllerRequest:
     client_id: str
     request_id: str
     operation: str
-    session_id: str
+    session_id: str | None
     parameters: dict[str, Any]
 
     def __post_init__(self):
-        for name in ("controller_id", "client_id", "request_id", "session_id"):
+        for name in ("controller_id", "client_id", "request_id"):
             _validate_subject_token(name, getattr(self, name))
+        if self.operation == "read_storage_sessions":
+            if self.session_id is not None:
+                raise ValueError("Storage enumeration has no selected Session")
+        else:
+            _validate_subject_token("session_id", self.session_id)
         if self.operation not in EXTERNAL_CONTROLLER_OPERATIONS:
             raise ValueError("Unsupported external Controller operation")
         schemas = {
@@ -611,13 +619,29 @@ class ExternalControllerRequest:
             "stop_launched_experiment": ({"experiment_id"}, {"details"}),
             "reconcile_launched_experiment_expiry": ({"experiment_id"}, set()),
             "normal_stop_session": (set(), {"reason"}),
-            "collect_saved_session_artifacts_remote": ({"evidence_id"}, set()),
+            "collect_saved_session_artifacts_remote": ({"evidence_id", "experimenter_name", "administrator_mode"}, {"deletion"}),
             "release_session": (set(), set()),
+            "read_storage_sessions": ({"experimenter_name", "administrator_mode"}, set()),
+            "read_storage_session": ({"experimenter_name", "administrator_mode"}, set()),
+            "delete_original_artifacts": ({"experimenter_name", "administrator_mode", "operation_id",
+                "experiment_ids", "confirmed", "warning_acknowledged"}, {"retry_of", "policy"}),
         }
         required, optional = schemas[self.operation]
         if (not isinstance(self.parameters, dict) or not required <= self.parameters.keys()
                 or self.parameters.keys() - required - optional):
             raise ValueError("Invalid parameters for external Controller operation")
+        if "administrator_mode" in self.parameters:
+            name = self.parameters["experimenter_name"]
+            if (type(self.parameters["administrator_mode"]) is not bool
+                    or (name is not None and (not isinstance(name, str) or not name.strip()))
+                    or (name is None and not self.parameters["administrator_mode"])):
+                raise ValueError("Explicit cooperative Storage operator context is required")
+        if "deletion" in self.parameters:
+            deletion = self.parameters["deletion"]
+            fields = {"operation_id", "experiment_ids", "confirmed", "warning_acknowledged"}
+            if (not isinstance(deletion, dict) or not fields <= deletion.keys()
+                    or deletion.keys() - fields - {"retry_of"}):
+                raise ValueError("Optional deletion must contain only an explicit scope and confirmations")
         for name in ("experiment_id", "evidence_id"):
             if name in self.parameters and (not isinstance(self.parameters[name], str) or not self.parameters[name]):
                 raise ValueError(f"Explicit {name} is required")
@@ -667,14 +691,19 @@ class ExternalControllerResult:
     client_id: str
     request_id: str
     operation: str
-    session_id: str
+    session_id: str | None
     status: str
     outcome: dict[str, Any] | None = None
     error: str | None = None
 
     def __post_init__(self):
-        for name in ("controller_id", "client_id", "request_id", "session_id"):
+        for name in ("controller_id", "client_id", "request_id"):
             _validate_subject_token(name, getattr(self, name))
+        if self.operation == "read_storage_sessions":
+            if self.session_id is not None:
+                raise ValueError("Storage enumeration result has no selected Session")
+        else:
+            _validate_subject_token("session_id", self.session_id)
         if self.operation not in EXTERNAL_CONTROLLER_OPERATIONS:
             raise ValueError("Unsupported external Controller result")
         if self.status not in {"pending", "succeeded", "failed", "rejected", "uncertain"}:

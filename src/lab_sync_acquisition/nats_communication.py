@@ -662,7 +662,8 @@ class NatsExternalSessionLaunchReceiver:
     async def _execute(self, request, record):
         try:
             new_work = isinstance(request, ExternalSessionLaunchRequest) or request.operation in {
-                "start_launched_session", "start_launched_experiment"}
+                "start_launched_session", "start_launched_experiment", "delete_original_artifacts",
+                "collect_saved_session_artifacts_remote"}
             outcome = await (self._execute_new_work(request) if new_work else self._execute_existing_work(request))
             result = _external_operation_result(request, "succeeded" if outcome.succeeded else "failed",
                 _to_plain_data(outcome.to_dict()), outcome.error)
@@ -684,11 +685,19 @@ class NatsExternalSessionLaunchReceiver:
     async def _dispatch(self, request):
         if isinstance(request, ExternalControllerRequest):
             # Trust-boundary check; Controller also rechecks after lifecycle lock waits.
-            if (request.operation != "collect_saved_session_artifacts_remote"
+            if (request.operation not in {"collect_saved_session_artifacts_remote", "read_storage_sessions",
+                                          "read_storage_session", "delete_original_artifacts"}
                     and self._controller.get_status()["session_id"] != request.session_id):
                 raise ValueError("External operation does not target the current Controller Session")
             p = request.parameters
             expected = {"expected_session_id": request.session_id}
+            if request.operation in {"read_storage_sessions", "read_storage_session", "delete_original_artifacts"}:
+                arguments = {"communication": self._communication, "storage_participant": self._storage_participant(),
+                             "result_window_s": self._window, **deepcopy(p)}
+                if request.operation == "read_storage_sessions":
+                    return await self._controller.read_storage_sessions(**arguments)
+                return await getattr(self._controller, request.operation)(request.session_id,
+                    participants=self._participants, **arguments)
             if request.operation == "read_session_configuration":
                 return self._controller.read_session_configuration(**expected)
             if request.operation == "start_launched_session":
@@ -718,7 +727,9 @@ class NatsExternalSessionLaunchReceiver:
             if request.operation == "collect_saved_session_artifacts_remote":
                 return await self._controller.collect_saved_session_artifacts_remote(request.session_id,
                     evidence_id=p["evidence_id"], communication=self._communication,
-                    storage_participant=self._storage_participant(), result_window_s=self._window)
+                    storage_participant=self._storage_participant(), result_window_s=self._window,
+                    experimenter_name=p["experimenter_name"], administrator_mode=p["administrator_mode"],
+                    deletion=deepcopy(p.get("deletion")), participants=self._participants)
             if request.operation == "release_session":
                 return await self._controller.release_session(communication=self._communication,
                     result_window_s=self._window, **expected)
@@ -785,7 +796,8 @@ class NatsControllerCommunication:
         """Request current owner readback without accepting history or an earlier attempt's reply."""
         supported = {"storage_manager": {"read_session_preservation",
                                         "get_saved_session_collection_status", "collect_saved_artifacts",
-                                        "close_session_evidence_archive"},
+                                        "close_session_evidence_archive", "list_storage_sessions",
+                                        "read_storage_session", "confirm_collected_originals"},
                      "ingestor": {"compile_session_evidence", "verify_acquisition_receipt",
                                   "read_runtime_evidence_acceptance", "admit_session_kill",
                                   "preserve_session_acquisition", "read_session_closeout",
@@ -795,7 +807,9 @@ class NatsControllerCommunication:
                 or command_type not in supported.get(participant.component_type, set())
                 or "request_nonce" in payload
                 or (command_type == "preserve_service_evidence" and session_id is not None)
-                or (command_type != "preserve_service_evidence" and (not isinstance(session_id, str) or not session_id))):
+                or (command_type == "list_storage_sessions" and session_id is not None)
+                or (command_type not in {"preserve_service_evidence", "list_storage_sessions"}
+                    and (not isinstance(session_id, str) or not session_id))):
             raise ValueError("Unsupported scoped persistence request")
         nonce = uuid4().hex
         requests = NatsControllerCommunication(self._boundary)
@@ -1577,8 +1591,17 @@ class NatsAcquisitionNodeCommunication:
                 if command.target_id != self._boundary.component_id:
                     await message.ack()
                     return
-                result = (await _execute_maintenance_command(self._boundary, self._acquisition_node, command)
-                          if command.command_type in ({"stop", "kill", "cancel", "prepare_stop", "check_stop_readiness"} | SERVICE_RECOVERY_COMMAND_TYPES | DEPENDENT_MAINTENANCE_COMMANDS) else self.execute_command(command))
+                if command.command_type in {"read_storage_history", "delete_original_artifacts"}:
+                    @service_operation(new_work=command.command_type == "delete_original_artifacts")
+                    async def storage_operation(owner):
+                        result = await self._execute_storage_command(command)
+                        await self._boundary.publish_command_result(result, command.command_type)
+                        await message.ack()
+                    await storage_operation(self._acquisition_node)
+                    return
+                else:
+                    result = (await _execute_maintenance_command(self._boundary, self._acquisition_node, command)
+                              if command.command_type in ({"stop", "kill", "cancel", "prepare_stop", "check_stop_readiness"} | SERVICE_RECOVERY_COMMAND_TYPES | DEPENDENT_MAINTENANCE_COMMANDS) else self.execute_command(command))
                 await self._refresh_acquisition_execution()
                 await self.publish_new_artifact_manifest_evidence()
                 if command.session_id is not None:
@@ -1602,6 +1625,70 @@ class NatsAcquisitionNodeCommunication:
             subscriptions.append(await self._boundary._require_jetstream().subscribe(subject, cb=receive, manual_ack=True,
                 config=ConsumerConfig(deliver_policy=DeliverPolicy.NEW)))
         return tuple(subscriptions)
+
+    async def _execute_storage_command(self, command):
+        payload = {}
+        try:
+            _validate_owner_request(self._boundary, command)
+            if command.command_type == "read_storage_history":
+                if set(command.payload) != {"request_nonce"}:
+                    raise ValueError("Historical readback accepts only a Session identity")
+                payload = self._acquisition_node.read_storage_history(session_id=command.session_id)
+            else:
+                if set(command.payload) != {"operation_id", "request", "ingestor_participant", "storage_participant", "result_window_s", "request_nonce"}:
+                    raise ValueError("Deletion requires its exact admitted scope and receiving owner")
+                request = command.payload["request"]
+                if request.get("session_id") != command.session_id:
+                    raise ValueError("Deletion request Session mismatch")
+                ingestor = RuntimeParticipant.from_dict(command.payload["ingestor_participant"])
+                storage = RuntimeParticipant.from_dict(command.payload["storage_participant"])
+                window = command.payload["result_window_s"]
+                from math import isfinite
+                if (ingestor.component_type != "ingestor" or storage.component_type != "storage_manager"
+                        or type(window) not in (int, float)
+                        or not isfinite(window) or window <= 0):
+                    raise ValueError("Deletion preservation requires Ingestor and a positive result window")
+                maintenance = getattr(self._acquisition_node, "_maintenance", None)
+                if maintenance is not None and maintenance._framework_communication is not None:
+                    if (ingestor != maintenance._framework_ingestor or storage != maintenance._framework_storage):
+                        raise ValueError("Deletion preservation owners differ from node deployment")
+                if request.get("policy") == "after_collection":
+                    manifests = (request.get("collection_proof") or {}).get("exact_originals")
+                    fresh = await NatsControllerCommunication(self._boundary).request_persistence_command(
+                        storage, "confirm_collected_originals", command.session_id,
+                        {"manifests": manifests}, window, command_id=uuid4().hex)
+                    if (fresh is None or not fresh.success or
+                            {k: v for k, v in fresh.payload.items() if k != "request_nonce"} != request.get("collection_proof")):
+                        raise RuntimeError("Current exact collected-original proof is unconfirmed")
+                record = self._acquisition_node.delete_original_artifacts(
+                    operation_id=command.payload["operation_id"], request=request)
+                payload = {"operation": record, "local_outcomes_durable": True,
+                           "acceptance_confirmed": False, "archival_confirmed": False}
+                messages = [m for m in self._acquisition_node.deletion_evidence(session_id=command.session_id)
+                            if m.payload["operation_id"] == record["operation_id"]]
+                if len(messages) != 1:
+                    raise RuntimeError("Exact deletion evidence is unavailable")
+                evidence = messages[0]
+                await self._boundary.publish_evidence(evidence)
+                proof = await NatsControllerCommunication(self._boundary).request_persistence_command(
+                    ingestor, "preserve_service_evidence", None,
+                    {"evidence": [evidence.to_dict()], "acceptance_window_s": window}, window,
+                    command_id=uuid4().hex)
+                if (proof is None or not proof.success or proof.payload.get("acceptance_confirmed") is not True
+                        or proof.payload.get("archival_confirmed") is not True
+                        or proof.payload.get("storage_participant") != storage.to_dict()
+                        or proof.payload.get("evidence") != [evidence.to_dict()]):
+                    raise RuntimeError("Deletion evidence durable acceptance/preservation is unconfirmed")
+                payload.update(acceptance_confirmed=True, archival_confirmed=True)
+                payload["storage_participant"] = storage.to_dict()
+                if maintenance is not None and maintenance._framework_communication is not None:
+                    with maintenance._admission_lock:
+                        maintenance._remote_preserved_evidence[(None, evidence.evidence_id)] = evidence.to_dict()
+                if not record["finished"] or any(f["status"] != "deleted" for f in record["files"]):
+                    raise RuntimeError("Deletion has partial, missing or uncertain file outcomes")
+            return _participant_result(self._boundary, command, True, None, payload)
+        except Exception as error:
+            return _participant_result(self._boundary, command, False, str(error), payload)
 
     def execute_command(
         self,
@@ -2531,8 +2618,23 @@ class NatsStorageManagerCommunication:
         try:
             if command.command_type == "check_readiness":
                 return _execute_service_command(self._boundary, self._storage_manager, command, {})
+            if command.command_type == "list_storage_sessions":
+                if (command.session_id is not None or command.target_id != self._boundary.component_id
+                        or not command.command_id or not command.source_id or not isinstance(nonce, str) or not nonce
+                        or set(command.payload) != {"request_nonce"} or not self._boundary.check_ready().ready):
+                    raise ValueError("Historical enumeration requires framework-scoped correlation")
+                return _participant_result(self._boundary, command, True, None,
+                    {**self._storage_manager.list_storage_sessions(), "request_nonce": nonce})
             _validate_owner_request(self._boundary, command)
-            if command.command_type == "check_experiment_capacity":
+            if command.command_type == "read_storage_session":
+                if set(command.payload) != {"request_nonce"}:
+                    raise ValueError("Historical readback accepts only a Session identity")
+                payload = self._storage_manager.read_storage_session(command.session_id)
+            elif command.command_type == "confirm_collected_originals":
+                if set(command.payload) != {"request_nonce", "manifests"}:
+                    raise ValueError("Preservation proof requires exact manifests")
+                payload = self._storage_manager.confirm_collected_originals(command.session_id, command.payload["manifests"])
+            elif command.command_type == "check_experiment_capacity":
                 payload = {"capacity": self._storage_manager.check_experiment_capacity(command.payload.get("required_bytes"))}
             elif command.command_type in {"get_saved_session_collection_status", "collect_saved_artifacts"}:
                 collecting = command.command_type == "collect_saved_artifacts"

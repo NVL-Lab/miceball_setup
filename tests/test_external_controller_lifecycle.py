@@ -15,7 +15,7 @@ from nats.aio.client import Client as NATS
 
 from lab_sync_acquisition import (
     AcquisitionNode, Controller, DeviceDeclaration, DeviceManager, ExperimentConfiguration,
-    InMemoryIngestor, NatsAcquisitionNodeCommunication, NatsCommunicationBoundary,
+    InMemoryIngestor, LocalStorageManager, NatsAcquisitionNodeCommunication, NatsCommunicationBoundary,
     NatsControllerCommunication, NatsExternalSessionLaunchClient, NatsExternalSessionLaunchReceiver,
     NatsIngestorCommunication, NatsStorageManagerCommunication, NatsSynchronizationManagerCommunication,
     OpenCVCameraConfig, PersistentStorageManager, RuntimeParticipant, ScientificOutputSelection,
@@ -116,6 +116,42 @@ class ExternalLifecycleTests(unittest.IsolatedAsyncioTestCase):
         if self.node.local_storage_manager is not None:
             self.node.local_storage_manager.cleanup()
 
+    async def test_storage_shared_client_context_history_and_deletion(self):
+        sid = "historical"
+        self.storage.write_initial_session_record(sid,
+            accepted_session_config={"session_id": sid, "session_parameters": {"experimenter": "Alice"},
+                "expected_runtime_participants": [self.participants[-1].to_dict()]},
+            lifecycle_evidence=[], readiness_evidence=[], device_readiness_evidence=[], service_readiness_evidence=[],
+            final_session_status=None, cleanup_evidence={})
+        local = LocalStorageManager(self.root / "local", sid, "node")
+        manifest = local.create_stream(session_id=sid, experiment_id="old-experiment", acquisition_node_id="node",
+            source_component_id="device", data_product_id="timing", artifact_type="timing", schema={})
+        local.finalize_all()
+        metadata = {Path(p): Path(p).read_bytes() for p in manifest.local_managed_paths if Path(p).suffix == ".json"}
+        context = {"experimenter_name": "Alice", "administrator_mode": False}
+        query = ExternalControllerRequest("controller", "tester", "storage-list", "read_storage_sessions", None, context)
+        listed = await self.terminal(query)
+        self.assertEqual(listed.status, "succeeded", listed)
+        self.assertEqual([s["session_id"] for s in listed.outcome["details"]["sessions"]], [sid])
+        denied = await self.terminal(self.request("read_storage_session",
+            {"experimenter_name": "Bob", "administrator_mode": False}, session_id=sid))
+        self.assertEqual(denied.status, "failed")
+        conflict = await self.terminal(ExternalControllerRequest("controller", "tester", "storage-list",
+            "read_storage_sessions", None, {"experimenter_name": "Bob", "administrator_mode": False}))
+        self.assertEqual(conflict.status, "rejected")
+        deletion = self.request("delete_original_artifacts", {**context, "operation_id": "delete-historical",
+            "experiment_ids": ["old-experiment"], "confirmed": True, "warning_acknowledged": True}, session_id=sid)
+        deleted = await self.terminal(deletion)
+        self.assertEqual(deleted.status, "succeeded", deleted)
+        self.assertFalse(Path(manifest.local_storage_path).exists())
+        self.assertEqual((await self.terminal(deletion)).to_dict(), deleted.to_dict())
+        readback = await self.terminal(self.request("read_storage_session", context, session_id=sid))
+        self.assertEqual(readback.status, "succeeded", readback)
+        operation = readback.outcome["details"]["nodes"]["node"]["deletions"]["operations"][0]
+        self.assertEqual(operation["files"][0]["status"], "deleted")
+        self.assertEqual(metadata, {p: p.read_bytes() for p in metadata})
+        self.assertIsNone(self.controller.get_status()["session_id"])
+
     async def deliver_marker_boundary(self, subject, payload):
         if payload.get("evidence_type") != "acquisition_evidence_completion":
             return
@@ -139,6 +175,8 @@ class ExternalLifecycleTests(unittest.IsolatedAsyncioTestCase):
 
     def request(self, operation, parameters=None, *, session_id=None, request_id=None):
         self.sequence += 1
+        if operation == "collect_saved_session_artifacts_remote":
+            parameters = {**(parameters or {}), "experimenter_name": None, "administrator_mode": True}
         return ExternalControllerRequest("controller", "tester", request_id or f"operation-{self.sequence}",
             operation, session_id or self.sid, parameters or {})
 

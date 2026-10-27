@@ -8703,6 +8703,10 @@ Existing accepted requirements and historical validation records are preserved.
 recording-deletion outcomes with `session_id=None`, retaining original Session
 and recording relationships in the payload without reopening Session intake.
 Decision 354's monthly partitioning and existing preservation guarantees remain.
+Decision 434 subsequently replaces recording-level deletion scope with
+Session/Experiment/artifact relationships; a logical recording identifier is not
+required in deletion evidence. The framework scope and monthly partitioning are
+unchanged.
 
 The existing Evidence Archive supports two evidence scopes. Session evidence
 retains its current layout and behavior:
@@ -12634,6 +12638,11 @@ readback, durable launch confirmation and historical integrity below are unchang
 name for Protocol Mode and `None` for Free Mode. Both remain subject to the fixed
 accepted-value, readback and durable launch-preservation requirements below.
 
+**Storage ownership clarification:** Decision 433 uses the experimenter name
+supplied at launch as the cooperative Session owner. It remains part of the
+immutable accepted metadata and durable launch-preservation contract below,
+without requiring authenticated human identity or a privileged client.
+
 This records the user-accepted LLC-to-ICC Q008 Session Metadata Implementation
 Handoff. It clarifies Decisions 226-229, 342, 409-412, 420 and 422 while preserving
 their historical text and existing lifecycle, persistence and deployment owners.
@@ -13302,10 +13311,22 @@ questions remain OPEN for their outstanding scope; no milestone is closed here.
 
 **Status:** Accepted
 
+**Deletion-granularity supersession:** Decision 434 replaces the recording-level
+selection requirements below with selection of one or more Experiments or an
+entire Session. In particular, deleting all Session originals no longer requires
+selecting every recording. Only original scientific artifact files are targeted;
+whole-Session collection and all applicable safety/evidence requirements remain.
+The original wording is retained for traceability.
+
 **Further clarification:** Decision 432 resolves the recording-unit, ownership,
 durable local operation-record, interruption/retry and framework evidence-routing
 questions identified below. Earlier deferrals are retained as historical scope;
 Q034 tracks remaining implementation dependencies, not reopening those policies.
+
+**Cooperative-access clarification:** Decision 433 resolves the identity mapping
+deferred below. GUI-selected administrator mode is conveyed to Controller for
+functional Storage access; no administrator authentication is required. Controller
+enforcement and all operation-specific safety and confirmation obligations remain.
 
 This records the user-accepted LLC direction conveyed through ICC's Storage Tab
 and Recording Deletion Architecture Synchronization handoff. It supplements
@@ -13422,12 +13443,25 @@ remain OPEN.
 
 **Status:** Accepted
 
+**Deletion-scope supersession:** Decision 434 replaces the logical-recording unit,
+membership dependency and recording-identity requirements below with existing
+Session -> Experiment -> ArtifactManifest relationships. Operation records and
+evidence retain original Session/Experiment/artifact scope instead of requiring
+a logical recording identifier. Durability, confirmation, reconciliation, retry,
+local-safety and preservation requirements remain unchanged. Historical wording
+below is retained, not authority to add a recording registry or membership rule.
+
 This records the explicitly user-accepted LLC-to-ICC handoff, **Q034: Accepted
 Scientific Recording Deletion Contracts**. Decision 431 remains authoritative;
 this clarification resolves its identified deletion-contract deferrals without
 rewriting historical decisions, investigations or validation evidence. It reuses
 Decisions 223-225, 260, 276-280, 323, 344, 354-355, 357-364, 376-378 and 424.
 Documentation synchronization does not authorize implementation or claim closure.
+
+**Ownership/access clarification:** Decision 433 resolves the operator-identity
+boundary using the accepted experimenter name and conveyed administrator mode,
+not authenticated humans or privileged client identities. The historical access
+wording below is qualified accordingly; scientific-data safety is unchanged.
 
 ### Logical recording identity and Session ownership
 
@@ -13525,19 +13559,204 @@ implementation authorization or milestone closure is established here.
 
 ---
 
+## Decision 433: Storage access uses cooperative experimenter names and GUI-selected administrator mode
+
+**Status:** Accepted
+
+This records the explicitly user-accepted LLC clarification resolving Q034's
+operator-identity and administrator-mode blocker. It clarifies Decisions 424,
+431 and 432 while preserving their historical text and all scientific-data
+safety requirements. Documentation synchronization is not implementation,
+validation or authorization to start Slice 2.
+
+### Cooperative laboratory ownership and access
+
+The framework operates in a small, cooperative laboratory. No human
+authentication infrastructure is required. The experimenter name supplied at
+Session launch establishes ownership and is retained in the immutable accepted
+Session metadata under Decision 424, including its durable launch-preservation
+requirements. Later GUI catalog changes do not rewrite that historical owner.
+
+Ordinary experimenter Storage requests are admitted only for Sessions with
+matching recorded ownership. Controller enforces these functional access rules,
+including for discovery/readback, collection and deletion; GUI visibility alone
+is not enforcement. Historical ownership must not be inferred or fabricated.
+Missing or ambiguous ownership cannot establish a matching ordinary experimenter.
+
+Administrator mode is selected in the GUI and conveyed to Controller. No
+administrator authentication or privileged client identity is required. In this
+mode, requests may access all Sessions, including those with missing or ambiguous
+ownership, subject to every applicable scientific-data safety requirement.
+Administrator access does not create or repair historical ownership.
+
+Shared GUI/backend clients convey the selected experimenter name and
+administrator mode with applicable requests. NATS `client_id` remains routing
+information, not human identity. An authenticated-principal-to-experimenter
+mapping is not a prerequisite for this cooperative access separation.
+
+This is not authenticated access control. Impersonation is possible and
+explicitly accepted. Do not introduce user accounts, passwords, login screens,
+authentication tokens, administrator credentials, privileged deployment
+identities or new authentication services as part of this decision.
+
+### Relationship to earlier contracts
+
+This resolves Decision 431's deferred identity mapping and qualifies Decisions
+431-432's authorization language: selected experimenter names and conveyed
+administrator mode supply the cooperative request context. Any interpretation
+requiring authenticated humans or privileged administrator/client identities for
+that access is superseded. Controller must still enforce the functional rules
+independently of GUI filtering. Decision 422's existing service/broker access,
+routing, correlation and duplicate-request contracts remain unchanged; transport
+restrictions are not a human authentication or administrator-privilege mechanism.
+
+All existing collection, deletion, preservation, lifecycle and local-safety
+requirements remain unchanged. Administrator mode does not itself satisfy
+warnings, explicit deletion confirmation, exact-original identification,
+conditional collection/verification/preservation proof or local safety checks.
+It does not authorize automatic deletion, reopen finalized evidence or replace
+existing service-specific Kill/recovery authorization. Existing Controller,
+AcquisitionNode, LocalStorageManager, Ingestor and StorageManager ownership and
+Controller-to-service NATS boundaries remain authoritative.
+
+### Interface implications and implementation status
+
+Applicable Controller/NATS Storage requests need the selected experimenter name
+and administrator-mode value as cooperative context, including when a shared
+GUI/backend sends requests. Controller applies that context to the target
+Session's recorded ownership; it must not substitute `client_id` for the owner
+or require proof of human identity. The launch name uses existing accepted
+Session metadata and Session Record preservation, not another identity store.
+Reuse existing request validation, Session targeting, correlation and duplicate
+protection when extending the current interfaces.
+
+These request-context and enforcement changes are required implementation work,
+not functionality implemented by this decision. No concrete new request schema
+is selected here. Q034's operator-identity architectural blocker is RESOLVED;
+Q034 remains OPEN for the remaining Storage backend and later GUI integration.
+Slice 1's closed read-only owner-inventory scope is unchanged.
+
+---
+
+## Decision 434: Original scientific artifact deletion selects Experiments or entire Sessions, not logical recordings
+
+**Status:** Accepted
+
+This records the explicitly user-accepted LLC clarification resolving Q034's
+logical recording-membership blocker. It partially supersedes Decisions 431-432
+only for deletion granularity, scope identity and the associated membership
+dependency. It preserves Decisions 201, 248-249, 260, 313, 344, 362 and 433 and
+all applicable existing scientific-data safety and preservation contracts.
+Documentation synchronization is not implementation or validation and does not
+authorize starting Slice 2.
+
+### Selection and exact original targets
+
+Operators may select one or more Experiments or an entire Session for deletion
+of original scientific artifact files on AcquisitionNodes, including applicable
+scientific timing/index artifacts. Existing Session -> Experiment ->
+ArtifactManifest relationships establish the selected scope and exact original
+targets. One ArtifactManifest continues to represent exactly one artifact file.
+Use the existing designated source paths, not broad filename or directory guesses.
+Missing, damaged, inconsistent or ambiguous information remains explicit; do not
+invent targets or deletion success.
+
+No new logical recording identifier, recording-membership mechanism, registry or
+database is required or introduced for deletion. This is not a new definition of
+scientific recording semantics for other application uses. The former requirement
+to select a logical recording as one deletion unit is superseded, as is Decision
+431's requirement to select every recording to delete all Session originals.
+Explicit whole-Session selection now establishes that scope; it is not recursive
+directory deletion or implicit selection of other Sessions.
+
+### Manual and conditional deletion
+
+Manual deletion is permitted before or after StorageManager collection and does
+not require successful collection or verification. Warning, explicit selection
+and confirmation and all applicable local-safety requirements remain mandatory.
+The existing allowance for incomplete or damaged scientific originals is
+preserved, subject to positive target identification and safety.
+Deleting originals never deletes collected global-storage copies, historical
+Session/Experiment metadata or preserved evidence. Only positively identified
+original scientific files are deletion targets, not manifests, administrative
+metadata, operation records or evidence.
+
+Whole-Session collection is unchanged. Conditional post-collection deletion stays
+optional and disabled by default, with explicit Experiment/Session selection and
+the existing collection, verification, durable preservation, exact-original
+coverage and local-safety requirements. Collection success alone is not deletion
+authorization. Permanent archive closure is not an additional prerequisite;
+collection, original-file deletion and permanent archive closure remain distinct.
+
+### Authority, safety and durable outcomes
+
+Controller coordinates deletion through existing NATS boundaries;
+LocalStorageManager alone executes physical original-file deletion on each
+AcquisitionNode. StorageManager retains collection/verification/preservation
+authority, not authority to delete transfer sources. Decision 433's cooperative
+experimenter-name/administrator-mode access rules remain unchanged; no additional
+human authentication is required or introduced.
+
+Preserve active-write and outstanding-obligation safety, explicit confirmation,
+durable operation intent before destructive work, actual per-file outcomes,
+restart reconciliation without invented success, duplicate-request suppression
+and new linked explicit retries with renewed admission. No automatic destructive
+retry is introduced; cancellation cannot undo completed deletion. Original
+Session and Experiment identities, exact artifact/file targets, operator,
+operation, policy and outcomes provide the applicable scope in durable records
+and evidence; a logical recording identity is not required.
+
+Deletion outcomes retain the existing LocalStorageManager -> AcquisitionNode ->
+NATS -> Ingestor -> framework evidence preservation -> StorageManager monthly
+archive path. Framework evidence continues to use `session_id=None`, with original
+Session/Experiment/artifact relationships in its payload. Do not reopen finalized
+Session intake or closed Evidence Archives. Local physical outcomes, local durable
+recording, publication, durable intake and permanent preservation remain distinct.
+
+Do not introduce a separate list of undeleted Sessions. Derive remaining-original
+and deletion-history information from existing authoritative artifact information
+and deletion outcomes, without another registry or database.
+
+### Implementation status
+
+The recording-membership architectural blocker is RESOLVED by removing
+recording-level deletion, not by inventing recording associations. Q034 remains
+OPEN for the remaining Storage backend implementation and independent verification.
+Experiment/Session deletion is not implemented or validated by this decision.
+Slice 1's validated read-only behavior and closure history remain unchanged.
+Storage GUI implementation and detailed deletion-warning presentation remain
+deferred; this decision does not design or implement them.
+
+---
+
 # Accepted Architectural Principles
 
 The following principles summarize the accepted decisions so far.
 
-Decision 432 fixes launch-time experimenter ownership, logical recording deletion
-scope, durable LocalStorageManager operation records, explicit linked retries and
-framework-scoped deletion evidence through existing Ingestor/monthly preservation.
+Decision 434 replaces logical-recording deletion with explicitly selected
+Experiments or entire Sessions, using existing artifact relationships and exact
+original scientific file paths. No recording-membership mechanism or separate
+undeleted-Session list is required. Whole-Session collection, cooperative access,
+scientific-data safety and durable deletion/evidence contracts remain unchanged;
+the deletion backend is not yet implemented and Q034 remains OPEN.
+
+Decision 433 resolves Q034's identity blocker through cooperative name-based
+Session ownership and GUI-conveyed administrator mode, enforced by Controller.
+No human authentication infrastructure is required; impersonation is explicitly
+accepted. NATS client IDs remain routing data and all scientific-data safety
+requirements remain unchanged. Backend request-context implementation is pending.
+
+Decision 432 fixes launch-time experimenter ownership, durable LocalStorageManager
+operation records, explicit linked retries and framework-scoped deletion evidence
+through existing Ingestor/monthly preservation.
+Its logical-recording deletion scope is superseded by Decision 434.
 Session intake and closed archives are not reopened; Q034 remains OPEN for
 implementation and verification rather than unresolved deletion-policy choices.
 
 Decision 431 adds Storage before Services as the seventh permanent GUI tab.
-Collection remains whole-Session and Controller-coordinated; exact-recording
-deletion is separately authorized and LocalStorageManager-owned, with unresolved
+Collection remains whole-Session and Controller-coordinated; original-file
+deletion, now Experiment/Session-scoped under Decision 434, is separately
+authorized and LocalStorageManager-owned, with remaining
 readback, safety, authorization and durable-outcome contracts in Q034.
 
 Decision 430 distinguishes Protocol Mode (selected name, application-fixed active

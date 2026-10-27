@@ -543,8 +543,36 @@ Stage A retains evidence and a durable collection handoff; it does not automatic
 copy Jetson frames. Later explicit StorageManager Stage B collection uses SSH/SFTP
 and preserves collection outcomes. Permanent archive closure is another explicit
 operation. Supported remote APIs include `collect_saved_session_artifacts_remote()`
-and `close_saved_session_archive_remote()`; remote enumeration/batch collection
-remains unimplemented. Abandonment is not permission to delete retained products.
+and `close_saved_session_archive_remote()`. Q034 Slice 2 adds Controller-mediated
+`read_storage_sessions()`, `read_storage_session()` and `delete_original_artifacts()`;
+implementation is pending independent validation/audit. Collection and Storage
+requests require explicit `experimenter_name` and boolean `administrator_mode`.
+The accepted Session owner is `session_parameters["experimenter"]`; unknown or
+ambiguous owners require cooperative administrator mode, never inferred identity.
+NATS `client_id` remains routing data, not a human login.
+
+Use the existing external Controller client/receiver, with broker permission for
+the exact `controller_external.CONTROLLER_ID.CLIENT_ID.OPERATION` subjects.
+Storage enumeration uses `session_id=None`; Session readback, collection and
+deletion identify the original Session. Use new request IDs for fresh readback;
+identical IDs retain existing pending/completed snapshot semantics. No second
+Controller or GUI integration is introduced. Selected Sessions can be requested
+independently; collection still transfers a whole Session through StorageManager.
+
+Deletion requires explicit `operation_id`, `experiment_ids` (a nonempty list, or
+`None` for the entire Session), `confirmed=True` and
+`warning_acknowledged=True`, as well as operator context. Manual deletion has no
+collection prerequisite. Optional collection `deletion` parameters use the same
+scope/confirmations and remain absent by default; exact verified durable collection
+proof is mandatory for that policy. `copied_unverified` is not verified proof.
+Lost replies never establish success. Repeating an operation ID only reads its
+durable outcome; a retry uses a new ID with `retry_of` naming the prior operation,
+renewed admission and unchanged original targets. Scientific global copies,
+metadata and evidence remain untouched. Local intent/outcomes are retained under
+the configured AcquisitionNode root's `deletion_operations/`; do not remove those
+records to make an uncertain operation look new. Abandonment is not permission
+to delete retained products. Validate only with disposable scientific originals
+until the separate ICC validation and audit have accepted this backend.
 
 ## 11. Controller Session/Experiment Lifecycle And GUI
 

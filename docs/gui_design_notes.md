@@ -510,13 +510,26 @@ scientific-data collection, recording management and collection history. Service
 continues to own the presentation of service health, readiness, dependencies and
 administrative operational controls, not scientific-recording management.
 
-Experimenters see only their own Sessions in Storage and may request deletion
-only from those Sessions. Administrators see all Sessions and may request deletion
-from any Session. Decision 432 fixes ownership to the experimenter identity
-accepted at launch. Controller enforces authorization independently of visibility
-or administrator-mode presentation; unknown or ambiguous ownership cannot authorize
-ordinary-experimenter deletion. Reuse existing client identity/authorization
-mechanisms; no new user-management system is accepted.
+Decisions 432-433 fix ownership to the experimenter name supplied at Session
+launch and retained in immutable accepted metadata under Decision 424. Ordinary
+experimenter Storage requests require matching recorded ownership; GUI-selected
+administrator mode permits access to all Sessions, including those with missing
+or ambiguous owners, subject to unchanged scientific-data safety requirements.
+Historical ownership is not inferred or fabricated. Controller enforces these
+functional rules independently of GUI visibility.
+
+Shared GUI/backend clients convey the selected experimenter name and
+administrator mode with applicable Controller/NATS Storage requests. NATS
+`client_id` is routing information, not human identity. This is cooperative
+laboratory access separation, not authenticated access control: impersonation is
+possible and explicitly accepted. Do not introduce user accounts, passwords,
+login screens, authentication tokens, administrator credentials, privileged
+deployment identities or new authentication services for it. Administrator mode
+does not bypass warnings, explicit destructive-action confirmation, preservation
+or local-safety checks, or replace separate service-specific authorizations.
+The request-context integration and Controller enforcement remain unimplemented
+by this documentation synchronization; existing presentation modes are not proof
+that the backend behavior is operational.
 
 ### Collection selection and outcomes
 
@@ -533,33 +546,43 @@ StorageManager retrieves, verifies and preserves using existing mechanisms.
 Artifact bytes never traverse GUI, Controller or Ingestor. Capacity displays do
 not replace authoritative checks or Decision 394's per-Experiment admission gate.
 
-### Original recording deletion
+### Original scientific artifact deletion by Experiment or Session
 
-Offer **Delete original recordings from AcquisitionNodes after verified
-collection**, unchecked by default. Deletion requires successful collection,
-required verification, durable collection evidence and confirmation that the
-exact originals are safe to delete. Failed or uncertain collection is not
-permission to delete. Deletion failure does not invalidate successful collection.
+Decision 434 replaces the earlier recording-level deletion selection. Operators
+may select one or more Experiments or an entire Session. Existing Session ->
+Experiment -> ArtifactManifest relationships resolve the exact original
+scientific files on AcquisitionNodes, including applicable timing/index artifacts.
+One manifest remains one file. No logical recording identifier or membership
+mechanism is required; do not infer scientific associations or deletion targets
+from broad filenames/directories. Missing or uncertain targets remain explicit.
 
-Alternatively, an authorized operator may explicitly select individual original
-recordings for manual deletion without prior collection or verification. Require
-clear warnings, explicit confirmation and local safety checks. Selecting all
-recordings is necessary to request deletion of all recordings; do not expand
-scope implicitly. Manual deletion is not collection or preservation success.
+Manual deletion is permitted before or after StorageManager collection and does
+not require successful collection or verification. Require warnings, explicit
+selection and confirmation and local safety checks. Whole-Session selection now
+expressly selects that Session's original scientific artifacts; it is not directory
+deletion or implicit selection of other Sessions. Manual deletion is not collection
+or preservation success. Collected global copies, historical Session/Experiment
+metadata and preserved evidence are never deleted by original-file deletion.
 
-Decision 432 defines one logical recording as its associated scientific artifacts,
-including applicable timing/index files. Deletion selects that recording as one
-unit and targets only positively identified original files using existing
-artifact identities. Incomplete or damaged recordings may be manually deleted;
-report missing/uncertain files without guessing targets. Both policies use the
-same exact-target LocalStorageManager mechanism, not separate deletion pipelines.
+Conditional post-collection deletion remains optional and unchecked by default,
+with explicit Experiment/Session selection, successful whole-Session collection,
+required verification, durable preservation evidence, exact-original coverage and
+local safety. Failed or uncertain collection/verification/preservation cannot
+grant deletion permission, and collection success alone is not authorization.
+Deletion failure does not invalidate independently successful collection. Both
+policies use the same exact-target LocalStorageManager mechanism.
 
 Controller coordinates authorized requests. LocalStorageManager on each
 AcquisitionNode performs deletion; StorageManager establishes applicable
-preservation status; GUI presents authoritative outcomes. Use exact recording
-identities, reject unsafe active/recovery-dependent recordings and durably retain
+preservation status; GUI presents authoritative outcomes. Use exact Session,
+Experiment and artifact identities, reject unsafe active/recovery-dependent
+targets and durably retain
 required deletion evidence. Do not add an allocator, cleanup policy or transfer
-engine, or equate device cleanup with recording deletion.
+engine, or equate device cleanup with scientific-original deletion. Do not add a
+separate list of undeleted Sessions; use authoritative artifact information and
+deletion outcomes. Decision 433's cooperative access rules remain unchanged.
+Storage GUI implementation and detailed warning presentation remain deferred;
+no Experiment/Session deletion is implemented by this synchronization.
 
 Deletion does not require permanent archive closure or implicitly request it.
 Decision 362's separate explicit closure authorization and immutable closed
@@ -569,7 +592,7 @@ and framework-evidence contracts below, without reopening Session intake/archive
 ### Durable deletion outcomes and explicit retry
 
 Before deleting any original file, LocalStorageManager durably retains the stable
-operation identity, authorization, original Session/recording identities, exact
+operation identity, authorization, original Session/Experiment/artifact identities, exact
 targets, policy and eligibility confirmation. Actual per-file outcomes are durably
 recorded for restart reconciliation; this is not another scientific archive or
 general-purpose database.
@@ -584,7 +607,7 @@ confirmed deletions are not repeated.
 
 Outcomes use LocalStorageManager -> AcquisitionNode -> NATS -> Ingestor -> existing
 framework evidence preservation -> StorageManager monthly archive. The envelope
-has `session_id=None`; the payload retains original Session, recording, artifact,
+has `session_id=None`; the payload retains original Session, Experiment, artifact,
 operator, operation and outcome relationships. Reuse journal-before-ACK,
 deduplication, preservation confirmation and monthly archival, with evidence
 identities distinguishing identical redelivery from later observations/retries.
@@ -600,12 +623,16 @@ and unresolved collections stay visible regardless of age; older successful
 collections remain searchable. This is a display filter, not data deletion.
 
 Reuse existing saved-Session enumeration, records, manifests, collection outcomes
-and preservation mechanisms. Authoritative Session, Experiment, recording,
+and preservation mechanisms. Authoritative Session, Experiment, artifact,
 collection, capacity and deletion-history readback uses Controller-mediated
 interfaces with authoritative ownership filtering. Q034 remains OPEN for concrete
-readback/grouping, identity/authorization integration, local record/safety,
+readback/target resolution, identity/authorization integration, local record/safety,
 interruption/retry, framework evidence and GUI implementation plus independent
-verification. Those dependencies do not reopen Decision 432's accepted policies
+verification. Decision 433 resolves the former operator-identity architectural
+blocker; cooperative request-context implementation remains pending. These
+requirements now use Decision 434's Experiment/Session deletion scope, which
+resolves the recording-membership blocker without introducing a grouping
+mechanism. These dependencies do not reopen Decisions 432-434's accepted policies
 or introduce a registry, permanent GUI database, service or lifecycle authority.
 
 ## Services Tab
@@ -813,8 +840,9 @@ authorized. Presentation minimization cannot replace Controller acknowledgment.
 ## Session Closeout, Collection, and Archived Evidence
 
 **Status:** Historical presentation proposals. Decision 431 now accepts the Storage
-tab, whole-Session collection selection/history and recording-deletion requirements
-above; the other proposals below remain proposals unless separately accepted.
+tab and whole-Session collection selection/history; Decision 434 replaces the
+earlier recording-level deletion with Experiment/Session selection. Other
+proposals below remain proposals unless separately accepted.
 The historical table/dropdown suggestions do not replace the accepted bucket and
 explicit Store interaction. No implementation or validation is claimed.
 

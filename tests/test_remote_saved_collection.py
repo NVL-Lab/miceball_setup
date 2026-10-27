@@ -90,7 +90,8 @@ class RemoteSavedCollectionTests(unittest.IsolatedAsyncioTestCase):
     async def collect(self, identity="collection", session="session"):
         return await self.controller.collect_saved_session_artifacts_remote(session,
             evidence_id=identity, communication=self.communication,
-            storage_participant=self.peer, result_window_s=.02)
+            storage_participant=self.peer, result_window_s=.02,
+            experimenter_name=None, administrator_mode=True)
 
     async def test_lost_reply_retry_and_owner_restart_do_not_refetch(self):
         transport, _ = self.fixture.retrieval.ssh(self.fixture.sftp)
@@ -211,8 +212,12 @@ class RemoteSavedCollectionTests(unittest.IsolatedAsyncioTestCase):
     async def test_rejected_attempt_survives_failed_reply_publication(self):
         self.selection.terminal("session", "stopping")
         # Fail publication before the result reaches the result stream.
-        with patch("tests.test_session_launch._Boundary.publish_command_result",
-                   side_effect=ConnectionError("injected reply publication failure")):
+        publish = _Boundary.publish_command_result
+        async def fail_collection(boundary, result, operation):
+            if operation == "collect_saved_artifacts":
+                raise ConnectionError("injected reply publication failure")
+            return await publish(boundary, result, operation)
+        with patch.object(_Boundary, "publish_command_result", fail_collection):
             self.assertFalse((await self.collect("unpublished-rejection")).succeeded)
         old = RuntimeCommandMessage.from_dict(self.broker.commands[-1])
         self.selection.terminal("session", "completed")
@@ -356,11 +361,14 @@ class RemoteSavedCollectionTests(unittest.IsolatedAsyncioTestCase):
         self.selection.terminal("session", "stopping")
         entered = asyncio.Event()
 
-        async def pause(*args):
-            entered.set()
-            await asyncio.Future()
+        publish = _Boundary.publish_command_result
+        async def pause(boundary, result, operation):
+            if operation == "collect_saved_artifacts":
+                entered.set()
+                await asyncio.Future()
+            return await publish(boundary, result, operation)
 
-        with patch("tests.test_session_launch._Boundary.publish_command_result", side_effect=pause):
+        with patch.object(_Boundary, "publish_command_result", pause):
             task = asyncio.create_task(self.collect("cancelled"))
             try:
                 await asyncio.wait_for(entered.wait(), 2)
@@ -408,7 +416,8 @@ class RemoteSavedCollectionTests(unittest.IsolatedAsyncioTestCase):
                 async def collect_remote():
                     return await self.controller.collect_saved_session_artifacts_remote("session",
                         evidence_id="remote", communication=self.communication,
-                        storage_participant=self.peer, result_window_s=3)
+                        storage_participant=self.peer, result_window_s=3,
+                        experimenter_name=None, administrator_mode=True)
                 worker, stop = await start_owner()
                 if reject_first:
                     self.selection.terminal("session", "stopping")

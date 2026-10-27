@@ -687,16 +687,127 @@ from GUI controls or service-level Kill.
 
 ---
 
-## Q034: What low-level contracts implement Storage readback and authorized original-recording deletion?
+## Q034: What low-level contracts implement Storage readback and Experiment/Session original-artifact deletion?
 
-**Status:** OPEN - Decisions 431-432 settle the Storage direction and scientific
-recording deletion contracts. Decision 432 resolves the identified recording-unit,
-launch-time ownership, durable local operation-record, interruption/retry and
-framework evidence-routing choices. Slice 1 is CLOSED within its validated
-read-only owner-inventory scope. Remaining Storage backend implementation and
-verification, and later GUI integration, remain outstanding; Decisions 431-432
+**Status:** OPEN - Decisions 431-434 settle the Storage direction, cooperative
+ownership/access and Experiment/Session original-file deletion contracts.
+Decision 434 supersedes the earlier recording-level deletion scope and resolves
+the recording-membership blocker; Decision 433 resolves the identity blocker.
+The durable local operation, interruption/retry and framework evidence contracts
+remain authoritative. Slice 1 is CLOSED within its validated
+read-only owner-inventory scope. Slice 2 backend implementation is recorded below,
+pending independent verification; later GUI integration remains outstanding. Decisions 431-434
 are not fully implemented. Q019/W050 and other historical validated scopes are
 not reopened or closed by this question.
+
+### Operator-identity architectural blocker: RESOLVED (Decision 433)
+
+The accepted clarification uses cooperative access separation, not authenticated
+human access control. The experimenter name supplied at launch establishes the
+Session owner and remains in immutable accepted metadata under Decision 424.
+Ordinary Storage requests require matching recorded ownership. Administrator
+mode is selected in the GUI and conveyed to Controller, which enforces both
+functional modes. Administrator mode may access Sessions with missing or ambiguous
+ownership, subject to unchanged scientific-data safety requirements; ownership
+is never inferred or fabricated. Shared GUI/backend clients convey the selected
+name and mode; NATS `client_id` remains routing data, not human identity.
+
+Impersonation is possible and explicitly accepted. No user accounts, passwords,
+login screens, authentication tokens, administrator credentials, privileged
+deployment identities or new authentication services are required or authorized
+by this clarification. An authenticated-human identity binding is no longer a
+blocker. Decision 433 synchronization did not implement or authorize Slice 2;
+the implementation handoff below now records that request context and access
+checks are implemented pending independent verification. Q034 remains OPEN and
+Slice 1 remains CLOSED.
+
+### Recording-membership architectural blocker: RESOLVED (Decision 434)
+
+Deletion selects one or more Experiments or an entire Session. Existing Session
+-> Experiment -> ArtifactManifest relationships establish scope and exact original
+scientific files, including applicable timing/index artifacts. No new logical
+recording identifier or membership mechanism is needed. The earlier question of
+how to declare logical-recording membership is removed from deletion admission,
+not answered by guessing associations. One manifest remains one artifact file.
+
+Manual deletion may occur before or after collection without requiring collection
+or verification success. Whole-Session collection remains unchanged. Collected
+global copies, historical metadata and preserved evidence are not deletion
+targets. All existing safety, confirmation, durable operation, reconciliation,
+duplicate/retry and evidence requirements and Decision 433 access rules remain.
+Do not maintain a separate list of undeleted Sessions; use authoritative artifact
+information and deletion outcomes. Decision 434 synchronization did not implement
+deletion or GUI integration; the subsequent Slice 2 status is recorded below.
+
+### Slice 2 implementation handoff (independent verification pending)
+
+The Decisions 431-434 backend now implements cooperative Controller-enforced
+ownership, historical Session/Experiment/artifact and collection/deletion history,
+capacity readback, authorized whole-Session collection, and exact original-file
+deletion by Experiment list or entire Session. The existing external client and
+receiver expose these operations on the original Controller through scoped NATS
+commands. Session ownership uses the accepted `session_parameters["experimenter"]`
+name, not `client_id`; uncertain historical ownership is administrator-only.
+
+LocalStorageManager records intent before unlink and durable per-file outcomes;
+AcquisitionNode uses existing node admission/reservation coordination and retains
+framework evidence obligations. Duplicate IDs cannot repeat physical deletion.
+Cancellation and restart leave explicit outcomes; absent files without completed
+deletion evidence remain unconfirmed. A new linked retry requires renewed
+admission and cannot expand original targets. Controller serializes collection
+and deletion using its existing operation lock. Active participation and retained
+cleanup/preservation obligations remain protected. No old Session is reconstructed.
+
+Manual deletion does not require collection. Optional post-collection deletion is
+absent by default and requires current exact-original verified preservation proof.
+The existing HDF5 verification contract is reused; `copied_unverified` outcomes
+cannot authorize conditional deletion. This is not a new universal file validator.
+Scientific global copies, metadata, Session archives and evidence are not deleted.
+Deletion evidence follows the existing framework intake/monthly archive path,
+including after Session archive closure. Historical queries retain unavailable
+candidates and uncertainty; progress uses existing pending requests and durable
+per-file outcomes, not estimated live transfer percentages.
+
+See [the code map](code_map.md#q034-slice-2-storage-backend-implementation-independent-verification-pending)
+for interfaces and boundaries. Q034 and Slice 2 remain OPEN. Codex implementation
+checks do not establish independent validation/audit or deployment readiness.
+Storage GUI integration and its 30-day successful-collection presentation filter
+remain deferred, without limiting evidence retention.
+
+**Codex implementation verification:** 79 distinct selected methods passed and one
+filesystem-alias method was skipped across the final focused runs (79-method
+regression run: 78 passed, one skipped; final 31-method directly affected rerun:
+31 passed, including one added parameter-admission method). No full-suite run was
+performed. Selection and results:
+
+| Area | Result | Reason for selection |
+| --- | --- | --- |
+| New Storage backend workflows/models | 30 passed | Ownership, exact scope, local intent/outcomes, conditional proof, cancellation/retry, history and maintenance |
+| Existing historical inventory | 21 passed, one skipped | Reused source/alias trust boundary and administrative-record exclusion |
+| Existing remote saved-Session collection | 21 passed | Changed admission context, collection delegation and scoped reply behavior |
+| Selected external Controller lifecycle workflows | Six passed | Original Controller, cooperative context, broker restrictions, pending requests, closeout/release and Session reuse |
+| Selected distributed Kill workflow | One passed | Unchanged partial-cleanup/evidence obligations |
+
+The skipped symlink case reports Windows error 1314 (missing creation privilege),
+not a pass. Hard-link and Windows junction checks executed. Initial sandboxed
+asyncio attempts stalled during local socket-pair creation; completed runs used
+the existing conda environment outside the sandbox, without a custom scheduler.
+Core NATS external requests and two separate-process saved-collection workflows
+used isolated local brokers/actual SDK; most participant transport and scientific
+devices/SFTP were simulated with actual disk-backed service owners. No physical
+hardware, multi-machine, power-loss or OS-crash guarantee is established. Object
+reconstruction and explicit process restart do not constitute crash validation.
+
+Independent IPython validation remains separate. Use only disposable originals;
+exercise ordinary-owner/mismatched-owner/admin requests through the existing
+external client, inspect actual files plus local operation records and framework
+archive products, repeat an identical operation after a lost reply, and use a new
+linked operation for a partial-outcome retry. Verify collected copies and Session
+metadata/evidence bytes remain unchanged. Readback uses a new external request ID
+for a fresh observation; reusing an ID returns the original pending/completed
+outcome. Tear down service tasks before removing temporary fixture directories.
+Neither these instructions nor Codex tests establish independent validation/audit
+completion; Q034 remains OPEN.
 
 ### Existing mechanisms and fixed boundaries
 
@@ -709,19 +820,21 @@ Controller coordinates requests over existing NATS boundaries. LocalStorageManag
 retains original artifact ownership; StorageManager establishes preservation,
 and Ingestor retains acquisition intake/compilation responsibilities.
 
-### Accepted clarification (Decision 432)
+### Accepted deletion contracts (Decisions 432-434)
 
-One logical recording includes its associated scientific artifacts and applicable
-timing/index files. Select it as one unit, reuse existing artifact identities and
-target only positively identified original files. Incomplete or damaged recordings
-may be manually deleted; missing/uncertain files are reported, not guessed targets.
-There is no new permanent recording registry.
+Select Experiments or an entire Session and resolve their original scientific
+artifact files through existing identities, including separate timing/index
+manifests. Only positively identified originals may be targeted; incomplete,
+damaged, missing or uncertain information is reported without guessing targets.
+Logical-recording selection and membership are no longer prerequisites.
 
-Session ownership derives from the experimenter identity accepted at launch.
-Experimenters see/manage their own Sessions; administrators may manage all.
-Controller independently enforces authorization; unknown or ambiguous ownership
-cannot authorize ordinary-experimenter deletion. Reuse existing client identity
-and authorization rather than a GUI visibility check or new user-management system.
+Decision 433 clarifies that Session ownership derives from the experimenter name
+accepted at launch. Experimenters see/manage matching Sessions; GUI-selected
+administrator mode permits access to all Sessions, including missing/ambiguous
+owners, subject to all existing safety requirements. Controller independently
+enforces these cooperative rules. Ordinary experimenters cannot use unknown or
+ambiguous ownership to establish a match. Client routing labels are not owners;
+no authenticated human or new user-management system is required.
 
 Both deletion policies use one exact-target LocalStorageManager mechanism.
 Conditional post-collection deletion requires successful applicable collection,
@@ -731,7 +844,7 @@ and local safety, but not collection/verification. Unsafe active/recovery-depend
 targets remain protected. Permanent archive closure is not a prerequisite.
 
 Before any original file is deleted, LocalStorageManager durably retains the
-stable operation identity, authorization, original Session/recording identities,
+stable operation identity, authorization, original Session/Experiment/artifact identities,
 exact targets, policy and eligibility confirmation. Actual per-file outcomes are
 durably recorded for restart reconciliation. Preserve confirmed partial outcomes;
 a missing file without confirmed deletion evidence is **Missing — deletion
@@ -744,7 +857,7 @@ confirmed to remain; previously confirmed deletions are not repeated.
 Deletion evidence follows LocalStorageManager -> AcquisitionNode -> NATS ->
 Ingestor -> existing framework evidence preservation -> StorageManager monthly
 archive. Its envelope uses `session_id=None`; its payload retains original
-Session, recording, artifact, operator, operation and outcome relationships.
+Session, Experiment, artifact, operator, operation and outcome relationships.
 Reuse journal-before-ACK, deduplication and preservation confirmation. Identical
 redelivery retains evidence identity; later observations and explicit retries are
 distinguished by their evidence identities. Do not reopen finalized acquisition
@@ -791,24 +904,31 @@ hardware, power-loss or crash-recovery validation is established. No
 Controller/NATS/GUI exposure, authorization, collection or deletion is added by
 this owner slice.
 
-### Remaining implementation dependencies
+### Backend scope awaiting independent verification and remaining GUI work
 
-**Planned next implementation boundary:** Complete the remaining Storage backend,
-excluding GUI integration. This closure does not start or authorize that work;
-bounded implementation scope review remains separate. Q034 remains OPEN.
+Slice 1 closure established the remaining backend boundary below without
+authorizing it. ICC subsequently authorized Slice 2; its implementation is recorded
+above. The backend items remain the independent verification checklist, not a
+claim of validation or another implementation authorization. GUI work remains
+unimplemented and outside Slice 2. Q034 remains OPEN.
 
 - **Readback and ownership enforcement:** Implement authoritative Session,
-  Experiment, recording, collection, capacity and deletion-history queries through
-  Controller-mediated interfaces, binding existing client identity to accepted
-  launch-time experimenter ownership and enforcing it independently of GUI state.
-- **Exact recording targets:** Represent the accepted logical recording and its
-  associated original artifacts/timing/index files using existing identities;
-  support positive identification and explicit missing/uncertain information
-  without a registry, guessed paths or individual-recording collection.
+  Experiment, artifact, collection, capacity and deletion-history queries through
+  Controller-mediated interfaces, carrying selected experimenter name and
+  administrator mode under Decision 433 and checking recorded launch ownership
+  independently of GUI visibility. Extend existing request models/dispatch and
+  correlation/deduplication without treating `client_id` as human identity or
+  introducing authentication infrastructure.
+- **Exact Experiment/Session targets:** Resolve the selected Experiments or entire
+  Session through existing artifact identities, including scientific timing/index
+  files; preserve explicit missing/uncertain information without guessed paths,
+  logical-recording membership, a registry or a separate undeleted-Session list.
+  Delete no collected global copies, historical metadata or preserved evidence.
 - **Local record and safety admission:** Implement durable operation/per-file
   records and their serialization with existing active-write, reservation and
   recovery protections. Preserve exact scope across historical Sessions and
-  replacement bindings. No concrete local record layout is selected here.
+  replacement bindings. The Slice 2 implementation uses local operation files,
+  not a separate registry or scientific archive.
 - **Policy checks and routing:** Connect Controller authorization, StorageManager
   conditional preservation proof and the shared LocalStorageManager deletion
   mechanism through existing NATS boundaries; retain both distinct policies.
@@ -835,6 +955,9 @@ evidence infrastructure, not an implemented deletion workflow. Decision 432 now
 settles the associated policies, including the required durable local operation
 record and framework-scoped outcomes. Preserve the earlier findings as historical
 evidence; this synchronization performs no implementation audit or validation.
+Decision 434 subsequently replaces logical-recording deletion with Experiment/
+Session selection and removes the membership blocker. Earlier grouping findings
+remain historical, not a requirement to invent a recording-membership mechanism.
 
 No recording-level collection, new user-management system, registry, permanent
 GUI database, transfer/cleanup service, automatic retention policy or lifecycle
@@ -2270,7 +2393,8 @@ remains distinct under Q023, and evidence-consumption coordination remains Q019.
 What future format/layout contracts should cover JSONL, additional HDF5 layouts, binary electrophysiology, and other scientific products?
 What future checksum or deeper verification policy, if any, extends the bounded Slice 24 contract?
 How should a future broader ScientificProduct structural contract describe arbitrary products and instantiated expectations, relate device/component capabilities to Experiment selections, and relate persisted layouts to verification contracts without assuming a universal HDF5 schema?
-Decision 431 accepts explicit deletion of original AcquisitionNode recordings,
+Decisions 431 and 434 accept explicit deletion of original AcquisitionNode
+scientific artifacts selected by Experiment or entire Session,
 with LocalStorageManager execution and separate conditional post-collection versus
 manual paths. StorageManager still cannot delete transfer sources. Exact identity,
 authorization, local safety and durable-outcome contracts remain Q034; this does

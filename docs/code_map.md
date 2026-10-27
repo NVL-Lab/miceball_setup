@@ -48,7 +48,7 @@ StorageManager persistence algorithm change is introduced.
 - ExternalSessionLaunchResult.to_dict()/from_dict(data): Serialize detached results and validate outcome shape and successful launch proof.
 - nats_communication.NatsExternalSessionLaunchClient(boundary): Uses an existing connected NATS boundary without constructing a Controller or owning lifecycle execution.
 - NatsExternalSessionLaunchClient.request_launch(request, *, timeout_s): Submits one caller-identified request and checks response correlation without automatically retrying.
-- communication.EXTERNAL_CONTROLLER_OPERATIONS: Lists seven supported lifecycle operations plus Decision 424's read-only configuration operation and their Controller result names, without arbitrary remote method invocation.
+- communication.EXTERNAL_CONTROLLER_OPERATIONS: Lists the supported lifecycle, accepted-configuration and Q034 Storage operations and their Controller result names, without arbitrary remote method invocation.
 - communication.ExternalControllerRequest(controller_id, client_id, request_id, operation, session_id, parameters): Validates explicit operation parameters, expected Session/Experiment identity and existing scientific configuration models without accepting service collaborators.
 - ExternalControllerRequest.to_dict()/from_dict(data): Preserve detached operation parameters and reject extra fields or unsupported operations.
 - communication.ExternalControllerResult(controller_id, client_id, request_id, operation, session_id, status, outcome=None, error=None): Associates the existing Controller outcome with its external operation and Session, preserving failed, rejected, pending and uncertain distinctions.
@@ -63,6 +63,64 @@ StorageManager persistence algorithm change is introduced.
 - tests.test_external_controller_lifecycle.ExternalOperationModelsTests: Rejects unsupported operations, invalid parameters and wrong-operation successful results.
 - tests.test_external_controller_lifecycle.ExternalLifecycleTests: Exercises external lifecycle requests over restricted local NATS with real HDF5/intake/preservation owners and controlled participant/SFTP transport, including expiry, early stop, failures, queued identities, release and repeated Sessions.
 - Controller._require_session(*, expected_session_id=None): Reuses the binding guard to reject an explicitly mismatched Session at lifecycle admission, without changing callers that omit the optional constraint.
+
+## Q034 Slice 2 Storage Backend (Implementation; Independent Verification Pending)
+
+Constructors of Controller, AcquisitionNode, LocalStorageManager,
+PersistentStorageManager, ExternalControllerRequest/Result and the NATS
+client/receivers are unchanged. The external operation allowlist adds
+`read_storage_sessions`, `read_storage_session` and `delete_original_artifacts`.
+Only enumeration uses `session_id=None`; all other Storage operations identify
+the original Session. Request parameters carry `experimenter_name` and a boolean
+`administrator_mode`; `client_id` remains routing data. Recorded ownership is
+the accepted `session_parameters["experimenter"]` string; absent, non-string or
+contradictory historical ownership requires administrator mode, not inference.
+
+- Controller.read_storage_sessions(*, communication, storage_participant, result_window_s, experimenter_name, administrator_mode): Enumerates StorageManager-owned historical candidates with authoritative cooperative ownership filtering and capacity readback.
+- Controller.read_storage_session(session_id, *, communication, storage_participant, participants, result_window_s, experimenter_name, administrator_mode): Combines authorized persisted Session/Experiment/collection/deletion history with scoped node inventories and current matching Controller context without rebinding a Session.
+- Controller.delete_original_artifacts(session_id, *, communication, storage_participant, participants, result_window_s, experimenter_name, administrator_mode, operation_id, experiment_ids, confirmed, warning_acknowledged, retry_of=None, policy="manual"): Coordinates explicit Experiment-list or entire-Session original deletion under the existing operation lock and requires exact evidence preservation before success.
+- Controller._require_storage_operator: Checks cooperative request context against the recorded Session owner without treating NATS routing identity as a person.
+- Controller._read_storage_session_owner: Obtains fresh scoped authoritative metadata before ownership-sensitive work.
+- Controller._read_original_owners: Reads registered original owners and explicitly reports missing/unconfirmed nodes without inventing inventories.
+- Controller._delete_original_artifacts: Shares exact-scope deletion orchestration between manual and optional post-collection requests without transferring scientific bytes.
+- Controller._collect_saved_session_artifacts_remote: Retains the existing scoped StorageManager collection/proof implementation behind the authorized serialized entry point.
+- AcquisitionNode.read_storage_history(*, session_id): Reads historical exact-original inventory, capacity and durable deletion operations without device preparation or Session rebinding.
+- AcquisitionNode.delete_original_artifacts(*, operation_id, request): Applies current node participation/cleanup safety under its existing reservation lock and delegates physical deletion to LocalStorageManager.
+- AcquisitionNode.deletion_evidence(*, session_id=None): Reconstructs stable persistent framework-scoped evidence from durable local operation records, including after restart.
+- LocalStorageManager.read_deletion_operations(root_path, acquisition_node_id, *, session_id=None): Reads per-file history and reconciles pending present/missing outcomes without modifying files or automatically retrying deletion.
+- LocalStorageManager.delete_original_artifacts(root_path, acquisition_node_id, *, operation_id, request): Revalidates exact original files, durably records admitted intent before unlink, records per-file outcomes and never repeats physical execution for a duplicate operation ID.
+- local_storage._deletion_record_path: Validates operation identifiers and contains operation records within the configured node storage root.
+- local_storage._write_deletion_record: Fsyncs initial intent and atomically replaces/readback-checks subsequent local outcomes.
+- local_storage._sync_deletion_directories: Confirms local operation-file directory entries where supported, shared by writes and duplicate-outcome durability confirmation.
+- local_storage._read_deletion_record: Validates durable operation scope, file identities and outcomes without inventing success for damaged or contradictory records.
+- PersistentStorageManager.list_storage_sessions(): Enumerates existing candidates and capacity through existing saved-Session mechanisms without another registry.
+- PersistentStorageManager.read_storage_session(session_id): Cross-checks accepted ownership/configuration and reads Experiment records, collection outcomes/progress and validated monthly deletion evidence without collection or recovery.
+- PersistentStorageManager.confirm_collected_originals(session_id, manifests): Checks exact durable handoff coverage, archived collection outcomes and current verified global files before conditional deletion.
+- NatsAcquisitionNodeCommunication._execute_storage_command: Routes scoped historical/deletion commands and confirms exact framework evidence through existing Ingestor preservation, retaining local outcomes on missing replies.
+- tests.test_storage_backend.StorageBackendTests: Exercises actual disk-backed owners over existing controlled NATS transport for ownership, exact deletion, aliases, uncertainty, retries, restart history and maintenance retention.
+- tests.test_storage_backend.CollectedOriginalDeletionTests: Exercises HDF5 collection proof, conditional deletion, corrupted copies and preservation of global copies and historical products.
+- tests.test_storage_backend.StorageExternalModelsTests: Checks shared-client operator context and strict external Storage request/result identity.
+
+Deletion records reside under the configured local root's `deletion_operations/`;
+they are administrative metadata, never scientific deletion targets. Durable
+per-file outcomes, current presence, publication, intake and monthly preservation
+are separate. New linked retry IDs require fresh admission and cannot expand the
+original targets. Session participation/cleanup and unresolved closeout remain
+protected. Existing Slice 1 alias reconciliation is retained across Sessions.
+All Controller-to-service operations use NATS; Ingestor/StorageManager retain
+their existing shared process and independent persistence responsibilities.
+
+Collection remains whole-Session. Optional `deletion` parameters explicitly select
+its Experiment/Session scope, operation identity, confirmation and warning
+acknowledgment; omission performs no deletion. Conditional deletion requires
+`verified` exact-original collection proof, so `copied_unverified` artifacts do
+not qualify. Manual deletion has no collection prerequisite. Readback exposes
+existing pending requests and confirmed per-file outcomes, not fabricated live
+transfer percentages. The 30-day collection-history presentation filter and
+Storage GUI integration remain deferred; history is not discarded by the backend.
+
+Q034 remains OPEN pending ICC manual validation and a separate independent audit;
+this implementation record does not close Decisions 431-434 or Slice 2.
 
 ## Q008 Session Metadata (Decision 424; Implemented, Audit PASS, Deployment Validation Pending)
 
@@ -1819,7 +1877,7 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 - NatsControllerCommunication.request_maintenance_readback(participant, operation, payload, result_window_s): Reuses existing Session-independent commands with fresh owner/operation-scoped nonce correlation, bounded waiting and temporary-subscription cleanup for dependent registration and confirmation.
 - _validate_owner_request(boundary, command): Validates target, requester, command, Session, connectivity, and transient reply correlation for the bounded owner operations.
 - NatsControllerCommunication.request_persistence_command(participant, command_type, session_id, payload, result_window_s, *, command_id): Makes a scoped owner request with fresh-only nonce-correlated results, including Session-independent preserve_service_evidence; Session operations still require their real Session identity.
-- Controller.collect_saved_session_artifacts_remote(session_id, *, evidence_id, communication, storage_participant, result_window_s): Coordinates explicit single saved-Session collection through NATS without local service references, requiring matching durable collection evidence and retaining failures or missing responses as unconfirmed.
+- Controller.collect_saved_session_artifacts_remote(session_id, *, evidence_id, communication, storage_participant, result_window_s, experimenter_name, administrator_mode, deletion=None, participants=()): Authorizes and serializes whole-Session NATS collection with existing durable proofs and optional explicitly selected post-collection deletion through the shared Q034 mechanism.
 - Controller.close_saved_session_archive_remote(session_id, *, communication, storage_participant, result_window_s): Explicitly requests permanent closure of one saved Evidence Archive through NATS, requiring matching owner-verified closure and summary without Session completion or resource release.
 - NatsSynchronizationManagerCommunication(boundary, synchronization_manager): Routes measured synchronization, readiness, Session preparation and timing closeout over existing command/result streams while retaining timing authority in SynchronizationManager.
 - NatsSynchronizationManagerCommunication.subscribe_commands(): Serializes command admission and rejects conflicting identities or mismatched stop Sessions before cancelling periodic work outside the runtime lock, then routes owner operations with existing correlated results and idempotency.

@@ -2776,6 +2776,38 @@ class Controller:
         self, session_id: str, *, evidence_id: str,
         communication: NatsControllerCommunication,
         storage_participant: RuntimeParticipant, result_window_s: float,
+        experimenter_name: str | None, administrator_mode: bool,
+        deletion: dict | None = None, participants: Iterable[RuntimeParticipant] = (),
+    ) -> ControllerCommandResult:
+        """Collect one owned Session, optionally deleting explicitly selected verified originals."""
+        name = "collect_saved_session_artifacts_remote"
+        async with self._experiment_operation_lock:
+            try:
+                if deletion is not None:
+                    fields = {"operation_id", "experiment_ids", "confirmed", "warning_acknowledged"}
+                    if (not isinstance(deletion, dict) or not fields <= deletion.keys()
+                            or deletion.keys() - fields - {"retry_of"}):
+                        raise ValueError("Optional deletion requires only its exact scope and confirmations")
+                await self._read_storage_session_owner(session_id, communication, storage_participant,
+                    result_window_s, experimenter_name, administrator_mode)
+                result = await self._collect_saved_session_artifacts_remote(session_id,
+                    evidence_id=evidence_id, communication=communication,
+                    storage_participant=storage_participant, result_window_s=result_window_s)
+                if deletion is None or not result.succeeded:
+                    return result
+                deleted = await self._delete_original_artifacts(session_id, communication=communication,
+                    storage_participant=storage_participant, result_window_s=result_window_s,
+                    participants=participants, experimenter_name=experimenter_name,
+                    administrator_mode=administrator_mode, policy="after_collection", **deletion)
+                details = {**result.details, "deletion": deleted.to_dict()}
+                return ControllerCommandResult(name, deleted.succeeded, details, deleted.error)
+            except Exception as error:
+                return self._record_failed_command(name, error)
+
+    async def _collect_saved_session_artifacts_remote(
+        self, session_id: str, *, evidence_id: str,
+        communication: NatsControllerCommunication,
+        storage_participant: RuntimeParticipant, result_window_s: float,
     ) -> ControllerCommandResult:
         """Request explicit saved-Session collection from its remote storage owner."""
         name = "collect_saved_session_artifacts_remote"
@@ -2803,6 +2835,171 @@ class Controller:
             return self._record_successful_command(name, details)
         except Exception as error:
             return self._record_failed_command(name, error)
+
+    @staticmethod
+    def _require_storage_operator(experimenter_name, administrator_mode, owner=None):
+        if type(administrator_mode) is not bool or (experimenter_name is not None
+                and (not isinstance(experimenter_name, str) or not experimenter_name.strip())):
+            raise ValueError("Storage requires a selected experimenter name and explicit administrator mode")
+        if not administrator_mode and (not experimenter_name or owner != experimenter_name):
+            raise PermissionError("Session ownership is missing, ambiguous or does not match the experimenter")
+
+    async def _read_storage_session_owner(self, session_id, communication, storage, window, name, admin):
+        if storage.component_type != "storage_manager":
+            raise ValueError("Storage readback requires its authoritative owner")
+        result = await communication.request_persistence_command(storage, "read_storage_session", session_id,
+            {}, window, command_id=uuid4().hex)
+        if result is None or not result.success or result.payload.get("session_id") != session_id:
+            raise RuntimeError("Historical Session metadata is unconfirmed")
+        self._require_storage_operator(name, admin, result.payload.get("experimenter_name"))
+        return deepcopy(result.payload)
+
+    @service_operation()
+    @_session_command
+    async def read_storage_sessions(self, *, communication, storage_participant, result_window_s,
+                                    experimenter_name, administrator_mode) -> ControllerCommandResult:
+        """List saved Sessions with Controller-enforced cooperative ownership filtering."""
+        name = "read_storage_sessions"
+        try:
+            # Validate context before requesting any historical data.
+            self._require_storage_operator(experimenter_name, administrator_mode, experimenter_name)
+            if storage_participant.component_type != "storage_manager":
+                raise ValueError("Storage enumeration requires StorageManager")
+            result = await communication.request_persistence_command(storage_participant,
+                "list_storage_sessions", None, {}, result_window_s, command_id=uuid4().hex)
+            if result is None or not result.success or not isinstance(result.payload.get("sessions"), list):
+                raise RuntimeError("Saved Session enumeration is unconfirmed")
+            data = deepcopy(result.payload)
+            data["sessions"] = [s for s in data["sessions"] if administrator_mode
+                                or s.get("experimenter_name") == experimenter_name]
+            return ControllerCommandResult(name, True, data)
+        except Exception as error:
+            return ControllerCommandResult(name, False, error=str(error))
+
+    @service_operation()
+    @_session_command
+    async def read_storage_session(self, session_id, *, communication, storage_participant,
+                                   participants, result_window_s, experimenter_name,
+                                   administrator_mode) -> ControllerCommandResult:
+        """Read one authorized historical Session and original/deletion status from node owners."""
+        name = "read_storage_session"
+        try:
+            data = await self._read_storage_session_owner(session_id, communication, storage_participant,
+                result_window_s, experimenter_name, administrator_mode)
+            data["nodes"] = await self._read_original_owners(session_id, data, participants, communication, result_window_s)
+            current = self._session
+            if current is not None and current.session_id == session_id:
+                data["controller_session"] = {"state": current.current_state.value,
+                    "experiments": [d.to_dict() for d in current.experiment_descriptors],
+                    "experiment_lifecycle_evidence": [e.to_dict() for e in current.experiment_lifecycle_evidence]}
+            return ControllerCommandResult(name, True, data)
+        except Exception as error:
+            return ControllerCommandResult(name, False, error=str(error))
+
+    async def _read_original_owners(self, session_id, data, participants, communication, window):
+        nodes = {p.component_id: p for p in participants if p.component_type == "acquisition_node"}
+        configuration = data.get("accepted_session_config") or {}
+        expected = {p["component_id"] for p in configuration.get("expected_runtime_participants", [])
+                    if p["component_type"] == "acquisition_node"}
+        if expected - nodes.keys():
+            raise RuntimeError(f"Original node owners unavailable: {sorted(expected - nodes.keys())}")
+        reports = {}
+        for identity, participant in nodes.items():
+            if expected and identity not in expected:
+                continue
+            result = await communication.request_runtime_command(participant, "read_storage_history",
+                session_id, {}, window)
+            if result is None or not result.success:
+                reports[identity] = {"confirmed": False, "reason": "Node historical state is unavailable"}
+            else:
+                report = deepcopy(result.payload)
+                if report.get("inventory", {}).get("acquisition_node_id") != identity:
+                    raise RuntimeError("Historical node identity mismatch")
+                reports[identity] = {"confirmed": True, **report}
+        return reports
+
+    @service_operation(new_work=True)
+    @_session_command
+    async def delete_original_artifacts(self, session_id, *, communication, storage_participant,
+                                        participants, result_window_s, experimenter_name,
+                                        administrator_mode, operation_id, experiment_ids,
+                                        confirmed, warning_acknowledged, retry_of=None,
+                                        policy="manual") -> ControllerCommandResult:
+        """Coordinate explicit Experiment/Session deletion, never scientific byte transfer."""
+        async with self._experiment_operation_lock:
+            return await self._delete_original_artifacts(session_id, communication=communication,
+                storage_participant=storage_participant, participants=participants, result_window_s=result_window_s,
+                experimenter_name=experimenter_name, administrator_mode=administrator_mode,
+                operation_id=operation_id, experiment_ids=experiment_ids, confirmed=confirmed,
+                warning_acknowledged=warning_acknowledged, retry_of=retry_of, policy=policy)
+
+    async def _delete_original_artifacts(self, session_id, *, communication, storage_participant,
+                                          participants, result_window_s, experimenter_name,
+                                          administrator_mode, operation_id, experiment_ids, confirmed,
+                                          warning_acknowledged, retry_of=None, policy="manual"):
+        name = "delete_original_artifacts"
+        outcomes = {}
+        try:
+            bound = self._session if self._session is not None and self._session.session_id == session_id else None
+            if bound is not None:
+                if (bound.current_state not in {SessionState.COMPLETED, SessionState.FAILED, SessionState.ABORTED}
+                        or self._normal_stop_task is not None or self._acquisition_archival_active):
+                    raise RuntimeError("Originals still belong to active Session closeout")
+                self._require_runtime_cleanup(bound)
+            if confirmed is not True or warning_acknowledged is not True or policy not in {"manual", "after_collection"}:
+                raise ValueError("Explicit deletion confirmation and risk-warning acknowledgment are required")
+            if experiment_ids is not None and (not isinstance(experiment_ids, list) or not experiment_ids
+                    or any(not isinstance(e, str) or not e for e in experiment_ids)
+                    or len(set(experiment_ids)) != len(experiment_ids)):
+                raise ValueError("Select one or more unique Experiments, or None for the entire Session")
+            data = await self._read_storage_session_owner(session_id, communication, storage_participant,
+                result_window_s, experimenter_name, administrator_mode)
+            if bound is not None and data.get("archival_confirmed") is not True:
+                raise RuntimeError("Bound Session preservation obligations remain unresolved")
+            participants = tuple(participants)
+            ingestors = [p for p in participants if p.component_type == "ingestor"]
+            if len(ingestors) != 1:
+                raise ValueError("Deletion requires one receiving Ingestor")
+            reports = await self._read_original_owners(session_id, data, participants, communication, result_window_s)
+            if not reports or any(not r["confirmed"] or r["inventory"]["issues"] or r["deletions"]["issues"] for r in reports.values()):
+                raise RuntimeError("Original discovery or deletion history is incomplete")
+            selected = {node: [e for e in r["inventory"]["artifacts"] if experiment_ids is None
+                              or Path(e["manifest_path"]).parent.parent.name in experiment_ids]
+                        for node, r in reports.items()}
+            if (not any(selected.values()) or any(not e["identity_confirmed"] for entries in selected.values() for e in entries)
+                    or (experiment_ids is not None and set(experiment_ids) != {
+                        e["manifest"]["experiment_id"] for entries in selected.values() for e in entries})):
+                raise RuntimeError("Exact selected original scope is absent or ambiguous")
+            request = {"session_id": session_id, "experiment_ids": experiment_ids,
+                       "experimenter_name": experimenter_name, "administrator_mode": administrator_mode,
+                       "confirmed": confirmed, "warning_acknowledged": warning_acknowledged,
+                       "retry_of": retry_of, "policy": policy}
+            if policy == "after_collection":
+                proof = await communication.request_persistence_command(storage_participant,
+                    "confirm_collected_originals", session_id,
+                    {"manifests": [e["manifest"] for entries in selected.values() for e in entries]},
+                    result_window_s, command_id=uuid4().hex)
+                if proof is None or not proof.success:
+                    raise RuntimeError("Exact collected original preservation is unconfirmed")
+                request["collection_proof"] = {k: v for k, v in proof.payload.items() if k != "request_nonce"}
+            for participant in participants:
+                if participant.component_type != "acquisition_node" or not selected.get(participant.component_id):
+                    continue
+                result = await communication.request_runtime_command(participant, "delete_original_artifacts", session_id,
+                    {"operation_id": operation_id, "request": request, "ingestor_participant": ingestors[0].to_dict(),
+                     "storage_participant": storage_participant.to_dict(),
+                     "result_window_s": result_window_s}, result_window_s, command_id=uuid4().hex)
+                outcomes[participant.component_id] = (result.to_dict() if result else {"success": False, "reason": "Deletion outcome is unconfirmed"})
+            success = bool(outcomes) and all(r.get("success") is True
+                and r.get("payload", {}).get("acceptance_confirmed") is True
+                and r.get("payload", {}).get("archival_confirmed") is True
+                and r.get("payload", {}).get("storage_participant") == storage_participant.to_dict()
+                for r in outcomes.values())
+            return ControllerCommandResult(name, success, {"session_id": session_id, "operation_id": operation_id,
+                "nodes": outcomes}, None if success else "Deletion or evidence preservation is incomplete")
+        except Exception as error:
+            return ControllerCommandResult(name, False, {"session_id": session_id, "operation_id": operation_id,
+                "nodes": outcomes}, str(error))
 
     @_session_command
     async def close_saved_session_archive_remote(

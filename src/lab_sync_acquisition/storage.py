@@ -742,6 +742,124 @@ class PersistentStorageManager:
                 for path in sorted(root.iterdir())
                 if path.is_dir() and path.name.startswith("session_") and path.name != "session_"]
 
+    @service_operation()
+    def read_storage_session(self, session_id: str) -> dict:
+        """Read historical configuration, Experiments and collection evidence, without recovery."""
+        if (not isinstance(session_id, str) or not session_id or session_id in {".", ".."}
+                or any(c in session_id for c in "/\\\x00")):
+            raise ValueError("A single Session identity is required")
+        directory = self._session_directory(session_id)
+        if directory.resolve() != directory.absolute() or not directory.is_dir():
+            raise ValueError("Session directory is absent or aliased")
+        with self._preservation_lock:
+            records, issues = [], []
+            for kind in ("initial", "final"):
+                path = directory / f"session_record_{kind}.json"
+                if path.exists():
+                    try:
+                        if path.resolve() != path.absolute():
+                            raise ValueError("Aliased historical Session Record")
+                        record = self._read_preservation_json(path.read_bytes())
+                        if record["accepted_session_config"]["session_id"] != session_id:
+                            raise ValueError("Session Record identity mismatch")
+                        records.append(record)
+                    except (OSError, ValueError, KeyError, TypeError) as error:
+                        issues.append(str(error))
+            configurations = [r["accepted_session_config"] for r in records]
+            configuration = configurations[0] if configurations and not issues else None
+            if configurations and any(c != configurations[0] for c in configurations):
+                configuration = None
+                issues.append("Conflicting accepted Session configurations")
+            owner = (configuration or {}).get("session_parameters") or {}
+            owner = owner.get("experimenter") if isinstance(owner, dict) else None
+            if not isinstance(owner, str) or not owner.strip():
+                owner = None
+            confirmation = self.get_persisted_session_preservation_confirmation(session_id)
+            evidence = confirmation["runtime_evidence"] if confirmation else []
+            collections = [m for m in evidence if m.get("evidence_type") == "global_artifact_collection_evidence"
+                           and m.get("source_id") == self._component_id]
+            pending = self._collection_outcome_path(session_id)
+            if pending.exists():
+                try:
+                    outcome = self._validate_collection_outcome(session_id, self._read_preservation_json(pending.read_bytes()))
+                    if outcome not in collections:
+                        collections.append(outcome)
+                except (OSError, ValueError, TypeError, KeyError) as error:
+                    issues.append(f"Pending collection outcome: {error}")
+            total = None
+            try:
+                total = len(self.read_artifact_collection_handoff(session_id)["artifacts"])
+            except (OSError, ValueError, RuntimeError):
+                pass
+            latest = collections[-1] if collections else None
+            deletion_history = []
+            deletion_history_confirmed = False
+            try:
+                framework, _ = self._read_framework_archive_history()
+                deletion_history = [m for m in framework["runtime_evidence"]
+                    if m["evidence_type"] == "scientific_original_deletion"
+                    and m.get("payload", {}).get("request", {}).get("session_id") == session_id]
+                deletion_history_confirmed = True
+            except (OSError, ValueError, TypeError, KeyError) as error:
+                issues.append(f"Framework deletion history: {error}")
+            return {"session_id": session_id, "experimenter_name": owner,
+                    "accepted_session_config": deepcopy(configuration),
+                    "experiments": deepcopy(records[-1].get("experiment_descriptors", [])) if records else [],
+                    "experiment_lifecycle_evidence": deepcopy(records[-1].get("experiment_lifecycle_evidence", [])) if records else [],
+                    "collection_status": self.get_saved_session_collection_status(session_id),
+                    "collection_history": deepcopy(collections), "archival_confirmed": confirmation is not None,
+                    "deletion_history": deepcopy(deletion_history), "deletion_history_confirmed": deletion_history_confirmed,
+                    "collection_progress": {"artifact_count": total,
+                        "reported_file_outcomes": len(latest["payload"]["artifact_results"]) if latest else 0,
+                        "outcome_archived": latest in evidence if latest else False,
+                        "pending_outcome": pending.exists(),
+                        "execution_state": "outcome_recorded" if latest else "no_confirmed_outcome"},
+                    "issues": issues}
+
+    @service_operation()
+    def list_storage_sessions(self) -> dict:
+        """Enumerate authoritative candidates, including unavailable/malformed historical records."""
+        sessions = []
+        for candidate in self.list_saved_sessions():
+            try:
+                sessions.append(self.read_storage_session(candidate["session_id"]))
+            except (ValueError, OSError) as error:
+                sessions.append({"session_id": candidate["session_id"], "experimenter_name": None,
+                                 "issues": [str(error)], "collection_status": candidate})
+        return {"sessions": sessions, "capacity": self.check_experiment_capacity(0)}
+
+    @service_operation()
+    def confirm_collected_originals(self, session_id: str, manifests: list[dict]) -> dict:
+        """Verify exact handoff, archived collection outcomes and current collected files."""
+        with self._preservation_lock, self._handoff_collection_guard(session_id):
+            baseline = self._read_stage_b_baseline(session_id)
+            handoff = baseline["artifact_collection_handoff"]["artifacts"]
+            collections = [self._validate_collection_outcome(session_id, m)
+                           for m in baseline["runtime_evidence"]
+                           if m["evidence_type"] == "global_artifact_collection_evidence"
+                           and m["source_id"] == self._component_id
+                           and m["evidence_id"] in baseline["compilation_summary"]["runtime_evidence_origins"].get("storage_manager", [])]
+            if not manifests or len({m["artifact_manifest_id"] for m in manifests}) != len(manifests):
+                raise ValueError("Unique exact originals are required")
+            for data in manifests:
+                manifest = ArtifactManifest.from_dict(data)
+                if manifest.session_id != session_id or sum(e["artifact_manifest"] == data for e in handoff) != 1:
+                    raise ValueError("Original is not covered by the durable handoff")
+                results = [r for m in collections for r in m["payload"]["artifact_results"]
+                           if r["artifact_manifest_id"] == manifest.artifact_manifest_id
+                           and r.get("experiment_id") == manifest.experiment_id
+                           and r.get("acquisition_node_id") == manifest.acquisition_node_id
+                           and r["collection_status"] == "success" and r["verification_status"] == "verified"]
+                if not results:
+                    raise RuntimeError("Original lacks verified durable collection evidence")
+                destination = Path(results[-1]["global_artifact_locator"])
+                if (self._global_artifact_root is None or not destination.resolve().is_relative_to(self._global_artifact_root.resolve())
+                        or destination.resolve() != destination.absolute()
+                        or self._verify_artifact(manifest, destination)[0] != "verified"):
+                    raise RuntimeError("Collected original verification is no longer confirmed")
+            return {"session_id": session_id, "archival_confirmed": True,
+                    "verification_confirmed": True, "exact_originals": deepcopy(manifests)}
+
     @service_operation(new_work=True)
     def collect_saved_artifacts(self, session_id: str, *, evidence_id: str,
                                 require_eligible: bool = True) -> dict:
