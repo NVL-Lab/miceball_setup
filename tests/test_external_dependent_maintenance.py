@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, patch
 
 from lab_sync_acquisition import (
     AcquisitionNode, DeviceManager, Controller, InMemoryIngestor, PersistentStorageManager, RuntimeCommandMessage,
+    RuntimeCommandResultMessage,
     RuntimeParticipant, RuntimeEvidenceMessage, ServiceMaintenanceInterface, SynchronizationManager,
 )
 from lab_sync_acquisition.deployment_configuration import load_service_configuration
@@ -580,7 +581,7 @@ class ExternalDependentMaintenanceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.intake_interface.evidence, before)
         self.assertEqual(files, {p: p.read_bytes() for p in files})
 
-    async def controller_release_boundary(self, *, prior_sync_stop=False):
+    async def controller_release_boundary(self, *, prior_sync_stop=False, mixed_observations=False):
         sync = RuntimeParticipant("synchronization_manager", "sync")
         await self.backend((self.dependent, sync))
         controller, owner, _, boundary = await self.producer(preservation_window_s=2)
@@ -590,7 +591,7 @@ class ExternalDependentMaintenanceTests(unittest.IsolatedAsyncioTestCase):
             for subscription in self.broker.subscriptions:
                 if ".command.synchronization_manager.sync." in subscription.subject:
                     await subscription.unsubscribe()
-        await self.producer("synchronization_manager", "sync", preservation_window_s=2)
+        sync_service, _, _, _ = await self.producer("synchronization_manager", "sync", preservation_window_s=2)
         original = self.intake_boundary.publish_command_result
 
         async def hold_release_reply(result, operation):
@@ -598,9 +599,31 @@ class ExternalDependentMaintenanceTests(unittest.IsolatedAsyncioTestCase):
                 await original(result, operation)
 
         scope = (self.dependent, sync, self.intake_interface.participant, self.storage_interface.participant)
-        with patch.object(self.intake_boundary, "publish_command_result", hold_release_reply):
-            result = await controller.shutdown_framework(scope, communication=NatsControllerCommunication(boundary),
-                stop_attempt_id="controller-proof", administrator_id="operator", result_window_s=0.5)
+        communication = NatsControllerCommunication(boundary)
+        request = communication.request_command
+
+        async def observations(participant, operation, *args, **kwargs):
+            if mixed_observations and operation == "check_stop_readiness" and participant == sync:
+                return None
+            response = await request(participant, operation, *args, **kwargs)
+            if mixed_observations and operation == "check_stop_readiness" and participant == self.dependent:
+                data = response.to_dict()
+                data.update(status="failed", success=False, reason="Readiness observation unavailable")
+                return RuntimeCommandResultMessage.from_dict(data)
+            return response
+
+        async def authorize(participant, blocked):
+            self.assertEqual(participant, sync)
+            self.assertEqual(blocked.payload["outcome"], "blocked")
+            return True
+
+        with patch.object(self.intake_boundary, "publish_command_result", hold_release_reply), \
+                patch.object(communication, "request_command", observations), \
+                patch.object(sync_service, "maintenance_blockers", side_effect=(
+                    lambda *args: ["Held synchronization obligation"] if mixed_observations else [])):
+            result = await controller.shutdown_framework(scope, communication=communication,
+                stop_attempt_id="controller-proof", administrator_id="operator", result_window_s=0.5,
+                authorize_kill=authorize if mixed_observations else None)
         self.assertFalse(result.succeeded)  # Lost release reply; infrastructure remains available.
         self.assertTrue(owner.prepared)
         self.assertFalse(owner.terminated)
@@ -608,6 +631,42 @@ class ExternalDependentMaintenanceTests(unittest.IsolatedAsyncioTestCase):
         state = next(deepcopy(m.payload["dependent_maintenance"]) for m in reversed(self.intake_interface.evidence)
             if m.payload.get("dependent_maintenance", {}).get("confirmation", {}).get("confirmation", {}).get("controller_release"))
         return state, self.intake.compile_framework_runtime_evidence(), sync
+
+    async def test_controller_release_accepts_unknown_failed_surveys_and_authorized_kill(self):
+        state, _, sync = await self.controller_release_boundary(mixed_observations=True)
+        final = next(m["payload"] for m in state["confirmation"]["confirmation"]["controller_release"]["evidence"]
+            if m["payload"].get("checkpoint") == "final_archival_checkpoint")
+        self.assertTrue(any(r["result"] is None for r in final["results"]))
+        self.assertTrue(any(r["result"] and not r["result"]["success"] for r in final["results"]))
+        survey_id = next(c["command_id"] for c in final["commands"]
+            if c["command_type"] == "check_stop_readiness" and c["participant"] == self.dependent.to_dict())
+        self.assertFalse(next(r["result"] for r in final["results"] if r["command_id"] == survey_id)["success"])
+        self.assertEqual([c["command_type"] for c in final["commands"]
+            if c["participant"] == sync.to_dict()], ["check_stop_readiness", "stop", "kill"])
+        self.assertTrue((await self.status()).payload["ready"])
+        # A further informational operation must remain representable; it neither
+        # replaces a successful action nor turns an observation into release proof.
+        payload = {"stop_attempt_id": next(p["stop_attempt_id"] for p in final["participant_attempts"]
+            if p["participant"] == self.intake_interface.participant.to_dict()),
+            "framework_stop_attempt_id": final["stop_attempt_id"], "administrator_id": "operator", "authorized": False}
+        command = RuntimeCommandMessage("additional-survey", None, "check_stop_readiness", "control", "intake", payload)
+        response = await self.intake_interface.execute_command(command)
+        final["commands"].append({"command_id": command.command_id, "command_type": command.command_type,
+            "participant": self.intake_interface.participant.to_dict(), "payload": payload})
+        final["results"].append({"command_id": command.command_id, "result": response.to_dict()})
+        release = state["confirmation"]["confirmation"]["controller_release"]
+        for number, message in enumerate(release["evidence"]):
+            message["evidence_id"] = f"additional-operation-{number}"
+            self.assertTrue(self.intake.receive_runtime_evidence(RuntimeEvidenceMessage.from_dict(message)).accepted)
+        self.intake.receive_runtime_evidence(RuntimeEvidenceMessage("additional-operation-release", None,
+            "service_maintenance_evidence", "intake", {"dependent_maintenance": state}, True))
+        self.storage.write_framework_evidence_archive(self.intake.compile_framework_runtime_evidence())
+        self.assertTrue((await self.status()).payload["ready"])
+        for subscription in self.broker.subscriptions:
+            await subscription.unsubscribe()
+        await self.backend((self.dependent, sync))
+        self.assertTrue((await self.status()).payload["ready"])
+        self.assertTrue((await self.intake_interface.retire_dependent_maintenance_history())["confirmed"])
 
     async def test_preparation_blockers_prevent_release_despite_matching_cleanup_snapshot(self):
         state, _, _ = await self.controller_release_boundary(prior_sync_stop=True)
@@ -639,6 +698,50 @@ class ExternalDependentMaintenanceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(files, {p: p.read_bytes() for p in files})
         self.assertTrue(self.intake.has_durable_runtime_evidence(malformed))
 
+    async def test_controller_release_rejects_inconsistent_kill_authorization_history(self):
+        original_state, compiled, sync = await self.controller_release_boundary(mixed_observations=True)
+        base = self.root
+        for index, fault in enumerate(("missing", "declined", "duplicate", "orphan", "unblocked", "attempt_history")):
+            with self.subTest(fault=fault):
+                self.root = base / ("kill-" + str(index))
+                self.root.mkdir()
+                self.broker = _Broker()
+                await self.backend((self.dependent, sync))
+                for message in compiled["runtime_evidence"]:
+                    self.intake.receive_runtime_evidence(message)
+                self.storage.write_framework_evidence_archive(self.intake.compile_framework_runtime_evidence())
+                self.assertTrue((await self.status()).payload["ready"])
+                state = deepcopy(original_state)
+                release = state["confirmation"]["confirmation"]["controller_release"]
+                for number, message in enumerate(release["evidence"]):
+                    message["evidence_id"] = f"kill-{fault}-{number}"
+                final = next(m["payload"] for m in release["evidence"]
+                    if m["payload"].get("checkpoint") == "final_archival_checkpoint")
+                if fault == "missing":
+                    final["authorizations"] = []
+                elif fault == "declined":
+                    final["authorizations"][0]["authorized"] = False
+                elif fault == "duplicate":
+                    final["authorizations"].append(deepcopy(final["authorizations"][0]))
+                elif fault == "orphan":
+                    final["authorizations"][0]["blocked_command_id"] = "unrelated-stop"
+                else:
+                    operation = "stop" if fault == "unblocked" else "kill"
+                    identity = next(c["command_id"] for c in final["commands"]
+                        if c["participant"] == sync.to_dict() and c["command_type"] == operation)
+                    record = next(r["result"] for r in final["results"] if r["command_id"] == identity)
+                    if fault == "unblocked":
+                        record["payload"]["outcome"] = "failed"
+                    else:
+                        record["payload"]["attempt"]["commands"][0]["administrator_id"] = "different-admin"
+                for message in release["evidence"]:
+                    self.intake.receive_runtime_evidence(RuntimeEvidenceMessage.from_dict(message))
+                self.intake.receive_runtime_evidence(RuntimeEvidenceMessage("bad-kill-" + fault, None,
+                    "service_maintenance_evidence", "intake", {"dependent_maintenance": state}, True))
+                self.storage.write_framework_evidence_archive(self.intake.compile_framework_runtime_evidence())
+                self.assertFalse((await self.status()).payload["ready"])
+                self.assertFalse((await self.intake_interface.retire_dependent_maintenance_history())["confirmed"])
+
     async def test_historical_controller_release_proof_and_restart(self):
         await self.controller_release_boundary()
         self.assertFalse(self.intake_interface.operational_dependents[self.dependent]())
@@ -650,6 +753,43 @@ class ExternalDependentMaintenanceTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue((await self.intake_interface.retire_dependent_maintenance_history())["confirmed"])
         self.assertEqual(files, {p: p.read_bytes() for p in files})
 
+    async def test_orphan_controller_result_is_preserved_but_cannot_release_or_retire(self):
+        state, _, sync = await self.controller_release_boundary(prior_sync_stop=True)
+        self.assertTrue((await self.status()).payload["ready"])
+        release = state["confirmation"]["confirmation"]["controller_release"]
+        for number, message in enumerate(release["evidence"]):
+            message["evidence_id"] = f"orphan-proof-{number}"
+        final = next(m["payload"] for m in release["evidence"]
+            if m["payload"].get("checkpoint") == "final_archival_checkpoint")
+        sync_id = next(c["command_id"] for c in final["commands"]
+            if c["participant"] == sync.to_dict() and c["command_type"] == "stop")
+        embedded = next(r["result"] for r in final["results"] if r["command_id"] == sync_id)
+        final["results"].append({"command_id": "ghost", "result": deepcopy(embedded)})
+        for message in release["evidence"]:
+            self.assertTrue(self.intake.receive_runtime_evidence(RuntimeEvidenceMessage.from_dict(message)).accepted)
+        malformed = RuntimeEvidenceMessage("orphan-release", None, "service_maintenance_evidence", "intake",
+            {"dependent_maintenance": state}, True)
+        self.assertTrue(self.intake.receive_runtime_evidence(malformed).accepted)
+        self.storage.write_framework_evidence_archive(self.intake.compile_framework_runtime_evidence())
+        before = self.intake_interface.evidence
+        files = {p: p.read_bytes() for p in self.root.rglob("*") if p.is_file()}
+        survey = (await self.status()).payload
+        retirement = await self.intake_interface.retire_dependent_maintenance_history()
+        self.assertFalse(survey["ready"], {"survey": survey, "retirement": retirement})
+        self.assertTrue(self.intake_interface.operational_dependents[self.dependent]())
+        self.assertFalse(retirement["confirmed"])
+        self.assertEqual(retirement["released_evidence_count"], 0)
+        self.assertEqual(before, self.intake_interface.evidence)
+        self.assertEqual(files, {p: p.read_bytes() for p in files})
+        self.assertTrue(self.intake.has_durable_runtime_evidence(malformed))
+        for subscription in self.broker.subscriptions:
+            await subscription.unsubscribe()
+        await self.backend((self.dependent, sync))
+        self.assertFalse((await self.status()).payload["ready"])
+        self.assertTrue(self.intake_interface.operational_dependents[self.dependent]())
+        self.assertFalse((await self.intake_interface.retire_dependent_maintenance_history())["confirmed"])
+        self.assertTrue(self.intake.has_durable_runtime_evidence(malformed))
+
     async def test_historical_controller_release_rejects_incomplete_or_mismatched_proof(self):
         original_state, compiled, sync = await self.controller_release_boundary()
         base = self.root
@@ -659,7 +799,11 @@ class ExternalDependentMaintenanceTests(unittest.IsolatedAsyncioTestCase):
                  "unrelated_evidence", "anticipated_retirement", "matching_blockers", "result_blockers",
                  "snapshot_blockers", "matching_failures", "matching_obligations", "missing_blockers",
                  "missing_preparation_outcome", "missing_result_outcome", "missing_final_outcome",
-                 "forced_cleanup", "already_retired", "manual_intervention", "termination_confirmed")
+                 "forced_cleanup", "already_retired", "manual_intervention", "termination_confirmed",
+                 "ghost", "orphan", "duplicate_command", "duplicate_result", "duplicate_result_id",
+                 "wrong_survey_source", "wrong_survey_target", "wrong_survey_attempt", "wrong_survey_admin",
+                 "wrong_survey_status", "wrong_survey_success", "missing_survey_result", "unsupported_action",
+                 "reordered_commands", "contradictory_snapshot", "contradictory_prefix", "wrong_attempt_target")
         for index, fault in enumerate(cases):
             with self.subTest(fault=fault):
                 self.root = base / str(index)
@@ -682,6 +826,48 @@ class ExternalDependentMaintenanceTests(unittest.IsolatedAsyncioTestCase):
                 snapshot = next(m["payload"] for m in release["evidence"]
                     if m["payload"].get("checkpoint") == "prepared_ready_for_retirement")
                 attempt = prepared["payload"]["attempt"]
+                first_result = next(r for r in final["results"] if r["result"] is not None)
+                first_command = next(c for c in final["commands"] if c["command_id"] == first_result["command_id"])
+                if fault in {"ghost", "orphan"}:
+                    extra = deepcopy(first_result)
+                    extra["command_id"] = "ghost"
+                    if fault == "orphan":
+                        extra["result"]["command_id"] = "ghost"
+                    final["results"].append(extra)
+                elif fault == "duplicate_command":
+                    final["commands"].append(deepcopy(first_command))
+                elif fault == "duplicate_result":
+                    final["results"].append(deepcopy(first_result))
+                elif fault == "duplicate_result_id":
+                    prepared["result_id"] = first_result["result"]["result_id"]
+                elif fault in {"wrong_survey_source", "wrong_survey_target", "wrong_survey_status", "wrong_survey_success"}:
+                    key, value = {"wrong_survey_source": ("source_id", "another-owner"),
+                        "wrong_survey_target": ("target_id", "another-controller"),
+                        "wrong_survey_status": ("status", "failed"),
+                        "wrong_survey_success": ("success", 1)}[fault]
+                    first_result["result"][key] = value
+                elif fault in {"wrong_survey_attempt", "wrong_survey_admin"}:
+                    key = "framework_stop_attempt_id" if fault == "wrong_survey_attempt" else "administrator_id"
+                    first_command["payload"][key] = "another-identity"
+                elif fault == "missing_survey_result":
+                    final["results"].remove(first_result)
+                elif fault == "unsupported_action":
+                    final["actions"].append({"participant": self.dependent.to_dict(), "action": "retirement_confirmed"})
+                elif fault == "reordered_commands":
+                    final["commands"].reverse()
+                    final["results"].reverse()
+                elif fault == "contradictory_snapshot":
+                    extra = deepcopy(next(m for m in release["evidence"]
+                        if m["payload"].get("checkpoint") == "prepared_ready_for_retirement"))
+                    extra["evidence_id"] = "contradictory-preparation"
+                    extra["payload"]["blockers"] = ["Unresolved obligation"]
+                    release["evidence"].append(extra)
+                elif fault == "contradictory_prefix":
+                    earlier = next(m["payload"] for m in release["evidence"]
+                        if m["payload"].get("checkpoint") == "initial_survey")
+                    earlier["commands"][0]["payload"]["administrator_id"] = "another-admin"
+                elif fault == "wrong_attempt_target":
+                    attempt["target"] = sync.to_dict()
                 if fault in {"matching_blockers", "result_blockers", "snapshot_blockers"}:
                     if fault != "snapshot_blockers":
                         attempt["blockers"] = ["Unresolved Controller closeout obligation"]

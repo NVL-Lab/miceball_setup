@@ -462,6 +462,93 @@ class ServiceMaintenanceInterface:
         results = {r["command_id"]: r["result"] for r in final["results"]}
         if len(commands) != len(final["commands"]) or len(results) != len(final["results"]):
             raise ValueError("Contradictory shutdown command/result identities")
+        # Validate the complete recorded exchange before selecting release-supporting
+        # actions. Failed/unknown observations remain evidence, not proof of success.
+        if list(commands) != list(results):
+            raise ValueError("Shutdown results do not match the recorded command sequence")
+        result_ids = set()
+        for identity, intent in commands.items():
+            owner = RuntimeParticipant.from_dict(intent["participant"])
+            operation = intent["command_type"]
+            payload = intent["payload"]
+            if (not isinstance(identity, str) or not identity or owner not in scope
+                    or intent["participant"] != owner.to_dict()
+                    or operation not in {"check_stop_readiness", "stop", "kill", "cancel", "prepare_stop"}
+                    or not isinstance(payload, dict)
+                    or payload.get("administrator_id") != final["administrator_id"]
+                    or payload.get("framework_stop_attempt_id") != framework
+                    or payload.get("stop_attempt_id") != attempts[owner]
+                    or type(payload.get("authorized")) is not bool
+                    or (operation == "kill") != payload["authorized"]
+                    or operation != "check_stop_readiness" and (
+                        owner == ingestor or (owner in infrastructure and operation != "prepare_stop")
+                        or (owner in workers and operation == "prepare_stop"))):
+                raise ValueError("Invalid recorded shutdown command")
+            raw = results[identity]
+            if raw is None:
+                continue  # Missing survey responses and failed requests are legitimate observations.
+            response = RuntimeCommandResultMessage.from_dict(raw)
+            if (not isinstance(response.result_id, str) or not response.result_id
+                    or response.result_id in result_ids or response.command_id != identity
+                    or response.session_id is not None or response.source_id != owner.component_id
+                    or response.target_id != participant.component_id
+                    or response.status not in {"succeeded", "failed"} or type(response.success) is not bool
+                    or response.success != (response.status == "succeeded")):
+                raise ValueError("Contradictory recorded shutdown result")
+            result_ids.add(response.result_id)
+            record = response.payload.get("attempt")
+            if operation != "check_stop_readiness" and record is not None:
+                if (not isinstance(record, dict) or record.get("target") != owner.to_dict()
+                        or record.get("requester_id") != participant.component_id
+                        or record.get("framework_stop_attempt_id") != framework
+                        or record.get("stop_attempt_id") != attempts[owner]
+                        or not isinstance(record.get("commands"), list) or not record["commands"]
+                        or not isinstance(record["commands"][-1], dict)
+                        or any(record["commands"][-1].get(k) != v for k, v in (
+                            ("command_id", identity), ("command_type", operation),
+                            ("administrator_id", final["administrator_id"]), ("authorized", payload["authorized"])))):
+                    raise ValueError("Recorded maintenance attempt contradicts its command")
+                for issued in record["commands"]:
+                    original = commands.get(issued.get("command_id"))
+                    if (original is None or original["participant"] != owner.to_dict()
+                            or list(commands).index(original["command_id"]) > list(commands).index(identity)
+                            or any(issued.get(k) != v for k, v in (
+                                ("command_type", original["command_type"]),
+                                ("administrator_id", original["payload"]["administrator_id"]),
+                                ("authorized", original["payload"]["authorized"])))):
+                        raise ValueError("Attempt command history contradicts the recorded exchange")
+                if (response.payload.get("outcome") != record.get("outcome")
+                        or operation != "prepare_stop" and (
+                            response.payload.get("prepared") is not False
+                            or response.success != (response.payload.get("outcome") == "completed")
+                            or response.payload.get("termination_confirmed") is not response.success)):
+                    raise ValueError("Recorded maintenance outcome contradicts its result")
+            if operation in {"kill", "cancel"}:
+                preceding = [c for c in final["commands"][:list(commands).index(identity)]
+                             if c["participant"] == owner.to_dict() and c["command_type"] == "stop"]
+                blocked = results[preceding[-1]["command_id"]] if preceding else None
+                authorizations = [a for a in final["authorizations"] if a.get("participant") == owner.to_dict()
+                    and a.get("blocked_command_id") == (preceding[-1]["command_id"] if preceding else None)]
+                if (not blocked or blocked["success"] is not False
+                        or blocked["payload"].get("outcome") != "blocked" or len(authorizations) != 1
+                        or authorizations[0].get("administrator_id") != final["administrator_id"]
+                        or authorizations[0].get("stop_attempt_id") != attempts[owner]
+                        or authorizations[0].get("authorized") is not (operation == "kill")
+                        or authorizations[0].get("blockers") != blocked["payload"]["attempt"].get("blockers")):
+                    raise ValueError("Forced continuation lacks its correlated blocked Stop and administrator decision")
+        authorized_stops = set()
+        for authorization in final["authorizations"]:
+            blocked_id = authorization.get("blocked_command_id")
+            blocked_command = commands.get(blocked_id)
+            continuations = [c for c in commands.values() if c["command_type"] in {"kill", "cancel"}
+                and c["participant"] == authorization.get("participant")]
+            if (blocked_id in authorized_stops or blocked_command is None
+                    or blocked_command["command_type"] != "stop"
+                    or blocked_command["participant"] != authorization.get("participant")
+                    or not continuations):
+                raise ValueError("Orphaned or contradictory shutdown authorization")
+            authorized_stops.add(blocked_id)
+        selected = []
         for owner in scope:
             if owner.component_type == "ingestor":
                 continue  # Ingestor retirement follows this checkpoint.
@@ -472,22 +559,15 @@ class ServiceMaintenanceInterface:
             if not matching:
                 raise ValueError("Required shutdown action is missing")
             intent = matching[-1]
+            selected.append((owner, list(commands).index(intent["command_id"])))
             command = RuntimeCommandMessage(intent["command_id"], None, intent["command_type"],
                 participant.component_id, owner.component_id, intent["payload"])
             result = RuntimeCommandResultMessage.from_dict(results[command.command_id])
             if not isinstance(result.payload, dict) or not isinstance(result.payload.get("attempt"), dict):
                 raise ValueError("Invalid shutdown action result")
             attempt = result.payload["attempt"]
-            if (command.payload.get("framework_stop_attempt_id") != framework
-                    or command.payload.get("stop_attempt_id") != attempts[owner]
-                    or command.payload.get("administrator_id") != final["administrator_id"]
-                    or result.command_id != command.command_id or result.session_id is not None
-                    or result.source_id != owner.component_id or result.target_id != participant.component_id
-                    or result.success is not True or result.status != "succeeded"
-                    or attempt.get("target") != owner.to_dict()
-                    or attempt.get("stop_attempt_id") != attempts[owner]
-                    or attempt.get("framework_stop_attempt_id") != framework):
-                raise ValueError("Shutdown result is not correlated with the required action")
+            if result.success is not True:
+                raise ValueError("Required shutdown action did not succeed")
             if prepared:
                 preparation_commands = attempt.get("commands")
                 if (result.payload.get("prepared") is not True or result.payload.get("termination_confirmed") is not False
@@ -497,6 +577,7 @@ class ServiceMaintenanceInterface:
                         or attempt.get("blockers") != [] or attempt.get("failures") != []
                         or attempt.get("remaining_obligations") != []
                         or attempt.get("requester_id") != participant.component_id
+                        or not isinstance(attempt.get("actions"), list)
                         or not isinstance(preparation_commands, list) or not preparation_commands
                         or any(preparation_commands[-1].get(k) != v for k, v in (
                             ("command_id", command.command_id), ("command_type", "prepare_stop"),
@@ -509,14 +590,34 @@ class ServiceMaintenanceInterface:
                 if owner == participant:
                     if result.payload.get("operational_instance_id") != registration["operational_instance_id"]:
                         raise ValueError("Controller preparation belongs to another operational instance")
-                    if not any(m.session_id is None and m.evidence_type == "service_maintenance_evidence"
-                            and m.payload.get("checkpoint") == "prepared_ready_for_retirement"
-                            and json.dumps({k: v for k, v in m.payload.items() if k not in {"checkpoint", "recorded_at"}}, sort_keys=True)
-                                == json.dumps(attempt, sort_keys=True) for m in messages):
+                    snapshots = [m for m in messages if m.evidence_type == "service_maintenance_evidence"
+                        and m.payload.get("checkpoint") == "prepared_ready_for_retirement"
+                        and (m.payload.get("stop_attempt_id") == attempts[owner]
+                             or m.payload.get("framework_stop_attempt_id") == framework)]
+                    if not snapshots or any(m.session_id is not None
+                            or json.dumps({k: v for k, v in m.payload.items() if k not in {"checkpoint", "recorded_at"}}, sort_keys=True)
+                                != json.dumps(attempt, sort_keys=True) for m in snapshots):
                         raise ValueError("Controller preparatory cleanup evidence is missing or contradictory")
             else:
                 ServiceMaintenanceInterface._validate_dependent_retirement(
                     owner, result.payload.get("operational_instance_id"), {"command": command.to_dict(), "result": result.to_dict()})
+        expected = workers + [p for kind in ("storage_manager", "controller") for p in scope if p.component_type == kind]
+        if [p for p, _ in sorted(selected, key=lambda item: item[1])] != expected:
+            raise ValueError("Recorded shutdown actions contradict progressive shutdown order")
+        # Earlier coordination checkpoints are snapshots of these same exchanges.
+        # They may be incomplete prefixes, but cannot rewrite a recorded command/result.
+        for message in messages:
+            checkpoint = message.payload
+            if (message.evidence_type != "service_maintenance_evidence" or "scope" not in checkpoint
+                    or checkpoint.get("stop_attempt_id") != framework):
+                continue
+            if (checkpoint.get("scope") != final["scope"]
+                    or checkpoint.get("administrator_id") != final["administrator_id"]
+                    or checkpoint.get("requester_id") != final["requester_id"]
+                    or checkpoint.get("participant_attempts") != final["participant_attempts"]
+                    or any(json.dumps(checkpoint.get(key), sort_keys=True) != json.dumps(final[key][
+                        :len(checkpoint.get(key, ()))], sort_keys=True) for key in ("commands", "results", "actions", "authorizations"))):
+                raise ValueError("Coordinated-shutdown snapshots contradict the final checkpoint")
 
     async def _record_dependent_state(self, registration, confirmation=None, *, conflicting=False):
         state = {"registration": deepcopy(registration), "confirmation": deepcopy(confirmation),
