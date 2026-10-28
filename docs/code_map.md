@@ -1,5 +1,28 @@
 # Code Map
 
+## gui/src/miceball_gui/static/storage-demo.mjs
+
+- `createStorageDemo`: Creates explicitly fictional page-local Storage fixtures and independent selection sets.
+- `visibleStorageSessions`: Filters Storage fixtures by exact cooperative owner or existing administrator mode.
+- `selectCollection`: Adds or removes a visible whole Session from the collection bucket.
+- `selectDeletion`: Selects original scientific-file scope for one Experiment or all Experiments of a Session.
+- `storageSelection`: Resolves the current visible collection or deletion selection for review.
+- `storageHistory`: Filters fixture history by search, status and the completion-based 30-day default.
+- `deletionReview`: Determines whether a deletion selection needs explicit loss acknowledgment before proceeding with its local preview.
+
+## gui/src/miceball_gui/static/storage-view.js
+
+- `sessionBrowser`: Presents expandable fictional Sessions and inspection-only recording information with workspace-specific selection controls.
+- `collection`: Renders the Session bucket, conditional-deletion option and unavailable collection/capacity readback.
+- `deletion`: Renders independent Experiment/Session original-file deletion selection and scope explanation.
+- `history`: Renders searchable fictional collection history without authoritative query integration.
+- `renderStorage`: Repaints the Storage workspace using current cooperative visibility and page-local selections.
+- `openReview`: Opens selection confirmation without submitting collection or deletion requests.
+
+## gui/src/miceball_gui/static/services-view.js — Storage visibility reuse
+
+- `servicesAdministrator`: Reports the existing page-local Services administrator presentation mode for Storage filtering.
+
 ## Decision 422 External Controller Lifecycle (Implementation; Independent Validation Pending)
 
 The original launch-only boundary is preserved. The authorized bounded extension

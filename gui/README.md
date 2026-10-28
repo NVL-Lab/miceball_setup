@@ -1,7 +1,7 @@
 # Miceball GUI
 
 This separately packaged browser interface is a demonstration with fictional
-Setup information, a Protocol Editor, and six permanent sections. It runs entirely
+Setup information, a Protocol Editor, and seven permanent sections. It runs entirely
 in the browser. Launch Session and other operational-looking controls do not
 start or contact scientific framework services or execute scientific algorithms.
 
@@ -14,6 +14,52 @@ python -m http.server 8000 --bind 127.0.0.1 --directory gui/src/miceball_gui/sta
 ```
 
 Then open <http://127.0.0.1:8000/>.
+
+## Storage preview (Slice 7)
+
+Permanent navigation is Setup, Session, Parameters, Experiment, Analysis, Storage,
+Services. Storage has Collection, Delete originals and History workspaces. All
+Session records shown there are labeled fictional browser-local fixtures; nothing
+is retrieved from the framework or persisted by Storage.
+
+Add or drag whole Sessions into the collection bucket, remove them, or use Collect
+everything pending. Store reviews the complete selection and the unchecked
+conditional-original-deletion option; proceeding reports that integration is
+unavailable, not successful preservation. Transfer, verification and durable
+preservation are distinct. Unknown counts, sizes, capacity and progress remain
+unavailable rather than estimated.
+
+Delete originals independently selects Experiments or all Experiments of a Session,
+including original scientific timing/index files on AcquisitionNodes. It never
+selects individual recordings or removes StorageManager/global copies, historical
+metadata or evidence. Manual deletion can be reviewed before or after collection.
+Every review requires confirmation; missing verified copies or incomplete/uncertain
+collection additionally requires the loss-risk acknowledgment. Cancel, Escape and
+backdrop dismissal do nothing. Proceeding sends no request and deletes no files.
+Red is confined to deletion controls/warnings in Storage; ordinary uncertainty is
+amber or neutral in both themes.
+
+History defaults to unresolved/pending/active/failed/incomplete entries plus
+successful collections completed within 30 days, independently of recording date.
+Search or Include older successful collections exposes older successes. Fields
+search Session identity, experimenter, project, animal and recording/collection
+dates. Real historical queries and capacity readback remain unavailable.
+
+The Setup experimenter selection filters fixtures by recorded owner. Existing
+Services administrator mode (with its Danger Zone confirmation) shows all fixture
+Sessions; returning to Experimenter mode restores filtering. This is presentation,
+not backend authorization. Controller-mediated readback/requests, authoritative
+access enforcement, exact target resolution, local safety/durable deletion records
+and evidence preservation remain framework integration dependencies under Q034.
+The existing Q034 backend interfaces are not connected by this visual slice;
+their software validation does not establish GUI integration or deployment.
+
+Focused Storage/navigation checks:
+
+```powershell
+node --test gui/tests/test_storage_demo.mjs gui/tests/test_navigation_menu.mjs
+python -B -m unittest discover -s gui/tests -p test_gui_shell.py -v
+```
 
 ## Checks
 

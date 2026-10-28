@@ -22,10 +22,10 @@ function menu() {
   return { sidebar, toggle, document, controller };
 }
 
-test('all six tab selections stay closed through pointer/focus changes and repeated navigation', () => {
+test('all seven tab selections stay closed through pointer/focus changes and repeated navigation', () => {
   const { sidebar, toggle, controller } = menu();
   for (let repeat = 0; repeat < 3; repeat++) {
-    for (const section of ['Setup', 'Session', 'Parameters', 'Experiment', 'Analysis', 'Services']) {
+    for (const section of ['Setup', 'Session', 'Parameters', 'Experiment', 'Analysis', 'Storage', 'Services']) {
       toggle.fire('click');
       assert.equal(toggle.getAttribute('aria-expanded'), 'true', section);
       controller.close(); // The existing tab-selection handler invokes this boundary.

@@ -2,8 +2,8 @@
 #panel-parameters, #panel-experiment, #panel-analysis { overflow-y: auto; border: 0; background: transparent; background-image: none; box-shadow: none; padding-bottom: 20px; }
 html[data-theme="dark"] :is(#panel-parameters, #panel-experiment, #panel-analysis) { background: transparent; background-image: none; }
 .view-heading { display: flex; align-items: start; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
-.view-heading h2 { margin: 0 0 7px; font-size: 23px; font-weight: 650; }
-.view-heading p, .view-notice, .context-empty p { color: var(--ink-600); font-size: 11px; line-height: 1.6; }
+.view-heading h2, #panel-storage > header h2 { margin: 0 0 7px; font-size: 23px; font-weight: 650; }
+.view-heading p, .view-notice, .context-empty p, #panel-storage > header p { color: var(--ink-600); font-size: 11px; line-height: 1.6; }
 .view-notice { margin: 0 0 16px; }
 :is(#panel-parameters, #panel-experiment, #panel-analysis) button { padding: 9px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink-900); font: inherit; font-size: 11px; cursor: pointer; }
 :is(#panel-parameters, #panel-experiment, #panel-analysis) :is(button, input, select):focus-visible { outline: 2px solid var(--blue-400); outline-offset: 2px; }

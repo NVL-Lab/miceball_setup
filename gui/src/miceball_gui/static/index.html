@@ -38,6 +38,9 @@
       <path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>
       <circle cx="16" cy="8" r="3"/>
     </symbol>
+    <symbol id="icon-storage" viewBox="0 0 24 24">
+      <ellipse cx="12" cy="5" rx="8" ry="3"></ellipse><path d="M4 5v14c0 4 16 4 16 0V5M4 12c0 4 16 4 16 0"></path>
+    </symbol>
     <symbol id="icon-services" viewBox="0 0 24 24">
       <rect x="3" y="4" width="18" height="6" rx="2"/>
       <rect x="3" y="14" width="18" height="6" rx="2"/>
@@ -91,6 +94,9 @@
                 aria-controls="panel-analysis" title="Analysis">
           <svg aria-hidden="true"><use href="#icon-analysis"></use></svg>
           <span>Analysis</span>
+        </button>
+        <button class="nav-item" type="button" data-section="storage" aria-controls="panel-storage" title="Storage">
+          <svg aria-hidden="true"><use href="#icon-storage"></use></svg><span>Storage</span>
         </button>
         <button class="nav-item" type="button" data-section="services"
                 aria-controls="panel-services" title="Services">
@@ -312,6 +318,7 @@
             <p>Selected Analysis interactions will appear here in a future functional slice.</p>
           </div>
         </section>
+        <section class="section-panel" id="panel-storage" data-panel="storage" aria-labelledby="heading-storage" hidden></section>
         <section class="section-panel" id="panel-services" data-panel="services"
                  aria-labelledby="heading-services" hidden>
           <div class="placeholder">
@@ -348,5 +355,6 @@
   <script type="module" src="parameters-view.js"></script>
   <script type="module" src="scientific-views.js"></script>
   <script type="module" src="services-view.js"></script>
+  <script type="module" src="storage-view.js"></script>
 </body>
 </html>

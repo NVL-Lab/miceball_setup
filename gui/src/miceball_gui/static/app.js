@@ -8,6 +8,7 @@ const sectionNames = {
   parameters: "Parameters",
   experiment: "Experiment",
   analysis: "Analysis",
+  storage: "Storage",
   services: "Services",
   "protocol-editor": "Protocol Editor",
 };

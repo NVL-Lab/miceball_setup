@@ -1,4 +1,5 @@
 :root {
+  --storage-delete-bg: #fff6f6;
   color-scheme: light;
   --navy-950: #07111f;
   --navy-900: #0b1a2d;
@@ -25,6 +26,52 @@
     "Segoe UI", sans-serif;
   font-synthesis: none;
 }
+
+/* Storage uses amber for ordinary uncertainty; red is confined to deletion. */
+#panel-storage { min-width: 0; overflow-y: auto; border: 0; box-shadow: none; background: transparent; background-image: none; padding: 0 0 20px; }
+#panel-storage > header p { margin: 4px 0; }
+.storage-columns { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.storage-card { margin-bottom: 12px; }
+.storage-drop-zone { min-height: 180px; padding: 12px; display: grid; gap: 10px; align-content: start; border: 1px dashed var(--blue-400); border-radius: 7px; background: var(--workspace); }
+.storage-drop-zone.is-empty { place-content: center; text-align: center; }
+.storage-drop-zone.is-drag-over { border-color: var(--blue-500); background: var(--blue-100); box-shadow: inset 0 0 0 1px var(--blue-500); }
+.storage-bucket-item { padding: 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
+.storage-card .storage-drop-hint { margin: 8px 0; color: var(--blue-500); }
+.storage-bucket-summary { font-weight: 600; }
+.storage-card p { color: var(--ink-600); margin: 6px 0 10px; }
+.storage-row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.storage-row > div { flex: 1 1 190px; min-width: 0; }
+.storage-session { border: 1px solid var(--line); border-radius: 7px; padding: 12px 8px; margin: 10px 0; overflow-wrap: anywhere; }
+.storage-session small, .storage-row small { display: block; margin-top: 5px; color: var(--ink-600); }
+.storage-experiment { padding: 12px; margin-top: 10px; background: var(--workspace); border-radius: 5px; }
+.storage-session summary { cursor: pointer; padding: 6px 0; }
+.storage-status { background: var(--amber-100); color: var(--amber-600); }
+.storage-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 12px; }
+#panel-storage .storage-tabs [aria-pressed="true"] { background: var(--blue-100); color: var(--blue-500); }
+.storage-session[draggable="true"] { cursor: grab; }
+.storage-session[draggable="true"]:active { cursor: grabbing; }
+#panel-storage button, .storage-dialog button { white-space: normal; }
+#panel-storage button:disabled, .storage-dialog button:disabled { opacity: .5; cursor: default; }
+.storage-check { display: block; margin-top: 12px; }
+.storage-capacity { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; }
+.storage-capacity dd { margin: 0; }
+.storage-filters { display: flex; gap: 16px; flex-wrap: wrap; align-items: end; }
+.storage-filters label { flex: 1 1 200px; }
+.storage-filters input[type="search"], .storage-filters select { width: 100%; margin-top: 8px; }
+.storage-card.storage-delete, .catalog-dialog.storage-delete { border-color: var(--red-600); background: var(--storage-delete-bg); }
+.storage-delete h3, .catalog-dialog.storage-delete h2, .storage-delete .storage-risk { color: var(--red-600); }
+.storage-delete input { accent-color: var(--red-600); }
+#panel-storage [data-delete-review], .storage-delete [data-storage-proceed] { background: var(--red-600); color: #fff; border-color: var(--red-600); }
+.catalog-dialog.storage-dialog { max-width: 700px; max-height: 85vh; overflow-y: auto; padding: 26px; overflow-wrap: anywhere; }
+.storage-feedback:empty { display: none; }
+[data-theme="dark"] { --storage-delete-bg: #291d23; }
+html[data-theme="dark"] .storage-delete { --red-600: #ed939b; }
+html[data-theme="dark"] .catalog-dialog.storage-delete { background: var(--storage-delete-bg); border-color: var(--red-600); }
+html[data-theme="dark"] .catalog-dialog.storage-delete h2 { color: var(--red-600); }
+html[data-theme="dark"] .storage-status { background: #3b301e; color: #e3bd7b; }
+html[data-theme="dark"] #panel-storage [data-delete-review], html[data-theme="dark"] .storage-delete [data-storage-proceed] { background: #9e3441; color: #fff; }
+@media (max-width: 1050px) { .storage-columns { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 650px) { .storage-card { padding: 12px; } .storage-capacity { grid-template-columns: 1fr; } }
 
 * {
   box-sizing: border-box;

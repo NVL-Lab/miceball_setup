@@ -500,6 +500,21 @@ No GUI functionality is implemented or validated by this documentation.
 
 ## Storage Tab
 
+**Slice 7 browser-local presentation:** Storage now provides Collection, Delete
+originals and History between Analysis and Services. Labeled fictional fixtures
+exercise whole-Session bucket Add/Remove/drop and pending selection, separate
+Experiment/whole-Session original-file deletion selections, and complete selection
+reviews. Red is reserved for deletion; uncertain collection/verification uses amber
+or neutral presentation. Manual deletion always opens confirmation and risky
+selections require the explicit loss acknowledgment. Cancel/Escape/dismissal do
+nothing; proceeding reports no request and no collection/deletion, preserving all
+fixture records. Unknown capacity, size, counts and transfer metrics remain
+unavailable. Search/default 30-day completion-based history and cooperative owner/
+existing administrator-mode visibility are presentation only. Controller readback,
+request enforcement, exact-target/local-safety admission, execution and durable
+evidence remain unconnected Q034 dependencies; this slice does not validate or
+close framework Storage functionality.
+
 **Status:** Accepted requirements under Decisions 431-432; not implemented or validated
 by this synchronization. The browser-demo implementation descriptions above
 retain their historical six-tab scope and do not establish Storage functionality.

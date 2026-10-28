@@ -4,6 +4,7 @@ import { escapeText as escape } from './gui-presentation.js';
 
 const panel = document.querySelector('#panel-services');
 const model = createServicesDemo();
+export const servicesAdministrator = () => model.administrator;
 let refreshTimer;
 let message = '';
 let expandedService = null, shutdownAttempt = null, killTarget = null;
@@ -16,6 +17,7 @@ document.body.append(danger);
 danger.querySelector('[data-danger-cancel]').addEventListener('click', () => danger.close());
 danger.querySelector('[data-danger-enter]').addEventListener('click', () => {
   setServicesAdministrator(model, true, true); danger.close(); renderServices();
+  document.dispatchEvent(new CustomEvent('gui-administrator-changed'));
   panel.querySelector('[data-mode="administrator"]').focus({ preventScroll: true });
 });
 const administrativePreview = document.createElement('dialog');
@@ -118,7 +120,10 @@ panel.addEventListener('click', event => {
   if (!button && row) { selectService(row.dataset.expandService); return; }
   if (!button) return;
   if (button.dataset.mode === 'administrator' && !model.administrator) { danger.showModal(); return; }
-  if (button.dataset.mode === 'experimenter') setServicesAdministrator(model, false);
+  if (button.dataset.mode === 'experimenter') {
+    setServicesAdministrator(model, false);
+    document.dispatchEvent(new CustomEvent('gui-administrator-changed'));
+  }
   if (button.dataset.detail) model.detail = button.dataset.detail;
   if (button.hasAttribute('data-refresh-services')) { message = ''; refreshServicesPreview(model, new Date().toLocaleTimeString()); }
   if (button.dataset.readiness) message = `Readiness preview requested for ${model.services.find(s=>s.id===button.dataset.readiness).name}. No authoritative check was performed; last-confirmed reports are unchanged.`;

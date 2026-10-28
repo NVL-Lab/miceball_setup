@@ -1,10 +1,11 @@
 from html.parser import HTMLParser
 from pathlib import Path
+import re
 import unittest
 
 
 STATIC = Path(__file__).parents[1] / "src" / "miceball_gui" / "static"
-SECTIONS = ("setup", "session", "parameters", "experiment", "analysis", "services")
+SECTIONS = ("setup", "session", "parameters", "experiment", "analysis", "storage", "services")
 
 
 class ShellParser(HTMLParser):
@@ -37,6 +38,29 @@ class ShellParser(HTMLParser):
 
 
 class GuiShellTests(unittest.TestCase):
+    def test_storage_uses_existing_card_button_and_heading_styles(self):
+        services = (STATIC / "services-view.css").read_text(encoding="utf-8")
+        views = (STATIC / "experiment-views.css").read_text(encoding="utf-8")
+        for reference, storage, css in (
+            (".services-card", ".storage-card", services),
+            ("#panel-services button", "#panel-storage button", services),
+            (".view-heading h2", "#panel-storage > header h2", views),
+        ):
+            rules = re.findall(r"([^{}]+)\{[^{}]*\}", css)
+            self.assertTrue(any(reference in selectors.split(", ") and storage in selectors.split(", ")
+                                for selectors in (rule.strip() for rule in rules)))
+
+    def test_storage_workspace_has_plain_background_and_one_vertical_scroll_surface(self):
+        css = (STATIC / "styles.css").read_text(encoding="utf-8")
+        rules = re.findall(r"#panel-storage\s*\{([^}]+)\}", css)
+        declarations = dict(re.findall(r"([\w-]+)\s*:\s*([^;]+)", ";".join(rules)))
+        self.assertEqual(declarations.get("background-image"), "none")
+        self.assertEqual(declarations.get("overflow-y"), "auto")
+        self.assertEqual(declarations.get("background"), "transparent")
+        self.assertEqual(declarations.get("border"), "0")
+        self.assertEqual(declarations.get("box-shadow"), "none")
+        self.assertEqual(declarations.get("padding"), "0 0 20px")
+
     @classmethod
     def setUpClass(cls):
         cls.html = (STATIC / "index.html").read_text(encoding="utf-8")
@@ -45,7 +69,7 @@ class GuiShellTests(unittest.TestCase):
         cls.parser = ShellParser()
         cls.parser.feed(cls.html)
 
-    def test_six_permanent_sections_have_navigation_and_workspaces(self):
+    def test_seven_permanent_sections_have_navigation_and_workspaces(self):
         self.assertEqual(tuple(item["data-section"] for item in self.parser.navigation), SECTIONS)
         self.assertEqual(tuple(panel["data-panel"] for panel in self.parser.panels), SECTIONS)
         for item in self.parser.navigation:
