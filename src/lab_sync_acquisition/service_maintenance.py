@@ -333,7 +333,8 @@ class ServiceMaintenanceInterface:
             if (message.evidence_type != "service_maintenance_evidence" or message.session_id is not None
                     or not message.is_persistent):
                 raise ValueError("Invalid dependent history envelope")
-            self._validate_dependent_state(state)
+            prior = histories[participant][-1].payload["dependent_maintenance"]["registration"] if histories[participant] else None
+            self._validate_dependent_state(state, prior_registration=prior)
             if preserved.get(message.evidence_id) != json.dumps(data, sort_keys=True):
                 raise RuntimeError("Dependent history is not exactly archived")
             message = RuntimeEvidenceMessage.from_dict(data)
@@ -364,7 +365,7 @@ class ServiceMaintenanceInterface:
                 raise RuntimeError("Superseded dependent instance cannot regain authority")
             return current
 
-    def _validate_dependent_state(self, state):
+    def _validate_dependent_state(self, state, *, prior_registration=None):
         """Validate preserved dependent identities and the existing release contract."""
         if not isinstance(state, dict) or not isinstance(state.get("registration"), dict):
             raise ValueError("Invalid dependent state")
@@ -394,11 +395,13 @@ class ServiceMaintenanceInterface:
             if set(confirmation) != {"controller_release"}:
                 raise ValueError("Contradictory dependent release kinds")
             release = confirmation["controller_release"]
-            if (not isinstance(release, dict) or participant.component_type != "controller"
-                    or release.get("outcome") != "dependency_released"):
-                raise ValueError("Only Controller may release its dependency without retirement")
+            if json.dumps(registration, sort_keys=True) != json.dumps(prior_registration, sort_keys=True):
+                raise ValueError("Controller release lacks its matching preserved registration")
+            self._validate_controller_release(registration, release, self.participant)
             archived = self.storage_manager.get_framework_preservation_confirmation()
-            if (not archived or not release["evidence"] or any(m not in archived["runtime_evidence"]
+            preserved = {(m["session_id"], m["evidence_id"]): json.dumps(m, sort_keys=True)
+                         for m in archived["runtime_evidence"]} if archived else {}
+            if (not archived or any(json.dumps(m, sort_keys=True) != preserved.get((m["session_id"], m["evidence_id"]))
                     or not self.ingestor.has_durable_runtime_evidence(RuntimeEvidenceMessage.from_dict(m))
                     for m in release["evidence"])):
                 raise RuntimeError("Controller release evidence is not durably preserved")
@@ -407,10 +410,119 @@ class ServiceMaintenanceInterface:
                 raise ValueError("Incomplete dependent retirement confirmation")
             self._validate_dependent_retirement(participant, registration["operational_instance_id"], confirmation)
 
+    @staticmethod
+    def _validate_controller_release(registration, release, ingestor):
+        """Check the existing frozen coordinated-shutdown checkpoint and preparation proof."""
+        participant = RuntimeParticipant.from_dict(registration["participant"])
+        if (participant.component_type != "controller" or not isinstance(release, dict)
+                or release.get("outcome") != "dependency_released"
+                or any(not isinstance(release.get(k), str) or not release[k]
+                       for k in ("framework_stop_attempt_id", "stop_attempt_id"))):
+            raise ValueError("Incomplete Controller dependency release")
+        framework = release["framework_stop_attempt_id"]
+        messages = tuple(RuntimeEvidenceMessage.from_dict(m) for m in release["evidence"])
+        if (not messages or len({(m.session_id, m.evidence_id) for m in messages}) != len(messages)
+                or any(not m.is_persistent or m.source_id != participant.component_id
+                       or not isinstance(m.payload, dict) for m in messages)):
+            raise ValueError("Invalid Controller release evidence boundary")
+        finals = [m.payload for m in messages if m.session_id is None and m.evidence_type == "service_maintenance_evidence"
+                  and m.payload.get("checkpoint") == "final_archival_checkpoint"
+                  and m.payload.get("stop_attempt_id") == framework]
+        if len(finals) != 1:
+            raise ValueError("Controller release lacks its exact final archival checkpoint")
+        final = finals[0]
+        if (final.get("requester_id") != participant.component_id or final.get("session_id") is not None
+                or final.get("outcome") is not None or final.get("failures") != []
+                or not isinstance(final.get("administrator_id"), str) or not final["administrator_id"]):
+            raise ValueError("Invalid coordinated-shutdown final checkpoint")
+        scope = tuple(RuntimeParticipant.from_dict(p) for p in final["scope"])
+        if (len(set(scope)) != len(scope) or participant not in scope or ingestor not in scope
+                or any(p.component_type not in {"controller", "ingestor", "storage_manager",
+                                              "synchronization_manager", "acquisition_node"} for p in scope)
+                or any(sum(p.component_type == kind for p in scope) != 1 for kind in
+                       ("controller", "ingestor", "storage_manager", "synchronization_manager"))):
+            raise ValueError("Invalid coordinated-shutdown scope")
+        attempts = {RuntimeParticipant.from_dict(p["participant"]): p["stop_attempt_id"]
+                    for p in final["participant_attempts"]}
+        if (set(attempts) != set(scope) or len(attempts) != len(final["participant_attempts"])
+                or attempts[participant] != release["stop_attempt_id"]
+                or any(not isinstance(identity, str) or not identity for identity in attempts.values())):
+            raise ValueError("Controller release attempt identity mismatch")
+        workers = [p for p in scope if p.component_type == "acquisition_node"] + [
+            p for p in scope if p.component_type == "synchronization_manager"]
+        infrastructure = [p for p in scope if p not in workers]
+        actions = [{"participant": p.to_dict(), "action": "retirement_confirmed"} for p in workers] + [
+            {"participant": p.to_dict(), "action": "preparation_confirmed"}
+            for kind in ("storage_manager", "controller") for p in scope if p.component_type == kind]
+        if (final.get("retired") != [p.to_dict() for p in workers]
+                or final.get("not_retired") != [p.to_dict() for p in infrastructure]
+                or final.get("remaining_obligations") != final["not_retired"] or final.get("actions") != actions):
+            raise ValueError("Final checkpoint does not preserve actual shutdown order and outstanding obligations")
+        commands = {c["command_id"]: c for c in final["commands"]}
+        results = {r["command_id"]: r["result"] for r in final["results"]}
+        if len(commands) != len(final["commands"]) or len(results) != len(final["results"]):
+            raise ValueError("Contradictory shutdown command/result identities")
+        for owner in scope:
+            if owner.component_type == "ingestor":
+                continue  # Ingestor retirement follows this checkpoint.
+            prepared = owner.component_type in {"controller", "storage_manager"}
+            operations = {"prepare_stop"} if prepared else {"stop", "kill"}
+            matching = [c for c in commands.values() if c["participant"] == owner.to_dict()
+                        and c["command_type"] in operations]
+            if not matching:
+                raise ValueError("Required shutdown action is missing")
+            intent = matching[-1]
+            command = RuntimeCommandMessage(intent["command_id"], None, intent["command_type"],
+                participant.component_id, owner.component_id, intent["payload"])
+            result = RuntimeCommandResultMessage.from_dict(results[command.command_id])
+            if not isinstance(result.payload, dict) or not isinstance(result.payload.get("attempt"), dict):
+                raise ValueError("Invalid shutdown action result")
+            attempt = result.payload["attempt"]
+            if (command.payload.get("framework_stop_attempt_id") != framework
+                    or command.payload.get("stop_attempt_id") != attempts[owner]
+                    or command.payload.get("administrator_id") != final["administrator_id"]
+                    or result.command_id != command.command_id or result.session_id is not None
+                    or result.source_id != owner.component_id or result.target_id != participant.component_id
+                    or result.success is not True or result.status != "succeeded"
+                    or attempt.get("target") != owner.to_dict()
+                    or attempt.get("stop_attempt_id") != attempts[owner]
+                    or attempt.get("framework_stop_attempt_id") != framework):
+                raise ValueError("Shutdown result is not correlated with the required action")
+            if prepared:
+                preparation_commands = attempt.get("commands")
+                if (result.payload.get("prepared") is not True or result.payload.get("termination_confirmed") is not False
+                        or result.payload.get("outcome") is not None or attempt.get("outcome") is not None
+                        or attempt.get("failures") != [] or attempt.get("remaining_obligations") != []
+                        or attempt.get("requester_id") != participant.component_id
+                        or not isinstance(preparation_commands, list) or not preparation_commands
+                        or any(preparation_commands[-1].get(k) != v for k, v in (
+                            ("command_id", command.command_id), ("command_type", "prepare_stop"),
+                            ("administrator_id", final["administrator_id"])))
+                        or "preparation_confirmed" not in attempt.get("actions", ())
+                        or "orderly_resources_closed" not in attempt.get("actions", ())):
+                    raise ValueError("Coordinated preparation is unconfirmed")
+                if owner == participant:
+                    if result.payload.get("operational_instance_id") != registration["operational_instance_id"]:
+                        raise ValueError("Controller preparation belongs to another operational instance")
+                    if not any(m.session_id is None and m.evidence_type == "service_maintenance_evidence"
+                            and m.payload.get("checkpoint") == "prepared_ready_for_retirement"
+                            and json.dumps({k: v for k, v in m.payload.items() if k not in {"checkpoint", "recorded_at"}}, sort_keys=True)
+                                == json.dumps(attempt, sort_keys=True) for m in messages):
+                        raise ValueError("Controller preparatory cleanup evidence is missing or contradictory")
+            else:
+                ServiceMaintenanceInterface._validate_dependent_retirement(
+                    owner, result.payload.get("operational_instance_id"), {"command": command.to_dict(), "result": result.to_dict()})
+
     async def _record_dependent_state(self, registration, confirmation=None, *, conflicting=False):
         state = {"registration": deepcopy(registration), "confirmation": deepcopy(confirmation),
                  "conflicting": conflicting}
-        self._validate_dependent_state(state)
+        prior = None
+        if confirmation is not None and "controller_release" in confirmation.get("confirmation", {}):
+            prior = next((m.payload["dependent_maintenance"]["registration"] for m in reversed(
+                self.ingestor.compile_framework_runtime_evidence()["runtime_evidence"])
+                if m.source_id == self.participant.component_id and "dependent_maintenance" in m.payload
+                and m.payload["dependent_maintenance"]["registration"]["participant"] == registration["participant"]), None)
+        self._validate_dependent_state(state, prior_registration=prior)
         key = json.dumps(state, sort_keys=True)
         message = self._dependent_state_messages.get(key)
         if message is None:
@@ -487,6 +599,7 @@ class ServiceMaintenanceInterface:
         release = {"framework_stop_attempt_id": framework_attempt_id,
                    "stop_attempt_id": self._attempt["stop_attempt_id"],
                    "outcome": "dependency_released", "evidence": evidence}
+        self._validate_controller_release(self._dependency_registration, release, self._framework_ingestor)
         if self._controller_dependency_release is not None and self._controller_dependency_release != release:
             raise RuntimeError("Controller dependency release boundary changed")
         self._controller_dependency_release = release

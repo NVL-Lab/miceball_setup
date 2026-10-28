@@ -549,6 +549,143 @@ class ExternalDependentMaintenanceTests(unittest.IsolatedAsyncioTestCase):
         await current.register_ingestor_dependency()
         self.assertTrue(self.intake_interface.operational_dependents[self.dependent]())
 
+    async def test_incomplete_controller_release_cannot_clear_blocker_or_authorize_retirement(self):
+        sync = RuntimeParticipant("synchronization_manager", "sync")
+        await self.backend((self.dependent, sync))
+        _, controller, _, _ = await self.producer()
+        registration = deepcopy(next(c["payload"] for c in self.broker.commands
+            if c["command_type"] == "register_operational_dependent" and c["source_id"] == "control"))
+        registration.pop("request_nonce", None)
+        for _ in range(2):
+            _, _, launcher, _ = await self.producer("synchronization_manager", "sync")
+            self.assertTrue(await launcher.stop_locally("operator"))
+            for subscription in self.broker.subscriptions:
+                if ".command.synchronization_manager.sync." in subscription.subject:
+                    await subscription.unsubscribe()
+        warning = RuntimeEvidenceMessage("unrelated-warning", None, "warning", "control", {"message": "unrelated"}, True)
+        self.assertTrue(self.intake.receive_runtime_evidence(warning).accepted)
+        state = {"registration": registration, "conflicting": False,
+            "confirmation": {**registration, "confirmation": {"controller_release": {
+                "outcome": "dependency_released", "evidence": [warning.to_dict()]}}}}
+        malformed = RuntimeEvidenceMessage("incomplete-release", None, "service_maintenance_evidence", "intake",
+            {"dependent_maintenance": state}, True)
+        self.assertTrue(self.intake.receive_runtime_evidence(malformed).accepted)
+        self.storage.write_framework_evidence_archive(self.intake.compile_framework_runtime_evidence())
+        before = self.intake_interface.evidence
+        files = {p: p.read_bytes() for p in self.root.rglob("*") if p.is_file()}
+        self.assertFalse(controller.prepared)
+        self.assertFalse(controller.terminated)
+        self.assertFalse((await self.status()).payload["ready"])
+        self.assertFalse((await self.intake_interface.retire_dependent_maintenance_history())["confirmed"])
+        self.assertEqual(self.intake_interface.evidence, before)
+        self.assertEqual(files, {p: p.read_bytes() for p in files})
+
+    async def controller_release_boundary(self):
+        sync = RuntimeParticipant("synchronization_manager", "sync")
+        await self.backend((self.dependent, sync))
+        controller, owner, _, boundary = await self.producer(preservation_window_s=2)
+        await self.producer("synchronization_manager", "sync", preservation_window_s=2)
+        original = self.intake_boundary.publish_command_result
+
+        async def hold_release_reply(result, operation):
+            if operation != "confirm_dependent_release" or result.target_id != "control":
+                await original(result, operation)
+
+        scope = (self.dependent, sync, self.intake_interface.participant, self.storage_interface.participant)
+        with patch.object(self.intake_boundary, "publish_command_result", hold_release_reply):
+            result = await controller.shutdown_framework(scope, communication=NatsControllerCommunication(boundary),
+                stop_attempt_id="controller-proof", administrator_id="operator", result_window_s=0.5)
+        self.assertFalse(result.succeeded)  # Lost release reply; infrastructure remains available.
+        self.assertTrue(owner.prepared)
+        self.assertFalse(owner.terminated)
+        self.assertFalse(self.intake_interface.terminated)
+        state = next(deepcopy(m.payload["dependent_maintenance"]) for m in reversed(self.intake_interface.evidence)
+            if m.payload.get("dependent_maintenance", {}).get("confirmation", {}).get("confirmation", {}).get("controller_release"))
+        return state, self.intake.compile_framework_runtime_evidence(), sync
+
+    async def test_historical_controller_release_proof_and_restart(self):
+        await self.controller_release_boundary()
+        self.assertFalse(self.intake_interface.operational_dependents[self.dependent]())
+        for subscription in self.broker.subscriptions:
+            await subscription.unsubscribe()
+        await self.backend((self.dependent, RuntimeParticipant("synchronization_manager", "sync")))
+        self.assertFalse(self.intake_interface.operational_dependents[self.dependent]())
+        files = {p: p.read_bytes() for p in self.root.rglob("*") if p.is_file()}
+        self.assertTrue((await self.intake_interface.retire_dependent_maintenance_history())["confirmed"])
+        self.assertEqual(files, {p: p.read_bytes() for p in files})
+
+    async def test_historical_controller_release_rejects_incomplete_or_mismatched_proof(self):
+        original_state, compiled, sync = await self.controller_release_boundary()
+        base = self.root
+        cases = ("missing_attempt", "wrong_framework_attempt", "wrong_preparation_attempt", "missing_preparation",
+                 "missing_cleanup_evidence", "missing_checkpoint", "wrong_checkpoint", "wrong_controller_instance",
+                 "wrong_ingestor_instance", "wrong_prepared_instance", "unprepared_result", "unpreserved_evidence",
+                 "unrelated_evidence", "anticipated_retirement")
+        for index, fault in enumerate(cases):
+            with self.subTest(fault=fault):
+                self.root = base / str(index)
+                self.root.mkdir()
+                self.broker = _Broker()
+                await self.backend((self.dependent, sync))
+                for message in compiled["runtime_evidence"]:
+                    self.intake.receive_runtime_evidence(message)
+                self.storage.write_framework_evidence_archive(self.intake.compile_framework_runtime_evidence())
+                self.assertTrue((await self.status()).payload["ready"])
+                state = deepcopy(original_state)
+                release = state["confirmation"]["confirmation"]["controller_release"]
+                for number, message in enumerate(release["evidence"]):
+                    message["evidence_id"] = f"{fault}-{number}"
+                final = next(m["payload"] for m in release["evidence"]
+                    if m["payload"].get("checkpoint") == "final_archival_checkpoint")
+                prepare_id = next(c["command_id"] for c in final["commands"]
+                    if c["command_type"] == "prepare_stop" and c["participant"] == self.dependent.to_dict())
+                prepared = next(r["result"] for r in final["results"] if r["command_id"] == prepare_id)
+                if fault == "missing_attempt":
+                    del release["framework_stop_attempt_id"]
+                elif fault == "wrong_framework_attempt":
+                    release["framework_stop_attempt_id"] = "another-shutdown"
+                elif fault == "wrong_preparation_attempt":
+                    release["stop_attempt_id"] = "another-preparation"
+                elif fault == "missing_preparation":
+                    final["results"] = [r for r in final["results"] if r["command_id"] != prepare_id]
+                elif fault == "missing_cleanup_evidence":
+                    release["evidence"] = [m for m in release["evidence"]
+                        if m["payload"].get("checkpoint") != "prepared_ready_for_retirement"]
+                elif fault == "missing_checkpoint":
+                    release["evidence"] = [m for m in release["evidence"]
+                        if m["payload"].get("checkpoint") != "final_archival_checkpoint"]
+                elif fault == "wrong_checkpoint":
+                    final["checkpoint"] = "participant_result_confirmed"
+                elif fault in {"wrong_controller_instance", "wrong_ingestor_instance"}:
+                    key = "operational_instance_id" if fault == "wrong_controller_instance" else "ingestor_instance_id"
+                    state["registration"][key] = "another-operational-instance"
+                    state["confirmation"][key] = "another-operational-instance"
+                elif fault == "unprepared_result":
+                    prepared["payload"]["prepared"] = False
+                elif fault == "wrong_prepared_instance":
+                    prepared["payload"]["operational_instance_id"] = "another-controller-instance"
+                elif fault == "anticipated_retirement":
+                    final["retired"].append(self.dependent.to_dict())
+                elif fault == "unrelated_evidence":
+                    release["evidence"] = [RuntimeEvidenceMessage("only-warning", None, "warning", "control", {}, True).to_dict()]
+                for message in release["evidence"]:
+                    if fault != "unpreserved_evidence":
+                        self.intake.receive_runtime_evidence(RuntimeEvidenceMessage.from_dict(message))
+                malformed = RuntimeEvidenceMessage("bad-" + fault, None, "service_maintenance_evidence", "intake",
+                    {"dependent_maintenance": state}, True)
+                self.intake.receive_runtime_evidence(malformed)
+                self.storage.write_framework_evidence_archive(self.intake.compile_framework_runtime_evidence())
+                before = self.intake_interface.evidence
+                files = {p: p.read_bytes() for p in self.root.rglob("*") if p.is_file()}
+                self.assertFalse((await self.status()).payload["ready"])
+                self.assertFalse((await self.intake_interface.retire_dependent_maintenance_history())["confirmed"])
+                self.assertEqual(self.intake_interface.evidence, before)
+                self.assertEqual(files, {p: p.read_bytes() for p in files})
+                for subscription in self.broker.subscriptions:
+                    await subscription.unsubscribe()
+                await self.backend((self.dependent, sync))
+                self.assertTrue(self.intake_interface.operational_dependents[self.dependent]())
+
     async def test_operational_dependent_blocks_stop_and_cancel_does_not_release_it(self):
         await self.backend()
         _, _, producer, _ = await self.producer()
