@@ -604,20 +604,74 @@ class ServiceMaintenanceInterface:
         expected = workers + [p for kind in ("storage_manager", "controller") for p in scope if p.component_type == kind]
         if [p for p, _ in sorted(selected, key=lambda item: item[1])] != expected:
             raise ValueError("Recorded shutdown actions contradict progressive shutdown order")
-        # Earlier coordination checkpoints are snapshots of these same exchanges.
-        # They may be incomplete prefixes, but cannot rewrite a recorded command/result.
+        # A coordination snapshot is a claim about completed work, not merely a
+        # prefix of arrays. Derive its retirement/obligation state from its actions.
+        progress = (0, 0, 0, 0)
+        seen_checkpoints = set()
+        stages = []
+        action_commands = [commands[next(c["command_id"] for c in reversed(final["commands"])
+            if c["participant"] == action["participant"] and c["command_type"] in (
+                {"stop", "kill"} if action["action"] == "retirement_confirmed" else {"prepare_stop"}))]
+            for action in actions]
         for message in messages:
             checkpoint = message.payload
             if (message.evidence_type != "service_maintenance_evidence" or "scope" not in checkpoint
                     or checkpoint.get("stop_attempt_id") != framework):
                 continue
-            if (checkpoint.get("scope") != final["scope"]
+            stage = checkpoint.get("checkpoint")
+            if (stage not in {"initial_survey", "authorization_recorded", "participant_result_confirmed",
+                              "final_archival_checkpoint"}
+                    or message.session_id is not None or checkpoint.get("session_id", "missing") is not None
+                    or "outcome" not in checkpoint or checkpoint["outcome"] is not None
+                    or checkpoint.get("failures") != []
+                    or checkpoint.get("scope") != final["scope"]
                     or checkpoint.get("administrator_id") != final["administrator_id"]
                     or checkpoint.get("requester_id") != final["requester_id"]
                     or checkpoint.get("participant_attempts") != final["participant_attempts"]
+                    or checkpoint.get("survey") != final.get("survey")
+                    or checkpoint.get("started_at") != final.get("started_at")
                     or any(json.dumps(checkpoint.get(key), sort_keys=True) != json.dumps(final[key][
                         :len(checkpoint.get(key, ()))], sort_keys=True) for key in ("commands", "results", "actions", "authorizations"))):
                 raise ValueError("Coordinated-shutdown snapshots contradict the final checkpoint")
+            current = tuple(len(checkpoint[key]) for key in ("commands", "results", "actions", "authorizations"))
+            identity = (stage, current)
+            if (identity in seen_checkpoints or any(a < b for a, b in zip(current, progress))
+                    or current[0] != current[1] or stages and stages[-1] == "final_archival_checkpoint"):
+                raise ValueError("Contradictory or duplicated coordination-checkpoint progression")
+            previous = progress
+            seen_checkpoints.add(identity)
+            progress = current
+            stages.append(stage)
+            retired = [a["participant"] for a in checkpoint["actions"] if a["action"] == "retirement_confirmed"]
+            outstanding = [p.to_dict() for p in scope if p.to_dict() not in retired]
+            if (checkpoint.get("retired") != retired or checkpoint.get("not_retired") != outstanding
+                    or checkpoint.get("remaining_obligations") != outstanding):
+                raise ValueError("Checkpoint retirement and obligations are unsupported by its completed actions")
+            completed = current[2]
+            recorded_ids = {c["command_id"] for c in checkpoint["commands"]}
+            if (any(c["command_id"] not in recorded_ids for c in action_commands[:completed])
+                    or any(a["blocked_command_id"] not in recorded_ids for a in checkpoint["authorizations"])):
+                raise ValueError("Checkpoint claims an action before its confirming exchange")
+            if stage == "initial_survey":
+                if completed or current[3] or any(c["command_type"] != "check_stop_readiness"
+                                                for c in checkpoint["commands"]):
+                    raise ValueError("Initial survey claims shutdown progress")
+            elif stage == "participant_result_confirmed":
+                if (completed != previous[2] + 1 or current[3] != previous[3]
+                        or not checkpoint["commands"] or checkpoint["commands"][-1] != action_commands[completed - 1]):
+                    raise ValueError("Participant checkpoint lacks its newly confirmed action")
+            elif stage == "authorization_recorded":
+                if (current[3] != previous[3] + 1 or completed != previous[2] or not checkpoint["commands"]
+                        or checkpoint["authorizations"][-1]["blocked_command_id"] != checkpoint["commands"][-1]["command_id"]
+                        or checkpoint["commands"][-1]["command_type"] != "stop"):
+                    raise ValueError("Authorization checkpoint lacks its blocked Stop")
+            elif checkpoint != final:
+                raise ValueError("Conflicting final archival checkpoint")
+        if (not stages or stages[0] != "initial_survey" or stages[-1] != "final_archival_checkpoint"
+                or stages.count("initial_survey") != 1
+                or stages.count("participant_result_confirmed") != len(actions)
+                or stages.count("authorization_recorded") != len(final["authorizations"])):
+            raise ValueError("Coordinated-shutdown checkpoint progression is incomplete")
 
     async def _record_dependent_state(self, registration, confirmation=None, *, conflicting=False):
         state = {"registration": deepcopy(registration), "confirmation": deepcopy(confirmation),

@@ -790,6 +790,46 @@ class ExternalDependentMaintenanceTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse((await self.intake_interface.retire_dependent_maintenance_history())["confirmed"])
         self.assertTrue(self.intake.has_durable_runtime_evidence(malformed))
 
+    async def test_false_checkpoint_retirement_cannot_release_controller_or_retire_history(self):
+        state, _, sync = await self.controller_release_boundary(prior_sync_stop=True)
+        release = state["confirmation"]["confirmation"]["controller_release"]
+        for number, message in enumerate(release["evidence"]):
+            message["evidence_id"] = f"false-retirement-{number}"
+        checkpoint = next(m["payload"] for m in release["evidence"]
+            if m["payload"].get("checkpoint") == "participant_result_confirmed")
+        checkpoint["retired"].append(self.dependent.to_dict())
+        checkpoint["not_retired"].remove(self.dependent.to_dict())
+        checkpoint["remaining_obligations"] = deepcopy(checkpoint["not_retired"])
+        for message in release["evidence"]:
+            self.intake.receive_runtime_evidence(RuntimeEvidenceMessage.from_dict(message))
+        malformed = RuntimeEvidenceMessage("false-retirement-release", None, "service_maintenance_evidence", "intake",
+            {"dependent_maintenance": state}, True)
+        self.assertTrue(self.intake.receive_runtime_evidence(malformed).accepted)
+        self.storage.write_framework_evidence_archive(self.intake.compile_framework_runtime_evidence())
+        before = self.intake_interface.evidence
+        files = {p: p.read_bytes() for p in self.root.rglob("*") if p.is_file()}
+        survey = (await self.status()).payload
+        blocker = self.intake_interface.operational_dependents[self.dependent]()
+        retirement = await self.intake_interface.retire_dependent_maintenance_history()
+        unchanged = files == {p: p.read_bytes() for p in files}
+        retained = before == self.intake_interface.evidence
+        for subscription in self.broker.subscriptions:
+            await subscription.unsubscribe()
+        await self.backend((self.dependent, sync))
+        restarted = (await self.status()).payload
+        observations = {"ready": survey["ready"], "blocker": blocker, "retirement": retirement,
+            "durable_files_unchanged": unchanged, "producer_copies_retained": retained,
+            "restart_ready": restarted["ready"]}
+        self.assertFalse(survey["ready"], observations)
+        self.assertTrue(blocker)
+        self.assertFalse(retirement["confirmed"])
+        self.assertEqual(retirement["released_evidence_count"], 0)
+        self.assertTrue(unchanged)
+        self.assertTrue(retained)
+        self.assertFalse(restarted["ready"])
+        self.assertTrue(self.intake_interface.operational_dependents[self.dependent]())
+        self.assertTrue(self.intake.has_durable_runtime_evidence(malformed))
+
     async def test_historical_controller_release_rejects_incomplete_or_mismatched_proof(self):
         original_state, compiled, sync = await self.controller_release_boundary()
         base = self.root
@@ -803,7 +843,11 @@ class ExternalDependentMaintenanceTests(unittest.IsolatedAsyncioTestCase):
                  "ghost", "orphan", "duplicate_command", "duplicate_result", "duplicate_result_id",
                  "wrong_survey_source", "wrong_survey_target", "wrong_survey_attempt", "wrong_survey_admin",
                  "wrong_survey_status", "wrong_survey_success", "missing_survey_result", "unsupported_action",
-                 "reordered_commands", "contradictory_snapshot", "contradictory_prefix", "wrong_attempt_target")
+                 "reordered_commands", "contradictory_snapshot", "contradictory_prefix", "wrong_attempt_target",
+                 "checkpoint_retired", "checkpoint_not_retired", "checkpoint_obligations", "checkpoint_scope",
+                 "checkpoint_outcome", "checkpoint_failure", "checkpoint_session", "checkpoint_type",
+                 "checkpoint_duplicate", "checkpoint_reordered", "checkpoint_missing", "checkpoint_joint",
+                 "checkpoint_future_action", "checkpoint_final_retired", "checkpoint_survey", "checkpoint_attempt")
         for index, fault in enumerate(cases):
             with self.subTest(fault=fault):
                 self.root = base / str(index)
@@ -826,6 +870,45 @@ class ExternalDependentMaintenanceTests(unittest.IsolatedAsyncioTestCase):
                 snapshot = next(m["payload"] for m in release["evidence"]
                     if m["payload"].get("checkpoint") == "prepared_ready_for_retirement")
                 attempt = prepared["payload"]["attempt"]
+                if fault.startswith("checkpoint_"):
+                    middle = next(m for m in release["evidence"]
+                        if m["payload"].get("checkpoint") == "participant_result_confirmed")
+                    claim = middle["payload"]
+                    if fault in {"checkpoint_retired", "checkpoint_joint"}:
+                        claim["retired"].append(self.dependent.to_dict())
+                    if fault in {"checkpoint_not_retired", "checkpoint_joint"}:
+                        claim["not_retired"].remove(self.dependent.to_dict())
+                    if fault == "checkpoint_joint":
+                        claim["remaining_obligations"] = deepcopy(claim["not_retired"])
+                    elif fault == "checkpoint_obligations":
+                        claim["remaining_obligations"] = []
+                    elif fault == "checkpoint_scope":
+                        claim["scope"] = list(reversed(claim["scope"]))
+                    elif fault == "checkpoint_outcome":
+                        claim["outcome"] = "completed"
+                    elif fault == "checkpoint_failure":
+                        claim["failures"] = ["Unresolved coordination failure"]
+                    elif fault == "checkpoint_session":
+                        claim["session_id"] = "unrelated-session"
+                    elif fault == "checkpoint_type":
+                        claim["checkpoint"] = "coordination_failed"
+                    elif fault == "checkpoint_duplicate":
+                        duplicate = deepcopy(middle)
+                        duplicate["evidence_id"] = "duplicate-coordination-checkpoint"
+                        release["evidence"].insert(release["evidence"].index(middle) + 1, duplicate)
+                    elif fault == "checkpoint_reordered":
+                        release["evidence"].remove(middle)
+                        release["evidence"].append(middle)
+                    elif fault == "checkpoint_missing":
+                        release["evidence"].remove(middle)
+                    elif fault == "checkpoint_future_action":
+                        claim["actions"] = deepcopy(final["actions"])
+                    elif fault == "checkpoint_final_retired":
+                        final["retired"].append(self.dependent.to_dict())
+                    elif fault == "checkpoint_survey":
+                        claim["survey"] = []
+                    elif fault == "checkpoint_attempt":
+                        claim["participant_attempts"][0]["stop_attempt_id"] = "another-attempt"
                 first_result = next(r for r in final["results"] if r["result"] is not None)
                 first_command = next(c for c in final["commands"] if c["command_id"] == first_result["command_id"])
                 if fault in {"ghost", "orphan"}:
