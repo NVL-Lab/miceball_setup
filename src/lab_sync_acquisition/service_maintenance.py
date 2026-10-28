@@ -268,6 +268,7 @@ class ServiceMaintenanceInterface:
                     return "abandoned"
         return None
 
+    @service_operation()
     def configure_external_dependents(self, participants, communication, result_window_s):
         """Compose fail-closed Ingestor callbacks for explicitly configured remote owners."""
         from math import isfinite
@@ -294,8 +295,6 @@ class ServiceMaintenanceInterface:
     def _restore_dependent_confirmations(self):
         """Read existing owner-verified history; never repair or bless an unconfirmed archive."""
         confirmations = dict.fromkeys(self._dependent_instances)
-        instances = dict(self._dependent_instances)
-        conflicts = set()
         self._dependent_confirmations = confirmations
         archived = self.storage_manager.get_framework_preservation_confirmation()
         if archived is None:
@@ -305,7 +304,20 @@ class ServiceMaintenanceInterface:
                 compiled = self.ingestor.compile_framework_runtime_evidence()
         except RuntimeError:
             return
-        confirmations = dict(confirmations)
+        try:
+            instances, confirmations, conflicts, _ = self._dependent_history(compiled, archived)
+        except (RuntimeError, ValueError, KeyError, TypeError):
+            return
+        self._dependent_instances = instances
+        self._dependent_confirmations = confirmations
+        self._dependent_conflicts = conflicts
+
+    def _dependent_history(self, compiled, archived):
+        """Derive dependent state and ordered history from exact preserved evidence."""
+        instances = dict(self._dependent_instances)
+        confirmations = dict.fromkeys(instances)
+        conflicts, histories = set(), {p: [] for p in instances}
+        preserved = {m["evidence_id"]: json.dumps(m, sort_keys=True) for m in archived["runtime_evidence"]}
         for message in compiled["runtime_evidence"]:
             data = message.to_dict()
             if data["source_id"] != self.participant.component_id or "dependent_maintenance" not in data["payload"]:
@@ -314,20 +326,19 @@ class ServiceMaintenanceInterface:
             participant = RuntimeParticipant.from_dict(state["registration"]["participant"])
             if participant not in self._dependent_instances:
                 continue
-            if not archived or data not in archived["runtime_evidence"]:
-                return
+            if preserved.get(message.evidence_id) != json.dumps(data, sort_keys=True):
+                raise RuntimeError("Dependent history is not exactly archived")
             message = RuntimeEvidenceMessage.from_dict(data)
             if not self.ingestor.has_durable_runtime_evidence(message):
-                return
+                raise RuntimeError("Dependent history is not durably accepted")
+            histories[participant].append(message)
             instances[participant] = state["registration"]["operational_instance_id"]
             confirmations[participant] = state["confirmation"]
             if state["conflicting"]:
                 conflicts.add(participant)
             else:
                 conflicts.discard(participant)
-        self._dependent_instances = instances
-        self._dependent_confirmations = confirmations
-        self._dependent_conflicts = conflicts
+        return instances, confirmations, conflicts, histories
 
     async def _record_dependent_state(self, registration, confirmation=None, *, conflicting=False):
         state = {"registration": deepcopy(registration), "confirmation": deepcopy(confirmation),
@@ -481,21 +492,27 @@ class ServiceMaintenanceInterface:
                     for m in release["evidence"])):
                 raise RuntimeError("Controller release evidence is not durably preserved")
         else:
-            original = RuntimeCommandMessage.from_dict(confirmation["command"])
-            result = RuntimeCommandResultMessage.from_dict(confirmation["result"])
-            attempt = result.payload.get("attempt") or {}
-            if (original.command_type not in {"stop", "kill"} or original.session_id is not None
-                    or result.command_id != original.command_id or result.session_id is not None
-                    or original.target_id != participant.component_id or result.source_id != participant.component_id
-                    or result.target_id != original.source_id or result.success is not True or result.status != "succeeded"
-                    or result.payload.get("outcome") != "completed" or result.payload.get("termination_confirmed") is not True
-                    or result.payload.get("operational_instance_id") != instance
-                    or not attempt.get("stop_attempt_id") or attempt.get("stop_attempt_id") != original.payload.get("stop_attempt_id")
-                    or attempt.get("target") != participant.to_dict()):
-                raise ValueError("Invalid dependent retirement correlation or outcome")
+            self._validate_dependent_retirement(participant, instance, confirmation)
         await self._record_dependent_state(registration, payload)
         self._dependent_confirmations[participant] = deepcopy(payload)
         return {"confirmation": payload}
+
+    @staticmethod
+    def _validate_dependent_retirement(participant, instance, confirmation):
+        """Validate the existing correlated Stop/Kill termination contract."""
+        original = RuntimeCommandMessage.from_dict(confirmation["command"])
+        result = RuntimeCommandResultMessage.from_dict(confirmation["result"])
+        attempt = result.payload.get("attempt") or {}
+        if (original.command_type not in {"stop", "kill"} or original.session_id is not None
+                or result.command_id != original.command_id or result.session_id is not None
+                or original.target_id != participant.component_id or result.source_id != participant.component_id
+                or result.target_id != original.source_id or result.success is not True or result.status != "succeeded"
+                or result.payload.get("outcome") != "completed" or result.payload.get("termination_confirmed") is not True
+                or result.payload.get("operational_instance_id") != instance
+                or not attempt.get("stop_attempt_id") or attempt.get("stop_attempt_id") != original.payload.get("stop_attempt_id")
+                or attempt.get("target") != participant.to_dict()):
+            raise ValueError("Invalid dependent retirement correlation or outcome")
+        return original
 
     def _read_operational_instance(self, command):
         payload = {"participant": self.participant.to_dict(), "operational_instance_id": self.operational_instance_id,
@@ -599,6 +616,87 @@ class ServiceMaintenanceInterface:
                 release["preservation"] = await self._record_framework_evidence(outcome_evidence)
         return status
 
+    @contextmanager
+    def _producer_copy_retirement_guard(self, *, verify_journal=False):
+        """Hold existing preservation/resource/admission boundaries without awaiting."""
+        with self.ingestor._intake_lock, self.ingestor.framework_preservation_guard(
+                self.storage_manager, verify_journal=verify_journal) as archive, self._admission_lock:
+            if self._attempt is not None or self._closeout_started or self._active_operations > 1:
+                raise RuntimeError("Administrative closeout or concurrent operations remain outstanding")
+            blockers = self.service.maintenance_blockers(self.ingestor, self.storage_manager)
+            blockers.extend(self._dependency_blockers())
+            if blockers:
+                raise RuntimeError("Resource safety/closeout is unconfirmed: " + "; ".join(blockers))
+            yield archive
+
+    @service_operation()
+    async def retire_dependent_maintenance_history(self):
+        """Retire only superseded, preserved Ingestor orderly-Stop producer copies."""
+        release = {"released_evidence_count": 0, "confirmed": False, "remaining_obligations": []}
+        try:
+            if (self.participant.component_type != "ingestor" or self.service is not self.ingestor
+                    or self._framework_communication is not None or not self._dependent_instances):
+                raise RuntimeError("Configured locally preserved Ingestor dependents are required")
+            async with self._lock:
+                with self._producer_copy_retirement_guard(verify_journal=True) as archive:
+                    boundary = self._dependent_communication._boundary
+                    if (self._dependent_state_messages or boundary._pending_dependent_deliveries
+                            or self._dependent_conflicts):
+                        raise RuntimeError("Dependent publication, delivery or conflict remains outstanding")
+                    compiled = self.ingestor.compile_framework_runtime_evidence()
+                    # Canonical equality also distinguishes contradictory boolean/numeric values.
+                    for name in ("runtime_evidence", "ingest_audit"):
+                        if json.dumps(archive[name], sort_keys=True) != json.dumps(
+                                [m.to_dict() for m in compiled[name]], sort_keys=True):
+                            raise RuntimeError("Framework preservation differs from accepted history")
+                    instances, confirmations, conflicts, histories = self._dependent_history(compiled, archive)
+                    if (instances != self._dependent_instances or conflicts != self._dependent_conflicts
+                            or any(json.dumps(confirmations[p], sort_keys=True) != json.dumps(
+                                self._dependent_confirmations[p], sort_keys=True) for p in instances)):
+                        raise RuntimeError("Current dependent state is not reconstructable")
+                    candidates = {}
+                    for participant, history in histories.items():
+                        if not history:
+                            continue
+                        # Retain the latest record unconditionally; it must itself prove orderly Stop.
+                        latest = self._orderly_dependent_stop(history[-1], participant)
+                        if not latest:
+                            continue
+                        for message in history[:-1]:
+                            if self._orderly_dependent_stop(message, participant):
+                                candidates[message.evidence_id] = json.dumps(message.to_dict(), sort_keys=True)
+                    ids = set()
+                    for message in self._evidence:
+                        if message.evidence_id in candidates:
+                            if json.dumps(message.to_dict(), sort_keys=True) != candidates[message.evidence_id]:
+                                raise RuntimeError("Producer copy contradicts preserved dependent history")
+                            ids.add(message.evidence_id)
+                    self._evidence = [m for m in self._evidence if m.evidence_id not in ids]
+                    release.update(released_evidence_count=len(ids), confirmed=True)
+        except Exception as error:
+            release["remaining_obligations"] = [str(error)]
+        return release
+
+    def _orderly_dependent_stop(self, message, participant):
+        """Recognize only exact fully confirmed orderly dependent Stop evidence."""
+        if (message.evidence_type != "service_maintenance_evidence" or message.session_id is not None
+                or message.source_id != self.participant.component_id or not message.is_persistent):
+            return False
+        state = message.payload.get("dependent_maintenance", {})
+        payload = state.get("confirmation")
+        if state.get("conflicting") is not False or not payload or "confirmation" not in payload:
+            return False
+        registration = state["registration"]
+        if any(json.dumps(payload.get(k), sort_keys=True) != json.dumps(v, sort_keys=True)
+               for k, v in registration.items()):
+            raise RuntimeError("Dependent confirmation contradicts its registration")
+        confirmation = payload["confirmation"]
+        if "controller_release" in confirmation:
+            return False
+        original = self._validate_dependent_retirement(
+            participant, registration["operational_instance_id"], confirmation)
+        return original.command_type == "stop"
+
     def _release_abandoned_evidence(self, decision):
         release = {"released_evidence_count": 0, "confirmed": False, "remaining_obligations": []}
         details = decision.payload["details"]
@@ -608,13 +706,7 @@ class ServiceMaintenanceInterface:
             return release, None
         try:
             # Existing intake -> storage -> admission order; no await during retirement of copies.
-            with self.ingestor._intake_lock, self.ingestor.framework_preservation_guard(self.storage_manager) as archive, self._admission_lock:
-                if (self._attempt is not None or self._closeout_started or self._active_operations > 1):
-                    raise RuntimeError("Administrative closeout or concurrent operations remain outstanding")
-                blockers = self.service.maintenance_blockers(self.ingestor, self.storage_manager)
-                blockers.extend(self._dependency_blockers())
-                if blockers:
-                    raise RuntimeError("Resource safety/closeout is unconfirmed: " + "; ".join(blockers))
+            with self._producer_copy_retirement_guard() as archive:
                 candidates = [m for m in self._evidence if m.evidence_type != "administrator_decision" and (
                     m.evidence_id == details.get("evidence_id") or (
                         details.get("stop_attempt_id") is not None

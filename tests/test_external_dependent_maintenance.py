@@ -96,7 +96,7 @@ class ExternalDependentMaintenanceTests(unittest.IsolatedAsyncioTestCase):
         self.pair = ServiceLauncher((self.intake_interface, self.storage_interface),
             (self.intake_boundary, self.storage_boundary), report=lambda text: None)
 
-    async def producer(self, kind="controller", identity="control"):
+    async def producer(self, kind="controller", identity="control", *, preservation_window_s=0.02):
         if kind == "controller":
             owner = Controller(component_id=identity)
         elif kind == "acquisition_node":
@@ -107,7 +107,7 @@ class ExternalDependentMaintenanceTests(unittest.IsolatedAsyncioTestCase):
         boundary = _Boundary(kind, identity, self.broker)
         boundary.close = AsyncMock()
         interface = ServiceMaintenanceInterface(owner, RuntimeParticipant(kind, identity), ingestor=None,
-            storage_manager=None, preservation_window_s=0.02, close_resources=AsyncMock(return_value=True),
+            storage_manager=None, preservation_window_s=preservation_window_s, close_resources=AsyncMock(return_value=True),
             evidence_publisher=boundary.publish_evidence, framework_communication=NatsControllerCommunication(boundary),
             framework_ingestor=RuntimeParticipant("ingestor", "intake"),
             framework_storage=RuntimeParticipant("storage_manager", "storage"))
@@ -136,6 +136,168 @@ class ExternalDependentMaintenanceTests(unittest.IsolatedAsyncioTestCase):
     def published_confirmation(self, identity="control"):
         return deepcopy(next(c["payload"]["confirmation"] for c in reversed(self.broker.commands)
             if c["command_type"] == "confirm_dependent_release" and c["source_id"] == identity))
+
+    async def superseded_stop_history(self):
+        await self.backend()
+        _, _, launcher, old_boundary = await self.producer()
+        self.assertTrue(await launcher.stop_locally("operator"))
+        old_confirmation = self.published_confirmation()
+        for subscription in self.broker.subscriptions:
+            if ".command.controller.control." in subscription.subject:
+                await subscription.unsubscribe()
+        _, current, launcher, boundary = await self.producer()
+        self.assertTrue(await launcher.stop_locally("operator"))
+        return old_confirmation, old_boundary, current, boundary
+
+    async def test_history_retirement_preserves_current_state_history_and_restart(self):
+        old, old_boundary, _, boundary = await self.superseded_stop_history()
+        interface = self.intake_interface
+        durable = self.intake.compile_framework_runtime_evidence()
+        files = {p: p.read_bytes() for p in self.root.rglob("*") if p.is_file()}
+        results = interface.command_results
+        before = interface.evidence
+        release = await interface.retire_dependent_maintenance_history()
+        self.assertTrue(release["confirmed"], release)
+        self.assertEqual(release["released_evidence_count"], 1)
+        self.assertEqual(len(interface.evidence), len(before) - 1)
+        self.assertEqual(interface.command_results, results)
+        self.assertFalse(interface.operational_dependents[self.dependent]())
+        self.assertFalse(interface.terminated)
+        self.assertEqual(self.intake.compile_framework_runtime_evidence(), durable)
+        self.assertEqual(files, {p: p.read_bytes() for p in files})
+        self.assertEqual((await interface.retire_dependent_maintenance_history())["released_evidence_count"], 0)
+        duplicate = await self.send_confirmation(boundary, self.published_confirmation())
+        self.assertTrue(duplicate.success)
+        for subscription in self.broker.subscriptions:
+            await subscription.unsubscribe()
+        await self.backend()
+        self.assertFalse(self.intake_interface.operational_dependents[self.dependent]())
+        # A request scoped to the former Ingestor lifetime is still rejected.
+        stale = await self.send_confirmation(old_boundary, old)
+        self.assertFalse(stale.success)
+
+    async def test_history_retirement_retains_on_unconfirmed_journal_or_archive(self):
+        await self.superseded_stop_history()
+        interface = self.intake_interface
+        before = interface.evidence
+        journal = self.root / "framework.jsonl"
+        content = journal.read_bytes()
+        for damage in (b"", content[:-1] + b"x", b"{}\n"):
+            with self.subTest(damage=damage[:12]):
+                journal.write_bytes(damage)
+                release = await interface.retire_dependent_maintenance_history()
+                self.assertFalse(release["confirmed"], release)
+                self.assertEqual(interface.evidence, before)
+                self.assertEqual(journal.read_bytes(), damage)
+                journal.write_bytes(content)
+        journal.unlink()
+        self.assertFalse((await interface.retire_dependent_maintenance_history())["confirmed"])
+        journal.write_bytes(content)
+        for archive in (None, {"runtime_evidence": [], "ingest_audit": []}):
+            with patch.object(self.storage, "get_framework_preservation_confirmation", return_value=archive):
+                self.assertFalse((await interface.retire_dependent_maintenance_history())["confirmed"])
+                self.assertEqual(interface.evidence, before)
+
+        archive = deepcopy(self.storage.get_framework_preservation_confirmation())
+        archive["runtime_evidence"][0]["payload"]["contradictory"] = True
+        with patch.object(self.storage, "get_framework_preservation_confirmation", return_value=archive):
+            self.assertFalse((await interface.retire_dependent_maintenance_history())["confirmed"])
+            self.assertEqual(interface.evidence, before)
+
+    async def test_history_retirement_retains_pending_work_and_resource_obligations(self):
+        await self.superseded_stop_history()
+        interface = self.intake_interface
+        before = interface.evidence
+        for attribute, value in (("_dependent_state_messages", {"pending": object()}),
+                                 ("_dependent_conflicts", {self.dependent}),
+                                 ("_closeout_started", True)):
+            with patch.object(interface, attribute, value):
+                self.assertFalse((await interface.retire_dependent_maintenance_history())["confirmed"])
+                self.assertEqual(interface.evidence, before)
+        with patch.object(self.intake_boundary, "_pending_dependent_deliveries", {"pending": object()}):
+            self.assertFalse((await interface.retire_dependent_maintenance_history())["confirmed"])
+        with patch.object(self.intake, "maintenance_blockers", return_value=["resource unresolved"]):
+            self.assertFalse((await interface.retire_dependent_maintenance_history())["confirmed"])
+        self.assertEqual(interface.evidence, before)
+
+        entered, proceed = asyncio.Event(), asyncio.Event()
+
+        async def preserving(*args, **kwargs):
+            entered.set()
+            await proceed.wait()
+            return {}
+
+        with patch.object(interface, "_record_framework_evidence", side_effect=preserving):
+            operation = asyncio.create_task(interface.record_administrator_decision("operator", "resume", {}))
+            await entered.wait()
+            release = await interface.retire_dependent_maintenance_history()
+            self.assertFalse(release["confirmed"], release)
+            self.assertTrue(all(m in interface.evidence for m in before))
+            proceed.set()
+            await operation
+
+    async def test_history_retirement_preserves_duplicate_conflicting_and_current_confirmation_rules(self):
+        _, _, _, boundary = await self.superseded_stop_history()
+        interface = self.intake_interface
+        command = RuntimeCommandMessage.from_dict(next(c for c in reversed(self.broker.commands)
+            if c["command_type"] == "confirm_dependent_release"))
+        original = await interface.execute_command(command)
+        survey = RuntimeCommandMessage("retirement-survey", None, "check_stop_readiness", "operator", "intake", {})
+        surveyed = await interface.execute_command(survey)
+        self.assertTrue((await interface.retire_dependent_maintenance_history())["confirmed"])
+        self.assertEqual((await interface.execute_command(command)).payload, original.payload)
+        self.assertEqual((await interface.execute_command(survey)).to_dict(), surveyed.to_dict())
+        changed = survey.to_dict()
+        changed["payload"]["unexpected"] = True
+        conflict = await interface.execute_command(RuntimeCommandMessage.from_dict(changed))
+        self.assertFalse(conflict.success)
+        self.assertEqual((await interface.execute_command(survey)).to_dict(), surveyed.to_dict())
+        confirmation = self.published_confirmation()
+        confirmation["result"]["payload"]["operational_instance_id"] = "contradictory-instance"
+        result = await self.send_confirmation(boundary, confirmation)
+        self.assertFalse(result.success)
+        before = interface.evidence
+        self.assertFalse((await interface.retire_dependent_maintenance_history())["confirmed"])
+        self.assertEqual(interface.evidence, before)
+
+    async def test_history_retirement_keeps_unsuperseded_orderly_stop(self):
+        await self.backend()
+        _, _, launcher, _ = await self.producer()
+        self.assertTrue(await launcher.stop_locally("operator"))
+        before = self.intake_interface.evidence
+        release = await self.intake_interface.retire_dependent_maintenance_history()
+        self.assertTrue(release["confirmed"], release)
+        self.assertEqual(release["released_evidence_count"], 0)
+        self.assertEqual(self.intake_interface.evidence, before)
+
+    async def test_history_retirement_serializes_with_new_dependent_admission(self):
+        await self.superseded_stop_history()
+        interface = self.intake_interface
+        for subscription in self.broker.subscriptions:
+            if ".command.controller.control." in subscription.subject:
+                await subscription.unsubscribe()
+        before = interface.evidence
+        entered, proceed = asyncio.Event(), asyncio.Event()
+        communication = interface._dependent_communication
+        original = communication.request_maintenance_readback
+
+        async def readback(*args, **kwargs):
+            entered.set()
+            await proceed.wait()
+            return await original(*args, **kwargs)
+
+        with patch.object(communication, "request_maintenance_readback", side_effect=readback):
+            admission = asyncio.create_task(self.producer(preservation_window_s=2))
+            await entered.wait()
+            retirement = asyncio.create_task(interface.retire_dependent_maintenance_history())
+            await asyncio.sleep(0)
+            self.assertFalse(retirement.done())
+            proceed.set()
+            await admission
+            release = await retirement
+        self.assertFalse(release["confirmed"], release)
+        self.assertTrue(all(m in interface.evidence for m in before))
+        self.assertTrue(interface.operational_dependents[self.dependent]())
 
     async def test_operational_dependent_blocks_stop_and_cancel_does_not_release_it(self):
         await self.backend()

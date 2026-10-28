@@ -13729,6 +13729,67 @@ deferred; this decision does not design or implement them.
 
 ---
 
+## Decision 435: Maintenance-history memory retirement preserves operational safety and recoverability
+
+**Status:** Accepted
+
+This records the explicitly user-accepted LLC clarification of Decisions 336 and
+353. It supplements Decisions 332-354 and 392-393 without changing their existing
+ownership, preservation, journal-retirement or resource-protection boundaries.
+Documentation synchronization does not implement or validate retirement.
+
+### Conditions for retiring detailed temporary history
+
+Controller, AcquisitionNode, Ingestor, StorageManager and SynchronizationManager
+may retire detailed maintenance-command, result and attempt history from temporary
+memory only when all applicable conditions are confirmed:
+
+1. Required administrator decisions, recovery attempts and actual outcomes have
+   been durably preserved through existing authoritative mechanisms.
+2. No active command, recovery attempt or other operation depends on the
+   information being retired.
+3. No unresolved safety obligation or resource-protection requirement depends on
+   that information.
+4. Duplicate-command and conflicting-command protections remain effective after
+   retirement.
+5. Restart recovery and historical readback do not depend exclusively on the
+   retired temporary information.
+6. Concurrent operations cannot invalidate the retirement decision.
+
+Uncertainty requires retention. Missing, stale, incomplete, contradictory or
+unconfirmed preservation cannot justify retirement. Reuse existing service-owned
+synchronization and serialization mechanisms to prevent retirement races; no
+concrete implementation mechanism is selected by this clarification.
+
+### Retained operational guarantees
+
+The service must retain or reliably recover sufficient operational information to
+recognize relevant prior commands, reject conflicting commands and unsafe
+reexecution, identify unfinished recovery, preserve authorization relationships,
+report unresolved obligations, protect resources and support restart
+reconstruction. Missing temporary memory is not proof that a command has never
+executed.
+
+Required evidence remains subject to existing durability and archival obligations.
+Historical evidence availability alone does not establish operational duplicate
+safety or restart reconstruction. No new journal, database, registry, archive or
+parallel authoritative state store is authorized.
+
+### Boundaries and implementation status
+
+This clarification does not authorize permanent evidence or scientific-record
+deletion, additional journal retirement, new persistence infrastructure, automatic
+recovery or operational reconnection, corrupted-journal terminal-loss procedures,
+or changes to Session lifecycle or resource protection. Preserve completed Q019,
+Q024, G4 and service-maintenance functionality and their validation history.
+
+The maintenance-history retirement contract is accepted but not implemented or
+validated by this synchronization. Q024 remains OPEN for its implementation and
+other remaining obligations; Decisions 350 and 355 and broader temporary-work
+retirement are not resolved by this bounded clarification.
+
+---
+
 # Accepted Architectural Principles
 
 The following principles summarize the accepted decisions so far.

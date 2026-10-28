@@ -137,6 +137,20 @@ class InMemoryIngestor:
         if intake is None or self._storage_manager is None:
             raise RuntimeError("Framework journal and paired StorageManager are required")
         with self._intake_lock, intake._intake_lock:
+            self._verify_framework_journal()
+            compiled = self.compile_framework_runtime_evidence()
+            confirmation = self._storage_manager.continue_framework_evidence_archive(compiled)
+            if confirmation is not None:
+                with self.framework_preservation_guard(self._storage_manager):
+                    pass
+            return confirmation
+
+    def _verify_framework_journal(self):
+        """Check the current physical journal against retained acceptance and audit."""
+        intake = self._framework_ingestor
+        if intake is None:
+            raise RuntimeError("Framework recovery journal is not configured")
+        with intake._intake_lock:
             if intake._journal_failed or intake._recovery_journal_path is None:
                 raise RuntimeError("Framework journal integrity is unconfirmed")
             evidence, audits = {}, []
@@ -158,17 +172,12 @@ class InMemoryIngestor:
                 after = os.fstat(journal.fileno())
                 current = intake._recovery_journal_path.stat()
             if (list(evidence.items()) != list(intake._accepted_evidence_content.items())
-                    or audits != [item.to_dict() for item in intake._runtime_evidence_audit]
+                    or json.dumps(audits, sort_keys=True) != json.dumps(
+                        [item.to_dict() for item in intake._runtime_evidence_audit], sort_keys=True)
                     or any(getattr(before, name) != getattr(after, name)
                            or getattr(before, name) != getattr(current, name)
                            for name in ("st_dev", "st_ino", "st_size", "st_mtime_ns"))):
                 raise RuntimeError("Recovered framework compilation differs from current durable journal")
-            compiled = self.compile_framework_runtime_evidence()
-            confirmation = self._storage_manager.continue_framework_evidence_archive(compiled)
-            if confirmation is not None:
-                with self.framework_preservation_guard(self._storage_manager):
-                    pass
-            return confirmation
 
     async def await_durable_runtime_evidence(self, evidence: RuntimeEvidenceMessage, timeout_s: float) -> bool:
         """Boundedly observe exact journal-backed acceptance without polling or transport acknowledgments."""
@@ -206,12 +215,14 @@ class InMemoryIngestor:
             future.set_result(True)
 
     @contextmanager
-    def framework_preservation_guard(self, storage_manager: PersistentStorageManager):
+    def framework_preservation_guard(self, storage_manager: PersistentStorageManager, *, verify_journal=False):
         """Hold intake and storage steady while checking complete framework archival."""
         intake = self._framework_ingestor
         if intake is None:
             raise RuntimeError("Framework recovery journal is not configured")
         with intake._intake_lock, storage_manager.framework_preservation_guard() as confirmation:
+            if verify_journal:
+                self._verify_framework_journal()
             compiled = intake.compile_persistent_runtime_evidence()
             if (intake._journal_failed or confirmation is None
                     or any(confirmation[name] != [item.to_dict() for item in compiled[name]]

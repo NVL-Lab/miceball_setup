@@ -3092,6 +3092,10 @@ audit PASS. Decision 354's bounded monthly implementation is CLOSED in W071 afte
 independent ICC IPython validation (6/6 PASS) and implementation/source review PASS,
 with no confirmed P0-P3 findings; Decision 350 and Decisions 353/355 remain unimplemented.
 Remaining implementation and unresolved operational contracts keep Q024 OPEN.
+Decision 435 now specifies the accepted safety and recoverability contract for
+retiring detailed maintenance-command, result and attempt history from temporary
+memory. This resolves that bounded architectural clarification, not its
+implementation or validation. Broader memory-retirement questions remain below.
 Q024-B service-specific operator-authorized execution architecture
 is accepted in Decisions 339-348; supported cases have automated implementation
 coverage and are complete with independent manual validation and final independent
@@ -3199,9 +3203,19 @@ Decision 336 therefore remains partially implemented.
 Administrative markers, command/result correctness, unsafe resources, service
 bindings, and journals remain protected. Resource-specific administrative cleanup
 now has the accepted narrow Q024-B execution boundaries and supported implementation
-below, not authority inferred from a drop decision. Decision 353 now accepts wider
-service-owned memory retirement, retaining safety/idempotency obligations; the
-minimum operational state and limits still require implementation/clarification.
+below, not authority inferred from a drop decision. Decision 353 accepts wider
+service-owned memory retirement, retaining safety/idempotency obligations.
+Decision 435 supplies the maintenance-history contract: retirement requires
+confirmed durable preservation, no active-operation or unresolved safety/resource
+dependency, continuing duplicate/conflict protection, independent restart/history
+support and protection against concurrent invalidation. Services retain or reliably
+recover sufficient operational information; missing temporary memory never proves
+nonexecution, and historical evidence alone is not operational duplicate safety
+or restart reconstruction. Missing, stale, incomplete, contradictory or unconfirmed
+preservation requires retention. Reuse existing synchronization/serialization and
+authoritative mechanisms without selecting a new store or concrete implementation.
+This bounded retirement remains unimplemented and unvalidated. Broader
+accepted-evidence/deduplication retirement and operational limits remain separate.
 Q019 is CLOSED in W050; Q022, Phase 16, and M015 remain OPEN. No new validation was executed during
 this documentation closure.
 
@@ -3378,10 +3392,21 @@ complete and independently validated/audited in W070B:
   auditing for terminal deletion be established when the evidence subsystem is
   unavailable? Record the conflict for architectural clarification; no exception
   permitting unaudited deletion is accepted.
-- **Memory retirement:** What minimum accepted-evidence/deduplication and
-  maintenance command/result/attempt information remains necessary after completed,
-  abandoned, or permanently unresolved work? Document genuine operational limits;
-  unlimited unresolved work does not imply constant memory consumption.
+- **Maintenance-history retirement (resolved architecturally; implementation
+  pending):** Decision 435 defines the conditions and retained operational
+  guarantees for temporary maintenance-command/result/attempt history. Required
+  administrator decisions, recovery attempts and outcomes must be durably
+  preserved; no operation, safety obligation or resource protection may depend
+  on retired details. Duplicate/conflict rejection, authorization relationships,
+  unfinished-recovery reporting and restart reconstruction must remain effective
+  under concurrency. Uncertainty retains history. No permanent/scientific deletion,
+  additional journal retirement, new persistence, automatic recovery/reconnection
+  or corrupted-journal terminal-loss procedure is authorized. No implementation
+  mechanism or validation result is established here.
+- **Broader memory retirement:** Minimum accepted-evidence/deduplication information
+  outside the bounded maintenance-history clarification and genuine operational
+  limits still require assessment. Unlimited unresolved work does not imply
+  constant memory consumption.
 - Application-wide unfinished-Session discovery/selection beyond trustworthy known
   participants, Session/application restoration, and unsupported recovery procedures
   remain deferred. Multiple unfinished Sessions may be reported only from existing
@@ -3395,7 +3420,7 @@ separate from technical deletion safety; safe permanent-archive deletion is manu
 
 * Decision 350, Decisions 353/355, and remaining Decision 354 work outside the bounded monthly implementation
 * Remaining cross-month deletion independence, older/unidentified interrupted-target repair support and historical deletion-safety contracts
-* Unavailable-evidence auditing conflict and remaining memory-retirement limits
+* Unavailable-evidence auditing conflict, Decision 435 maintenance-history retirement implementation, and broader memory-retirement limits
 * Application-wide discovery/restoration and unsupported recovery procedures
 
 These questions do not block accepted known-Session journal recovery and must
