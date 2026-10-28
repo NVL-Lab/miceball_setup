@@ -5895,6 +5895,105 @@ earlier audit history remain unchanged. No tests or audit were rerun for closure
 
 ---
 
+# G5 - First Real-Hardware Distributed Camera Integration
+
+**Status: Deployment evidence recorded; G5 remains OPEN.** This records the first
+successful real-hardware G5 integration reported by the user, not a new Codex
+test, independent audit or milestone closure. Earlier software-only validation
+limits remain historical; this observation adds only the deployment evidence below.
+No tested revision, software versions or test date were supplied, so none is
+inferred from the documentation checkout.
+
+## Observed deployment and workflow
+
+| Component or identity | Observed placement/value |
+| --- | --- |
+| Controller | Windows, `ball-controller` |
+| NATS/JetStream | Windows |
+| Ingestor, StorageManager and SynchronizationManager | Windows |
+| AcquisitionNode | Jetson, `2p-ball-node` |
+| USB camera | `cam1` |
+| Session | `47a950941e7e40f6807e29dc607748b1` |
+| Experiment | `camera-test-5s` |
+
+The reported workflow successfully launched and started the Session, acquired
+real USB-camera frames on the Jetson, reached Experiment expiry, performed Normal
+Stop, collected the artifact from Jetson to Windows, obtained StorageManager
+verification and archival confirmation, read the historical Session, and finally
+released the Session. The final Session state was `completed`, with cleanup
+confirmed.
+
+This is deployment evidence for the existing Controller-owned lifecycle, not a
+new execution path. Decisions 375-376 retain NATS communication across process
+boundaries and shared Ingestor/StorageManager process lifetime; Decision 395
+retains AcquisitionNode deadline enforcement and Controller lifecycle authority;
+Decision 382 retains acquisition-intake and Stage A preservation guarantees.
+Decision 422's external request/uncertainty contracts remain unchanged. Service
+placement on the same Windows computer does not authorize Controller direct-owner
+shortcuts or bypass any mandatory service.
+
+## Reported artifact and preservation evidence
+
+| Observation | Reported value |
+| --- | --- |
+| Artifact | `frames.h5` |
+| File size | 118,138,944 bytes |
+| Frames | 128 |
+| Frame shape and type | 480 x 640 x 3, `uint8` |
+| First-to-last-frame span | 4.233240142 seconds |
+| Observed frame rate | Approximately 30.00066 fps |
+| Frame indices | Continuous |
+| Timestamp status | All 128 frames marked `runtime_timestamped` |
+| Visual inspection | A real frame was visually inspected |
+
+StorageManager reported completed collection, a verified artifact, an archived
+outcome, no collection issues, and `archival_confirmed: true`. These reported
+owner outcomes, together with later historical readback, establish the observed
+successful collection/archival result; an earlier pending client response alone
+did not establish it. The frame span is the interval between the first and last
+recorded frames, not proof of five full seconds of recorded frames or an independent
+measurement of Experiment deadline accuracy.
+
+## Unresolved observations
+
+1. Client collection polling ended while the operation was still pending. Later
+   historical readback confirmed successful archival, but the client did not
+   retain its request ID. Recovery of that particular request's pending/completed
+   result was not demonstrated. Pending/timeout is not failure, cancellation or
+   permission to replay an uncertain operation under Decision 422.
+2. Jetson historical-state readback was unconfirmed. This remains distinct from
+   the successful StorageManager/historical Session result and is not recorded as
+   confirmed AcquisitionNode historical-state verification.
+3. Transient NATS connection reset/aborted messages occurred. Their cause and
+   recovery implications were not established by this successful run; it does not
+   prove Decision 423 reconnect or physical-failure recovery behavior.
+
+These are retained observations, not confirmed framework defects. No root cause,
+severity or corrective implementation is assigned by this documentation task.
+
+## Scope and remaining validation
+
+This was one short Experiment in one Session, on one AcquisitionNode with a
+temporary USB validation camera. Synchronization initialization and recorded
+timestamps do not establish synchronization accuracy, cross-clock alignment,
+drift or scientific timing quality. `runtime_timestamped` is a recorded status,
+not an independent synchronization-quality pass; continuous frame indices alone
+do not establish absence of camera/driver losses outside the recorded sequence.
+
+Long recordings, repeated Sessions, multi-node acquisition, physical failure and
+interruption recovery, power loss and the complete planned deployment topology
+remain unverified by this run. The observed Windows/Jetson placement is not
+qualification of other placements, network/storage arrangements, future cameras
+or the full intended deployment. Machine/device identities and the short recording
+are test inputs, not universal framework requirements. No general performance,
+reliability or recovery guarantee is inferred.
+
+G5 remains OPEN; Q022, Q024, M015, Phase 16 and other unfinished work are not
+closed. No hardware experiments, implementation tests, independent validation or
+audit were executed during this documentation-only recording of supplied evidence.
+
+---
+
 # Q034 Slice 1 - Historical Scientific-Artifact Inventory
 
 **Status: CLOSED within validated read-only software scope.** ICC accepted the

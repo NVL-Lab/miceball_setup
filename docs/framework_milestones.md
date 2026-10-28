@@ -1780,6 +1780,43 @@ power-loss, normal Windows asyncio and initial hard-link promotion remain
 unverified. Nine Windows-blocked integration checks remain unconfirmed. Q022,
 Q024, M015 and Phase 16 remain open; G5 is not started by this closure.
 
+## G5 First Real-Hardware Integration Evidence
+
+**Status:** OPEN - first successful deployment workflow recorded, not G5 closure.
+The user reported Windows Controller `ball-controller`, Windows NATS/JetStream,
+Ingestor, StorageManager and SynchronizationManager, with Jetson AcquisitionNode
+`2p-ball-node` and USB camera `cam1`. Session
+`47a950941e7e40f6807e29dc607748b1`, Experiment `camera-test-5s`, successfully
+demonstrated launch, Session start, real acquisition, Experiment expiry, Normal
+Stop, Jetson-to-Windows collection, StorageManager verification/archival,
+historical Session readback and final release. The final Session state was
+`completed`, with cleanup confirmed.
+
+The reported `frames.h5` was 118,138,944 bytes: 128 `uint8` frames of shape
+480 x 640 x 3, a 4.233240142-second first-to-last-frame span, approximately
+30.00066 fps, continuous indices and all frames marked `runtime_timestamped`.
+A real frame was visually inspected. StorageManager reported completed collection,
+verified artifact, archived outcome, no collection issues and
+`archival_confirmed: true`. See the
+[G5 deployment evidence record](validated_workflows.md#g5---first-real-hardware-distributed-camera-integration)
+for the exact scope and unresolved observations.
+
+Client collection polling ended pending and its request ID was not retained;
+later historical readback confirmed archival. Jetson historical-state readback
+remained unconfirmed, and transient NATS connection reset/aborted messages occurred.
+These are unresolved observations, not classified framework defects or evidence
+of validated reconnection/failure recovery.
+
+One short run does not validate synchronization accuracy, long recordings,
+repeated Sessions, multi-node acquisition, physical failure/power-loss recovery
+or the complete planned deployment topology. Timestamp labels and synchronization
+initialization are not a synchronization-quality pass. This observed placement
+does not qualify every intended service/network/storage arrangement or the final
+scientific camera. Accepted Controller/NATS/service authority remains unchanged.
+No deployment revision or date is inferred, and no new independent validation or
+audit is claimed. G5, Q022, Q024, M015 and Phase 16 remain OPEN; no production,
+test or architecture changes or new hardware experiments accompany this record.
+
 ## Completed Q034 Slice 1 Historical Artifact Inventory
 
 **Status:** CLOSED - bounded read-only software scope under Decisions 431-432.
