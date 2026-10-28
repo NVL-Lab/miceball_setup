@@ -296,6 +296,9 @@ class ServiceMaintenanceInterface:
         """Read existing owner-verified history; never repair or bless an unconfirmed archive."""
         confirmations = dict.fromkeys(self._dependent_instances)
         self._dependent_confirmations = confirmations
+        if self._dependent_state_messages:
+            # An interrupted publication cannot be replaced by an older archived release.
+            return
         archived = self.storage_manager.get_framework_preservation_confirmation()
         if archived is None:
             return
@@ -326,6 +329,10 @@ class ServiceMaintenanceInterface:
             participant = RuntimeParticipant.from_dict(state["registration"]["participant"])
             if participant not in self._dependent_instances:
                 continue
+            if (message.evidence_type != "service_maintenance_evidence" or message.session_id is not None
+                    or not message.is_persistent):
+                raise ValueError("Invalid dependent history envelope")
+            self._validate_dependent_state(state)
             if preserved.get(message.evidence_id) != json.dumps(data, sort_keys=True):
                 raise RuntimeError("Dependent history is not exactly archived")
             message = RuntimeEvidenceMessage.from_dict(data)
@@ -340,9 +347,53 @@ class ServiceMaintenanceInterface:
                 conflicts.discard(participant)
         return instances, confirmations, conflicts, histories
 
+    def _validate_dependent_state(self, state):
+        """Validate preserved dependent identities and the existing release contract."""
+        if not isinstance(state, dict) or not isinstance(state.get("registration"), dict):
+            raise ValueError("Invalid dependent state")
+        registration = state["registration"]
+        keys = {"participant", "operational_instance_id", "ingestor_instance_id"}
+        if (set(state) != {"registration", "confirmation", "conflicting"}
+                or set(registration) != keys or type(state["conflicting"]) is not bool
+                or any(not isinstance(registration[k], str) or not registration[k]
+                       for k in ("operational_instance_id", "ingestor_instance_id"))):
+            raise ValueError("Incomplete or invalid dependent registration")
+        participant = RuntimeParticipant.from_dict(registration["participant"])
+        if (participant.component_type not in {"controller", "acquisition_node", "synchronization_manager"}
+                or registration["participant"] != participant.to_dict()
+                or not isinstance(participant.component_id, str) or not participant.component_id):
+            raise ValueError("Invalid dependent participant")
+        payload = state["confirmation"]
+        if payload is None:
+            return
+        if (not isinstance(payload, dict) or state["conflicting"] or set(payload) != keys | {"confirmation"}
+                or any(json.dumps(payload[k], sort_keys=True) != json.dumps(registration[k], sort_keys=True)
+                       for k in keys)):
+            raise ValueError("Dependent confirmation contradicts its registration")
+        confirmation = payload["confirmation"]
+        if not isinstance(confirmation, dict):
+            raise ValueError("Invalid dependent confirmation")
+        if "controller_release" in confirmation:
+            if set(confirmation) != {"controller_release"}:
+                raise ValueError("Contradictory dependent release kinds")
+            release = confirmation["controller_release"]
+            if (not isinstance(release, dict) or participant.component_type != "controller"
+                    or release.get("outcome") != "dependency_released"):
+                raise ValueError("Only Controller may release its dependency without retirement")
+            archived = self.storage_manager.get_framework_preservation_confirmation()
+            if (not archived or not release["evidence"] or any(m not in archived["runtime_evidence"]
+                    or not self.ingestor.has_durable_runtime_evidence(RuntimeEvidenceMessage.from_dict(m))
+                    for m in release["evidence"])):
+                raise RuntimeError("Controller release evidence is not durably preserved")
+        else:
+            if set(confirmation) != {"command", "result"}:
+                raise ValueError("Incomplete dependent retirement confirmation")
+            self._validate_dependent_retirement(participant, registration["operational_instance_id"], confirmation)
+
     async def _record_dependent_state(self, registration, confirmation=None, *, conflicting=False):
         state = {"registration": deepcopy(registration), "confirmation": deepcopy(confirmation),
                  "conflicting": conflicting}
+        self._validate_dependent_state(state)
         key = json.dumps(state, sort_keys=True)
         message = self._dependent_state_messages.get(key)
         if message is None:
@@ -449,6 +500,7 @@ class ServiceMaintenanceInterface:
         if participant not in self._dependent_instances:
             raise ValueError("External dependent is not explicitly configured")
         previous = self._dependent_confirmations[participant]
+        previous_instance = self._dependent_instances[participant]
         confirmation = payload.get("confirmation")
         if command.command_type == "confirm_dependent_release" and previous == payload:
             return {"confirmation": payload}
@@ -459,22 +511,35 @@ class ServiceMaintenanceInterface:
             self._dependent_conflicts.add(participant)
             await self._record_dependent_state(registration, conflicting=True)
             raise RuntimeError("Contradictory dependent release confirmation")
+        # Preserve known uncertainty before any cancellable owner readback. Reuse the
+        # existing dependent-state journal/archive pathway, including interrupted retries.
+        unresolved = registration if command.command_type == "register_operational_dependent" else {
+            "participant": participant.to_dict(), "operational_instance_id": previous_instance,
+            "ingestor_instance_id": self.operational_instance_id}
+        pending_key = json.dumps({"registration": unresolved, "confirmation": None, "conflicting": False}, sort_keys=True)
+        if (previous is not None or (command.command_type == "register_operational_dependent"
+                and previous_instance != instance) or pending_key in self._dependent_state_messages):
+            await self._record_dependent_state(unresolved)
+            if command.command_type == "register_operational_dependent":
+                self._dependent_instances[participant] = instance
+                self._dependent_conflicts.discard(participant)
+        readback_confirmation = (previous["confirmation"] if previous is not None
+            and previous_instance == instance and command.command_type == "register_operational_dependent"
+            else confirmation)
         probe = await self._dependent_communication.request_maintenance_readback(
-            participant, "read_operational_instance", {"confirmation": confirmation}, self._dependent_result_window_s)
+            participant, "read_operational_instance", {"confirmation": readback_confirmation}, self._dependent_result_window_s)
         if (probe is None or not probe.success or probe.payload.get("operational_instance_id") != instance
                 or probe.payload.get("participant") != participant.to_dict()):
-            if previous is not None:
-                await self._record_dependent_state({key: previous[key] for key in registration})
             raise RuntimeError("Current dependent instance is unconfirmed")
         if command.command_type == "register_operational_dependent":
             if self._attempt is not None or self._closeout_started:
                 raise RuntimeError("Ingestor maintenance rejects new dependent admission")
-            if self._dependent_instances[participant] != instance:
-                await self._record_dependent_state(registration)
-                self._dependent_instances[participant] = instance
-                self._dependent_conflicts.discard(participant)
-            elif previous is not None:
-                self._dependent_confirmations[participant] = previous
+            if previous is not None and previous_instance == instance:
+                if probe.payload.get("confirmation") != readback_confirmation:
+                    raise RuntimeError("Earlier dependent retirement is no longer confirmed")
+                restored = {**registration, "confirmation": previous["confirmation"]}
+                await self._record_dependent_state(registration, restored)
+                self._dependent_confirmations[participant] = restored
             return {"registration": registration}
         if self._dependent_instances[participant] != instance:
             raise RuntimeError("Dependent confirmation belongs to an earlier or unregistered instance")
@@ -482,17 +547,6 @@ class ServiceMaintenanceInterface:
             raise RuntimeError("Dependent release remains contradictory for this instance")
         if probe.payload.get("confirmation") != confirmation:
             raise RuntimeError("Dependent owner did not confirm the exact release")
-        if "controller_release" in confirmation:
-            release = confirmation["controller_release"]
-            if participant.component_type != "controller" or release.get("outcome") != "dependency_released":
-                raise ValueError("Only Controller may release its dependency without retirement")
-            archived = self.storage_manager.get_framework_preservation_confirmation()
-            if (not archived or any(m not in archived["runtime_evidence"]
-                    or not self.ingestor.has_durable_runtime_evidence(RuntimeEvidenceMessage.from_dict(m))
-                    for m in release["evidence"])):
-                raise RuntimeError("Controller release evidence is not durably preserved")
-        else:
-            self._validate_dependent_retirement(participant, instance, confirmation)
         await self._record_dependent_state(registration, payload)
         self._dependent_confirmations[participant] = deepcopy(payload)
         return {"confirmation": payload}
@@ -502,16 +556,40 @@ class ServiceMaintenanceInterface:
         """Validate the existing correlated Stop/Kill termination contract."""
         original = RuntimeCommandMessage.from_dict(confirmation["command"])
         result = RuntimeCommandResultMessage.from_dict(confirmation["result"])
+        if not isinstance(original.payload, dict) or not isinstance(result.payload, dict):
+            raise ValueError("Invalid dependent command/result payload")
         attempt = result.payload.get("attempt") or {}
+        if not isinstance(attempt, dict) or not isinstance(attempt.get("actions"), list):
+            raise ValueError("Invalid dependent attempt")
+        commands = attempt.get("commands")
+        if (not isinstance(commands, list) or not commands or not isinstance(commands[-1], dict)
+                or any(commands[-1].get(key) != expected for key, expected in (
+                    ("command_id", original.command_id), ("command_type", original.command_type),
+                    ("administrator_id", original.payload.get("administrator_id"))))):
+            raise ValueError("Dependent attempt does not retain the confirming administrator command")
         if (original.command_type not in {"stop", "kill"} or original.session_id is not None
+                or not isinstance(instance, str) or not instance
+                or any(not isinstance(value, str) or not value for value in (
+                    original.command_id, original.source_id, result.result_id,
+                    original.payload.get("stop_attempt_id"), original.payload.get("administrator_id")))
                 or result.command_id != original.command_id or result.session_id is not None
                 or original.target_id != participant.component_id or result.source_id != participant.component_id
                 or result.target_id != original.source_id or result.success is not True or result.status != "succeeded"
                 or result.payload.get("outcome") != "completed" or result.payload.get("termination_confirmed") is not True
                 or result.payload.get("operational_instance_id") != instance
                 or not attempt.get("stop_attempt_id") or attempt.get("stop_attempt_id") != original.payload.get("stop_attempt_id")
-                or attempt.get("target") != participant.to_dict()):
+                or attempt.get("target") != participant.to_dict() or attempt.get("outcome") != "completed"
+                or "operational_retirement_confirmed" not in attempt.get("actions", ())):
             raise ValueError("Invalid dependent retirement correlation or outcome")
+        if original.command_type == "kill" and (original.payload.get("authorized") is not True
+                or commands[-1].get("authorized") is not True):
+            raise ValueError("Dependent Kill lacks its explicit authorization")
+        if original.command_type == "stop" and (
+                attempt.get("blockers") != [] or attempt.get("failures") != []
+                or attempt.get("remaining_obligations") != []
+                or attempt.get("requester_id") != original.source_id
+                or "orderly_resources_closed" not in attempt["actions"]):
+            raise ValueError("Orderly dependent Stop has incomplete or contradictory closeout")
         return original
 
     def _read_operational_instance(self, command):
@@ -686,16 +764,10 @@ class ServiceMaintenanceInterface:
         payload = state.get("confirmation")
         if state.get("conflicting") is not False or not payload or "confirmation" not in payload:
             return False
-        registration = state["registration"]
-        if any(json.dumps(payload.get(k), sort_keys=True) != json.dumps(v, sort_keys=True)
-               for k, v in registration.items()):
-            raise RuntimeError("Dependent confirmation contradicts its registration")
         confirmation = payload["confirmation"]
         if "controller_release" in confirmation:
             return False
-        original = self._validate_dependent_retirement(
-            participant, registration["operational_instance_id"], confirmation)
-        return original.command_type == "stop"
+        return confirmation["command"]["command_type"] == "stop"
 
     def _release_abandoned_evidence(self, decision):
         release = {"released_evidence_count": 0, "confirmed": False, "remaining_obligations": []}

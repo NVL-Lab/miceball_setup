@@ -299,6 +299,147 @@ class ExternalDependentMaintenanceTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(all(m in interface.evidence for m in before))
         self.assertTrue(interface.operational_dependents[self.dependent]())
 
+    async def test_malformed_preserved_stop_never_restores_release_or_retires_copies(self):
+        base = self.root
+        cases = ("missing_ingestor", "null_instance", "blocked", "failed", "incomplete",
+                 "missing_outcome", "failures", "obligations", "missing_actions", "wrong_participant",
+                 "missing_command", "wrong_administrator", "outer_failed")
+        for index, fault in enumerate(cases):
+            with self.subTest(fault=fault):
+                self.root = base / str(index)
+                self.root.mkdir()
+                self.broker = _Broker()
+                await self.superseded_stop_history()
+                interface = self.intake_interface
+                data = next(m.to_dict() for m in reversed(interface.evidence)
+                    if m.payload.get("dependent_maintenance", {}).get("confirmation"))
+                data["evidence_id"] = "malformed-" + fault
+                state = data["payload"]["dependent_maintenance"]
+                confirmation = state["confirmation"]
+                result = confirmation["confirmation"]["result"]
+                attempt = result["payload"]["attempt"]
+                if fault == "missing_ingestor":
+                    del state["registration"]["ingestor_instance_id"]
+                    del confirmation["ingestor_instance_id"]
+                elif fault == "null_instance":
+                    state["registration"]["operational_instance_id"] = None
+                    confirmation["operational_instance_id"] = None
+                    result["payload"]["operational_instance_id"] = None
+                elif fault in {"blocked", "failed", "incomplete"}:
+                    attempt["outcome"] = fault if fault != "incomplete" else None
+                elif fault == "missing_outcome":
+                    del attempt["outcome"]
+                elif fault == "failures":
+                    attempt["failures"] = ["Unconfirmed cleanup"]
+                elif fault == "obligations":
+                    attempt["remaining_obligations"] = ["Unreleased resource"]
+                elif fault == "missing_actions":
+                    attempt["actions"] = []
+                elif fault == "missing_command":
+                    attempt["commands"] = []
+                elif fault == "wrong_administrator":
+                    attempt["commands"][-1]["administrator_id"] = "another-administrator"
+                elif fault == "outer_failed":
+                    result["status"], result["success"] = "failed", False
+                else:
+                    confirmation["participant"]["component_id"] = "another-owner"
+                self.assertTrue(self.intake.receive_runtime_evidence(RuntimeEvidenceMessage.from_dict(data)).accepted)
+                self.storage.write_framework_evidence_archive(self.intake.compile_framework_runtime_evidence())
+                before = interface.evidence
+                files = {p: p.read_bytes() for p in self.root.rglob("*") if p.is_file()}
+                self.assertFalse((await self.status()).payload["ready"])
+                self.assertFalse((await interface.retire_dependent_maintenance_history())["confirmed"])
+                self.assertEqual(interface.evidence, before)
+                self.assertEqual(files, {p: p.read_bytes() for p in files})
+                for subscription in self.broker.subscriptions:
+                    await subscription.unsubscribe()
+                await self.backend()
+                self.assertTrue(self.intake_interface.operational_dependents[self.dependent]())
+
+    async def test_cancelled_registration_remains_unresolved_through_survey_restart_and_retry(self):
+        await self.superseded_stop_history()
+        interface = self.intake_interface
+        for subscription in self.broker.subscriptions:
+            if ".command.controller.control." in subscription.subject:
+                await subscription.unsubscribe()
+        entered, proceed = asyncio.Event(), asyncio.Event()
+        communication = interface._dependent_communication
+        original = communication.request_maintenance_readback
+
+        async def readback(*args, **kwargs):
+            entered.set()
+            await proceed.wait()
+            return await original(*args, **kwargs)
+
+        with patch.object(communication, "request_maintenance_readback", side_effect=readback):
+            registration = asyncio.create_task(self.producer(preservation_window_s=2))
+            await asyncio.wait_for(entered.wait(), 2)
+            registration.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await registration
+        before = interface.evidence
+        self.assertFalse((await self.status()).payload["ready"])
+        self.assertFalse((await interface.retire_dependent_maintenance_history())["confirmed"])
+        self.assertEqual(interface.evidence, before)
+        blocked = await interface.execute_command(RuntimeCommandMessage("cancelled-registration-stop", None,
+            "stop", "operator", "intake", {"stop_attempt_id": "cancelled-registration", "administrator_id": "operator"}))
+        self.assertEqual(blocked.payload["outcome"], "blocked")
+        interface.close_resources.assert_not_awaited()
+        await interface.execute_command(RuntimeCommandMessage("cancelled-registration-cancel", None,
+            "cancel", "operator", "intake", {"stop_attempt_id": "cancelled-registration", "administrator_id": "operator"}))
+        for subscription in self.broker.subscriptions:
+            await subscription.unsubscribe()
+        await self.backend()
+        self.assertTrue(self.intake_interface.operational_dependents[self.dependent]())
+        self.assertFalse((await self.status()).payload["ready"])
+        # Explicitly register and stop a fresh owner using the existing retry path.
+        _, _, launcher, _ = await self.producer(preservation_window_s=2)
+        self.assertTrue(await launcher.stop_locally("operator"))
+        self.assertFalse(self.intake_interface.operational_dependents[self.dependent]())
+        self.assertTrue((await self.intake_interface.retire_dependent_maintenance_history())["confirmed"])
+
+    async def test_interrupted_registration_publication_blocks_history_restore_and_can_retry(self):
+        await self.superseded_stop_history()
+        interface = self.intake_interface
+        for subscription in self.broker.subscriptions:
+            if ".command.controller.control." in subscription.subject:
+                await subscription.unsubscribe()
+        entered, proceed = asyncio.Event(), asyncio.Event()
+
+        async def publication(message):
+            entered.set()
+            await proceed.wait()
+            self.intake.receive_runtime_evidence(message)
+
+        with patch.object(interface, "evidence_publisher", publication):
+            registration = asyncio.create_task(self.producer(preservation_window_s=2))
+            await asyncio.wait_for(entered.wait(), 2)
+            registration.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await registration
+        before = interface.evidence
+        self.assertFalse((await self.status()).payload["ready"])
+        self.assertFalse((await interface.retire_dependent_maintenance_history())["confirmed"])
+        self.assertEqual(interface.evidence, before)
+        command = RuntimeCommandMessage.from_dict(next(c for c in reversed(self.broker.commands)
+            if c["command_type"] == "register_operational_dependent"))
+        retry = await interface.execute_command(command)
+        self.assertTrue(retry.success, retry.reason)
+        self.assertFalse((await self.status()).payload["ready"])
+        for subscription in self.broker.subscriptions:
+            if ".command.controller.control." in subscription.subject:
+                await subscription.unsubscribe()
+        _, _, launcher, _ = await self.producer(preservation_window_s=2)
+        self.assertTrue(await launcher.stop_locally("operator"))
+        self.assertFalse(interface.operational_dependents[self.dependent]())
+
+    async def test_repeated_registration_reconfirms_the_same_retired_owner(self):
+        _, _, owner, _ = await self.superseded_stop_history()
+        await owner.register_ingestor_dependency()
+        self.assertTrue((await self.status()).payload["ready"])
+        release = await self.intake_interface.retire_dependent_maintenance_history()
+        self.assertTrue(release["confirmed"], release)
+
     async def test_operational_dependent_blocks_stop_and_cancel_does_not_release_it(self):
         await self.backend()
         _, _, producer, _ = await self.producer()
