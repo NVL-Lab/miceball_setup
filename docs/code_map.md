@@ -82,7 +82,7 @@ contradictory historical ownership requires administrator mode, not inference.
 - Controller._require_storage_operator: Checks cooperative request context against the recorded Session owner without treating NATS routing identity as a person.
 - Controller._read_storage_session_owner: Obtains fresh scoped authoritative metadata before ownership-sensitive work.
 - Controller._read_original_owners: Reads registered original owners and explicitly reports missing/unconfirmed nodes without inventing inventories.
-- Controller._delete_original_artifacts: Shares exact-scope deletion orchestration between manual and optional post-collection requests without transferring scientific bytes.
+- Controller._delete_original_artifacts: Shares manual and optional post-collection deletion, rejects unconfirmed identities before filtering, and selects by authoritative manifest Experiment IDs without interpreting remote paths.
 - Controller._collect_saved_session_artifacts_remote: Retains the existing scoped StorageManager collection/proof implementation behind the authorized serialized entry point.
 - AcquisitionNode.read_storage_history(*, session_id): Reads historical exact-original inventory, capacity and durable deletion operations without device preparation or Session rebinding.
 - AcquisitionNode.delete_original_artifacts(*, operation_id, request): Applies current node participation/cleanup safety under its existing reservation lock and delegates physical deletion to LocalStorageManager.
@@ -103,6 +103,8 @@ contradictory historical ownership requires administrator mode, not inference.
 - NatsAcquisitionNodeCommunication._execute_storage_command: Routes scoped historical/deletion commands and confirms exact framework evidence through existing Ingestor preservation, retaining local outcomes on missing replies.
 - tests.test_storage_backend.StorageBackendTests: Exercises actual disk-backed owners over existing controlled NATS transport for ownership, exact deletion, aliases, uncertainty, retries, restart history and maintenance retention.
 - tests.test_storage_backend.StorageBackendTests.connect_storage_transport: Reuses the isolated broker fixture with the existing disk-backed owners for distributed scope, duplicate-proof and partial-retry regressions.
+- tests.test_storage_backend.StorageBackendTests.test_experiment_selection_is_independent_of_remote_path_conventions: Exercises Windows/POSIX diagnostic paths under opposite Controller path semantics with single-, multi-Experiment and whole-Session requests over isolated NATS.
+- tests.test_storage_backend.StorageBackendTests.test_unknown_or_inconsistent_experiment_scope_blocks_every_node: Ensures a missing, malformed or inconsistent manifest Experiment identity prevents deletion on both the affected and otherwise valid nodes.
 - tests.test_storage_backend.CollectedOriginalDeletionTests: Exercises HDF5 collection proof, conditional deletion, corrupted copies and preservation of global copies and historical products.
 - tests.test_storage_backend.StorageExternalModelsTests: Checks shared-client operator context and strict external Storage request/result identity.
 

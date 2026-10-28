@@ -799,6 +799,27 @@ cross-machine, process-crash or power-loss validation is claimed. Initial hard-l
 promotion and previously blocked integration checks remain unconfirmed. Slice 2
 and Q034 remain OPEN; no documentation closure is performed by this handoff.
 
+**Cross-platform selection correction (independent verification pending):** The
+subsequent re-audit of `e0b71a51f7a43180b7cfdc08c80973259d047b38` confirmed the
+three earlier corrections within its exercised scope but found a remaining P2:
+Controller used local filesystem conventions to derive Experiment identity from
+a remote manifest path. The bounded correction selects by the authoritative
+manifest `experiment_id` and moves the existing unconfirmed-identity rejection
+before filtering, so inconsistent scope cannot be hidden by selection. Exact
+node-local dispatch, global selection, ownership and evidence requirements are
+unchanged. Two regression methods cover both remote path conventions under the
+opposite Controller semantics, single/multiple/whole-Session selection and six
+missing/malformed/inconsistent identity cases. Regression-first execution
+reproduced the Windows-path/POSIX-Controller failures. Post-fix developer
+verification passed 11 selected methods with no skips: both new methods (six
+cross-platform selection cases and six invalid-identity cases) plus nine existing
+scope, prior-defect, retry, incomplete-evidence and optional-collection regressions.
+The new methods use actual isolated NATS and disk-backed owners, with controlled
+Controller path semantics and diagnostic remote paths; they do not establish an
+actual cross-machine Windows/Linux deployment. Syntax and diff checks passed.
+Separate independent validation and audit remain pending. Q034 and Slice 2
+remain OPEN.
+
 **Codex implementation verification:** 79 distinct selected methods passed and one
 filesystem-alias method was skipped across the final focused runs (79-method
 regression run: 78 passed, one skipped; final 31-method directly affected rerun:

@@ -1,12 +1,13 @@
 """Controller-mediated Storage workflows with real owners and simulated NATS transport."""
 
 import asyncio
+from contextlib import ExitStack
 from copy import deepcopy
 from dataclasses import replace
 from hashlib import sha256
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 import tempfile
 import unittest
 from unittest.mock import AsyncMock, patch
@@ -637,6 +638,83 @@ class StorageBackendTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(Path, "unlink", side_effect=AssertionError("duplicate must not retry unlink")):
             self.assertFalse((await self.delete()).succeeded)
         self.assertEqual(self.originals_present(), before)
+
+    @unittest.skipUnless(NATS_SERVER, "optional local nats-server unavailable")
+    async def test_experiment_selection_is_independent_of_remote_path_conventions(self):
+        other_root = self.root / "other-node"
+        other = AcquisitionNode(device_manager=DeviceManager([ReadyFakeAdapter("other", "camera", ("frames",), True)]),
+            node_id="other-node", synchronization_source_id="sync", default_local_storage_root=other_root)
+        self.peers += (RuntimeParticipant("acquisition_node", "other-node"),)
+        await self.connect_storage_transport(other)
+        for remote_paths, controller_paths in ((PureWindowsPath, PurePosixPath), (PurePosixPath, PureWindowsPath)):
+            for label, selection in (("multiple", ["one", "two"]), ("single", ["one"]), ("whole", None)):
+                sid = f"{remote_paths.__name__}-{label}"
+                with self.subTest(remote=remote_paths.__name__, selection=selection):
+                    self.record(sid, "Alice")
+                    manifests = [self.artifact(sid, "one", "frames"), self.artifact(sid, "one", "timing"),
+                        self.artifact(sid, "two", "index", root=other_root, node_id="other-node"),
+                        self.artifact(sid, "leave", "frames")]
+                    with ExitStack() as contexts:
+                        contexts.enter_context(patch("lab_sync_acquisition.controller.Path", controller_paths))
+                        for node in (self.node, other):
+                            read_history = node.read_storage_history
+                            def reported_history(*, session_id, read=read_history):
+                                report = read(session_id=session_id)
+                                for entry in report["inventory"]["artifacts"]:
+                                    manifest = entry["manifest"]
+                                    base = "Z:/node-originals" if remote_paths is PureWindowsPath else "/node-originals"
+                                    entry["manifest_path"] = str(remote_paths(base).joinpath(session_id,
+                                        manifest["experiment_id"], manifest["storage_id"], "artifact_manifest.json"))
+                                return report
+                            contexts.enter_context(patch.object(node, "read_storage_history", reported_history))
+                        result = await self.controller.delete_original_artifacts(sid, operation_id=sid,
+                            experiment_ids=selection, participants=self.peers, confirmed=True,
+                            warning_acknowledged=True, **self.arguments)
+                    self.assertTrue(result.succeeded, result.to_dict())
+                    for manifest in manifests:
+                        selected = selection is None or manifest.experiment_id in selection
+                        self.assertEqual(Path(manifest.local_storage_path).exists(), not selected)
+                    expected_nodes = {m.acquisition_node_id for m in manifests
+                                      if selection is None or m.experiment_id in selection}
+                    self.assertEqual(set(result.details["nodes"]), expected_nodes)
+                    for node_id, response in result.details["nodes"].items():
+                        record = response["payload"]["operation"]
+                        self.assertEqual(record["request"]["experiment_ids"], selection)
+                        expected = {m.artifact_manifest_id for m in manifests if m.acquisition_node_id == node_id
+                                    and (selection is None or m.experiment_id in selection)}
+                        self.assertEqual({m["artifact_manifest_id"] for m in record["request"]["artifact_manifests"]}, expected)
+                    archived = self.storage.read_storage_session(sid)
+                    self.assertTrue(archived["deletion_history_confirmed"])
+                    self.assertEqual(len(archived["deletion_history"]), len(expected_nodes))
+
+    @unittest.skipUnless(NATS_SERVER, "optional local nats-server unavailable")
+    async def test_unknown_or_inconsistent_experiment_scope_blocks_every_node(self):
+        other_root = self.root / "other-node"
+        other = AcquisitionNode(device_manager=DeviceManager([ReadyFakeAdapter("other", "camera", ("frames",), True)]),
+            node_id="other-node", synchronization_source_id="sync", default_local_storage_root=other_root)
+        self.peers += (RuntimeParticipant("acquisition_node", "other-node"),)
+        await self.connect_storage_transport(other)
+        for index, identity in enumerate((None, "", [], "another-experiment", "missing", "corrupt-json")):
+            sid = f"invalid-scope-{index}"
+            with self.subTest(identity=identity):
+                self.record(sid, "Alice")
+                manifests = [self.artifact(sid, "one", "frames"),
+                    self.artifact(sid, "one", "timing", root=other_root, node_id="other-node")]
+                path = Path(manifests[1].local_managed_paths[-1])
+                data = json.loads(path.read_bytes())
+                if identity == "missing": data.pop("experiment_id")
+                else: data["experiment_id"] = identity
+                path.write_text("not JSON" if identity == "corrupt-json" else json.dumps(data))
+                before = {p: p.read_bytes() for root in (self.originals, other_root)
+                          for p in root.rglob("*") if p.is_file()}
+                result = await self.controller.delete_original_artifacts(sid, operation_id=sid,
+                    experiment_ids=["one"], participants=self.peers, confirmed=True,
+                    warning_acknowledged=True, **self.arguments)
+                self.assertFalse(result.succeeded, result.to_dict())
+                self.assertTrue(all(Path(m.local_storage_path).exists() for m in manifests))
+                self.assertEqual(before, {p: p.read_bytes() for p in before})
+                self.assertFalse(any((root / f"deletion_operations/{sid}.json").exists()
+                                     for root in (self.originals, other_root)))
 
 
 class CollectedOriginalDeletionTests(unittest.IsolatedAsyncioTestCase):

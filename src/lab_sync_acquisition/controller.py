@@ -2963,10 +2963,16 @@ class Controller:
             reports = await self._read_original_owners(session_id, data, participants, communication, result_window_s)
             if not reports or any(not r["confirmed"] or r["inventory"]["issues"] or r["deletions"]["issues"] for r in reports.values()):
                 raise RuntimeError("Original discovery or deletion history is incomplete")
+            # An unconfirmed manifest cannot safely establish whether it belongs to the selection.
+            if any(e["identity_confirmed"] is not True or not isinstance(e.get("manifest"), dict)
+                    or not isinstance(e["manifest"].get("experiment_id"), str)
+                    or not e["manifest"]["experiment_id"].strip()
+                    for r in reports.values() for e in r["inventory"]["artifacts"]):
+                raise RuntimeError("Exact selected original scope is absent or ambiguous")
             selected = {node: [e for e in r["inventory"]["artifacts"] if experiment_ids is None
-                              or Path(e["manifest_path"]).parent.parent.name in experiment_ids]
+                              or e["manifest"]["experiment_id"] in experiment_ids]
                         for node, r in reports.items()}
-            if (not any(selected.values()) or any(not e["identity_confirmed"] for entries in selected.values() for e in entries)
+            if (not any(selected.values())
                     or (experiment_ids is not None and set(experiment_ids) != {
                         e["manifest"]["experiment_id"] for entries in selected.values() for e in entries})):
                 raise RuntimeError("Exact selected original scope is absent or ambiguous")
