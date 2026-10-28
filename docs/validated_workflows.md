@@ -5900,8 +5900,9 @@ earlier audit history remain unchanged. No tests or audit were rerun for closure
 **Status: CLOSED within validated read-only software scope.** ICC accepted the
 final independent Codex re-audit PASS with no confirmed P0-P3 findings and
 authorized documentation-only closure. Decisions 431-432 remain authoritative,
-not fully implemented. Q034 remains OPEN for the remaining Storage backend and
-later GUI integration.
+not fully implemented. At Slice 1 closure, Q034 remained OPEN for the remaining
+Storage backend and later GUI integration. Slice 2's subsequent software-scope
+closure is recorded below; broader Q034 and Storage GUI work remain OPEN/deferred.
 
 ## Implemented scope
 
@@ -5964,11 +5965,128 @@ is claimed.
 
 This owner slice adds no Controller/NATS/GUI query exposure, collection, deletion,
 authorization, durable deletion-operation records or retry workflow. Existing
-lifecycle and preservation behavior is unchanged. The planned next boundary is
-the complete remaining Storage backend, excluding GUI integration, with scope
-review and implementation authorization still separate. This closure neither
-starts that work nor closes Q034 or Decisions 431-432's remaining scope. No tests,
-manual validation or audit were rerun for documentation closure.
+lifecycle and preservation behavior is unchanged. At Slice 1 closure, the planned
+next boundary was the complete remaining Storage backend, excluding GUI integration,
+with scope review and implementation authorization still separate. That closure
+neither started that work nor closed Q034 or Decisions 431-432's remaining scope.
+No tests, manual validation or audit were rerun for Slice 1 documentation closure.
+
+---
+
+# Q034 Slice 2 - Storage Backend
+
+**Status: CLOSED within independently validated software scope.** ICC accepted
+the final independent adversarial audit PASS with no confirmed P0-P3 findings
+and authorized documentation-only closure. The audited implementation is commit
+`502686f726e6e13553e93ba01fb3173cab819175`, under accepted Decisions 431-434.
+Slice 1 remains CLOSED. Broader Q034 remains OPEN for Storage GUI integration and
+remaining deployment validation; this does not mark Decisions 431-434 fully
+implemented or close other questions/milestones.
+
+## Implemented scope
+
+The original Controller coordinates historical Session/Experiment/artifact,
+collection, capacity and deletion-history readback through existing external
+requests and scoped NATS commands. Cooperative ownership uses the experimenter
+name accepted at Session launch and conveyed administrator mode under Decision
+433; client routing identity is not human authentication. Historical readback
+does not reconstruct or rebind an old Session.
+
+Collection remains whole-Session through StorageManager. Manual deletion selects
+one or more Experiments or an entire Session and does not require collection.
+Optional post-collection deletion is disabled by default and requires current
+exact-original collection, verification and preservation proof. Only positively
+identified AcquisitionNode scientific originals, including applicable timing/index
+files, are targeted. Collected copies, historical metadata, manifests, evidence
+and closed Session archives are protected.
+
+LocalStorageManager retains exact admitted targets and durable intent before
+unlink, with per-file outcomes, non-destructive duplicates and newly admitted
+linked retries. Missing originals and replacement files retain truthful
+uncertainty; restart readback does not automatically retry deletion. Controller
+retains the complete global selection while dispatching exact node-local subsets.
+Selection uses authoritative manifest `experiment_id`, not remote path parsing.
+Existing lifecycle, reservation, cleanup and maintenance safety remain in force.
+
+Deletion evidence follows AcquisitionNode -> NATS -> Ingestor durable intake ->
+StorageManager monthly framework preservation, with `session_id=None` in the
+envelope and original Session/Experiment/artifact scope in the payload. Physical
+outcome, local durability, publication, intake and archival confirmation remain
+distinct. Later deletion evidence does not reopen finalized Session intake or
+closed Session archives. See [the interface map](code_map.md#q034-slice-2-storage-backend-closed-software-scope).
+
+## Validation and correction history
+
+The independent audit of `1ee6d948bb18f5144bf53ca41c6937a955f83429` returned FAIL
+with two P2 findings and one P3. Corrections at
+`e0b71a51f7a43180b7cfdc08c80973259d047b38` addressed them. Its independent
+re-audit confirmed those corrections within the exercised scope but found a
+remaining cross-platform P2, corrected at the final audited commit above:
+
+| Finding | Correction confirmed by the final independent audit |
+| --- | --- |
+| P2: Incomplete persisted deletion outcomes could produce false success | Complete admitted-target/per-file proof is checked at owner, Controller, intake and archive boundaries; omitted outcomes cannot confirm deletion or preservation. |
+| P2: Global multi-Experiment selection was incorrectly required on every node | Controller retains global selection and sends each node its exact authoritative local manifests, including disjoint and shared Experiment ownership. |
+| P3: Replacement files were misclassified during pending-operation reconciliation | Recorded original file identity distinguishes a replacement; uncertainty remains and neither duplicate execution nor linked retry deletes it. |
+| P2: Controller-local path conventions misidentified remote Experiments | Selection uses manifest `experiment_id`; missing, malformed, inconsistent or ambiguous scope fails before deletion dispatch. |
+
+Accepted verification evidence is recorded separately, not added together as one
+test count:
+
+- Final-correction developer verification: **11 passing regression methods**
+  (two new methods and nine selected existing regressions).
+- User-run independent IPython validation: **23 PASS, 0 FAIL** across two runs
+  (12 earlier deletion checks and 11 cross-platform Controller-selection checks).
+  The latter used independently constructed inventories and simulated transport,
+  not live NATS, actual Linux execution or archival confirmation.
+- Separate independent Codex adversarial audit: **PASS**, no confirmed P0-P3
+  findings; **86 passing assertions across eight independently constructed
+  workflows**, using actual nats-py, an isolated JetStream broker and disk-backed
+  AcquisitionNode, Ingestor and StorageManager owners. Developer test outcomes
+  were not counted as independent audit evidence.
+
+| Independent audit workflow | Passing assertions |
+| --- | ---: |
+| Windows/POSIX path emulation; single, multiple and whole-Session selection | 24 |
+| Malformed, contradictory, ambiguous and unavailable inventory | 14 |
+| Incomplete retained deletion record and downstream rejection | 7 |
+| Disjoint-node deletion, duplicates and conflicting operations | 12 |
+| Interrupted unlink, replacement file and owner reconstruction | 9 |
+| Insufficient owner proof, linked retry, preservation failure, stale replies and ownership | 11 |
+| Collection, conditional deletion and permanent-archive protection | 6 |
+| Shared Experiment across nodes and duplicate handling | 3 |
+| Total assertions (not separate deployment scenarios) | 86 |
+
+The audit reproduced missing-outcome rejection without a second unlink or false
+archival confirmation; checked durable per-node outcomes and reconstructed archive
+readback; retained replacements and current reservations after interrupted deletion;
+and verified that collected HDF5 bytes and closed Session products remained
+unchanged. Two audit-harness assumptions were corrected (the collection-proof
+field name and expected duplicate intake-audit appends); neither was a production
+finding. All four implementation findings are resolved within this exercised scope.
+
+## Validated boundaries and limitations
+
+Cross-platform behavior was emulated, not validated on an actual Linux Controller
+communicating with Windows nodes. No hardware or cross-machine deployment
+validation is claimed. Collection used simulated SSH transport with real files and
+owners and a constructed historical Stage A baseline. That fixture does not
+independently validate the preceding acquisition/closeout lifecycle.
+
+Interruption checks reconstructed owners/connections and injected failures;
+they do not establish actual process-crash, OS-crash or power-loss recovery.
+There is no exhaustive concurrency or unrelated lifecycle regression claim.
+Previously skipped direct-symlink coverage and historically blocked integration
+checks are not converted to passes by this closure. Records lacking sufficient
+admitted-target proof remain unconfirmed; no automatic repair, migration or
+destructive reconciliation is claimed.
+
+Storage GUI integration, detailed deletion-warning presentation, and the default
+30-day successful-collection display filter/older-history search remain deferred;
+backend history is not discarded. Q034 remains OPEN. Existing decisions and
+historical audit/implementation reports are preserved. No implementation tests,
+manual validation, deployment experiments or audit were rerun for this
+documentation-only closure.
 
 ---
 

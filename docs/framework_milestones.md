@@ -1800,10 +1800,48 @@ Direct-symlink testing remains skipped; permission failures were injected.
 Windows junctions and hard links were exercised, but live NATS, hardware,
 power-loss and crash recovery are not validated. This is not scientific-content,
 atomic-snapshot, preservation or deletion-eligibility proof. Q034 remains OPEN;
-Decisions 431-432 are not fully implemented. The planned next boundary is the
-remaining complete Storage backend, excluding GUI integration, under separate
-implementation authorization. No collection, deletion, authorization or GUI
-integration is added or closed by Slice 1. No tests or audit were rerun for closure.
+Decisions 431-432 are not fully implemented. At Slice 1 closure, the planned next
+boundary was the remaining complete Storage backend, excluding GUI integration,
+under separate implementation authorization; its subsequent closure is below.
+No collection, deletion, authorization or GUI integration is added or closed by
+Slice 1. No tests or audit were rerun for closure.
+
+## Completed Q034 Slice 2 Storage Backend
+
+**Status:** CLOSED within independently validated software scope under Decisions
+431-434, at audited commit `502686f726e6e13553e93ba01fb3173cab819175`.
+ICC accepted the final independent audit PASS with no confirmed P0-P3 findings
+and authorized documentation-only closure. Slice 1 remains CLOSED; broader Q034
+and Storage GUI work remain OPEN/deferred, not fully implemented by this milestone.
+
+The original Controller exposes cooperative ownership-filtered historical
+readback, whole-Session collection and exact Experiment/Session original deletion
+over scoped NATS. LocalStorageManager owns durable intent/per-file outcomes and
+physical deletion; explicit linked retries, non-destructive duplicates and
+replacement uncertainty preserve original scope. Ingestor and StorageManager
+confirm deletion evidence through the existing framework monthly archive without
+changing collected copies, historical metadata or closed Session archives.
+
+Final-correction developer verification passed **11 regression methods**.
+User-run independent IPython validation passed **23/23 checks** across two runs
+(12 deletion and 11 cross-platform selection checks). Separate Codex adversarial
+audit passed **86 assertions across eight workflows**, with no confirmed P0-P3
+findings. All four findings are resolved: incomplete-outcome false success,
+incorrect disjoint-node Experiment dispatch, replacement-file misclassification
+and Controller-local interpretation of remote paths. Counts represent distinct
+forms of evidence, not one additive test total. See the
+[Slice 2 validation and correction record](validated_workflows.md#q034-slice-2---storage-backend).
+
+The audit used isolated actual NATS/JetStream and disk-backed owners, but
+cross-platform behavior was emulated, not an actual Linux Controller/Windows-node
+deployment. No hardware or cross-machine validation is established. SSH collection
+transport was simulated; its historical Stage A baseline was constructed.
+Owner/connection reconstruction and failure injection do not establish process
+crash or power-loss recovery. No exhaustive concurrency or unrelated lifecycle
+regression claim is made, and earlier skipped/blocked checks remain unconfirmed.
+Remaining deployment validation and Storage GUI integration/presentation are not
+closed. Q034 and other open questions remain OPEN; Decisions 431-434 are unchanged.
+No tests or audit were rerun for this documentation-only closure.
 
 ## Completed Q022 Distributed Session Closeout (W060)
 

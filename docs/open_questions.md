@@ -695,10 +695,11 @@ Decision 434 supersedes the earlier recording-level deletion scope and resolves
 the recording-membership blocker; Decision 433 resolves the identity blocker.
 The durable local operation, interruption/retry and framework evidence contracts
 remain authoritative. Slice 1 is CLOSED within its validated
-read-only owner-inventory scope. Slice 2 backend implementation is recorded below,
-pending independent verification; later GUI integration remains outstanding. Decisions 431-434
-are not fully implemented. Q019/W050 and other historical validated scopes are
-not reopened or closed by this question.
+read-only owner-inventory scope. Slice 2 is CLOSED within its independently
+validated software scope at `502686f726e6e13553e93ba01fb3173cab819175`, as recorded
+below. Storage GUI integration and remaining deployment validation are outstanding;
+Decisions 431-434 are not fully implemented. Q019/W050 and other historical
+validated scopes are not reopened or closed by this question.
 
 ### Operator-identity architectural blocker: RESOLVED (Decision 433)
 
@@ -717,9 +718,9 @@ login screens, authentication tokens, administrator credentials, privileged
 deployment identities or new authentication services are required or authorized
 by this clarification. An authenticated-human identity binding is no longer a
 blocker. Decision 433 synchronization did not implement or authorize Slice 2;
-the implementation handoff below now records that request context and access
-checks are implemented pending independent verification. Q034 remains OPEN and
-Slice 1 remains CLOSED.
+the implementation and closure records below confirm that request context and
+access checks are implemented, independently validated and audited within Slice 2's
+software scope. Q034 remains OPEN; Slices 1 and 2 are CLOSED.
 
 ### Recording-membership architectural blocker: RESOLVED (Decision 434)
 
@@ -739,7 +740,35 @@ Do not maintain a separate list of undeleted Sessions; use authoritative artifac
 information and deletion outcomes. Decision 434 synchronization did not implement
 deletion or GUI integration; the subsequent Slice 2 status is recorded below.
 
-### Slice 2 implementation handoff (independent verification pending)
+### Closed Slice 2: Storage backend
+
+**Status:** CLOSED within independently validated software scope under Decisions
+431-434. ICC accepted the separate independent adversarial audit PASS with no
+confirmed P0-P3 findings and authorized documentation-only closure of audited
+commit `502686f726e6e13553e93ba01fb3173cab819175`.
+
+Accepted evidence: final-correction developer verification **11 passing regression
+methods**; user-run independent IPython validation **23 PASS, 0 FAIL** across two
+runs (12 earlier deletion checks and 11 cross-platform selection checks); separate
+Codex independent audit **86 passing assertions across eight workflows**. These
+counts are not interchangeable or additive. All four findings are resolved within
+the exercised scope: incomplete persisted outcomes causing false success,
+incorrect multi-Experiment node dispatch, replacement-file misclassification and
+Controller-local remote-path interpretation. See the
+[Slice 2 validation, correction history and limits](validated_workflows.md#q034-slice-2---storage-backend).
+
+The audit used actual isolated NATS/JetStream and disk-backed owners. Cross-platform
+behavior was emulated, not validated on an actual Linux Controller communicating
+with Windows nodes. No hardware or cross-machine deployment validation is claimed.
+Collection used simulated SSH transport and a constructed historical Stage A
+baseline. Owner/connection reconstruction is not actual process-crash or power-loss
+recovery; no exhaustive concurrency or unrelated lifecycle regression claim is
+made. Earlier skipped/blocked checks remain unconfirmed. Q034 remains OPEN for
+Storage GUI integration and remaining deployment validation. The historical reports
+below retain their evidence and pending status **at the time of each handoff**;
+they do not override this accepted Slice 2 closure.
+
+### Historical Slice 2 implementation handoff (verification pending at that time)
 
 The Decisions 431-434 backend now implements cooperative Controller-enforced
 ownership, historical Session/Experiment/artifact and collection/deletion history,
@@ -768,13 +797,14 @@ including after Session archive closure. Historical queries retain unavailable
 candidates and uncertainty; progress uses existing pending requests and durable
 per-file outcomes, not estimated live transfer percentages.
 
-See [the code map](code_map.md#q034-slice-2-storage-backend-implementation-independent-verification-pending)
-for interfaces and boundaries. Q034 and Slice 2 remain OPEN. Codex implementation
-checks do not establish independent validation/audit or deployment readiness.
+See [the code map](code_map.md#q034-slice-2-storage-backend-closed-software-scope)
+for interfaces and boundaries. At this handoff, Q034 and Slice 2 remained OPEN.
+Codex implementation checks alone do not establish independent validation/audit
+or deployment readiness.
 Storage GUI integration and its 30-day successful-collection presentation filter
 remain deferred, without limiting evidence retention.
 
-**Post-implementation audit correction (independent verification pending):** The
+**Historical post-implementation audit correction (verification pending then):** The
 independent audit of `1ee6d948bb18f5144bf53ca41c6937a955f83429` returned FAIL with
 two P2 findings (omitted failed outcomes could falsely confirm duplicate deletion;
 global Experiment selection was incorrectly required on every node) and one P3
@@ -797,9 +827,10 @@ cases reused controlled transport. These are implementation checks, not the
 subsequent independent IPython validation or independent audit. No hardware,
 cross-machine, process-crash or power-loss validation is claimed. Initial hard-link
 promotion and previously blocked integration checks remain unconfirmed. Slice 2
-and Q034 remain OPEN; no documentation closure is performed by this handoff.
+and Q034 remained OPEN at that handoff; no documentation closure was performed
+by it. Subsequent accepted closure and its evidence are recorded above.
 
-**Cross-platform selection correction (independent verification pending):** The
+**Historical cross-platform selection correction (verification pending then):** The
 subsequent re-audit of `e0b71a51f7a43180b7cfdc08c80973259d047b38` confirmed the
 three earlier corrections within its exercised scope but found a remaining P2:
 Controller used local filesystem conventions to derive Experiment identity from
@@ -817,11 +848,12 @@ scope, prior-defect, retry, incomplete-evidence and optional-collection regressi
 The new methods use actual isolated NATS and disk-backed owners, with controlled
 Controller path semantics and diagnostic remote paths; they do not establish an
 actual cross-machine Windows/Linux deployment. Syntax and diff checks passed.
-Separate independent validation and audit remain pending. Q034 and Slice 2
-remain OPEN.
+Separate independent validation and audit remained pending at that handoff;
+Q034 and Slice 2 were then OPEN. Their subsequent evidence and Slice 2 closure
+are recorded above; broader Q034 remains OPEN.
 
-**Codex implementation verification:** 79 distinct selected methods passed and one
-filesystem-alias method was skipped across the final focused runs (79-method
+**Earlier Codex implementation verification (historical):** 79 distinct selected
+methods passed and one filesystem-alias method was skipped across the final focused runs (79-method
 regression run: 78 passed, one skipped; final 31-method directly affected rerun:
 31 passed, including one added parameter-admission method). No full-suite run was
 performed. Selection and results:
@@ -844,7 +876,8 @@ devices/SFTP were simulated with actual disk-backed service owners. No physical
 hardware, multi-machine, power-loss or OS-crash guarantee is established. Object
 reconstruction and explicit process restart do not constitute crash validation.
 
-Independent IPython validation remains separate. Use only disposable originals;
+Independent IPython validation remained a separate next step at that handoff.
+Its retained manual instructions follow: use only disposable originals;
 exercise ordinary-owner/mismatched-owner/admin requests through the existing
 external client, inspect actual files plus local operation records and framework
 archive products, repeat an identical operation after a lost reply, and use a new
@@ -852,8 +885,9 @@ linked operation for a partial-outcome retry. Verify collected copies and Sessio
 metadata/evidence bytes remain unchanged. Readback uses a new external request ID
 for a fresh observation; reusing an ID returns the original pending/completed
 outcome. Tear down service tasks before removing temporary fixture directories.
-Neither these instructions nor Codex tests establish independent validation/audit
-completion; Q034 remains OPEN.
+Neither these instructions nor Codex tests alone establish independent
+validation/audit completion. The accepted subsequent evidence is recorded in the
+closure above; Q034 remains OPEN.
 
 ### Existing mechanisms and fixed boundaries
 
@@ -950,47 +984,51 @@ hardware, power-loss or crash-recovery validation is established. No
 Controller/NATS/GUI exposure, authorization, collection or deletion is added by
 this owner slice.
 
-### Backend scope awaiting independent verification and remaining GUI work
+### Completed backend boundary and remaining GUI work
 
-Slice 1 closure established the remaining backend boundary below without
-authorizing it. ICC subsequently authorized Slice 2; its implementation is recorded
-above. The backend items remain the independent verification checklist, not a
-claim of validation or another implementation authorization. GUI work remains
-unimplemented and outside Slice 2. Q034 remains OPEN.
+Slice 1 closure established the backend boundary below without authorizing it.
+ICC subsequently authorized Slice 2, whose implementation, independent validation,
+audit and software-scope closure are recorded above. The backend items below
+retain the scope baseline, now completed within those validated boundaries; they
+are not pending implementation or a new authorization. GUI work remains
+unimplemented and outside Slice 2. Deployment/failure-recovery limitations remain
+as stated in the closure record. Q034 remains OPEN.
 
-- **Readback and ownership enforcement:** Implement authoritative Session,
+- **Readback and ownership enforcement (Slice 2 CLOSED):** Authoritative Session,
   Experiment, artifact, collection, capacity and deletion-history queries through
   Controller-mediated interfaces, carrying selected experimenter name and
   administrator mode under Decision 433 and checking recorded launch ownership
-  independently of GUI visibility. Extend existing request models/dispatch and
-  correlation/deduplication without treating `client_id` as human identity or
-  introducing authentication infrastructure.
-- **Exact Experiment/Session targets:** Resolve the selected Experiments or entire
-  Session through existing artifact identities, including scientific timing/index
-  files; preserve explicit missing/uncertain information without guessed paths,
+  independently of GUI visibility. Existing request models/dispatch and
+  correlation/deduplication are reused without treating `client_id` as human
+  identity or introducing authentication infrastructure.
+- **Exact Experiment/Session targets (Slice 2 CLOSED):** Selected Experiments or
+  an entire Session resolve through existing artifact identities, including
+  scientific timing/index files, preserving explicit missing/uncertain information
+  without guessed paths,
   logical-recording membership, a registry or a separate undeleted-Session list.
   Delete no collected global copies, historical metadata or preserved evidence.
-- **Local record and safety admission:** Implement durable operation/per-file
+- **Local record and safety admission (Slice 2 CLOSED):** Durable operation/per-file
   records and their serialization with existing active-write, reservation and
   recovery protections. Preserve exact scope across historical Sessions and
   replacement bindings. The Slice 2 implementation uses local operation files,
   not a separate registry or scientific archive.
-- **Policy checks and routing:** Connect Controller authorization, StorageManager
-  conditional preservation proof and the shared LocalStorageManager deletion
-  mechanism through existing NATS boundaries; retain both distinct policies.
-- **Interruption and explicit retry:** Implement restart reconciliation, duplicate
-  suppression, partial/uncertain readback and new linked retry operations with
+- **Policy checks and routing (Slice 2 CLOSED):** Controller authorization,
+  StorageManager conditional preservation proof and the shared LocalStorageManager
+  deletion mechanism use existing NATS boundaries and retain both distinct policies.
+- **Interruption and explicit retry (Slice 2 CLOSED, software scope):** Restart
+  reconciliation, duplicate suppression, partial/uncertain readback and linked retry operations with
   renewed authorization/safety checks, including cancellation and lost replies.
-- **Framework preservation and history:** Implement deletion-specific evidence
+- **Framework preservation and history (Slice 2 CLOSED):** Deletion-specific evidence
   payloads/correlation, publication, exact journal/archival confirmation and
   ownership-filtered historical readback using existing framework infrastructure,
   independently of immutable Session archives. Local durability, physical outcome,
   transport publication and permanent preservation remain separate confirmations.
-- **GUI integration and verification:** Implement Storage selection, warnings,
-  confirmation and truthful outcomes; reuse confirmed collection history for the
+- **GUI integration and verification (OPEN/deferred):** Implement Storage selection,
+  warnings, confirmation and truthful outcomes; reuse confirmed collection history for the
   default 30-day display window and older-history search. The filter is not a
-  retention rule. Add focused failure/restart/retry and authorization coverage,
-  followed by separate independent validation and audit under the normal workflow.
+  retention rule. Add focused GUI integration coverage of failure/restart/retry
+  and cooperative access, followed by separate independent validation and audit
+  under the normal workflow. Backend closure does not establish that GUI coverage.
 
 ### Historical investigation context
 

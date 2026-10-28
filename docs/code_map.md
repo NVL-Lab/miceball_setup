@@ -64,7 +64,16 @@ StorageManager persistence algorithm change is introduced.
 - tests.test_external_controller_lifecycle.ExternalLifecycleTests: Exercises external lifecycle requests over restricted local NATS with real HDF5/intake/preservation owners and controlled participant/SFTP transport, including expiry, early stop, failures, queued identities, release and repeated Sessions.
 - Controller._require_session(*, expected_session_id=None): Reuses the binding guard to reject an explicitly mismatched Session at lifecycle admission, without changing callers that omit the optional constraint.
 
-## Q034 Slice 2 Storage Backend (Implementation; Independent Verification Pending)
+## Q034 Slice 2 Storage Backend (CLOSED Software Scope)
+
+**Status: CLOSED within independently validated software scope**, at audited
+commit `502686f726e6e13553e93ba01fb3173cab819175` under Decisions 431-434.
+ICC accepted final-correction developer verification (11 passing methods), user-run
+independent IPython validation (23 PASS, 0 FAIL across two runs), and separate
+Codex adversarial audit PASS (86 assertions across eight workflows; no confirmed
+P0-P3 findings). All four deletion proof/scope/replacement/path findings are
+resolved. See the [validation and correction record](validated_workflows.md#q034-slice-2---storage-backend)
+for evidence and limits. Q034 and Storage GUI integration remain OPEN/deferred.
 
 Constructors of Controller, AcquisitionNode, LocalStorageManager,
 PersistentStorageManager, ExternalControllerRequest/Result and the NATS
@@ -128,7 +137,8 @@ Ingestor and StorageManager reuse the same payload/evidence checks at their
 independent receiving and persistence boundaries. Records lacking complete
 admitted-target proof remain unconfirmed; no migration, repair or destructive
 reconciliation is performed. Public lifecycle signatures and external request
-parameters are unchanged. Independent validation and audit remain pending.
+parameters are unchanged. Independent validation and the final audit have passed
+within the software boundaries recorded above, not deployment certification.
 
 Collection remains whole-Session. Optional `deletion` parameters explicitly select
 its Experiment/Session scope, operation identity, confirmation and warning
@@ -139,8 +149,13 @@ existing pending requests and confirmed per-file outcomes, not fabricated live
 transfer percentages. The 30-day collection-history presentation filter and
 Storage GUI integration remain deferred; history is not discarded by the backend.
 
-Q034 remains OPEN pending ICC manual validation and a separate independent audit;
-this implementation record does not close Decisions 431-434 or Slice 2.
+Slice 2 is CLOSED; broader Q034 remains OPEN for GUI integration and remaining
+deployment validation. Cross-platform paths were emulated, not exercised on a
+Linux Controller with Windows nodes. No hardware/cross-machine validation is
+claimed; SSH transport was simulated and owner reconstruction does not establish
+actual process-crash or power-loss recovery. No exhaustive concurrency or unrelated
+lifecycle regression claim is made. Decisions 431-434 are not fully implemented
+by this backend closure; their architecture and historical records are unchanged.
 
 ## Q008 Session Metadata (Decision 424; Implemented, Audit PASS, Deployment Validation Pending)
 
@@ -2175,10 +2190,10 @@ inventory through LocalStorageManager and AcquisitionNode has completed
 implementation, independent IPython validation and independent Codex re-audit;
 both source-conflict P2 findings are resolved. See the
 [accepted validation record](validated_workflows.md#q034-slice-1---historical-scientific-artifact-inventory)
-for evidence and environmental limits. Q034 remains OPEN for the remaining
-Storage backend; this slice adds no collection, deletion, authorization or GUI
-integration. Planned next work is the complete remaining backend, excluding GUI,
-subject to separate implementation scope review and authorization.
+for evidence and environmental limits. This owner slice adds no collection,
+deletion, authorization or GUI integration. Its then-planned remaining Storage
+backend is now CLOSED separately in Slice 2 above; broader Q034 remains OPEN for
+Storage GUI integration and remaining deployment validation.
 
 - ArtifactManifest: Immutable plain-data authoritative local discovery record for one LocalStorageManager-owned scientific artifact.
 - LocalStorageEvidence: Immutable plain-data evidence for local stream, manifest, write, finalization, and cleanup operations.
