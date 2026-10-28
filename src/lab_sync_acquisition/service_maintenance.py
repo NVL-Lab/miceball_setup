@@ -590,14 +590,37 @@ class ServiceMaintenanceInterface:
                 if owner == participant:
                     if result.payload.get("operational_instance_id") != registration["operational_instance_id"]:
                         raise ValueError("Controller preparation belongs to another operational instance")
-                    snapshots = [m for m in messages if m.evidence_type == "service_maintenance_evidence"
-                        and m.payload.get("checkpoint") == "prepared_ready_for_retirement"
-                        and (m.payload.get("stop_attempt_id") == attempts[owner]
-                             or m.payload.get("framework_stop_attempt_id") == framework)]
-                    if not snapshots or any(m.session_id is not None
-                            or json.dumps({k: v for k, v in m.payload.items() if k not in {"checkpoint", "recorded_at"}}, sort_keys=True)
-                                != json.dumps(attempt, sort_keys=True) for m in snapshots):
-                        raise ValueError("Controller preparatory cleanup evidence is missing or contradictory")
+                    # All snapshots of this preparation constrain its proof, not
+                    # only the final prepared snapshot. Unrelated attempts remain
+                    # diagnostic history and are not interpreted as this release.
+                    preparation_stages = ("initial", "cleanup_confirmed", "ready_for_retirement",
+                                          "prepared_ready_for_retirement")
+                    snapshots = []
+                    for message in messages:
+                        record = message.payload
+                        related = (record.get("stop_attempt_id") == attempts[owner]
+                            or record.get("framework_stop_attempt_id") == framework and (
+                                "target" in record or record.get("checkpoint") in preparation_stages)
+                            or "scope" not in record and any(isinstance(c, dict)
+                                and c.get("command_id") == command.command_id for c in record.get("commands", ())))
+                        if not related:
+                            continue
+                        stage = record.get("checkpoint")
+                        if (message.evidence_type != "service_maintenance_evidence" or message.session_id is not None
+                                or stage not in preparation_stages):
+                            raise ValueError("Invalid evidence associated with Controller preparation")
+                        expected_attempt = deepcopy(attempt)
+                        expected_attempt["actions"] = ([] if stage == "initial" else
+                            ["orderly_resources_closed"] if stage != "prepared_ready_for_retirement" else
+                            ["orderly_resources_closed", "preparation_confirmed"])
+                        if stage == "initial":
+                            expected_attempt.pop("remaining_obligations", None)
+                        if json.dumps({k: v for k, v in record.items() if k not in {"checkpoint", "recorded_at"}}, sort_keys=True) != json.dumps(expected_attempt, sort_keys=True):
+                            raise ValueError("Controller maintenance snapshot contradicts its preparation result")
+                        snapshots.append(message)
+                    if ([m.payload["checkpoint"] for m in snapshots] != list(preparation_stages)
+                            or messages.index(snapshots[-1]) >= next(i for i, m in enumerate(messages) if m.payload is final)):
+                        raise ValueError("Controller preparation evidence progression is incomplete or contradictory")
             else:
                 ServiceMaintenanceInterface._validate_dependent_retirement(
                     owner, result.payload.get("operational_instance_id"), {"command": command.to_dict(), "result": result.to_dict()})

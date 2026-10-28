@@ -655,6 +655,11 @@ class ExternalDependentMaintenanceTests(unittest.IsolatedAsyncioTestCase):
             "participant": self.intake_interface.participant.to_dict(), "payload": payload})
         final["results"].append({"command_id": command.command_id, "result": response.to_dict()})
         release = state["confirmation"]["confirmation"]["controller_release"]
+        release["evidence"].append(RuntimeEvidenceMessage("unrelated-failed-maintenance", None,
+            "service_maintenance_evidence", "control", {"checkpoint": "cleanup_confirmed",
+                "stop_attempt_id": "previous-attempt", "framework_stop_attempt_id": "previous-framework",
+                "target": self.dependent.to_dict(), "requester_id": "previous-operator", "commands": [],
+                "outcome": "failed", "failures": ["Previously unconfirmed cleanup"], "actions": []}, True).to_dict())
         for number, message in enumerate(release["evidence"]):
             message["evidence_id"] = f"additional-operation-{number}"
             self.assertTrue(self.intake.receive_runtime_evidence(RuntimeEvidenceMessage.from_dict(message)).accepted)
@@ -791,15 +796,27 @@ class ExternalDependentMaintenanceTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(self.intake.has_durable_runtime_evidence(malformed))
 
     async def test_false_checkpoint_retirement_cannot_release_controller_or_retire_history(self):
+        await self._assert_contradictory_checkpoint_retains_dependency(maintenance=False)
+
+    async def test_contradictory_controller_cleanup_cannot_authorize_release(self):
+        await self._assert_contradictory_checkpoint_retains_dependency(maintenance=True)
+
+    async def _assert_contradictory_checkpoint_retains_dependency(self, *, maintenance):
         state, _, sync = await self.controller_release_boundary(prior_sync_stop=True)
         release = state["confirmation"]["confirmation"]["controller_release"]
         for number, message in enumerate(release["evidence"]):
             message["evidence_id"] = f"false-retirement-{number}"
-        checkpoint = next(m["payload"] for m in release["evidence"]
-            if m["payload"].get("checkpoint") == "participant_result_confirmed")
-        checkpoint["retired"].append(self.dependent.to_dict())
-        checkpoint["not_retired"].remove(self.dependent.to_dict())
-        checkpoint["remaining_obligations"] = deepcopy(checkpoint["not_retired"])
+        if maintenance:
+            checkpoint = next(m["payload"] for m in release["evidence"]
+                if m["payload"].get("checkpoint") == "cleanup_confirmed")
+            checkpoint["outcome"] = "completed"
+            checkpoint["actions"].append("operational_retirement_confirmed")
+        else:
+            checkpoint = next(m["payload"] for m in release["evidence"]
+                if m["payload"].get("checkpoint") == "participant_result_confirmed")
+            checkpoint["retired"].append(self.dependent.to_dict())
+            checkpoint["not_retired"].remove(self.dependent.to_dict())
+            checkpoint["remaining_obligations"] = deepcopy(checkpoint["not_retired"])
         for message in release["evidence"]:
             self.intake.receive_runtime_evidence(RuntimeEvidenceMessage.from_dict(message))
         malformed = RuntimeEvidenceMessage("false-retirement-release", None, "service_maintenance_evidence", "intake",
@@ -847,7 +864,12 @@ class ExternalDependentMaintenanceTests(unittest.IsolatedAsyncioTestCase):
                  "checkpoint_retired", "checkpoint_not_retired", "checkpoint_obligations", "checkpoint_scope",
                  "checkpoint_outcome", "checkpoint_failure", "checkpoint_session", "checkpoint_type",
                  "checkpoint_duplicate", "checkpoint_reordered", "checkpoint_missing", "checkpoint_joint",
-                 "checkpoint_future_action", "checkpoint_final_retired", "checkpoint_survey", "checkpoint_attempt")
+                 "checkpoint_future_action", "checkpoint_final_retired", "checkpoint_survey", "checkpoint_attempt",
+                 "maintenance_outcome", "maintenance_actions", "maintenance_prepared", "maintenance_termination",
+                 "maintenance_blockers", "maintenance_failures", "maintenance_obligations", "maintenance_instance",
+                 "maintenance_framework", "maintenance_attempt", "maintenance_duplicate", "maintenance_reordered",
+                 "maintenance_missing", "maintenance_unknown_stage", "maintenance_target", "maintenance_requester",
+                 "maintenance_command", "maintenance_final_order", "maintenance_evidence_type")
         for index, fault in enumerate(cases):
             with self.subTest(fault=fault):
                 self.root = base / str(index)
@@ -870,6 +892,41 @@ class ExternalDependentMaintenanceTests(unittest.IsolatedAsyncioTestCase):
                 snapshot = next(m["payload"] for m in release["evidence"]
                     if m["payload"].get("checkpoint") == "prepared_ready_for_retirement")
                 attempt = prepared["payload"]["attempt"]
+                if fault.startswith("maintenance_"):
+                    cleanup = next(m for m in release["evidence"] if m["payload"].get("checkpoint") == "cleanup_confirmed")
+                    record = cleanup["payload"]
+                    changes = {"maintenance_outcome": ("outcome", "completed"),
+                        "maintenance_actions": ("actions", ["orderly_resources_closed", "operational_retirement_confirmed"]),
+                        "maintenance_prepared": ("prepared", True), "maintenance_termination": ("termination_confirmed", True),
+                        "maintenance_blockers": ("blockers", ["Unresolved cleanup"]),
+                        "maintenance_failures": ("failures", ["Cleanup failed"]),
+                        "maintenance_obligations": ("remaining_obligations", ["Unfinished work"]),
+                        "maintenance_instance": ("operational_instance_id", "another-controller-instance"),
+                        "maintenance_framework": ("framework_stop_attempt_id", "another-framework"),
+                        "maintenance_attempt": ("stop_attempt_id", "another-attempt"),
+                        "maintenance_unknown_stage": ("checkpoint", "unconfirmed_cleanup"),
+                        "maintenance_target": ("target", sync.to_dict()),
+                        "maintenance_requester": ("requester_id", "another-controller")}
+                    if fault in changes:
+                        key, value = changes[fault]
+                        record[key] = value
+                    elif fault == "maintenance_duplicate":
+                        duplicate = deepcopy(cleanup)
+                        duplicate["evidence_id"] = "alternative-cleanup"
+                        release["evidence"].insert(release["evidence"].index(cleanup) + 1, duplicate)
+                    elif fault == "maintenance_reordered":
+                        release["evidence"].remove(cleanup)
+                        release["evidence"].append(cleanup)
+                    elif fault == "maintenance_missing":
+                        release["evidence"].remove(cleanup)
+                    elif fault == "maintenance_command":
+                        record["commands"][0]["command_id"] = "unrelated-command"
+                    elif fault == "maintenance_final_order":
+                        final_message = next(m for m in release["evidence"] if m["payload"] is final)
+                        release["evidence"].remove(final_message)
+                        release["evidence"].insert(release["evidence"].index(cleanup), final_message)
+                    elif fault == "maintenance_evidence_type":
+                        cleanup["evidence_type"] = "warning"
                 if fault.startswith("checkpoint_"):
                     middle = next(m for m in release["evidence"]
                         if m["payload"].get("checkpoint") == "participant_result_confirmed")
