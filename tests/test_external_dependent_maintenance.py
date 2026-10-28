@@ -440,6 +440,115 @@ class ExternalDependentMaintenanceTests(unittest.IsolatedAsyncioTestCase):
         release = await self.intake_interface.retire_dependent_maintenance_history()
         self.assertTrue(release["confirmed"], release)
 
+    async def test_superseded_registration_and_stop_replays_cannot_replace_current_owner(self):
+        _, _, old, _ = await self.superseded_stop_history()
+        registration = RuntimeCommandMessage.from_dict(next(c for c in reversed(self.broker.commands)
+            if c["command_type"] == "register_operational_dependent"))
+        confirmation = RuntimeCommandMessage.from_dict(next(c for c in reversed(self.broker.commands)
+            if c["command_type"] == "confirm_dependent_release"))
+        for subscription in self.broker.subscriptions:
+            if ".command.controller.control." in subscription.subject:
+                await subscription.unsubscribe()
+        _, current, launcher, _ = await self.producer(preservation_window_s=2)
+        interface = self.intake_interface
+        files = {p: p.read_bytes() for p in self.root.rglob("*") if p.is_file()}
+        before = interface.evidence
+        # A still-readable former owner returns genuine readback for its original requests.
+        async def old_readback(participant, operation, payload, result_window_s):
+            return await old.execute_command(RuntimeCommandMessage("old-readback", None, operation,
+                "intake", participant.component_id, payload))
+        with patch.object(interface._dependent_communication, "request_maintenance_readback", old_readback):
+            self.assertFalse((await interface.execute_command(registration)).success)
+            self.assertFalse((await interface.execute_command(confirmation)).success)
+        self.assertFalse(current.terminated)
+        self.assertFalse((await self.status()).payload["ready"])
+        self.assertFalse((await interface.retire_dependent_maintenance_history())["confirmed"])
+        self.assertEqual(interface.evidence, before)
+        self.assertEqual(files, {p: p.read_bytes() for p in files})
+        # The current owner's retry still works, and only its actual Stop releases the blocker.
+        await current.register_ingestor_dependency()
+        self.assertTrue(await launcher.stop_locally("operator"))
+        self.assertFalse(interface.operational_dependents[self.dependent]())
+
+    async def test_unconfirmed_new_registration_retains_known_current_instance(self):
+        await self.backend()
+        _, current, _, boundary = await self.producer(preservation_window_s=2)
+        payload = {"participant": self.dependent.to_dict(), "operational_instance_id": "unconfirmed-new-owner",
+                   "ingestor_instance_id": self.intake_interface.operational_instance_id}
+        with patch.object(self.intake_interface._dependent_communication,
+                "request_maintenance_readback", AsyncMock(return_value=None)):
+            result = await self.intake_interface.execute_command(RuntimeCommandMessage(
+                "unconfirmed-registration", None, "register_operational_dependent", "control", "intake", payload))
+        self.assertFalse(result.success)
+        history = [m.payload["dependent_maintenance"] for m in self.intake.compile_framework_runtime_evidence()["runtime_evidence"]
+                   if "dependent_maintenance" in m.payload]
+        self.assertEqual(history[-1]["registration"]["operational_instance_id"], current.operational_instance_id)
+        self.assertFalse((await self.status()).payload["ready"])
+        await current.register_ingestor_dependency()
+        self.assertTrue(self.intake_interface.operational_dependents[self.dependent]())
+
+    async def test_superseded_owner_cannot_reregister_after_receiver_restart(self):
+        _, _, old, _ = await self.superseded_stop_history()
+        for subscription in self.broker.subscriptions:
+            if ".command.controller.control." in subscription.subject:
+                await subscription.unsubscribe()
+        _, current, launcher, _ = await self.producer(preservation_window_s=2)
+        for subscription in self.broker.subscriptions:
+            await subscription.unsubscribe()
+        await self.backend()
+        interface = self.intake_interface
+        before = interface.evidence
+        files = {p: p.read_bytes() for p in self.root.rglob("*") if p.is_file()}
+
+        async def readback(owner, participant, operation, payload, result_window_s):
+            return await owner.execute_command(RuntimeCommandMessage("restart-readback", None, operation,
+                "intake", participant.component_id, payload))
+
+        with patch.object(interface._dependent_communication, "request_maintenance_readback",
+                lambda *args: readback(old, *args)):
+            # This obtains the fresh Ingestor identity; rejection is not just a stale receiver nonce.
+            with self.assertRaises(RuntimeError):
+                await old.register_ingestor_dependency()
+        self.assertFalse((await self.status()).payload["ready"])
+        self.assertFalse((await interface.retire_dependent_maintenance_history())["confirmed"])
+        self.assertEqual(interface.evidence, before)
+        self.assertEqual(files, {p: p.read_bytes() for p in files})
+        with patch.object(interface._dependent_communication, "request_maintenance_readback",
+                lambda *args: readback(current, *args)):
+            await current.register_ingestor_dependency()
+            self.assertTrue(await launcher.stop_locally("operator"))
+        self.assertFalse(interface.operational_dependents[self.dependent]())
+
+    async def test_preserved_instance_rollback_blocks_restart_reconstruction(self):
+        await self.superseded_stop_history()
+        old = next(m.to_dict() for m in self.intake_interface.evidence
+            if m.payload.get("dependent_maintenance", {}).get("confirmation"))
+        old["evidence_id"] = "preserved-rollback"
+        self.assertTrue(self.intake.receive_runtime_evidence(RuntimeEvidenceMessage.from_dict(old)).accepted)
+        self.storage.write_framework_evidence_archive(self.intake.compile_framework_runtime_evidence())
+        before = self.intake_interface.evidence
+        self.assertFalse((await self.status()).payload["ready"])
+        self.assertFalse((await self.intake_interface.retire_dependent_maintenance_history())["confirmed"])
+        self.assertEqual(self.intake_interface.evidence, before)
+        for subscription in self.broker.subscriptions:
+            await subscription.unsubscribe()
+        await self.backend()
+        self.assertTrue(self.intake_interface.operational_dependents[self.dependent]())
+        self.assertFalse((await self.status()).payload["ready"])
+
+    async def test_unconfirmed_authority_history_cannot_replace_current_instance(self):
+        await self.backend()
+        _, current, _, _ = await self.producer(preservation_window_s=2)
+        files = {p: p.read_bytes() for p in self.root.rglob("*") if p.is_file()}
+        with patch.object(self.storage, "get_framework_preservation_confirmation", return_value=None):
+            result = await self.intake_interface.execute_command(RuntimeCommandMessage("no-authority", None,
+                "register_operational_dependent", "control", "intake", {"participant": self.dependent.to_dict(),
+                "operational_instance_id": "another-instance", "ingestor_instance_id": self.intake_interface.operational_instance_id}))
+        self.assertFalse(result.success)
+        self.assertEqual(files, {p: p.read_bytes() for p in files})
+        await current.register_ingestor_dependency()
+        self.assertTrue(self.intake_interface.operational_dependents[self.dependent]())
+
     async def test_operational_dependent_blocks_stop_and_cancel_does_not_release_it(self):
         await self.backend()
         _, _, producer, _ = await self.producer()

@@ -320,6 +320,7 @@ class ServiceMaintenanceInterface:
         instances = dict(self._dependent_instances)
         confirmations = dict.fromkeys(instances)
         conflicts, histories = set(), {p: [] for p in instances}
+        seen_instances = {p: set() for p in instances}
         preserved = {m["evidence_id"]: json.dumps(m, sort_keys=True) for m in archived["runtime_evidence"]}
         for message in compiled["runtime_evidence"]:
             data = message.to_dict()
@@ -338,14 +339,30 @@ class ServiceMaintenanceInterface:
             message = RuntimeEvidenceMessage.from_dict(data)
             if not self.ingestor.has_durable_runtime_evidence(message):
                 raise RuntimeError("Dependent history is not durably accepted")
+            instance = state["registration"]["operational_instance_id"]
+            if instance in seen_instances[participant] and instance != instances[participant]:
+                raise RuntimeError("Superseded dependent instance reappears in preserved history")
+            seen_instances[participant].add(instance)
             histories[participant].append(message)
-            instances[participant] = state["registration"]["operational_instance_id"]
+            instances[participant] = instance
             confirmations[participant] = state["confirmation"]
             if state["conflicting"]:
                 conflicts.add(participant)
             else:
                 conflicts.discard(participant)
         return instances, confirmations, conflicts, histories
+
+    def _require_dependent_instance_authority(self, participant, instance):
+        """Reject superseded identities using current preserved chronological history."""
+        with self.ingestor._intake_lock, self.ingestor.framework_preservation_guard(
+                self.storage_manager, verify_journal=True) as archive:
+            instances, _, _, histories = self._dependent_history(
+                self.ingestor.compile_framework_runtime_evidence(), archive)
+            current = instances[participant]
+            if instance != current and any(m.payload["dependent_maintenance"]["registration"][
+                    "operational_instance_id"] == instance for m in histories[participant]):
+                raise RuntimeError("Superseded dependent instance cannot regain authority")
+            return current
 
     def _validate_dependent_state(self, state):
         """Validate preserved dependent identities and the existing release contract."""
@@ -499,8 +516,22 @@ class ServiceMaintenanceInterface:
         registration = {k: payload[k] for k in ("participant", "operational_instance_id", "ingestor_instance_id")}
         if participant not in self._dependent_instances:
             raise ValueError("External dependent is not explicitly configured")
+        if command.command_type == "register_operational_dependent" and not any(
+                m.source_id == self.participant.component_id and "dependent_maintenance" in m.payload
+                for m in self.ingestor.compile_framework_runtime_evidence()["runtime_evidence"]):
+            # Bootstrap only a deployment without prior dependent history; the existing
+            # writer still refuses missing/corrupt archives and unconfirmed preservation.
+            await self._record_dependent_state(registration)
+        current = self._require_dependent_instance_authority(participant, instance)
+        if command.command_type != "register_operational_dependent" and current != instance:
+            raise RuntimeError("Dependent confirmation is not from the current instance")
+        self._dependent_instances[participant] = current
         previous = self._dependent_confirmations[participant]
-        previous_instance = self._dependent_instances[participant]
+        previous_instance = current
+        if previous_instance is None:
+            await self._record_dependent_state(registration)
+            previous_instance = instance
+            self._dependent_instances[participant] = instance
         confirmation = payload.get("confirmation")
         if command.command_type == "confirm_dependent_release" and previous == payload:
             return {"confirmation": payload}
@@ -513,16 +544,13 @@ class ServiceMaintenanceInterface:
             raise RuntimeError("Contradictory dependent release confirmation")
         # Preserve known uncertainty before any cancellable owner readback. Reuse the
         # existing dependent-state journal/archive pathway, including interrupted retries.
-        unresolved = registration if command.command_type == "register_operational_dependent" else {
+        unresolved = {
             "participant": participant.to_dict(), "operational_instance_id": previous_instance,
             "ingestor_instance_id": self.operational_instance_id}
         pending_key = json.dumps({"registration": unresolved, "confirmation": None, "conflicting": False}, sort_keys=True)
         if (previous is not None or (command.command_type == "register_operational_dependent"
                 and previous_instance != instance) or pending_key in self._dependent_state_messages):
             await self._record_dependent_state(unresolved)
-            if command.command_type == "register_operational_dependent":
-                self._dependent_instances[participant] = instance
-                self._dependent_conflicts.discard(participant)
         readback_confirmation = (previous["confirmation"] if previous is not None
             and previous_instance == instance and command.command_type == "register_operational_dependent"
             else confirmation)
@@ -534,7 +562,11 @@ class ServiceMaintenanceInterface:
         if command.command_type == "register_operational_dependent":
             if self._attempt is not None or self._closeout_started:
                 raise RuntimeError("Ingestor maintenance rejects new dependent admission")
-            if previous is not None and previous_instance == instance:
+            if previous_instance != instance:
+                await self._record_dependent_state(registration)
+                self._dependent_instances[participant] = instance
+                self._dependent_conflicts.discard(participant)
+            elif previous is not None:
                 if probe.payload.get("confirmation") != readback_confirmation:
                     raise RuntimeError("Earlier dependent retirement is no longer confirmed")
                 restored = {**registration, "confirmation": previous["confirmation"]}
