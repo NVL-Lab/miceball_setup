@@ -580,10 +580,16 @@ class ExternalDependentMaintenanceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.intake_interface.evidence, before)
         self.assertEqual(files, {p: p.read_bytes() for p in files})
 
-    async def controller_release_boundary(self):
+    async def controller_release_boundary(self, *, prior_sync_stop=False):
         sync = RuntimeParticipant("synchronization_manager", "sync")
         await self.backend((self.dependent, sync))
         controller, owner, _, boundary = await self.producer(preservation_window_s=2)
+        if prior_sync_stop:
+            _, _, launcher, _ = await self.producer("synchronization_manager", "sync", preservation_window_s=2)
+            self.assertTrue(await launcher.stop_locally("operator"))
+            for subscription in self.broker.subscriptions:
+                if ".command.synchronization_manager.sync." in subscription.subject:
+                    await subscription.unsubscribe()
         await self.producer("synchronization_manager", "sync", preservation_window_s=2)
         original = self.intake_boundary.publish_command_result
 
@@ -603,6 +609,36 @@ class ExternalDependentMaintenanceTests(unittest.IsolatedAsyncioTestCase):
             if m.payload.get("dependent_maintenance", {}).get("confirmation", {}).get("confirmation", {}).get("controller_release"))
         return state, self.intake.compile_framework_runtime_evidence(), sync
 
+    async def test_preparation_blockers_prevent_release_despite_matching_cleanup_snapshot(self):
+        state, _, _ = await self.controller_release_boundary(prior_sync_stop=True)
+        release = state["confirmation"]["confirmation"]["controller_release"]
+        for number, message in enumerate(release["evidence"]):
+            message["evidence_id"] = f"blocked-preparation-{number}"
+        final = next(m["payload"] for m in release["evidence"]
+            if m["payload"].get("checkpoint") == "final_archival_checkpoint")
+        prepare_id = next(c["command_id"] for c in final["commands"]
+            if c["command_type"] == "prepare_stop" and c["participant"] == self.dependent.to_dict())
+        prepared = next(r["result"] for r in final["results"] if r["command_id"] == prepare_id)
+        prepared["payload"]["attempt"]["blockers"] = ["Unresolved Controller closeout obligation"]
+        for message in release["evidence"]:
+            if message["payload"].get("checkpoint") == "prepared_ready_for_retirement":
+                message["payload"]["blockers"] = ["Unresolved Controller closeout obligation"]
+            self.intake.receive_runtime_evidence(RuntimeEvidenceMessage.from_dict(message))
+        malformed = RuntimeEvidenceMessage("blocked-controller-release", None, "service_maintenance_evidence", "intake",
+            {"dependent_maintenance": state}, True)
+        self.intake.receive_runtime_evidence(malformed)
+        self.storage.write_framework_evidence_archive(self.intake.compile_framework_runtime_evidence())
+        before = self.intake_interface.evidence
+        files = {p: p.read_bytes() for p in self.root.rglob("*") if p.is_file()}
+        survey = (await self.status()).payload
+        retirement = await self.intake_interface.retire_dependent_maintenance_history()
+        self.assertFalse(survey["ready"], {"readiness": survey, "retirement": retirement})
+        self.assertFalse(retirement["confirmed"])
+        self.assertEqual(retirement["released_evidence_count"], 0)
+        self.assertEqual(self.intake_interface.evidence, before)
+        self.assertEqual(files, {p: p.read_bytes() for p in files})
+        self.assertTrue(self.intake.has_durable_runtime_evidence(malformed))
+
     async def test_historical_controller_release_proof_and_restart(self):
         await self.controller_release_boundary()
         self.assertFalse(self.intake_interface.operational_dependents[self.dependent]())
@@ -620,7 +656,10 @@ class ExternalDependentMaintenanceTests(unittest.IsolatedAsyncioTestCase):
         cases = ("missing_attempt", "wrong_framework_attempt", "wrong_preparation_attempt", "missing_preparation",
                  "missing_cleanup_evidence", "missing_checkpoint", "wrong_checkpoint", "wrong_controller_instance",
                  "wrong_ingestor_instance", "wrong_prepared_instance", "unprepared_result", "unpreserved_evidence",
-                 "unrelated_evidence", "anticipated_retirement")
+                 "unrelated_evidence", "anticipated_retirement", "matching_blockers", "result_blockers",
+                 "snapshot_blockers", "matching_failures", "matching_obligations", "missing_blockers",
+                 "missing_preparation_outcome", "missing_result_outcome", "missing_final_outcome",
+                 "forced_cleanup", "already_retired", "manual_intervention", "termination_confirmed")
         for index, fault in enumerate(cases):
             with self.subTest(fault=fault):
                 self.root = base / str(index)
@@ -640,6 +679,33 @@ class ExternalDependentMaintenanceTests(unittest.IsolatedAsyncioTestCase):
                 prepare_id = next(c["command_id"] for c in final["commands"]
                     if c["command_type"] == "prepare_stop" and c["participant"] == self.dependent.to_dict())
                 prepared = next(r["result"] for r in final["results"] if r["command_id"] == prepare_id)
+                snapshot = next(m["payload"] for m in release["evidence"]
+                    if m["payload"].get("checkpoint") == "prepared_ready_for_retirement")
+                attempt = prepared["payload"]["attempt"]
+                if fault in {"matching_blockers", "result_blockers", "snapshot_blockers"}:
+                    if fault != "snapshot_blockers":
+                        attempt["blockers"] = ["Unresolved Controller closeout obligation"]
+                    if fault != "result_blockers":
+                        snapshot["blockers"] = ["Unresolved Controller closeout obligation"]
+                elif fault in {"matching_failures", "matching_obligations"}:
+                    key = "failures" if fault == "matching_failures" else "remaining_obligations"
+                    attempt[key] = snapshot[key] = ["Unresolved cleanup"]
+                elif fault in {"missing_blockers", "missing_preparation_outcome"}:
+                    key = "blockers" if fault == "missing_blockers" else "outcome"
+                    del attempt[key]
+                    del snapshot[key]
+                elif fault == "missing_result_outcome":
+                    del prepared["payload"]["outcome"]
+                elif fault == "missing_final_outcome":
+                    del final["outcome"]
+                elif fault in {"forced_cleanup", "already_retired"}:
+                    action = "forced_resources_closed" if fault == "forced_cleanup" else "operational_retirement_confirmed"
+                    attempt["actions"].append(action)
+                    snapshot["actions"].append(action)
+                elif fault == "manual_intervention":
+                    prepared["payload"]["manual_intervention_required"] = True
+                elif fault == "termination_confirmed":
+                    prepared["payload"]["termination_confirmed"] = True
                 if fault == "missing_attempt":
                     del release["framework_stop_attempt_id"]
                 elif fault == "wrong_framework_attempt":

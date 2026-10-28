@@ -432,7 +432,7 @@ class ServiceMaintenanceInterface:
             raise ValueError("Controller release lacks its exact final archival checkpoint")
         final = finals[0]
         if (final.get("requester_id") != participant.component_id or final.get("session_id") is not None
-                or final.get("outcome") is not None or final.get("failures") != []
+                or "outcome" not in final or final["outcome"] is not None or final.get("failures") != []
                 or not isinstance(final.get("administrator_id"), str) or not final["administrator_id"]):
             raise ValueError("Invalid coordinated-shutdown final checkpoint")
         scope = tuple(RuntimeParticipant.from_dict(p) for p in final["scope"])
@@ -491,15 +491,20 @@ class ServiceMaintenanceInterface:
             if prepared:
                 preparation_commands = attempt.get("commands")
                 if (result.payload.get("prepared") is not True or result.payload.get("termination_confirmed") is not False
-                        or result.payload.get("outcome") is not None or attempt.get("outcome") is not None
-                        or attempt.get("failures") != [] or attempt.get("remaining_obligations") != []
+                        or "outcome" not in result.payload or result.payload["outcome"] is not None
+                        or "outcome" not in attempt or attempt["outcome"] is not None
+                        or result.payload.get("manual_intervention_required") is not False
+                        or attempt.get("blockers") != [] or attempt.get("failures") != []
+                        or attempt.get("remaining_obligations") != []
                         or attempt.get("requester_id") != participant.component_id
                         or not isinstance(preparation_commands, list) or not preparation_commands
                         or any(preparation_commands[-1].get(k) != v for k, v in (
                             ("command_id", command.command_id), ("command_type", "prepare_stop"),
                             ("administrator_id", final["administrator_id"])))
                         or "preparation_confirmed" not in attempt.get("actions", ())
-                        or "orderly_resources_closed" not in attempt.get("actions", ())):
+                        or "orderly_resources_closed" not in attempt.get("actions", ())
+                        or "forced_resources_closed" in attempt.get("actions", ())
+                        or "operational_retirement_confirmed" in attempt.get("actions", ())):
                     raise ValueError("Coordinated preparation is unconfirmed")
                 if owner == participant:
                     if result.payload.get("operational_instance_id") != registration["operational_instance_id"]:
