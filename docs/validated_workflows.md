@@ -6189,6 +6189,40 @@ documentation-only closure.
 
 ---
 
+# Q024 Package 1 - Controller Replacement Authority
+
+**Status:** CLOSED within Decision 436's bounded software scope at
+`994119f6ece36172c28456c51b4b6cd7565c9d8e`.
+
+Implemented capabilities: explicitly authorized manual claim recovery after
+independently verified prior-Controller termination, exact owner/revision-conditional
+clearing, service-instance-bound Controller registration and acknowledgments,
+superseded-command rejection, and authority reconfirmation after service restart.
+Existing admitted work, independent administrator maintenance, service-owned
+preservation and Controller retirement/release boundaries remain intact. No TTL,
+automatic takeover, election or separate persistent registration registry is added.
+
+Distinct completion evidence:
+
+- Codex focused implementation tests passed.
+- Independent ICC live-JetStream validation passed, including failed Stop-result
+  publication followed by broker redelivery, identical authoritative success replay,
+  exactly-once cleanup, retained-result integrity and launcher completion.
+- Independent Codex focused re-audit PASS, with no confirmed P0-P3 findings.
+
+Validation used local/single-process participants and simulated prior-Controller
+termination; the re-audit additionally used controlled transport faults with
+production callbacks and disk-backed preservation. Independent multi-process/host
+behavior, actual host termination verification and physical deployment are not
+certified. These are validation limits, not confirmed implementation defects.
+Shared authoritative persistent JetStream storage, verified durability and adequate
+KV history remain deployment prerequisites; insufficient reconciliation proof fails
+closed. Operators must independently verify termination before manual clearing.
+
+Q024 remains OPEN pending Package 2: service-owned disposition and recovery.
+Decision 435 retirement remains deferred. No tests or audit were rerun during this
+documentation closure.
+
 # Q024 Slice 1 - Controller Exclusivity Claim and Operational Admission
 
 **Status:** CLOSED within the bounded implemented software scope of Decision 436,

@@ -1817,6 +1817,18 @@ No deployment revision or date is inferred, and no new independent validation or
 audit is claimed. G5, Q022, Q024, M015 and Phase 16 remain OPEN; no production,
 test or architecture changes or new hardware experiments accompany this record.
 
+## Completed Q024 Package 1 Controller Replacement Authority
+
+**Status:** CLOSED at `994119f6ece36172c28456c51b4b6cd7565c9d8e` under Decision 436.
+Manual exact-claim recovery, distributed registration/admission, superseded-command
+rejection and restart reconfirmation are implemented, preserving admitted work,
+independent maintenance, evidence and retirement guarantees. Developer tests,
+independent ICC live-JetStream validation and independent Codex re-audit PASS are
+recorded separately in the [validation record](validated_workflows.md#q024-package-1---controller-replacement-authority),
+including their bounded deployment/termination-verification limitations.
+Q024 remains OPEN pending Package 2: service-owned disposition and recovery.
+Decision 435 remains deferred. This is not installation-wide deployment certification.
+
 ## Completed Q024 Slice 1 Controller Exclusivity
 
 **Status:** CLOSED within Decision 436's bounded software scope, at audited commit

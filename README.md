@@ -14,10 +14,11 @@ Controller startup requires explicit installation claim settings and an existing
 verified persistent JetStream KV bucket; see
 [Controller authority](docs/installation_and_deployment.md#controller-claim-implementation-q024-slice-1).
 Manual stale-claim recovery and service-side registration/supersession are not
-implemented by Slice 1. Package 1 now implements these capabilities and awaits
-independent ICC validation and a separate audit; see the
+implemented by Slice 1. Package 1 is CLOSED at commit
+`994119f6ece36172c28456c51b4b6cd7565c9d8e` after developer testing,
+independent ICC live-JetStream validation and independent Codex re-audit PASS; see the
 [operator workflow](docs/installation_and_deployment.md#controller-replacement-authority--package-1-implementation).
-Q024 remains OPEN and Decision 435 retirement deferred.
+Q024 remains OPEN pending Package 2 (service-owned disposition and recovery); Decision 435 retirement remains deferred.
 
 Q022-A installation/deployment architecture is accepted in Decisions 367-378.
 Its bounded NATS Ingestor-StorageManager persistence foundation is complete with

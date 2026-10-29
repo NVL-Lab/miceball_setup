@@ -13871,9 +13871,13 @@ P1/P2 corrections and final limitations are preserved in the
 Quiescence precedes unrelated retirement; exact retained KV conditional-deletion
 proof permits bounded lost-acknowledgment reconciliation. Insufficient history
 fails closed. No fully deployed installation-wide guarantee is certified here.
-Manual recovery and service-side registration/admission integration remain
-subsequent scopes. Q024 remains OPEN; Decision 435 maintenance-history retirement
-remains deferred. No architecture is added or changed by this closure record.
+Package 1 completes manual claim recovery and service-side Controller replacement
+registration/admission at `994119f6ece36172c28456c51b4b6cd7565c9d8e`, with developer
+tests, independent ICC live-JetStream validation and independent Codex re-audit
+PASS (no confirmed P0-P3 findings). See the
+[bounded validation record](validated_workflows.md#q024-package-1---controller-replacement-authority).
+Q024 remains OPEN pending Package 2: service-owned disposition and recovery.
+Decision 435 remains deferred; this closure introduces no architectural decision.
 
 ---
 

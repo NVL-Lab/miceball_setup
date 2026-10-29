@@ -3135,8 +3135,12 @@ replacement acquisition; missing/overwritten proof fails closed and does not
 become evidence of successful release. Slice 1 does not enforce a history-depth
 minimum or automatically resize buckets. Q024 remains OPEN; Decision 435 remains
 deferred.
-Manual recovery and service-side registration remain subsequent implementation
-scopes. Deployment must establish a shared authoritative JetStream account,
+Package 1 Controller replacement authority is CLOSED at
+`994119f6ece36172c28456c51b4b6cd7565c9d8e` after developer testing, independent ICC
+live-JetStream validation and independent Codex re-audit PASS; see the
+[validation record](validated_workflows.md#q024-package-1---controller-replacement-authority).
+Q024 remains OPEN pending Package 2: service-owned disposition and recovery.
+Deployment must establish a shared authoritative JetStream account,
 persistent KV storage and verified durability configuration; concrete broker and
 provisioning settings are not selected by this synchronization.
 
@@ -3468,7 +3472,7 @@ Decision 435's separate deferred in-memory retirement optimization.
 
 * Decision 350, broader Decision 353 memory-retirement work, and remaining Decision 354 work outside the bounded monthly implementation; Decision 355 historical deletion requirements are qualified by Decision 437
 * Older/unidentified interrupted-target repair support; historical deletion-safety certification and deletion-only dependency independence are no longer blockers under Decision 437
-* Decision 436 deployment verification and subsequent manual recovery/service-side registration implementation; Slice 1 software scope is CLOSED, not installation-wide operational validation
+* Decision 436 installation-wide deployment verification remains distinct from the CLOSED Slice 1 and Package 1 software scopes; Package 2 service-owned disposition and recovery remains required for Q024 closure
 * Unavailable-evidence auditing conflict, deferred Decision 435 maintenance-history retirement, and broader memory-retirement limits
 * Application-wide discovery/restoration and unsupported recovery procedures
 

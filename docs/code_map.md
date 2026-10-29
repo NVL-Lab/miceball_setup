@@ -34,8 +34,12 @@ reconciliation. Existing entry points below implement these boundaries; this
 closure changes no API. Persistent shared authority storage and verified durability
 are deployment prerequisites; bounded KV proof retention can fail closed after
 overwrite (depth two covers one replacement acquisition). This is not deployment
-certification. Manual recovery, service-side registration/supersession and broader
-Q024 remain OPEN/pending; Decision 435 retirement remains deferred.
+certification. Package 1 manual recovery and service-side registration/supersession
+are now CLOSED at `994119f6ece36172c28456c51b4b6cd7565c9d8e`, after developer tests,
+independent ICC live-JetStream validation and independent Codex re-audit PASS.
+See the [validation record](validated_workflows.md#q024-package-1---controller-replacement-authority).
+Q024 remains OPEN pending Package 2 service-owned disposition and recovery;
+Decision 435 retirement remains deferred.
 
 ## gui/src/miceball_gui/static/storage-demo.mjs
 

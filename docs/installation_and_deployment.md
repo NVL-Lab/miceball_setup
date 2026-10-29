@@ -3,9 +3,12 @@
 ## Controller replacement authority — Package 1 implementation
 
 Decision 436 Package 1 adds manual occupied-claim recovery and service-side
-Controller registration/admission. Independent ICC validation and a separate audit
-are still required; this implementation note does not close Q024 or certify an
-installation. Decision 435 remains deferred.
+Controller registration/admission and is CLOSED at
+`994119f6ece36172c28456c51b4b6cd7565c9d8e` after developer tests, independent ICC
+live-JetStream validation and independent Codex re-audit PASS. See the
+[validation scope and limitations](validated_workflows.md#q024-package-1---controller-replacement-authority).
+This does not certify an installation. Q024 remains OPEN pending Package 2
+(service-owned disposition and recovery); Decision 435 remains deferred.
 
 Every participating service configuration now supplies the same explicit
 `controller_claim_account`, `controller_claim_bucket` and `controller_claim_key`,
@@ -625,9 +628,9 @@ existence are distinct.
 
 A crash retains the claim. Subsequent authorized manual recovery must verify
 termination of the previous Controller and condition clearing on the exact
-inspected claim/revision. Disconnection is not termination. Manual recovery and
-service-side registration are subsequent implementation scopes, not instructions to bypass current
-maintenance or delete JetStream state. Services must recover/reconfirm registered
+inspected claim/revision. Disconnection is not termination. Package 1 provides the
+[manual recovery and service registration workflow](#controller-replacement-authority--package-1-implementation);
+its closure does not authorize bypassing maintenance or unconditional JetStream deletion. Services must recover/reconfirm registered
 Controller instance authority after restart; GUI controls use framework mechanisms.
 
 Preserve journals, archives, handoffs, scientific roots,
