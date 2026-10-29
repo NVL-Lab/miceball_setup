@@ -182,7 +182,9 @@ JetStream account, persistent KV storage and verified durability configuration.
 Occupied, missing, unavailable or unverifiable authority storage must deny startup.
 No TTL, election, automatic failover or time-based takeover is permitted.
 
-This is an accepted deployment requirement, not a claim of current implementation.
+Slice 1 implements claim acquisition/admission and conditional retirement release,
+pending independent validation/audit; it does not implement manual recovery or
+service-side Controller registration/supersession.
 Concrete bucket/provisioning inputs, access permissions and broker durability
 settings must be established and verified for the installation before deployment
 can claim exclusivity. The example below does not establish those settings or
@@ -270,7 +272,7 @@ Every service file requires `servers`, `ingestor_id`, `storage_id`,
 
 | Selected CLI role | Additional fields |
 | --- | --- |
-| `controller` | `service_id`, `synchronization_id`, `known_nodes`, `result_window_s` |
+| `controller` | `service_id`, `synchronization_id`, `known_nodes`, `result_window_s`, `controller_claim_account`, `controller_claim_bucket`, `controller_claim_key` |
 | `synchronization-manager` | `service_id`, `result_window_s` |
 | `acquisition-node` | `synchronization_id`, `node_config`, `result_window_s`; optional `service_id` must match hardware `node_id` |
 | `ingestor` or `storage-manager` | `storage_root`, `global_artifact_root`, `recovery_journal_root`, `framework_journal`, `retrieval_endpoints`; dependency mode below |
@@ -408,6 +410,80 @@ unconfirmed, follow the launcher's reported original-command retry obligation.
 Do not invent success, change command identity to repeat physical work, or assume
 a fresh terminal invocation can replace every retained-command continuation.
 
+### Controller Claim Implementation (Q024 Slice 1)
+
+Use the same `controller_claim_account`, `controller_claim_bucket` and
+`controller_claim_key` for every possible Controller host in the installation.
+The account is the actual NATS account identifier returned by
+`$SYS.REQ.USER.INFO`, not an arbitrary display name. The existing connection must
+authenticate into that account and be allowed to query its own account identity,
+inspect the designated KV stream, atomically create the claim and conditionally
+delete it. Account verification requires the broker's existing system-account
+user-info responder to be configured and accessible. Failure to verify denies
+startup; no separate privileged connection is opened.
+
+Provision authority storage outside Controller startup using existing NATS
+administration. The implementation checks file storage, no bucket expiry, no
+global message/byte eviction limits, limits retention, and no mirror/source or
+subject transformation that substitutes another authority. Claim creation sets
+no message TTL. A missing bucket is an error, never automatically provisioned.
+Verify broker/account identity, persistent paths, permissions and actual
+durability configuration separately; stream metadata does not certify fsync,
+power-loss survival, multi-host deployment or administrative deletion protection.
+
+For direct CLI startup provide `--controller-claim-account ACCOUNT`,
+`--controller-claim-bucket BUCKET` and `--controller-claim-key KEY` alongside the
+existing required Controller arguments. Configuration-based startup reads the
+same three fields from Controller JSON. Claim acquisition/release uses the
+explicit `result_window_s` as its bounded timeout.
+
+For direct Python/in-process use, create the existing Controller and matching
+`ServiceMaintenanceInterface`, then connect an existing
+`NatsCommunicationBoundary("controller", participant_id, servers)` and call:
+
+```python
+revision = await maintenance.acquire_controller_authority(
+    boundary, account=account, bucket=bucket, key=key, timeout_s=timeout_s)
+```
+
+Construction and diagnostic readback remain synchronous and do not connect
+implicitly. Operational calls require the confirmed claim, including existing
+work, collection, deletion and archive closure. Existing readiness, registration,
+Session and maintenance prerequisites still apply. In-process callers must migrate
+to this explicit acquisition workflow; there is no local/no-broker exemption.
+
+After existing Stop/Kill execution returns its exact successful retirement result,
+direct callers finish with `await maintenance.complete_retirement(command, result)`
+before closing transport. Launchers and remote handlers perform this completion
+themselves. It preserves existing dependent-confirmation obligations, then releases
+the exact owner/value and acquired revision conditionally. Preparation does not
+release. Cleanup callbacks execute before retirement commits and cannot release.
+
+Crash/disconnection and uncertain acquisition retain the claim. Acquisition is
+one-shot per boundary: uncertain acknowledgment never admits work, speculatively
+deletes ownership or automatically retries acquisition. Release failure leaves
+Controller retired and final completion pending; retry completion without repeating
+physical cleanup. A missing key after an uncertain delete is not treated as proof
+of successful release, and a replacement owner's revision is never adopted.
+No stale-claim clearing tool or takeover is included. Follow the accepted manual
+recovery requirements below without inventing a current recovery procedure.
+
+Focused developer checks (not independent validation/audit), with an installed
+NATS server selected explicitly:
+
+```powershell
+$env:LAB_SYNC_NATS_SERVER = "ABSOLUTE_PATH_TO_NATS_SERVER_EXE"
+python -B -m unittest tests.test_controller_authority tests.test_deployment_configuration tests.test_manual_installation -v
+```
+
+The tests launch isolated brokers and use fictional account credentials; they do
+not connect to the installation. Broker-dependent checks skip when no binary is
+configured. Other directly affected regressions cover framework preparation/final
+retirement, pending result publication/ACK, and independent-role CLI dispatch.
+Legacy in-process callers and test fixtures that operated a bare Controller need
+the explicit authority setup above; passing these focused checks does not claim
+that the full historical suite or every manual demo has been migrated or run.
+
 ### Durable State And Recovery Boundaries
 
 Decision 436 permits claim release after Normal Stop or authorized Kill only when
@@ -420,8 +496,8 @@ existence are distinct.
 
 A crash retains the claim. Subsequent authorized manual recovery must verify
 termination of the previous Controller and condition clearing on the exact
-inspected claim/revision. Disconnection is not termination. These are accepted
-requirements for subsequent implementation, not instructions to bypass current
+inspected claim/revision. Disconnection is not termination. Manual recovery and
+service-side registration are subsequent implementation scopes, not instructions to bypass current
 maintenance or delete JetStream state. Services must recover/reconfirm registered
 Controller instance authority after restart; GUI controls use framework mechanisms.
 

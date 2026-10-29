@@ -6,6 +6,13 @@ an installer or an installation certificate. Follow the
 Copy needed files outside Git and replace every uppercase placeholder there.
 No environment-variable substitution is performed by the loaders.
 
+Controller now requires the shared installation's explicit
+`controller_claim_account`, `controller_claim_bucket` and `controller_claim_key`.
+An operator must provision and verify the persistent, non-expiring authority
+bucket first. Runtime startup never creates missing authority storage. See the
+runbook's Controller claim section for account verification, durability
+prerequisites and crash-retention limitations; the examples provision none of them.
+
 | File | Computer / selected CLI role |
 | --- | --- |
 | `controller.json` | Controller / `controller` |

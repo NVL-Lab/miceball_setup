@@ -82,7 +82,8 @@ def load_acquisition_node(path, synchronization_source_id):
 async def launch_independent_service(*, role, servers, service_id, ingestor_id, storage_id,
                                      preservation_window_s, result_window_s,
                                      synchronization_id=None, known_nodes=None, node_config=None,
-                                     external_client_id=None, report=print):
+                                     external_client_id=None, controller_claim_account=None,
+                                     controller_claim_bucket=None, controller_claim_key=None, report=print):
     """Run one explicit owner with remote preservation, readiness and existing maintenance."""
     from math import isfinite
     servers = tuple(servers)
@@ -94,6 +95,9 @@ async def launch_independent_service(*, role, servers, service_id, ingestor_id, 
     storage = RuntimeParticipant("storage_manager", storage_id)
     dependencies = [ingestor, storage]
     if role == "controller":
+        if any(not isinstance(v, str) or not v.strip() for v in
+               (controller_claim_account, controller_claim_bucket, controller_claim_key)):
+            raise ValueError("Controller requires explicit authority account, bucket and claim key")
         if synchronization_id is None or known_nodes is None:
             raise ValueError("Controller requires its configured synchronization identity and explicit known-node collection")
         owner = Controller(component_id=service_id)
@@ -151,6 +155,11 @@ async def launch_independent_service(*, role, servers, service_id, ingestor_id, 
         admitted = False
         try:
             await boundary.connect()
+            if role == "controller":
+                await maintenance.acquire_controller_authority(boundary,
+                    account=controller_claim_account, bucket=controller_claim_bucket,
+                    key=controller_claim_key, timeout_s=result_window_s)
+                admitted = True
             await boundary.ensure_streams()
             admitted = True
             startup_interface = NatsServiceMaintenanceCommunication(boundary, maintenance,

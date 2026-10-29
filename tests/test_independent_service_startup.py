@@ -113,7 +113,9 @@ class IndependentRoleCommandTests(unittest.TestCase):
         base = ["--server", "nats://example:4222", "--ingestor-id", "intake", "--storage-id", "storage",
                 "--preservation-window-s", "1", "--result-window-s", "1"]
         with patch("lab_sync_acquisition.service_startup.launch_independent_service", launch), patch("lab_sync_acquisition.service_launcher.asyncio.run", run):
-            for role, extra in (("controller", ["--service-id", "control", "--synchronization-id", "sync", "--known-node", "node"]),
+            for role, extra in (("controller", ["--service-id", "control", "--synchronization-id", "sync", "--known-node", "node",
+                                                "--controller-claim-account", "LAB", "--controller-claim-bucket", "AUTHORITY",
+                                                "--controller-claim-key", "controller"]),
                                 ("synchronization-manager", ["--service-id", "sync"]),
                                 ("acquisition-node", ["--config", "node.json", "--synchronization-id", "sync"])):
                 self.assertEqual(main([role, *base, *extra]), 0)

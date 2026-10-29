@@ -145,6 +145,8 @@ from lab_sync_acquisition.service_maintenance import service_operation
 class Controller:
     """Owns one Session's local or brokered orchestration, not participant startup."""
 
+    _requires_controller_claim = True
+
     def __init__(
         self,
         acquisition_node: AcquisitionNode | None = None,
@@ -658,9 +660,10 @@ class Controller:
     def check_ready(self) -> ServiceReadiness:
         """Report service readiness independently of Session lifecycle and reservations."""
         terminated = getattr(getattr(self, "_maintenance", None), "terminated", False)
+        authority = getattr(getattr(self, "_maintenance", None), "controller_authority_confirmed", False)
         return apply_dependency_readiness(self, ServiceReadiness(
-            self._component_id, "controller", True, not terminated,
-            "service_terminated" if terminated else "ready"))
+            self._component_id, "controller", True, authority and not terminated,
+            "service_terminated" if terminated else "ready" if authority else "controller_claim_unconfirmed"))
 
     @_session_command
     async def shutdown_framework(
@@ -721,6 +724,10 @@ class Controller:
             if authorize_kill is not None and not callable(authorize_kill):
                 raise ValueError("Kill authorization must be an explicit callable")
             with self._service_operation_lock:
+                # Coordination retires this Controller last, so it cannot count
+                # itself as an active service operation through that retirement.
+                if not maintenance.controller_authority_confirmed:
+                    raise RuntimeError("Controller shutdown requires its confirmed claim")
                 if self._framework_shutdown_active or maintenance.terminated or maintenance._attempt is not None:
                     raise RuntimeError("Controller shutdown is overlapping or operational admission is closed")
                 if stop_attempt_id in self._framework_shutdown_attempts:
@@ -3017,6 +3024,7 @@ class Controller:
             return ControllerCommandResult(name, False, {"session_id": session_id, "operation_id": operation_id,
                 "nodes": outcomes}, str(error))
 
+    @service_operation(new_work=True)
     @_session_command
     async def close_saved_session_archive_remote(
         self, session_id: str, *, communication: NatsControllerCommunication,

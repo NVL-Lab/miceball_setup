@@ -3122,9 +3122,10 @@ and recover/reconfirm authority on restart. GUI uses framework-owned authority a
 does not infer termination from disconnection. Existing delayed-command, Session,
 cleanup and scientific-evidence contracts remain intact.
 
-Implementation remains pending: claim/admission coverage, retirement-release
-integration, manual recovery and service registration require bounded authorized
-slices. Deployment must establish a shared authoritative JetStream account,
+Slice 1 implements claim acquisition, Controller admission and conditional
+post-retirement release, pending ICC review, independent validation and audit.
+Manual recovery and service-side registration remain subsequent implementation
+scopes. Deployment must establish a shared authoritative JetStream account,
 persistent KV storage and verified durability configuration; concrete broker and
 provisioning settings are not selected by this synchronization.
 
@@ -3456,7 +3457,7 @@ Decision 435's separate deferred in-memory retirement optimization.
 
 * Decision 350, broader Decision 353 memory-retirement work, and remaining Decision 354 work outside the bounded monthly implementation; Decision 355 historical deletion requirements are qualified by Decision 437
 * Older/unidentified interrupted-target repair support; historical deletion-safety certification and deletion-only dependency independence are no longer blockers under Decision 437
-* Decision 436 claim/admission, shutdown release, manual recovery and service-registration implementation and deployment verification
+* Decision 436 Slice 1 independent validation/audit and deployment verification; subsequent manual recovery and service-side registration implementation
 * Unavailable-evidence auditing conflict, deferred Decision 435 maintenance-history retirement, and broader memory-retirement limits
 * Application-wide discovery/restoration and unsupported recovery procedures
 

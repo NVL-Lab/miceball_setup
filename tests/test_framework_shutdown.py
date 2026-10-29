@@ -16,6 +16,7 @@ from lab_sync_acquisition import (
 )
 from tests.test_session_launch import _Boundary, _Broker
 from tests.fakes import ReadyFakeAdapter
+from tests.nats_server_fixture import acquire_test_controller_authority
 
 
 class FrameworkShutdownTests(unittest.IsolatedAsyncioTestCase):
@@ -69,6 +70,7 @@ class FrameworkShutdownTests(unittest.IsolatedAsyncioTestCase):
                 ingestor=self.ingestor, storage_manager=self.storage, preservation_window_s=0.05,
                 close_resources=self.closes[kind], retire_resources=retire,
                 operational_dependents=dependencies)
+        self.authority = await acquire_test_controller_authority(self, self.interfaces["controller"])
         intake = NatsIngestorCommunication(_Boundary("ingestor", "ingestor", self.broker), self.ingestor)
         self.evidence_subscription = await intake.subscribe_evidence(None)
         self.handlers = []
@@ -115,6 +117,7 @@ class FrameworkShutdownTests(unittest.IsolatedAsyncioTestCase):
         result = await self.shutdown()
         self.assertTrue(result.succeeded, result.error)
         self.assertEqual(result.details["outcome"], "completed")
+        self.assertIsNone(self.authority.controller_claim_owner)
         self.assertEqual(self.retirements, list(self.services))
         self.assertEqual(self.cleanup_order, ["acquisition_node", "synchronization_manager",
             "storage_manager", "controller", "ingestor"])

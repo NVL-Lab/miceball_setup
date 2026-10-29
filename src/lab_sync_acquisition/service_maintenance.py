@@ -40,6 +40,9 @@ def service_operation(*, new_work: bool = False):
                 execution = None
             call = (id(owner), execution if execution is not None else current_thread())
             with owner._service_operation_lock:
+                if getattr(owner, "_requires_controller_claim", False):
+                    if interface is None or not interface.controller_authority_confirmed:
+                        raise RuntimeError("Controller operational admission requires its confirmed claim")
                 if interface is not None and interface.terminated:
                     raise RuntimeError("Service has terminated")
                 if (interface is not None and new_work and interface._dependent_delivery_required
@@ -132,6 +135,7 @@ class ServiceMaintenanceInterface:
         self._framework_storage = framework_storage
         self._remote_preserved_evidence = {}
         self._operational_instance_id = uuid4().hex
+        self._controller_claim_boundary = None
         self._dependent_instances = {}
         self._dependent_confirmations = {}
         self._dependent_conflicts = set()
@@ -175,6 +179,46 @@ class ServiceMaintenanceInterface:
     def operational_instance_id(self):
         """Identity of this owner's operational lifetime, distinct from its persistent participant."""
         return self._operational_instance_id
+
+    @property
+    def controller_authority_confirmed(self) -> bool:
+        """Whether this Controller owns a confirmed claim and remains operational."""
+        boundary = self._controller_claim_boundary
+        return (self.participant.component_type == "controller" and not self.terminated
+                and boundary is not None
+                and boundary.controller_claim_owner == self.operational_instance_id)
+
+    async def acquire_controller_authority(self, boundary, *, account: str,
+                                           bucket: str, key: str, timeout_s: float) -> int:
+        """Bind verified JetStream ownership to this maintenance operational lifetime."""
+        async with self._lock:
+            if (self.participant.component_type != "controller" or self.terminated
+                    or self._closeout_started or self._attempt is not None
+                    or boundary.component_type != "controller"
+                    or boundary.component_id != self.participant.component_id
+                    or getattr(boundary, "_maintenance_owner", self) is not self
+                    or self._controller_claim_boundary is not None):
+                raise RuntimeError("Controller claim requires its matching unretired maintenance owner")
+            boundary._maintenance_owner = self
+            revision = await boundary.acquire_controller_claim(
+                operational_instance_id=self.operational_instance_id, account=account,
+                bucket=bucket, key=key, timeout_s=timeout_s)
+            with self._admission_lock:
+                self._controller_claim_boundary = boundary
+            return revision
+
+    async def complete_retirement(self, command, result) -> None:
+        """Complete existing dependent delivery, then release only an exact retired Controller claim."""
+        if (not self.terminated or command.command_type not in {"stop", "kill"}
+                or not result.success or result.payload.get("termination_confirmed") is not True
+                or result.payload.get("outcome") != "completed"
+                or self._commands.get(command.command_id) != command.to_dict()
+                or self._results.get(command.command_id) != result):
+            raise RuntimeError("No matching authoritative retirement result")
+        await self.deliver_dependency_release(command, result)
+        boundary = self._controller_claim_boundary
+        if boundary is not None:
+            await boundary.release_controller_claim(operational_instance_id=self.operational_instance_id)
 
     @property
     def terminated(self) -> bool:
@@ -717,6 +761,9 @@ class ServiceMaintenanceInterface:
 
     async def register_ingestor_dependency(self):
         """Register this operational instance before its deployed command admission."""
+        if (self.participant.component_type == "controller" and not self.terminated
+                and not self.controller_authority_confirmed):
+            raise RuntimeError("Controller registration requires its confirmed claim")
         result = await self._framework_communication.request_maintenance_readback(
             self._framework_ingestor, "read_operational_instance", {}, self.preservation_window_s)
         if result is None or not result.success:

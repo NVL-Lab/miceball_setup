@@ -13860,10 +13860,12 @@ must not infer termination from network disconnection or become an independent
 authority owner. Decision 423 transport reconnection does not grant or transfer
 Controller authority.
 
-**Implementation status:** Accepted architecture synchronized only. Claim
-enforcement, manual recovery and service-admission integration require subsequent
-authorized implementation slices and independent verification. Q024 remains OPEN;
-Decision 435 maintenance-history retirement remains deferred.
+**Implementation status:** Slice 1 implements claim acquisition, Controller
+operational admission and post-retirement owner/revision-conditional release using
+existing NATS/maintenance boundaries. Developer checks do not establish independent
+validation or audit PASS. Manual recovery and service-side registration/admission
+integration remain subsequent scopes. Q024 remains OPEN; Decision 435
+maintenance-history retirement remains deferred.
 
 ---
 

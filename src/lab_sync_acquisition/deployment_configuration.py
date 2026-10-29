@@ -89,7 +89,8 @@ def _validate_service_configuration(data, directory, role):
     pair = role in {"ingestor", "storage-manager"}
     common = {"servers", "ingestor_id", "storage_id", "preservation_window_s"}
     specific = {
-        "controller": {"service_id", "synchronization_id", "known_nodes", "result_window_s"},
+        "controller": {"service_id", "synchronization_id", "known_nodes", "result_window_s",
+                       "controller_claim_account", "controller_claim_bucket", "controller_claim_key"},
         "synchronization-manager": {"service_id", "result_window_s"},
         "acquisition-node": {"synchronization_id", "node_config", "result_window_s"},
         "ingestor": {"storage_root", "global_artifact_root", "retrieval_endpoints",
@@ -137,6 +138,9 @@ def _validate_service_configuration(data, directory, role):
     if role == "controller":
         if "external_client_id" in data:
             _identity(data["external_client_id"], "client", "external_client_id")
+        for field in ("controller_claim_account", "controller_claim_bucket", "controller_claim_key"):
+            if not isinstance(data[field], str) or not data[field].strip():
+                raise ValueError(f"{field} requires an explicit installation authority value")
         nodes = data["known_nodes"]
         if not isinstance(nodes, list):
             raise ValueError("known_nodes requires an explicit list, including [] when none are registered")

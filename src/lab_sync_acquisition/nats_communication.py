@@ -141,6 +141,75 @@ class NatsCommunicationBoundary:
         self._pending_dependent_deliveries = {}
         self._partial_result_subscriptions: dict[Subscription, NATS] = {}
         self._partial_result_cleanup_task: asyncio.Task | None = None
+        self._controller_claim_attempted = False
+        self._controller_claim = None
+        self._controller_claim_released = False
+        self._controller_claim_lock = asyncio.Lock()
+
+    @property
+    def controller_claim_owner(self) -> str | None:
+        """Confirmed claim owner, independent of transient transport connectivity."""
+        return (self._controller_claim[1] if self._controller_claim is not None
+                and not self._controller_claim_released else None)
+
+    async def acquire_controller_claim(self, *, operational_instance_id: str,
+                                       account: str, bucket: str, key: str,
+                                       timeout_s: float) -> int:
+        """Acquire once from verified existing authority storage; uncertainty never admits work."""
+        from math import isfinite
+        if (self.component_type != "controller" or
+                any(not isinstance(v, str) or not v.strip() for v in
+                    (operational_instance_id, account, bucket, key)) or
+                type(timeout_s) not in {int, float} or not isfinite(timeout_s) or timeout_s <= 0):
+            raise ValueError("Explicit Controller instance, authority account/bucket/key and positive timeout required")
+        async with self._controller_claim_lock:
+            if self._controller_claim_attempted:
+                raise RuntimeError("Controller claim acquisition already attempted; ownership cannot be assumed or reacquired")
+            if not self.connected or self._jetstream is None:
+                raise RuntimeError("Controller authority storage is unavailable")
+            self._controller_claim_attempted = True
+            async with asyncio.timeout(timeout_s):
+                # This existing NATS server endpoint identifies the connected account;
+                # a configured account label alone is not verification.
+                response = await self._client.request("$SYS.REQ.USER.INFO", b"", timeout=timeout_s)
+                identity = json.loads(response.data)
+                if identity.get("error") or identity.get("data", {}).get("account") != account:
+                    raise RuntimeError("Controller authority JetStream account is unverified")
+                kv = await self._jetstream.key_value(bucket)
+                config = (await kv.status()).stream_info.config
+                if (config.name != "KV_" + bucket or config.storage != StorageType.FILE
+                        or config.retention != RetentionPolicy.LIMITS
+                        or config.max_age not in (None, 0)
+                        or config.max_msgs not in (None, -1) or config.max_bytes not in (None, -1)
+                        or config.mirror is not None or config.sources or config.no_ack
+                        or config.subject_transform is not None or config.sealed):
+                    raise RuntimeError("Controller claim bucket must be persistent, non-expiring authoritative storage without eviction limits")
+                revision = await kv.create(key, operational_instance_id.encode("utf-8"))
+                if type(revision) is not int or revision <= 0:
+                    raise RuntimeError("Controller claim acquisition revision is unconfirmed")
+                self._controller_claim = (kv, operational_instance_id, key, revision, timeout_s)
+                return revision
+
+    async def release_controller_claim(self, *, operational_instance_id: str) -> None:
+        """Release this boundary's exact acquired owner/revision; never remove a later claim."""
+        async with self._controller_claim_lock:
+            retained = self._controller_claim
+            maintenance = getattr(self, "_maintenance_owner", None)
+            if (retained is None or retained[1] != operational_instance_id
+                    or maintenance is None or not maintenance.terminated
+                    or maintenance.operational_instance_id != operational_instance_id):
+                raise RuntimeError("Claim release requires its owning Controller's irreversible retirement")
+            if self._controller_claim_released:
+                return
+            kv, _, key, revision, timeout_s = retained
+            # Keep the acquired revision after timeout/failure. A retry never adopts
+            # the current revision or assumes that a missing value proves success.
+            async with asyncio.timeout(timeout_s):
+                current = await kv.get(key)
+                if current.revision != revision or current.value != operational_instance_id.encode("utf-8"):
+                    raise RuntimeError("Controller claim owner/revision no longer matches the acquired authority")
+                await kv.delete(key, last=revision)
+            self._controller_claim_released = True
 
     @property
     def connected(self) -> bool:
@@ -2745,7 +2814,7 @@ async def _complete_maintenance_delivery(boundary, command, result):
             and command.command_type in {"stop", "kill"}
             and result.payload.get("termination_confirmed") is True):
         boundary._pending_dependent_deliveries[command.command_id] = (command, result)
-        await interface.deliver_dependency_release(command, result)
+        await interface.complete_retirement(command, result)
     observer = getattr(boundary, "maintenance_command_handled", None)
     if observer is not None:
         observer(command, result)

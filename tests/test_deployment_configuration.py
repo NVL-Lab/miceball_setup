@@ -31,7 +31,9 @@ class DeploymentConfigurationTests(unittest.TestCase):
         (self.root / "hardware.json").write_text(json.dumps(self.hardware), encoding="utf-8")
         self.roles = {
             "controller": {**self.common, "service_id": "control", "synchronization_id": "clock",
-                           "known_nodes": ["node"], "result_window_s": 1},
+                           "known_nodes": ["node"], "result_window_s": 1,
+                           "controller_claim_account": "LAB", "controller_claim_bucket": "AUTHORITY",
+                           "controller_claim_key": "controller"},
             "synchronization-manager": {**self.common, "service_id": "clock", "result_window_s": 1},
             "acquisition-node": {**self.common, "synchronization_id": "clock", "node_config": "hardware.json",
                                  "result_window_s": 1},

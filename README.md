@@ -4,6 +4,15 @@
 
 A modular synchronization and acquisition framework for neuroscience experiments.
 
+Q024 Slice 1 implements Decision 436 Controller claim acquisition/admission and
+post-retirement conditional release, pending ICC review, independent validation
+and audit. Direct Controller construction grants no operational authority.
+Controller startup requires explicit installation claim settings and an existing
+verified persistent JetStream KV bucket; see
+[Controller authority](docs/installation_and_deployment.md#controller-claim-implementation-q024-slice-1).
+Manual stale-claim recovery and service-side registration/supersession are not
+implemented by this slice. Q024 remains OPEN and Decision 435 retirement deferred.
+
 Q022-A installation/deployment architecture is accepted in Decisions 367-378.
 Its bounded NATS Ingestor-StorageManager persistence foundation is complete with
 independent validation and final re-audit PASS after a malformed-correlation

@@ -484,7 +484,7 @@ installation_and_deployment.md and Decisions 383-388.
 
 - read_acquisition_node_configuration(path): Validates the existing hardware JSON contract without constructing an owner or adapter, for both deployment prevalidation and node construction.
 - load_acquisition_node(path, synchronization_source_id): Validates a deployment-local JSON hardware installation, constructs explicitly selected supported adapters without opening hardware, and supplies persistent identity, local paths and per-device initialization baselines to the real node.
-- launch_independent_service(*, role, servers, service_id, ingestor_id, storage_id, preservation_window_s, result_window_s, synchronization_id=None, known_nodes=None, node_config=None, external_client_id=None, report=print): Constructs one independent owner with protected maintenance and sustained node execution, optionally wiring external launch to that same Controller and joining receiver work during cleanup.
+- launch_independent_service(*, role, servers, service_id, ingestor_id, storage_id, preservation_window_s, result_window_s, synchronization_id=None, known_nodes=None, node_config=None, external_client_id=None, controller_claim_account=None, controller_claim_bucket=None, controller_claim_key=None, report=print): Constructs one independent owner, requiring the configured Controller authority claim before operational startup while retaining protected maintenance and optional external launch.
 
 ## tests/test_independent_service_startup.py
 
@@ -1449,7 +1449,7 @@ is complete; W030 records manual validation, focused tests, and audit reassessme
 - Controller._observe_known_participants(participants, communication, result_window_s): Reads correlated readiness/owner diagnostics independently, ignoring malformed optional collections without inventing Session identities or performing recovery.
 - Controller.reconciliation_evidence: Returns detached retained persistent informational findings for existing publication and preservation paths.
 - Controller._reconcile_framework_attempt: Correlates confirmed final participant results against the original framework attempt and archived evidence without treating missing results or intent as completion.
-- Controller.check_ready(): Returns Session-independent service readiness, combining confirmed configured dependencies and refusing to fabricate a ready/unready report when dependency availability is unknown.
+- Controller.check_ready(): Returns Session-independent readiness requiring confirmed Controller claim ownership and configured dependency readiness, reporting unclaimed or retired owners as unavailable.
 - Controller.release_session(*, communication=None, result_window_s=None, expected_session_id=None): Releases only the requested launched terminal binding after existing NATS cleanup, preservation and owner release, rejecting unsupported local release without mutation.
 - Controller._session_ingest_state(): Snapshots accepted operational evidence and complete intake audit for current acquisition-stage verification without performing Controller completion.
 - Controller.start_experiment: Accepts keyword-only `scientific_outputs=()`, `preparation_readiness=()`, and `preparation_outcomes=()`, gates start on required readiness and correlated final remote successes, and reports preparation rejection once as persistent runtime evidence in failed result details without lifecycle activation.
@@ -1884,6 +1884,9 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 
 - DurablePublicationError: Reports failed JetStream publication with message class, message identity, subject, intended stream, and reason while leaving the original message caller-owned.
 - NatsCommunicationBoundary: Owns a real nats-py connection, reports NATS availability through ServiceReadiness, creates accepted JetStream streams, and handles JSON serialization, durable publication acknowledgement, and Core NATS telemetry mechanics without domain semantics.
+- NatsCommunicationBoundary.controller_claim_owner: Reports the confirmed unreleased claim's operational-instance identity independently of transport connectivity.
+- NatsCommunicationBoundary.acquire_controller_claim(*, operational_instance_id, account, bucket, key, timeout_s): Verifies the connected account and existing persistent non-expiring KV bucket before one atomic claim attempt, retaining the positive revision only after confirmed acquisition.
+- NatsCommunicationBoundary.release_controller_claim(*, operational_instance_id): Requires the matching retired maintenance owner and exact acquired KV owner/revision, then conditionally deletes without adopting replacement ownership or interpreting uncertainty as success.
 - _unsubscribe_session_subscription(subscription): Reconciles locally closed SDK subscriptions through UNSUB, connected transport flush and task completion before Controller release or Ingestor initialization-abort removes its owned handle; errors and cancellation retain the obligation.
 - NatsCommunicationBoundary.connect(): Preserves initial handshake failure/cancellation cleanup, then enables Decision 423 SDK-managed runtime reconnection with unlimited attempts and the existing SDK reconnect wait, retaining the same client, JetStream context and subscription handlers without lifecycle replay.
 - NatsCommunicationBoundary.close(): Disables further reconnection and joins one shielded SDK drain/close task through caller cancellations, using SDK close when disconnected or drain rejects reconnect admission; references retire only on successful cleanup and failures remain owned and unconfirmed.
@@ -1970,6 +1973,9 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 ## src/lab_sync_acquisition/service_maintenance.py
 
 - ServiceMaintenanceInterface(service, participant, *, ingestor, storage_manager, preservation_window_s, close_resources, operational_dependents=None, evidence_publisher=None, retire_resources=None, dependency_participants=(), framework_communication=None, framework_ingestor=None, framework_storage=None): Attaches one service-owned administrative interface with local paired persistence or explicit remote Ingestor/StorageManager-confirmed producer preservation, existing callbacks and configured dependencies.
+- ServiceMaintenanceInterface.controller_authority_confirmed: Reports whether the current unretired Controller maintenance lifetime owns its confirmed claim.
+- ServiceMaintenanceInterface.acquire_controller_authority(boundary, *, account, bucket, key, timeout_s): Serializes explicit claim acquisition and binds verified authority to the existing maintenance operational-instance identity.
+- ServiceMaintenanceInterface.complete_retirement(command, result): Requires the exact retained successful Stop/Kill retirement, finishes existing dependent confirmation, then releases the Controller claim through the shared owner/revision-conditional path.
 - ServiceMaintenanceInterface.operational_instance_id: Read-only identity for one owner lifetime, separate from persistent RuntimeParticipant identity.
 - ServiceMaintenanceInterface.configure_external_dependents(participants, communication, result_window_s): Composes explicit Ingestor callback blockers from current owner confirmations and existing verified framework history.
 - ServiceMaintenanceInterface.register_ingestor_dependency(): Registers the deployed instance through fresh scoped NATS readback before unrelated operational admission.
@@ -2009,7 +2015,7 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 - ServiceMaintenanceInterface._administrative_outcome(reference): Projects explicit abandonment from retained administrator choices matching existing service-owned references, without a registry or mutation of original outcomes.
 - ServiceMaintenanceInterface._release_abandoned_evidence(decision): Retires only unnecessary producer copies under existing complete-preservation/resource/admission guards and retains abandonment markers plus actual release evidence.
 - ServiceMaintenanceInterface._record_framework_evidence(message, status=None, *, archive=True, require_existing_archive=False): Retains producer evidence and exposes separate publication/acceptance/archival observations and warnings, including informational findings and authorized recovery outcomes.
-- service_operation(new_work=False): Tracks service operations, including existing administrative interfaces and their outgoing NATS dependency requests, rejecting new unrelated work during pending maintenance while permitting nested admitted calls only within the same task or thread, not through inherited child-task context.
+- service_operation(new_work=False): Requires confirmed authority for Controller operational calls, tracks admitted service operations against retirement, and rejects unrelated new work during pending maintenance while preserving same-task/thread nested admission.
 
 Startup and administrator-decision APIs return detached evidence plus separate
 `publication_confirmed`, `acceptance_confirmed`, and `archival_confirmed` submission
@@ -2496,7 +2502,17 @@ automatic. Kill integration and overall closeout validation remain deferred.
 - temporary_jetstream_server(*, authorization=None): Starts an optional isolated local NATS test process with optional real broker authorization rules and temporary storage; it is not framework deployment supervision.
 - JetStreamServer(arguments, url): Owns one isolated test broker process and preserves its address and disk store across interruptions.
 - JetStreamServer.start()/stop(): Starts and awaits broker readiness or stops the owned test process without deleting retained JetStream data.
-- restartable_jetstream_server(*, authorization=None): Supplies the existing isolated broker fixture with explicit interruption/restoration control while keeping ordinary URL-only callers unchanged.
+- restartable_jetstream_server(*, authorization=None, server_configuration=None): Supplies an isolated persistent broker with explicit restart control and optional account configuration while keeping existing callers unchanged.
+- acquire_test_controller_authority(test_case, maintenance): Acquires a real isolated Controller claim for existing public workflow tests and registers broker/connection cleanup with the test case.
+
+## tests/test_controller_authority.py
+
+- ControllerAdmissionTests: Demonstrates that direct construction cannot initiate operational work or report operational readiness.
+- ControllerClaimTests: Exercises public Controller authority workflows against real disk-backed JetStream, including contention, uncertainty, crash/restart retention, Stop/Kill completion, prepared retention, stale release, in-flight operations and launcher entry points.
+- ControllerClaimTests.new_owner(identity): Constructs a Controller, existing local maintenance owners and a connected boundary for an isolated public workflow.
+- ControllerClaimTests.acquire(owner=None, boundary=None, **changes): Calls public maintenance authority acquisition with explicit test-installation settings.
+- ControllerClaimTests.command(operation="stop", *, attempt="attempt", authorized=False): Builds explicit administrative maintenance requests for the tested owner.
+- ControllerClaimTests.stop(): Executes public orderly Stop and checks confirmed operational retirement without assuming claim release.
 
 ## tests/test_nats_reconnection.py
 

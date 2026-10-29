@@ -117,7 +117,7 @@ class ServiceLauncher:
                 if (result.success and result.payload.get("outcome") == "completed"
                         and result.payload.get("termination_confirmed") is True and owner.terminated):
                     self._local_retirements[owner.participant] = (command, result)
-                    await owner.deliver_dependency_release(command, result)
+                    await owner.complete_retirement(command, result)
                     self._handled_retirements.add(owner.participant)
                 return result
             except Exception as error:
@@ -138,7 +138,7 @@ class ServiceLauncher:
                                 and b.component_type == owner.participant.component_type)
                 for command_id, pair in tuple(boundary._pending_dependent_deliveries.items()):
                     try:
-                        await owner.deliver_dependency_release(*pair)
+                        await owner.complete_retirement(*pair)
                         self._remote_handled(owner, *pair)
                         boundary._pending_dependent_deliveries.pop(command_id, None)
                     except Exception as error:
@@ -146,7 +146,7 @@ class ServiceLauncher:
                 pending_local = self._local_retirements.get(owner.participant)
                 if pending_local is not None and owner.participant not in self._handled_retirements:
                     try:
-                        await owner.deliver_dependency_release(*pending_local)
+                        await owner.complete_retirement(*pending_local)
                         self._handled_retirements.add(owner.participant)
                     except Exception as error:
                         self._report(f"Dependent confirmation remains unconfirmed: {error}; process retained.")
@@ -314,6 +314,9 @@ async def launch_storage_services(*, servers, ingestor_id, storage_id, storage_r
 def main(argv=None):
     """Common installed CLI; unavailable role composition fails before startup."""
     parser = argparse.ArgumentParser(description="Launch existing services; Ctrl+C requests maintenance Stop.")
+    parser.add_argument("--controller-claim-account")
+    parser.add_argument("--controller-claim-bucket")
+    parser.add_argument("--controller-claim-key")
     parser.add_argument("role", choices=("controller", "acquisition-node", "ingestor", "storage-manager", "synchronization-manager", "stop", "kill", "cancel", "verify-retrieval", "verify-node"))
     parser.add_argument("--node-id")
     parser.add_argument("--source-path")
@@ -460,11 +463,16 @@ def main(argv=None):
             parser.error("Configured --synchronization-id is required")
         if args.role == "controller" and (bool(args.known_node) == args.no_known_nodes):
             parser.error("Controller requires --known-node entries or explicit --no-known-nodes")
+        if args.role == "controller" and any(not getattr(args, field) for field in
+                ("controller_claim_account", "controller_claim_bucket", "controller_claim_key")):
+            parser.error("Controller requires explicit --controller-claim-account, --controller-claim-bucket and --controller-claim-key")
         try:
             return asyncio.run(launch_independent_service(role=args.role, servers=args.server,
                 service_id=args.service_id, ingestor_id=args.ingestor_id, storage_id=args.storage_id,
                 preservation_window_s=args.preservation_window_s, result_window_s=args.result_window_s,
                 synchronization_id=args.synchronization_id, known_nodes=tuple(args.known_node or ()),
+                controller_claim_account=args.controller_claim_account,
+                controller_claim_bucket=args.controller_claim_bucket, controller_claim_key=args.controller_claim_key,
                 node_config=args.config or Path.home() / ".config" / "lab-sync-acquisition" / "acquisition-node.json"))
         except Exception as error:
             print(f"Startup unconfirmed: {type(error).__name__}: {error}", file=sys.stderr)
