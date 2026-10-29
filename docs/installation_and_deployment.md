@@ -465,6 +465,27 @@ deletes ownership or automatically retries acquisition. Release failure leaves
 Controller retired and final completion pending; retry completion without repeating
 physical cleanup. A missing key after an uncertain delete is not treated as proof
 of successful release, and a replacement owner's revision is never adopted.
+Conditional deletion retains the operational-instance bytes and expected acquired
+revision in the existing KV DEL record. Retry reads the first retained record for
+that key after acquisition; only its exact subject, DEL operation, owner and
+conditional revision establish prior completion. This permits completion after a
+lost acknowledgment without publishing a deletion against a replacement.
+
+Reconciliation is bounded by the configured timeout and retained KV history. A KV
+history depth of at least two preserves the deletion through one replacement's
+acquisition; depth one may overwrite it immediately. Further replacements/writes
+can also exhaust bounded history. Missing, overwritten, unavailable or mismatched
+proof fails closed and remains an authority-release obligation, not a claim that
+final command-result delivery failed. The code does not resize buckets or create
+another evidence store, and it does not certify unlimited retention of release
+proof. Choose and verify adequate existing bucket history for the installation.
+
+Controller owns its coordinated-shutdown task. Unrelated authorized forced
+retirement cancels and joins that task before committing retirement; it cannot
+release authority while an in-flight coordinator can still issue commands. The
+coordinator's own matching participant attempt keeps the existing final-retirement
+path, and dispatch rechecks admission after suspended continuations. This is local
+task cleanup and existing attempt correlation, not a new lifecycle or global freeze.
 No stale-claim clearing tool or takeover is included. Follow the accepted manual
 recovery requirements below without inventing a current recovery procedure.
 

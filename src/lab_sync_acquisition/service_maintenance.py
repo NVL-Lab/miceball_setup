@@ -218,7 +218,10 @@ class ServiceMaintenanceInterface:
         await self.deliver_dependency_release(command, result)
         boundary = self._controller_claim_boundary
         if boundary is not None:
-            await boundary.release_controller_claim(operational_instance_id=self.operational_instance_id)
+            try:
+                await boundary.release_controller_claim(operational_instance_id=self.operational_instance_id)
+            except Exception as error:
+                raise RuntimeError(f"Controller authority release confirmation is unconfirmed: {error}") from error
 
     @property
     def terminated(self) -> bool:

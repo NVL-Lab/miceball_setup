@@ -2,6 +2,7 @@
 
 import asyncio
 from contextlib import AsyncExitStack
+from dataclasses import replace
 from pathlib import Path
 import tempfile
 import unittest
@@ -9,11 +10,12 @@ from unittest.mock import AsyncMock, patch
 
 import nats
 from nats.js.api import KeyValueConfig, StorageType
+from nats.js.client import JetStreamContext
 from nats.js.errors import BadRequestError, KeyNotFoundError, KeyWrongLastSequenceError
 
 from lab_sync_acquisition import (Controller, RuntimeParticipant, RuntimeCommandMessage,
     InMemoryIngestor, PersistentStorageManager, ServiceMaintenanceInterface,
-    NatsCommunicationBoundary, SessionConfig)
+    NatsCommunicationBoundary, NatsControllerCommunication, SessionConfig)
 from lab_sync_acquisition.service_launcher import ServiceLauncher
 from tests.nats_server_fixture import (NATS_SERVER, restartable_jetstream_server,
                                       CONTROLLER_AUTHORITY_SERVER_CONFIGURATION)
@@ -47,7 +49,7 @@ class ControllerClaimTests(unittest.IsolatedAsyncioTestCase):
         self.stack.push_async_callback(self.client.close)
         self.js = self.client.jetstream()
         self.kv = await self.js.create_key_value(
-            KeyValueConfig(bucket="AUTHORITY", storage=StorageType.FILE))
+            KeyValueConfig(bucket="AUTHORITY", storage=StorageType.FILE, history=2))
 
     async def new_owner(self, identity):
         controller = Controller(ingestor=self.ingestor, storage_manager=self.storage,
@@ -83,6 +85,92 @@ class ControllerClaimTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(sum(c.check_ready().ready for c in (self.controller, other)), 1)
         self.assertIn((await self.kv.get("controller")).value.decode(),
                       (self.owner.operational_instance_id, owner.operational_instance_id))
+
+    async def test_suspended_coordinator_cannot_publish_after_unrelated_kill_and_replacement(self):
+        await self.acquire()
+        await self.boundary.ensure_streams()
+        for service, kind in ((self.ingestor, "ingestor"), (self.storage, "storage_manager")):
+            ServiceMaintenanceInterface(service, RuntimeParticipant(kind, kind),
+                ingestor=self.ingestor, storage_manager=self.storage, preservation_window_s=0.1,
+                close_resources=AsyncMock(return_value=True))
+        entered, resume = asyncio.Event(), asyncio.Event()
+        transport = NatsControllerCommunication(self.boundary)
+        sent = []
+        class Communication:
+            def check_ready(inner):
+                return transport.check_ready()
+            async def subscribe_command_results(inner, session):
+                entered.set()
+                await resume.wait()
+                return await transport.subscribe_command_results(session)
+            async def request_command(inner, participant, operation, session, payload, window, *, command_id):
+                if operation == "check_stop_readiness":
+                    return None
+                sent.append(operation)
+                return await transport.request_command(participant, operation, session, payload, 0.05,
+                                                       command_id=command_id)
+        scope = (self.owner.participant, RuntimeParticipant("ingestor", "ingestor"),
+                 RuntimeParticipant("storage_manager", "storage_manager"),
+                 RuntimeParticipant("synchronization_manager", "sync"))
+        task = asyncio.create_task(self.controller.shutdown_framework(scope, communication=Communication(),
+            stop_attempt_id="framework", administrator_id="operator", result_window_s=2))
+        try:
+            await asyncio.wait_for(entered.wait(), 2)
+            blocked = await self.owner.execute_command(self.command())
+            self.assertEqual(blocked.payload["outcome"], "blocked")
+            kill = self.command("kill", authorized=True)
+            retired = await self.owner.execute_command(kill)
+            self.assertTrue(retired.success, retired.reason)
+            await self.owner.complete_retirement(kill, retired)
+            _, replacement, boundary = await self.new_owner("replacement")
+            await self.acquire(replacement, boundary)
+            resume.set()
+            await asyncio.wait_for(asyncio.gather(task, return_exceptions=True), 2)
+            self.assertFalse(sent, "Retired coordinator published after replacement acquired authority")
+            self.assertTrue(replacement.controller_authority_confirmed)
+            self.assertEqual((await self.js.stream_info("LAB_COMMANDS")).state.messages, 0)
+        finally:
+            resume.set()
+            if not task.done():
+                task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+    async def test_lost_delete_ack_reconciles_before_replacement(self):
+        await self.acquire()
+        launcher = ServiceLauncher((self.owner,), (self.boundary,), report=lambda text: None)
+        original = JetStreamContext.publish
+        async def lose_ack(js, subject, *args, **kwargs):
+            response = await original(js, subject, *args, **kwargs)
+            if kwargs.get("headers", {}).get("KV-Operation") == "DEL":
+                raise TimeoutError("Delete committed; acknowledgment lost")
+            return response
+        with patch.object(JetStreamContext, "publish", lose_ack):
+            self.assertFalse(await launcher.stop_locally("operator"))
+        self.assertTrue(self.owner.terminated)
+        with self.assertRaises(KeyNotFoundError):
+            await self.kv.get("controller")
+        self.assertTrue(await launcher.stop_locally("operator"))
+        self.assertTrue(launcher.exit_ready)
+        self.assertIsNone(self.boundary.controller_claim_owner)
+
+    async def test_lost_delete_ack_reconciles_after_replacement(self):
+        await self.acquire()
+        launcher = ServiceLauncher((self.owner,), (self.boundary,), report=lambda text: None)
+        original = JetStreamContext.publish
+        async def lose_ack(js, subject, *args, **kwargs):
+            response = await original(js, subject, *args, **kwargs)
+            if kwargs.get("headers", {}).get("KV-Operation") == "DEL":
+                raise TimeoutError("Delete committed; acknowledgment lost")
+            return response
+        with patch.object(JetStreamContext, "publish", lose_ack):
+            self.assertFalse(await launcher.stop_locally("operator"))
+        self.assertTrue(self.owner.terminated)
+        _, replacement, boundary = await self.new_owner("replacement")
+        await self.acquire(replacement, boundary)
+        self.assertTrue(await launcher.stop_locally("operator"))
+        self.assertTrue(launcher.exit_ready)
+        self.assertIsNone(self.boundary.controller_claim_owner)
+        self.assertEqual((await self.kv.get("controller")).value.decode(), replacement.operational_instance_id)
 
     async def test_inprocess_session_creation_requires_explicit_claim(self):
         config = SessionConfig([], self.temp.name, None, self.temp.name, session_id="session")
@@ -203,8 +291,8 @@ class ControllerClaimTests(unittest.IsolatedAsyncioTestCase):
     async def test_release_failure_retry_and_stale_revision_protection(self):
         await self.acquire()
         command, result = await self.stop()
-        with patch.object(type(self.kv), "delete", AsyncMock(side_effect=TimeoutError("unavailable"))):
-            with self.assertRaises(TimeoutError):
+        with patch.object(JetStreamContext, "publish", AsyncMock(side_effect=TimeoutError("unavailable"))):
+            with self.assertRaisesRegex(RuntimeError, "authority release confirmation"):
                 await self.owner.complete_retirement(command, result)
         self.assertTrue(self.owner.terminated)
         self.assertFalse(self.controller.check_ready().ready)
@@ -214,25 +302,63 @@ class ControllerClaimTests(unittest.IsolatedAsyncioTestCase):
         await self.owner.complete_retirement(command, result)
         self.assertEqual((await self.kv.get("controller")).value.decode(), replacement.operational_instance_id)
 
-    async def test_stale_revision_after_uncertain_delete_cannot_remove_replacement(self):
+    async def test_stale_conditional_delete_cannot_remove_replacement(self):
         await self.acquire()
         original_entry = await self.kv.get("controller")
         command, result = await self.stop()
-        original = type(self.kv).delete
-        async def uncertain(kv, key, **kwargs):
-            await original(kv, key, **kwargs)
-            raise TimeoutError("Release acknowledgment unavailable")
-        with patch.object(type(self.kv), "delete", uncertain):
-            with self.assertRaises(TimeoutError):
+        _, replacement, boundary = await self.new_owner("replacement")
+        original = JetStreamContext.publish
+        async def replace_before_delete(js, subject, *args, **kwargs):
+            if kwargs.get("headers", {}).get("KV-Operation") == "DEL":
+                # Independent administrative removal after verified retirement,
+                # racing the old owner's already-read conditional release.
+                with patch.object(JetStreamContext, "publish", original):
+                    await self.kv.delete("controller", last=original_entry.revision)
+                    await self.acquire(replacement, boundary)
+            return await original(js, subject, *args, **kwargs)
+        with patch.object(JetStreamContext, "publish", replace_before_delete):
+            with self.assertRaises(RuntimeError) as rejected:
+                await self.owner.complete_retirement(command, result)
+        self.assertIsInstance(rejected.exception.__cause__, BadRequestError)
+        self.assertEqual(rejected.exception.__cause__.err_code, 10071)
+        with self.assertRaisesRegex(RuntimeError, "owner/revision"):
+            await self.owner.complete_retirement(command, result)
+        self.assertEqual((await self.kv.get("controller")).value.decode(), replacement.operational_instance_id)
+
+    async def test_unproven_absence_remains_uncertain_and_reports_authority_obligation(self):
+        revision = await self.acquire()
+        messages = []
+        launcher = ServiceLauncher((self.owner,), (self.boundary,), report=messages.append)
+        with patch.object(JetStreamContext, "publish", AsyncMock(side_effect=TimeoutError("unavailable"))):
+            self.assertFalse(await launcher.stop_locally("operator"))
+        self.assertTrue(self.owner.terminated)
+        # Absence alone, without this owner's conditional-deletion evidence.
+        await self.kv.delete("controller", last=revision)
+        self.assertFalse(await launcher.stop_locally("operator"))
+        import json
+        report = json.loads(messages[-1])
+        self.assertIn("Controller authority release confirmation", report["remaining_obligations"][0])
+        self.assertNotIn("Final maintenance command-result", report["remaining_obligations"][0])
+        self.assertFalse(launcher.exit_ready)
+
+    async def test_overwritten_release_proof_does_not_authorize_completion(self):
+        config = (await self.kv.status()).stream_info.config
+        await self.js.update_stream(config=replace(config, max_msgs_per_subject=1))
+        await self.acquire()
+        command, result = await self.stop()
+        original = JetStreamContext.publish
+        async def lose_ack(js, subject, *args, **kwargs):
+            response = await original(js, subject, *args, **kwargs)
+            if kwargs.get("headers", {}).get("KV-Operation") == "DEL":
+                raise TimeoutError("Delete committed; acknowledgment lost")
+            return response
+        with patch.object(JetStreamContext, "publish", lose_ack):
+            with self.assertRaises(RuntimeError):
                 await self.owner.complete_retirement(command, result)
         _, replacement, boundary = await self.new_owner("replacement")
         await self.acquire(replacement, boundary)
         with self.assertRaisesRegex(RuntimeError, "owner/revision"):
             await self.owner.complete_retirement(command, result)
-        # Even a stale read cannot bypass the server's conditional-delete boundary.
-        with patch.object(type(self.kv), "get", AsyncMock(return_value=original_entry)), self.assertRaises(BadRequestError) as rejected:
-            await self.owner.complete_retirement(command, result)
-        self.assertEqual(rejected.exception.err_code, 10071)
         self.assertEqual((await self.kv.get("controller")).value.decode(), replacement.operational_instance_id)
 
     async def test_disconnect_and_broker_restart_retain_claim(self):

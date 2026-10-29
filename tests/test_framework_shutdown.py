@@ -583,6 +583,54 @@ class FrameworkShutdownTests(unittest.IsolatedAsyncioTestCase):
         later = await self.shutdown(stop_attempt_id="new-explicit-attempt")
         self.assertTrue(later.succeeded, later.error)
 
+    async def test_unrelated_kill_waits_for_inflight_coordinator_to_quiesce(self):
+        entered, cancelling, quiesce = asyncio.Event(), asyncio.Event(), asyncio.Event()
+        original = self.communication.request_command
+        async def request(participant, operation, *args, **kwargs):
+            if participant.component_type == "synchronization_manager" and operation == "stop":
+                entered.set()
+                try:
+                    await asyncio.Event().wait()
+                except asyncio.CancelledError:
+                    cancelling.set()
+                    await quiesce.wait()
+                    raise
+            return await original(participant, operation, *args, **kwargs)
+        self.communication.request_command = request
+        owner = self.interfaces["controller"]
+        # The fixture's normal callback expects infrastructure already retired;
+        # this separate authorized Kill confirms only Controller-local retirement.
+        owner.retire_resources = AsyncMock(return_value=True)
+        coordinator = asyncio.create_task(self.shutdown())
+        kill_task = None
+        try:
+            await asyncio.wait_for(entered.wait(), 3)
+            stop = RuntimeCommandMessage("outside-stop", None, "stop", "administrator", "controller",
+                {"stop_attempt_id": "outside", "administrator_id": "operator",
+                 "framework_stop_attempt_id": "framework-attempt"})
+            blocked = await owner.execute_command(stop)
+            self.assertEqual(blocked.payload["outcome"], "blocked")
+            kill = RuntimeCommandMessage("outside-kill", None, "kill", "administrator", "controller",
+                {"stop_attempt_id": "outside", "administrator_id": "operator", "authorized": True})
+            kill_task = asyncio.create_task(owner.execute_command(kill))
+            await asyncio.wait_for(cancelling.wait(), 3)
+            self.assertFalse(owner.terminated)
+            self.assertFalse(kill_task.done())
+            self.assertEqual(self.authority.controller_claim_owner, owner.operational_instance_id)
+            quiesce.set()
+            result = await asyncio.wait_for(kill_task, 3)
+            self.assertTrue(result.success, result.reason)
+            self.assertTrue(coordinator.done())
+            await owner.complete_retirement(kill, result)
+            self.assertIsNone(self.authority.controller_claim_owner)
+        finally:
+            quiesce.set()
+            if not coordinator.done():
+                coordinator.cancel()
+            await asyncio.gather(coordinator, return_exceptions=True)
+            if kill_task is not None:
+                await asyncio.gather(kill_task, return_exceptions=True)
+
     async def test_invalid_result_correlation_never_confirms_retirement(self):
         def change(operation, result):
             if operation == "stop" and result["source_id"] == "node":

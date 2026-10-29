@@ -134,6 +134,7 @@ class ServiceLauncher:
             plan = [(self.maintenance[0], "stop")]
         for owner, operation in plan:
             if owner.terminated:
+                completion_error = None
                 boundary = next(b for b in self.boundaries if b.component_id == owner.participant.component_id
                                 and b.component_type == owner.participant.component_type)
                 for command_id, pair in tuple(boundary._pending_dependent_deliveries.items()):
@@ -142,17 +143,20 @@ class ServiceLauncher:
                         self._remote_handled(owner, *pair)
                         boundary._pending_dependent_deliveries.pop(command_id, None)
                     except Exception as error:
-                        self._report(f"Acknowledged retirement delivery remains unconfirmed: {error}; process retained.")
+                        completion_error = str(error)
+                        self._report(f"Retirement completion remains unconfirmed: {error}; process retained.")
                 pending_local = self._local_retirements.get(owner.participant)
                 if pending_local is not None and owner.participant not in self._handled_retirements:
                     try:
                         await owner.complete_retirement(*pending_local)
                         self._handled_retirements.add(owner.participant)
                     except Exception as error:
-                        self._report(f"Dependent confirmation remains unconfirmed: {error}; process retained.")
+                        completion_error = str(error)
+                        self._report(f"Retirement completion remains unconfirmed: {error}; process retained.")
                 if owner.participant not in self._handled_retirements:
                     self._report(json.dumps({"target": owner.participant.to_dict(), "outcome": "unconfirmed",
-                        "remaining_obligations": ["Final maintenance command-result publication/handling"],
+                        "remaining_obligations": ([completion_error] if completion_error is not None else
+                                                  ["Final maintenance command-result publication/handling"]),
                         "retained_results": [r.to_dict() for r in owner.command_results],
                         "operator_action": "Process retained; retry the original remote maintenance command."}, sort_keys=True))
                 continue

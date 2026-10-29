@@ -187,6 +187,7 @@ class Controller:
         self._finalization_confirmation = None
         self._last_released_session: dict[str, Any] | None = None
         self._framework_shutdown_active = False
+        self._framework_shutdown_task = None
         self._framework_shutdown_attempt_id: str | None = None
         self._framework_shutdown_attempts: dict[str, dict[str, Any]] = {}
         self._reconciliation_evidence: list[RuntimeEvidenceMessage] = []
@@ -733,6 +734,7 @@ class Controller:
                 if stop_attempt_id in self._framework_shutdown_attempts:
                     raise ValueError("Framework stop attempt identity cannot be reused")
                 self._framework_shutdown_active = True
+                self._framework_shutdown_task = asyncio.current_task()
                 self._framework_shutdown_attempt_id = stop_attempt_id
                 admitted = True
             participant_attempt_ids = {p: uuid4().hex for p in participants}
@@ -749,6 +751,10 @@ class Controller:
             subscription = await asyncio.wait_for(communication.subscribe_command_results(None), result_window_s)
 
             async def request(participant, operation, *, authorized=False):
+                with self._service_operation_lock:
+                    if (not maintenance.controller_authority_confirmed
+                            or (maintenance._closeout_started and not self._coordinated_maintenance_matches())):
+                        raise RuntimeError("Controller shutdown command admission is closed")
                 command_id = uuid4().hex
                 payload = {"stop_attempt_id": participant_attempt_ids[participant],
                            "framework_stop_attempt_id": stop_attempt_id,
@@ -897,6 +903,7 @@ class Controller:
                 if admitted:
                     with self._service_operation_lock:
                         self._framework_shutdown_active = False
+                        self._framework_shutdown_task = None
                         self._framework_shutdown_attempt_id = None
 
     @service_operation(new_work=True)
@@ -3131,9 +3138,7 @@ class Controller:
         if self._artifact_collection_in_progress or self._active_experiment_id is not None:
             blockers.append("Unfinished Controller-coordinated work")
         if self._framework_shutdown_active:
-            interface = getattr(self, "_maintenance", None)
-            active = interface._attempt if interface is not None else None
-            if active is None or active.get("framework_stop_attempt_id") != self._framework_shutdown_attempt_id:
+            if not self._coordinated_maintenance_matches():
                 blockers.append("Unfinished framework shutdown coordination")
         if self._reconciliation_evidence:
             if storage_manager is None:
@@ -3438,7 +3443,31 @@ class Controller:
             "blocking_conditions": blockers,
         }
 
+    def _coordinated_maintenance_matches(self) -> bool:
+        """Recognize this coordinator's own participant attempt, not an unrelated Stop/Kill."""
+        interface = getattr(self, "_maintenance", None)
+        active = interface._attempt if interface is not None else None
+        framework_id = self._framework_shutdown_attempt_id
+        record = self._framework_shutdown_attempts.get(framework_id)
+        return (self._framework_shutdown_active and active is not None and record is not None
+                and active.get("framework_stop_attempt_id") == framework_id
+                and active.get("requester_id") == self._component_id
+                and any(item["participant"] == interface.participant.to_dict()
+                        and item["stop_attempt_id"] == active.get("stop_attempt_id")
+                        for item in record["participant_attempts"]))
+
     async def _close_maintenance_resources(self, force: bool) -> None:
+        with self._service_operation_lock:
+            unrelated = self._framework_shutdown_active and not self._coordinated_maintenance_matches()
+            coordinator = self._framework_shutdown_task if unrelated else None
+            if unrelated:
+                if not force or coordinator is None or coordinator is asyncio.current_task():
+                    raise RuntimeError("Framework shutdown coordination is not quiescent")
+                coordinator.cancel()
+        if coordinator is not None:
+            # Join cancellation/cleanup before retirement can commit. Parent
+            # cancellation propagates; it never becomes a quiescence confirmation.
+            await asyncio.gather(coordinator, return_exceptions=True)
         for subscription in self._launch_subscriptions:
             await subscription.unsubscribe()
         self._launch_subscriptions = ()

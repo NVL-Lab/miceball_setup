@@ -16,7 +16,7 @@ from uuid import uuid4
 from nats.aio.client import Client as NATS
 from nats.aio.subscription import Subscription
 from nats.errors import ConnectionReconnectingError
-from nats.js.api import AckPolicy, ConsumerConfig, DeliverPolicy, RetentionPolicy, StorageType, StreamConfig
+from nats.js.api import AckPolicy, ConsumerConfig, DeliverPolicy, Header, RetentionPolicy, StorageType, StreamConfig
 from nats.js.client import JetStreamContext
 from nats.js.errors import NotFoundError
 
@@ -187,7 +187,7 @@ class NatsCommunicationBoundary:
                 revision = await kv.create(key, operational_instance_id.encode("utf-8"))
                 if type(revision) is not int or revision <= 0:
                     raise RuntimeError("Controller claim acquisition revision is unconfirmed")
-                self._controller_claim = (kv, operational_instance_id, key, revision, timeout_s)
+                self._controller_claim = (kv, operational_instance_id, key, revision, timeout_s, bucket)
                 return revision
 
     async def release_controller_claim(self, *, operational_instance_id: str) -> None:
@@ -201,14 +201,33 @@ class NatsCommunicationBoundary:
                 raise RuntimeError("Claim release requires its owning Controller's irreversible retirement")
             if self._controller_claim_released:
                 return
-            kv, _, key, revision, timeout_s = retained
-            # Keep the acquired revision after timeout/failure. A retry never adopts
-            # the current revision or assumes that a missing value proves success.
+            kv, _, key, revision, timeout_s, bucket = retained
+            subject, stream = f"$KV.{bucket}.{key}", f"KV_{bucket}"
+            owner = operational_instance_id.encode("utf-8")
             async with asyncio.timeout(timeout_s):
+                # Read the first retained record for this key after acquisition.
+                # Only an exact conditional deletion proves prior completion;
+                # absence or a replacement value is never such proof.
+                try:
+                    proof = await self._jetstream.get_msg(stream, seq=revision + 1,
+                                                         subject=subject, next=True)
+                except NotFoundError:
+                    proof = None
+                if (proof is not None and proof.subject == subject and proof.sequence > revision
+                        and proof.data == owner and proof.headers is not None
+                        and proof.headers.get("KV-Operation") == "DEL"
+                        and proof.headers.get(Header.EXPECTED_LAST_SUBJECT_SEQUENCE) == str(revision)):
+                    self._controller_claim_released = True
+                    return
                 current = await kv.get(key)
-                if current.revision != revision or current.value != operational_instance_id.encode("utf-8"):
+                if current.revision != revision or current.value != owner:
                     raise RuntimeError("Controller claim owner/revision no longer matches the acquired authority")
-                await kv.delete(key, last=revision)
+                # Standard KV DEL, with owner evidence retained in the same KV
+                # record. The server still enforces the original acquired revision.
+                ack = await self._jetstream.publish(subject, owner, timeout=timeout_s, headers={
+                    "KV-Operation": "DEL", Header.EXPECTED_LAST_SUBJECT_SEQUENCE: str(revision)})
+                if ack.stream != stream or type(ack.seq) is not int or ack.seq <= revision:
+                    raise RuntimeError("Controller conditional release acknowledgment is unconfirmed")
             self._controller_claim_released = True
 
     @property
