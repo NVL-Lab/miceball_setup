@@ -27,6 +27,63 @@ from tests.nats_server_fixture import (NATS_SERVER, restartable_jetstream_server
 
 @unittest.skipUnless(NATS_SERVER, "Set LAB_SYNC_NATS_SERVER to an installed nats-server")
 class ControllerReplacementTests(unittest.IsolatedAsyncioTestCase):
+    async def test_stop_result_publication_failure_redelivers_original_success(self):
+        await self._check_stop_delivery_recovery(controller_issued=False)
+
+    async def test_controller_stop_result_redelivers_after_retirement(self):
+        await self._check_stop_delivery_recovery(controller_issued=True)
+
+    async def _check_stop_delivery_recovery(self, *, controller_issued):
+        from lab_sync_acquisition.service_launcher import ServiceLauncher
+        launcher = ServiceLauncher((self.peer_owner,), (self.peer,), report=lambda text: None)
+        consumer = next(info for info in await self.js.consumers_info("LAB_COMMANDS")
+            if info.config.filter_subject == "messages.command.synchronization_manager.sync.*")
+        # Accelerate broker redelivery only in this isolated test consumer.
+        await self.js.add_consumer("LAB_COMMANDS", config=replace(consumer.config,
+            name=consumer.name, ack_wait=0.5))
+        original = self.peer.publish_command_result
+        attempts = []
+        async def fail_first(result, operation):
+            attempts.append(result)
+            if len(attempts) == 1:
+                self.assertTrue(self.peer_owner.terminated)
+                self.assertTrue(result.success)
+                raise ConnectionError("First authoritative result publication failed")
+            await original(result, operation)
+        command = RuntimeCommandMessage("delivery-retry", None, "stop", "operator", "sync",
+            {"stop_attempt_id": "delivery-retry", "administrator_id": "operator"}, issuer_type="terminal")
+        if controller_issued:
+            registration = await self.boundary.register_controller(self.peer_owner.participant, result_window_s=2)
+            command = replace(command, source_id="controller", issuer_type="controller", **registration)
+        with patch.object(self.peer, "publish_command_result", fail_first):
+            result = await self.wire_request(self.operator, command, "synchronization_manager")
+            self.assertTrue(result.success, result.reason)
+            async with asyncio.timeout(3):
+                while not launcher.exit_ready:
+                    await asyncio.sleep(0)
+        self.assertEqual(len(attempts), 2)
+        self.assertTrue(all(attempt.success for attempt in attempts))
+        self.assertEqual(attempts[0].to_dict(), attempts[1].to_dict())
+        self.assertEqual(result.to_dict(), attempts[0].to_dict())
+        self.assertEqual(self.peer_owner.close_resources.await_count, 1)
+        retained = [r for r in self.peer_owner.command_results if r.command_id == command.command_id]
+        self.assertEqual(len(retained), 1)
+        self.assertEqual(retained[0].to_dict(), result.to_dict())
+        async with asyncio.timeout(3):
+            while (await self.js.consumer_info("LAB_COMMANDS", consumer.name)).num_ack_pending:
+                await asyncio.sleep(0)
+        current = await self.js.consumer_info("LAB_COMMANDS", consumer.name)
+        self.assertEqual(current.num_ack_pending, 0)
+        if controller_issued:
+            for changed in (replace(command, command_id="new-after-retirement"),
+                            replace(command, payload={**command.payload, "administrator_id": "another-operator"}),
+                            replace(command, controller_instance_id="superseded-instance")):
+                rejected = await self.wire_request(self.operator, changed, "synchronization_manager")
+                self.assertFalse(rejected.success)
+            self.assertEqual(self.peer_owner.close_resources.await_count, 1)
+            self.assertEqual([r.to_dict() for r in self.peer_owner.command_results
+                              if r.command_id == command.command_id], [result.to_dict()])
+
     async def asyncSetUp(self):
         self.stack = AsyncExitStack()
         self.addAsyncCleanup(self.stack.aclose)

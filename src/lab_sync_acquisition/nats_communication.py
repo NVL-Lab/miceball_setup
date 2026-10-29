@@ -289,6 +289,7 @@ class NatsCommunicationBoundary:
         if command.target_id != self.component_id:
             await message.ack()
             return None
+        execute = False
         try:
             if command.command_type in {"read_controller_admission", "register_controller"}:
                 if (command.session_id is not None or not command.command_id or not command.source_id
@@ -315,18 +316,22 @@ class NatsCommunicationBoundary:
                         owner._results[command.command_id] = result
             else:
                 self._check_command_admission(command)
-                token = _admitted_commands.set((*_admitted_commands.get(),
-                    (id(getattr(self, "_maintenance_owner", None)), command.command_id,
-                     command.controller_instance_id, command.controller_claim_revision)))
-                try:
-                    # Authority is admission metadata, not a new logical command
-                    # identity. Existing result/attempt histories retain their contracts.
-                    return await receive(message)
-                finally:
-                    _admitted_commands.reset(token)
+                execute = True
         except Exception as error:
             result = _participant_result(self, command, False, str(error),
                                         {"request_nonce": command.payload.get("request_nonce")})
+        if execute:
+            # Only admission errors become rejection results. Execution/delivery
+            # failures propagate so JetStream retains the original command.
+            token = _admitted_commands.set((*_admitted_commands.get(),
+                (id(getattr(self, "_maintenance_owner", None)), command.command_id,
+                 command.controller_instance_id, command.controller_claim_revision)))
+            try:
+                # Authority is admission metadata, not a new logical command
+                # identity. Existing result/attempt histories retain their contracts.
+                return await receive(message)
+            finally:
+                _admitted_commands.reset(token)
         await self.publish_command_result(result, command.command_type)
         await message.ack()
         return result

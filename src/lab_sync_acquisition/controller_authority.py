@@ -1,6 +1,6 @@
 """Controller claim verification and service-lifetime command admission (Decision 436)."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from contextvars import ContextVar
 from math import isfinite
 
@@ -128,10 +128,22 @@ class ControllerCommandAdmission:
             if controller_independent_command(command):
                 return
             if command.issuer_type == "controller":
-                if (owner.terminated or self.recognized is None
+                if (self.recognized is None
                         or command.receiver_instance_id != owner.operational_instance_id
                         or type(command.controller_claim_revision) is not int
                         or (command.controller_instance_id, command.controller_claim_revision, command.source_id) != self.recognized):
                     raise RuntimeError("Controller command requires current service-instance registration")
+                if owner.terminated:
+                    # Delivery retry is not new operational work. Only the exact
+                    # completed retirement command from the still-recognized
+                    # Controller may reach the existing result replay path.
+                    logical = replace(command, receiver_instance_id=None).to_dict()
+                    retained = owner._results.get(command.command_id)
+                    if (command.command_type not in {"stop", "kill"}
+                            or owner._commands.get(command.command_id) != logical
+                            or retained is None or not retained.success
+                            or retained.payload.get("outcome") != "completed"
+                            or retained.payload.get("termination_confirmed") is not True):
+                        raise RuntimeError("Retired service admits only exact retirement-result replay")
                 return
             raise RuntimeError("Controller-dependent command has no recognized Controller authority")
