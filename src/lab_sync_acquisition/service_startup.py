@@ -94,10 +94,10 @@ async def launch_independent_service(*, role, servers, service_id, ingestor_id, 
     ingestor = RuntimeParticipant("ingestor", ingestor_id)
     storage = RuntimeParticipant("storage_manager", storage_id)
     dependencies = [ingestor, storage]
+    if any(not isinstance(v, str) or not v.strip() for v in
+           (controller_claim_account, controller_claim_bucket, controller_claim_key)):
+        raise ValueError("Service requires explicit authority account, bucket and claim key")
     if role == "controller":
-        if any(not isinstance(v, str) or not v.strip() for v in
-               (controller_claim_account, controller_claim_bucket, controller_claim_key)):
-            raise ValueError("Controller requires explicit authority account, bucket and claim key")
         if synchronization_id is None or known_nodes is None:
             raise ValueError("Controller requires its configured synchronization identity and explicit known-node collection")
         owner = Controller(component_id=service_id)
@@ -120,6 +120,8 @@ async def launch_independent_service(*, role, servers, service_id, ingestor_id, 
     for participant in [RuntimeParticipant(kind, service_id), *dependencies]:
         build_runtime_subject(None, "command", participant.component_type, participant.component_id, "stop")
     boundary = NatsCommunicationBoundary(kind, service_id, servers)
+    boundary.configure_controller_authority(account=controller_claim_account, bucket=controller_claim_bucket,
+        key=controller_claim_key, timeout_s=result_window_s)
     communication = NatsControllerCommunication(boundary)
     runtime = handler_type(boundary, owner) if handler_type is not None else None
     external = None

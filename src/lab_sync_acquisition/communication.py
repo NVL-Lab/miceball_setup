@@ -244,9 +244,13 @@ class RuntimeCommandMessage:
     source_id: str
     target_id: str
     payload: dict[str, Any]
+    issuer_type: str | None = None
+    controller_instance_id: str | None = None
+    controller_claim_revision: int | None = None
+    receiver_instance_id: str | None = None
 
     def __post_init__(self) -> None:
-        if self.session_id is None and self.command_type not in ({"check_readiness", "get_inventory", "list_storage_sessions", "stop", "kill", "cancel", "check_stop_readiness", "prepare_stop", "preserve_service_evidence"} | SERVICE_RECOVERY_COMMAND_TYPES | DEPENDENT_MAINTENANCE_COMMANDS):
+        if self.session_id is None and self.command_type not in ({"register_controller", "read_controller_admission", "check_readiness", "get_inventory", "list_storage_sessions", "stop", "kill", "cancel", "check_stop_readiness", "prepare_stop", "preserve_service_evidence"} | SERVICE_RECOVERY_COMMAND_TYPES | DEPENDENT_MAINTENANCE_COMMANDS):
             raise ValueError("Session-specific command requires session_id")
         if self.session_id is not None:
             _validate_subject_token("session_id", self.session_id)
@@ -255,7 +259,7 @@ class RuntimeCommandMessage:
     def to_dict(self) -> dict[str, Any]:
         """Return the command as JSON-like plain data."""
 
-        return {
+        data = {
             "command_id": self.command_id,
             "session_id": self.session_id,
             "command_type": self.command_type,
@@ -263,6 +267,10 @@ class RuntimeCommandMessage:
             "target_id": self.target_id,
             "payload": dict(self.payload),
         }
+        for name in ("issuer_type", "controller_instance_id", "controller_claim_revision", "receiver_instance_id"):
+            if getattr(self, name) is not None:
+                data[name] = getattr(self, name)
+        return data
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> RuntimeCommandMessage:
@@ -275,6 +283,10 @@ class RuntimeCommandMessage:
             source_id=data["source_id"],
             target_id=data["target_id"],
             payload=dict(data["payload"]),
+            issuer_type=data.get("issuer_type"),
+            controller_instance_id=data.get("controller_instance_id"),
+            controller_claim_revision=data.get("controller_claim_revision"),
+            receiver_instance_id=data.get("receiver_instance_id"),
         )
 
 
@@ -291,16 +303,19 @@ class RuntimeCommandResultMessage:
     success: bool
     reason: str | None
     payload: dict[str, Any]
+    controller_instance_id: str | None = None
 
     def __post_init__(self) -> None:
         if self.status not in COMMAND_RESULT_STATUSES:
             raise ValueError(f"Unsupported command result status: {self.status}")
+        if self.controller_instance_id is not None and (not isinstance(self.controller_instance_id, str) or not self.controller_instance_id):
+            raise ValueError("Controller result identity must be nonempty")
         _validate_plain_data(self.payload)
 
     def to_dict(self) -> dict[str, Any]:
         """Return the command result as JSON-like plain data."""
 
-        return {
+        data = {
             "result_id": self.result_id,
             "command_id": self.command_id,
             "session_id": self.session_id,
@@ -311,6 +326,9 @@ class RuntimeCommandResultMessage:
             "reason": self.reason,
             "payload": dict(self.payload),
         }
+        if self.controller_instance_id is not None:
+            data["controller_instance_id"] = self.controller_instance_id
+        return data
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> RuntimeCommandResultMessage:
@@ -326,6 +344,7 @@ class RuntimeCommandResultMessage:
             success=data["success"],
             reason=data["reason"],
             payload=dict(data["payload"]),
+            controller_instance_id=data.get("controller_instance_id"),
         )
 
 

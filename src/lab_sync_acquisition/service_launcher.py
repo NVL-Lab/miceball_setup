@@ -244,11 +244,19 @@ async def launch_storage_services(*, servers, ingestor_id, storage_id, storage_r
                                   recovery_journal_root, framework_journal,
                                   preservation_window_s, operational_dependents, report=print,
                                   global_artifact_root=None, retrieval_endpoints=None,
-                                  external_dependents=(), result_window_s=None):
+                                  external_dependents=(), result_window_s=None,
+                                  controller_claim_account=None, controller_claim_bucket=None,
+                                  controller_claim_key=None):
     """Launch the existing paired owners with explicit constructor settings."""
     servers = tuple(servers)
     if not servers or any(not isinstance(server, str) or not server.strip() for server in servers):
         raise ValueError("Explicit nonempty NATS servers are required")
+    if any(not isinstance(v, str) or not v.strip() for v in
+           (controller_claim_account, controller_claim_bucket, controller_claim_key)):
+        raise ValueError("Services require explicit Controller authority account, bucket and key")
+    from math import isfinite
+    if type(result_window_s) not in (int, float) or not isfinite(result_window_s) or result_window_s <= 0:
+        raise ValueError("Services require a positive finite authority result window")
     storage = PersistentStorageManager(storage_root, component_id=storage_id,
         global_artifact_root=global_artifact_root, retrieval_endpoints=retrieval_endpoints)
     intake = InMemoryIngestor(storage, component_id=ingestor_id,
@@ -260,6 +268,10 @@ async def launch_storage_services(*, servers, ingestor_id, storage_id, storage_r
         report(f"Framework archive continuation unconfirmed: {error}; dependent blockers retained.")
     boundaries = tuple(NatsCommunicationBoundary(kind, identity, tuple(servers)) for kind, identity in (
         ("ingestor", ingestor_id), ("storage_manager", storage_id)))
+
+    for boundary in boundaries:
+        boundary.configure_controller_authority(account=controller_claim_account, bucket=controller_claim_bucket,
+            key=controller_claim_key, timeout_s=result_window_s)
 
     async def cleaned(force):
         # These owners open/close disk handles within each authoritative operation.
@@ -321,7 +333,7 @@ def main(argv=None):
     parser.add_argument("--controller-claim-account")
     parser.add_argument("--controller-claim-bucket")
     parser.add_argument("--controller-claim-key")
-    parser.add_argument("role", choices=("controller", "acquisition-node", "ingestor", "storage-manager", "synchronization-manager", "stop", "kill", "cancel", "verify-retrieval", "verify-node"))
+    parser.add_argument("role", choices=("controller", "acquisition-node", "ingestor", "storage-manager", "synchronization-manager", "stop", "kill", "cancel", "verify-retrieval", "verify-node", "inspect-controller-claim", "clear-controller-claim"))
     parser.add_argument("--node-id")
     parser.add_argument("--source-path")
     parser.add_argument("--expected-file", type=Path)
@@ -350,7 +362,30 @@ def main(argv=None):
         help="Explicitly declare no external operational dependents")
     parser.add_argument("--external-dependent", action="append", metavar="TYPE/ID",
         help="Configured external Ingestor dependent; repeat for each actual dependent")
+    parser.add_argument("--claim-owner")
+    parser.add_argument("--claim-revision", type=int)
+    parser.add_argument("--authorize-claim-clear", action="store_true")
+    parser.add_argument("--verify-prior-termination", action="store_true")
+    parser.add_argument("--termination-evidence")
     args = parser.parse_args(argv)
+    if args.role in {"inspect-controller-claim", "clear-controller-claim"}:
+        from lab_sync_acquisition.service_maintenance_cli import recover_controller_claim
+        if not args.server or args.result_window_s is None:
+            parser.error("Claim recovery requires explicit servers and result-window-s")
+        try:
+            return asyncio.run(recover_controller_claim(servers=args.server,
+                account=args.controller_claim_account, bucket=args.controller_claim_bucket,
+                key=args.controller_claim_key, timeout_s=args.result_window_s,
+                expected_owner=args.claim_owner, expected_revision=args.claim_revision,
+                administrator_id=args.administrator_id, authorized=args.authorize_claim_clear,
+                termination_verified=args.verify_prior_termination, termination_evidence=args.termination_evidence,
+                clear=args.role == "clear-controller-claim"))
+        except Exception as error:
+            print(f"Claim recovery unconfirmed: {type(error).__name__}: {error}", file=sys.stderr)
+            return 1
+    if any(v not in (None, False) for v in (args.claim_owner, args.claim_revision,
+            args.authorize_claim_clear, args.verify_prior_termination, args.termination_evidence)):
+        parser.error("Claim recovery arguments require a claim inspection/clear role")
     if args.external_dependent and args.role not in {"ingestor", "storage-manager"}:
         parser.error("--external-dependent applies only to the shared storage process")
     if args.role == "verify-node":
@@ -410,7 +445,8 @@ def main(argv=None):
         fields = ("server", "service_id", "ingestor_id", "storage_id", "synchronization_id",
                   "known_node", "no_known_nodes", "config", "storage_root", "recovery_journal_root",
                   "framework_journal", "preservation_window_s", "result_window_s", "no_operational_dependents",
-                  "target_type", "target_id", "administrator_id", "stop_attempt_id", "authorize_kill", "external_dependent")
+                  "target_type", "target_id", "administrator_id", "stop_attempt_id", "authorize_kill", "external_dependent",
+                  "controller_claim_account", "controller_claim_bucket", "controller_claim_key")
         if any(getattr(args, field) is not None and getattr(args, field) is not False for field in fields):
             parser.error("--deployment-config cannot be combined with explicit launch or maintenance settings; no override precedence is applied")
         try:
@@ -467,9 +503,9 @@ def main(argv=None):
             parser.error("Configured --synchronization-id is required")
         if args.role == "controller" and (bool(args.known_node) == args.no_known_nodes):
             parser.error("Controller requires --known-node entries or explicit --no-known-nodes")
-        if args.role == "controller" and any(not getattr(args, field) for field in
+        if any(not getattr(args, field) for field in
                 ("controller_claim_account", "controller_claim_bucket", "controller_claim_key")):
-            parser.error("Controller requires explicit --controller-claim-account, --controller-claim-bucket and --controller-claim-key")
+            parser.error("Service startup requires explicit --controller-claim-account, --controller-claim-bucket and --controller-claim-key")
         try:
             return asyncio.run(launch_independent_service(role=args.role, servers=args.server,
                 service_id=args.service_id, ingestor_id=args.ingestor_id, storage_id=args.storage_id,
@@ -481,7 +517,8 @@ def main(argv=None):
         except Exception as error:
             print(f"Startup unconfirmed: {type(error).__name__}: {error}", file=sys.stderr)
             return 1
-    required = ("server", "ingestor_id", "storage_id", "storage_root", "recovery_journal_root", "framework_journal", "preservation_window_s")
+    required = ("server", "ingestor_id", "storage_id", "storage_root", "recovery_journal_root", "framework_journal", "preservation_window_s", "result_window_s", "controller_claim_account",
+                "controller_claim_bucket", "controller_claim_key")
     for field in required:
         if getattr(args, field) is None:
             parser.error("Required for the shared process: --" + field.replace("_", "-"))
@@ -509,8 +546,9 @@ def main(argv=None):
         return asyncio.run(launch_storage_services(servers=args.server, ingestor_id=args.ingestor_id,
             storage_id=args.storage_id, storage_root=args.storage_root, recovery_journal_root=args.recovery_journal_root,
             framework_journal=args.framework_journal, preservation_window_s=args.preservation_window_s,
-            operational_dependents={}, **({"external_dependents": tuple(external_dependents),
-                "result_window_s": args.result_window_s} if external_dependents else {})))
+            controller_claim_account=args.controller_claim_account, controller_claim_bucket=args.controller_claim_bucket,
+            controller_claim_key=args.controller_claim_key, operational_dependents={}, result_window_s=args.result_window_s,
+            external_dependents=tuple(external_dependents)))
     except Exception as error:
         print(f"Startup unconfirmed: {type(error).__name__}: {error}", file=sys.stderr)
         return 1

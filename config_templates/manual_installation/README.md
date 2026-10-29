@@ -6,7 +6,7 @@ an installer or an installation certificate. Follow the
 Copy needed files outside Git and replace every uppercase placeholder there.
 No environment-variable substitution is performed by the loaders.
 
-Controller now requires the shared installation's explicit
+All participating service files require the shared installation's explicit
 `controller_claim_account`, `controller_claim_bucket` and `controller_claim_key`.
 An operator must provision and verify the persistent, non-expiring authority
 bucket first. Runtime startup never creates missing authority storage. See the
@@ -28,7 +28,7 @@ maintenance callbacks from these identities and requires positive `result_window
 for current confirmation. W068 is CLOSED after independent manual validation and
 final audit PASS, including ordinary archive continuation and the maintenance-write
 guard correction; see W068 in `docs/validated_workflows.md`.
-For a genuinely isolated pair only, remove `external_dependents` and `result_window_s`
+For a genuinely isolated pair only, remove `external_dependents` (retain `result_window_s` for authority requests)
 and use `no_operational_dependents: true`; never combine the modes or falsely declare
 absence of dependents. `verify-retrieval` can read the endpoint settings without
 launching the pair. Complete physical distributed deployment remains unverified.

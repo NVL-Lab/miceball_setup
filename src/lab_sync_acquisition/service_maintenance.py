@@ -7,6 +7,7 @@ from collections.abc import Awaitable, Callable, Iterable, Mapping
 from contextlib import contextmanager, nullcontext
 from contextvars import ContextVar
 from copy import deepcopy
+from dataclasses import replace
 from functools import wraps
 from inspect import iscoroutinefunction
 import logging
@@ -136,6 +137,9 @@ class ServiceMaintenanceInterface:
         self._remote_preserved_evidence = {}
         self._operational_instance_id = uuid4().hex
         self._controller_claim_boundary = None
+        self._controller_dispatch_tasks = {}
+        from lab_sync_acquisition.controller_authority import ControllerCommandAdmission
+        self.controller_command_admission = ControllerCommandAdmission(self)
         self._dependent_instances = {}
         self._dependent_confirmations = {}
         self._dependent_conflicts = set()
@@ -187,6 +191,13 @@ class ServiceMaintenanceInterface:
         return (self.participant.component_type == "controller" and not self.terminated
                 and boundary is not None
                 and boundary.controller_claim_owner == self.operational_instance_id)
+
+    def _require_controller_dispatch(self):
+        """Use existing closeout admission while permitting the owning shutdown coordinator."""
+        if (not self.controller_authority_confirmed or (self._closeout_started and not
+                (asyncio.current_task() is self.service._framework_shutdown_task
+                 and self.service._coordinated_maintenance_matches()))):
+            raise RuntimeError("Controller command dispatch requires unretired operational admission")
 
     async def acquire_controller_authority(self, boundary, *, account: str,
                                            bucket: str, key: str, timeout_s: float) -> int:
@@ -1016,7 +1027,12 @@ class ServiceMaintenanceInterface:
         return payload
 
     def _diagnostic_payload(self):
-        payload = {}
+        with self._admission_lock:
+            recognized = self.controller_command_admission.recognized
+            payload = {"recognized_controller": None if recognized is None else {
+                "controller_instance_id": recognized[0], "controller_claim_revision": recognized[1],
+                "controller_id": recognized[2], "receiver_instance_id": self.operational_instance_id}}
+
         try:
             payload["service_diagnostics"] = self.service.maintenance_diagnostics(self.ingestor, self.storage_manager)
         except Exception as error:
@@ -1202,6 +1218,12 @@ class ServiceMaintenanceInterface:
 
     async def execute_command(self, command: RuntimeCommandMessage) -> RuntimeCommandResultMessage:
         """Survey or execute correlated maintenance, including coordinated preparation."""
+        if command.issuer_type == "controller":
+            try:
+                self.controller_command_admission.admit(command)
+            except RuntimeError as error:
+                return self._result(command, "failed", str(error))
+            command = replace(command, receiver_instance_id=None)
         if command.command_type == "read_operational_instance":
             try:
                 if command.target_id != self.participant.component_id or command.session_id is not None:
@@ -1733,7 +1755,8 @@ class ServiceMaintenanceInterface:
                                             "request_nonce": command.payload.get("request_nonce"),
                                             "manual_intervention_required": command.command_type == "kill" and outcome == "failed" and attempt is not None and self._closeout_started,
                                             "prepared": prepared,
-                                            "attempt": deepcopy(attempt) if attempt is not None else None})
+                                            "attempt": deepcopy(attempt) if attempt is not None else None},
+                                           controller_instance_id=command.controller_instance_id)
 
     def _remember(self, command, result):
         self._commands[command.command_id] = deepcopy(command.to_dict())

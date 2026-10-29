@@ -6189,6 +6189,119 @@ documentation-only closure.
 
 ---
 
+# Q024 Slice 1 - Controller Exclusivity Claim and Operational Admission
+
+**Status:** CLOSED within the bounded implemented software scope of Decision 436,
+at audited commit `acdf7a02613fea63df730da52ddf8aa12b1cf3a3`.
+ICC implementation review, independent manual IPython validation and separate
+independent Codex post-correction audit are complete; the owner authorized this
+documentation-only closure. Broader Q024 remains OPEN.
+
+## Implemented workflow and architectural basis
+
+Decision 436 permits Controller on any suitable host but requires one atomic,
+persistent, non-expiring JetStream KV claim for installation-wide operational
+authority. This slice implements explicit acquisition from already-provisioned,
+verified authority storage; shared Controller admission, including direct
+construction and archive mutations; and exact owner/revision-conditional release
+after confirmed irreversible Normal Stop or authorized Kill retirement.
+
+Occupied, missing, inaccessible or unverifiable authority storage denies startup.
+Construction alone grants no authority. Crashes, blocked shutdown and uncertain
+retirement retain the claim. There is no TTL, election, automatic failover,
+time-based takeover or runtime recreation of missing authority storage.
+
+Existing maintenance instances, admission/retirement guards, NATS boundary,
+dependent-confirmation delivery and launcher completion remain authoritative.
+Decisions 386 and 389-391 preserve operational retirement versus OS-process exit,
+prepared dependency release, final result handling and bounded Session recovery.
+Decision 423 transport reconnection does not transfer authority. Decision 437's
+operator-managed historical-file policy is separate; no historical-file deletion
+or Decision 435 in-memory retirement is implemented or closed here.
+
+## Evidence and correction history
+
+The following are distinct prior evidence sources, not an additive test total:
+
+- **Developer implementation checks:** the original implementation report recorded
+  40 distinct focused tests passed. These did not establish independent validation
+  or eliminate the subsequently discovered defects.
+- **Initial independent ICC manual IPython validation:** 11 reported checks passed
+  against persistent JetStream, covering contention, broker restart, occupied
+  replacement refusal, premature release rejection, Stop/Kill retirement, a
+  pre-deletion failure and retry, and replacement-claim protection.
+- **Initial separate Codex audit:** FAIL against
+  `4113eb96538931c47ca33ef2ddf6492338c1cb8d`, with P1 post-retirement coordinated
+  command issuance and P2 non-convergent completion after committed deletion with
+  lost acknowledgment. The earlier passes did not cover these failures.
+- **Developer corrections/regressions:** the exact P1 interleaving and P2 retries
+  before/after replacement were reproduced before correction. Post-correction
+  verification reported 29 distinct focused tests passed, including in-flight
+  quiescence, self-retirement, cancellation, insufficient proof, stale-revision
+  races and existing publication/ACK obligations. No full-suite run was claimed.
+- **Renewed independent ICC live-JetStream validation:** both corrected workflows
+  passed. P1 confirmed quiescence before Kill retirement/release, no further A
+  commands after B acquired, and B's subsequent successful retirement. P2 confirmed
+  uncertainty reporting and inactive retired ownership, successful reconciliation
+  before/after replacement, and protection of the replacement claim. No numerical
+  check total was supplied for this renewed validation.
+- **Final separate independent Codex audit:** PASS, no confirmed P0-P3 findings,
+  at the audited commit above. Standalone probes used production classes and
+  disposable disk-backed JetStream without developer or ICC fixtures. They checked
+  cancellation after committed deletion followed by replacement and broker restart
+  at history depths one/two, rejection of a matching-owner DEL lacking conditional
+  revision evidence, cancellation of Kill during coordinator quiescence, and an
+  explicit Stop retry followed by complete coordinated self-retirement. The
+  self-retirement probe used controlled command routing; claim persistence and
+  proof reconciliation used actual JetStream.
+
+## Corrected safety and completion boundaries
+
+P1: Controller owns its coordinated-shutdown task. Unrelated authorized forced
+retirement cancels and joins that task before retirement commits. Dispatch checks
+authority/admission after suspension. Framework, requester and participant-attempt
+correlation distinguish its own final retirement, avoiding self-retirement
+deadlock. Previously issued remote work retains its existing service-owned and
+delayed-command contracts; no global freeze or new lifecycle is introduced.
+
+P2: Conditional KV DEL retains the operational-instance bytes and expected acquired
+revision in the existing KV record. Bounded reconciliation requires the exact
+subject, operation, owner and conditional revision; missing live state alone is
+not proof. Confirmed prior deletion can complete without deleting a replacement.
+Unavailable, mismatched or overwritten proof fails closed. Launcher feedback
+distinguishes authority-release uncertainty from final result-delivery obligations.
+
+## Deployment prerequisites, limitations and remaining work
+
+Every Controller host must share the installation's authoritative JetStream
+account, bucket and key. Account verification/access permissions, persistent file
+storage, no expiry/eviction of the live claim, and actual broker durability settings
+must be verified for deployment; the software does not certify them from metadata.
+See the [Controller claim runbook](installation_and_deployment.md#controller-claim-implementation-q024-slice-1).
+
+KV history depth is not a startup minimum enforced by this slice. Depth at least
+two retains deletion through one replacement acquisition; depth one can overwrite
+that proof immediately, and further writes can exhaust larger bounded histories.
+The final audit confirmed safe refusal at depth one and successful reconciliation
+at depth two across broker restart, with replacement unchanged in both cases.
+This is an accepted fail-closed evidence/availability limitation, not expiry or
+transfer of the live claim. Buckets are not automatically resized and no parallel
+evidence store is introduced.
+
+Closure does not establish multi-host or fully deployed installation-wide
+exclusivity, hardware, physical power-loss, clustered-broker/HA, exhaustive
+scheduling, or full historical demo/test compatibility. Existing bare-Controller
+callers require explicit authority setup. Manual stale-claim recovery, service-side
+instance registration/supersession and restart reconfirmation, GUI integration,
+broader Session reconnection/recovery and remaining Q024 obligations stay deferred
+or pending separate authorized slices. Decision 435 retirement remains deferred;
+Q024, Q022, M015 and Phase 16 are not closed by this workflow.
+
+No production code, tests or configuration changed and no tests, IPython validation
+or audit were rerun during this documentation-only closure.
+
+---
+
 # Future Workflows
 
 The following workflows are expected to be added as the framework evolves.

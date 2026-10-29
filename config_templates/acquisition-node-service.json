@@ -1,5 +1,8 @@
 {
   "servers": ["nats://NATS_HOST:4222"],
+  "controller_claim_account": "AUTHORITATIVE_NATS_ACCOUNT",
+  "controller_claim_bucket": "CONTROLLER_AUTHORITY_BUCKET",
+  "controller_claim_key": "INSTALLATION_CONTROLLER_CLAIM_KEY",
   "ingestor_id": "INGESTOR_ID",
   "storage_id": "STORAGE_ID",
   "synchronization_id": "SYNCHRONIZATION_ID",

@@ -1,5 +1,42 @@
 # Code Map
 
+## src/lab_sync_acquisition/controller_authority.py
+
+- ControllerClaimSnapshot: Carries the exact inspected installation claim scope, Controller operational-instance ID and KV revision for conditional manual recovery.
+- open_controller_claim_store: Reuses account and persistent non-expiring KV verification for acquisition, inspection and service registration.
+- controller_independent_command: Identifies existing informational, explicitly administered and service-owned traffic that does not require Controller operational admission.
+- ControllerCommandAdmission: Serializes volatile Controller recognition and receiving-side command admission under the service owner's existing admission lock.
+- ControllerCommandAdmission.register: Verifies current claim and receiving-instance identities and rejects stale or conflicting registration commands.
+- ControllerCommandAdmission.admit: Rejects unregistered or superseded Controller operations while preserving previously admitted work.
+
+## Q024 Package 1 additions to existing interfaces
+
+- NatsCommunicationBoundary.configure_controller_authority: Configures the explicit shared installation claim scope and bounded request window for a receiving service.
+- NatsCommunicationBoundary.inspect_controller_claim: Returns an occupied exact owner/revision snapshot after account and durable-storage verification.
+- NatsCommunicationBoundary.clear_controller_claim: Conditionally clears only the inspected claim after explicit operator authorization and independently verified termination attestation.
+- NatsCommunicationBoundary.register_controller: Obtains fresh receiving-lifetime readback and current Controller registration acknowledgment before dependent dispatch.
+- NatsCommunicationBoundary._receive_authorized_command: Admits addressed commands before existing handlers and duplicate-result caches, retaining admitted lifetime context across awaits.
+- _logical_command: Removes delivery-lifetime metadata while retaining Controller ownership in logical command history.
+- ServiceMaintenanceInterface._require_controller_dispatch: Applies existing closeout admission to dispatch while permitting the owning shutdown coordinator.
+- RuntimeCommandMessage: Carries optional issuer, Controller-instance, claim-revision and receiving-lifetime metadata alongside the existing logical command.
+- RuntimeCommandResultMessage: Preserves originating Controller-instance correlation so a replacement cannot accept an earlier owner's operational result.
+- recover_controller_claim: Implements the terminal inspection/conditional-clear workflow without inferring process termination or automatically recovering authority.
+
+## Q024 Slice 1 Controller Exclusivity - Bounded Closure
+
+Decision 436 claim acquisition/admission and conditional post-retirement release
+are CLOSED within software scope at audited commit
+`acdf7a02613fea63df730da52ddf8aa12b1cf3a3`, after focused developer testing,
+independent ICC manual validation and separate Codex audit PASS with no confirmed
+P0-P3 findings. The [validation record](validated_workflows.md#q024-slice-1---controller-exclusivity-claim-and-operational-admission)
+preserves the initial FAIL and corrected P1 coordinator quiescence/P2 deletion-proof
+reconciliation. Existing entry points below implement these boundaries; this
+closure changes no API. Persistent shared authority storage and verified durability
+are deployment prerequisites; bounded KV proof retention can fail closed after
+overwrite (depth two covers one replacement acquisition). This is not deployment
+certification. Manual recovery, service-side registration/supersession and broader
+Q024 remain OPEN/pending; Decision 435 retirement remains deferred.
+
 ## gui/src/miceball_gui/static/storage-demo.mjs
 
 - `createStorageDemo`: Creates explicitly fictional page-local Storage fixtures and independent selection sets.

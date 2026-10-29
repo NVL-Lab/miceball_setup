@@ -1,5 +1,108 @@
 # Installation And Deployment
 
+## Controller replacement authority — Package 1 implementation
+
+Decision 436 Package 1 adds manual occupied-claim recovery and service-side
+Controller registration/admission. Independent ICC validation and a separate audit
+are still required; this implementation note does not close Q024 or certify an
+installation. Decision 435 remains deferred.
+
+Every participating service configuration now supplies the same explicit
+`controller_claim_account`, `controller_claim_bucket` and `controller_claim_key`,
+plus a positive `result_window_s`. These settings apply to Acquisition Node,
+Synchronization Manager and the paired Ingestor/Storage Manager as well as
+Controller. Explicit CLI launches use the corresponding
+`--controller-claim-account`, `--controller-claim-bucket`,
+`--controller-claim-key` and `--result-window-s` flags. Do not mix these flags with
+`--deployment-config`. Existing account, persistent/non-expiring storage,
+durability and retained-history prerequisites continue to apply; the framework
+does not provision or resize the authority bucket.
+
+Inspect an occupied claim using the installed entry point, substituting the
+installation's actual server/account/bucket/key:
+
+```text
+lab-sync-acquisition inspect-controller-claim --server nats://HOST:4222 --controller-claim-account ACCOUNT --controller-claim-bucket BUCKET --controller-claim-key KEY --result-window-s 5
+```
+
+Independently verify termination of the exact reported Controller operational
+instance using host/process evidence. Readiness, network silence, Stop/Kill
+acknowledgments and operational retirement alone do not prove OS-process
+termination. If termination or instance matching cannot be verified, retain the
+claim. The framework does not introduce a remote process supervisor.
+
+Only after that verification, explicitly authorize clearing the inspected owner
+and revision:
+
+```text
+lab-sync-acquisition clear-controller-claim --server nats://HOST:4222 --controller-claim-account ACCOUNT --controller-claim-bucket BUCKET --controller-claim-key KEY --result-window-s 5 --claim-owner INSPECTED_INSTANCE_ID --claim-revision INSPECTED_REVISION --administrator-id OPERATOR --authorize-claim-clear --verify-prior-termination --termination-evidence "Independent host/process verification reference"
+```
+
+The termination flag and evidence reference are an operator attestation, not
+automatic process detection. Clearing compares the exact inspected owner/revision
+and uses revision-conditional deletion. Changed claims, unavailable storage,
+cancellation or missing acknowledgments do not confirm successful recovery.
+Never substitute a newly observed revision automatically or clear a replacement's
+claim to resolve uncertainty. Manual clearing does not start a Controller.
+
+Once the replacement acquires authority, its transport obtains a fresh
+registration acknowledgment from each service needed for an operation. The
+acknowledgment and command identify that service's operational lifetime. Restarted
+services require reconfirmation; superseded Controller commands are rejected
+before execution or cached-result replay. Existing admitted work, Session
+ownership, producer evidence and administrator maintenance remain intact. An
+unavailable unrelated service does not prevent registration with another service.
+Transport reconnection does not transfer authority or reconstruct a Session.
+
+### Package 1 programmatic interfaces
+
+`NatsCommunicationBoundary` retains its existing constructor
+`(component_type, component_id, servers=("nats://127.0.0.1:4222",))` and adds:
+
+```python
+configure_controller_authority(*, account, bucket, key, timeout_s)  # explicit immutable scope
+await inspect_controller_claim(*, account, bucket, key, timeout_s)  # ControllerClaimSnapshot
+await clear_controller_claim(snapshot, *, administrator_id, authorized,
+    termination_verified, termination_evidence, timeout_s)  # None; uncertainty raises
+await register_controller(participant, *, result_window_s)  # acknowledged instance identities
+```
+
+The exported frozen `ControllerClaimSnapshot(account, bucket, key,
+operational_instance_id, revision)` exposes those five fields. Service-side
+`ControllerCommandAdmission(maintenance)` is a shared implementation component;
+`register(command, snapshot)` and `admit(command)` use the existing owner admission
+lock, with volatile `recognized` state and no separate durable registry.
+`ServiceMaintenanceInterface` retains its constructor and existing public methods;
+its readiness diagnostics now include `recognized_controller` (initially `None`).
+
+The plain-data constructors gain optional correlation fields:
+
+```python
+RuntimeCommandMessage(command_id, session_id, command_type, source_id, target_id, payload,
+    issuer_type=None, controller_instance_id=None, controller_claim_revision=None,
+    receiver_instance_id=None)
+RuntimeCommandResultMessage(result_id, command_id, session_id, source_id, target_id,
+    status, success, reason, payload, controller_instance_id=None)
+```
+
+Delivery-lifetime metadata is checked before existing command caches; logical
+histories and results retain Controller-instance ownership. A replacement cannot
+accept an old owner's operational reply merely because its component or command
+ID matches. Readback and service-owned preservation retain their existing scope
+and correlation checks. Independent administrator traffic retains existing
+operation-specific authorization; issuer metadata is not a new authentication
+system.
+
+The terminal implementation also exposes
+`recover_controller_claim(*, servers, account, bucket, key, timeout_s, clear=False,
+expected_owner=None, expected_revision=None, administrator_id=None,
+authorized=False, termination_verified=False, termination_evidence=None,
+report=print)`. It returns `0` on confirmed inspection/clearing and raises on
+uncertainty; the installed CLI reports failure with a nonzero exit status.
+Both launch functions now require explicit claim settings, and paired storage
+startup also requires a positive `result_window_s`; no new defaults provision
+authority storage.
+
 ## 1. Scope, Architecture And Verification Status
 
 This is the maintained operational reference, not an installer or deployment
@@ -183,8 +286,12 @@ Occupied, missing, unavailable or unverifiable authority storage must deny start
 No TTL, election, automatic failover or time-based takeover is permitted.
 
 Slice 1 implements claim acquisition/admission and conditional retirement release,
-pending independent validation/audit; it does not implement manual recovery or
-service-side Controller registration/supersession.
+and is CLOSED within bounded software scope after independent ICC manual
+validation and separate Codex audit PASS at
+`acdf7a02613fea63df730da52ddf8aa12b1cf3a3`; see the
+[validation/correction record](validated_workflows.md#q024-slice-1---controller-exclusivity-claim-and-operational-admission).
+This does not establish fully deployed installation-wide exclusivity or implement
+manual recovery or service-side Controller registration/supersession.
 Concrete bucket/provisioning inputs, access permissions and broker durability
 settings must be established and verified for the installation before deployment
 can claim exclusivity. The example below does not establish those settings or
@@ -268,13 +375,14 @@ storage. Replace all uppercase placeholders. Root templates with null settings
 are incomplete skeletons, not runnable deployments.
 
 Every service file requires `servers`, `ingestor_id`, `storage_id`,
-`preservation_window_s`. Additional fields:
+`preservation_window_s`, positive `result_window_s`, `controller_claim_account`,
+`controller_claim_bucket` and `controller_claim_key`. Additional fields:
 
 | Selected CLI role | Additional fields |
 | --- | --- |
-| `controller` | `service_id`, `synchronization_id`, `known_nodes`, `result_window_s`, `controller_claim_account`, `controller_claim_bucket`, `controller_claim_key` |
-| `synchronization-manager` | `service_id`, `result_window_s` |
-| `acquisition-node` | `synchronization_id`, `node_config`, `result_window_s`; optional `service_id` must match hardware `node_id` |
+| `controller` | `service_id`, `synchronization_id`, `known_nodes` |
+| `synchronization-manager` | `service_id` |
+| `acquisition-node` | `synchronization_id`, `node_config`; optional `service_id` must match hardware `node_id` |
 | `ingestor` or `storage-manager` | `storage_root`, `global_artifact_root`, `recovery_journal_root`, `framework_journal`, `retrieval_endpoints`; dependency mode below |
 
 Choose exactly one shared-pair dependency mode:
@@ -283,7 +391,7 @@ Choose exactly one shared-pair dependency mode:
   `component_type`, `component_id`, plus positive finite `result_window_s`.
   Types: `controller`, `acquisition_node`, `synchronization_manager`.
 - Genuinely isolated pair: `no_operational_dependents: true`, without that list
-  or `result_window_s`. Never declare isolation falsely.
+  (the shared authority `result_window_s` remains required). Never declare isolation falsely.
 
 Keep node ID, Controller known-node registration, storage endpoint key and
 dependent identity consistent. Device/product IDs are separate. Do not start

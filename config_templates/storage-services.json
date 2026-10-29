@@ -1,5 +1,8 @@
 {
   "servers": ["nats://NATS_HOST:4222"],
+  "controller_claim_account": "AUTHORITATIVE_NATS_ACCOUNT",
+  "controller_claim_bucket": "CONTROLLER_AUTHORITY_BUCKET",
+  "controller_claim_key": "INSTALLATION_CONTROLLER_CLAIM_KEY",
   "ingestor_id": "INGESTOR_ID",
   "storage_id": "STORAGE_ID",
   "storage_root": "SESSION_STORAGE_PATH",
@@ -7,6 +10,7 @@
   "recovery_journal_root": "SESSION_JOURNAL_PATH",
   "framework_journal": "FRAMEWORK_JOURNAL_PATH",
   "preservation_window_s": null,
+  "result_window_s": null,
   "no_operational_dependents": null,
   "retrieval_endpoints": {
     "ACQUISITION_NODE_ID": {

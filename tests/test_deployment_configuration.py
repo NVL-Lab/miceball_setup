@@ -22,7 +22,9 @@ class DeploymentConfigurationTests(unittest.TestCase):
         self.root = Path(temporary.name).resolve()
         self.path = self.root / "service.json"
         self.common = {"servers": ["nats://offline.invalid:4222"], "ingestor_id": "intake",
-                       "storage_id": "storage", "preservation_window_s": 1}
+                       "storage_id": "storage", "preservation_window_s": 1, "result_window_s": 1,
+                       "controller_claim_account": "LAB", "controller_claim_bucket": "AUTHORITY",
+                       "controller_claim_key": "controller"}
         self.hardware = {"node_id": "node", "role": "acquisition", "local_storage_root": "science",
             "error_evidence_location": "errors", "devices": [{"adapter": "seeed_imx219_opencv",
                 "declaration": {"device_id": "camera", "device_type": "camera", "enabled": True,
@@ -42,6 +44,15 @@ class DeploymentConfigurationTests(unittest.TestCase):
                 "no_operational_dependents": True, "retrieval_endpoints": {}},
         }
         self.roles["storage-manager"] = deepcopy(self.roles["ingestor"])
+
+    def test_every_service_requires_explicit_shared_controller_authority(self):
+        for role in self.roles:
+            for field in ("controller_claim_account", "controller_claim_bucket", "controller_claim_key", "result_window_s"):
+                with self.subTest(role=role, missing=field):
+                    settings = deepcopy(self.roles[role])
+                    del settings[field]
+                    with self.assertRaisesRegex(ValueError, field):
+                        self.load(role, settings)
 
     def load(self, role, data=None):
         self.path.write_text(json.dumps(self.roles[role] if data is None else data), encoding="utf-8")
@@ -180,7 +191,8 @@ class ConfiguredStorageStartupTests(unittest.IsolatedAsyncioTestCase):
         path.write_text(json.dumps({"servers": ["nats://broker.invalid:4222"], "ingestor_id": "intake",
             "storage_id": "storage", "storage_root": "records", "global_artifact_root": "artifacts",
             "recovery_journal_root": "journals", "framework_journal": "framework.jsonl",
-            "preservation_window_s": 0, "no_operational_dependents": True,
+            "preservation_window_s": 0, "result_window_s": 1, "controller_claim_account": "LAB",
+            "controller_claim_bucket": "AUTHORITY", "controller_claim_key": "controller", "no_operational_dependents": True,
             "retrieval_endpoints": {"node": {"host": "offline.invalid", "username": "operator",
                                               "key_filename": "key-reference"}}}), encoding="utf-8")
         broker = _Broker()
@@ -188,6 +200,7 @@ class ConfiguredStorageStartupTests(unittest.IsolatedAsyncioTestCase):
 
         def boundary(kind, identity, servers):
             value = _Boundary(kind, identity, broker)
+            value.configure_controller_authority = lambda **kwargs: None
             value.connect = AsyncMock()
             value.ensure_streams = AsyncMock()
             value.close = AsyncMock()

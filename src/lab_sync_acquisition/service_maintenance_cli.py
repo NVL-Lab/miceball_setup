@@ -11,6 +11,43 @@ from lab_sync_acquisition.communication import RuntimeParticipant, build_runtime
 from lab_sync_acquisition.nats_communication import NatsCommunicationBoundary, NatsControllerCommunication
 
 
+async def recover_controller_claim(*, servers, account, bucket, key, timeout_s,
+                                   clear=False, expected_owner=None, expected_revision=None,
+                                   administrator_id=None, authorized=False, termination_verified=False,
+                                   termination_evidence=None, report=print):
+    """Inspect, or clear an exact inspected claim after independent operator termination verification."""
+    from dataclasses import asdict
+    from lab_sync_acquisition.controller_authority import ControllerClaimSnapshot
+    if (not servers or type(timeout_s) not in (int, float) or not isfinite(timeout_s) or timeout_s <= 0):
+        raise ValueError("Explicit servers and positive finite timeout are required")
+    if clear:
+        snapshot = ControllerClaimSnapshot(account, bucket, key, expected_owner, expected_revision)
+        if (authorized is not True or termination_verified is not True
+                or any(not isinstance(v, str) or not v.strip() for v in (administrator_id, termination_evidence))):
+            raise ValueError("Clearing requires explicit authorization and independently verified prior termination")
+    elif any(v not in (None, False) for v in (expected_owner, expected_revision, authorized,
+                                             termination_verified, termination_evidence, administrator_id)):
+        raise ValueError("Inspection does not authorize clearing")
+    boundary = NatsCommunicationBoundary("terminal", uuid4().hex, tuple(servers))
+    boundary.configure_controller_authority(account=account, bucket=bucket, key=key, timeout_s=timeout_s)
+    try:
+        async with asyncio.timeout(timeout_s):
+            await boundary.connect()
+            if clear:
+                await boundary.clear_controller_claim(snapshot, administrator_id=administrator_id,
+                    authorized=authorized, termination_verified=termination_verified,
+                    termination_evidence=termination_evidence, timeout_s=timeout_s)
+                report(json.dumps({"outcome": "conditionally_cleared", "claim": asdict(snapshot),
+                    "administrator_id": administrator_id, "termination_evidence": termination_evidence}, sort_keys=True))
+            else:
+                snapshot = await boundary.inspect_controller_claim(account=account, bucket=bucket, key=key, timeout_s=timeout_s)
+                report(json.dumps({"outcome": "occupied", "claim": asdict(snapshot),
+                    "operator_action": "Independently verify this exact Controller has terminated before authorizing conditional clearing. Network silence is not proof."}, sort_keys=True))
+            return 0
+    finally:
+        await asyncio.wait_for(boundary.close(), timeout_s)
+
+
 async def request_service_maintenance(*, servers, participant, operation, administrator_id,
                                       result_window_s, stop_attempt_id=None, authorized=False,
                                       report=print):

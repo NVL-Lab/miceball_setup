@@ -1817,6 +1817,33 @@ No deployment revision or date is inferred, and no new independent validation or
 audit is claimed. G5, Q022, Q024, M015 and Phase 16 remain OPEN; no production,
 test or architecture changes or new hardware experiments accompany this record.
 
+## Completed Q024 Slice 1 Controller Exclusivity
+
+**Status:** CLOSED within Decision 436's bounded software scope, at audited commit
+`acdf7a02613fea63df730da52ddf8aa12b1cf3a3`. This milestone does not close Q024,
+Q022, M015 or Phase 16, or certify deployed installation-wide exclusivity.
+
+Controller now requires confirmed ownership of the installation's atomic,
+persistent, non-expiring JetStream KV claim before operational admission, including
+direct construction and archive mutations. Normal Stop/authorized Kill release is
+conditional on the owner/revision and irreversible retirement. Existing cleanup,
+dependent confirmation, result handling and transport reconnection remain intact.
+
+Developer post-correction verification reported 29 distinct focused tests passed.
+Independent ICC live-JetStream validation passed both corrected workflows, and the
+separate final Codex audit passed with no confirmed P0-P3 findings. P1 now quiesces
+the coordinator before unrelated retirement while preserving self-retirement;
+P2 reconciles exact retained conditional-deletion proof after lost acknowledgment
+without deleting replacement claims. The initial failed audit and prior evidence
+are preserved in the [Slice 1 validation record](validated_workflows.md#q024-slice-1---controller-exclusivity-claim-and-operational-admission).
+
+Shared authoritative account/bucket/key, permissions, persistent KV and verified
+durability remain deployment prerequisites. History depth two retains deletion
+through one replacement; insufficient/overwritten proof fails closed. No automatic
+bucket resizing, manual stale-claim recovery, service-side registration/supersession,
+GUI integration or general Session recovery is completed here. Decision 435
+retirement stays deferred. No tests or audit were rerun for documentation closure.
+
 ## Completed Q034 Slice 1 Historical Artifact Inventory
 
 **Status:** CLOSED - bounded read-only software scope under Decisions 431-432.

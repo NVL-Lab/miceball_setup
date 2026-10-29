@@ -1,5 +1,7 @@
 """Lab synchronization and acquisition framework."""
 
+from lab_sync_acquisition.controller_authority import ControllerClaimSnapshot
+
 from lab_sync_acquisition.acquisition_node import (
     AcquisitionIterationSummary,
     AcquisitionNode,
@@ -112,6 +114,7 @@ from lab_sync_acquisition.synchronization import (
 )
 
 __all__ = [
+    "ControllerClaimSnapshot",
     "ActiveExperimentRuntimeContext",
     "AcquisitionNodeLocalTimeReport",
     "ARTIFACT_MANIFEST_EVIDENCE_TYPE",

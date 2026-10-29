@@ -13862,10 +13862,18 @@ Controller authority.
 
 **Implementation status:** Slice 1 implements claim acquisition, Controller
 operational admission and post-retirement owner/revision-conditional release using
-existing NATS/maintenance boundaries. Developer checks do not establish independent
-validation or audit PASS. Manual recovery and service-side registration/admission
-integration remain subsequent scopes. Q024 remains OPEN; Decision 435
-maintenance-history retirement remains deferred.
+existing NATS/maintenance boundaries and is CLOSED within bounded software scope
+at audited commit `acdf7a02613fea63df730da52ddf8aa12b1cf3a3`. Focused developer
+tests, independent ICC manual validation and separate Codex audit PASS with no
+confirmed P0-P3 findings are distinct evidence sources; the initial audit FAIL,
+P1/P2 corrections and final limitations are preserved in the
+[Slice 1 validation record](validated_workflows.md#q024-slice-1---controller-exclusivity-claim-and-operational-admission).
+Quiescence precedes unrelated retirement; exact retained KV conditional-deletion
+proof permits bounded lost-acknowledgment reconciliation. Insufficient history
+fails closed. No fully deployed installation-wide guarantee is certified here.
+Manual recovery and service-side registration/admission integration remain
+subsequent scopes. Q024 remains OPEN; Decision 435 maintenance-history retirement
+remains deferred. No architecture is added or changed by this closure record.
 
 ---
 

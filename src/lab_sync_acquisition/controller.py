@@ -3468,6 +3468,18 @@ class Controller:
             # Join cancellation/cleanup before retirement can commit. Parent
             # cancellation propagates; it never becomes a quiescence confirmation.
             await asyncio.gather(coordinator, return_exceptions=True)
+        interface = getattr(self, "_maintenance", None)
+        if interface is not None:
+            with self._service_operation_lock:
+                # Join dispatch continuations before irreversible retirement.
+                # A coordinator may finish its own retirement/result exchange.
+                own_coordinator = self._framework_shutdown_task if self._coordinated_maintenance_matches() else None
+                dispatches = tuple(task for task in interface._controller_dispatch_tasks
+                    if task is not asyncio.current_task() and task is not own_coordinator)
+                for task in dispatches:
+                    task.cancel()
+            if dispatches:
+                await asyncio.gather(*dispatches, return_exceptions=True)
         for subscription in self._launch_subscriptions:
             await subscription.unsubscribe()
         self._launch_subscriptions = ()

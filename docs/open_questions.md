@@ -3123,7 +3123,18 @@ does not infer termination from disconnection. Existing delayed-command, Session
 cleanup and scientific-evidence contracts remain intact.
 
 Slice 1 implements claim acquisition, Controller admission and conditional
-post-retirement release, pending ICC review, independent validation and audit.
+post-retirement release and is CLOSED within bounded software scope after focused
+developer checks, independent ICC manual validation and separate Codex audit PASS
+with no confirmed P0-P3 findings at
+`acdf7a02613fea63df730da52ddf8aa12b1cf3a3`. The corrected coordinator-quiescence
+and conditional-deletion reconciliation boundaries and distinct evidence sources
+are recorded in [Q024 Slice 1](validated_workflows.md#q024-slice-1---controller-exclusivity-claim-and-operational-admission).
+This does not certify fully deployed installation-wide exclusivity. Retained KV
+history must support the required reconciliation interval: depth two covers one
+replacement acquisition; missing/overwritten proof fails closed and does not
+become evidence of successful release. Slice 1 does not enforce a history-depth
+minimum or automatically resize buckets. Q024 remains OPEN; Decision 435 remains
+deferred.
 Manual recovery and service-side registration remain subsequent implementation
 scopes. Deployment must establish a shared authoritative JetStream account,
 persistent KV storage and verified durability configuration; concrete broker and
@@ -3457,7 +3468,7 @@ Decision 435's separate deferred in-memory retirement optimization.
 
 * Decision 350, broader Decision 353 memory-retirement work, and remaining Decision 354 work outside the bounded monthly implementation; Decision 355 historical deletion requirements are qualified by Decision 437
 * Older/unidentified interrupted-target repair support; historical deletion-safety certification and deletion-only dependency independence are no longer blockers under Decision 437
-* Decision 436 Slice 1 independent validation/audit and deployment verification; subsequent manual recovery and service-side registration implementation
+* Decision 436 deployment verification and subsequent manual recovery/service-side registration implementation; Slice 1 software scope is CLOSED, not installation-wide operational validation
 * Unavailable-evidence auditing conflict, deferred Decision 435 maintenance-history retirement, and broader memory-retirement limits
 * Application-wide discovery/restoration and unsupported recovery procedures
 

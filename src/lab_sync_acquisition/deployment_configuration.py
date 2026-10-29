@@ -87,7 +87,8 @@ def _parse_retrieval_endpoints(directory, endpoints):
 
 def _validate_service_configuration(data, directory, role):
     pair = role in {"ingestor", "storage-manager"}
-    common = {"servers", "ingestor_id", "storage_id", "preservation_window_s"}
+    common = {"servers", "ingestor_id", "storage_id", "preservation_window_s", "result_window_s",
+              "controller_claim_account", "controller_claim_bucket", "controller_claim_key"}
     specific = {
         "controller": {"service_id", "synchronization_id", "known_nodes", "result_window_s",
                        "controller_claim_account", "controller_claim_bucket", "controller_claim_key"},
@@ -125,22 +126,22 @@ def _validate_service_configuration(data, directory, role):
         if not valid:
             raise ValueError("servers contains an invalid NATS URL")
     data["servers"] = tuple(servers)
-    for field in ("preservation_window_s", *(() if pair else ("result_window_s",))):
+    for field in ("preservation_window_s", "result_window_s"):
         value = data[field]
         if (type(value) not in {int, float} or not isfinite(value)
-                or value < 0 or (not pair and value == 0)):
+                or value < 0 or (field == "result_window_s" and value == 0) or (not pair and value == 0)):
             raise ValueError(f"{field} must be finite and {'nonnegative' if pair else 'positive'}")
     for field, kind in (("ingestor_id", "ingestor"), ("storage_id", "storage_manager"),
                         ("service_id", role.replace("-", "_")),
                         ("synchronization_id", "synchronization_manager")):
         if field in data:
             _identity(data[field], kind, field)
+    for field in ("controller_claim_account", "controller_claim_bucket", "controller_claim_key"):
+        if not isinstance(data[field], str) or not data[field].strip():
+            raise ValueError(f"{field} requires an explicit installation authority value")
     if role == "controller":
         if "external_client_id" in data:
             _identity(data["external_client_id"], "client", "external_client_id")
-        for field in ("controller_claim_account", "controller_claim_bucket", "controller_claim_key"):
-            if not isinstance(data[field], str) or not data[field].strip():
-                raise ValueError(f"{field} requires an explicit installation authority value")
         nodes = data["known_nodes"]
         if not isinstance(nodes, list):
             raise ValueError("known_nodes requires an explicit list, including [] when none are registered")
@@ -160,7 +161,7 @@ def _validate_service_configuration(data, directory, role):
         isolated = data.pop("no_operational_dependents", None)
         dependents = data.pop("external_dependents", None)
         if dependents is None:
-            if isolated is not True or "result_window_s" in data:
+            if isolated is not True:
                 raise ValueError("Explicit no_operational_dependents=true or external_dependents with result_window_s is required; actual dependents must be configured")
         else:
             if isolated is not None or not isinstance(dependents, list) or not dependents:

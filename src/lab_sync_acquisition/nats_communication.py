@@ -60,6 +60,9 @@ RuntimeEvidenceCallback = Callable[[RuntimeEvidenceMessage], Awaitable[None]]
 ControllerDecisionCallback = Callable[[ControllerActionDecision | dict[str, Any]], Awaitable[Any]]
 RuntimeTelemetryCallback = Callable[[RuntimeTelemetryMessage], Awaitable[None]]
 
+from lab_sync_acquisition.controller_authority import (ControllerClaimSnapshot,
+    open_controller_claim_store, AUTHORITY_READ_COMMANDS, controller_independent_command, _admitted_commands)
+
 logger = logging.getLogger(__name__)
 
 
@@ -145,6 +148,8 @@ class NatsCommunicationBoundary:
         self._controller_claim = None
         self._controller_claim_released = False
         self._controller_claim_lock = asyncio.Lock()
+        self._controller_authority_configuration = None
+        self._controller_registration_lock = asyncio.Lock()
 
     @property
     def controller_claim_owner(self) -> str | None:
@@ -167,23 +172,12 @@ class NatsCommunicationBoundary:
                 raise RuntimeError("Controller claim acquisition already attempted; ownership cannot be assumed or reacquired")
             if not self.connected or self._jetstream is None:
                 raise RuntimeError("Controller authority storage is unavailable")
+            self.configure_controller_authority(account=account, bucket=bucket, key=key, timeout_s=timeout_s)
             self._controller_claim_attempted = True
             async with asyncio.timeout(timeout_s):
-                # This existing NATS server endpoint identifies the connected account;
-                # a configured account label alone is not verification.
-                response = await self._client.request("$SYS.REQ.USER.INFO", b"", timeout=timeout_s)
-                identity = json.loads(response.data)
-                if identity.get("error") or identity.get("data", {}).get("account") != account:
-                    raise RuntimeError("Controller authority JetStream account is unverified")
-                kv = await self._jetstream.key_value(bucket)
-                config = (await kv.status()).stream_info.config
-                if (config.name != "KV_" + bucket or config.storage != StorageType.FILE
-                        or config.retention != RetentionPolicy.LIMITS
-                        or config.max_age not in (None, 0)
-                        or config.max_msgs not in (None, -1) or config.max_bytes not in (None, -1)
-                        or config.mirror is not None or config.sources or config.no_ack
-                        or config.subject_transform is not None or config.sealed):
-                    raise RuntimeError("Controller claim bucket must be persistent, non-expiring authoritative storage without eviction limits")
+                kv = await open_controller_claim_store(self, account=account, bucket=bucket,
+                                                       key=key, timeout_s=timeout_s)
+                self._controller_authority_configuration = (account, bucket, key, timeout_s)
                 revision = await kv.create(key, operational_instance_id.encode("utf-8"))
                 if type(revision) is not int or revision <= 0:
                     raise RuntimeError("Controller claim acquisition revision is unconfirmed")
@@ -229,6 +223,185 @@ class NatsCommunicationBoundary:
                 if ack.stream != stream or type(ack.seq) is not int or ack.seq <= revision:
                     raise RuntimeError("Controller conditional release acknowledgment is unconfirmed")
             self._controller_claim_released = True
+
+    def configure_controller_authority(self, *, account, bucket, key, timeout_s):
+        """Set this service's explicit installation claim scope; missing storage never grants authority."""
+        from math import isfinite
+        if (any(not isinstance(v, str) or not v.strip() for v in (account, bucket, key))
+                or type(timeout_s) not in (int, float) or not isfinite(timeout_s) or timeout_s <= 0):
+            raise ValueError("Explicit authority scope and positive timeout are required")
+        scope = (account, bucket, key, timeout_s)
+        if self._controller_authority_configuration not in (None, scope):
+            raise RuntimeError("Cannot replace this boundary's authority configuration")
+        self._controller_authority_configuration = scope
+
+    async def inspect_controller_claim(self, *, account, bucket, key, timeout_s):
+        """Read the exact occupied claim after verifying authoritative account/storage."""
+        async with asyncio.timeout(timeout_s):
+            kv = await open_controller_claim_store(self, account=account, bucket=bucket,
+                                                   key=key, timeout_s=timeout_s)
+            entry = await kv.get(key)
+            return ControllerClaimSnapshot(account, bucket, key, entry.value.decode("utf-8"), entry.revision)
+
+    async def clear_controller_claim(self, snapshot, *, administrator_id, authorized,
+                                     termination_verified, termination_evidence, timeout_s):
+        """Conditionally clear an inspected dead owner's claim on explicit operator attestation.
+
+        Termination evidence must come from independent host/process inspection,
+        never from NATS silence, readiness or operational-retirement acknowledgment.
+        An exception, including a lost acknowledgment, is an unconfirmed outcome.
+        """
+        if (not isinstance(snapshot, ControllerClaimSnapshot) or authorized is not True
+                or termination_verified is not True
+                or any(not isinstance(v, str) or not v.strip() for v in (administrator_id, termination_evidence))):
+            raise ValueError("Explicit administrator authorization and independently verified termination are required")
+        async with self._controller_claim_lock, asyncio.timeout(timeout_s):
+            current = await self.inspect_controller_claim(account=snapshot.account, bucket=snapshot.bucket,
+                key=snapshot.key, timeout_s=timeout_s)
+            if current != snapshot:
+                raise RuntimeError("Inspected Controller claim owner/revision has changed")
+            ack = await self._jetstream.publish(f"$KV.{snapshot.bucket}.{snapshot.key}",
+                snapshot.operational_instance_id.encode("utf-8"), timeout=timeout_s,
+                headers={"KV-Operation": "DEL", Header.EXPECTED_LAST_SUBJECT_SEQUENCE: str(snapshot.revision)})
+            if ack.stream != "KV_" + snapshot.bucket or type(ack.seq) is not int or ack.seq <= snapshot.revision:
+                raise RuntimeError("Manual claim clearing outcome is unconfirmed")
+
+    def _controller_admission(self):
+        owner = getattr(self, "_maintenance_owner", None)
+        if owner is None:
+            owner = getattr(getattr(self, "_runtime_service", None), "_maintenance", None)
+            if owner is not None:
+                self._maintenance_owner = owner
+        if owner is None:
+            raise RuntimeError("Receiving service operational lifetime is unconfirmed")
+        return owner.controller_command_admission
+
+    def _check_command_admission(self, command):
+        owner = getattr(self, "_maintenance_owner", None)
+        if (id(owner), command.command_id, command.controller_instance_id, command.controller_claim_revision) in _admitted_commands.get():
+            return
+        if controller_independent_command(command):
+            return
+        self._controller_admission().admit(command)
+
+    async def _receive_authorized_command(self, receive, message):
+        command = RuntimeCommandMessage.from_dict(json.loads(message.data.decode("utf-8")))
+        if command.target_id != self.component_id:
+            await message.ack()
+            return None
+        try:
+            if command.command_type in {"read_controller_admission", "register_controller"}:
+                if (command.session_id is not None or not command.command_id or not command.source_id
+                        or set(command.payload) != {"request_nonce"}
+                        or not isinstance(command.payload["request_nonce"], str) or not command.payload["request_nonce"]):
+                    raise ValueError("Controller registration requires exact fresh request correlation")
+            if command.command_type == "read_controller_admission":
+                owner = self._controller_admission().maintenance
+                result = _participant_result(self, command, True, None,
+                    {"receiver_instance_id": owner.operational_instance_id,
+                     "request_nonce": command.payload.get("request_nonce")})
+            elif command.command_type == "register_controller":
+                async with self._controller_registration_lock:
+                    if self._controller_authority_configuration is None:
+                        raise RuntimeError("Service authority storage is not configured")
+                    account, bucket, key, window = self._controller_authority_configuration
+                    snapshot = await self.inspect_controller_claim(account=account, bucket=bucket, key=key, timeout_s=window)
+                    payload = self._controller_admission().register(command, snapshot)
+                    result = _participant_result(self, command, True, None,
+                        {**payload, "request_nonce": command.payload.get("request_nonce")})
+                    owner = self._controller_admission().maintenance
+                    with owner._admission_lock:
+                        owner._commands[command.command_id] = command.to_dict()
+                        owner._results[command.command_id] = result
+            else:
+                self._check_command_admission(command)
+                token = _admitted_commands.set((*_admitted_commands.get(),
+                    (id(getattr(self, "_maintenance_owner", None)), command.command_id,
+                     command.controller_instance_id, command.controller_claim_revision)))
+                try:
+                    # Authority is admission metadata, not a new logical command
+                    # identity. Existing result/attempt histories retain their contracts.
+                    return await receive(message)
+                finally:
+                    _admitted_commands.reset(token)
+        except Exception as error:
+            result = _participant_result(self, command, False, str(error),
+                                        {"request_nonce": command.payload.get("request_nonce")})
+        await self.publish_command_result(result, command.command_type)
+        await message.ack()
+        return result
+
+    async def register_controller(self, participant, *, result_window_s):
+        """Register this Controller with a current receiving operational lifetime."""
+        from math import isfinite
+        if type(result_window_s) not in (int, float) or not isfinite(result_window_s) or result_window_s <= 0:
+            raise ValueError("A positive finite registration result window is required")
+        owner = getattr(self, "_maintenance_owner", None)
+        if owner is None:
+            raise RuntimeError("Controller registration requires its confirmed operational claim")
+        task = asyncio.current_task()
+        with owner._admission_lock:
+            owner._require_controller_dispatch()
+            owner._controller_dispatch_tasks[task] = owner._controller_dispatch_tasks.get(task, 0) + 1
+        try:
+            return await self._register_controller(participant, result_window_s=result_window_s)
+        finally:
+            with owner._admission_lock:
+                count = owner._controller_dispatch_tasks[task] - 1
+                if count:
+                    owner._controller_dispatch_tasks[task] = count
+                else:
+                    del owner._controller_dispatch_tasks[task]
+
+    async def _register_controller(self, participant, *, result_window_s):
+        """Confirm registration against this receiving service's current operational lifetime."""
+        owner = getattr(self, "_maintenance_owner", None)
+        if owner is None or not owner.controller_authority_confirmed:
+            raise RuntimeError("Controller registration requires its confirmed operational claim")
+        requests = NatsControllerCommunication(self)
+        async def exchange(operation, receiver=None):
+            nonce = uuid4().hex
+            subscription = await requests.subscribe_command_results(None, new_only=True,
+                participant=participant, command_type=operation,
+                result_filter=lambda r: r.payload.get("request_nonce") == nonce)
+            try:
+                command = RuntimeCommandMessage(uuid4().hex, None, operation, self.component_id,
+                    participant.component_id, {"request_nonce": nonce}, issuer_type="controller",
+                    controller_instance_id=owner.operational_instance_id,
+                    controller_claim_revision=self._controller_claim[3], receiver_instance_id=receiver)
+                event = requests._command_result_events.setdefault(command.command_id, asyncio.Event())
+                with owner._admission_lock:
+                    owner._require_controller_dispatch()
+                await self._publish_command_wire(command, participant.component_type)
+                deadline = asyncio.get_running_loop().time() + result_window_s
+                while True:
+                    matches = [r for r in requests.command_results if r.command_id == command.command_id
+                               and r.source_id == participant.component_id and r.target_id == self.component_id
+                               and r.payload.get("request_nonce") == nonce]
+                    if matches:
+                        result = matches[-1]
+                        if (result.session_id is not None or type(result.success) is not bool
+                                or not result.success or result.status != "succeeded"
+                                or not isinstance(result.result_id, str) or not result.result_id):
+                            raise RuntimeError(result.reason or "Controller registration acknowledgment is inconsistent")
+                        return result.payload
+                    if asyncio.get_running_loop().time() >= deadline:
+                        raise TimeoutError("Controller registration acknowledgment is unconfirmed")
+                    event.clear()
+                    await asyncio.wait_for(event.wait(), max(0, deadline - asyncio.get_running_loop().time()))
+            finally:
+                await subscription.unsubscribe()
+        async with asyncio.timeout(result_window_s):
+            current = await exchange("read_controller_admission")
+            receiver = current.get("receiver_instance_id")
+            if not isinstance(receiver, str) or not receiver:
+                raise RuntimeError("Receiving service identity is unconfirmed")
+            accepted = await exchange("register_controller", receiver)
+            expected = {"receiver_instance_id": receiver, "controller_instance_id": owner.operational_instance_id,
+                        "controller_claim_revision": self._controller_claim[3]}
+            if any(accepted.get(k) != v for k, v in expected.items()):
+                raise RuntimeError("Controller registration acknowledgment identity mismatch")
+            return expected
 
     @property
     def connected(self) -> bool:
@@ -434,6 +607,38 @@ class NatsCommunicationBoundary:
     ) -> None:
         """Publish a durable command and require JetStream acceptance."""
 
+        service_owned = (self.component_type == "controller" and
+            message.command_type in (DEPENDENT_MAINTENANCE_COMMANDS | {"preserve_service_evidence"}))
+        if service_owned:
+            message = replace(message, issuer_type="controller_service")
+        elif self.component_type == "controller" and message.command_type not in AUTHORITY_READ_COMMANDS:
+            owner = getattr(self, "_maintenance_owner", None)
+            if owner is None or not owner.controller_authority_confirmed:
+                raise RuntimeError("Controller command dispatch requires operational authority")
+            task = asyncio.current_task()
+            with owner._admission_lock:
+                owner._require_controller_dispatch()
+                owner._controller_dispatch_tasks[task] = owner._controller_dispatch_tasks.get(task, 0) + 1
+            try:
+                registration = await self.register_controller(RuntimeParticipant(target_component_type, message.target_id),
+                                                            result_window_s=self._controller_claim[4])
+                with owner._admission_lock:
+                    owner._require_controller_dispatch()
+                    message = replace(message, issuer_type="controller", **registration)
+                await self._publish_command_wire(message, target_component_type)
+            finally:
+                with owner._admission_lock:
+                    count = owner._controller_dispatch_tasks[task] - 1
+                    if count:
+                        owner._controller_dispatch_tasks[task] = count
+                    else:
+                        del owner._controller_dispatch_tasks[task]
+            return
+        elif message.issuer_type is None:
+            message = replace(message, issuer_type=self.component_type)
+        await self._publish_command_wire(message, target_component_type)
+
+    async def _publish_command_wire(self, message, target_component_type):
         self._validate_source_id(message.source_id)
         subject = build_runtime_subject(
             message.session_id,
@@ -1259,6 +1464,13 @@ class NatsControllerCommunication:
         async def receive(message: Any) -> None:
             try:
                 envelope = json.loads(message.data.decode("utf-8"))
+                owner = getattr(self._boundary, "_maintenance_owner", None)
+                operation = parse_runtime_subject(message.subject)["message_type"]
+                if (self._boundary.component_type == "controller" and owner is not None
+                        and operation not in (AUTHORITY_READ_COMMANDS | DEPENDENT_MAINTENANCE_COMMANDS | {"preserve_service_evidence"})
+                        and (not isinstance(envelope, dict) or envelope.get("controller_instance_id") != owner.operational_instance_id)):
+                    await message.ack()
+                    return
                 if self._reject_malformed_stop_result(message.subject, envelope):
                     if invalid_result_callback is not None:
                         invalid_result_callback("Malformed correlated Stop result")
@@ -1555,6 +1767,7 @@ class NatsAcquisitionNodeCommunication:
     ) -> None:
         self._boundary = boundary
         self._acquisition_node = acquisition_node
+        boundary._runtime_service = acquisition_node
         self._results_by_command_id: dict[str, RuntimeCommandResultMessage] = {}
         self._commands_by_id: dict[str, dict[str, Any]] = {}
         self._published_runtime_evidence_count = 0
@@ -1668,9 +1881,9 @@ class NatsAcquisitionNodeCommunication:
 
         async def receive(message: Any) -> None:
             try:
-                command = RuntimeCommandMessage.from_dict(
+                command = _logical_command(RuntimeCommandMessage.from_dict(
                     json.loads(message.data.decode("utf-8"))
-                )
+                ))
                 logger.info(
                     "command_received command_id=%s command_type=%s",
                     command.command_id,
@@ -1708,9 +1921,12 @@ class NatsAcquisitionNodeCommunication:
                 logger.exception("command_delivery_processing_failed")
                 raise
 
+        async def authorized_receive(message):
+            return await self._boundary._receive_authorized_command(receive, message)
+
         subscriptions = []
         for subject in subjects:
-            subscriptions.append(await self._boundary._require_jetstream().subscribe(subject, cb=receive, manual_ack=True,
+            subscriptions.append(await self._boundary._require_jetstream().subscribe(subject, cb=authorized_receive, manual_ack=True,
                 config=ConsumerConfig(deliver_policy=DeliverPolicy.NEW)))
         return tuple(subscriptions)
 
@@ -1784,6 +2000,11 @@ class NatsAcquisitionNodeCommunication:
     ) -> RuntimeCommandResultMessage:
         """Execute one supported command once and return explicit result evidence."""
 
+        try:
+            self._boundary._check_command_admission(command)
+        except RuntimeError as error:
+            return self._result(command, "failed", False, str(error), {})
+        command = _logical_command(command)
         previous = self._results_by_command_id.get(command.command_id)
         identity = command.to_dict()
         identity["payload"] = {k: v for k, v in command.payload.items() if k != "request_nonce"}
@@ -1954,6 +2175,7 @@ class NatsAcquisitionNodeCommunication:
             success=success,
             reason=reason,
             payload=payload,
+            controller_instance_id=command.controller_instance_id,
         )
 
 
@@ -2048,6 +2270,7 @@ class NatsIngestorCommunication:
     ) -> None:
         self._boundary = boundary
         self._ingestor = ingestor
+        boundary._runtime_service = ingestor
         self._results_by_command_id = {}
         self._evidence_subscriptions: dict[str, Subscription] = {}
         self._closeout_lock = asyncio.Lock()
@@ -2056,7 +2279,7 @@ class NatsIngestorCommunication:
     async def subscribe_commands(self) -> tuple[Subscription, Subscription]:
         """Receive readiness and Session preparation over the existing command stream."""
         async def receive(message: Any) -> RuntimeCommandResultMessage | None:
-            command = RuntimeCommandMessage.from_dict(json.loads(message.data.decode("utf-8")))
+            command = _logical_command(RuntimeCommandMessage.from_dict(json.loads(message.data.decode("utf-8"))))
             if command.target_id != self._boundary.component_id:
                 await message.ack()
                 return
@@ -2560,13 +2783,14 @@ class NatsStorageManagerCommunication:
             raise ValueError("Storage communication must match its authoritative owner")
         self._boundary = boundary
         self._storage_manager = storage_manager
+        boundary._runtime_service = storage_manager
         self._collection_command_lock = asyncio.Lock()
         self._pending_collection_results = {}
 
     async def subscribe_commands(self) -> tuple[Subscription, Subscription]:
         """Receive existing command envelopes; publish owner results before acknowledging delivery."""
         async def receive(message):
-            command = RuntimeCommandMessage.from_dict(json.loads(message.data.decode("utf-8")))
+            command = _logical_command(RuntimeCommandMessage.from_dict(json.loads(message.data.decode("utf-8"))))
             if command.target_id != self._boundary.component_id:
                 await message.ack()
                 return
@@ -2704,6 +2928,8 @@ class NatsStorageManagerCommunication:
         """Execute scoped owner persistence/readback, never recovery or arbitrary remote method calls."""
         nonce = command.payload.get("request_nonce")
         try:
+            self._boundary._check_command_admission(command)
+            command = _logical_command(command)
             if command.command_type == "check_readiness":
                 return _execute_service_command(self._boundary, self._storage_manager, command, {})
             if command.command_type == "list_storage_sessions":
@@ -2778,11 +3004,17 @@ def _participant_result(boundary: NatsCommunicationBoundary, command: RuntimeCom
         payload = {**payload, "request_nonce": command.payload["request_nonce"]}
     return RuntimeCommandResultMessage(f"result-{boundary.component_id}-{command.command_id}",
         command.command_id, command.session_id, boundary.component_id, command.source_id,
-        "succeeded" if success else "failed", success, reason, payload)
+        "succeeded" if success else "failed", success, reason, payload,
+        controller_instance_id=command.controller_instance_id)
 
 
 def _execute_service_command(boundary: NatsCommunicationBoundary, service: Any,
                              command: RuntimeCommandMessage, results: dict) -> RuntimeCommandResultMessage:
+    try:
+        boundary._check_command_admission(command)
+    except RuntimeError as error:
+        return _participant_result(boundary, command, False, str(error), {})
+    command = _logical_command(command)
     if command.command_id in results:
         previous = results[command.command_id]
         return (replace(previous, payload={**previous.payload, "request_nonce": command.payload["request_nonce"]})
@@ -2843,10 +3075,19 @@ async def _complete_maintenance_delivery(boundary, command, result):
         boundary._pending_dependent_deliveries.pop(command.command_id, None)
 
 
+def _logical_command(command):
+    # Recipient lifetime fences delivery, not logical command identity. Keep the
+    # Controller lifetime in command history to preserve original ownership.
+    if command.issuer_type == "controller":
+        return replace(command, receiver_instance_id=None)
+    return replace(command, issuer_type=None, controller_instance_id=None,
+                   controller_claim_revision=None, receiver_instance_id=None)
+
+
 async def _subscribe_participant_commands(boundary: NatsCommunicationBoundary, receive: Callable) -> tuple[Subscription, Subscription]:
     async def handled(message):
-        result = await receive(message)
-        command = RuntimeCommandMessage.from_dict(json.loads(message.data.decode("utf-8")))
+        result = await boundary._receive_authorized_command(receive, message)
+        command = _logical_command(RuntimeCommandMessage.from_dict(json.loads(message.data.decode("utf-8"))))
         await _complete_maintenance_delivery(boundary, command, result)
 
     subscriptions = []
@@ -2863,6 +3104,7 @@ class NatsSynchronizationManagerCommunication:
     def __init__(self, boundary: NatsCommunicationBoundary, synchronization_manager: SynchronizationManager) -> None:
         self._boundary = boundary
         self._synchronization_manager = synchronization_manager
+        boundary._runtime_service = synchronization_manager
         self._results_by_command_id = {}
         self._commands_by_id = {}
         self._command_lock = asyncio.Lock()
@@ -2942,7 +3184,7 @@ class NatsSynchronizationManagerCommunication:
 
     async def subscribe_commands(self) -> tuple[Subscription, Subscription]:
         async def execute(message: Any) -> RuntimeCommandResultMessage | None:
-            command = RuntimeCommandMessage.from_dict(json.loads(message.data.decode("utf-8")))
+            command = _logical_command(RuntimeCommandMessage.from_dict(json.loads(message.data.decode("utf-8"))))
             if command.target_id != self._boundary.component_id:
                 await message.ack()
                 return
@@ -3252,7 +3494,7 @@ class NatsServiceMaintenanceCommunication:
     async def subscribe_commands(self) -> tuple[Subscription, Subscription]:
         """Use existing JetStream command subscriptions and command-result publication."""
         async def receive(message):
-            command = RuntimeCommandMessage.from_dict(json.loads(message.data.decode("utf-8")))
+            command = _logical_command(RuntimeCommandMessage.from_dict(json.loads(message.data.decode("utf-8"))))
             if command.target_id != self._boundary.component_id:
                 await message.ack()
                 return
