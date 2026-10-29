@@ -3095,13 +3095,38 @@ Remaining implementation and unresolved operational contracts keep Q024 OPEN.
 Decision 435 now specifies the accepted safety and recoverability contract for
 retiring detailed maintenance-command, result and attempt history from temporary
 memory. This resolves that bounded architectural clarification, not its
-implementation or validation. Broader memory-retirement questions remain below.
+implementation or validation. This optimization remains deferred. Decisions
+436-437 record accepted Controller exclusivity and operator-managed historical
+monthly retention; their synchronization does not close Q024. Historical Decision
+355 deletion-safety requirements below are qualified by Decision 437. Broader
+memory-retirement questions remain below.
 Q024-B service-specific operator-authorized execution architecture
 is accepted in Decisions 339-348; supported cases have automated implementation
 coverage and are complete with independent manual validation and final independent
 re-audit PASS after correction, documented in W039. Q024 remains OPEN.
 
 ### Accepted Controller restart and bounded reconnection policy
+
+**Subsequent accepted architecture (Decision 436):** Controller may run on any
+suitable host, but startup requires the installation's one atomic, persistent,
+non-expiring JetStream KV claim identifying its operational instance. Occupied,
+missing, unavailable or unverifiable authority storage denies startup; no TTL,
+election, automatic failover or timed takeover is authorized. Normal Stop/Kill
+releases only after irreversible operational retirement, conditional on the owner
+and expected revision. Preparation, dependency release, acknowledgments and
+disconnection do not prove retirement. Crash recovery requires authorized manual
+intervention, verified prior-Controller termination and conditional clearing of the
+exact inspected claim. Retired Controllers cannot resume work. Services require
+instance-based registration/admission acknowledgments before dependent operations
+and recover/reconfirm authority on restart. GUI uses framework-owned authority and
+does not infer termination from disconnection. Existing delayed-command, Session,
+cleanup and scientific-evidence contracts remain intact.
+
+Implementation remains pending: claim/admission coverage, retirement-release
+integration, manual recovery and service registration require bounded authorized
+slices. Deployment must establish a shared authoritative JetStream account,
+persistent KV storage and verified durability configuration; concrete broker and
+provisioning settings are not selected by this synchronization.
 
 Decision 391 supplements Decisions 345, 346, 351 and 352. Recovery is best-effort:
 scientific integrity, operational safety and simplicity take priority over
@@ -3337,8 +3362,10 @@ complete and independently validated/audited in W070B:
 - Decision 354 explicitly supersedes Decision 323's shared framework layout with
   permanent `framework/evidence/YYYY-MM/` partitions. Closed archives are immutable;
   Session archives and scientific artifacts are unchanged.
-- Finalized is distinct from safe to delete. Confirmed safe deletion must not affect
-  later operation/recovery; permanent archives are never automatically deleted.
+- Decision 437 qualifies historical Decision 355 deletion-safety requirements:
+  operators decide historical-file archival/deletion, without framework
+  safe-to-delete certification or deletion-specific dependency tracking.
+  Historical files are never automatically deleted; age is not deletion safety.
 
 ### Remaining operational contracts and implementation dependencies
 
@@ -3355,7 +3382,9 @@ complete and independently validated/audited in W070B:
   rewriting historical archives. Evidence belongs in the appropriate monthly
   partition using existing operation correlations. Services retain unfinished-work
   recovery information independently of finalized historical archives; future
-  recovery cannot depend on archives declared safe to delete. The accepted
+  recovery obligations remain protected; Decision 437 supersedes the earlier
+  requirement to establish deletion independence or declare archives safe to delete
+  solely for historical-file deletion. The accepted
   clarification under Decisions 353-355 authorizes no new recovery database,
   registry or elaborate reconstruction mechanism.
 - **Monthly assignment (resolved architecturally):** The subsequent accepted
@@ -3377,23 +3406,28 @@ complete and independently validated/audited in W070B:
   remain unchanged. Existing framework journals reconstruct operational evidence,
   deduplication and audit independently of archive payloads. No archive is declared
   safe to delete: preservation confirmation and maintenance lookup still require
-  retained historical products. Broader deletion independence remains outstanding.
+  retained historical products. Decision 437 does not require deletion-independence
+  certification; operator deletion may therefore prevent recovery or confirmation.
   Incomplete/corrupt partitions block continuation and maintenance; existing
   authorized repair is limited to identified same-month interrupted targets.
   Repair/reassignment of an older or unidentified interrupted partition is not
   implemented. Missing clock information retains journaled evidence for safe retry.
-- **Deletion-safety confirmation:** What existing owner-held recovery/safety
-  information independently preserves unfinished and cross-month obligations,
-  deduplication, and unsafe-command-reexecution protection, and what establishes that
-  no future operation/recovery depends on a historical archive? The guarantee is
-  accepted; the operational contract is not yet specified. No new recovery store
-  or subsystem is chosen here.
+- **Historical monthly retention (Decision 437, resolved architecturally):** Keep
+  existing monthly partitioning. Never automatically delete old historical journal
+  files. Operators own archival/deletion decisions; age, including more than two
+  months, does not establish safety. Framework deletion-safety certification,
+  safe-to-delete markers, automatic historical retirement and extra dependency
+  tracking solely for historical deletion are not required or authorized. Existing
+  operational safety and evidence/recovery obligations remain; this does not make
+  evidence dispensable.
+
+  **Deleting historical journal files may remove evidence required for recovery, reconciliation, or unresolved operational obligations, potentially causing framework errors or preventing recovery.**
 - **Unavailable auditing:** How can required authorization, known-loss, and execution
   auditing for terminal deletion be established when the evidence subsystem is
   unavailable? Record the conflict for architectural clarification; no exception
   permitting unaudited deletion is accepted.
 - **Maintenance-history retirement (resolved architecturally; implementation
-  pending):** Decision 435 defines the conditions and retained operational
+  deferred):** Decision 435 defines the conditions and retained operational
   guarantees for temporary maintenance-command/result/attempt history. Required
   administrator decisions, recovery attempts and outcomes must be durably
   preserved; no operation, safety obligation or resource protection may depend
@@ -3414,13 +3448,16 @@ complete and independently validated/audited in W070B:
 
 UTC write-time assignment is now accepted; no additional monthly-partition
 configuration is introduced. Scientific/institutional retention remains
-separate from technical deletion safety; safe permanent-archive deletion is manual.
+separate. Decision 437 makes historical archival/deletion operator-managed, without
+framework safety certification. It does not implement historical deletion or
+Decision 435's separate deferred in-memory retirement optimization.
 
 ### Blocks
 
-* Decision 350, Decisions 353/355, and remaining Decision 354 work outside the bounded monthly implementation
-* Remaining cross-month deletion independence, older/unidentified interrupted-target repair support and historical deletion-safety contracts
-* Unavailable-evidence auditing conflict, Decision 435 maintenance-history retirement implementation, and broader memory-retirement limits
+* Decision 350, broader Decision 353 memory-retirement work, and remaining Decision 354 work outside the bounded monthly implementation; Decision 355 historical deletion requirements are qualified by Decision 437
+* Older/unidentified interrupted-target repair support; historical deletion-safety certification and deletion-only dependency independence are no longer blockers under Decision 437
+* Decision 436 claim/admission, shutdown release, manual recovery and service-registration implementation and deployment verification
+* Unavailable-evidence auditing conflict, deferred Decision 435 maintenance-history retirement, and broader memory-retirement limits
 * Application-wide discovery/restoration and unsupported recovery procedures
 
 These questions do not block accepted known-Session journal recovery and must

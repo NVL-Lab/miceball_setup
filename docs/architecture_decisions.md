@@ -9684,6 +9684,15 @@ configuration requirements are established here.
 
 **Status:** Accepted
 
+**Subsequent qualification (Decision 437):** The historical deletion-safety
+certification and deletion-specific dependency-independence requirements below
+are superseded for historical monthly journal/archive files by operator-managed
+retention. The framework does not certify those files safe to delete or add
+dependency tracking solely for their deletion. Existing operational safety,
+durable preservation, immutable archival products and recovery obligations remain;
+manual deletion can remove evidence needed by those mechanisms. Read the
+historical status statements below in that qualified scope.
+
 A finalized archive accepts no further writes and is immutable. An archive is safe
 to delete only when no future framework operation or crash recovery depends on it.
 Deleting an archive confirmed safe to delete must not interfere with any later
@@ -13733,6 +13742,11 @@ deferred; this decision does not design or implement them.
 
 **Status:** Accepted
 
+**Current planning qualification:** Decision 435 in-memory maintenance-history
+retirement remains deferred; no implementation closure or audit PASS is recorded
+by this synchronization. Decision 437's operator-managed historical-file policy
+is separate and does not authorize this optimization.
+
 This records the explicitly user-accepted LLC clarification of Decisions 336 and
 353. It supplements Decisions 332-354 and 392-393 without changing their existing
 ownership, preservation, journal-retirement or resource-protection boundaries.
@@ -13790,9 +13804,110 @@ retirement are not resolved by this bounded clarification.
 
 ---
 
+## Decision 436: One persistent JetStream claim gates system-wide Controller operational authority
+
+**Status:** Accepted
+
+This records the explicitly user-accepted LLC Controller-exclusivity clarification.
+It supplements Decisions 386, 389-391 and 423 without changing Session lifecycle,
+cleanup, delayed-command or scientific-evidence contracts. Controller may run on
+any suitable computer, but only one Controller may have operational authority
+across the installation. Operational authority is distinct from OS-process
+existence; a retired process may still be completing final result handling/exit.
+
+### Acquisition and deployment prerequisites
+
+Startup requires one atomic, persistent, non-expiring NATS JetStream KV claim.
+Acquisition must prevent two concurrent successful owners. The claim identifies
+the Controller operational-instance ID. Occupied, unavailable, missing or
+unverifiable authority storage must not authorize startup. There is no TTL,
+leader election, automatic failover or time-based takeover.
+
+All Controllers for the installation must share the authoritative JetStream
+account and claim, with persistent KV storage and verified durability
+configuration. This decision does not select concrete broker settings, bucket
+names, provisioning procedures or deployment-specific durability values.
+
+### Retirement, release and manual recovery
+
+Normal Stop or explicitly authorized Kill may release the claim only after
+confirmed irreversible Controller operational retirement. Requests or
+acknowledgments alone do not establish retirement. Preparation and the coordinated
+Ingestor dependency release under Decision 389 are not Controller retirement.
+Release must be conditional on the owning operational instance and expected claim
+revision. Incomplete or uncertain retirement retains the claim. A retired
+Controller cannot resume operational work after release. Preserve Decision 386's
+separate final result-handling and launcher-exit obligations.
+
+A crash retains the claim. Recovery of an occupied claim requires authorized
+manual intervention and verified termination of the previous Controller. Manual
+clearing must be conditional on the exact inspected claim/revision; network
+disconnection does not prove termination or permit takeover.
+
+### Service admission and GUI boundaries
+
+Service registration and command admission use Controller operational-instance
+IDs, with required acknowledgments before dependent operations. A service restart
+must recover or reconfirm Controller authority before accepting Controller
+operational commands. Preserve accepted delayed-command behavior: commands from
+an earlier Controller may be processed under existing rules while it remains the
+recognized instance; once a replacement is registered, new commands from the
+superseded instance are rejected. Already-admitted work and unresolved obligations
+are not automatically cancelled.
+
+GUI authority/status and Stop/Kill controls use framework-owned mechanisms. GUI
+must not infer termination from network disconnection or become an independent
+authority owner. Decision 423 transport reconnection does not grant or transfer
+Controller authority.
+
+**Implementation status:** Accepted architecture synchronized only. Claim
+enforcement, manual recovery and service-admission integration require subsequent
+authorized implementation slices and independent verification. Q024 remains OPEN;
+Decision 435 maintenance-history retirement remains deferred.
+
+---
+
+## Decision 437: Historical monthly journal retention is operator-managed without deletion-safety certification
+
+**Status:** Accepted
+
+This records the separately explicitly user-accepted LLC historical-file policy.
+Retain existing monthly partitioning, including Decision 354's framework evidence
+partitions. Never automatically delete old historical journal files. Operators
+are responsible for archival/deletion decisions; file age, including more than
+two months, does not establish safe deletion.
+
+The framework is not required to certify historical files safe to delete. Do not
+introduce safe-to-delete markers, automatic historical-file retirement, or extra
+dependency tracking solely for historical-file deletion. This qualifies Decision
+355's earlier deletion-safety certification and deletion-specific dependency
+independence requirements, without rewriting their historical record. It does not
+weaken operational safety, durable evidence preservation, existing recovery or
+unresolved-obligation protections, or authorize automatic repair after evidence loss.
+
+**Deleting historical journal files may remove evidence required for recovery, reconciliation, or unresolved operational obligations, potentially causing framework errors or preventing recovery.**
+
+Historical monthly files are distinct from Decision 435's separate, deferred
+in-memory maintenance-history retirement optimization and from guarded temporary
+Session-journal retirement under Decisions 349/392/393. No additional journal
+retirement, persistence infrastructure or scientific-record deletion mechanism is
+authorized. Existing monthly implementation/validation history remains unchanged.
+
+**Implementation status:** Documentation synchronization only; no deletion or
+retirement behavior is implemented or validated here. Q024 remains OPEN.
+
+---
+
 # Accepted Architectural Principles
 
 The following principles summarize the accepted decisions so far.
+
+Decision 436 requires a persistent non-expiring atomic JetStream claim for one
+system-wide Controller operational authority, with instance/revision-conditional
+release only after irreversible retirement and separately authorized manual crash
+recovery. Decision 437 retains monthly partitioning but supersedes historical
+deletion-safety certification with operator-managed retention and explicit
+evidence-loss warnings. Decision 435 in-memory retirement remains deferred.
 
 Decision 434 replaces logical-recording deletion with explicitly selected
 Experiments or entire Sessions, using existing artifact relationships and exact

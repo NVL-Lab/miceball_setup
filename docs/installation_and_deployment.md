@@ -172,6 +172,22 @@ state. Uncertainty requires clarification, not state recreation or format guessi
 
 ## 5. NATS / JetStream And Networking
 
+### Accepted Controller Authority Prerequisite (Decision 436)
+
+Controller may run on any suitable computer, but only one operational Controller
+is permitted system-wide. The accepted design requires one atomic, persistent,
+non-expiring JetStream KV claim identifying its operational instance. All
+Controllers must use the same installation authority in a shared authoritative
+JetStream account, persistent KV storage and verified durability configuration.
+Occupied, missing, unavailable or unverifiable authority storage must deny startup.
+No TTL, election, automatic failover or time-based takeover is permitted.
+
+This is an accepted deployment requirement, not a claim of current implementation.
+Concrete bucket/provisioning inputs, access permissions and broker durability
+settings must be established and verified for the installation before deployment
+can claim exclusivity. The example below does not establish those settings or
+certify claim persistence.
+
 Install an operator-selected `nats-server` binary for the broker machine's actual
 OS/architecture from [official downloads](https://nats.io/download/). Extract to
 an operator-managed location and add to PATH or invoke its full path. Record its
@@ -394,6 +410,21 @@ a fresh terminal invocation can replace every retained-command continuation.
 
 ### Durable State And Recovery Boundaries
 
+Decision 436 permits claim release after Normal Stop or authorized Kill only when
+Controller operational retirement is confirmed and irreversible, conditional on
+the owning instance and expected claim revision. Requests, acknowledgments,
+preparation and Ingestor dependency release alone are insufficient. Retired
+Controllers cannot resume operational work; Decision 386 final result handling
+and launcher-exit requirements still apply. Operational retirement and OS-process
+existence are distinct.
+
+A crash retains the claim. Subsequent authorized manual recovery must verify
+termination of the previous Controller and condition clearing on the exact
+inspected claim/revision. Disconnection is not termination. These are accepted
+requirements for subsequent implementation, not instructions to bypass current
+maintenance or delete JetStream state. Services must recover/reconfirm registered
+Controller instance authority after restart; GUI controls use framework mechanisms.
+
 Preserve journals, archives, handoffs, scientific roots,
 `closed_sessions/records.json`, `closed_sessions.initialized` and JetStream history.
 An interrupted `closed_sessions/publication.lock` fails closed; it is not an
@@ -407,9 +438,20 @@ Decisions 339/342/347; do not delete/recreate state as a repair shortcut.
 Framework archives use administrative UTC archival-write months at
 `<storage_root>/framework/evidence/YYYY-MM/`. Delayed/recovered evidence is not
 backdated; original timing remains unchanged. Historical partitions stay immutable,
-confirmation is cumulative, and recovery stays journal-backed. Retain history:
-deletion independence/eligibility and broader memory retirement remain open under
-Q024. Invalid clock, uncertain writes and corruption retain evidence and block
+confirmation is cumulative, and recovery stays journal-backed. Under Decision 437,
+retain existing monthly partitioning and never automatically delete old historical
+journal files. Operators are responsible for archival/deletion decisions. File
+age, including more than two months, does not establish safe deletion. The framework
+does not certify historical files safe to delete or introduce safe-to-delete
+markers, automatic historical retirement or extra dependency tracking solely for
+their deletion.
+
+**Deleting historical journal files may remove evidence required for recovery, reconciliation, or unresolved operational obligations, potentially causing framework errors or preventing recovery.**
+
+This operator-managed historical-file policy is separate from Decision 435's
+deferred in-memory maintenance-history retirement optimization and does not relax
+existing evidence-preservation or operational safety obligations.
+Invalid clock, uncertain writes and corruption retain evidence and block
 confirmation pending accepted reconciliation/recovery.
 
 Current monthly recovery can repair an identified same-month interrupted target
