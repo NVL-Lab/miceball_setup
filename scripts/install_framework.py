@@ -114,8 +114,8 @@ def _configuration_plan(roles, directory, existing):
                     raise ValueError(f"Existing configurations disagree on {key}; resolve explicitly")
                 values[key] = fields[key]
     pending = [role for role in roles if role not in existing]
-    print("An operational, externally managed NATS broker is required before installation. "
-          "Use its reachable URL and any runtime-compatible URL authentication; a planned address is not sufficient.")
+    print("External NATS is required for service operation, not software installation. "
+          "Supply the deployment URL and runtime-compatible URL authentication; connectivity is verified separately.")
     for key, label, default in (("servers", "NATS URLs, comma-separated (external broker)", None),
                                ("ingestor_id", "Deployment Ingestor ID", "ingestor-1"),
                                ("storage_id", "Deployment StorageManager ID", "storage-manager-1")):
@@ -317,11 +317,14 @@ def main(argv=None):
             try:
                 _run([preflight_python, "-I", "-B", "-c", CONNECT], timeout=3 * window + 5,
                      input=json.dumps({"servers": settings["servers"], "timeout_s": window}))
-            except (RuntimeError, OSError, subprocess.TimeoutExpired) as error:
-                raise RuntimeError("NATS prerequisite connection/cleanup unconfirmed. Check that the external "
-                                   "broker is running and reachable, and verify URLs, firewall, authentication "
-                                   "and TLS settings. A planned URL is insufficient.") from error
-            print("COMPLETED: NATS connection and cleanup confirmed; not JetStream/authority/permission/service/scientific readiness")
+            except (RuntimeError, OSError, subprocess.TimeoutExpired):
+                message = ("NATS connectivity PENDING / NOT VERIFIED: connection/cleanup unconfirmed. "
+                           "Installation may proceed; verify the external broker, URLs, firewall, authentication "
+                           "and TLS before service operation.")
+                deferred.append(message)
+                print(message)
+            else:
+                print("COMPLETED: NATS connection and cleanup confirmed; not JetStream/authority/permission/service/scientific readiness")
             print(f"Plan: {sys.platform}/{platform.machine()}, checkout {checkout}, revision {revision}")
             print(f"Environment: {'reuse/update' if environment.exists() else 'create'} {environment}")
             print(f"Configuration: {directory}; preserve {len(existing)} existing files; create {list(generated)}")
@@ -365,6 +368,8 @@ def main(argv=None):
             for role, _, contents in staged:
                 _publish(directory / FILES[role], contents)
         print("COMPLETED: isolated package installation, dependency check and configuration validation")
+        print("Software installation is not operational readiness; resolve pending connectivity and "
+              "existing service-readiness/Controller-authority requirements before operation.")
         for message in deferred:
             print("DEFERRED: " + message)
         for role in configured:

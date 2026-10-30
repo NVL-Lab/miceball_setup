@@ -2547,7 +2547,8 @@ Q022 as a whole is not closed. Q019 remains CLOSED in W050.
 **Generic installer (Decision 421): bounded implementation; independent validation
 and audit pending.**
 
-**Current accepted clarification (Decision 440): implementation pending.**
+**Current accepted clarification (Decision 440): bounded implementation complete;
+independent validation and audit pending.**
 Framework software installation must not require an operational NATS broker.
 Compatible Python and required local prerequisites, including the nats-py import,
 remain mandatory. Required deployment configuration, including NATS URLs, is
@@ -2559,9 +2560,19 @@ existing launch commands with outstanding operational prerequisites; they do not
 certify service readiness. This supersedes only Decision 439's broker gate;
 editable defaults, cancellation, confirmation and preservation remain applicable.
 Decision 436 still gates Controller operation and NATS management stays external.
-The current installer retains the Decision 439 connectivity blocker. Decision 440
-requires a separately authorized bounded implementation correction, independent
-validation and audit; none is claimed by this documentation synchronization.
+The authorized correction now reuses the installer's existing deferred-prerequisite
+report and exit `2`: failed or unverified connection/cleanup is explicitly PENDING /
+NOT VERIFIED, while installation and valid configuration publication proceed after
+confirmation. Verified success alone produces a connectivity-success report.
+Local import/schema checks, cancellation, preservation and the single paired-service
+launch command remain unchanged. Developer tests use disposable files, actual
+loader/import children and SDK mocks; no live broker, actual Ubuntu installation,
+independent validation or audit is claimed. Software completion and operational
+readiness remain distinct. Independent validation and audit are subsequent stages.
+Developer verification passed 41 installer methods and six directly affected
+configuration/launcher regressions (47 total). Regression-first checks reproduced
+the former broker gate before correction. Broker/package operations were simulated;
+these results do not establish real Ubuntu deployment or independent validation.
 Q022 remains OPEN. See
 [Decision 440](architecture_decisions.md#decision-440-software-installation-proceeds-without-an-operational-nats-broker).
 

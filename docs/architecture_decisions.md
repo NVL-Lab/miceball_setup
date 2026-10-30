@@ -14053,10 +14053,12 @@ NATS remains external: the installer does not install, configure, start, supervi
 or manage the broker. Existing configuration, scientific data and Controller
 authority protections remain unchanged. No new NATS responsibilities are added.
 
-**Implementation status:** Accepted and synchronized only. The current Decision
-439 implementation still blocks installation on failed broker verification; this
-clarification is not yet implemented or validated. ICC implementation authorization,
-independent validation and separate audit remain subsequent stages. Q022 remains OPEN.
+**Implementation status:** The bounded installer correction is implemented with
+developer verification: failed/unverified connectivity is reported as PENDING /
+NOT VERIFIED without preventing installation or valid configuration publication.
+Local prerequisites, validation, cancellation and existing launch guidance remain.
+Independent validation and separate audit are pending; this is not deployment
+validation or documentation closure. Q022 remains OPEN.
 
 ---
 

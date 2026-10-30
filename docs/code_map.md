@@ -2322,7 +2322,7 @@ Storage GUI integration and remaining deployment validation.
 
 ## scripts/install_framework.py
 
-- main(argv=None): Requires nats-py in the deterministically selected preflight interpreter, collects and validates configuration where possible, confirms minimal broker connection/cleanup before installation confirmation, and prepares the existing environment/files without starting services or replacing existing configuration/data.
+- main(argv=None): Requires local nats-py, collects and validates configuration, reports minimal broker verification failures as pending without blocking confirmed installation, and prints existing launch commands without claiming operational readiness or replacing existing configuration/data.
 - _run(arguments, timeout=60, input=None): Runs a bounded accountable setup child without shell interpretation, optionally passing private connection inputs through stdin rather than command arguments.
 - _ask(label, default=None, allow_empty=False): Collects a required or explicitly optional installation value with an operator-visible proposed value.
 - _confirm(label): Requires an explicit affirmative response before maintenance-sensitive installation changes.
@@ -2334,7 +2334,7 @@ Storage GUI integration and remaining deployment validation.
 
 ## tests/test_install_framework.py
 
-- FrameworkInstallerTests: Exercises prerequisite-first setup, interpreter selection, editable defaults, SDK-mocked connection cleanup, pre/post-confirmation cancellation, shared-role preservation and real child-process import/loader validation with simulated package, Git and broker operations.
+- FrameworkInstallerTests: Exercises local-prerequisite gating, pending versus verified broker outcomes, installation without connectivity, interpreter selection, defaults, SDK-mocked cleanup, cancellation, preservation and real child-process import/loader validation with simulated package, Git and broker operations.
 
 ## scripts/manual_opencv_camera_smoke.py
 

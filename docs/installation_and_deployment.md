@@ -182,13 +182,12 @@ Git, nats-py and applicable local configuration inputs remain installation
 prerequisites. NATS is an external operational dependency, not an online-broker
 requirement for software installation under accepted Decision 440.
 
-**Architecture versus current implementation:** Decision 440 supersedes only
-Decision 439's mandatory broker-connectivity gate. The current script still
-blocks on failed connection/cleanup verification; offline continuation and
-PENDING / NOT VERIFIED reporting are accepted but not yet implemented or validated.
-The earlier Decision 439 correction has developer verification only; independent
-validation, audit and actual Ubuntu installation remain pending. Do not interpret
-this documentation synchronization as a working offline-installation claim.
+**Implementation status:** Decision 440 supersedes only Decision 439's mandatory
+broker-connectivity gate. The bounded correction now reports failed/unverified
+connection or cleanup as PENDING / NOT VERIFIED and continues installation after
+confirmation. Required local prerequisites and configuration validation still
+block on failure. Developer verification is complete; independent validation,
+audit and actual Ubuntu installation remain pending.
 
 | Boundary | Accepted contract |
 | --- | --- |
@@ -223,8 +222,7 @@ package protection: use an already prepared compatible Python installation or
 normal lab-managed Python environment. The installer does not create a temporary
 verification environment. Import success is not broker readiness. Prepare the
 [external broker](#5-nats--jetstream-and-networking) before operation, not as a
-software-installation gate. The current script's broker gate remains the known
-Decision 440 implementation gap described above.
+software-installation gate.
 
 For the Ubuntu computer hosting **both Ingestor and StorageManager**, run from
 the repository root:
@@ -265,22 +263,25 @@ Generated validation inputs use disposable temporary storage, not final config
 or scientific directories. Existing files retain their original relative-path base.
 Under Decision 440, missing required local prerequisites such as nats-py block
 setup. Failed/unavailable broker verification instead leaves operational
-connectivity PENDING / NOT VERIFIED and must allow the normal installation plan,
+connectivity PENDING / NOT VERIFIED and allows the normal installation plan,
 confirmation, environment/dependency preparation and valid configuration
 publication. No broker, Jetson or other framework service need be online for
-software installation. The current Decision 439 implementation still requires
-successful connection/cleanup before presenting its plan; that behavior awaits
-the bounded Decision 440 correction. This clarification adds no alternate mode
-or installer-owned broker management.
+software installation. Successful connectivity is reported only after verified
+connection and cleanup. There is no alternate mode or installer-owned broker
+management; the existing bounded connection check is unchanged.
+Installing without NATS connectivity does not remove pip's normal requirement
+for dependencies to be available from a package source or existing cache.
 Updates require confirmation that affected services have retired with their
 obligations resolved. No transactional package rollback is claimed.
 
-After setup, inspect the report and generated `storage-services.json`. The current
-Decision 439 implementation uses exit `0` to mean setup checks passed, `2` to mean
-deferred work or a declined plan, `1` to mean blocked (including failed broker
-verification), and `130` to mean operator cancellation. Decision 440's pending
-connectivity behavior is not yet implemented; these existing exit outcomes are
-not evidence of that new behavior. Ctrl+C before confirmation reports
+After setup, inspect the report and generated `storage-services.json`. Exit `0`
+means setup checks passed without reported pending/deferred work, `2` means
+pending/deferred work or a declined plan, `1` means a blocking local prerequisite,
+configuration or installation error, and `130` means operator cancellation.
+Installation can complete and publish valid configuration with exit `2` when
+NATS remains PENDING / NOT VERIFIED; read the completion and outstanding-prerequisite
+reports separately. No exit code certifies actual service readiness.
+Ctrl+C before confirmation reports
 no installation changes; afterward it reports potentially incomplete work, never
 transactional rollback. A NATS check confirms only connection/cleanup using the
 runtime-compatible URL authentication, not

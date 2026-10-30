@@ -195,20 +195,25 @@ class FrameworkInstallerTests(unittest.TestCase):
         self.assertEqual(load_service_configuration(self.config / "controller.json", "controller")["service_id"], "controller-1")
         self.assertTrue(any("press Enter for default: ingestor-1" in p for p in self.prompts))
 
-    def test_connection_failure_blocks_before_installation_or_configuration_changes(self):
+    def test_connection_failure_leaves_operational_prerequisite_pending_but_installs(self):
         for failure in ("nats", "authentication", "connection-cleanup"):
-            with self.subTest(failure=failure):
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as directory:
+                self.config = Path(directory) / "config"
+                self.answers["Local roles"] = "ingestor storage-manager"
                 self.calls.clear()
                 self.prompts.clear()
                 self.failure = failure
                 code, output, errors = self.run_setup()
-                self.assertEqual(code, 1)
-                self.assertIn("NATS", errors)
-                self.assertFalse(self.environment.exists())
-                self.assertFalse(self.config.exists())
-                self.assertFalse(any("pip" in c or "venv" in c for c in self.calls))
-                self.assertFalse(any(p.startswith("Install the displayed") for p in self.prompts))
-                self.assertNotIn("LAUNCH:", output)
+                self.assertEqual(code, 2, errors)
+                self.assertIn("PENDING / NOT VERIFIED", output)
+                self.assertIn("COMPLETED: isolated package installation", output)
+                self.assertNotIn("NATS connection and cleanup confirmed", output)
+                self.assertTrue(self.environment_python().is_file())
+                settings = load_service_configuration(self.config / "storage-services.json", "ingestor")
+                self.assertEqual(settings["ingestor_id"], "intake")
+                self.assertTrue(any("install" in c for c in self.calls))
+                self.assertEqual(output.count("LAUNCH:"), 1)
+                self.assertIn("not operational readiness", output)
 
     def test_preinstall_cancellation_is_normal_and_leaves_no_installation_changes(self):
         for failure in ("prompt-interrupt", "connection-interrupt"):
@@ -267,7 +272,7 @@ class FrameworkInstallerTests(unittest.TestCase):
         self.assertFalse(self.environment.exists())
         self.assertFalse(self.config.exists())
 
-    def test_minimal_connection_check_failure_always_closes_and_blocks_installation(self):
+    def test_minimal_connection_check_failure_always_closes_and_reports_pending(self):
         for stage in ("connect", "drain", "close"):
             with self.subTest(stage=stage):
                 client = SimpleNamespace(is_connected=False)
@@ -283,12 +288,12 @@ class FrameworkInstallerTests(unittest.TestCase):
                 self.connection_client = client
                 self.execute_connection_check = True
                 code, output, errors = self.run_setup()
-                self.assertEqual(code, 1)
+                self.assertEqual(code, 2, errors)
                 client.close.assert_awaited_once()
-                self.assertIn("No installation changes", errors)
+                self.assertIn("PENDING / NOT VERIFIED", output)
                 self.assertNotIn("NATS connection and cleanup confirmed", output)
-                self.assertFalse(self.config.exists())
-                self.assertFalse(self.environment.exists())
+                load_service_configuration(self.config / "controller.json", "controller")
+                self.assertTrue(self.environment_python().is_file())
 
     def test_fresh_setup_produces_valid_config_and_existing_launcher_command(self):
         code, output, errors = self.run_setup()
@@ -302,6 +307,8 @@ class FrameworkInstallerTests(unittest.TestCase):
         self.assertEqual(settings["controller_claim_bucket"], "lab-authority")
         self.assertEqual(settings["controller_claim_key"], "controller")
         self.assertIn("COMPLETED: isolated package installation", output)
+        self.assertIn("NATS connection and cleanup confirmed", output)
+        self.assertNotIn("PENDING / NOT VERIFIED", output)
         self.assertIn("lab_sync_acquisition.service_launcher", output)
         self.assertIn("--deployment-config", output)
         self.assertEqual(sum("venv" in command for command in self.calls), 1)
@@ -604,11 +611,41 @@ class FrameworkInstallerTests(unittest.TestCase):
         self.calls.clear()
         self.failure = "nats"
         code, output, errors = self.run_setup()
-        self.assertEqual(code, 1, errors)
-        self.assertIn("NATS prerequisite connection/cleanup unconfirmed", errors)
+        self.assertEqual(code, 2, errors)
+        self.assertIn("PENDING / NOT VERIFIED", output)
         self.assertNotIn("NATS connection and cleanup confirmed", output)
         self.assertEqual({p: p.read_bytes() for p in before}, before)
-        self.assertFalse(any("pip" in c or "venv" in c for c in self.calls))
+        self.assertTrue(any("install" in c for c in self.calls))
+        self.assertEqual(output.count("LAUNCH:"), 1)
+
+    def test_offline_connectivity_does_not_bypass_required_configuration_validation(self):
+        self.failure = "nats"
+        self.preflight_dependencies_missing = True
+        self.answers["Known AcquisitionNode IDs"] = "bad.*"
+        code, output, _ = self.run_setup()
+        self.assertEqual(code, 1)
+        self.assertIn("PENDING / NOT VERIFIED", output)
+        self.assertIn("Installing selected checkout", output)
+        self.assertNotIn("LAUNCH:", output)
+        self.assertFalse((self.config / "controller.json").exists())
+
+    def test_offline_connectivity_does_not_change_pre_or_post_install_cancellation(self):
+        self.failure = "nats"
+        self.interrupt_at = "Install the displayed"
+        code, output, errors = self.run_setup()
+        self.assertEqual(code, 130)
+        self.assertIn("PENDING / NOT VERIFIED", output)
+        self.assertIn("No installation changes", errors)
+        self.assertFalse(self.config.exists())
+        self.assertFalse(self.environment.exists())
+        self.interrupt_at = None
+        with patch.object(installer.os, "fsync", side_effect=KeyboardInterrupt):
+            code, output, errors = self.run_setup()
+        self.assertEqual(code, 130)
+        self.assertIn("CANCELLED", errors)
+        self.assertIn("partially changed", errors)
+        self.assertFalse((self.config / "controller.json").exists())
+        self.assertNotIn("LAUNCH:", output)
 
     def test_interrupted_configuration_write_leaves_no_partial_json(self):
         with patch.object(installer.os, "fsync", side_effect=KeyboardInterrupt):
