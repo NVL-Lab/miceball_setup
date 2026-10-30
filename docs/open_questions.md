@@ -3442,6 +3442,29 @@ complete and independently validated/audited in W070B:
   See [Decision 438](architecture_decisions.md#decision-438-interrupted-monthly-write-recovery-requires-durable-ingestor-journal-proof).
   Q024 remains OPEN; Package 1 stays complete, Decision 435 deferred and Decision
   437 exclusions unchanged.
+
+  **Package 2 alias correction (implementation; independent verification pending):**
+  The independent audit of `f802b64307fbabe3b0ac86e3558cb4de9788d009` found a P2:
+  monthly recovery could follow Windows directory junctions or hard-linked products
+  and confirm writes to unrelated physical targets. StorageManager now shares one
+  monthly-product path validator across history/readback, ordinary writing,
+  authorized recovery and completion. It rejects aliased/non-directory ancestry,
+  Windows reparse points, and non-regular or multiply linked product files before
+  mutation. Complete product checks precede any recovery product write. Existing
+  durable intent/completion, reconstruction, authorization and W071 confirmation
+  mechanisms remain unchanged. This is a bounded implementation correction, not
+  independent validation, audit acceptance or Q024 closure.
+
+  Developer checks reproduced all 12 junction/ancestor and hard-link cases as
+  false success before the fix. The initial affected disposition/monthly run
+  passed 35 methods. A final 11-method selection covered all five new regression
+  methods, valid recovery and selected W071 dependencies: ten methods passed;
+  the remaining method's two real-symlink subcases were skipped because Windows
+  creation privilege was unavailable. Actual Windows junctions and hard links
+  executed, including reconstruction and unchanged unrelated-target checks.
+  These overlapping runs are not additive totals or physical crash/deployment
+  validation; filesystem checks do not claim atomic exclusion of external
+  processes changing paths between inspection and use.
 - **Historical monthly retention (Decision 437, resolved architecturally):** Keep
   existing monthly partitioning. Never automatically delete old historical journal
   files. Operators own archival/deletion decisions; age, including more than two

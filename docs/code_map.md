@@ -2211,7 +2211,8 @@ recovery is introduced. Phase 16 and M015 remain open.
 - PersistentStorageManager._framework_product_texts(products): Serializes reconstructable monthly evidence, intake audit and summary products with explicit LF line endings.
 - PersistentStorageManager._complete_framework_write(intent): Verifies exact product fingerprints and directory durability before requesting durable correlated completion.
 - PersistentStorageManager._pending_framework_write(identity=None): Selects one uniquely identified incomplete durable write for this StorageManager/root, refusing completed or ambiguous attempts.
-- PersistentStorageManager._recover_monthly_write(intent, *, allow_incomplete): Reconstructs and verifies an identified write against journal boundaries and target bytes before authorized partial recovery or complete-but-unconfirmed reconciliation.
+- PersistentStorageManager._require_framework_product_paths(directory): Validates archive directory ancestry without following aliases and requires exclusively owned regular product files before monthly readback, writing, recovery or completion.
+- PersistentStorageManager._recover_monthly_write(intent, *, allow_incomplete): Reconstructs and verifies an identified write against journal boundaries, alias-safe paths and target bytes before authorized partial recovery or complete-but-unconfirmed reconciliation.
 - PersistentStorageManager._continue_framework_evidence_archive(compiled_runtime_evidence): Validates the historical prefix under the storage lock before continuation; the public entry point retains rejection and clears confirmation on failure.
 - PersistentStorageManager.continue_framework_evidence_archive(compiled_runtime_evidence): Verifies intact historical evidence/audit prefixes and summary consistency before ordinary continuation, reconciling only exact complete-but-unconfirmed writes before returning current readback.
 - PersistentStorageManager.get_framework_preservation_confirmation(): Compares cumulative retained monthly/archive products with a compact commitment to the exact successful compilation, without requiring a Session Record or accepting missing, stale, duplicate or partial history.
@@ -2843,4 +2844,4 @@ automatic. Kill integration and overall closeout validation remain deferred.
 
 ## tests/test_service_disposition.py
 
-- ServiceDispositionTests: Exercises authorized terminal loss, refusal and uncertain audit paths, duplicate/pending-publication retention, typed monthly proof, targeted fresh-owner recovery, immutable completed history and administrator command routing through public owners.
+- ServiceDispositionTests: Exercises authorized terminal loss, refusal and uncertain audit paths, duplicate/pending-publication retention, typed monthly proof, fresh-owner recovery and alias refusal, immutable completed history and administrator command routing through public owners.

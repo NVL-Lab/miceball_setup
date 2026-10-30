@@ -2,6 +2,8 @@
 
 import hashlib
 import json
+import os
+import subprocess
 from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
@@ -165,6 +167,133 @@ class ServiceDispositionTests(unittest.IsolatedAsyncioTestCase):
         result = await self.storage_admin.execute_command(command)
         self.assertFalse(result.success)
         self.assertEqual({p.name: p.read_bytes() for p in target.iterdir()}, before)
+
+    @unittest.skipUnless(os.name == "nt", "Windows junctions require Windows")
+    async def test_monthly_recovery_refuses_junction_targets_and_ancestors(self):
+        for level in ("2026-01", "evidence", "framework"):
+            for restart in (False, True):
+                with self.subTest(level=level, restart=restart), tempfile.TemporaryDirectory() as temp:
+                    self.root = Path(temp)
+                    self.journal = self.root / "framework.jsonl"
+                    self.construct()
+                    intent = self.interrupt()
+                    month = self.root / "archive/framework/evidence/2026-01"
+                    target = next(p for p in (month, *month.parents) if p.name == level)
+                    unrelated = self.root / "unrelated"
+                    target.rename(unrelated)
+                    created = subprocess.run(["cmd", "/c", "mklink", "/J", str(target), str(unrelated)],
+                                             capture_output=True, text=True)
+                    self.assertEqual(created.returncode, 0, created.stdout + created.stderr)
+                    before = {p: p.read_bytes() for p in unrelated.rglob("*") if p.is_file()}
+                    if restart:
+                        self.construct()
+                    command = await self.authorize(self.storage_admin, "recover_archive_write",
+                        {"session_id": None, "write_attempt_id": intent["write_attempt_id"]})
+                    result = await self.storage_admin.execute_command(command)
+                    self.assertFalse(result.success, result.to_dict())
+                    self.assertEqual({p: p.read_bytes() for p in before}, before)
+                    self.assertFalse(any(r["kind"] == "completion" and
+                        r["write_attempt_id"] == intent["write_attempt_id"]
+                        for r in self.intake.read_framework_write_records()))
+
+    @unittest.skipUnless(os.name == "nt", "Windows junctions require Windows")
+    async def test_recovery_refuses_junction_created_before_original_target_exists(self):
+        self.accept("pending")
+        mkdir = Path.mkdir
+        def interrupted(path, *args, **kwargs):
+            if path.name == "2026-01":
+                raise OSError("Interrupted before monthly target creation")
+            return mkdir(path, *args, **kwargs)
+        with patch.object(Path, "mkdir", interrupted), self.assertRaises(OSError):
+            self.archive()
+        intent = self.intake.read_framework_write_records()[0]
+        target = self.root / "archive/framework/evidence/2026-01"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        unrelated = self.root / "unrelated"
+        unrelated.mkdir()
+        created = subprocess.run(["cmd", "/c", "mklink", "/J", str(target), str(unrelated)],
+                                 capture_output=True, text=True)
+        self.assertEqual(created.returncode, 0, created.stdout + created.stderr)
+        self.construct()
+        command = await self.authorize(self.storage_admin, "recover_archive_write",
+            {"session_id": None, "write_attempt_id": intent["write_attempt_id"]})
+        result = await self.storage_admin.execute_command(command)
+        self.assertFalse(result.success, result.to_dict())
+        self.assertEqual(list(unrelated.iterdir()), [])
+
+    async def test_monthly_recovery_refuses_hard_links_before_changing_any_product(self):
+        for filename in ("runtime_evidence.jsonl", "ingest_audit.jsonl", "compilation_summary.json"):
+            for restart in (False, True):
+                with self.subTest(filename=filename, restart=restart), tempfile.TemporaryDirectory() as temp:
+                    self.root = Path(temp)
+                    self.journal = self.root / "framework.jsonl"
+                    self.construct()
+                    intent = self.interrupt()
+                    directory = self.root / "archive/framework/evidence/2026-01"
+                    target = directory / filename
+                    unrelated = self.root / "unrelated.jsonl"
+                    unrelated.write_bytes(target.read_bytes())
+                    target.unlink()
+                    target.hardlink_to(unrelated)
+                    before = {p: p.read_bytes() for p in directory.iterdir()}
+                    original = unrelated.read_bytes()
+                    if restart:
+                        self.construct()
+                    command = await self.authorize(self.storage_admin, "recover_archive_write",
+                        {"session_id": None, "write_attempt_id": intent["write_attempt_id"]})
+                    result = await self.storage_admin.execute_command(command)
+                    self.assertFalse(result.success, result.to_dict())
+                    self.assertEqual(unrelated.read_bytes(), original)
+                    self.assertEqual({p: p.read_bytes() for p in before}, before)
+                    self.assertFalse(any(r["kind"] == "completion" and
+                        r["write_attempt_id"] == intent["write_attempt_id"]
+                        for r in self.intake.read_framework_write_records()))
+
+    async def test_aliased_monthly_products_cannot_confirm_or_authorize_an_append(self):
+        for filename in ("runtime_evidence.jsonl", "ingest_audit.jsonl", "compilation_summary.json"):
+            with self.subTest(filename=filename), tempfile.TemporaryDirectory() as temp:
+                self.root = Path(temp)
+                self.journal = self.root / "framework.jsonl"
+                self.construct()
+                self.accept("preserved")
+                self.archive()
+                directory = self.root / "archive/framework/evidence/2026-01"
+                target = directory / filename
+                unrelated = self.root / "unrelated.jsonl"
+                unrelated.hardlink_to(target)
+                before = {p: p.read_bytes() for p in directory.iterdir()}
+                self.assertIsNone(self.storage.get_framework_preservation_confirmation())
+                self.accept("new")
+                with self.assertRaises((RuntimeError, ValueError)):
+                    self.archive()
+                self.assertEqual({p: p.read_bytes() for p in before}, before)
+                self.assertEqual(unrelated.read_bytes(), before[target])
+
+    async def test_monthly_recovery_refuses_symbolic_links(self):
+        for directory_alias in (True, False):
+            with self.subTest(directory_alias=directory_alias), tempfile.TemporaryDirectory() as temp:
+                self.root = Path(temp)
+                self.journal = self.root / "framework.jsonl"
+                self.construct()
+                intent = self.interrupt()
+                directory = self.root / "archive/framework/evidence/2026-01"
+                target = directory if directory_alias else directory / "compilation_summary.json"
+                unrelated = self.root / "unrelated"
+                target.rename(unrelated)
+                try:
+                    target.symlink_to(unrelated, target_is_directory=directory_alias)
+                except OSError as error:
+                    if os.name == "nt" and error.winerror == 1314:
+                        self.skipTest("Windows symbolic-link creation privilege unavailable")
+                    raise
+                before = ({p: p.read_bytes() for p in unrelated.iterdir()} if directory_alias
+                          else {unrelated: unrelated.read_bytes()})
+                self.construct()
+                command = await self.authorize(self.storage_admin, "recover_archive_write",
+                    {"session_id": None, "write_attempt_id": intent["write_attempt_id"]})
+                result = await self.storage_admin.execute_command(command)
+                self.assertFalse(result.success, result.to_dict())
+                self.assertEqual({p: p.read_bytes() for p in before}, before)
 
     async def test_completed_history_is_not_repaired(self):
         self.accept("complete")

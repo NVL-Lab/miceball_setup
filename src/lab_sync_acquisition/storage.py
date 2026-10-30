@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import stat
 from collections.abc import Awaitable, Callable
 from contextlib import contextmanager, nullcontext
 from copy import deepcopy
@@ -1788,9 +1789,33 @@ class PersistentStorageManager:
             "ingest_audit_evidence_ids": [item["evidence_id"] for item in audit],
         }
 
+    def _require_framework_product_paths(self, directory: Path) -> None:
+        """Require unaliased directories and exclusively owned regular archive products."""
+        directory = directory.absolute()
+        if not directory.is_relative_to(self._storage_root.absolute()):
+            raise ValueError("Framework archive target is outside its storage root")
+        # Inspect ancestors first so a child lookup cannot follow a directory alias.
+        for parent in reversed((directory, *directory.parents)):
+            try:
+                info = parent.lstat()
+            except FileNotFoundError:
+                continue
+            if (not stat.S_ISDIR(info.st_mode)
+                    or getattr(info, "st_file_attributes", 0) & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)):
+                raise ValueError("Framework archive directory is unavailable or aliased")
+        for filename in ("runtime_evidence.jsonl", "ingest_audit.jsonl", "compilation_summary.json"):
+            try:
+                info = (directory / filename).lstat()
+            except FileNotFoundError:
+                continue
+            if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1
+                    or getattr(info, "st_file_attributes", 0) & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)):
+                raise ValueError("Framework archive product is unavailable or aliased")
+
     def _read_framework_archive_history(self, *, excluded_target=None):
         """Validate ordered monthly products and return their cumulative coverage."""
         root = self._storage_root / "framework" / "evidence"
+        self._require_framework_product_paths(root)
         directories = []
         names = ("runtime_evidence.jsonl", "ingest_audit.jsonl", "compilation_summary.json")
         if any(os.path.lexists(root / name) for name in names):
@@ -1805,9 +1830,10 @@ class PersistentStorageManager:
                     month = datetime.strptime(path.name, "%Y-%m").strftime("%Y-%m")
                 except ValueError as error:
                     raise ValueError("Unrecognized framework archive partition") from error
-                if month != path.name or not path.is_dir() or path.is_symlink():
+                if month != path.name:
                     raise ValueError("Invalid framework archive partition")
                 if path != excluded_target:
+                    self._require_framework_product_paths(path)
                     directories.append(path)
         evidence, audit, partitions = [], [], []
         for directory in directories:
@@ -1878,6 +1904,7 @@ class PersistentStorageManager:
                 raise ValueError("StorageManager archival clock is invalid")
             month = datetime.fromtimestamp(stamp, timezone.utc).strftime("%Y-%m")
             directory = root / month
+            self._require_framework_product_paths(directory)
             if partitions and partitions[-1][0] != root and partitions[-1][0].name > month:
                 raise RuntimeError("Archival clock would reopen a historical partition")
             start_evidence, start_audit = len(historical["runtime_evidence"]), len(historical["ingest_audit"])
@@ -1953,6 +1980,7 @@ class PersistentStorageManager:
 
     def _complete_framework_write(self, intent):
         directory = self._storage_root / "framework/evidence" / intent["target_month"]
+        self._require_framework_product_paths(directory)
         if any(self._framework_fingerprint((directory / name).read_bytes()) != fingerprint
                for name, fingerprint in intent["products"].items()):
             raise RuntimeError("Exact monthly product fingerprints are unconfirmed")
@@ -2005,8 +2033,7 @@ class PersistentStorageManager:
             raise ValueError("Journal does not match the intended archive boundary")
         root = self._storage_root / "framework/evidence"
         directory = root / month
-        if directory.is_symlink() or (directory.exists() and not directory.is_dir()):
-            raise RuntimeError("Identified target directory is unavailable or aliased")
+        self._require_framework_product_paths(directory)
         prior, partitions = self._read_framework_archive_history(excluded_target=directory)
         if (any(path != root and path.name >= month for path, _ in partitions)
                 or self._framework_fingerprint({k: prior[k] for k in ("runtime_evidence", "ingest_audit")}) != intent["prior_fingerprint"]
@@ -2021,8 +2048,6 @@ class PersistentStorageManager:
         current = {}
         for name, text in texts.items():
             path = directory / name
-            if path.is_symlink():
-                raise RuntimeError("Aliased archive products cannot be repaired")
             data = path.read_bytes() if path.exists() else None
             expected = text.encode("utf-8")
             if data != expected and (not allow_incomplete or not (
