@@ -2546,6 +2546,26 @@ Q022 as a whole is not closed. Q019 remains CLOSED in W050.
 
 **Generic installer (Decision 421): bounded implementation; independent validation
 and audit pending.**
+
+**Current accepted clarification (Decision 440): implementation pending.**
+Framework software installation must not require an operational NATS broker.
+Compatible Python and required local prerequisites, including the nats-py import,
+remain mandatory. Required deployment configuration, including NATS URLs, is
+collected and validated without requiring an online broker. Attempt connectivity
+verification when possible and report unavailable/unverified results as PENDING /
+NOT VERIFIED, not readiness success. Such results must not prevent environment
+preparation, dependency installation or valid configuration publication. Print
+existing launch commands with outstanding operational prerequisites; they do not
+certify service readiness. This supersedes only Decision 439's broker gate;
+editable defaults, cancellation, confirmation and preservation remain applicable.
+Decision 436 still gates Controller operation and NATS management stays external.
+The current installer retains the Decision 439 connectivity blocker. Decision 440
+requires a separately authorized bounded implementation correction, independent
+validation and audit; none is claimed by this documentation synchronization.
+Q022 remains OPEN. See
+[Decision 440](architecture_decisions.md#decision-440-software-installation-proceeds-without-an-operational-nats-broker).
+
+**Previous Decision 439 implementation and developer evidence (gate superseded):**
 Decision 439 records the accepted prerequisite-first correction: require nats-py
 in the selected verification interpreter and confirm minimal broker connection and
 cleanup before installation confirmation or changes. It resolves the bootstrap

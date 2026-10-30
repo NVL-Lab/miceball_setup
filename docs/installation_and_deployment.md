@@ -155,7 +155,7 @@ authority is [pyproject.toml](../pyproject.toml).
 | `paramiko>=3.4,<5` via `artifact-retrieval` | StorageManager computer for SSH/SFTP retrieval |
 | OpenCV providing `cv2` | Camera computer; platform/Python/backend-compatible build |
 | Matplotlib | Optional visualization, not HDF5 recording/verification |
-| `nats-server` with JetStream | Operator-managed broker, separate from the Python client |
+| `nats-server` with JetStream | External operational dependency, separate from the Python client; online availability is not a software-installation gate under Decision 440 |
 | SSH/SFTP server and key-based access | Node computer for required installation retrieval and later collection |
 
 Windows PowerShell and Linux commands follow. Python metadata does not certify
@@ -177,10 +177,25 @@ volume. Existing-identical-handoff fixtures do not prove first publication.
 The existing `scripts/install_framework.py` prepares one local installation; it
 does not start or supervise services. Use Python 3.12 on Windows or Linux, from
 the reviewed checkout. It reuses a compatible checkout-local `.venv` or creates
-one; an unrelated activated environment is not the target environment. NATS,
-Python, Git, and any required SSH credentials remain external prerequisites.
-The Decision 439 prerequisite-first correction has developer verification only; independent
-validation, audit and actual Ubuntu installation remain pending.
+one; an unrelated activated environment is not the target environment. Python,
+Git, nats-py and applicable local configuration inputs remain installation
+prerequisites. NATS is an external operational dependency, not an online-broker
+requirement for software installation under accepted Decision 440.
+
+**Architecture versus current implementation:** Decision 440 supersedes only
+Decision 439's mandatory broker-connectivity gate. The current script still
+blocks on failed connection/cleanup verification; offline continuation and
+PENDING / NOT VERIFIED reporting are accepted but not yet implemented or validated.
+The earlier Decision 439 correction has developer verification only; independent
+validation, audit and actual Ubuntu installation remain pending. Do not interpret
+this documentation synchronization as a working offline-installation claim.
+
+| Boundary | Accepted contract |
+| --- | --- |
+| Software installation | Required local prerequisites and confirmation apply; an operational broker is not required |
+| Deployment configuration | Required fields, including NATS URLs, must validate; validity does not prove remote resources exist or are usable |
+| Operational connectivity | Attempt verification when possible; unavailable/unverified results are PENDING / NOT VERIFIED and do not block installation |
+| Actual service readiness | Existing runtime readiness and admission apply; Controller operation still requires Decision 436 authority |
 
 **Prepare the verification interpreter first.** If this checkout already has a
 compatible `.venv`, the installer uses that interpreter for its immediate `nats`
@@ -207,7 +222,9 @@ externally managed Ubuntu system Python, do not use `sudo pip` or bypass system
 package protection: use an already prepared compatible Python installation or
 normal lab-managed Python environment. The installer does not create a temporary
 verification environment. Import success is not broker readiness. Prepare the
-[external broker](#5-nats--jetstream-and-networking) before running setup.
+[external broker](#5-nats--jetstream-and-networking) before operation, not as a
+software-installation gate. The current script's broker gate remains the known
+Decision 440 implementation gap described above.
 
 For the Ubuntu computer hosting **both Ingestor and StorageManager**, run from
 the repository root:
@@ -225,8 +242,9 @@ discovery: use the same actual identities throughout the deployment.
 Supply the deployment's actual NATS URL(s), Ingestor/StorageManager
 identities, shared Controller authority account/bucket/key, preservation window,
 positive result window, and storage directory. The account is the real NATS
-account ID, not a display name; the persistent authority bucket must already
-exist. Reuse the same authority settings on every participating computer.
+account ID, not a display name. The persistent authority bucket must exist and
+satisfy Decision 436 before Controller operation; merely installing configuration
+does not verify it. Reuse the same authority settings on every participating computer.
 Declare actual external dependents as comma-separated `TYPE/ID` entries using
 `controller`, `acquisition_node` and `synchronization_manager`. Use `none` only
 for a genuinely isolated pair, never for an offline but configured dependent.
@@ -245,16 +263,24 @@ defer that preflight explicitly; validation remains mandatory after installation
 and before publishing new configuration. Other validation failures block setup.
 Generated validation inputs use disposable temporary storage, not final config
 or scientific directories. Existing files retain their original relative-path base.
-The broker connection and cleanup must then succeed before the installation
-plan and confirmation. Missing nats-py or an unreachable/rejecting broker blocks
-setup without creating/updating `.venv`, installing packages, publishing config
-or creating scientific-data directories. No Jetson or other service need be online.
+Under Decision 440, missing required local prerequisites such as nats-py block
+setup. Failed/unavailable broker verification instead leaves operational
+connectivity PENDING / NOT VERIFIED and must allow the normal installation plan,
+confirmation, environment/dependency preparation and valid configuration
+publication. No broker, Jetson or other framework service need be online for
+software installation. The current Decision 439 implementation still requires
+successful connection/cleanup before presenting its plan; that behavior awaits
+the bounded Decision 440 correction. This clarification adds no alternate mode
+or installer-owned broker management.
 Updates require confirmation that affected services have retired with their
 obligations resolved. No transactional package rollback is claimed.
 
-After setup, inspect the report and generated `storage-services.json`. Exit `0`
-means setup checks passed, `2` means deferred work or a declined plan, `1` means
-blocked, and `130` means operator cancellation. Ctrl+C before confirmation reports
+After setup, inspect the report and generated `storage-services.json`. The current
+Decision 439 implementation uses exit `0` to mean setup checks passed, `2` to mean
+deferred work or a declined plan, `1` to mean blocked (including failed broker
+verification), and `130` to mean operator cancellation. Decision 440's pending
+connectivity behavior is not yet implemented; these existing exit outcomes are
+not evidence of that new behavior. Ctrl+C before confirmation reports
 no installation changes; afterward it reports potentially incomplete work, never
 transactional rollback. A NATS check confirms only connection/cleanup using the
 runtime-compatible URL authentication, not
@@ -268,7 +294,10 @@ Validate the file independently before starting services:
 .venv/bin/python -c 'import pathlib; from lab_sync_acquisition.deployment_configuration import load_service_configuration; load_service_configuration(pathlib.Path.home()/".config/lab-sync-acquisition/storage-services.json", "ingestor"); print("configuration valid")'
 ```
 
-Then run the **single** printed `LAUNCH:` command, equivalent to:
+Resolve outstanding operational prerequisites and applicable readiness/admission
+checks before running services. Printing a command is not operational-readiness
+confirmation. For the shared storage pair, the **single** printed `LAUNCH:` command
+is equivalent to:
 
 ```bash
 .venv/bin/python -m lab_sync_acquisition.service_launcher ingestor --deployment-config "$HOME/.config/lab-sync-acquisition/storage-services.json"
@@ -391,7 +420,7 @@ state. Uncertainty requires clarification, not state recreation or format guessi
 
 ## 5. NATS / JetStream And Networking
 
-### What To Prepare Before Guided Setup
+### What To Prepare Before Service Operation
 
 NATS is the network broker carrying commands, results and operational evidence
 between framework processes. JetStream is its persistent messaging facility;
@@ -403,14 +432,19 @@ Choose one reachable broker computer with stable addressing and persistent local
 storage. It may share the StorageManager computer, but this is not required.
 Only the broker host needs `nats-server`; clients need the broker URL and their
 actual credentials. The framework installer never installs, configures, starts
-or supervises the broker. Arrange the broker first, then run guided framework
-setup separately on each computer. Broker prerequisites do not require an online
-AcquisitionNode or replace later device/readiness/retrieval checks.
+or supervises the broker. Software installation and configuration may proceed
+before the broker is operational under Decision 440; arrange the broker before
+service operation. Run framework setup separately on each computer. Broker
+prerequisites do not require an online AcquisitionNode or replace later
+device/readiness/retrieval checks.
 
 The operator or NATS administrator must provide: reachable URL(s), credentials
 supported by the current runtime, the actual account ID, the existing authority
 bucket name and shared claim key, plus reviewed permissions and persistent-storage
-settings. Do not enter an intended future URL and assume setup will create NATS.
+settings for operation. Software configuration may record an intended deployment
+URL while connectivity remains PENDING / NOT VERIFIED; never assume that recording
+it creates NATS or proves readiness. Do not fabricate credentials or authority
+identities to fill required configuration fields.
 
 ### Accepted Controller Authority Prerequisite (Decision 436)
 

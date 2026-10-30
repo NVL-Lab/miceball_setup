@@ -12469,6 +12469,9 @@ testing or validation. G4-A/B remain CLOSED; G4-C and Q013 remain OPEN.
 **Subsequent clarification:** Decision 439 requires external nats-py availability
 and minimal broker connection/cleanup verification before installation changes,
 with editable identifier defaults and ordinary cancellation reporting.
+Decision 440 subsequently supersedes only that mandatory broker-connectivity
+gate: operational NATS is not required for software installation. Local
+prerequisites and the other Decision 439 requirements remain applicable.
 
 This records the user-accepted LLC-to-ICC generic framework installer handoff,
 following the reviewed read-only implementation assessment. It extends Decision
@@ -13964,6 +13967,11 @@ no behavior and performs no Package 2 closure. Q024 remains OPEN.
 
 **Status:** Accepted
 
+**Partial supersession:** Decision 440 supersedes only the mandatory pre-install
+broker-connectivity gate recorded below. Historical text is retained; all other
+requirements, including local prerequisites, editable identifier defaults,
+cancellation handling and pre-install confirmation, remain applicable.
+
 This records the explicitly user-accepted Q022 prerequisite-first correction after
 Ubuntu deployment feedback. It clarifies Decision 421 while preserving Decisions
 368, 376 and 436. It supersedes installation-time deferral of a failed broker
@@ -14010,9 +14018,57 @@ and closure remain separate workflow stages; Q022 remains OPEN.
 
 ---
 
+## Decision 440: Software installation proceeds without an operational NATS broker
+
+**Status:** Accepted
+
+This records the explicitly user-accepted LLC clarification to Decision 439 for
+Q022. It supersedes only Decision 439's mandatory pre-install broker-connectivity
+gate, not its other requirements or Decisions 421 and 436's ownership boundaries.
+Software installation, deployment configuration, operational connectivity and
+actual service readiness are distinct.
+
+The installer checks compatible Python and required local prerequisites,
+including the existing nats-py import requirement. Missing required local
+prerequisites block installation. It collects and validates required service
+configuration, including NATS URLs, without requiring the broker to be online.
+Retain authoritative validation, editable identifier defaults, preservation of
+existing values, ordinary cancellation reporting and pre-install confirmation
+under Decision 439.
+
+The installer attempts NATS connectivity verification when possible. Unavailable
+or unverified connectivity is explicitly PENDING / NOT VERIFIED, never successful
+readiness. Failed or unavailable connectivity does not prevent framework
+environment preparation, dependency installation or valid configuration
+publication. This is the ordinary installer flow, not another installation mode.
+
+The installer prints the existing service launch commands and identifies
+outstanding operational prerequisites. Printed commands, installed software and
+valid configuration do not establish connectivity or actual service readiness.
+Decision 436's Controller authority requirements remain mandatory before
+Controller operation; installation grants no authority or permission to bypass
+runtime admission, preservation, cleanup or service lifecycle guarantees.
+
+NATS remains external: the installer does not install, configure, start, supervise
+or manage the broker. Existing configuration, scientific data and Controller
+authority protections remain unchanged. No new NATS responsibilities are added.
+
+**Implementation status:** Accepted and synchronized only. The current Decision
+439 implementation still blocks installation on failed broker verification; this
+clarification is not yet implemented or validated. ICC implementation authorization,
+independent validation and separate audit remain subsequent stages. Q022 remains OPEN.
+
+---
+
 # Accepted Architectural Principles
 
 The following principles summarize the accepted decisions so far.
+
+Decision 440 separates software installation/configuration from operational
+connectivity and actual service readiness. Required local prerequisites still
+block installation; unavailable broker connectivity is PENDING / NOT VERIFIED and
+does not block installation. Decision 436 remains mandatory before Controller
+operation, and NATS management remains external.
 
 Decision 436 requires a persistent non-expiring atomic JetStream claim for one
 system-wide Controller operational authority, with instance/revision-conditional
