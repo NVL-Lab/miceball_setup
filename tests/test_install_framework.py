@@ -4,6 +4,7 @@ import contextlib
 import io
 import json
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -31,6 +32,9 @@ class FrameworkInstallerTests(unittest.TestCase):
             "NATS URLs": "nats://broker:4222",
             "Deployment Ingestor ID": "intake",
             "Deployment StorageManager ID": "storage",
+            "Controller authority account": "lab-account",
+            "Controller authority bucket": "lab-authority",
+            "Controller authority key": "controller",
             "Preservation window": "3",
             "Request/check window": "1",
             "Deployment SynchronizationManager ID": "clock",
@@ -45,6 +49,8 @@ class FrameworkInstallerTests(unittest.TestCase):
         self.platform = sys.platform
         self.failure = None
         self.version = [3, 12]
+        self.preflight_dependencies_missing = False
+        self.real_validation = False
 
     def hardware(self):
         path = self.root / "node hardware.json"
@@ -91,6 +97,12 @@ class FrameworkInstallerTests(unittest.TestCase):
                 if "install" in args and self.failure == "interrupt":
                     raise KeyboardInterrupt()
             elif installer.VALIDATE in args:
+                if self.real_validation:
+                    return installer_run([sys.executable, *args[1:]], timeout=timeout)
+                if self.failure == "validation-dependencies":
+                    return "DEPENDENCIES_UNAVAILABLE\n"
+                if self.preflight_dependencies_missing and not any("pip" in c for c in self.calls):
+                    return "DEPENDENCIES_UNAVAILABLE\n"
                 # Run the unchanged production loader, not a fabricated validation result.
                 load_service_configuration(args[-2], args[-1])
             elif installer.CONNECT in args:
@@ -100,6 +112,7 @@ class FrameworkInstallerTests(unittest.TestCase):
                 raise AssertionError(f"Unexpected external operation: {args}")
             return ""
 
+        installer_run = installer._run
         with patch.object(installer, "_run", side_effect=run), patch("builtins.input", side_effect=answer), \
                 patch.object(installer.sys, "platform", self.platform), \
                 contextlib.redirect_stdout(output), contextlib.redirect_stderr(errors):
@@ -112,10 +125,159 @@ class FrameworkInstallerTests(unittest.TestCase):
         settings = load_service_configuration(self.config / "controller.json", "controller")
         self.assertEqual(settings["service_id"], "control")
         self.assertEqual(settings["known_nodes"], ("node",))
+        self.assertEqual(settings["controller_claim_account"], "lab-account")
+        self.assertEqual(settings["controller_claim_bucket"], "lab-authority")
+        self.assertEqual(settings["controller_claim_key"], "controller")
         self.assertIn("COMPLETED: isolated package installation", output)
         self.assertIn("lab_sync_acquisition.service_launcher", output)
         self.assertIn("--deployment-config", output)
         self.assertEqual(sum("venv" in command for command in self.calls), 1)
+
+    def test_storage_pair_always_has_authority_and_result_window(self):
+        for dependents in ("none", "controller/control,acquisition_node/node"):
+            with self.subTest(dependents=dependents), tempfile.TemporaryDirectory() as directory:
+                self.config = Path(directory) / "config"
+                self.answers["Local roles"] = "ingestor storage-manager"
+                self.answers["Actual external dependents"] = dependents
+                code, output, errors = self.run_setup()
+                self.assertEqual(code, 0, errors)
+                settings = load_service_configuration(self.config / "storage-services.json", "ingestor")
+                self.assertEqual(settings["result_window_s"], 1)
+                self.assertEqual(settings["controller_claim_account"], "lab-account")
+                self.assertEqual(settings["controller_claim_bucket"], "lab-authority")
+                self.assertEqual(settings["controller_claim_key"], "controller")
+                self.assertEqual(output.count("LAUNCH:"), 1)
+
+    def test_new_roles_reuse_existing_authority_without_changing_storage_settings(self):
+        self.answers["Local roles"] = "storage-manager"
+        self.assertEqual(self.run_setup()[0], 0)
+        path = self.config / "storage-services.json"
+        data = json.loads(path.read_text())
+        data.update(controller_claim_account="actual-account", controller_claim_bucket="actual-bucket",
+                    controller_claim_key="actual-key", result_window_s=9)
+        path.write_text(json.dumps(data), encoding="utf-8")
+        before = path.read_bytes()
+        self.answers["Local roles"] = "controller storage-manager"
+        for label in ("Controller authority account", "Controller authority bucket", "Controller authority key"):
+            self.answers[label] = ""
+        code, _, errors = self.run_setup()
+        self.assertEqual(code, 0, errors)
+        settings = load_service_configuration(self.config / "controller.json", "controller")
+        for key in ("controller_claim_account", "controller_claim_bucket", "controller_claim_key", "result_window_s"):
+            self.assertEqual(settings[key], data[key])
+        self.assertEqual(path.read_bytes(), before)
+
+    def test_existing_authority_disagreement_blocks_update_without_mutation(self):
+        self.answers["Local roles"] = "controller synchronization-manager"
+        self.assertEqual(self.run_setup()[0], 0)
+        path = self.config / "synchronization-manager.json"
+        data = json.loads(path.read_text())
+        data["controller_claim_key"] = "another-key"
+        path.write_text(json.dumps(data), encoding="utf-8")
+        before = path.read_bytes()
+        self.calls.clear()
+        code, _, errors = self.run_setup()
+        self.assertEqual(code, 1)
+        self.assertIn("disagree on controller_claim_key", errors)
+        self.assertFalse(any("pip" in c for c in self.calls))
+        self.assertEqual(path.read_bytes(), before)
+
+    def test_invalid_existing_configuration_blocks_before_package_update(self):
+        self.assertEqual(self.run_setup()[0], 0)
+        path = self.config / "controller.json"
+        valid = path.read_bytes()
+        for mutation in (lambda d: d.pop("controller_claim_account"),
+                         lambda d: d.update(result_window_s=0),
+                         lambda d: d.update(unsupported=True)):
+            with self.subTest(mutation=mutation):
+                data = json.loads(valid)
+                mutation(data)
+                path.write_text(json.dumps(data), encoding="utf-8")
+                before = path.read_bytes()
+                self.calls.clear()
+                code, _, _ = self.run_setup()
+                self.assertEqual(code, 1)
+                self.assertFalse(any("pip" in c or "venv" in c for c in self.calls))
+                self.assertEqual(path.read_bytes(), before)
+
+    def test_unavailable_preflight_dependencies_require_validation_after_install(self):
+        self.preflight_dependencies_missing = True
+        code, output, errors = self.run_setup()
+        self.assertEqual(code, 0, errors)
+        self.assertIn("Pre-install configuration validation deferred", output)
+        load_service_configuration(self.config / "controller.json", "controller")
+        validations = [i for i, c in enumerate(self.calls) if installer.VALIDATE in c]
+        install = next(i for i, c in enumerate(self.calls) if "install" in c)
+        self.assertLess(validations[0], install)
+        self.assertGreater(validations[-1], install)
+        self.assertEqual(Path(self.calls[validations[0]][-3]), self.checkout / "src")
+
+    def test_deferred_preflight_does_not_allow_invalid_configuration_publication(self):
+        self.preflight_dependencies_missing = True
+        self.answers["Request/check window"] = "0"
+        code, output, _ = self.run_setup()
+        self.assertEqual(code, 1)
+        self.assertNotIn("LAUNCH:", output)
+        self.assertEqual(list(self.config.glob("*.json")), [])
+
+    def test_missing_loader_dependencies_after_install_block_publication(self):
+        self.failure = "validation-dependencies"
+        code, output, errors = self.run_setup()
+        self.assertEqual(code, 1)
+        self.assertIn("dependencies unavailable after installation", errors)
+        self.assertNotIn("LAUNCH:", output)
+        self.assertEqual(list(self.config.glob("*.json")), [])
+
+    def test_child_process_validates_selected_checkout_before_and_after_install(self):
+        source = Path(installer.__file__).resolve().parents[1] / "src"
+        shutil.copytree(source, self.checkout / "src", ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+        self.real_validation = True
+        self.answers["Local roles"] = "storage-manager"
+        code, _, errors = self.run_setup()
+        self.assertEqual(code, 0, errors)
+        self.calls.clear()
+        self.answers["Local roles"] = "controller storage-manager"
+        self.answers["Known AcquisitionNode IDs"] = "bad.*"
+        code, _, errors = self.run_setup()
+        self.assertEqual(code, 1)
+        self.assertIn("Configuration validation failed", errors)
+        self.assertFalse(any("pip" in c for c in self.calls))
+        self.assertFalse((self.config / "controller.json").exists())
+
+    def test_missing_selected_checkout_loader_cannot_use_an_older_installed_loader(self):
+        self.real_validation = True
+        code, output, errors = self.run_setup()
+        self.assertEqual(code, 1)
+        self.assertIn("Configuration validation failed", errors)
+        self.assertFalse(any("pip" in c or "venv" in c for c in self.calls))
+        self.assertNotIn("LAUNCH:", output)
+
+    def test_storage_update_preserves_custom_paths_endpoints_and_scientific_bytes(self):
+        self.answers["Local roles"] = "storage-manager"
+        self.assertEqual(self.run_setup()[0], 0)
+        path = self.config / "storage-services.json"
+        data = json.loads(path.read_text())
+        key = self.config / "ssh-key"
+        hosts = self.config / "known-hosts"
+        key.write_bytes(b"existing key")
+        hosts.write_bytes(b"existing host verification")
+        data.update(storage_root="custom/records", global_artifact_root="custom/artifacts",
+                    recovery_journal_root="custom/journals", framework_journal="custom/framework.jsonl",
+                    preservation_window_s=0, result_window_s=8,
+                    retrieval_endpoints={"node": {"host": "actual-host", "username": "actual-user",
+                        "key_filename": "ssh-key", "known_hosts_path": "known-hosts", "port": 2222}})
+        path.write_text(json.dumps(data, indent=4), encoding="utf-8")
+        scientific = self.config / "custom/artifacts/frames.h5"
+        scientific.parent.mkdir(parents=True)
+        scientific.write_bytes(b"unchanged scientific product")
+        before = {p: p.read_bytes() for p in (path, key, hosts, scientific)}
+        code, output, errors = self.run_setup()
+        self.assertEqual(code, 0, errors)
+        self.assertEqual({p: p.read_bytes() for p in before}, before)
+        settings = load_service_configuration(path, "ingestor")
+        self.assertEqual(settings["preservation_window_s"], 0)
+        self.assertEqual(settings["result_window_s"], 8)
+        self.assertEqual(output.count("LAUNCH:"), 1)
 
     def test_all_local_role_selections_use_existing_schemas_and_one_storage_pair(self):
         self.answers["Local roles"] = "controller acquisition-node synchronization-manager ingestor storage-manager"
@@ -231,11 +393,18 @@ class FrameworkInstallerTests(unittest.TestCase):
                 self.assertNotIn("LAUNCH:", output)
 
     def test_invalid_generated_config_is_never_published(self):
-        self.answers["NATS URLs"] = "not-a-url"
-        code, output, _ = self.run_setup()
-        self.assertEqual(code, 1)
-        self.assertNotIn("LAUNCH:", output)
-        self.assertEqual(list(self.config.glob("*.json")), [])
+        for label, value in (("NATS URLs", "not-a-url"), ("Request/check window", "0"),
+                             ("Request/check window", "nan"), ("Preservation window", "-1")):
+            with self.subTest(label=label, value=value):
+                original = self.answers[label]
+                self.answers[label] = value
+                self.calls.clear()
+                code, output, _ = self.run_setup()
+                self.assertEqual(code, 1)
+                self.assertNotIn("LAUNCH:", output)
+                self.assertFalse(any("pip" in c or "venv" in c for c in self.calls))
+                self.assertEqual(list(self.config.glob("*.json")), [])
+                self.answers[label] = original
 
     def test_directory_failure_blocks_without_configuration_publication(self):
         self.config.write_text("not a directory", encoding="utf-8")
@@ -294,6 +463,7 @@ class FrameworkInstallerTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertEqual(hardware.read_bytes(), before)
         self.assertNotIn("LAUNCH:", output)
+        self.assertFalse(any("pip" in c or "venv" in c for c in self.calls))
         self.assertEqual(list(self.config.glob("*.json")), [])
 
     def test_later_publication_failure_keeps_only_complete_valid_earlier_configs(self):

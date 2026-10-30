@@ -2322,19 +2322,19 @@ Storage GUI integration and remaining deployment validation.
 
 ## scripts/install_framework.py
 
-- main(argv=None): Interactively prepares the selected checkout's isolated environment and existing-schema service files, preserving existing configuration and data, checking applicable NATS connectivity, and printing existing launcher commands without starting services.
+- main(argv=None): Preflights configuration through the selected checkout's loader where dependencies permit, prepares its isolated environment and service files without replacing existing configuration/data, and prints existing launch commands after validation and applicable NATS checks without starting services.
 - _run(arguments, timeout=60): Runs a bounded accountable setup child without shell interpretation or echoing private connection inputs.
 - _ask(label, default=None, allow_empty=False): Collects a required or explicitly optional installation value with an operator-visible proposed value.
 - _confirm(label): Requires an explicit affirmative response before maintenance-sensitive installation changes.
 - _comma(value): Splits explicitly supplied deployment lists for existing configuration fields.
 - _inspect_environment(python, environment): Confirms the selected interpreter is an isolated Python 3.12 environment and reports installed package metadata before reuse.
-- _configuration_plan(roles, directory, existing): Collects missing deployment configuration, checks local identity/dependency relationships, and defers node setup when hardware declarations are unavailable.
-- _validate(python, path, role): Delegates configuration acceptance to the existing loader in the installed target environment.
+- _configuration_plan(roles, directory, existing): Collects missing deployment configuration including shared Controller authority and result windows for every role, checks local identity/authority/dependency consistency, and defers node setup when hardware declarations are unavailable.
+- _validate(python, checkout, path, role, allow_unavailable=False): Uses the selected checkout's authoritative loader in an isolated child, allowing only missing import dependencies to defer pre-install validation and blocking unresolved validation after installation.
 - _publish(path, contents): Exclusively creates a validated new configuration and removes its own incomplete write after a handled failure or interruption without replacing existing files.
 
 ## tests/test_install_framework.py
 
-- FrameworkInstallerTests: Exercises fresh/update setup, shared-role configuration, preservation, missing hardware, environment incompatibility, publication/interruption failures and bounded connectivity reporting through the installer entry point with actual production configuration loaders and simulated external operations.
+- FrameworkInstallerTests: Exercises fresh/update setup, shared authority and paired-service configuration, pre-install rejection, real child-process loader validation, preservation and failure reporting through the installer entry point with simulated package, Git and network operations.
 
 ## scripts/manual_opencv_camera_smoke.py
 

@@ -2578,8 +2578,22 @@ directly reused configuration-loader regressions (22 total), plus the script's
 help entry point; sandbox temporary-directory permissions required approved
 execution outside the sandbox. These are not real installation or live-network
 passes. Real fresh installation/update and Windows/Linux/Jetson deployment
-still require ICC/user validation and separate audit. Canonical-guide synchronization
-and workflow closure are deferred. Q022 and G5 remain OPEN/incomplete.
+still require ICC/user validation and separate audit. Workflow closure is deferred.
+Q022 and G5 remain OPEN/incomplete.
+
+The Decision 421 compatibility repair now generates the three explicit shared
+Controller authority fields and positive `result_window_s` for every role,
+including both shared-storage dependency modes. It preserves valid existing
+configuration/data and rejects conflicting local authority settings. Generated
+and existing files use the selected checkout's authoritative loader before
+avoidable venv/pip changes; missing import dependencies explicitly defer preflight,
+never final validation before publication. No service-launch or runtime contracts
+change. Developer verification: 30 installer methods plus five directly affected
+configuration/CLI regressions passed (35 total), including real isolated loader
+children with disposable files. Package installation, Git and network operations
+remain simulated; this is not Ubuntu deployment validation, independent manual
+validation, audit or closure. Guided Ubuntu shared-storage instructions are in
+[the canonical guide](installation_and_deployment.md#guided-setup-from-an-existing-checkout-decision-421).
 
 **G2 CLOSED within validated software scope (Decisions 394-395):** Every Experiment
 has a configured duration before start, governing automatic termination and the
@@ -2906,9 +2920,10 @@ An offline node does not block StorageManager startup, and NATS connectivity is
 not evidence acceptance. Capability-appropriate device acquisition tests are
 strongly recommended but are not certification fields or runtime gates. The initial
 installation workflow was manual; Decision 421 subsequently accepts a generic
-interactive command-line bootstrap using the same files and loaders, with
-implementation still pending. No GUI installer or runtime service manager is
-introduced. See
+interactive command-line bootstrap using the same files and loaders, now
+implemented within the bounded scope above with compatibility-repair developer
+verification; independent validation and audit remain pending. No GUI installer
+or runtime service manager is introduced. See
 [installation_and_deployment.md](installation_and_deployment.md) for the accepted
 procedure, current reuse/gaps, and validation boundaries. W051 closes only the
 NATS persistence/receipt/compilation foundation, not full independent-service

@@ -20,16 +20,31 @@ FILES = {
     "synchronization-manager": "synchronization-manager.json",
     "ingestor": "storage-services.json",
 }
+AUTHORITY_FIELDS = ("controller_claim_account", "controller_claim_bucket", "controller_claim_key")
 ENVIRONMENT_REPORT = (
     "import importlib.metadata as m,json,sys; "
     "v=next((d.version for d in m.distributions() if d.metadata.get('Name')=='lab-sync-acquisition'),None); "
     "print(json.dumps({'version':list(sys.version_info[:2]),"
     "'prefix':sys.prefix,'base_prefix':sys.base_prefix,'package_version':v}))"
 )
-VALIDATE = (
-    "import sys; from lab_sync_acquisition.deployment_configuration import "
-    "load_service_configuration; load_service_configuration(sys.argv[1],sys.argv[2])"
-)
+VALIDATE = """
+import sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+source = Path(sys.argv[1]) / 'lab_sync_acquisition' / 'deployment_configuration.py'
+if not source.is_file():
+    raise RuntimeError('Selected checkout configuration loader is missing')
+try:
+    from lab_sync_acquisition import deployment_configuration
+except ModuleNotFoundError as error:
+    if error.name == 'lab_sync_acquisition' or error.name.startswith('lab_sync_acquisition.'):
+        raise
+    print('DEPENDENCIES_UNAVAILABLE')
+else:
+    if Path(deployment_configuration.__file__).resolve() != source.resolve():
+        raise RuntimeError('Configuration loader does not belong to the selected checkout')
+    deployment_configuration.load_service_configuration(sys.argv[2], sys.argv[3])
+"""
 CONNECT = """
 import asyncio,json,sys
 from lab_sync_acquisition.nats_communication import NatsCommunicationBoundary
@@ -85,7 +100,7 @@ def _configuration_plan(roles, directory, existing):
             fields["controller_id"] = data.get("service_id")
         if role == "synchronization-manager":
             fields["synchronization_id"] = data.get("service_id")
-        for key in ("servers", "ingestor_id", "storage_id", "synchronization_id", "controller_id"):
+        for key in ("servers", "ingestor_id", "storage_id", "synchronization_id", "controller_id", *AUTHORITY_FIELDS):
             if key in fields:
                 if key in values and values[key] != fields[key]:
                     raise ValueError(f"Existing configurations disagree on {key}; resolve explicitly")
@@ -93,7 +108,10 @@ def _configuration_plan(roles, directory, existing):
     pending = [role for role in roles if role not in existing]
     for key, label in (("servers", "NATS URLs, comma-separated (external broker)"),
                        ("ingestor_id", "Deployment Ingestor ID"),
-                       ("storage_id", "Deployment StorageManager ID")):
+                       ("storage_id", "Deployment StorageManager ID"),
+                       ("controller_claim_account", "Controller authority account (actual NATS account ID)"),
+                       ("controller_claim_bucket", "Controller authority bucket (existing persistent KV bucket)"),
+                       ("controller_claim_key", "Controller authority key (shared installation claim)")):
         if key not in values:
             answer = _ask(label)
             values[key] = _comma(answer) if key == "servers" else answer
@@ -105,10 +123,9 @@ def _configuration_plan(roles, directory, existing):
             windows[key] = (previous.pop() if len(previous) == 1 else float(_ask(label)))
     generated, deferred = {}, []
     for role in pending:
-        data = {key: values[key] for key in ("servers", "ingestor_id", "storage_id")}
+        data = {key: values[key] for key in ("servers", "ingestor_id", "storage_id", *AUTHORITY_FIELDS)}
         data["preservation_window_s"] = windows["preservation_window_s"]
-        if role != "ingestor":
-            data["result_window_s"] = windows["result_window_s"]
+        data["result_window_s"] = windows["result_window_s"]
         if role in {"controller", "acquisition-node", "synchronization-manager"}:
             if "synchronization_id" not in values:
                 values["synchronization_id"] = _ask("Deployment SynchronizationManager ID")
@@ -136,7 +153,6 @@ def _configuration_plan(roles, directory, existing):
             else:
                 data["external_dependents"] = [dict(zip(("component_type", "component_id"), item.split("/", 1), strict=True))
                                                 for item in _comma(dependents)]
-                data["result_window_s"] = windows["result_window_s"]
             endpoints = {}
             for identity in _comma(_ask("Retrieval node IDs, comma-separated; empty for none", allow_empty=True)):
                 if identity in endpoints:
@@ -172,11 +188,17 @@ def _configuration_plan(roles, directory, existing):
     return generated, deferred
 
 
-def _validate(python, path, role):
+def _validate(python, checkout, path, role, *, allow_unavailable=False):
+    """Use the selected checkout's loader; defer only missing import dependencies in preflight."""
     try:
-        _run([python, "-I", "-c", VALIDATE, path, role])
+        result = _run([python, "-I", "-c", VALIDATE, checkout / "src", path, role])
     except RuntimeError as error:
         raise ValueError(f"Configuration validation failed for {role}: {path}; resolve using the existing loader") from error
+    if result.strip() == "DEPENDENCIES_UNAVAILABLE":
+        if allow_unavailable:
+            return False
+        raise RuntimeError("Configuration loader dependencies unavailable after installation; setup is blocked")
+    return True
 
 
 def _publish(path, contents):
@@ -252,16 +274,6 @@ def main(argv=None):
         if not _confirm("Install the displayed local checkout and dependencies, preserving existing configuration/data"):
             print("DEFERRED: setup declined; no changes made")
             return 2
-        if not environment.exists():
-            environment_changed = True
-            _run([sys.executable, "-I", "-m", "venv", environment], timeout=120)
-        # A newly created environment must pass the same isolation check before pip.
-        _inspect_environment(python, environment)
-        environment_changed = True
-        package = str(checkout) + ("[artifact-retrieval]" if "ingestor" in roles or "ingestor" in existing else "")
-        print("Installing selected checkout in .venv, then checking declared dependencies...")
-        _run([python, "-I", "-m", "pip", "install", package], timeout=900)
-        _run([python, "-I", "-m", "pip", "check"])
         directory.mkdir(parents=True, exist_ok=True)
         staged = []
         try:
@@ -271,12 +283,32 @@ def main(argv=None):
                                                  dir=directory, delete=False) as temporary:
                     staged.append((role, Path(temporary.name), contents))
                     temporary.write(contents)
-                _validate(python, staged[-1][1], role)
+            preflight_python = python if environment.exists() else sys.executable
+            for role, path in ([(role, path) for role, path, _ in staged]
+                               + [(role, directory / FILES[role]) for role in existing]):
+                validated = _validate(preflight_python, checkout, path, role, allow_unavailable=True)
+                if not validated and str(preflight_python) != sys.executable:
+                    validated = _validate(sys.executable, checkout, path, role, allow_unavailable=True)
+                if not validated:
+                    print("DEFERRED: Pre-install configuration validation deferred: loader dependencies unavailable; "
+                          "full validation is required after dependency installation")
+            if not environment.exists():
+                environment_changed = True
+                _run([sys.executable, "-I", "-m", "venv", environment], timeout=120)
+            # A newly created environment must pass the same isolation check before pip.
+            _inspect_environment(python, environment)
+            environment_changed = True
+            package = str(checkout) + ("[artifact-retrieval]" if "ingestor" in roles or "ingestor" in existing else "")
+            print("Installing selected checkout in .venv, then checking declared dependencies...")
+            _run([python, "-I", "-m", "pip", "install", package], timeout=900)
+            _run([python, "-I", "-m", "pip", "check"])
+            for role, path, _ in staged:
+                _validate(python, checkout, path, role)
             for role, (contents, _) in existing.items():
                 path = directory / FILES[role]
                 if path.read_bytes() != contents:
                     raise RuntimeError("Existing configuration changed during setup; rerun explicitly")
-                _validate(python, path, role)
+                _validate(python, checkout, path, role)
             for role, data in generated.items():
                 if role == "ingestor":
                     for key in ("storage_root", "global_artifact_root", "recovery_journal_root"):

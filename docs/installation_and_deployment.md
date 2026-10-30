@@ -172,6 +172,71 @@ volume. Existing-identical-handoff fixtures do not prove first publication.
 
 ## 3. Fresh Installation
 
+### Guided Setup From An Existing Checkout (Decision 421)
+
+The existing `scripts/install_framework.py` prepares one local installation; it
+does not start or supervise services. Use Python 3.12 on Windows or Linux, from
+the reviewed checkout. It reuses a compatible checkout-local `.venv` or creates
+one; an unrelated activated environment is not the target environment. NATS,
+Python, Git, and any required SSH credentials remain external prerequisites.
+The compatibility repair below has developer verification only; independent
+validation, audit and actual Ubuntu installation remain pending.
+
+For the Ubuntu computer hosting **both Ingestor and StorageManager**, run from
+the repository root:
+
+```bash
+python3.12 scripts/install_framework.py --config-dir "$HOME/.config/lab-sync-acquisition"
+```
+
+At the local-role prompt choose `ingestor` (or `storage-manager`), not two
+processes. Supply the deployment's actual NATS URL(s), Ingestor/StorageManager
+identities, shared Controller authority account/bucket/key, preservation window,
+positive result window, and storage directory. The account is the real NATS
+account ID, not a display name; the persistent authority bucket must already
+exist. Reuse the same authority settings on every participating computer.
+Declare actual external dependents as comma-separated `TYPE/ID` entries using
+`controller`, `acquisition_node` and `synchronization_manager`. Use `none` only
+for a genuinely isolated pair, never for an offline but configured dependent.
+For collection, provide each node's SSH host/user, existing private key, port and
+verified known-hosts file (or already configured system host keys). Empty
+retrieval endpoints do not establish collection capability.
+
+Valid existing files and deployment-specific settings are preserved byte-for-byte;
+missing files are generated, not existing files silently migrated. Incompatible
+existing configuration must be resolved explicitly. Shared identity/authority
+disagreements block setup. The selected checkout's authoritative loader checks
+generated and existing files before venv creation/pip when its dependencies are
+available in the target or bootstrap interpreter. Missing import dependencies
+defer that preflight explicitly; validation remains mandatory after installation
+and before publishing new configuration. Other validation failures block setup.
+Updates require confirmation that affected services have retired with their
+obligations resolved. No transactional package rollback is claimed.
+
+After setup, inspect the report and generated `storage-services.json`. Exit `0`
+means setup checks passed, `2` means deferred work, `1` means blocked, and `130`
+means interrupted. A NATS check confirms only transport connection/cleanup, not
+JetStream authority provisioning, evidence preservation or service readiness.
+Validate the file independently before starting services:
+
+```bash
+.venv/bin/python -c 'import pathlib; from lab_sync_acquisition.deployment_configuration import load_service_configuration; load_service_configuration(pathlib.Path.home()/".config/lab-sync-acquisition/storage-services.json", "ingestor"); print("configuration valid")'
+```
+
+Then run the **single** printed `LAUNCH:` command, equivalent to:
+
+```bash
+.venv/bin/python -m lab_sync_acquisition.service_launcher ingestor --deployment-config "$HOME/.config/lab-sync-acquisition/storage-services.json"
+```
+
+Record actual startup/readiness and retirement results separately. Repeat setup
+only after resolved retirement, checking that configuration and existing
+scientific bytes remain unchanged. Follow the existing communication/retrieval
+checks below for the other computers; guided setup is neither centralized
+provisioning nor real-deployment validation. Q022 remains OPEN.
+
+### Manual Installation Alternative
+
 Obtain the repository URL and reviewed deployment revision from the lab. In these
 commands `REPOSITORY_URL` and `DEPLOYMENT_REVISION` are placeholders, not defaults.
 
