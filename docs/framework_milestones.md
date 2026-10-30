@@ -1817,6 +1817,38 @@ No deployment revision or date is inferred, and no new independent validation or
 audit is claimed. G5, Q022, Q024, M015 and Phase 16 remain OPEN; no production,
 test or architecture changes or new hardware experiments accompany this record.
 
+## Completed Q024 Package 2 Service-Owned Disposition and Recovery
+
+**Status:** CLOSED within audited software scope at
+`509eab34248227eb565f9346c4c8cf12d9140ca1`, under Decisions 339-342, 350,
+bounded 353-354 and 438. Exact proven-corrupt temporary-journal disposal requires
+explicit permanent-loss acknowledgment and durable pre-action/actual-outcome audit;
+loss is not preservation. Redundant archive working copies are reduced without
+discarding deduplication, pending publication or recovery obligations. Authorized
+monthly recovery uses durable journaled intent/completion, exact reconstruction,
+restart/UTC-rollover checks and historical immutability, retaining W071 behavior.
+
+The original junction/hard-link P2 at `f802b64307fbabe3b0ac86e3558cb4de9788d009`
+was corrected by shared monthly-product alias checks and independently confirmed
+resolved. Earlier ICC validation passed **64 local assertions**. Additional ICC
+correction validation was **SKIPPED, not PASSED, by explicit user authorization**.
+Final independent re-audit **PASS**, no confirmed P0-P3 findings, comprised
+**51 passing assertions plus four passing W071 regression methods**. See the
+[closure and validation-exception record](validated_workflows.md#q024-package-2---service-owned-disposition-and-monthly-recovery).
+
+Filesystem TOCTOU exposure remains; service locks do not exclude external path
+changes. Direct Windows symlink probes lacked privilege (error 1314); junctions
+and hard links executed. Linux deployment, hardware, physical crash/power loss and
+exhaustive concurrency are unvalidated. Local NATS and reconstructed owners are
+not those deployment guarantees. No new tests or audit were run for closure.
+
+Package 1 remains CLOSED, but **Q024 remains OPEN** for accepted deferred
+Decision 435 maintenance-history retirement and broader Decision 353 retirement
+beyond redundant copies. Operational reconnection remains deferred; these items
+are not new implementation authorization. No unrelated question/milestone closes.
+Earlier milestone summaries retain their pre-Package-2 implementation status;
+this record supplies the current bounded completion, not a rewrite of their evidence.
+
 ## Completed Q024 Package 1 Controller Replacement Authority
 
 **Status:** CLOSED at `994119f6ece36172c28456c51b4b6cd7565c9d8e` under Decision 436.
@@ -1826,8 +1858,9 @@ independent maintenance, evidence and retirement guarantees. Developer tests,
 independent ICC live-JetStream validation and independent Codex re-audit PASS are
 recorded separately in the [validation record](validated_workflows.md#q024-package-1---controller-replacement-authority),
 including their bounded deployment/termination-verification limitations.
-Q024 remains OPEN pending Package 2: service-owned disposition and recovery.
-Decision 435 remains deferred. This is not installation-wide deployment certification.
+At Package 1 closure, Q024 remained OPEN pending Package 2, now CLOSED above.
+Q024 remains OPEN for deferred retirement work, including Decision 435.
+This is not installation-wide deployment certification.
 
 ## Completed Q024 Slice 1 Controller Exclusivity
 

@@ -7,8 +7,11 @@ Controller registration/admission and is CLOSED at
 `994119f6ece36172c28456c51b4b6cd7565c9d8e` after developer tests, independent ICC
 live-JetStream validation and independent Codex re-audit PASS. See the
 [validation scope and limitations](validated_workflows.md#q024-package-1---controller-replacement-authority).
-This does not certify an installation. Q024 remains OPEN pending Package 2
-(service-owned disposition and recovery); Decision 435 remains deferred.
+This does not certify an installation. Package 2 service-owned disposition and
+monthly recovery is now CLOSED; see its
+[audit scope and validation exception](validated_workflows.md#q024-package-2---service-owned-disposition-and-monthly-recovery).
+Q024 remains OPEN for deferred Decision 435 and broader Decision 353 retirement
+beyond redundant working copies; no new deployment/recovery procedure is added here.
 
 Every participating service configuration now supplies the same explicit
 `controller_claim_account`, `controller_claim_bucket` and `controller_claim_key`,

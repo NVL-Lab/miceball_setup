@@ -3090,8 +3090,13 @@ final independent re-audit PASS after correction in W040. Bounded Decision 349/3
 journal retirement is CLOSED in W070B after independent ICC validation and source
 audit PASS. Decision 354's bounded monthly implementation is CLOSED in W071 after
 independent ICC IPython validation (6/6 PASS) and implementation/source review PASS,
-with no confirmed P0-P3 findings; Decision 350 and Decisions 353/355 remain unimplemented.
-Remaining implementation and unresolved operational contracts keep Q024 OPEN.
+with no confirmed P0-P3 findings. Package 2's supported Decision 350 disposal,
+redundant working-copy cleanup and Decision 438 monthly recovery are now CLOSED
+at `509eab34248227eb565f9346c4c8cf12d9140ca1`, as recorded below.
+Accepted deferred Decision 435 maintenance-history retirement and broader
+Decision 353 temporary-memory retirement beyond guarded redundant copies remain
+unimplemented, so Q024 itself remains OPEN. Decision 437 qualifies historical
+deletion-safety requirements; that certification is not an outstanding obligation.
 Decision 435 now specifies the accepted safety and recoverability contract for
 retiring detailed maintenance-command, result and attempt history from temporary
 memory. This resolves that bounded architectural clarification, not its
@@ -3100,10 +3105,39 @@ implementation or validation. This optimization remains deferred. Decisions
 monthly retention; their synchronization does not close Q024. Historical Decision
 355 deletion-safety requirements below are qualified by Decision 437. Broader
 memory-retirement questions remain below.
+Earlier slice/milestone status statements are historical, not evidence that
+Package 2 remains pending or that all broader retirement work is complete.
 Q024-B service-specific operator-authorized execution architecture
 is accepted in Decisions 339-348; supported cases have automated implementation
 coverage and are complete with independent manual validation and final independent
 re-audit PASS after correction, documented in W039. Q024 remains OPEN.
+
+### Package 2 CLOSED; broader Q024 remains OPEN
+
+The final independent re-audit of
+`509eab34248227eb565f9346c4c8cf12d9140ca1` passed with no confirmed P0-P3
+findings and confirmed the original filesystem-alias P2 resolved. Package 2
+implements exactly scoped corrupt temporary-journal disposal with permanent-loss
+acknowledgment and durable pre-action/outcome audit; redundant archive working-copy
+cleanup preserving deduplication, pending publication and recovery obligations;
+and authorized journal-proven monthly-write recovery with reconstruction,
+exact-target safeguards and historical immutability. See the
+[closure record](validated_workflows.md#q024-package-2---service-owned-disposition-and-monthly-recovery).
+
+Earlier ICC validation passed **64 local assertions**. Additional ICC validation
+after the alias correction was **SKIPPED, not PASSED, by explicit user
+authorization**. The separate final re-audit passed **51 assertions plus four
+W071 regression methods**; no substitute ICC PASS is inferred. Filesystem TOCTOU
+exposure remains, direct Windows symlink probes lacked privilege (error 1314),
+and Linux deployment, hardware, physical crash/power loss and exhaustive
+concurrency remain unvalidated. Isolated actual NATS and owner reconstruction
+were exercised, not those broader deployment guarantees.
+
+Packages 1 and 2 are CLOSED, but this does not complete accepted, deferred
+Decision 435 or broader Decision 353 retirement. Those are the outstanding
+retirement obligations keeping Q024 OPEN, not newly invented requirements or
+authorization to implement them. Decision 391 operational reconnection and broader
+discovery/restoration remain deferred, not delivered by these packages.
 
 ### Accepted Controller restart and bounded reconnection policy
 
@@ -3139,7 +3173,8 @@ Package 1 Controller replacement authority is CLOSED at
 `994119f6ece36172c28456c51b4b6cd7565c9d8e` after developer testing, independent ICC
 live-JetStream validation and independent Codex re-audit PASS; see the
 [validation record](validated_workflows.md#q024-package-1---controller-replacement-authority).
-Q024 remains OPEN pending Package 2: service-owned disposition and recovery.
+Package 2 is now CLOSED as recorded above; Q024 remains OPEN for the accepted
+deferred retirement obligations, not pending Package 2 verification.
 Deployment must establish a shared authoritative JetStream account,
 persistent KV storage and verified durability configuration; concrete broker and
 provisioning settings are not selected by this synchronization.
@@ -3424,10 +3459,12 @@ complete and independently validated/audited in W070B:
   safe to delete: preservation confirmation and maintenance lookup still require
   retained historical products. Decision 437 does not require deletion-independence
   certification; operator deletion may therefore prevent recovery or confirmation.
-  Incomplete/corrupt partitions block continuation and maintenance; existing
-  authorized repair is limited to identified same-month interrupted targets.
-  Repair/reassignment of an older or unidentified interrupted partition is not
-  implemented. Missing clock information retains journaled evidence for safe retry.
+  Incomplete/corrupt partitions block continuation and maintenance. At W071
+  closure, authorized repair was limited to identified same-month targets.
+  Package 2 now permits exact durably identified interrupted-target recovery
+  across UTC rollover under Decision 438; unidentified or conflicting history
+  remains refused, not generally repaired or reassigned. Missing clock information
+  retains journaled evidence for safe retry.
 - **Interrupted monthly-write proof (Decision 438, resolved architecturally):**
   StorageManager must obtain durable Ingestor acceptance of a typed intent before
   the write and a correlated completion after exact readback/durability confirmation.
@@ -3438,12 +3475,13 @@ complete and independently validated/audited in W070B:
   prohibits modification. Intent, month or damage alone is not repair authority.
   Preserve W071 complete-but-unconfirmed reconciliation and completed historical
   partitions; refuse uncertain targets without mutation. This resolves Package 2's
-  proof-authority blocker; implementation and validation remain outstanding.
+  proof-authority blocker; implementation and software-scope closure are now
+  complete as recorded above, with the explicit correction-validation exception.
   See [Decision 438](architecture_decisions.md#decision-438-interrupted-monthly-write-recovery-requires-durable-ingestor-journal-proof).
   Q024 remains OPEN; Package 1 stays complete, Decision 435 deferred and Decision
   437 exclusions unchanged.
 
-  **Package 2 alias correction (implementation; independent verification pending):**
+  **Package 2 alias correction (CLOSED; independent re-audit PASS):**
   The independent audit of `f802b64307fbabe3b0ac86e3558cb4de9788d009` found a P2:
   monthly recovery could follow Windows directory junctions or hard-linked products
   and confirm writes to unrelated physical targets. StorageManager now shares one
@@ -3452,8 +3490,9 @@ complete and independently validated/audited in W070B:
   Windows reparse points, and non-regular or multiply linked product files before
   mutation. Complete product checks precede any recovery product write. Existing
   durable intent/completion, reconstruction, authorization and W071 confirmation
-  mechanisms remain unchanged. This is a bounded implementation correction, not
-  independent validation, audit acceptance or Q024 closure.
+  mechanisms remain unchanged. The subsequent independent re-audit confirmed
+  resolution; earlier developer-only evidence below remains distinct from the
+  final audit and explicit skipped-ICC-validation exception recorded above.
 
   Developer checks reproduced all 12 junction/ancestor and hard-link cases as
   false success before the fix. The initial affected disposition/monthly run
@@ -3475,10 +3514,10 @@ complete and independently validated/audited in W070B:
   evidence dispensable.
 
   **Deleting historical journal files may remove evidence required for recovery, reconciliation, or unresolved operational obligations, potentially causing framework errors or preventing recovery.**
-- **Unavailable auditing:** How can required authorization, known-loss, and execution
-  auditing for terminal deletion be established when the evidence subsystem is
-  unavailable? Record the conflict for architectural clarification; no exception
-  permitting unaudited deletion is accepted.
+- **Unavailable auditing (refusal boundary retained):** Package 2 refuses terminal
+  disposal when required auditing cannot be established. No unaudited-deletion
+  exception is accepted or required for this closure. Any future request to permit
+  such an exception must return for architectural clarification.
 - **Maintenance-history retirement (resolved architecturally; implementation
   deferred):** Decision 435 defines the conditions and retained operational
   guarantees for temporary maintenance-command/result/attempt history. Required
@@ -3507,11 +3546,10 @@ Decision 435's separate deferred in-memory retirement optimization.
 
 ### Blocks
 
-* Decision 350, broader Decision 353 memory-retirement work, and remaining Decision 354 work outside the bounded monthly implementation; Decision 355 historical deletion requirements are qualified by Decision 437
-* Older/unidentified interrupted-target repair support; historical deletion-safety certification and deletion-only dependency independence are no longer blockers under Decision 437
-* Decision 436 installation-wide deployment verification remains distinct from the CLOSED Slice 1 and Package 1 software scopes; Package 2 service-owned disposition and recovery remains required for Q024 closure
-* Unavailable-evidence auditing conflict, deferred Decision 435 maintenance-history retirement, and broader memory-retirement limits
-* Application-wide discovery/restoration and unsupported recovery procedures
+* Accepted deferred Decision 435 maintenance-history retirement and broader Decision 353 temporary-memory retirement beyond the completed redundant-copy work remain unimplemented; these retain Q024's OPEN status.
+* Decision 391 operational reconnection and application-wide discovery/restoration remain deferred; no unsupported recovery procedure is implicitly required or authorized.
+* Decision 436 installation-wide deployment verification remains distinct from the CLOSED Slice 1 and Packages 1-2 software scopes; deployment limits are not software defect findings.
+* Unidentified/conflicting interrupted targets and unavailable auditing require refusal, not new general repair or unaudited disposal. Decision 437 removes historical deletion-safety certification and deletion-only independence as blockers.
 
 These questions do not block accepted known-Session journal recovery and must
 not become Slice 27 or narrow Decisions 332-338 implementation requirements.

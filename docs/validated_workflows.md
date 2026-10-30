@@ -6189,6 +6189,85 @@ documentation-only closure.
 
 ---
 
+# Q024 Package 2 - Service-Owned Disposition and Monthly Recovery
+
+**Status:** CLOSED within audited software scope at
+`509eab34248227eb565f9346c4c8cf12d9140ca1`. The final independent re-audit passed
+with no confirmed P0-P3 findings. This closure records the explicit user-authorized
+validation exception below; it does not close broader Q024.
+
+## Implemented scope
+
+Under Decisions 339-342, 350, 353-354 and 438, the existing service-owned
+administrator command interface supports:
+
+- Terminal disposal of an exactly identified, proven-corrupt inactive temporary
+  Session journal, with explicit permanent-loss acknowledgment and durable
+  authorization/pre-action audit. Valid recoverable evidence, interrupted tails,
+  finality-bearing journals, changed identities and unavailable auditing cannot
+  authorize disposal. Actual outcomes and unresolved preservation remain explicit;
+  intentional loss is not successful preservation. Restart guards retain disposed
+  or uncertain Session identity without automatically repeating disposal.
+- Redundant working-copy cleanup through a compact exact archive commitment,
+  while retaining authoritative journal evidence, deduplication, pending producer
+  publication and recovery obligations. This is not general service-history or
+  all-service memory retirement under deferred Decision 435.
+- Explicit interrupted monthly-write recovery from typed intent and completion
+  records durably accepted by Ingestor outside the compilation they describe.
+  StorageManager reconstructs exact target/products and prior/intended boundaries,
+  verifies durability/readback, supports owner reconstruction and UTC rollover,
+  and preserves completed historical partitions and W071 complete-but-unconfirmed
+  reconciliation. Missing, conflicting or insufficient proof refuses recovery.
+
+The initial independent audit of `f802b64307fbabe3b0ac86e3558cb4de9788d009`
+found a P2: recovery could follow Windows junctions or hard-linked products and
+modify unrelated targets while reporting confirmation. The correction consolidates
+directory-ancestry/reparse-point and regular/singly-linked file checks into the
+existing StorageManager monthly-product boundary, shared by history/readback,
+ordinary writes, recovery and completion. All products are checked before recovery
+mutation. The final independent re-audit confirmed the original P2 resolved.
+
+## Evidence and validation exception
+
+- Earlier independent ICC validation: **64 local assertions passed**. Live NATS
+  and pending publication through a configured boundary were not exercised there.
+- **Additional ICC validation after the alias correction: SKIPPED, not PASSED, by
+  explicit user authorization.** The re-audit is separate evidence, not a replacement
+  ICC PASS. This exception is part of the accepted closure record.
+- Final independent Codex re-audit: **PASS**, no confirmed P0-P3 findings;
+  **51 assertions passed** (30 alias/unchanged-target/unresolved-intent checks,
+  17 valid-recovery/readback/completion/W071 checks, and 4 isolated actual
+  NATS/JetStream refusal/explicit-recovery checks), plus **four selected W071
+  regression methods passed**. Assertions and regression methods are not one
+  additive scenario count. Implementation-test outcomes were not audit evidence.
+
+The audit reproduced both original alias cases, including fresh owners and all
+three products; refusal preserved unrelated bytes, prior partitions and unresolved
+intent without completion. Valid recovery and later explicit recovery after
+restoring target safety succeeded. Expected pre-repair archive-preservation
+warnings retained journaled obligations rather than authorizing false preservation.
+
+## Limits and Q024 boundary
+
+Filesystem time-of-check/time-of-use (TOCTOU) exposure remains: external processes
+can replace paths between inspection and use; existing service locks do not provide
+atomic filesystem exclusion. Windows junctions and hard links were exercised, but direct file and
+directory symlink probes were unavailable (Windows error 1314). Actual Linux
+deployment, hardware, physical crash/power-loss recovery and exhaustive concurrency
+remain unvalidated. Owner reconstruction/failure injection and isolated local NATS
+do not establish those deployment guarantees.
+
+Package 1 remains CLOSED. **Q024 remains OPEN** because accepted Decision 435
+maintenance-command/result/attempt memory retirement and broader Decision 353
+temporary-memory retirement beyond guarded redundant copies remain deferred and
+unimplemented. Completion of Packages 1 and 2 does not establish those contracts
+or authorize their implementation. Decision 391 operational reconnection remains
+deferred; Decision 437 does not require historical deletion-safety certification
+and does not authorize automatic historical deletion. No general repair,
+restoration, new recovery authority or unrelated milestone closure is implied.
+No implementation tests, deployment validation or audit were rerun for this
+documentation-only closure.
+
 # Q024 Package 1 - Controller Replacement Authority
 
 **Status:** CLOSED within Decision 436's bounded software scope at
@@ -6219,9 +6298,9 @@ Shared authoritative persistent JetStream storage, verified durability and adequ
 KV history remain deployment prerequisites; insufficient reconciliation proof fails
 closed. Operators must independently verify termination before manual clearing.
 
-Q024 remains OPEN pending Package 2: service-owned disposition and recovery.
-Decision 435 retirement remains deferred. No tests or audit were rerun during this
-documentation closure.
+At Package 1 closure, Q024 remained OPEN pending Package 2; its subsequent closure
+is recorded above. Q024 remains OPEN for deferred retirement work, including
+Decision 435. No tests or audit were rerun during Package 1 documentation closure.
 
 # Q024 Slice 1 - Controller Exclusivity Claim and Operational Admission
 

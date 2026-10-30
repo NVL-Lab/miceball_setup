@@ -38,8 +38,21 @@ certification. Package 1 manual recovery and service-side registration/supersess
 are now CLOSED at `994119f6ece36172c28456c51b4b6cd7565c9d8e`, after developer tests,
 independent ICC live-JetStream validation and independent Codex re-audit PASS.
 See the [validation record](validated_workflows.md#q024-package-1---controller-replacement-authority).
-Q024 remains OPEN pending Package 2 service-owned disposition and recovery;
-Decision 435 retirement remains deferred.
+Package 2 is now CLOSED as recorded below. Q024 remains OPEN for deferred
+Decision 435 and broader Decision 353 retirement beyond redundant working copies.
+
+## Q024 Package 2 - Bounded Closure
+
+Service-owned terminal disposal, redundant archive working-copy cleanup and
+durable interrupted monthly-write recovery are CLOSED within audited software
+scope at `509eab34248227eb565f9346c4c8cf12d9140ca1`. The filesystem-alias P2
+was corrected and independently re-audited PASS with no confirmed P0-P3 findings.
+Earlier ICC validation passed 64 local assertions; additional ICC correction
+validation was explicitly **SKIPPED, not PASSED** by user authorization. The final
+re-audit passed 51 assertions plus four W071 regression methods. See the
+[closure/exception record](validated_workflows.md#q024-package-2---service-owned-disposition-and-monthly-recovery)
+for scope, TOCTOU, symlink-privilege and deployment limitations. Q024 remains OPEN;
+general maintenance-history/memory retirement is not implemented by this closure.
 
 ## gui/src/miceball_gui/static/storage-demo.mjs
 
@@ -947,8 +960,9 @@ StorageManager's UTC archival-write month and leaves older/shared-layout product
 unchanged. This bounded slice is CLOSED in W071 after independent ICC IPython
 validation (6/6 PASS) and implementation/source review PASS with no confirmed
 P0-P3 findings; see validated_workflows.md for limitations. Bounded Decision 349/393 journal retirement is CLOSED in W070B after
-independent ICC validation and source audit PASS. Decision 350 and Decisions
-353/355 remain accepted but unimplemented; Q024 remains OPEN.
+independent ICC validation and source audit PASS. Decision 350's supported terminal
+disposal and bounded working-copy/monthly recovery are now CLOSED in Package 2;
+broader Decision 353/435 memory retirement remains deferred and Q024 remains OPEN.
 Supported Decisions 351-352 startup reconciliation is complete, independently
 manually validated and independently re-audited PASS after correction in W040.
 Q024-B remains complete in W039 and Decision 336 remains partially implemented.
@@ -960,8 +974,9 @@ evidence/audit suffixes into the current UTC month (updating only that month's
 open products); `get_framework_preservation_confirmation()` verifies cumulative
 coverage across retained partitions for existing callers. Maintenance and Controller
 lookups still require those historical products, so no archive is declared safe
-to delete and cumulative read/memory cost remains. Q024 records the remaining
-deletion-independence work without a new recovery subsystem or public API. Q019
+to delete and cumulative read/memory cost remains. Decision 437 does not require
+historical deletion-independence certification; operators retain the evidence-loss
+warning and no automatic historical deletion is introduced. Q019
 is CLOSED; Q024, Q022, Phase 16 and M015 remain OPEN.
 
 ### Decisions 351-352 startup integration (complete, independently validated and audited)

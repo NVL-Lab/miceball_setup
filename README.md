@@ -18,7 +18,11 @@ implemented by Slice 1. Package 1 is CLOSED at commit
 `994119f6ece36172c28456c51b4b6cd7565c9d8e` after developer testing,
 independent ICC live-JetStream validation and independent Codex re-audit PASS; see the
 [operator workflow](docs/installation_and_deployment.md#controller-replacement-authority--package-1-implementation).
-Q024 remains OPEN pending Package 2 (service-owned disposition and recovery); Decision 435 retirement remains deferred.
+Package 2 service-owned disposition and monthly recovery is CLOSED at
+`509eab34248227eb565f9346c4c8cf12d9140ca1`; see the
+[scope, audit and explicit ICC-validation exception](docs/validated_workflows.md#q024-package-2---service-owned-disposition-and-monthly-recovery).
+Q024 remains OPEN for accepted deferred Decision 435 and broader Decision 353
+temporary-memory retirement beyond redundant working copies.
 
 Q022-A installation/deployment architecture is accepted in Decisions 367-378.
 Its bounded NATS Ingestor-StorageManager persistence foundation is complete with
