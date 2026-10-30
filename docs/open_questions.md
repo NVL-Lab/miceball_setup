@@ -2546,6 +2546,28 @@ Q022 as a whole is not closed. Q019 remains CLOSED in W050.
 
 **Generic installer (Decision 421): bounded implementation; independent validation
 and audit pending.**
+Decision 439 records the accepted prerequisite-first correction: require nats-py
+in the selected verification interpreter and confirm minimal broker connection and
+cleanup before installation confirmation or changes. It resolves the bootstrap
+and verification-scope questions without comprehensive permission probes or
+broker/authority mutation. Editable identifier defaults and ordinary Ctrl+C
+reporting are accepted. The correction is now implemented with developer tests;
+independent validation/audit remain pending. The installer deterministically uses
+an existing compatible checkout `.venv`, otherwise the invoking interpreter,
+and blocks immediately if nats-py cannot be imported there. It does not install
+verification dependencies or create another environment. Minimal SDK connection
+and cleanup precede the plan/confirmation and all installation changes; account,
+JetStream, full permission and authority guarantees are not inferred from that
+check. Existing loader validation, post-install validation, exclusive publication,
+paired-service launching and preservation remain intact. Ctrl+C reports ordinary
+cancellation and whether installation changes began. Earlier implementation and
+test records below remain historical; this correction does not establish real
+Ubuntu/Windows installation, independent validation, audit or closure.
+Developer verification passed 39 installer methods and five directly reused
+configuration/launcher regressions (44 total), including real isolated import and
+loader children and SDK-mocked handshake/cleanup execution. Package/Git/network
+operations and Windows/Linux path variants remain simulated; no live broker,
+physical Ubuntu deployment or independent validation result is claimed.
 The reviewed LLC-to-ICC design adds a small shared Python installation-time
 bootstrap utility, invoked from an existing checkout with compatible Python.
 It prepares/updates the environment and existing-schema service configuration,

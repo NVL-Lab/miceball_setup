@@ -47,28 +47,36 @@ else:
 """
 CONNECT = """
 import asyncio,json,sys
-from lab_sync_acquisition.nats_communication import NatsCommunicationBoundary
+from nats.aio.client import Client
 async def check():
-    boundary = NatsCommunicationBoundary('terminal', 'installation-check', tuple(json.loads(sys.argv[1])))
+    settings = json.load(sys.stdin)
+    servers, window = settings['servers'], settings['timeout_s']
+    if not isinstance(servers, list) or not servers or any(not isinstance(s, str) or not s.strip() for s in servers):
+        raise ValueError('Explicit nonempty NATS server URLs are required')
+    client = Client()
     try:
-        await asyncio.wait_for(boundary.connect(), float(sys.argv[2]))
+        await asyncio.wait_for(client.connect(servers=servers, allow_reconnect=False), window)
     finally:
-        await asyncio.wait_for(boundary.close(), float(sys.argv[2]))
+        try:
+            if client.is_connected:
+                await asyncio.wait_for(client.drain(), window)
+        finally:
+            await asyncio.wait_for(client.close(), window)
 asyncio.run(check())
 """
 
 
-def _run(arguments, *, timeout=60):
+def _run(arguments, *, timeout=60, input=None):
     """Run an accountable child without a shell or leaking private connection inputs."""
     result = subprocess.run([str(a) for a in arguments], capture_output=True,
-                            text=True, timeout=timeout, check=False)
+                            text=True, timeout=timeout, check=False, input=input)
     if result.returncode:
         raise RuntimeError(f"Setup child failed (exit {result.returncode}); no rollback is claimed")
     return result.stdout
 
 
 def _ask(label, default=None, *, allow_empty=False):
-    value = input(f"{label}" + (f" [{default}]" if default is not None else "") + ": ").strip()
+    value = input(f"{label}" + (f" (press Enter for default: {default})" if default is not None else "") + ": ").strip()
     value = value or (str(default) if default is not None else "")
     if not value and not allow_empty:
         raise ValueError(f"{label} is required")
@@ -84,7 +92,7 @@ def _comma(value):
 
 
 def _inspect_environment(python, environment):
-    report = json.loads(_run([python, "-I", "-c", ENVIRONMENT_REPORT]))
+    report = json.loads(_run([python, "-I", "-B", "-c", ENVIRONMENT_REPORT]))
     if (report["version"] != [3, 12] or Path(report["prefix"]).resolve() != environment.resolve()
             or report["prefix"] == report["base_prefix"]):
         raise RuntimeError("Target .venv is not an isolated Python 3.12 environment; resolve manually")
@@ -106,15 +114,24 @@ def _configuration_plan(roles, directory, existing):
                     raise ValueError(f"Existing configurations disagree on {key}; resolve explicitly")
                 values[key] = fields[key]
     pending = [role for role in roles if role not in existing]
-    for key, label in (("servers", "NATS URLs, comma-separated (external broker)"),
-                       ("ingestor_id", "Deployment Ingestor ID"),
-                       ("storage_id", "Deployment StorageManager ID"),
-                       ("controller_claim_account", "Controller authority account (actual NATS account ID)"),
+    print("An operational, externally managed NATS broker is required before installation. "
+          "Use its reachable URL and any runtime-compatible URL authentication; a planned address is not sufficient.")
+    for key, label, default in (("servers", "NATS URLs, comma-separated (external broker)", None),
+                               ("ingestor_id", "Deployment Ingestor ID", "ingestor-1"),
+                               ("storage_id", "Deployment StorageManager ID", "storage-manager-1")):
+        if key not in values:
+            answer = _ask(label, default)
+            values[key] = _comma(answer) if key == "servers" else answer
+    if any(key not in values for key in AUTHORITY_FIELDS):
+        print("Ask the NATS administrator for the actual account ID reported by $SYS.REQ.USER.INFO, "
+              "the existing persistent non-expiring KV bucket name (not its KV_ stream prefix), "
+              "and the shared installation claim key. These are not credentials or per-computer values. "
+              "The installer will not create or change them; the minimal connection check does not verify them.")
+    for key, label in (("controller_claim_account", "Controller authority account (actual NATS account ID)"),
                        ("controller_claim_bucket", "Controller authority bucket (existing persistent KV bucket)"),
                        ("controller_claim_key", "Controller authority key (shared installation claim)")):
         if key not in values:
-            answer = _ask(label)
-            values[key] = _comma(answer) if key == "servers" else answer
+            values[key] = _ask(label)
     windows = {}
     if pending:
         for key, label in (("preservation_window_s", "Preservation window, seconds"),
@@ -128,11 +145,11 @@ def _configuration_plan(roles, directory, existing):
         data["result_window_s"] = windows["result_window_s"]
         if role in {"controller", "acquisition-node", "synchronization-manager"}:
             if "synchronization_id" not in values:
-                values["synchronization_id"] = _ask("Deployment SynchronizationManager ID")
+                values["synchronization_id"] = _ask("Deployment SynchronizationManager ID", "synchronization-manager-1")
             if role != "synchronization-manager":
                 data["synchronization_id"] = values["synchronization_id"]
         if role == "controller":
-            data["service_id"] = values.get("controller_id") or _ask("Controller ID")
+            data["service_id"] = values.get("controller_id") or _ask("Controller ID", "controller-1")
             data["known_nodes"] = _comma(_ask("Known AcquisitionNode IDs, comma-separated; empty for none",
                                               allow_empty=True))
         elif role == "synchronization-manager":
@@ -191,7 +208,7 @@ def _configuration_plan(roles, directory, existing):
 def _validate(python, checkout, path, role, *, allow_unavailable=False):
     """Use the selected checkout's loader; defer only missing import dependencies in preflight."""
     try:
-        result = _run([python, "-I", "-c", VALIDATE, checkout / "src", path, role])
+        result = _run([python, "-I", "-B", "-c", VALIDATE, checkout / "src", path, role])
     except RuntimeError as error:
         raise ValueError(f"Configuration validation failed for {role}: {path}; resolve using the existing loader") from error
     if result.strip() == "DEPENDENCIES_UNAVAILABLE":
@@ -222,7 +239,7 @@ def main(argv=None):
     parser.add_argument("--checkout", type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument("--config-dir", type=Path, help="Deployment-local directory outside the checkout")
     args = parser.parse_args(argv)
-    environment_changed = False
+    installation_started = False
     try:
         if sys.version_info[:2] != (3, 12) or sys.platform not in {"win32", "linux"}:
             raise RuntimeError("Use Python 3.12 on Windows or Linux; no OS/Python provisioning is performed")
@@ -235,6 +252,21 @@ def main(argv=None):
             raise ValueError("Select the repository root checkout")
         revision = _run(["git", "-C", checkout, "rev-parse", "HEAD"]).strip()
         dirty = bool(_run(["git", "-C", checkout, "status", "--porcelain"]).strip())
+        environment = checkout / ".venv"
+        python = environment / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
+        if environment.exists():
+            if environment.is_symlink() or not python.is_file():
+                raise RuntimeError("Existing .venv is incomplete or linked; resolve manually, it will not be replaced")
+            installed = _inspect_environment(python, environment)
+            print("Existing package version: " + str(installed.get("package_version") or "not installed"))
+        preflight_python = python if environment.exists() else Path(sys.executable)
+        try:
+            _run([preflight_python, "-I", "-B", "-c", "import nats"])
+        except (RuntimeError, OSError, subprocess.TimeoutExpired) as error:
+            raise RuntimeError(f"nats-py is required in the pre-install verification interpreter: {preflight_python}. "
+                               "Provide nats-py>=2.15,<3 there explicitly, then rerun. "
+                               "The installer will not install this prerequisite or create a verification environment.") from error
+        print(f"COMPLETED: nats import in {preflight_python}; broker connectivity is not yet verified")
         directory = (args.config_dir or Path(_ask("Configuration directory outside Git",
                      Path.home() / ".config" / "lab-sync-acquisition"))).expanduser().resolve()
         if directory.is_relative_to(checkout):
@@ -254,36 +286,21 @@ def main(argv=None):
             raise ValueError("Select existing framework role names")
         roles = tuple(dict.fromkeys("ingestor" if r == "storage-manager" else r for r in choices))
         generated, deferred = _configuration_plan(roles, directory, existing)
-        environment = checkout / ".venv"
-        python = environment / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
-        if environment.exists():
-            if environment.is_symlink() or not python.is_file():
-                raise RuntimeError("Existing .venv is incomplete or linked; resolve manually, it will not be replaced")
-            installed = _inspect_environment(python, environment)
-            print("Existing package version: " + str(installed.get("package_version") or "not installed"))
-        print(f"Plan: {sys.platform}/{platform.machine()}, checkout {checkout}, revision {revision}")
-        print(f"Environment: {'reuse/update' if environment.exists() else 'create'} {environment}")
-        print(f"Configuration: {directory}; preserve {len(existing)} existing files; create {list(generated)}")
-        print("Local roles: " + ", ".join(roles) + "; Ingestor/StorageManager share one process")
-        if dirty:
-            print("WARNING: checkout has local changes; installation includes those changes, without resetting Git")
-        print("No services, Controller, cameras or broker will be started. NATS remains external.")
-        if existing or environment.exists():
-            if not _confirm("All services using this installation are confirmed retired with obligations resolved (not merely unreachable)"):
-                raise RuntimeError("Resolve service retirement before updating this installation")
-        if not _confirm("Install the displayed local checkout and dependencies, preserving existing configuration/data"):
-            print("DEFERRED: setup declined; no changes made")
+        configured = {role: (existing[role][1] if role in existing else generated[role])
+                      for role in roles if role in existing or role in generated}
+        if not configured:
+            for message in deferred:
+                print("DEFERRED: " + message)
+            print("DEFERRED: no complete selected role configuration; no installation changes made")
             return 2
-        directory.mkdir(parents=True, exist_ok=True)
         staged = []
-        try:
+        with tempfile.TemporaryDirectory(prefix="lab-sync-setup-") as staging:
             for role, data in generated.items():
                 contents = json.dumps(data, indent=2) + "\n"
-                with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", suffix=".json",
-                                                 dir=directory, delete=False) as temporary:
-                    staged.append((role, Path(temporary.name), contents))
-                    temporary.write(contents)
-            preflight_python = python if environment.exists() else sys.executable
+                # Generated references are absolute; existing files retain their original base directory.
+                path = Path(staging) / FILES[role]
+                path.write_text(contents, encoding="utf-8")
+                staged.append((role, path, contents))
             for role, path in ([(role, path) for role, path, _ in staged]
                                + [(role, directory / FILES[role]) for role in existing]):
                 validated = _validate(preflight_python, checkout, path, role, allow_unavailable=True)
@@ -292,12 +309,38 @@ def main(argv=None):
                 if not validated:
                     print("DEFERRED: Pre-install configuration validation deferred: loader dependencies unavailable; "
                           "full validation is required after dependency installation")
+            # The configuration plan already requires identical server lists across local roles.
+            settings = next(iter(configured.values()))
+            window = settings["result_window_s"]
+            if type(window) not in (int, float) or not math.isfinite(window) or window <= 0:
+                raise ValueError("NATS connectivity timeout must be positive and finite")
+            try:
+                _run([preflight_python, "-I", "-B", "-c", CONNECT], timeout=3 * window + 5,
+                     input=json.dumps({"servers": settings["servers"], "timeout_s": window}))
+            except (RuntimeError, OSError, subprocess.TimeoutExpired) as error:
+                raise RuntimeError("NATS prerequisite connection/cleanup unconfirmed. Check that the external "
+                                   "broker is running and reachable, and verify URLs, firewall, authentication "
+                                   "and TLS settings. A planned URL is insufficient.") from error
+            print("COMPLETED: NATS connection and cleanup confirmed; not JetStream/authority/permission/service/scientific readiness")
+            print(f"Plan: {sys.platform}/{platform.machine()}, checkout {checkout}, revision {revision}")
+            print(f"Environment: {'reuse/update' if environment.exists() else 'create'} {environment}")
+            print(f"Configuration: {directory}; preserve {len(existing)} existing files; create {list(generated)}")
+            print("Local roles: " + ", ".join(roles) + "; Ingestor/StorageManager share one process")
+            if dirty:
+                print("WARNING: checkout has local changes; installation includes those changes, without resetting Git")
+            print("No services, Controller, cameras or broker will be started. NATS remains external.")
+            if existing or environment.exists():
+                if not _confirm("All services using this installation are confirmed retired with obligations resolved (not merely unreachable)"):
+                    raise RuntimeError("Resolve service retirement before updating this installation")
+            if not _confirm("Install the displayed local checkout and dependencies, preserving existing configuration/data"):
+                print("DEFERRED: setup declined; no changes made")
+                return 2
+            installation_started = True
+            directory.mkdir(parents=True, exist_ok=True)
             if not environment.exists():
-                environment_changed = True
                 _run([sys.executable, "-I", "-m", "venv", environment], timeout=120)
             # A newly created environment must pass the same isolation check before pip.
             _inspect_environment(python, environment)
-            environment_changed = True
             package = str(checkout) + ("[artifact-retrieval]" if "ingestor" in roles or "ingestor" in existing else "")
             print("Installing selected checkout in .venv, then checking declared dependencies...")
             _run([python, "-I", "-m", "pip", "install", package], timeout=900)
@@ -321,25 +364,7 @@ def main(argv=None):
                         (hardware.parent / settings[key]).mkdir(parents=True, exist_ok=True)
             for role, _, contents in staged:
                 _publish(directory / FILES[role], contents)
-        finally:
-            for _, temporary, _ in staged:
-                temporary.unlink(missing_ok=True)
         print("COMPLETED: isolated package installation, dependency check and configuration validation")
-        configured = {role: (existing[role][1] if role in existing else generated[role])
-                      for role in roles if role in existing or role in generated}
-        all_data = [*generated.values(), *(item[1] for item in existing.values())]
-        if configured:
-            window = next((d["result_window_s"] for d in all_data if "result_window_s" in d), None)
-            if window is None:
-                window = float(_ask("NATS connectivity timeout, seconds"))
-            if type(window) not in (int, float) or not math.isfinite(window) or window <= 0:
-                raise ValueError("NATS connectivity timeout must be positive and finite")
-        for servers in dict.fromkeys(tuple(d["servers"]) for d in configured.values()):
-            try:
-                _run([python, "-I", "-c", CONNECT, json.dumps(servers), str(window)], timeout=2 * window + 5)
-                print("COMPLETED: NATS connection and cleanup confirmed; not JetStream/service/scientific readiness")
-            except (RuntimeError, OSError, subprocess.TimeoutExpired):
-                deferred.append("NATS connectivity/cleanup unconfirmed; check the external broker and network")
         for message in deferred:
             print("DEFERRED: " + message)
         for role in configured:
@@ -351,10 +376,13 @@ def main(argv=None):
         print("Setup exits without launching services; run the printed commands only after resolving reported prerequisites")
         return 2 if deferred else 0
     except (Exception, KeyboardInterrupt) as error:
-        print(f"BLOCKED: {type(error).__name__}: {error}", file=sys.stderr)
-        if environment_changed:
+        cancelled = isinstance(error, KeyboardInterrupt)
+        print("CANCELLED: setup interrupted by operator" if cancelled else f"BLOCKED: {type(error).__name__}: {error}", file=sys.stderr)
+        if installation_started:
             print("WARNING: environment/directories may be partially changed and complete new configs may remain; no package rollback is claimed. Existing data is not deleted.", file=sys.stderr)
-        return 130 if isinstance(error, KeyboardInterrupt) else 1
+        else:
+            print("No installation changes made to the framework environment, configuration or scientific-data directories.", file=sys.stderr)
+        return 130 if cancelled else 1
 
 
 if __name__ == "__main__":

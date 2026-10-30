@@ -179,8 +179,35 @@ does not start or supervise services. Use Python 3.12 on Windows or Linux, from
 the reviewed checkout. It reuses a compatible checkout-local `.venv` or creates
 one; an unrelated activated environment is not the target environment. NATS,
 Python, Git, and any required SSH credentials remain external prerequisites.
-The compatibility repair below has developer verification only; independent
+The Decision 439 prerequisite-first correction has developer verification only; independent
 validation, audit and actual Ubuntu installation remain pending.
+
+**Prepare the verification interpreter first.** If this checkout already has a
+compatible `.venv`, the installer uses that interpreter for its immediate `nats`
+import and broker check. Otherwise it uses the Python 3.12 interpreter running
+the script. It does not silently switch interpreters when nats-py is missing.
+Verify the applicable interpreter before starting:
+
+```bash
+# Ubuntu: existing checkout-local environment, or invoking Python if no .venv exists
+.venv/bin/python -I -B -c 'import nats; print("nats import OK")'
+python3.12 -I -B -c 'import nats; print("nats import OK")'
+```
+
+```powershell
+# Windows: choose the applicable one, not both
+.\.venv\Scripts\python.exe -I -B -c "import nats; print('nats import OK')"
+py -3.12 -I -B -c "import nats; print('nats import OK')"
+```
+
+If import fails, stop and have nats-py `>=2.15,<3` explicitly provided in that
+interpreter outside the installer. Where package installation into that interpreter
+is permitted, use its `-m pip install "nats-py>=2.15,<3"` command. On an
+externally managed Ubuntu system Python, do not use `sudo pip` or bypass system
+package protection: use an already prepared compatible Python installation or
+normal lab-managed Python environment. The installer does not create a temporary
+verification environment. Import success is not broker readiness. Prepare the
+[external broker](#5-nats--jetstream-and-networking) before running setup.
 
 For the Ubuntu computer hosting **both Ingestor and StorageManager**, run from
 the repository root:
@@ -190,7 +217,12 @@ python3.12 scripts/install_framework.py --config-dir "$HOME/.config/lab-sync-acq
 ```
 
 At the local-role prompt choose `ingestor` (or `storage-manager`), not two
-processes. Supply the deployment's actual NATS URL(s), Ingestor/StorageManager
+processes. Add `controller synchronization-manager` if those roles also belong
+on this computer. New identifiers offer editable defaults (`ingestor-1`,
+`storage-manager-1`, `controller-1`, `synchronization-manager-1`); Enter accepts
+the displayed value. These are proposed names, not automatic allocation or
+discovery: use the same actual identities throughout the deployment.
+Supply the deployment's actual NATS URL(s), Ingestor/StorageManager
 identities, shared Controller authority account/bucket/key, preservation window,
 positive result window, and storage directory. The account is the real NATS
 account ID, not a display name; the persistent authority bucket must already
@@ -205,18 +237,31 @@ retrieval endpoints do not establish collection capability.
 Valid existing files and deployment-specific settings are preserved byte-for-byte;
 missing files are generated, not existing files silently migrated. Incompatible
 existing configuration must be resolved explicitly. Shared identity/authority
-disagreements block setup. The selected checkout's authoritative loader checks
-generated and existing files before venv creation/pip when its dependencies are
+disagreements block setup. All required values are collected first. The selected
+checkout's authoritative loader checks generated and existing files before the
+installation plan/confirmation when its dependencies are
 available in the target or bootstrap interpreter. Missing import dependencies
 defer that preflight explicitly; validation remains mandatory after installation
 and before publishing new configuration. Other validation failures block setup.
+Generated validation inputs use disposable temporary storage, not final config
+or scientific directories. Existing files retain their original relative-path base.
+The broker connection and cleanup must then succeed before the installation
+plan and confirmation. Missing nats-py or an unreachable/rejecting broker blocks
+setup without creating/updating `.venv`, installing packages, publishing config
+or creating scientific-data directories. No Jetson or other service need be online.
 Updates require confirmation that affected services have retired with their
 obligations resolved. No transactional package rollback is claimed.
 
 After setup, inspect the report and generated `storage-services.json`. Exit `0`
-means setup checks passed, `2` means deferred work, `1` means blocked, and `130`
-means interrupted. A NATS check confirms only transport connection/cleanup, not
+means setup checks passed, `2` means deferred work or a declined plan, `1` means
+blocked, and `130` means operator cancellation. Ctrl+C before confirmation reports
+no installation changes; afterward it reports potentially incomplete work, never
+transactional rollback. A NATS check confirms only connection/cleanup using the
+runtime-compatible URL authentication, not
 JetStream authority provisioning, evidence preservation or service readiness.
+It also does not certify authentication policy: a broker allowing anonymous
+connections can accept an anonymous URL. Required broker/account permissions and
+authority resources remain separate deployment and runtime checks.
 Validate the file independently before starting services:
 
 ```bash
@@ -346,6 +391,27 @@ state. Uncertainty requires clarification, not state recreation or format guessi
 
 ## 5. NATS / JetStream And Networking
 
+### What To Prepare Before Guided Setup
+
+NATS is the network broker carrying commands, results and operational evidence
+between framework processes. JetStream is its persistent messaging facility;
+Controller exclusivity also uses an existing JetStream KV bucket. Scientific
+artifact files remain under the framework's scientific storage/collection
+contracts, not in a replacement broker database.
+
+Choose one reachable broker computer with stable addressing and persistent local
+storage. It may share the StorageManager computer, but this is not required.
+Only the broker host needs `nats-server`; clients need the broker URL and their
+actual credentials. The framework installer never installs, configures, starts
+or supervises the broker. Arrange the broker first, then run guided framework
+setup separately on each computer. Broker prerequisites do not require an online
+AcquisitionNode or replace later device/readiness/retrieval checks.
+
+The operator or NATS administrator must provide: reachable URL(s), credentials
+supported by the current runtime, the actual account ID, the existing authority
+bucket name and shared claim key, plus reviewed permissions and persistent-storage
+settings. Do not enter an intended future URL and assume setup will create NATS.
+
 ### Accepted Controller Authority Prerequisite (Decision 436)
 
 Controller may run on any suitable computer, but only one operational Controller
@@ -372,6 +438,13 @@ Install an operator-selected `nats-server` binary for the broker machine's actua
 OS/architecture from [official downloads](https://nats.io/download/). Extract to
 an operator-managed location and add to PATH or invoke its full path. Record its
 version; this repo does not prescribe a universally validated server version.
+On Ubuntu select the Linux archive for that computer's architecture, not the
+Jetson's by assumption; on Windows select the matching Windows archive. The
+optional `nats` administration CLI is a separate binary from `nats-server` and
+nats-py. Obtain it from the [official CLI project](https://github.com/nats-io/natscli).
+Check `nats-server -v` and, if used, `nats --version` after extraction. No systemd,
+Windows service registration or automatic startup is required by this procedure.
+Keep binaries, broker configuration, secrets and storage outside the repository.
 
 Example external broker configuration, with actual values substituted:
 
@@ -388,6 +461,7 @@ complete shared-network security configuration: arrange institution-approved
 authentication, permissions and encryption before exposure. See the
 [NATS configuration reference](https://docs.nats.io/reference/config/) and
 [security documentation](https://docs.nats.io/learn/security/encryption).
+Complete the account/authentication steps below before exposing this listener.
 
 Validate/run the broker in its own terminal:
 
@@ -396,6 +470,138 @@ nats-server -v
 nats-server -t -c NATS_CONFIG_PATH
 nats-server -c NATS_CONFIG_PATH
 ```
+
+For a path containing spaces, quote it. For example, after substituting actual
+operator-managed paths:
+
+```bash
+# Ubuntu, from the directory containing the extracted binary
+./nats-server -t -c "$HOME/.config/nats/nats-server.conf"
+./nats-server -c "$HOME/.config/nats/nats-server.conf"
+```
+
+```powershell
+# Windows; C:\Tools\NATS is an example installation location
+& 'C:\Tools\NATS\nats-server.exe' -t -c 'C:\ProgramData\NATS\nats-server.conf'
+& 'C:\Tools\NATS\nats-server.exe' -c 'C:\ProgramData\NATS\nats-server.conf'
+```
+
+### Accounts, Credentials And Permissions
+
+Have the broker administrator configure a framework account with JetStream enabled
+and the required system-account responder. Users authenticate into that account;
+an account identity is not a username, password or Controller service ID. Follow
+the official [account setup](https://docs.nats.io/learn/security/accounts-and-multitenancy)
+and [authentication instructions](https://docs.nats.io/learn/security/authentication-basics).
+Use administrator-approved credentials, not sample passwords. Keep system-account
+administrator credentials out of framework service files.
+
+The existing runtime passes `servers` URLs to nats-py. Supported URL forms include
+`nats://USER:PASSWORD@HOST:PORT` and `tls://USER:PASSWORD@HOST:PORT` with credentials
+compatible with the SDK's URL parsing. TLS uses existing SDK/system trust; this
+installer does not add certificate bypasses. These are format illustrations, not
+credentials to copy. Current deployment loaders do not expose separate JWT/NKey
+credentials-file or custom client-certificate options. Do not configure a broker
+to require those options and assume the framework will supply them. If local
+security requirements cannot be met by current runtime inputs, stop for an
+explicit interface decision rather than disabling security.
+
+Restrict broker configuration, client configuration and private keys to appropriate
+OS users; keep secrets out of Git, shared logs and shell history. nats CLI contexts
+are external administration settings, not automatically consumed by framework
+services. The installer sends its connection settings through child stdin rather
+than command arguments and does not print them. The guided URL input itself is
+visible in the terminal; use an appropriately private terminal.
+
+Review permissions against the actual selected roles, not a universal wildcard
+allow-list. They must support applicable runtime command/result/evidence subjects,
+request/reply inboxes, JetStream stream/consumer operations and durable publication
+acknowledgments. Controller authority additionally needs own-account
+`$SYS.REQ.USER.INFO`, existing KV inspection/readback, atomic claim creation and
+revision-conditional release. Preserve Decision 422's restricted external-client
+subjects: GUI/client credentials must not grant internal service or maintenance
+authority. Broker authentication is distinct from cooperative human GUI ownership.
+The installer neither proves this full permission set nor changes it.
+
+### Obtain And Verify The Three Authority Values
+
+Use the **same account and credentials as the framework**, via an administrator-
+prepared nats CLI context (`FRAMEWORK_CONTEXT` below is a placeholder):
+
+```text
+nats --context FRAMEWORK_CONTEXT account info
+nats --context FRAMEWORK_CONTEXT request '$SYS.REQ.USER.INFO' '{}'
+```
+
+These are external readback commands, not installer actions or framework lifecycle
+commands. Single quotes protect `$SYS` in both Bash and PowerShell. The exact
+`data.account` value returned by the second command is `controller_claim_account`;
+do not substitute a friendly display label. If it times out or is denied, check
+the system-account responder and request/reply permissions with the administrator.
+See the [NATS user-info implementation](https://github.com/nats-io/nats-server/blob/main/server/events.go).
+
+The administrator chooses and provisions `controller_claim_bucket` once in that
+same account. It must be file-backed, non-expiring, without prohibited global
+eviction limits, mirrors, sources or transformations. See the precise checks in
+[Controller claim implementation](#controller-claim-implementation-q024-slice-1).
+For a **new** bucket only, the administrator may use:
+
+```text
+nats --context FRAMEWORK_CONTEXT kv add AUTHORITY_BUCKET --storage file --ttl 0s
+nats --context FRAMEWORK_CONTEXT kv info AUTHORITY_BUCKET
+```
+
+Inspect the resulting configuration; do not assume unspecified CLI defaults
+establish all framework guarantees. Never recreate an existing bucket or purge
+history to make a check pass. These commands use the existing
+[NATS KV administration interface](https://github.com/nats-io/natscli/blob/main/cli/kv_command.go).
+Enter the bucket name, not the underlying `KV_...` stream name.
+
+`controller_claim_key` is the agreed shared key within that bucket, used by all
+computers for this installation, not a new key for each host. Obtain it from the
+administrator/deployment record. Do **not** create a placeholder value: a vacant
+key is normal before first Controller startup. An occupied claim requires the
+existing explicit inspection/recovery procedure, not installer clearing.
+
+Minimal installer connection success does not certify these resources, JetStream
+or complete permissions. `account info`, KV inspection and subsequent actual
+service startup/readiness are separate checks. None certifies physical crash or
+power-loss durability.
+
+### Laboratory Example, Not A Framework Default
+
+The current proposed lab topology places NATS, Controller, SynchronizationManager
+and the single paired Ingestor/StorageManager process on Ubuntu `192.168.50.1`.
+The Jetson AcquisitionNode is `192.168.50.2`. A broker listener on the Ubuntu
+interface and client URLs addressing `192.168.50.1` permit both computers to use
+the same broker. Port `4222` is illustrative; use the configured value. Add actual
+runtime-compatible authentication/TLS, reviewed firewall access and matching
+authority settings; these addresses alone are not a complete deployment config.
+Do not use Jetson loopback to reach Ubuntu. Guided setup on Ubuntu selects
+`controller synchronization-manager ingestor`; the Jetson selects
+`acquisition-node` with its existing hardware declaration. This topology and the
+specific addresses are test/deployment inputs, not universal framework settings.
+
+### Troubleshooting And Safe Broker Restart
+
+| Observation | Check before retrying |
+| --- | --- |
+| Connection refused/timeout | Broker process, actual listener, destination address/port, route and both host/network firewall rules; a planned URL is not a running broker |
+| Local client works, Jetson fails | Loopback-only bind, wrong interface, subnet/routing or firewall; do not use `0.0.0.0` as a client destination |
+| Authentication rejected | Actual configured user/password and account, URL parsing, TLS/trust requirements; import success is unrelated |
+| Connection passes, JetStream fails | JetStream enabled for server and client account, persistent store access/capacity, and JetStream API permissions |
+| Authority account unverified | Exact `data.account`, system-account responder and own-account request/reply permissions |
+| Authority bucket missing/invalid | Administrator provisioned it in the same account with required persistence/retention; never let startup create a replacement |
+| Publish/consumer permission denied | Role-specific subject/API permissions and inbox replies; do not replace restricted client permissions with blanket access |
+| Broker restarts but obligations remain | Existing uncertain-publication, service retirement and explicit retry requirements still apply; reconnect is not successful closeout |
+
+For a planned restart, coordinate with operators and resolve relevant framework
+operations through their supported Stop/retirement procedures. Stop the broker
+gracefully using its existing launch method, then restart with the **same** reviewed
+configuration and persistent store. Do not delete JetStream files, streams,
+consumers or occupied Controller claims as troubleshooting. Preserve logs without
+publishing credentials. After restart recheck connectivity and relevant readback;
+do not automatically replay lifecycle commands or uncertain publications.
 
 Keep JetStream storage durable and writable, not automatically cleaned temporary
 storage. Do not casually expire/delete stream history: receiving completeness and

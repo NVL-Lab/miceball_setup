@@ -12466,6 +12466,10 @@ testing or validation. G4-A/B remain CLOSED; G4-C and Q013 remain OPEN.
 
 **Status:** Accepted
 
+**Subsequent clarification:** Decision 439 requires external nats-py availability
+and minimal broker connection/cleanup verification before installation changes,
+with editable identifier defaults and ordinary cancellation reporting.
+
 This records the user-accepted LLC-to-ICC generic framework installer handoff,
 following the reviewed read-only implementation assessment. It extends Decision
 368's permitted setup utility and the manual installation foundation in Decisions
@@ -13953,6 +13957,56 @@ remains deferred.
 **Implementation status:** Accepted and synchronized, resolving the Package 2
 durable-proof architectural blocker. This synchronization implements or validates
 no behavior and performs no Package 2 closure. Q024 remains OPEN.
+
+---
+
+## Decision 439: Guided installation verifies external prerequisites before installation changes
+
+**Status:** Accepted
+
+This records the explicitly user-accepted Q022 prerequisite-first correction after
+Ubuntu deployment feedback. It clarifies Decision 421 while preserving Decisions
+368, 376 and 436. It supersedes installation-time deferral of a failed broker
+connection until after environment preparation or configuration publication.
+
+Before collecting deployment configuration, the installer checks that `nats` is
+importable in its selected pre-install verification interpreter. Missing nats-py
+is an external prerequisite failure: stop with clear instructions, without silent
+installation or a temporary verification environment. Existing checkout-local
+environments and the invoking interpreter must be handled consistently.
+
+Collect all necessary deployment information and verify a minimal authenticated
+connection to the operator-specified external NATS broker, with confirmed connection
+cleanup, before presenting the installation plan and requesting confirmation.
+Connection failure or uncertainty blocks installation. A planned URL or successful
+Python import is not a verified broker. Do not require a local broker executable
+or other framework computers to be online. This minimal check does not establish
+JetStream, authority storage, complete permissions, evidence preservation or
+scientific readiness. Their existing runtime and deployment obligations remain.
+
+No framework environment creation/modification, package installation, configuration
+publication or scientific-data directory changes occur before prerequisite
+verification and explicit installation confirmation. Reuse authoritative
+configuration validation wherever dependencies permit; unavailable loader
+dependencies may defer configuration validation, but mandatory post-install
+validation precedes publication. Do not introduce another validator.
+
+New service identifiers may have visible, editable defaults. Preserve existing
+valid identities/configuration and cross-file consistency on rerun. Never invent
+credentials, deployment-specific network identities or Controller authority values.
+Explain the actual account, existing persistent KV bucket and shared claim key,
+and how the operator obtains them from the NATS administrator.
+
+Ctrl+C is ordinary cancellation, with truthful reporting of whether installation
+changes began and any incomplete work, without claiming transactional rollback.
+Existing configuration and scientific data remain protected.
+
+NATS remains externally installed, configured and managed. The installer neither
+provisions streams/buckets nor acquires/releases Controller authority, publishes
+framework commands, comprehensively tests permissions, starts services or changes
+service ownership. General installation guidance must remain separate from the
+laboratory's particular topology. Implementation, independent validation, audit
+and closure remain separate workflow stages; Q022 remains OPEN.
 
 ---
 

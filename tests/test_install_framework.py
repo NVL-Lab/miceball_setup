@@ -8,8 +8,9 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from scripts import install_framework as installer
 from lab_sync_acquisition.deployment_configuration import load_service_configuration
@@ -27,6 +28,8 @@ class FrameworkInstallerTests(unittest.TestCase):
         self.config = self.root / "private configuration"
         self.environment = self.checkout / ".venv"
         self.calls = []
+        self.prompts = []
+        self.connections = []
         self.answers = {
             "Local roles": "controller",
             "NATS URLs": "nats://broker:4222",
@@ -51,6 +54,9 @@ class FrameworkInstallerTests(unittest.TestCase):
         self.version = [3, 12]
         self.preflight_dependencies_missing = False
         self.real_validation = False
+        self.execute_connection_check = False
+        self.connection_client = None
+        self.interrupt_at = None
 
     def hardware(self):
         path = self.root / "node hardware.json"
@@ -74,18 +80,28 @@ class FrameworkInstallerTests(unittest.TestCase):
 
     def run_setup(self):
         output, errors = io.StringIO(), io.StringIO()
+        self.prompts.clear()
 
         def answer(prompt):
+            self.prompts.append(prompt)
+            if self.failure == "prompt-interrupt" or (self.interrupt_at and prompt.startswith(self.interrupt_at)):
+                raise KeyboardInterrupt()
             return next((value for prefix, value in self.answers.items() if prompt.startswith(prefix)), "")
 
-        def run(arguments, *, timeout=60):
+        def run(arguments, *, timeout=60, input=None):
             args = [str(a) for a in arguments]
             self.calls.append(args)
             if args[0] == "git":
                 if "--show-toplevel" in args:
                     return str(self.checkout)
                 return "" if "status" in args else "a" * 40
-            if "venv" in args:
+            if "import nats" in args:
+                self.assertEqual(self.prompts, [])
+                if self.failure == "nats-import":
+                    raise RuntimeError("Injected missing nats-py")
+                if self.real_validation:
+                    return installer_run([sys.executable, *args[1:]], timeout=timeout)
+            elif "venv" in args:
                 self.create_environment()
             elif installer.ENVIRONMENT_REPORT in args:
                 return json.dumps({"version": self.version, "prefix": str(self.environment),
@@ -106,8 +122,17 @@ class FrameworkInstallerTests(unittest.TestCase):
                 # Run the unchanged production loader, not a fabricated validation result.
                 load_service_configuration(args[-2], args[-1])
             elif installer.CONNECT in args:
+                self.connections.append(json.loads(input) if input is not None else json.loads(args[-2]))
+                if self.execute_connection_check:
+                    with patch("nats.aio.client.Client", return_value=self.connection_client), \
+                            patch.object(sys, "stdin", io.StringIO(input)):
+                        exec(installer.CONNECT, {"__name__": "installer_connection_check"})
                 if self.failure == "nats":
                     raise subprocess.TimeoutExpired(args, timeout)
+                if self.failure in {"authentication", "connection-cleanup"}:
+                    raise RuntimeError("Injected connection failure; secret must not be echoed")
+                if self.failure == "connection-interrupt":
+                    raise KeyboardInterrupt()
             else:
                 raise AssertionError(f"Unexpected external operation: {args}")
             return ""
@@ -119,11 +144,159 @@ class FrameworkInstallerTests(unittest.TestCase):
             code = installer.main(["--checkout", str(self.checkout), "--config-dir", str(self.config)])
         return code, output.getvalue(), errors.getvalue()
 
+    def test_missing_nats_py_blocks_before_configuration_prompts_or_changes(self):
+        self.failure = "nats-import"
+        code, output, errors = self.run_setup()
+        self.assertEqual(code, 1)
+        self.assertIn("nats-py", errors)
+        self.assertEqual(self.prompts, [])
+        self.assertFalse(self.environment.exists())
+        self.assertFalse(self.config.exists())
+        self.assertFalse(any("pip" in c or "venv" in c for c in self.calls))
+        self.assertNotIn("LAUNCH:", output)
+
+    def test_available_nats_py_is_checked_in_the_selected_interpreter_first(self):
+        for existing in (False, True):
+            with self.subTest(existing=existing):
+                if existing:
+                    self.calls.clear()
+                    self.prompts.clear()
+                code, output, errors = self.run_setup()
+                self.assertEqual(code, 0, errors)
+                check = next(c for c in self.calls if "import nats" in c)
+                self.assertEqual(Path(check[0]), self.environment_python() if existing else Path(sys.executable))
+                self.assertIn("NATS", output)
+
+    def test_missing_nats_in_existing_environment_never_falls_back_or_changes_it(self):
+        self.create_environment()
+        before = self.environment_python().read_bytes()
+        self.failure = "nats-import"
+        code, _, errors = self.run_setup()
+        self.assertEqual(code, 1)
+        self.assertIn(str(self.environment_python()), errors)
+        self.assertEqual(self.environment_python().read_bytes(), before)
+        checks = [c for c in self.calls if "import nats" in c]
+        self.assertEqual(len(checks), 1)
+        self.assertEqual(Path(checks[0][0]), self.environment_python())
+        self.assertEqual(self.prompts, [])
+        self.assertFalse(self.config.exists())
+
+    def test_blank_identifiers_use_visible_editable_defaults(self):
+        self.answers["Local roles"] = "controller synchronization-manager ingestor"
+        for label in ("Deployment Ingestor ID", "Deployment StorageManager ID",
+                      "Deployment SynchronizationManager ID", "Controller ID"):
+            self.answers[label] = ""
+        self.answers["Actual external dependents"] = "controller/controller-1,synchronization_manager/synchronization-manager-1"
+        code, _, errors = self.run_setup()
+        self.assertEqual(code, 0, errors)
+        settings = load_service_configuration(self.config / "storage-services.json", "ingestor")
+        self.assertEqual(settings["ingestor_id"], "ingestor-1")
+        self.assertEqual(settings["storage_id"], "storage-manager-1")
+        self.assertEqual(load_service_configuration(self.config / "controller.json", "controller")["service_id"], "controller-1")
+        self.assertTrue(any("press Enter for default: ingestor-1" in p for p in self.prompts))
+
+    def test_connection_failure_blocks_before_installation_or_configuration_changes(self):
+        for failure in ("nats", "authentication", "connection-cleanup"):
+            with self.subTest(failure=failure):
+                self.calls.clear()
+                self.prompts.clear()
+                self.failure = failure
+                code, output, errors = self.run_setup()
+                self.assertEqual(code, 1)
+                self.assertIn("NATS", errors)
+                self.assertFalse(self.environment.exists())
+                self.assertFalse(self.config.exists())
+                self.assertFalse(any("pip" in c or "venv" in c for c in self.calls))
+                self.assertFalse(any(p.startswith("Install the displayed") for p in self.prompts))
+                self.assertNotIn("LAUNCH:", output)
+
+    def test_preinstall_cancellation_is_normal_and_leaves_no_installation_changes(self):
+        for failure in ("prompt-interrupt", "connection-interrupt"):
+            with self.subTest(failure=failure):
+                self.calls.clear()
+                self.prompts.clear()
+                self.failure = failure
+                code, output, errors = self.run_setup()
+                self.assertEqual(code, 130)
+                self.assertIn("CANCELLED", errors)
+                self.assertIn("No installation changes", errors)
+                self.assertNotIn("KeyboardInterrupt", errors)
+                self.assertFalse(self.environment.exists())
+                self.assertFalse(self.config.exists())
+                self.assertNotIn("LAUNCH:", output)
+
+    def test_cancellation_at_install_confirmation_preserves_existing_installation(self):
+        self.assertEqual(self.run_setup()[0], 0)
+        files = [p for p in self.root.rglob("*") if p.is_file()]
+        before = {p: p.read_bytes() for p in files}
+        self.interrupt_at = "Install the displayed"
+        self.calls.clear()
+        code, output, errors = self.run_setup()
+        self.assertEqual(code, 130)
+        self.assertIn("NATS connection and cleanup confirmed", output)
+        self.assertIn("No installation changes", errors)
+        self.assertEqual({p: p.read_bytes() for p in files}, before)
+        self.assertFalse(any("pip" in c or "venv" in c for c in self.calls))
+
+    def test_minimal_connection_check_uses_url_authentication_and_closes_before_confirmation(self):
+        client = SimpleNamespace(is_connected=False)
+
+        async def connect(**settings):
+            self.assertFalse(self.config.exists())
+            self.assertFalse(self.environment.exists())
+            self.assertEqual(settings, {"servers": ["nats://operator:secret@broker:4222"], "allow_reconnect": False})
+            client.is_connected = True
+
+        async def drain():
+            client.is_connected = False
+
+        client.connect = AsyncMock(side_effect=connect)
+        client.drain = AsyncMock(side_effect=drain)
+        client.close = AsyncMock()
+        self.connection_client = client
+        self.execute_connection_check = True
+        self.answers["NATS URLs"] = "nats://operator:secret@broker:4222"
+        self.answers["Install the displayed"] = "no"
+        code, output, errors = self.run_setup()
+        self.assertEqual(code, 2, errors)
+        client.connect.assert_awaited_once()
+        client.drain.assert_awaited_once()
+        client.close.assert_awaited_once()
+        self.assertIn("NATS connection and cleanup confirmed", output)
+        self.assertNotIn("secret", output + errors + str(self.calls))
+        self.assertFalse(self.environment.exists())
+        self.assertFalse(self.config.exists())
+
+    def test_minimal_connection_check_failure_always_closes_and_blocks_installation(self):
+        for stage in ("connect", "drain", "close"):
+            with self.subTest(stage=stage):
+                client = SimpleNamespace(is_connected=False)
+
+                async def connect(**settings):
+                    client.is_connected = True
+                    if stage == "connect":
+                        raise ConnectionError("Authentication unconfirmed")
+
+                client.connect = AsyncMock(side_effect=connect)
+                client.drain = AsyncMock(side_effect=RuntimeError("Drain unconfirmed") if stage == "drain" else None)
+                client.close = AsyncMock(side_effect=RuntimeError("Close unconfirmed") if stage == "close" else None)
+                self.connection_client = client
+                self.execute_connection_check = True
+                code, output, errors = self.run_setup()
+                self.assertEqual(code, 1)
+                client.close.assert_awaited_once()
+                self.assertIn("No installation changes", errors)
+                self.assertNotIn("NATS connection and cleanup confirmed", output)
+                self.assertFalse(self.config.exists())
+                self.assertFalse(self.environment.exists())
+
     def test_fresh_setup_produces_valid_config_and_existing_launcher_command(self):
         code, output, errors = self.run_setup()
         self.assertEqual(code, 0, errors)
         settings = load_service_configuration(self.config / "controller.json", "controller")
         self.assertEqual(settings["service_id"], "control")
+        self.assertEqual(settings["ingestor_id"], "intake")
+        self.assertEqual(settings["storage_id"], "storage")
         self.assertEqual(settings["known_nodes"], ("node",))
         self.assertEqual(settings["controller_claim_account"], "lab-account")
         self.assertEqual(settings["controller_claim_bucket"], "lab-authority")
@@ -293,6 +466,7 @@ class FrameworkInstallerTests(unittest.TestCase):
         self.assertTrue((self.config / "data/journals").is_dir())
         pip = next(c for c in self.calls if "install" in c)
         self.assertEqual(pip[-1], str(self.checkout) + "[artifact-retrieval]")
+        self.assertEqual(len(self.connections), 1)
 
     def test_each_individual_role_including_storage_alias_can_be_prepared(self):
         for role in (*installer.FILES, "storage-manager"):
@@ -421,19 +595,26 @@ class FrameworkInstallerTests(unittest.TestCase):
         self.assertNotIn("LAUNCH:", output)
         self.assertEqual(list(self.config.glob("*.json")), [])
 
-    def test_unavailable_nats_leaves_config_but_never_claims_connectivity(self):
+    def test_unavailable_nats_on_rerun_preserves_configuration_and_data(self):
+        self.assertEqual(self.run_setup()[0], 0)
+        path = self.config / "controller.json"
+        scientific = self.config / "frames.h5"
+        scientific.write_bytes(b"existing scientific data")
+        before = {p: p.read_bytes() for p in (path, scientific)}
+        self.calls.clear()
         self.failure = "nats"
         code, output, errors = self.run_setup()
-        self.assertEqual(code, 2, errors)
-        self.assertIn("NATS connectivity/cleanup unconfirmed", output)
+        self.assertEqual(code, 1, errors)
+        self.assertIn("NATS prerequisite connection/cleanup unconfirmed", errors)
         self.assertNotIn("NATS connection and cleanup confirmed", output)
-        load_service_configuration(self.config / "controller.json", "controller")
+        self.assertEqual({p: p.read_bytes() for p in before}, before)
+        self.assertFalse(any("pip" in c or "venv" in c for c in self.calls))
 
     def test_interrupted_configuration_write_leaves_no_partial_json(self):
         with patch.object(installer.os, "fsync", side_effect=KeyboardInterrupt):
             code, output, errors = self.run_setup()
         self.assertEqual(code, 130)
-        self.assertIn("KeyboardInterrupt", errors)
+        self.assertIn("CANCELLED", errors)
         self.assertNotIn("LAUNCH:", output)
         self.assertEqual(list(self.config.glob("*.json")), [])
 
