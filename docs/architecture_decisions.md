@@ -13912,6 +13912,50 @@ retirement behavior is implemented or validated here. Q024 remains OPEN.
 
 ---
 
+## Decision 438: Interrupted monthly-write recovery requires durable Ingestor journal proof
+
+**Status:** Accepted
+
+This records the explicitly user-accepted LLC clarification for Q024 Package 2.
+It supplements Decisions 339-342 and 354 without changing Session, evidence or
+intake-audit obligations, or reopening completed Package 1.
+
+Before modifying a monthly archive write target, StorageManager must obtain
+confirmed durable Ingestor acceptance of a typed write-intent record identifying:
+
+- The unique write attempt and StorageManager identity.
+- The exact target partition and previously confirmed archival boundary.
+- The intended evidence/intake-audit boundary and expected product fingerprints.
+- References sufficient to reconstruct the intended products.
+
+After writing, exact readback verification and durability confirmation,
+StorageManager must obtain confirmed durable Ingestor acceptance of a completion
+record referencing the original intent and confirmed products. Both operational
+record types reside in the existing Ingestor framework journal, outside the
+evidence/intake-audit compilation they describe. Ingestor owns journal integrity,
+durability and retrieval; StorageManager owns archive verification, recovery
+eligibility and write execution. No new registry or persistence subsystem is added.
+
+A fresh owner may investigate an explicitly identified write only with trustworthy
+durable intent. Preserve W071 reconciliation of complete-but-unconfirmed writes.
+An incomplete write is recoverable only when target, products and prior boundary
+are unambiguous, required evidence is available, and no authoritative completion
+or conflicting finalized state prohibits modification. Intent alone never
+authorizes overwriting an existing historical partition; previously completed
+partitions remain immutable. Month, file damage or available evidence alone do
+not establish repair authority. Missing, conflicting or insufficient proof requires
+refusal and reporting uncertainty, without modifying the uncertain target.
+
+Reuse existing journal and W071 recovery mechanisms; no general historical-partition
+repair is authorized. Decision 437 exclusions remain intact, and Decision 435
+remains deferred.
+
+**Implementation status:** Accepted and synchronized, resolving the Package 2
+durable-proof architectural blocker. This synchronization implements or validates
+no behavior and performs no Package 2 closure. Q024 remains OPEN.
+
+---
+
 # Accepted Architectural Principles
 
 The following principles summarize the accepted decisions so far.

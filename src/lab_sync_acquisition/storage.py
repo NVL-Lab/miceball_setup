@@ -148,9 +148,9 @@ class PersistentStorageManager:
         self._active_service_operations = 0
         self._preservation_lock = RLock()
         self._archive_confirmation: dict[str, Any] | None = None
-        self._framework_archive_confirmation: dict[str, Any] | None = None
+        self._framework_archive_confirmation: str | None = None
         self._framework_continuation_rejected = False
-        self._framework_write_target: Path | None = None
+        self._framework_journal_owner = None
         self._framework_closeout_compilation: dict[str, Any] | None = None
         self._unfinished_archive_scopes: set[str | None] = set()
         self._unfinished_record_paths: set[Path] = set()
@@ -1191,8 +1191,8 @@ class PersistentStorageManager:
             self._unfinished_record_contents.pop(path, None)
 
     @staticmethod
-    def _write_record_contents(path: Path, serialized: str) -> None:
-        with path.open("w", encoding="utf-8") as output:
+    def _write_record_contents(path: Path, serialized: str, *, newline=None) -> None:
+        with path.open("w", encoding="utf-8", newline=newline) as output:
             output.write(serialized)
             output.flush()
             os.fsync(output.fileno())
@@ -1774,7 +1774,7 @@ class PersistentStorageManager:
     @service_operation()
     def write_framework_evidence_archive(self, compiled_runtime_evidence: dict[str, Iterable[Any]]) -> dict[str, Path]:
         """Persist deployment-scoped evidence/audit/summary without a Session Record."""
-        with self._preservation_lock:
+        with self._framework_journal_guard(), self._preservation_lock:
             if not self._framework_evidence_write_safe():
                 raise RuntimeError("Framework archive is unconfirmed; ordinary writes cannot repair history")
             return self._write_framework_evidence_archive(compiled_runtime_evidence)
@@ -1841,30 +1841,34 @@ class PersistentStorageManager:
         return {"runtime_evidence": evidence, "ingest_audit": audit,
                 "compilation_summary": self._framework_summary(evidence, audit)}, partitions
 
-    def _write_framework_evidence_archive(self, compiled_runtime_evidence, *, authorized_recovery=False):
+    def _write_framework_evidence_archive(self, compiled_runtime_evidence):
         """Append newly archived evidence in the current administrative UTC month."""
         with self._preservation_lock:
+            records = self._framework_journal_owner.read_framework_write_records()
+            completed = {r["write_attempt_id"] for r in records if r["kind"] == "completion"}
+            if any(r["kind"] == "intent" and r.get("storage_root") == str(self._storage_root.resolve())
+                   and r["write_attempt_id"] not in completed for r in records):
+                raise RuntimeError("Pending monthly write requires reconciliation or authorized recovery")
             evidence = deepcopy([_to_plain_data(item) for item in compiled_runtime_evidence.get("runtime_evidence", ())])
             audit = deepcopy([_to_plain_data(item) for item in compiled_runtime_evidence.get("ingest_audit", ())])
+            journal = self._framework_journal_owner.compile_framework_runtime_evidence()
+            if any([_to_plain_data(r) for r in journal[k]] != value
+                   for k, value in (("runtime_evidence", evidence), ("ingest_audit", audit))):
+                raise ValueError("Framework compilation does not match its durable journal boundary")
             if any(item.get("session_id") is not None for item in evidence):
                 raise ValueError("Framework archive cannot contain Session-scoped evidence")
             for row in evidence:
                 if row.get("evidence_type") == "scientific_original_deletion":
                     validate_deletion_evidence(RuntimeEvidenceMessage.from_dict(row))
             root = self._storage_root / "framework" / "evidence"
-            excluded = None
-            if authorized_recovery and None in self._unfinished_archive_scopes:
-                excluded = self._framework_write_target
-                if excluded is None:
-                    raise RuntimeError("Interrupted framework write target is unconfirmed")
-            historical, partitions = self._read_framework_archive_history(excluded_target=excluded)
+            historical, partitions = self._read_framework_archive_history()
             if (evidence[:len(historical["runtime_evidence"])] != historical["runtime_evidence"]
                     or audit[:len(historical["ingest_audit"])] != historical["ingest_audit"]):
                 raise ValueError("Framework compilation conflicts with preserved history")
             contents = {"runtime_evidence": evidence, "ingest_audit": audit,
                         "compilation_summary": self._framework_summary(evidence, audit)}
-            if historical == contents and excluded is None and partitions:
-                self._framework_archive_confirmation = contents
+            if historical == contents and partitions:
+                self._framework_archive_confirmation = self._framework_fingerprint(contents)
                 return {name: partitions[-1][0] / (name + (".json" if name == "compilation_summary" else ".jsonl"))
                         for name in contents}
             # Obtain administrative time after historical validation, immediately
@@ -1874,8 +1878,6 @@ class PersistentStorageManager:
                 raise ValueError("StorageManager archival clock is invalid")
             month = datetime.fromtimestamp(stamp, timezone.utc).strftime("%Y-%m")
             directory = root / month
-            if excluded is not None and excluded != directory:
-                raise RuntimeError("Interrupted framework write is not safely rewritable in this month")
             if partitions and partitions[-1][0] != root and partitions[-1][0].name > month:
                 raise RuntimeError("Archival clock would reopen a historical partition")
             start_evidence, start_audit = len(historical["runtime_evidence"]), len(historical["ingest_audit"])
@@ -1895,22 +1897,26 @@ class PersistentStorageManager:
             summary.update(framework_archive_month=month, framework_evidence_start=start_evidence,
                            framework_audit_start=start_audit)
             pending = {"runtime_evidence": rows, "ingest_audit": audits, "compilation_summary": summary}
+            texts = self._framework_product_texts(pending)
+            intent = {"kind": "intent", "write_attempt_id": uuid4().hex,
+                "storage_id": self._component_id, "storage_root": str(self._storage_root.resolve()),
+                "target_month": month, "evidence_start": start_evidence, "audit_start": start_audit,
+                "evidence_end": len(evidence), "audit_end": len(audit),
+                "prior_fingerprint": self._framework_fingerprint({"runtime_evidence": evidence[:start_evidence],
+                                                                 "ingest_audit": audit[:start_audit]}),
+                "evidence_ids": ids, "audit_fingerprint": self._framework_fingerprint(audit),
+                "products": {name: self._framework_fingerprint(text.encode("utf-8")) for name, text in texts.items()},
+                "before": {name: self._framework_fingerprint((directory / name).read_bytes())
+                           if (directory / name).exists() else None for name in texts}}
+            self._framework_journal_owner.accept_framework_write_record(intent)
             self._framework_archive_confirmation = None
             self._unfinished_archive_scopes.add(None)
-            self._framework_write_target = directory
             directory.mkdir(parents=True, exist_ok=True)
             paths = {}
-            for name, data in pending.items():
-                path = directory / (name + (".json" if name == "compilation_summary" else ".jsonl"))
-                with path.open("w", encoding="utf-8") as output:
-                    if name == "compilation_summary":
-                        json.dump(data, output, indent=2, allow_nan=False)
-                    else:
-                        for item in data:
-                            output.write(json.dumps(item, allow_nan=False) + "\n")
-                    output.flush()
-                    os.fsync(output.fileno())
-                paths[name] = path
+            for filename, text in texts.items():
+                path = directory / filename
+                self._write_record_contents(path, text, newline="")
+                paths[filename.split(".")[0]] = path
             if os.name == "posix":
                 for parent in (directory, root, root.parent, self._storage_root):
                     descriptor = os.open(parent, os.O_RDONLY)
@@ -1921,16 +1927,132 @@ class PersistentStorageManager:
             actual, _ = self._read_framework_archive_history()
             if actual != contents:
                 raise RuntimeError("Framework archive write readback is unconfirmed")
-            self._framework_archive_confirmation = actual
+            self._complete_framework_write(intent)
+            self._framework_archive_confirmation = self._framework_fingerprint(actual)
             self._framework_continuation_rejected = False
             self._unfinished_archive_scopes.discard(None)
-            self._framework_write_target = None
             return paths
+
+    def _framework_journal_guard(self):
+        if self._framework_journal_owner is None:
+            raise RuntimeError("Monthly writes require a configured durable Ingestor framework journal")
+        return self._framework_journal_owner.framework_journal_guard()
+
+    @staticmethod
+    def _framework_fingerprint(value):
+        from hashlib import sha256
+        if not isinstance(value, bytes):
+            value = json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
+        return sha256(value).hexdigest()
+
+    @staticmethod
+    def _framework_product_texts(products):
+        return {"runtime_evidence.jsonl": "".join(json.dumps(r, allow_nan=False) + "\n" for r in products["runtime_evidence"]),
+                "ingest_audit.jsonl": "".join(json.dumps(r, allow_nan=False) + "\n" for r in products["ingest_audit"]),
+                "compilation_summary.json": json.dumps(products["compilation_summary"], indent=2, allow_nan=False)}
+
+    def _complete_framework_write(self, intent):
+        directory = self._storage_root / "framework/evidence" / intent["target_month"]
+        if any(self._framework_fingerprint((directory / name).read_bytes()) != fingerprint
+               for name, fingerprint in intent["products"].items()):
+            raise RuntimeError("Exact monthly product fingerprints are unconfirmed")
+        if os.name == "posix":
+            for parent in (directory, directory.parent, directory.parent.parent, self._storage_root):
+                descriptor = os.open(parent, os.O_RDONLY)
+                try:
+                    os.fsync(descriptor)
+                finally:
+                    os.close(descriptor)
+        self._framework_journal_owner.accept_framework_write_record({"kind": "completion",
+            "write_attempt_id": intent["write_attempt_id"], "storage_id": intent["storage_id"],
+            "products": intent["products"]})
+
+    def _pending_framework_write(self, identity=None):
+        records = self._framework_journal_owner.read_framework_write_records()
+        completed = {r["write_attempt_id"] for r in records if r["kind"] == "completion"}
+        candidates = [r for r in records if r["kind"] == "intent" and r["storage_id"] == self._component_id
+            and r.get("storage_root") == str(self._storage_root.resolve())
+            and (identity is None or r["write_attempt_id"] == identity)]
+        if identity is not None and any(r["write_attempt_id"] in completed for r in candidates):
+            raise RuntimeError("Completed monthly writes cannot be reopened for repair")
+        candidates = [r for r in candidates if r["write_attempt_id"] not in completed]
+        pending = [r for r in records if r["kind"] == "intent"
+                   and r.get("storage_root") == str(self._storage_root.resolve())
+                   and r["write_attempt_id"] not in completed]
+        if len(candidates) != 1 or pending != candidates:
+            raise RuntimeError("A unique durably identified interrupted write is required")
+        return candidates[0]
+
+    def _recover_monthly_write(self, intent, *, allow_incomplete):
+        # Called under the existing intake -> storage exclusion. Inputs are
+        # reconstructed only from verified journal records, never operator data.
+        intake = self._framework_journal_owner
+        compiled = intake.compile_framework_runtime_evidence()
+        evidence = [_to_plain_data(r) for r in compiled["runtime_evidence"]]
+        audit = [_to_plain_data(r) for r in compiled["ingest_audit"]]
+        month = intent["target_month"]
+        if datetime.strptime(month, "%Y-%m").strftime("%Y-%m") != month:
+            raise ValueError("Invalid durable write target")
+        bounds = [intent[k] for k in ("evidence_start", "evidence_end", "audit_start", "audit_end")]
+        if any(type(n) is not int or n < 0 for n in bounds):
+            raise ValueError("Invalid durable write boundary")
+        es, ee, aus, aue = bounds
+        if not (es <= ee <= len(evidence) and aus <= aue <= len(audit)):
+            raise ValueError("Required journal reconstruction inputs are unavailable")
+        evidence, audit = evidence[:ee], audit[:aue]
+        if ([r["evidence_id"] for r in evidence] != intent["evidence_ids"]
+                or self._framework_fingerprint(audit) != intent["audit_fingerprint"]):
+            raise ValueError("Journal does not match the intended archive boundary")
+        root = self._storage_root / "framework/evidence"
+        directory = root / month
+        if directory.is_symlink() or (directory.exists() and not directory.is_dir()):
+            raise RuntimeError("Identified target directory is unavailable or aliased")
+        prior, partitions = self._read_framework_archive_history(excluded_target=directory)
+        if (any(path != root and path.name >= month for path, _ in partitions)
+                or self._framework_fingerprint({k: prior[k] for k in ("runtime_evidence", "ingest_audit")}) != intent["prior_fingerprint"]
+                or len(prior["runtime_evidence"]) != es or len(prior["ingest_audit"]) != aus):
+            raise RuntimeError("Prior archival boundary or finalized history conflicts with the intent")
+        summary = self._framework_summary(evidence[es:], audit[aus:])
+        summary.update(framework_archive_month=month, framework_evidence_start=es, framework_audit_start=aus)
+        texts = self._framework_product_texts({"runtime_evidence": evidence[es:], "ingest_audit": audit[aus:],
+                                             "compilation_summary": summary})
+        if {name: self._framework_fingerprint(text.encode()) for name, text in texts.items()} != intent["products"]:
+            raise RuntimeError("Reconstructed products do not match durable intent fingerprints")
+        current = {}
+        for name, text in texts.items():
+            path = directory / name
+            if path.is_symlink():
+                raise RuntimeError("Aliased archive products cannot be repaired")
+            data = path.read_bytes() if path.exists() else None
+            expected = text.encode("utf-8")
+            if data != expected and (not allow_incomplete or not (
+                    (data is None and intent["before"][name] is None)
+                    or (data is not None and (expected.startswith(data)
+                        or self._framework_fingerprint(data) == intent["before"][name])))):
+                raise RuntimeError("Target bytes are not a proven interruption of the identified write")
+            current[name] = data
+        # Validate every product before changing any product.
+        directory.mkdir(parents=True, exist_ok=True)
+        for name, text in texts.items():
+            if current[name] != text.encode("utf-8"):
+                self._write_record_contents(directory / name, text, newline="")
+            else:
+                with (directory / name).open("r+b") as source:
+                    os.fsync(source.fileno())
+        actual, _ = self._read_framework_archive_history()
+        if actual["runtime_evidence"] != evidence or actual["ingest_audit"] != audit:
+            raise RuntimeError("Recovered monthly write readback is unconfirmed")
+        self._complete_framework_write(intent)
+        self._unfinished_archive_scopes.discard(None)
+        self._framework_continuation_rejected = False
+        self._framework_archive_confirmation = self._framework_fingerprint(actual)
+        return {"write_attempt_id": intent["write_attempt_id"], "target_month": month,
+                "actual_write_confirmed": True}
 
     @service_operation()
     def continue_framework_evidence_archive(self, compiled_runtime_evidence) -> dict[str, Any] | None:
         """Verify an intact historical prefix before normal post-restart archival."""
-        with self._preservation_lock:
+        with self._framework_journal_guard(), self._preservation_lock:
             try:
                 result = self._continue_framework_evidence_archive(compiled_runtime_evidence)
             except BaseException:
@@ -1945,6 +2067,11 @@ class PersistentStorageManager:
         with self._preservation_lock:
             if None in self._unfinished_archive_scopes:
                 raise RuntimeError("Framework archive requires authorized interrupted-write recovery")
+            records = self._framework_journal_owner.read_framework_write_records()
+            completed = {r["write_attempt_id"] for r in records if r["kind"] == "completion"}
+            if any(r["kind"] == "intent" and r.get("storage_root") == str(self._storage_root.resolve())
+                   and r["write_attempt_id"] not in completed for r in records):
+                self._recover_monthly_write(self._pending_framework_write(), allow_incomplete=False)
             expected = {name: [_to_plain_data(item) for item in compiled_runtime_evidence[name]]
                         for name in ("runtime_evidence", "ingest_audit")}
             historical, partitions = self._read_framework_archive_history()
@@ -1986,7 +2113,7 @@ class PersistentStorageManager:
             if any(historical[name] != expected[name] for name in expected):
                 self._write_framework_evidence_archive(compiled_runtime_evidence)
             else:
-                self._framework_archive_confirmation = historical
+                self._framework_archive_confirmation = self._framework_fingerprint(historical)
             confirmation = self.get_framework_preservation_confirmation()
             if confirmation is None or any(confirmation[name] != expected[name] for name in expected):
                 self._framework_archive_confirmation = None
@@ -2003,7 +2130,7 @@ class PersistentStorageManager:
                 actual, _ = self._read_framework_archive_history()
             except (OSError, ValueError, KeyError, TypeError):
                 return None
-            return deepcopy(actual) if actual == expected else None
+            return deepcopy(actual) if self._framework_fingerprint(actual) == expected else None
 
     @staticmethod
     def _read_archive_products(directory: Path) -> dict[str, Any]:
@@ -2105,7 +2232,16 @@ class PersistentStorageManager:
                     "artifact_refetch_performed": False}
         intake = interface.ingestor
         if scope is None:
-            compiled = intake.compile_framework_runtime_evidence()
+            identity = command.payload["obligation"].get("write_attempt_id")
+            intent = self._pending_framework_write(identity)
+            if identity is None and intent["target_month"] != datetime.fromtimestamp(time(), timezone.utc).strftime("%Y-%m"):
+                raise RuntimeError("Prior-month recovery requires its explicit durable write-attempt identity")
+            attempt["actions"].append("identified_monthly_write_recovery_attempted")
+            confirmed = self._recover_monthly_write(intent, allow_incomplete=True)
+            # New recovery/authorization evidence belongs to actual write-time UTC month.
+            self._write_framework_evidence_archive(intake.compile_framework_runtime_evidence())
+            attempt["actions"].append("archive_write_confirmed")
+            return confirmed
         else:
             if intake.session_id != scope or intake._journal_failed:
                 raise ValueError("Complete trustworthy compilation for this Session is unavailable")
@@ -2137,10 +2273,8 @@ class PersistentStorageManager:
                     if candidate.get("collection_started"):
                         raise RuntimeError("Collection-started partial archive cannot be reconstructed")
                     partial_summary = candidate
-        paths = (self._write_framework_evidence_archive(compiled, authorized_recovery=True) if scope is None
-                 else self._write_session_evidence_archive(scope, compiled, authorized_recovery=True))
-        actual = (self._read_framework_archive_history()[0] if scope is None
-                  else self._read_archive_products(paths["runtime_evidence"].parent))
+        paths = self._write_session_evidence_archive(scope, compiled, authorized_recovery=True)
+        actual = self._read_archive_products(paths["runtime_evidence"].parent)
         expected = {name: [_to_plain_data(item) for item in compiled[name]]
                     for name in ("runtime_evidence", "ingest_audit")}
         expected["compilation_summary"] = {"session_id": scope,

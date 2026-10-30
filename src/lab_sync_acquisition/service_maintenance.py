@@ -1466,6 +1466,8 @@ class ServiceMaintenanceInterface:
                         action = self.service._recover_artifact_transfer
                     else:
                         raise ValueError("Recovery action does not belong to StorageManager")
+                elif self.participant.component_type == "ingestor" and command.command_type == "dispose_temporary_evidence":
+                    action = self.service._dispose_temporary_evidence
                 elif self.participant.component_type == "acquisition_node":
                     if command.command_type == "preserve_scientific_artifact":
                         action = self.service._preserve_scientific_artifact

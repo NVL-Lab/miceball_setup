@@ -1324,7 +1324,7 @@ guarantee remain deferred. M014/W034 retain completed Slice 27 scope and status.
 - UnresolvedCommandOutcome: Stores inspectable plain-data evidence for one expected target whose command result was absent from the issuer-defined result window.
 - GroupCommandOutcome: Stores the issuer-owned aggregate outcome, individual results, and unresolved target evidence for one group command intent.
 - RuntimeCommandMessage: Stores one immutable plain-data command intent with explicit source, target, Session, command identity, type, and payload, allowing Session-independent check_stop_readiness and prepare_stop alongside existing administrative commands.
-- SERVICE_RECOVERY_COMMAND_TYPES: Lists the five concrete owner-specific administrative command vocabulary values accepted by the existing message envelope and NATS routes, without a new message schema or universal recovery command.
+- SERVICE_RECOVERY_COMMAND_TYPES: Lists concrete owner-specific administrative commands, including separately authorized temporary-evidence disposal, accepted by the existing message envelope and NATS routes, without a new message schema or universal recovery command.
 - RuntimeCommandResultMessage: Stores one immutable plain-data command result and validates its shared status vocabulary.
 - RuntimeEvidenceMessage: Stores one immutable plain-data evidence message with real Session identity or framework session_id=None plus producer-supplied persistence intent without interpreting meaning.
 - RuntimeTelemetryMessage: Stores one immutable plain-data transient telemetry message without making it authoritative evidence.
@@ -1866,7 +1866,12 @@ the historical FAILED-only expectations in the preceding Alternative B report.
 - InMemoryIngestor.continue_framework_evidence_archive(): Verifies recovered framework compilation against the current durable journal and delegates ordinary historical-prefix continuation to its paired StorageManager before release restoration.
 - InMemoryIngestor.await_durable_runtime_evidence(evidence, timeout_s): Boundedly observes exact local journal-backed acceptance using futures, without polling, retrying, or equating JetStream publication with acceptance.
 - InMemoryIngestor.framework_preservation_guard(storage_manager, *, verify_journal=False): Holds framework intake and StorageManager preservation steady while checking current persistent-message/all-audit coverage, optionally verifying the physical framework journal before producer-copy retirement.
-- InMemoryIngestor._verify_framework_journal(): Checks the physical framework journal against retained acceptance and audit without rewriting journal or archive contents.
+- InMemoryIngestor._verify_framework_journal(): Checks the physical framework journal against retained acceptance, audit and typed monthly-write records without rewriting journal or archive contents.
+- InMemoryIngestor.framework_journal_guard(): Holds existing paired intake locks while verifying the physical framework journal for operational write proof.
+- InMemoryIngestor.read_framework_write_records(): Returns detached, verified typed monthly-write intent/completion records outside evidence and intake-audit compilation.
+- InMemoryIngestor.accept_framework_write_record(record): Validates and durably accepts a typed intent or exact correlated completion through the existing framework journal, with idempotent exact retries.
+- InMemoryIngestor._validate_framework_write_record(records, record): Validates typed write-proof identities, boundaries, product fingerprints and unique intent/completion relationships.
+- InMemoryIngestor._dispose_temporary_evidence(command, authorization, attempt): Disposes only an exactly identified corrupt inactive Session journal under explicit permanent-loss authorization, durable audit prerequisites and existing owner/root guards.
 - InMemoryIngestor.maintenance_blockers(ingestor, storage_manager): Reports unresolved journal integrity or incompletely preserved Session intake without deciding lifecycle or inferring dependencies.
 - InMemoryIngestor.prepare_session(session_id): Rejects durably closed or uncertain Session identities before creating/reconstructing the intended recovery journal and confirming intake preparation.
 - InMemoryIngestor.abort_session_initialization(session_id): Disables prepared intake while preserving durable journal entries and accepted evidence, clearing empty preparation bindings without deleting files.
@@ -2189,7 +2194,7 @@ recovery is introduced. Phase 16 and M015 remain open.
 - PersistentStorageManager._sync_artifact_handoff_directory(path): Confirms supported directory durability after handoff publication or identical retry.
 - PersistentStorageManager._read_artifact_collection_handoff_contents(session_id, path): Reads and validates handoff JSON while refusing duplicate fields instead of silently selecting conflicting values.
 - PersistentStorageManager.get_session_preservation_confirmation(session_id): Canonically compares current archive products, including the retained complete compilation summary, and final Session Record with successful write inputs, returning detached confirmation including the summary or None; the snapshot alone does not guard commitment.
-- PersistentStorageManager._write_record_contents: Writes serialized Session Record or Stage A summary contents with flush/fsync and supported directory durability, without creating lifecycle evidence.
+- PersistentStorageManager._write_record_contents(path, serialized, *, newline=None): Writes serialized owner products with flush/fsync and directory durability, supporting explicit LF monthly serialization without changing existing Session newline behavior.
 - PersistentStorageManager._read_archive_products: Reads the existing evidence/audit/summary products for exact current-write confirmation, without interpreting evidence meaning.
 - PersistentStorageManager._framework_summary(evidence, audit): Builds the existing exact framework product counts and identities for partition or cumulative coverage.
 - PersistentStorageManager._read_framework_archive_history(*, excluded_target=None): Validates retained monthly products, offsets, evidence uniqueness and audit coverage, including read-only shared-layout prefixes, returning cumulative confirmation inputs without rewriting history.
@@ -2200,10 +2205,16 @@ recovery is introduced. Phase 16 and M015 remain open.
 - PersistentStorageManager._recover_artifact_transfer: Makes one authorized fresh complete transfer from the original failed collection and authoritative handoff through existing destination/source/verification mechanisms, retaining normal global collection evidence.
 - PersistentStorageManager.session_preservation_guard(session_id): Synchronous context manager yielding current confirmation while holding the archive/final-record write lock through the caller's release commit; callers must not await or acquire a new Ingestor intake lock while holding it.
 - PersistentStorageManager.write_framework_evidence_archive(compiled_runtime_evidence): Enforces framework write safety for every ordinary caller before writing and flushing/fsyncing existing products, without granting repair authority.
-- PersistentStorageManager._write_framework_evidence_archive(compiled_runtime_evidence, *, authorized_recovery=False): Appends unarchived suffixes to the administrative UTC write-month partition with exact readback, allowing only existing authorized same-month interrupted-target repair and never rewriting earlier history.
+- PersistentStorageManager._write_framework_evidence_archive(compiled_runtime_evidence): Appends journal-confirmed suffixes to the administrative UTC write-month partition between durable typed intent and completion, with exact product fingerprints and readback.
+- PersistentStorageManager._framework_journal_guard(): Obtains the paired Ingestor journal guard before storage locking for monthly-write proof.
+- PersistentStorageManager._framework_fingerprint(value): Computes a SHA-256 commitment to exact product bytes or canonical structured readback, avoiding a redundant retained full compilation cache.
+- PersistentStorageManager._framework_product_texts(products): Serializes reconstructable monthly evidence, intake audit and summary products with explicit LF line endings.
+- PersistentStorageManager._complete_framework_write(intent): Verifies exact product fingerprints and directory durability before requesting durable correlated completion.
+- PersistentStorageManager._pending_framework_write(identity=None): Selects one uniquely identified incomplete durable write for this StorageManager/root, refusing completed or ambiguous attempts.
+- PersistentStorageManager._recover_monthly_write(intent, *, allow_incomplete): Reconstructs and verifies an identified write against journal boundaries and target bytes before authorized partial recovery or complete-but-unconfirmed reconciliation.
 - PersistentStorageManager._continue_framework_evidence_archive(compiled_runtime_evidence): Validates the historical prefix under the storage lock before continuation; the public entry point retains rejection and clears confirmation on failure.
-- PersistentStorageManager.continue_framework_evidence_archive(compiled_runtime_evidence): Verifies intact historical evidence/audit prefixes and summary consistency before ordinary continuation, returning only exact current readback without invoking interrupted-write repair.
-- PersistentStorageManager.get_framework_preservation_confirmation(): Compares cumulative retained monthly/archive products with the exact successful compilation, without requiring a Session Record or accepting missing, stale, duplicate or partial history.
+- PersistentStorageManager.continue_framework_evidence_archive(compiled_runtime_evidence): Verifies intact historical evidence/audit prefixes and summary consistency before ordinary continuation, reconciling only exact complete-but-unconfirmed writes before returning current readback.
+- PersistentStorageManager.get_framework_preservation_confirmation(): Compares cumulative retained monthly/archive products with a compact commitment to the exact successful compilation, without requiring a Session Record or accepting missing, stale, duplicate or partial history.
 - PersistentStorageManager.framework_preservation_guard(*, require_closeout=False): Holds the existing storage lock through a synchronous preservation check and retirement commit, optionally requiring exact final Ingestor evidence/all-audit coverage retained before its retirement; archive rewrites do not replace that requirement.
 - PersistentStorageManager._retain_framework_closeout_compilation(compilation): Retains detached final Ingestor coverage within the existing confirmation mechanism without writing new archive products or interpreting evidence.
 - PersistentStorageManager.maintenance_blockers(ingestor, storage_manager): Reports failed persistence or unpreserved owned collection evidence, while active operations are separately tracked and future collections are not blockers.
@@ -2829,3 +2840,7 @@ automatic. Kill integration and overall closeout validation remain deferred.
 - startDeviceValidation: Creates only a transient browser-local device activity or honest non-started presentation, separate from scientific execution records.
 - stopDeviceValidation: Clears device activity and retains transient manual/deadline feedback without invoking scientific or lifecycle Stop handling.
 - tickDeviceValidation: Advances simulated elapsed/update counters and ends activity at the captured configured maximum.
+
+## tests/test_service_disposition.py
+
+- ServiceDispositionTests: Exercises authorized terminal loss, refusal and uncertain audit paths, duplicate/pending-publication retention, typed monthly proof, targeted fresh-owner recovery, immutable completed history and administrator command routing through public owners.

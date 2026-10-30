@@ -3428,6 +3428,20 @@ complete and independently validated/audited in W070B:
   authorized repair is limited to identified same-month interrupted targets.
   Repair/reassignment of an older or unidentified interrupted partition is not
   implemented. Missing clock information retains journaled evidence for safe retry.
+- **Interrupted monthly-write proof (Decision 438, resolved architecturally):**
+  StorageManager must obtain durable Ingestor acceptance of a typed intent before
+  the write and a correlated completion after exact readback/durability confirmation.
+  The existing framework journal carries target, prior/intended boundaries,
+  fingerprints and reconstruction references outside evidence/intake-audit
+  compilation. Fresh-owner recovery requires trustworthy intent and unambiguous
+  available inputs; authoritative completion or conflicting finalized state
+  prohibits modification. Intent, month or damage alone is not repair authority.
+  Preserve W071 complete-but-unconfirmed reconciliation and completed historical
+  partitions; refuse uncertain targets without mutation. This resolves Package 2's
+  proof-authority blocker; implementation and validation remain outstanding.
+  See [Decision 438](architecture_decisions.md#decision-438-interrupted-monthly-write-recovery-requires-durable-ingestor-journal-proof).
+  Q024 remains OPEN; Package 1 stays complete, Decision 435 deferred and Decision
+  437 exclusions unchanged.
 - **Historical monthly retention (Decision 437, resolved architecturally):** Keep
   existing monthly partitioning. Never automatically delete old historical journal
   files. Operators own archival/deletion decisions; age, including more than two

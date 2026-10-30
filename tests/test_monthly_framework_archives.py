@@ -183,7 +183,7 @@ class MonthlyFrameworkArchiveTests(unittest.TestCase):
         self.now.return_value = self.stamp(2026, 2)
         with self.assertRaises(RuntimeError):
             self.archive()
-        with self.assertRaises(OSError):
+        with self.assertRaises((OSError, RuntimeError)):
             self.restart()
         self.assertEqual(prior, self.snapshot(december))
         self.assertFalse((december.parent / "2026-02").exists())
@@ -192,16 +192,12 @@ class MonthlyFrameworkArchiveTests(unittest.TestCase):
 
     def test_complete_unconfirmed_write_is_reconciled_before_new_month_append(self):
         self.accept("once")
-        original = __import__("os").fsync
-        calls = []
-
-        def fail_last(descriptor):
-            calls.append(descriptor)
-            if len(calls) == 3:
-                raise OSError("confirmation lost after summary write")
-            return original(descriptor)
-
-        with patch("lab_sync_acquisition.storage.os.fsync", fail_last), self.assertRaises(OSError):
+        original = self.intake.accept_framework_write_record
+        def fail_completion(record):
+            if record["kind"] == "completion":
+                raise OSError("completion acceptance unavailable after product verification")
+            return original(record)
+        with patch.object(self.intake, "accept_framework_write_record", fail_completion), self.assertRaises(OSError):
             self.archive()
         self.assertIsNone(self.storage.get_framework_preservation_confirmation())
         directory = self.root / "storage/framework/evidence/2025-12"
@@ -314,7 +310,7 @@ class MonthlyFrameworkArchiveTests(unittest.TestCase):
         self.now.return_value = self.stamp(2026, 1)
         with self.assertRaises(RuntimeError):
             self.archive()
-        with self.assertRaises(OSError):
+        with self.assertRaises((OSError, RuntimeError)):
             self.restart()
         self.assertFalse((self.root / "storage/framework/evidence/2026-01").exists())
 

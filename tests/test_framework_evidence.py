@@ -18,7 +18,7 @@ class FrameworkEvidenceTests(unittest.TestCase):
         self.root = Path(self.temporary.name)
         self.journal = self.root / "intake" / "framework.jsonl"
         self.storage = PersistentStorageManager(self.root)
-        self.ingestor = InMemoryIngestor(framework_recovery_journal_path=self.journal)
+        self.ingestor = InMemoryIngestor(self.storage, framework_recovery_journal_path=self.journal)
 
     def message(self, identity="evidence-1", persistent=True):
         return RuntimeEvidenceMessage(identity, None, "service_maintenance_evidence", "controller", {"value": 1}, persistent)

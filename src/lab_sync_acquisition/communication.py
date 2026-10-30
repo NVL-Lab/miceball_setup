@@ -230,7 +230,7 @@ def parse_runtime_subject(subject: str) -> dict[str, str | None]:
 
 SERVICE_RECOVERY_COMMAND_TYPES = frozenset({
     "recover_archive_write", "recover_session_record_write", "recover_artifact_transfer",
-    "preserve_scientific_artifact", "cleanup_device_resources",
+    "preserve_scientific_artifact", "cleanup_device_resources", "dispose_temporary_evidence",
 })
 
 

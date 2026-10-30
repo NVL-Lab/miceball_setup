@@ -103,16 +103,17 @@ class InMemoryIngestor:
         self._journal_failed = False
         self._accepted_evidence_content: dict[str, str] = {}
         self._durable_evidence_waiters = {}
+        self._framework_write_records = []
         self._accepted_runtime_evidence: tuple[RuntimeEvidenceMessage, ...] = ()
         self._runtime_evidence_audit: tuple[RuntimeEvidenceAuditRecord, ...] = ()
         if evidence_scope == "framework" and self._recovery_journal_path is not None:
             self._recovery_journal_path.parent.mkdir(parents=True, exist_ok=True)
+        if framework_recovery_journal_path is not None:
+            self.prepare_framework_evidence(framework_recovery_journal_path)
         with self._session_admission_guard():
             if session_id is not None:
                 self._require_open_session(session_id)
             self._initialize_recovery_journal()
-        if framework_recovery_journal_path is not None:
-            self.prepare_framework_evidence(framework_recovery_journal_path)
 
     @service_operation(new_work=True)
     def prepare_framework_evidence(self, recovery_journal_path: str | Path) -> None:
@@ -124,6 +125,8 @@ class InMemoryIngestor:
                 self._storage_manager, component_id=self._component_id,
                 recovery_journal_path=recovery_journal_path, evidence_scope="framework",
             )
+            if self._storage_manager is not None:
+                self._storage_manager._framework_journal_owner = self
 
     def compile_framework_runtime_evidence(self) -> dict[str, tuple]:
         """Compile persistent framework messages and all their intake audit records."""
@@ -153,11 +156,18 @@ class InMemoryIngestor:
         with intake._intake_lock:
             if intake._journal_failed or intake._recovery_journal_path is None:
                 raise RuntimeError("Framework journal integrity is unconfirmed")
-            evidence, audits = {}, []
+            evidence, audits, writes = {}, [], []
             with intake._recovery_journal_path.open("rb") as journal:
                 before = os.fstat(journal.fileno())
                 for line in journal:
                     entry = json.loads(line)
+                    if "framework_archive_write" in entry:
+                        if set(entry) != {"framework_archive_write"}:
+                            raise ValueError("Operational write proof cannot contain compiled evidence")
+                        record = entry["framework_archive_write"]
+                        self._validate_framework_write_record(writes, record)
+                        writes.append(record)
+                        continue
                     audits.append(entry["ingest_audit"])
                     if entry["runtime_evidence"] is not None:
                         message = RuntimeEvidenceMessage.from_dict(entry["runtime_evidence"])
@@ -171,13 +181,129 @@ class InMemoryIngestor:
                         raise ValueError("Framework journal acceptance lacks evidence")
                 after = os.fstat(journal.fileno())
                 current = intake._recovery_journal_path.stat()
-            if (list(evidence.items()) != list(intake._accepted_evidence_content.items())
+            if (writes != intake._framework_write_records
+                    or list(evidence.items()) != list(intake._accepted_evidence_content.items())
                     or json.dumps(audits, sort_keys=True) != json.dumps(
                         [item.to_dict() for item in intake._runtime_evidence_audit], sort_keys=True)
                     or any(getattr(before, name) != getattr(after, name)
                            or getattr(before, name) != getattr(current, name)
                            for name in ("st_dev", "st_ino", "st_size", "st_mtime_ns"))):
                 raise RuntimeError("Recovered framework compilation differs from current durable journal")
+
+    def _dispose_temporary_evidence(self, command, authorization, attempt):
+        """Discard an exactly identified corrupt inactive Session journal after durable loss authorization."""
+        scope = command.payload["obligation"]
+        identity, expected = scope.get("session_id"), scope.get("journal_sha256")
+        self._validate_session_identity(identity)
+        if (set(scope) != {"session_id", "journal_sha256"}
+                or not isinstance(expected, str) or len(expected) != 64
+                or authorization.payload["details"].get("permanent_loss_acknowledged") is not True):
+            raise ValueError("Exact temporary journal identity and explicit permanent-loss acknowledgment are required")
+        if self._session_id is not None or self._recovery_journal_root is None:
+            raise RuntimeError("Disposal requires an inactive Ingestor and configured Session journal root")
+        path = self._recovery_journal_root / f"session_{identity}.jsonl"
+        with self.framework_journal_guard(), self._session_admission_guard(), self.framework_preservation_guard(self._storage_manager):
+            if path.is_symlink() or path.stat().st_nlink != 1:
+                raise RuntimeError("Aliased temporary evidence cannot be disposed")
+            before = path.stat()
+            data = path.read_bytes()
+            if hashlib.sha256(data).hexdigest() != expected:
+                raise ValueError("Temporary evidence differs from the exact authorized content")
+            corrupt = False
+            seen = {}
+            for line in data.splitlines(keepends=True):
+                if not line.endswith(b"\n"):
+                    # An interrupted final append is not proof of permanent loss.
+                    raise ValueError("An interrupted journal tail is not terminal-disposal proof")
+                try:
+                    item = json.loads(line)
+                    if "ingestor_checkpoint" in item:
+                        raise RuntimeError("Finality-bearing journals require existing closeout recovery")
+                    record = RuntimeEvidenceMessage.from_dict(item)
+                    if record.session_id != identity:
+                        raise RuntimeError("Journal evidence identity is inconsistent")
+                    content = self._evidence_content(record)
+                    if record.evidence_id in seen and seen[record.evidence_id] != content:
+                        corrupt = True
+                    seen[record.evidence_id] = content
+                except (ValueError, TypeError, KeyError, UnicodeError):
+                    corrupt = True
+            if not corrupt:
+                raise ValueError("Valid recoverable evidence cannot be terminally disposed")
+            # Current archival and durable acceptance cover the exact authorization
+            # and attempt before the destructive action, not just publication.
+            self._verify_framework_journal()
+            current = path.stat()
+            if any(getattr(before, k) != getattr(current, k) for k in ("st_dev", "st_ino", "st_size", "st_mtime_ns")):
+                raise RuntimeError("Temporary evidence changed before disposition")
+            attempt["actions"].append("temporary_evidence_disposal_attempted")
+            path.unlink()
+            self._sync_closed_session_directory(path.parent)
+            attempt["actions"].append("temporary_evidence_disposed")
+            return {"disposition": "disposed", "session_id": identity, "journal_sha256": expected,
+                    "permanent_loss_acknowledged": True, "preservation_succeeded": False,
+                    "known_loss": "Unrecoverable temporary journal content was intentionally discarded"}
+
+    @staticmethod
+    def _validate_framework_write_record(records, record):
+        if (not isinstance(record, dict) or record.get("kind") not in {"intent", "completion"}
+                or any(not isinstance(record.get(k), str) or not record[k]
+                       for k in ("write_attempt_id", "storage_id"))):
+            raise ValueError("Invalid framework write proof")
+        matches = [r for r in records if r["write_attempt_id"] == record["write_attempt_id"]]
+        if record["kind"] == "intent":
+            fields = {"kind", "write_attempt_id", "storage_id", "storage_root", "target_month",
+                      "evidence_start", "evidence_end", "audit_start", "audit_end", "prior_fingerprint",
+                      "evidence_ids", "audit_fingerprint", "products", "before"}
+            products = {"runtime_evidence.jsonl", "ingest_audit.jsonl", "compilation_summary.json"}
+            bounds = [record.get(k) for k in ("evidence_start", "evidence_end", "audit_start", "audit_end")]
+            digest = lambda value: isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value) is not None
+            if (matches or set(record) != fields
+                    or any(type(n) is not int or n < 0 for n in bounds)
+                    or bounds[0] > bounds[1] or bounds[2] > bounds[3]
+                    or not isinstance(record["storage_root"], str) or not Path(record["storage_root"]).is_absolute()
+                    or not isinstance(record["target_month"], str) or not re.fullmatch(r"[0-9]{4}-[0-9]{2}", record["target_month"])
+                    or not isinstance(record["evidence_ids"], list)
+                    or any(not isinstance(i, str) or not i for i in record["evidence_ids"])
+                    or len(set(record["evidence_ids"])) != bounds[1] or len(record["evidence_ids"]) != bounds[1]
+                    or not digest(record["prior_fingerprint"]) or not digest(record["audit_fingerprint"])
+                    or not isinstance(record["products"], dict) or set(record["products"]) != products
+                    or not all(digest(v) for v in record["products"].values())
+                    or not isinstance(record["before"], dict) or set(record["before"]) != products
+                    or any(v is not None and not digest(v) for v in record["before"].values())):
+                raise ValueError("Conflicting or incomplete framework write intent")
+        elif (len(matches) != 1 or matches[0]["kind"] != "intent"
+                or record != {"kind": "completion", "write_attempt_id": record["write_attempt_id"],
+                    "storage_id": matches[0]["storage_id"], "products": matches[0]["products"]}):
+            raise ValueError("Completion does not match its unique write intent")
+
+    @contextmanager
+    def framework_journal_guard(self):
+        """Hold the existing intake locks and verify the physical framework journal."""
+        if self._framework_ingestor is None:
+            raise RuntimeError("Framework journal is not configured")
+        with self._intake_lock, self._framework_ingestor._intake_lock:
+            self._verify_framework_journal()
+            yield
+
+    def read_framework_write_records(self):
+        """Read verified operational write proof outside evidence/audit compilation."""
+        with self.framework_journal_guard():
+            return deepcopy(self._framework_ingestor._framework_write_records)
+
+    @service_operation()
+    def accept_framework_write_record(self, record):
+        """Durably accept one typed StorageManager intent/completion in the existing journal."""
+        with self.framework_journal_guard():
+            intake = self._framework_ingestor
+            record = deepcopy(record)
+            if record in intake._framework_write_records:
+                return deepcopy(record)
+            self._validate_framework_write_record(intake._framework_write_records, record)
+            intake._append_runtime_evidence(json.dumps({"framework_archive_write": record}, allow_nan=False))
+            intake._framework_write_records.append(record)
+            self._verify_framework_journal()
+            return deepcopy(record)
 
     async def await_durable_runtime_evidence(self, evidence: RuntimeEvidenceMessage, timeout_s: float) -> bool:
         """Boundedly observe exact journal-backed acceptance without polling or transport acknowledgments."""
@@ -381,6 +507,19 @@ class InMemoryIngestor:
 
     def _require_open_session(self, session_id: str) -> None:
         self._validate_session_identity(session_id)
+        if self._framework_ingestor is not None:
+            self._verify_framework_journal()
+            for message in self._framework_ingestor.accepted_runtime_evidence:
+                if (message.source_id == self._component_id
+                        and message.evidence_type == "service_recovery_evidence"
+                        and message.payload.get("operation") == "dispose_temporary_evidence"
+                        and message.payload.get("obligation", {}).get("session_id") == session_id
+                        and (message.payload.get("actual_outcome") == "succeeded"
+                             or (message.payload.get("checkpoint") == "attempt_recorded"
+                                 and self._recovery_journal_root is not None
+                                 and not (self._recovery_journal_root / f"session_{session_id}.jsonl").exists()))):
+                    raise RuntimeError("Session evidence was disposed or its disposition remains unresolved")
+
         if self._closed_sessions_path is not None and not self._session_admission_depth:
             raise RuntimeError("Session admission requires root exclusion")
         if session_id in self._read_closed_sessions():
@@ -421,7 +560,6 @@ class InMemoryIngestor:
     @property
     def session_id(self) -> str | None:
         """Known Session identity for journal-backed runtime evidence intake."""
-
         return self._session_id
 
     @service_operation(new_work=True)
@@ -1001,6 +1139,7 @@ class InMemoryIngestor:
     def _restore_runtime_evidence(self) -> None:
         restored: dict[str, tuple[str, RuntimeEvidenceMessage]] = {}
         framework_audit = []
+        writes = []
         finality = None
         kill_required = False
         with self._recovery_journal_path.open("r+b") as journal:
@@ -1031,6 +1170,15 @@ class InMemoryIngestor:
                     journal.flush()
                     os.fsync(journal.fileno())
                     break
+                if self._evidence_scope == "framework" and "framework_archive_write" in data:
+                    if set(data) != {"framework_archive_write"}:
+                        raise ValueError("Operational write proof cannot contain compiled evidence")
+                    record = data["framework_archive_write"]
+                    self._validate_framework_write_record(writes, record)
+                    writes.append(record)
+                    if not terminated:
+                        journal.write(b"\n"); journal.flush(); os.fsync(journal.fileno())
+                    continue
                 if self._evidence_scope == "session" and "ingestor_checkpoint" in data:
                     checkpoint = data["ingestor_checkpoint"]
                     if not isinstance(checkpoint, dict) or checkpoint.get("session_id") != self._session_id:
@@ -1097,6 +1245,7 @@ class InMemoryIngestor:
             # Do not expose any staged state unless the entire journal is valid.
             journal.flush()
             os.fsync(journal.fileno())
+        self._framework_write_records = writes
         self._accepted_runtime_evidence = tuple(item[1] for item in restored.values())
         self._accepted_evidence_content = {key: value[0] for key, value in restored.items()}
         self._finalized_intake = finality

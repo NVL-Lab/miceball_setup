@@ -44,7 +44,12 @@ class AuthorizedRecoveryTests(unittest.IsolatedAsyncioTestCase):
     def interrupt_archive(self, *, framework=True):
         self.ingestor.receive_runtime_evidence(RuntimeEvidenceMessage("original", None if framework else "session-a",
             "warning", "source", {}, True))
-        with patch.object(Path, "open", side_effect=OSError("archive interrupted")):
+        original = Path.open
+        def interrupt(path, mode="r", *args, **kwargs):
+            if "w" in mode and path.name in {"runtime_evidence.jsonl", "ingest_audit.jsonl", "compilation_summary.json"}:
+                raise OSError("archive interrupted")
+            return original(path, mode, *args, **kwargs)
+        with patch.object(Path, "open", interrupt):
             with self.assertRaises(OSError):
                 if framework:
                     self.storage.write_framework_evidence_archive(self.ingestor.compile_framework_runtime_evidence())
