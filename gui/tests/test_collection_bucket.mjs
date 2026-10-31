@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import * as storage from '../src/miceball_gui/static/storage-demo.mjs';
 import { escapeText } from '../src/miceball_gui/static/gui-presentation.js';
+import { formatCalendarDate } from '../src/miceball_gui/static/calendar-date.mjs';
 
 // Exercise the actual view's DOM event boundary without a browser dependency.
 const source = readFileSync(new URL('../src/miceball_gui/static/storage-view.js', import.meta.url), 'utf8').replace(/^import .*;\r?$/gm, '');
@@ -18,7 +19,7 @@ function bucketView() {
     createElement: () => ({setAttribute() {}, addEventListener() {}}),
     body: {append() {}}, addEventListener() {},
   };
-  runInNewContext(source, {...storage, document, esc:escapeText, servicesAdministrator:() => false});
+  runInNewContext(source, {...storage, document, formatCalendarDate, esc:escapeText, servicesAdministrator:() => false});
   const click = (dataset = {}, attribute = '') => {
     const button = {dataset, hasAttribute: name => name === attribute};
     listeners.get('click')({target:{closest:() => button}});

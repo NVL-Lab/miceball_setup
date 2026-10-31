@@ -2872,7 +2872,10 @@ automatic. Kill integration and overall closeout validation remain deferred.
 ## gui/src/miceball_gui/static/setup-usability.js
 
 - attachDateReadout(input): Adds a canonical YYYYMMDD readout beside a native calendar input without altering its ISO value or validation.
-- renderDrawer(): Places the independent read-only Experiment drawer toggle below Back to Session and groups existing participating-device values in the right-side panel.
+
+## gui/src/miceball_gui/static/experiment-parameter-drawer.js
+
+- createExperimentParameterDrawer(experiment, state): Creates the read-only drawer renderer used by Experiment lifecycle updates, retaining the user's visibility choice and grouping existing participating-device values below Back to Session.
 
 ## gui/tests/test_parameter_context.mjs
 

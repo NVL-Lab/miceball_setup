@@ -7,8 +7,10 @@ import { escapeText as escape, executionIdentity, navigate } from './gui-present
 import { confirmStop } from './stop-confirmation.mjs';
 import { executionContext } from './session-context.mjs';
 import { tickDeviceValidation, stopDeviceValidation } from './device-validation-demo.mjs';
+import { createExperimentParameterDrawer } from './experiment-parameter-drawer.js';
 
 const experimentPanel = document.querySelector('#panel-experiment');
+const renderParameters = createExperimentParameterDrawer(experimentPanel, state);
 const analysisPanel = document.querySelector('#panel-analysis');
 let validationTimer = null;
 
@@ -48,6 +50,9 @@ function renderExperiment() {
   const lastValidation = executionContext(state).lastDeviceValidation;
   if (lastValidation) experimentPanel.querySelector('#experiment-monitor-progress').insertAdjacentHTML('beforeend', `<p class="validation-ended" role="status">Device Validation for ${escape(lastValidation.deviceName)} ended: ${lastValidation.endedBy === 'maximum-duration' ? 'configured maximum duration reached' : 'manual Stop Validation'}. Browser-local only; physical cleanup remains unverified.</p>`);
   renderDeviceValidation();
+  // Restore the user's visibility choice after the validation visibility sweep,
+  // and refresh the read-only snapshot on every Experiment lifecycle render.
+  if (!executionContext(state).deviceValidation) renderParameters();
 }
 
 function renderDeviceValidation() {

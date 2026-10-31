@@ -2,6 +2,19 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createStorageDemo, visibleStorageSessions, selectCollection, selectDeletion, storageSelection, storageHistory, deletionReview } from '../src/miceball_gui/static/storage-demo.mjs';
 
+test('history searches displayed calendar dates, ISO dates and ordinary terms without changing records', () => {
+  const sessions = visibleStorageSessions(createStorageDemo(), 'Taylor Kim', false);
+  const before = JSON.stringify(sessions);
+  const ids = filters => storageHistory(sessions, filters).map(item => item.id);
+  assert.deepEqual(ids({query: '20261024'}), ['demo-pending', 'demo-incomplete']);
+  assert.deepEqual(ids({query: '2026-10-24'}), ids({query: '20261024'}));
+  assert.deepEqual(ids({query: '20261024', status: 'incomplete'}), ['demo-incomplete']);
+  assert.equal(ids({query: 'visual learning'}).length, 4);
+  assert.deepEqual(ids({query: 'demo-older'}), ['demo-older']);
+  assert.deepEqual(ids({query: 'no match'}), []);
+  assert.equal(JSON.stringify(sessions), before);
+});
+
 test('collection Add, Remove and pending selection are whole-Session and independent of deletion', () => {
   const model = createStorageDemo(), visible = visibleStorageSessions(model, 'Taylor Kim', false);
   const session = visible[0];

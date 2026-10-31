@@ -1,3 +1,5 @@
+import { formatCalendarDate } from './calendar-date.mjs';
+
 // Fictional, page-local readback examples. These are not framework records.
 export function createStorageDemo() {
   const session = (id, owner, status, completedAt, verified, experiments) => ({
@@ -43,7 +45,7 @@ export function storageHistory(sessions, filters = {}, now = new Date()) {
   const cutoff = now.getTime() - 30 * 86400000;
   const query = (filters.query || '').trim().toLowerCase();
   return sessions.filter(session => {
-    const searchable = [session.id, session.name, session.owner, session.project, session.animal, session.date, session.completedAt].join(' ').toLowerCase();
+    const searchable = [session.id, session.name, session.owner, session.project, session.animal, session.date, formatCalendarDate(session.date), session.completedAt].join(' ').toLowerCase();
     if (query && !searchable.includes(query)) return false;
     if (filters.status && session.status !== filters.status) return false;
     return filters.older || query || filters.status || session.status !== 'collected' || session.unresolved || !session.completedAt || Date.parse(session.completedAt) >= cutoff;
