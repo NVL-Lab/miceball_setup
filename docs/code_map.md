@@ -2860,3 +2860,20 @@ automatic. Kill integration and overall closeout validation remain deferred.
 ## tests/test_service_disposition.py
 
 - ServiceDispositionTests: Exercises authorized terminal loss, refusal and uncertain audit paths, duplicate/pending-publication retention, typed monthly proof, fresh-owner recovery and alias refusal, immutable completed history and administrator command routing through public owners.
+
+## gui/src/miceball_gui/static/experiment-parameters.mjs
+
+- activeParameterSnapshot(state): Returns detached existing active-Session prepared/attempt values for the relevant Experiment without creating configuration or reading Setup values.
+
+## gui/src/miceball_gui/static/calendar-date.mjs
+
+- formatCalendarDate(value): Presents ISO calendar-only dates as YYYYMMDD, retaining timestamp strings and underlying model values.
+
+## gui/src/miceball_gui/static/setup-usability.js
+
+- attachDateReadout(input): Adds a canonical YYYYMMDD readout beside a native calendar input without altering its ISO value or validation.
+- renderDrawer(): Places the independent read-only Experiment drawer toggle below Back to Session and groups existing participating-device values in the right-side panel.
+
+## gui/tests/test_parameter_context.mjs
+
+- Parameter-context regressions: Exercise existing Session working values, immutable executing snapshots, drawer read purity and calendar-date presentation without new parameter stores.

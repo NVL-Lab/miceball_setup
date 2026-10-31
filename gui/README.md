@@ -1,7 +1,7 @@
 # Miceball GUI
 
 This separately packaged browser interface is a demonstration with fictional
-Setup information, a Protocol Editor, and seven permanent sections. It runs entirely
+Setup information, a Protocol Editor, and six primary sections and contextual Parameters. It runs entirely
 in the browser. Launch Session and other operational-looking controls do not
 start or contact scientific framework services or execute scientific algorithms.
 
@@ -17,8 +17,8 @@ Then open <http://127.0.0.1:8000/>.
 
 ## Storage preview (Slice 7)
 
-Permanent navigation is Setup, Session, Parameters, Experiment, Analysis, Storage,
-Services. Storage has Collection, Delete originals and History workspaces. All
+Primary navigation is Setup, Session, Experiment, Analysis, Storage and Services;
+Parameters appears contextually from Session. Storage has Collection, Delete originals and History workspaces. All
 Session records shown there are labeled fictional browser-local fixtures; nothing
 is retrieved from the framework or persisted by Storage.
 
@@ -344,3 +344,40 @@ Session persistence are simulated by launch.
 
 Run the focused active-context checks with
 `node --test gui/tests/test_active_session.mjs` from the repository root.
+
+## Contextual Parameters and mouse-date correction
+
+Parameters is hidden in the sidebar by default. The existing Session View / Edit
+Parameters action reveals it and opens the selected Session operation. Return to
+Session or navigation to another main section hides the contextual entry without
+clearing working values; the existing immediate working-edit contract is unchanged.
+There is no Parameters editor or parameter store in Setup. Its other independent
+disclosures and Expand All / Collapse All remain.
+
+Experiment places Show Parameters directly below Back to Session. Its right-side
+read-only drawer reads the existing prepared active-Session configuration or fixed
+executing/executed attempt, filters fields by participating devices, and never
+creates defaults to fill missing information. Missing configuration is explained.
+The earlier empty drawer omitted prepared Session working values and depended on
+executed attempts or an unrelated Setup store; that binding/store was removed.
+
+Animal birth dates, Session calendar-date displays and saved-Session recording-date
+metadata use YYYYMMDD. ISO dates remain unchanged in underlying models. Native
+calendar inputs retain platform picker/validation behavior and show an adjacent
+canonical YYYYMMDD readout because their editable visual format is browser/OS
+controlled. Service events, completion timestamps and file/audit times are unchanged.
+
+This is browser-local presentation, not authoritative framework integration. No
+Controller, scientific execution, service/NATS contract or configuration authority
+changed. No critical alerts were added. Separate independent audit/closure has not
+been performed as part of this correction.
+
+Verification: 47 focused Node tests and 17 GUI shell tests passed. Browser checks
+in the Windows in-app browser covered hidden/revealed/contextual Parameters,
+Return to Session and navigation-away retention, a populated 432-second Baseline
+configuration with ORCA/Logitech filtering, executing snapshots, read-only controls,
+Show/Hide placement, Setup disclosures, animal-date reselection and birth-date
+readouts, both themes and a 900px viewport. Final preview console errors: none.
+Static app entry/dependency URLs remain identical to avoid duplicate shell
+initialization. A clean preview origin was used after development cache changes.
+Cross-browser/OS validation and separate independent audit remain outstanding.

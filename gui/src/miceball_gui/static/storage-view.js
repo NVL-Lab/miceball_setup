@@ -1,3 +1,4 @@
+import { formatCalendarDate } from './calendar-date.mjs';
 import { createStorageDemo, visibleStorageSessions, selectCollection, selectDeletion, storageSelection, storageHistory, deletionReview } from './storage-demo.mjs';
 import { escapeText as esc } from './gui-presentation.js';
 import { servicesAdministrator } from './services-view.js';
@@ -13,7 +14,7 @@ const sessions = () => visibleStorageSessions(model, document.querySelector('#ex
 const selection = kind => storageSelection(model, sessions(), kind);
 const button = (attribute, label, disabled = false) => `<button type="button" ${attribute} ${disabled ? 'disabled' : ''}>${label}</button>`;
 const status = session => `<span class="storage-status">${esc(session.status)} · fixture</span>`;
-const identity = session => `<strong>${esc(session.name)}</strong><small>${esc(session.id)} · ${esc(session.owner)} · ${esc(session.project)} · ${esc(session.animal)} · ${esc(session.date)}</small>`;
+const identity = session => `<strong>${esc(session.name)}</strong><small>${esc(session.id)} · ${esc(session.owner)} · ${esc(session.project)} · ${esc(session.animal)} · ${esc(formatCalendarDate(session.date))}</small>`;
 
 function sessionBrowser(deleting = false) {
   return sessions().map(session => {
@@ -38,7 +39,7 @@ function deletion() {
 
 function history() {
   const rows = storageHistory(sessions(), filters);
-  return `<section class="storage-card"><h3>Collection history</h3><p>Fictional readback only; live historical queries are unavailable. Default: all pending, active, failed/incomplete and unresolved entries; successful collections completed within 30 days. Older successes remain searchable.</p><div class="storage-filters"><label>Search Session, experimenter, project, animal or date<input data-history-query value="${esc(filters.query || '')}" type="search"></label><label>Collection status<select data-history-status><option value="">All statuses</option>${['pending','active','failed','incomplete','uncertain','collected'].map(value => `<option ${filters.status === value ? 'selected' : ''}>${value}</option>`).join('')}</select></label><label><input type="checkbox" data-history-older ${filters.older ? 'checked' : ''}> Include older successful collections</label></div>${rows.map(session => `<article class="storage-session">${identity(session)}${status(session)}<p>Collection completion: ${esc(session.completedAt || 'Unconfirmed')} · recording date: ${session.date}</p><p>Verification: ${session.verified ? 'verified (fixture)' : 'unconfirmed'} · durable preservation: ${session.verified ? 'confirmed in fictional fixture only' : 'unconfirmed'} · source deletion: unavailable${session.unresolved ? ' · unresolved preservation obligation (fixture)' : ''}</p></article>`).join('') || '<p>No matching fixture history. No live query was submitted.</p>'}</section>`;
+  return `<section class="storage-card"><h3>Collection history</h3><p>Fictional readback only; live historical queries are unavailable. Default: all pending, active, failed/incomplete and unresolved entries; successful collections completed within 30 days. Older successes remain searchable.</p><div class="storage-filters"><label>Search Session, experimenter, project, animal or date<input data-history-query value="${esc(filters.query || '')}" type="search"></label><label>Collection status<select data-history-status><option value="">All statuses</option>${['pending','active','failed','incomplete','uncertain','collected'].map(value => `<option ${filters.status === value ? 'selected' : ''}>${value}</option>`).join('')}</select></label><label><input type="checkbox" data-history-older ${filters.older ? 'checked' : ''}> Include older successful collections</label></div>${rows.map(session => `<article class="storage-session">${identity(session)}${status(session)}<p>Collection completion: ${esc(session.completedAt || 'Unconfirmed')} · recording date: ${esc(formatCalendarDate(session.date))}</p><p>Verification: ${session.verified ? 'verified (fixture)' : 'unconfirmed'} · durable preservation: ${session.verified ? 'confirmed in fictional fixture only' : 'unconfirmed'} · source deletion: unavailable${session.unresolved ? ' · unresolved preservation obligation (fixture)' : ''}</p></article>`).join('') || '<p>No matching fixture history. No live query was submitted.</p>'}</section>`;
 }
 
 function renderStorage() {

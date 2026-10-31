@@ -1,3 +1,4 @@
+import { formatCalendarDate } from './calendar-date.mjs';
 import { createAnimalCatalog, saveAnimalDemo } from './animal-demo.mjs';
 import { createNavigationMenu } from './navigation-menu.mjs';
 
@@ -125,7 +126,7 @@ function updateAnimalSummary(data) {
   document.querySelector("#animal-species").textContent = data.species || "Not provided";
   document.querySelector("#animal-strain").textContent = data.strain || "Not provided";
   document.querySelector("#animal-sex").textContent = data.sex || "Not recorded";
-  document.querySelector("#animal-dob").textContent = data.date_of_birth || "Not provided";
+  document.querySelector("#animal-dob").textContent = formatCalendarDate(data.date_of_birth) || "Not provided";
 }
 
 const demonstrationNotifications = [
@@ -231,6 +232,7 @@ function setAlertsPanelOpen(open, returnFocus = false) {
 
 function setSection(sectionId) {
   if (!sectionNames[sectionId]) return;
+  document.querySelector('.nav-item[data-section="parameters"]').hidden = sectionId !== 'parameters';
   if (!sidebar.classList.contains('is-pinned')) {
     navigationMenu.close();
   }
@@ -267,13 +269,15 @@ function setPinned(pinned) {
 }
 
 function focusAdjacentItem(currentIndex, key) {
-  const lastIndex = navItems.length - 1;
+  const items = navItems.filter(item => !item.hidden);
+  currentIndex = items.indexOf(navItems[currentIndex]);
+  const lastIndex = items.length - 1;
   const targetIndex = key === "Home" ? 0
     : key === "End" ? lastIndex
-    : key === "ArrowDown" ? (currentIndex + 1) % navItems.length
-    : key === "ArrowUp" ? (currentIndex - 1 + navItems.length) % navItems.length
+    : key === "ArrowDown" ? (currentIndex + 1) % items.length
+    : key === "ArrowUp" ? (currentIndex - 1 + items.length) % items.length
     : currentIndex;
-  navItems[targetIndex].focus();
+  items[targetIndex].focus();
 }
 
 navItems.forEach((item, index) => {

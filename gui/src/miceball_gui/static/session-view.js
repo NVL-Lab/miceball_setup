@@ -1,3 +1,4 @@
+import { formatCalendarDate } from './calendar-date.mjs';
 import { state } from './protocol-setup.js';
 import { sessionProgress, sessionStepView, actOnSessionStep } from './session-demo.mjs';
 import { experimentTemplates, loadExperimentTemplate, prepareExperimentRepeat, updateExperiment, experimentDeviceGroups, deviceExamples } from './experiment-demo.mjs';
@@ -81,7 +82,7 @@ function renderSession() {
   const step = steps.find(item => item.id === progress.selectedId);
   const identity = executionIdentity(state);
   const header = [
-    ['Session', identity.name], ['Date', identity.date],
+    ['Session', identity.name], ['Date', formatCalendarDate(identity.date)],
     ['Experimenter', identity.experimenter], ['Project', identity.project],
     ['Animal', identity.animal], ['Protocol', protocol?.name || 'None · Free Mode'], ['Session status', state.activeSession ? 'Active · browser simulation' : 'Preview · not launched'],
   ];

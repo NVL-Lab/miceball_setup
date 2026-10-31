@@ -83,6 +83,13 @@ class GuiShellTests(unittest.TestCase):
         selected = [item for item in self.parser.navigation if item.get("aria-current") == "page"]
         self.assertEqual([item["data-section"] for item in selected], ["setup"])
 
+    def test_parameters_entry_exists_but_is_hidden_until_contextual_use(self):
+        parameters = next(item for item in self.parser.navigation if item["data-section"] == "parameters")
+        self.assertIn("hidden", parameters)
+        self.assertEqual(parameters["aria-controls"], "panel-parameters")
+        self.assertTrue(all("hidden" not in item for item in self.parser.navigation
+                            if item["data-section"] != "parameters"))
+
     def test_sidebar_dimensions_and_pinned_workspace_behavior_are_explicit(self):
         self.assertIn("--sidebar-collapsed: 58px", self.css)
         self.assertIn("--sidebar-expanded: 205px", self.css)

@@ -939,3 +939,30 @@ framework shutdown. The future GUI should communicate this distinction clearly
 to administrators, avoiding the assumption that closing the interface
 automatically terminates the operational framework. Its presentation remains
 part of the proposed GUI design, not an implemented feature.
+
+## Contextual Parameters and mouse-date correction
+
+Parameters is hidden in the sidebar by default. The existing Session View / Edit
+Parameters action reveals it and opens the selected Session operation. Return to
+Session or navigation to another main section hides the contextual entry without
+clearing working values; the existing immediate working-edit contract is unchanged.
+There is no Parameters editor or parameter store in Setup. Its other independent
+disclosures and Expand All / Collapse All remain.
+
+Experiment places Show Parameters directly below Back to Session. Its right-side
+read-only drawer reads the existing prepared active-Session configuration or fixed
+executing/executed attempt, filters fields by participating devices, and never
+creates defaults to fill missing information. Missing configuration is explained.
+The earlier empty drawer omitted prepared Session working values and depended on
+executed attempts or an unrelated Setup store; that binding/store was removed.
+
+Animal birth dates, Session calendar-date displays and saved-Session recording-date
+metadata use YYYYMMDD. ISO dates remain unchanged in underlying models. Native
+calendar inputs retain platform picker/validation behavior and show an adjacent
+canonical YYYYMMDD readout because their editable visual format is browser/OS
+controlled. Service events, completion timestamps and file/audit times are unchanged.
+
+This is browser-local presentation, not authoritative framework integration. No
+Controller, scientific execution, service/NATS contract or configuration authority
+changed. No critical alerts were added. Separate independent audit/closure has not
+been performed as part of this correction.
