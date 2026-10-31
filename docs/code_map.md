@@ -61,7 +61,7 @@ general maintenance-history/memory retirement is not implemented by this closure
 - `selectCollection`: Adds or removes a visible whole Session from the collection bucket.
 - `selectDeletion`: Selects original scientific-file scope for one Experiment or all Experiments of a Session.
 - `storageSelection`: Resolves the current visible collection or deletion selection for review.
-- `storageHistory`: Filters fixture history by search, status and the completion-based 30-day default.
+- `storageHistory`: Filters fixture history by ordinary terms or canonical/ISO Session dates, status and the completion-based 30-day default without changing stored records.
 - `deletionReview`: Determines whether a deletion selection needs explicit loss acknowledgment before proceeding with its local preview.
 
 ## gui/src/miceball_gui/static/storage-view.js

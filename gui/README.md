@@ -352,12 +352,15 @@ Parameters action reveals it and opens the selected Session operation. Return to
 Session or navigation to another main section hides the contextual entry without
 clearing working values; the existing immediate working-edit contract is unchanged.
 There is no Parameters editor or parameter store in Setup. Its other independent
-disclosures and Expand All / Collapse All remain.
+disclosures and Expand All / Collapse All remain on one page. Multiple sections
+may stay open; collapsing them preserves values and validation state.
 
 Experiment places Show Parameters directly below Back to Session. Its right-side
 read-only drawer reads the existing prepared active-Session configuration or fixed
 executing/executed attempt, filters fields by participating devices, and never
 creates defaults to fill missing information. Missing configuration is explained.
+Experiment lifecycle updates preserve the drawer visibility choice, synchronize
+button text/`aria-expanded`, and refresh prepared/executing/executed source labels.
 The earlier empty drawer omitted prepared Session working values and depended on
 executed attempts or an unrelated Setup store; that binding/store was removed.
 
@@ -366,18 +369,24 @@ metadata use YYYYMMDD. ISO dates remain unchanged in underlying models. Native
 calendar inputs retain platform picker/validation behavior and show an adjacent
 canonical YYYYMMDD readout because their editable visual format is browser/OS
 controlled. Service events, completion timestamps and file/audit times are unchanged.
+Storage History searches accept both YYYYMMDD and ISO calendar dates without
+changing stored dates, ordinary search terms or filters.
 
 This is browser-local presentation, not authoritative framework integration. No
 Controller, scientific execution, service/NATS contract or configuration authority
-changed. No critical alerts were added. Separate independent audit/closure has not
-been performed as part of this correction.
+changed. No critical alerts or general severity classification were added. Session
+failure information is distinct from connection loss; disconnection, unreadiness
+or command failure alone does not prove a service crash. Protocol Editor Cancel
+and Copy to Edit worked in the tested environment; no Back/Exit control was added
+and the cross-machine editing report remains unreproduced.
 
-Verification: 47 focused Node tests and 17 GUI shell tests passed. Browser checks
-in the Windows in-app browser covered hidden/revealed/contextual Parameters,
-Return to Session and navigation-away retention, a populated 432-second Baseline
-configuration with ORCA/Logitech filtering, executing snapshots, read-only controls,
-Show/Hide placement, Setup disclosures, animal-date reselection and birth-date
-readouts, both themes and a 900px viewport. Final preview console errors: none.
+This usability slice is closed after owner visual approval and independent
+re-audit **PASS, no confirmed P0-P3 findings**, at implementation commit
+`d1718b4ccf81e627feea74ae274eafef7547b29b`. The
+[closure evidence and limitations](../docs/gui_design_notes.md#gui-usability-closure-evidence)
+distinguish implementation checks from independent audit, preserve both resolved
+findings, and record the Windows in-app-browser/static-demo validation boundary.
+Cross-browser/platform and exhaustive interleaving behavior remain unverified;
+this is not live framework/NATS integration or deployment certification.
 Static app entry/dependency URLs remain identical to avoid duplicate shell
 initialization. A clean preview origin was used after development cache changes.
-Cross-browser/OS validation and separate independent audit remain outstanding.

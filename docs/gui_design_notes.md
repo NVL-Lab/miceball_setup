@@ -947,12 +947,18 @@ Parameters action reveals it and opens the selected Session operation. Return to
 Session or navigation to another main section hides the contextual entry without
 clearing working values; the existing immediate working-edit contract is unchanged.
 There is no Parameters editor or parameter store in Setup. Its other independent
-disclosures and Expand All / Collapse All remain.
+disclosures and Expand All / Collapse All remain on one page; multiple sections
+can stay expanded, preserving configuration values and validation state.
+Parameters remains an internal tab; its contextual sidebar visibility qualifies
+the always-visible navigation descriptions above, without changing authority.
 
 Experiment places Show Parameters directly below Back to Session. Its right-side
 read-only drawer reads the existing prepared active-Session configuration or fixed
 executing/executed attempt, filters fields by participating devices, and never
 creates defaults to fill missing information. Missing configuration is explained.
+The existing Experiment rendering lifecycle refreshes drawer content and source
+labels during Stop/completion transitions while preserving the user's visibility
+choice, button text and `aria-expanded` state.
 The earlier empty drawer omitted prepared Session working values and depended on
 executed attempts or an unrelated Setup store; that binding/store was removed.
 
@@ -961,8 +967,49 @@ metadata use YYYYMMDD. ISO dates remain unchanged in underlying models. Native
 calendar inputs retain platform picker/validation behavior and show an adjacent
 canonical YYYYMMDD readout because their editable visual format is browser/OS
 controlled. Service events, completion timestamps and file/audit times are unchanged.
+Storage History accepts both displayed YYYYMMDD and existing ISO-date searches,
+retaining ordinary search/filter behavior and stored date values (Decision 431).
 
 This is browser-local presentation, not authoritative framework integration. No
 Controller, scientific execution, service/NATS contract or configuration authority
-changed. No critical alerts were added. Separate independent audit/closure has not
-been performed as part of this correction.
+changed. Investigation found that explicit Session failure information can
+distinguish confirmed Session failure from connection loss; disconnection,
+unreadiness or command failure alone does not establish a service crash. No
+general severity-classification system or critical-alert implementation was added.
+
+Existing Protocol Editor Cancel behavior was verified; no Back/Exit button was
+added. Copy to Edit worked in the tested environment. The reported cross-machine
+editing restriction was not reproduced, so no universal resolution is claimed.
+
+### GUI usability closure evidence
+
+**CLOSED within this browser-local usability scope** after owner visual approval
+and final independent re-audit PASS. This does not close wider GUI integration,
+deployment or framework milestones. Decisions 425-426 and 431 retain their
+ownership and packaging boundaries; no new architectural decision is recorded.
+
+- Initial independent audit of `3973cd5df6a7eeec1f42381b50276886b9164b17`:
+  **FAIL**, P2 canonical-date History search and P3 drawer visibility/stale source
+  label. Both received bounded corrections using the existing date helper and
+  Experiment rendering lifecycle.
+- Final independent re-audit of `d1718b4ccf81e627feea74ae274eafef7547b29b`:
+  **PASS, no confirmed P0-P3 findings**. Local Git inspection confirms this is the
+  direct child of the initial audited commit and the implementation HEAD before
+  these documentation edits; neither reference establishes publication or includes
+  this later closure documentation.
+- Developer implementation verification reported 58 focused JavaScript tests and
+  17 GUI shell tests passing, plus focused browser checks. The separate final
+  audit reported 63 focused JavaScript tests, 17 shell tests and 48 additional
+  independent assertions passing. These are distinct reported evidence sources,
+  not tests newly executed for closure.
+- Reported final browser checks covered both failures and relevant regressions,
+  both themes and a 900px viewport in the Windows in-app browser, with no captured
+  warnings/errors. The audit reported `git diff --check` passing.
+
+Limits: verification exercised the static demonstration, not live framework/NATS
+execution. Cross-browser/platform behavior and exhaustive concurrency/interleaving
+coverage remain unverified. The earlier 600px overflow observation was below the
+existing 720px shell minimum and was not classified as a new regression. The
+cross-machine Copy to Edit report remains unreproduced. No fully deployed or
+end-to-end integrated GUI is claimed. Documentation-only closure reruns no tests,
+browser validation or independent audit.
