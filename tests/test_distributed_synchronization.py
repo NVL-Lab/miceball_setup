@@ -167,6 +167,49 @@ class DistributedSynchronizationTests(unittest.IsolatedAsyncioTestCase):
             **{"assessment_interval_s": 60, **settings})
         return boundaries
 
+    async def test_rejected_future_measurement_recovers_through_nats_and_experiment_start(self):
+        from dataclasses import replace
+        boundaries = await self._use_authorized_transport()
+        await self.start()
+        mapping = self.node.status()['active_synchronization_mapping']
+        publish = boundaries['node'].publish_command_result
+        async def shift_clock(result, operation):
+            if operation == 'read_local_time':
+                result = replace(result, payload={**result.payload,
+                    'received_local_time_s': result.payload['received_local_time_s'] + 1000,
+                    'sent_local_time_s': result.payload['sent_local_time_s'] + 1000})
+            await publish(result, operation)
+        async def synchronize():
+            return await self.communication.request_runtime_command(self.participants[1],
+                'resynchronize', self.sid, {'node_ids': ['node']}, 10)
+        with patch.object(boundaries['node'], 'publish_command_result', side_effect=shift_clock):
+            rejected = await synchronize()
+        self.assertFalse(rejected.success)
+        quality, = rejected.payload['qualities']
+        self.assertFalse(quality['estimator']['refinement_accepted'])
+        self.assertEqual(self.node.status()['active_synchronization_mapping'], mapping)
+        recovered = await synchronize()
+        self.assertTrue(recovered.success, recovered.reason)
+        current, = recovered.payload['qualities']
+        self.assertLess(current['measured_local_time_s'], quality['measured_local_time_s'])
+        self.assertTrue(current['acceptable'])
+        self.node.accept_synchronization_quality(self.sid, 'sync', current)
+        for invalid in (quality, {**current, 'acceptable': not current['acceptable']},
+                {**current, 'assessment_sequence': current['assessment_sequence'] + 1,
+                 'measured_local_time_s': mapping.local_time_anchor_s - 1}):
+            with self.assertRaises(ValueError):
+                self.node.accept_synchronization_quality(self.sid, 'sync', invalid)
+        self.assertEqual(len(self.node.mapping_activation_history), 2)
+        retained = self.sync.session_timing_evidence(self.sid, 'sync')
+        rejected_message, = [m for m in retained if m.payload == quality]
+        self.assertTrue(self.ingestor.has_durable_runtime_evidence(rejected_message))
+        await self.experiment()
+        iteration = await self.communication.request_runtime_command(self.participants[-1],
+            'run_one_iteration', self.sid, {}, 3)
+        self.assertTrue(iteration.success, iteration.reason)
+        self.assertTrue((await self.controller.stop_launched_experiment('experiment')).succeeded)
+        self.assertTrue((await self.controller.stop_launched_session()).succeeded)
+
     async def test_cancelled_periodic_measurement_retains_partial_evidence(self):
         boundaries = await self._use_authorized_transport(result_window_s=2, assessment_interval_s=.05)
         await self.start()

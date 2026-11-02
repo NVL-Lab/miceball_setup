@@ -1387,7 +1387,7 @@ guarantee remain deferred. M014/W034 retain completed Slice 27 scope and status.
 - AcquisitionNode.receive_active_synchronization_mapping: Passively replaces AcquisitionNode's stored reference to the SynchronizationManager-owned active mapping without applying mapping mathematics.
 - AcquisitionNode.synchronization_source_id: Exposes the configured remote synchronization identity, or None for a local development owner.
 - AcquisitionNode.mapping_activation_history: Returns detached snapshots of Session-scoped mappings and node-local activation boundaries.
-- AcquisitionNode.accept_synchronization_quality(session_id, source_id, quality): Checks transport/schema scope, rejects historical readback, and atomically retains the owner's mapping/quality with local application boundaries through existing runtime evidence.
+- AcquisitionNode.accept_synchronization_quality(session_id, source_id, quality): Checks authority/schema scope and assessment sequencing, derives trusted measurement ordering from existing quality history without promoting rejected anomalies, and atomically retains owner-issued mapping/quality at local application boundaries.
 - AcquisitionNode.activate_experiment_runtime(context, health_mapping): Applies prepared Experiment timing and health context idempotently after acceptable synchronization, rejecting conflicting active context without resetting health counts.
 - AcquisitionNode._synchronization_readiness: Reports current or acquisition-time validity using prospective quality application history and owner-issued expiry without owning mapping-quality decisions.
 - AcquisitionNode._session_time(local_time_s=None): Applies the active authorized affine mapping locally, or reads the explicit in-process development owner.
@@ -2257,7 +2257,7 @@ recovery is introduced. Phase 16 and M015 remain open.
 - SynchronizationManager.configure_distributed_session(session_id, configuration): Validates and binds explicit immutable Session synchronization configuration under the mapping lock.
 - SynchronizationManager.distributed_configuration: Exposes the immutable configured distributed measurement contract.
 - SynchronizationManager.start_distributed_session(session_id): Starts the prepared single Session clock once, refusing stopped-clock restoration and preserving its epoch on retries.
-- SynchronizationManager.assess_cross_clock_exchanges(session_id, node_id, exchanges, *, replace_mapping, source_id): Accumulates bounded affine rate/offset constraints, resists isolated anomalies, adapts to supported changes and assesses the applied mapping independently while preserving optional prospective replacement and measurement evidence.
+- SynchronizationManager.assess_cross_clock_exchanges(session_id, node_id, exchanges, *, replace_mapping, source_id): Accumulates bounded affine constraints with refinement-only trusted ordering and independently ordered pending-change evidence, assessing applied quality separately while preserving prospective replacement and rejected measurements.
 - SynchronizationManager._constrain_clock_estimate(fit, point): Intersects the existing node estimate's joint offset/rate polygon with one bounded observation at a common local anchor.
 - SynchronizationManager._retain_timing_quality(source_id, quality): Assigns a stable evidence identity and sequence once, retaining detached quality snapshots through the existing timing-evidence path.
 - SynchronizationManager.session_timing_evidence(session_id, source_id): Returns stable mapping-update and quality evidence identities for current Session publication without archival claims.
@@ -2624,7 +2624,7 @@ automatic. Kill integration and overall closeout validation remain deferred.
 
 ## tests/test_adaptive_synchronization.py
 
-- AdaptiveSynchronizationTests: Exercises bounded adaptive rate estimation, independent current quality, drift changes, outliers, uncertainty, measurement replay/failure and evidence-confirmed Session retirement through the timing owner's public APIs.
+- AdaptiveSynchronizationTests: Exercises bounded adaptive estimation, quality independence, future-anomaly recovery, pending-change independence, replay/overlap protection, uncertainty and evidence-confirmed retirement through public timing APIs.
 - AdaptiveSynchronizationTests.samples(local, session, rate=1.0, delay=.002): Builds deterministic causal exchanges from an explicit synthetic clock relationship and delay.
 - AdaptiveSynchronizationTests.assess(local, session, rate=1., *, replace=True, node='node', delay=.002): Advances the controlled test clock and submits a synthetic bounded measurement through the public assessment API.
 - AdaptivePublicationTests: Exercises cancelled closeout and explicit retry with unchanged retained evidence identities and a single mapping retirement.

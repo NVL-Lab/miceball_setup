@@ -96,6 +96,78 @@ class AdaptiveSynchronizationTests(unittest.TestCase):
         self.assertTrue(recovered['acceptable'])
         self.assertLess(abs(recovered['mapping']['scale'] - 1), .0001)
 
+    def test_rejected_future_timestamps_do_not_block_genuine_measurements(self):
+        for shifted_clock in ('local', 'session'):
+            with self.subTest(clock=shifted_clock):
+                for n in range(5):
+                    self.assess(100 + n * 10, n * 10, node=shifted_clock)
+                mapping = self.owner.get_active_mapping('session', shifted_clock)
+                samples = self.samples(150, 50)
+                fields = (('received_local_time_s', 'sent_local_time_s') if shifted_clock == 'local'
+                          else ('sent_session_time_s', 'received_session_time_s'))
+                for sample in samples:
+                    for field in fields:
+                        sample[field] += 1000
+                rejected = self.owner.assess_cross_clock_exchanges('session', shifted_clock, samples,
+                    replace_mapping=True, source_id='sync')
+                self.assertFalse(rejected['acceptable'])
+                self.assertFalse(rejected['estimator']['refinement_accepted'])
+                self.assertEqual(mapping, self.owner.get_active_mapping('session', shifted_clock))
+                evidence = self.owner.session_timing_evidence('session', 'sync')
+                self.assertEqual(rejected, self.owner.assess_cross_clock_exchanges('session', shifted_clock,
+                    samples, replace_mapping=True, source_id='sync'))
+                self.assertEqual(evidence, self.owner.session_timing_evidence('session', 'sync'))
+                recovered = self.assess(160, 60, replace=False, node=shifted_clock)
+                self.assertTrue(recovered['acceptable'])
+                self.assertEqual(recovered['mapping'], mapping.to_dict())
+                self.assertTrue(self.assess(170, 70, node=shifted_clock)['acceptable'])
+                with self.assertRaises(ValueError):
+                    self.owner.assess_cross_clock_exchanges('session', shifted_clock, samples,
+                        replace_mapping=True, source_id='sync')
+                with self.assertRaises(ValueError):
+                    self.owner.assess_cross_clock_exchanges('session', shifted_clock, self.samples(165, 65),
+                        replace_mapping=True, source_id='sync')
+                with self.assertRaises(ValueError):
+                    self.owner.assess_cross_clock_exchanges('session', shifted_clock, self.samples(180, 70.1),
+                        replace_mapping=True, source_id='sync')
+                self.assertIn(rejected, [m.payload for m in self.owner.session_timing_evidence('session', 'sync')])
+
+    def test_pending_change_cannot_count_reordered_or_overlapping_batches(self):
+        for n in range(5):
+            self.assess(100 + n * 10, n * 10)
+        mapping = self.owner.get_active_mapping('session', 'node')
+        for local, session in ((160, 61), (159, 60), (159.1, 60.1)):
+            quality = self.assess(local, session)
+            self.assertFalse(quality['estimator']['refinement_accepted'])
+            self.assertEqual(self.owner.get_active_mapping('session', 'node'), mapping)
+            before = self.owner.session_timing_evidence('session', 'sync')
+            self.assertEqual(quality, self.owner.assess_cross_clock_exchanges('session', 'node',
+                self.samples(local, session), replace_mapping=True, source_id='sync'))
+            self.assertEqual(before, self.owner.session_timing_evidence('session', 'sync'))
+        self.assertTrue(self.assess(170, 70)['acceptable'])
+
+    def test_sustained_change_still_requires_independent_evidence_after_anomaly(self):
+        for n in range(10):
+            self.assess(100 + n * 10, n * 10)
+        bad = self.assess(1200, 100)
+        self.assertFalse(bad['estimator']['refinement_accepted'])
+        self.assertTrue(self.assess(210, 110)['acceptable'])
+        dispositions = []
+        for n in range(1, 15):
+            quality = self.assess(210 + n * 10, 110 + n * 10 * 1.01, 1.01)
+            dispositions.append(quality['estimator']['disposition'])
+            if n == 1:
+                self.assertFalse(quality['estimator']['refinement_accepted'])
+                failed = self.owner.mark_synchronization_unavailable('session', 'node', 'sync',
+                    'interrupted change measurement', exchanges=quality['exchanges'][:1])
+                self.assertFalse(failed['acceptable'])
+                with self.assertRaises(ValueError):
+                    self.owner.assess_cross_clock_exchanges('session', 'node', quality['exchanges'],
+                        replace_mapping=True, source_id='sync')
+        self.assertIn('sustained_change', dispositions)
+        self.assertTrue(quality['acceptable'])
+        self.assertLess(abs(quality['mapping']['scale'] - 1.01), .001)
+
     def test_sustained_change_after_long_history_and_gradual_changes_adapt(self):
         for n in range(101):
             self.assess(100 + n * 10, n * 10)

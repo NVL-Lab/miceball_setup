@@ -87,8 +87,9 @@ Additional questions:
 
 **Status:** OPEN - minimum distributed synchronization contracts are resolved by
 Decisions 379-381. Decision 379's accepted Q006/Q018 adaptive-estimation and
-independent-quality clarification is implemented pending independent validation
-and audit; detailed timing representation and offline refinement remain open.
+independent-quality clarification is implemented with a bounded audit-P2 correction
+pending independent validation and re-audit; detailed timing representation and
+offline refinement remain open.
 
 ### Why this matters
 
@@ -2135,7 +2136,7 @@ They do not decide Controller restart or repeated-action execution, so Q016 rema
 **Status:** OPEN - Decisions 379-381 resolve the minimum distributed scientific
 synchronization gate for Q022 Slice 2. Decision 379's Q006/Q018 clarification
 accepts adaptive-estimation behavior and independent quality assessment, now
-implemented pending independent validation/audit. The remaining
+implemented with its audit-P2 correction pending independent validation/re-audit. The remaining
 representation/refinement scope below is not complete.
 
 Phase 11's historical mapping-ownership scope is now supplemented by measured
@@ -2165,9 +2166,9 @@ lifecycle and timing-evidence path rather than adding a separate estimator owner
 It retains rejected/partial measurements, suppresses replay-driven confidence
 growth and keeps assessment-only mappings unchanged. Developer tests cover known
 drift, changes, anomalies, asymmetric delay, uncertainty, retirement and isolated
-local NATS cancellation/publication retries with disk-backed intake. Independent
-manual validation and audit are still required; W056 does not establish this new
-behavior. No hardware, cross-machine accuracy or physical crash validation is
+local NATS cancellation/publication retries with disk-backed intake. Correction
+validation and re-audit remain required as recorded below; W056 does not establish
+this new behavior. No hardware, cross-machine accuracy or physical crash validation is
 claimed. Numerical methods and implementation parameters remain implementation
 choices. See Decision 379 and `code_map.md` for the shared contract and interfaces.
 
@@ -2177,6 +2178,26 @@ workflows). Earlier selected historical fixtures failed at existing Controller
 authority/Experiment-configuration prerequisites; representative failures were
 reproduced with unchanged HEAD synchronization sources and were not repaired in
 this scope. These results are not independent validation or audit evidence.
+
+**Audit P2 and bounded correction:** ICC's independent validation reported 21/21
+PASS for the initial implementation. The separate audit of `597de41` returned FAIL:
+a rejected future-timestamp anomaly advanced trusted measurement ordering and
+blocked subsequent genuine assessments. The correction advances the existing
+ordering cursors only on accepted refinement, retains rejected evidence, and
+requires ordered, non-overlapping pending observations to support a changed fit.
+AcquisitionNode's corresponding ordering check derives trusted observations from
+its existing quality history while preserving assessment-sequence and identity
+checks. No new authority, configuration, tracking subsystem or lifecycle is added.
+
+Correction developer verification: 24 focused methods passed, including three
+isolated real-NATS workflows with disk-backed evidence and successful Controller
+Experiment admission after anomaly recovery. A further assertion expansion of
+the pending-change test passed for intervening partial failure and replay. The
+regression-first owner and NATS checks reproduced the defect; an owner-only fix
+also reproduced the node-side obstruction. One subsequent test attempt timed out
+during startup before reaching this boundary; rerun and the final selection
+passed. Independent ICC correction validation and separate Codex re-audit remain
+pending. Q006/Q018 are OPEN; no documentation closure or deployment claim is made.
 
 ### Remaining scope
 

@@ -828,8 +828,14 @@ class AcquisitionNode:
                     if quality != previous:
                         raise ValueError("Conflicting synchronization assessment identity")
                     return
+                # A rejected future sample is evidence, not a trusted ordering watermark.
+                trusted = next((item["quality"] for item in reversed(self._synchronization_quality_history)
+                    if item["session_id"] == session_id
+                    and item["quality"].get("measurement_valid", True)
+                    and item["quality"].get("estimator", {}).get("refinement_accepted", True)), None)
                 if (quality["assessment_sequence"] < previous["assessment_sequence"]
-                        or quality["measured_local_time_s"] < previous["measured_local_time_s"]):
+                        or (trusted is not None
+                            and quality["measured_local_time_s"] < trusted["measured_local_time_s"])):
                     raise ValueError("Historical synchronization assessment cannot replace newer state")
             boundary = monotonic()
             activation_message = None
