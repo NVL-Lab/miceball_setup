@@ -24,13 +24,19 @@ if TYPE_CHECKING:
 
 def clock_exchange_interval(values, local_resolution_s, session_resolution_s, rate_min, rate_max):
     """Validate one exchange before projecting its quantization-inclusive causal interval."""
-    if len(values) != 4 or any(type(v) not in (int, float) or not isfinite(v) for v in values):
+    try:
+        timestamps_valid = len(values) == 4 and all(type(v) in (int, float) and isfinite(v) for v in values)
+        resolutions_valid = all(type(v) in (int, float) and isfinite(v) and v >= 0
+                                for v in (local_resolution_s, session_resolution_s))
+        rates_valid = (all(type(v) in (int, float) and isfinite(v) for v in (rate_min, rate_max))
+                       and 0 < rate_min <= rate_max)
+    except OverflowError as error:
+        raise ValueError("Clock exchange numbers exceed the supported finite range") from error
+    if not timestamps_valid:
         raise ValueError("Cross-clock samples must be finite numbers")
-    if any(type(v) not in (int, float) or not isfinite(v) or v < 0
-           for v in (local_resolution_s, session_resolution_s)):
+    if not resolutions_valid:
         raise ValueError("Measured clock resolutions must be finite and nonnegative")
-    if (any(type(v) not in (int, float) or not isfinite(v) for v in (rate_min, rate_max))
-            or not 0 < rate_min <= rate_max):
+    if not rates_valid:
         raise ValueError("Clock-rate bounds must be finite, positive and ordered")
     s0, n1, n2, s3 = values
     if n2 < n1 or s3 < s0:

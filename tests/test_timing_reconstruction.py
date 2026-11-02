@@ -155,7 +155,7 @@ class TimingReconstructionTests(unittest.TestCase):
 
     def test_nonfinite_exchange_values_are_rejected_at_the_shared_public_boundary(self):
         from lab_sync_acquisition.synchronization import clock_exchange_interval
-        for value in (float("nan"), float("inf"), -float("inf"), "invalid", True):
+        for value in (float("nan"), float("inf"), -float("inf"), "invalid", True, 10 ** 1000):
             for field in range(4):
                 values = [0., 100., 100., .004]
                 values[field] = value
@@ -331,6 +331,108 @@ class TimingReconstructionTests(unittest.TestCase):
         result = self.reconstruct()
         self.assertFalse(result["quality"]["complete"])
         self.assertTrue(result["artifacts"][1]["issues"])
+
+    def test_malformed_hdf5_structures_preserve_partial_results_and_diagnostics(self):
+        self.archive()
+        path = Path(self.manifests[1].local_storage_path)
+        original = path.read_bytes()
+        for field in ("record_metadata_json", "metadata_json"):
+            for index, value in enumerate(([], None, "text", 42, True, {})):
+                with self.subTest(field=field, value=value):
+                    path.write_bytes(original)
+                    with h5py.File(path, "r+") as source:
+                        if field == "metadata_json":
+                            source.attrs[field] = json.dumps(value)
+                        else:
+                            source[field][0] = json.dumps(value)
+                    before = self.snapshot()
+                    version = f"malformed-{field}-{index}"
+                    result = self.reconstruct(version)
+                    self.assertFalse(result["quality"]["complete"])
+                    self.assertEqual(result["quality"]["reconstructed_count"], 2)
+                    self.assertTrue(result["artifacts"][1]["issues"])
+                    self.assertEqual(self.storage.read_timing_reconstruction("session", version), result)
+                    self.assertEqual(self.snapshot(), before)
+
+    def test_malformed_estimator_shapes_publish_unavailable_diagnostics(self):
+        for index, value in enumerate(([], None, "text", 42, True,
+                                     {"refinement_accepted": []}, {"rate_bounds": {}})):
+            with self.subTest(value=value):
+                self.storage = PersistentStorageManager(self.root / f"bad-estimator-{index}")
+                def mutate(messages):
+                    for message in messages:
+                        payload = message.payload
+                        for q in [payload] + [payload[k] for k in ("quality", "measurement") if k in payload]:
+                            if "assessment_sequence" in q:
+                                q["estimator"] = deepcopy(value)
+                    return messages
+                self.archive(mutate, release=False)
+                before = self.snapshot()
+                result = self.reconstruct(f"bad-estimator-{index}")
+                self.assertFalse(result["quality"]["complete"])
+                self.assertTrue(result["issues"])
+                self.assertEqual(result["quality"]["reconstructed_count"], 0)
+                self.assertEqual(self.snapshot(), before)
+
+    def test_nested_timing_boundaries_reject_structural_variations_without_total_abort(self):
+        locations = (("mapping_activation", "measurement"), ("mapping_activation", "mapping"),
+                     ("timing_quality_observation", "quality"), ("owner", "configuration"),
+                     ("owner", "exchanges"), ("mapping_update_evidence", "details"),
+                     ("mapping_update_evidence", "update_type"))
+        for location, field in locations:
+            for index, value in enumerate(([], None, "text", 1, True)):
+                with self.subTest(location=location, field=field, value=value):
+                    key = f"shape-{location}-{field}-{index}"
+                    self.storage = PersistentStorageManager(self.root / key)
+                    def mutate(messages):
+                        for message in messages:
+                            matches = (message.evidence_type == location
+                                or (location == "owner" and message.evidence_type == "timing_quality_observation"
+                                    and message.source_id == "sync"))
+                            if matches:
+                                message.payload[field] = deepcopy(value)
+                        return messages
+                    self.archive(mutate, release=False)
+                    result = self.reconstruct(key)
+                    self.assertFalse(result["quality"]["complete"])
+                    self.assertTrue(result["issues"] or any(a["issues"] for a in result["artifacts"]))
+                    self.assertEqual(result["quality"]["reconstructed_count"], 0)
+
+    def test_jsonl_shapes_and_hdf5_object_types_report_artifact_issues(self):
+        self.archive()
+        data = Path(self.manifests[0].local_storage_path)
+        original = data.read_bytes()
+        for index, value in enumerate(([], None, "text", 1, True, {}, {"timestamp_status": []})):
+            with self.subTest(value=value):
+                data.write_text(json.dumps(value) + "\n")
+                result = self.reconstruct(f"json-shape-{index}")
+                self.assertFalse(result["quality"]["complete"])
+                self.assertTrue(result["artifacts"][0]["issues"])
+                self.assertEqual(result["quality"]["reconstructed_count"], 2)
+        data.write_bytes(original)
+        path = Path(self.manifests[1].local_storage_path)
+        original = path.read_bytes()
+        for index, name in enumerate(("frames", "session_time_s", "record_metadata_json")):
+            path.write_bytes(original)
+            with h5py.File(path, "r+") as source:
+                del source[name]
+                source.create_group(name)
+            result = self.reconstruct(f"hdf-group-{index}")
+            self.assertTrue(result["artifacts"][1]["issues"])
+            self.assertEqual(result["quality"]["reconstructed_count"], 2)
+
+    def test_decoded_output_shapes_are_rejected_without_repair(self):
+        self.archive()
+        self.reconstruct()
+        path = self.root / "archive/session_session/reconstructed_timing/v1.json"
+        values = [[], None, "text", 1, True, {}, {"result": []}, {"result": {"quality": []}}]
+        for value in values:
+            with self.subTest(value=value):
+                path.write_text(json.dumps(value))
+                before = path.read_bytes()
+                with self.assertRaises(ValueError):
+                    self.storage.read_timing_reconstruction("session", "v1")
+                self.assertEqual(path.read_bytes(), before)
 
     def test_degraded_runtime_can_be_refined_without_relabeling_original(self):
         path = Path(self.manifests[0].local_storage_path)

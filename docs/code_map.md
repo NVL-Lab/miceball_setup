@@ -2158,6 +2158,7 @@ recovery is introduced. Phase 16 and M015 remain open.
 - PersistentStorageManager.write_timing_reconstruction(result): Fsyncs, non-overwritingly publishes and reads back one immutable derived version, accepting identical retries and refusing conflicts or aliases without changing raw/archival products.
 - PersistentStorageManager.read_timing_reconstruction(session_id, version): Reconfirms a derived version's identity, digest, file/directory durability and unchanged readback independently of Session bindings.
 - PersistentStorageManager._timing_reconstruction_path(session_id, version=None): Validates the derived directory or a specific version's safe identity, ancestry and exclusive regular-file ownership outside closed archival products.
+- PersistentStorageManager._validate_timing_result(result): Applies the same minimum derived-result object/array shape contract to publication and decoded readback, without acting as a scientific computation authority.
 - PersistentStorageManager: Owns durable Session Records, Evidence Archives, saved-Session selection, recovery and global scientific-artifact collection without scientific-envelope persistence.
 - PersistentStorageManager(storage_root, *, global_artifact_root=None, retrieval_endpoints=None, evidence_publisher=None, component_id="storage"): Uses an explicit directory root for existing Session/framework products, retaining node-keyed retrieval settings and collection-evidence publication.
 - PersistentStorageManager.verify_installation_retrieval(node_id, source_path, expected_content, *, max_bytes): Retrieves one explicitly designated dummy file through existing SSH/SFTP into a bounded auto-cleaned temporary destination and reports exact comparison with independent expected bytes without creating Session or artifact evidence.
@@ -2261,6 +2262,8 @@ The prior adaptive-runtime closure and its evidence are unchanged.
 - ReconstructionManager._read_observations(path, manifest, metadata): Reads JSONL rows or aligned HDF5 timing/metadata without pixels, checking scope, completion and source stability without writing inputs.
 - ReconstructionManager._reconstruct_observation(manifest, position, row, context): Links a row to its applicable activation and quality, reconstructs runtime uncertainty and reports bracketed offline bounds or explicit unavailability.
 - _number(value): Recognizes finite plain numeric timing values without accepting booleans.
+- _object(value, label): Requires decoded objects without coercing arrays or scalars into mappings.
+- _quality(value, session_id, node_id): Validates assessment scope, configuration, mapping, estimator and numeric bounds consistently for owner evidence and node activation/application snapshots.
 - _mapping(value, session_id, node_id): Validates preserved affine mapping identity, finite values and positive scale.
 - _mapped(mapping, local): Applies the preserved affine mapping to an original local timestamp.
 - _measurement(quality): Validates complete chronological exchanges and recovers their conservative preserved measured bound, rejecting contradictions rather than substituting the offline host's clock precision.
@@ -2276,6 +2279,34 @@ Runtime uncertainty can still be reconstructed with explicit degraded status.
 Output identities use existing Session/Experiment/node/source/manifest/storage IDs,
 exact JSONL line or HDF5 dataset/index, mapping values and evidence IDs, plus input
 archive digests. No per-frame uncertainty/mapping field is added to raw products.
+
+**Structural P2 correction (developer implementation, not independent closure):**
+The numerical audit failures reflected partial duplication of runtime validation;
+the later structural failures reflected treating preserved plain JSON as a typed
+domain record. Ingestor guarantees journal-backed identity/deduplication and
+StorageManager verifies archive coverage/provenance/handoff shapes; neither
+guarantees arbitrary nested timing-payload or scientific-metadata schemas.
+Reconstruction now validates consumed assessment/snapshot objects through one
+shared assessment boundary, and validates HDF5 metadata, dataset types and decoded
+rows before accessing their fields. JSONL uses the same observation check. Malformed
+scientific artifacts retain per-artifact diagnostics and do not discard valid
+results from other artifacts. Unconfirmed input archives still produce existing
+unavailable-input diagnostics; invalid requests/derived versions are refused.
+Derived result publication/readback share their envelope check. Oversized numeric
+values are rejected explicitly rather than escaping as conversion overflow.
+No broad AttributeError/Exception catch, new validation framework, lifecycle or
+evidence pipeline is introduced. The prior quantization/individual-feasibility and
+adaptive-ordering safeguards remain authoritative.
+
+Developer regression-first reproduction found ten uncaught errors across the two
+new malformed-record methods before production correction. Final focused result:
+52 methods PASS (31 reconstruction, 17 adaptive, four measurement-bound), including
+72 structural cases covering HDF5 row/embedded metadata, estimator objects,
+activation/application snapshots, configuration/exchanges/mapping details, JSONL,
+HDF5 object kinds and derived-output envelopes. These results do not supersede
+audit FAIL or constitute ICC validation; Q006/Q018 remain OPEN pending independent
+validation and separate audit. Physical deployment/crash/concurrency limitations
+listed below remain unchanged.
 
 Developer verification: 44 distinct focused methods PASS (23 new reconstruction workflows,
 17 existing adaptive methods and four measurement-bound methods), plus five of

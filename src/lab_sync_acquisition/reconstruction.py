@@ -15,10 +15,55 @@ from lab_sync_acquisition.synchronization import (
 
 
 def _number(value):
-    return type(value) in (int, float) and isfinite(value)
+    try:
+        return type(value) in (int, float) and isfinite(value)
+    except OverflowError:
+        return False
+
+
+def _object(value, label):
+    """Require an actual decoded object, without normalizing arrays into dictionaries."""
+    if not isinstance(value, dict):
+        raise ValueError(f"{label} must be an object")
+    return value
+
+
+def _quality(value, session_id, node_id):
+    """Validate the nested assessment consumed by both owners and node snapshots."""
+    quality = _object(value, "Synchronization assessment")
+    if quality.get("session_id") != session_id or quality.get("acquisition_node_id") != node_id:
+        raise ValueError("Assessment scope mismatch")
+    if type(quality.get("assessment_sequence")) is not int or quality["assessment_sequence"] < 1:
+        raise ValueError("Invalid assessment sequence")
+    configuration = _object(quality["configuration"], "Synchronization configuration")
+    if any(not _number(v) for k, v in configuration.items() if k not in {"quality_interpretation", "exchanges"}):
+        raise ValueError("Invalid numeric synchronization configuration")
+    SynchronizationConfiguration.from_dict(configuration)
+    if any(type(quality.get(k)) is not bool for k in ("measurement_valid", "acceptable")):
+        raise ValueError("Explicit measurement validity and quality are required")
+    if quality.get("mapping") is not None:
+        _mapping(quality["mapping"], session_id, node_id)
+        if (any(not _number(quality.get(k)) for k in
+                ("measured_local_time_s", "uncertainty_s", "valid_until_local_time_s"))
+                or quality["uncertainty_s"] < 0):
+            raise ValueError("Invalid preserved quality bounds")
+    if "estimator" in quality:
+        estimator = _object(quality["estimator"], "Estimator")
+        if (type(estimator.get("refinement_accepted")) is not bool
+                or not isinstance(estimator.get("disposition"), str)
+                or not _number(estimator.get("scale")) or estimator["scale"] <= 0):
+            raise ValueError("Malformed estimator fields")
+        bounds = estimator.get("rate_bounds")
+        if (not isinstance(bounds, list) or len(bounds) != 2 or not all(_number(v) for v in bounds)
+                or not 0 < bounds[0] <= bounds[1]):
+            raise ValueError("Malformed estimator rate bounds")
+    elif quality["measurement_valid"]:
+        raise ValueError("Valid measurement lacks estimator evidence")
+    return quality
 
 
 def _mapping(value, session_id, node_id):
+    _object(value, "Synchronization mapping")
     mapping = SynchronizationMapping.from_dict(value)
     if (mapping.session_id != session_id or mapping.acquisition_node_id != node_id
             or not all(_number(v) for v in (mapping.local_time_anchor_s, mapping.session_time_anchor_s,
@@ -43,6 +88,7 @@ def _measurement(quality):
     if not _number(session_resolution) or session_resolution < 0:
         raise ValueError("Invalid preserved Session clock resolution")
     for sample in samples:
+        _object(sample, "Clock exchange")
         s0, n1, n2, s3 = [sample[k] for k in ("sent_session_time_s", "received_local_time_s",
                                              "sent_local_time_s", "received_session_time_s")]
         resolution = sample["local_clock_resolution_s"]
@@ -190,6 +236,9 @@ class ReconstructionManager:
                     raise ValueError("Timing evidence Session mismatch")
                 kind = message["evidence_type"]
                 if kind == MAPPING_UPDATE_EVIDENCE_TYPE:
+                    _object(payload["details"], "Mapping-update details")
+                    if not isinstance(payload["update_type"], str):
+                        raise ValueError("Mapping-update type must be a string")
                     update = MappingUpdateEvidence.from_dict(payload)
                     if update.previous_mapping is not None:
                         _mapping(update.previous_mapping.to_dict(), session_id, node)
@@ -206,19 +255,10 @@ class ReconstructionManager:
                         raise ValueError("Quality application owner or boundary mismatch")
                     context["applications"].append(message)
                 else:
+                    _quality(payload, session_id, node)
                     sequence = payload["assessment_sequence"]
                     if type(sequence) is not int or sequence < 1 or sequence in context["assessments"]:
                         raise ValueError("Duplicate or conflicting assessment sequence")
-                    if payload.get("mapping") is not None:
-                        _mapping(payload["mapping"], session_id, node)
-                    SynchronizationConfiguration.from_dict(payload["configuration"])
-                    if type(payload.get("acceptable")) is not bool or type(payload.get("measurement_valid")) is not bool:
-                        raise ValueError("Explicit measurement validity and quality are required")
-                    if payload.get("mapping") is not None and (
-                            not all(_number(payload.get(k)) for k in
-                                    ("measured_local_time_s", "uncertainty_s", "valid_until_local_time_s"))
-                            or payload["uncertainty_s"] < 0):
-                        raise ValueError("Invalid preserved quality bounds")
                     context["assessments"][sequence] = message
             except (KeyError, TypeError, ValueError) as error:
                 context["issues"].append(str(error))
@@ -237,7 +277,7 @@ class ReconstructionManager:
                     sequences = []
                     for message in context[name]:
                         payload = message["payload"]
-                        quality = payload["measurement" if name == "activations" else "quality"]
+                        quality = _quality(payload["measurement" if name == "activations" else "quality"], session_id, node)
                         owner = context["assessments"].get(quality["assessment_sequence"])
                         if owner is None or owner["payload"] != quality:
                             raise ValueError("Applied quality lacks exact owner evidence")
@@ -337,32 +377,37 @@ class ReconstructionManager:
             import h5py
 
             with h5py.File(path, "r") as source:
-                embedded = self._storage._read_preservation_json(source.attrs["metadata_json"])
+                embedded = _object(self._storage._read_preservation_json(source.attrs["metadata_json"]), "HDF5 metadata")
                 if (source.attrs["artifact_manifest_id"] != manifest["artifact_manifest_id"]
                         or any(embedded[k] != manifest[k] for k in (
                             "session_id", "experiment_id", "acquisition_node_id", "source_component_id", "artifact_type"))):
                     raise ValueError("HDF5 identity contradicts its manifest")
                 names = ("session_time_s", "experiment_time_s", "acquisition_node_local_time_s", "frame_index",
                          "timestamp_status", "record_metadata_json")
+                if any(not isinstance(source[name], h5py.Dataset) for name in ("frames", *names)):
+                    raise ValueError("HDF5 scientific/timing objects must be datasets")
+                if source["frames"].ndim < 1:
+                    raise ValueError("HDF5 frames require an observation dimension")
+                if (any(source[name].dtype.kind not in "iuf" for name in names[:4])
+                        or any(h5py.check_string_dtype(source[name].dtype) is None for name in names[4:])):
+                    raise ValueError("HDF5 timing/metadata dataset types are invalid")
                 count = len(source["frames"])
                 if (source.attrs["persisted_frame_count"] != count
                         or any(source[name].shape != (count,) for name in names)):
                     raise ValueError("HDF5 timing datasets are incomplete or misaligned")
                 for index in range(count):
-                    row = self._storage._read_preservation_json(source["record_metadata_json"].asstr()[index])
+                    row = _checked_observation(self._storage._read_preservation_json(source["record_metadata_json"].asstr()[index]))
                     for name in names[:-1]:
                         value = source[name].asstr()[index] if name == "timestamp_status" else source[name][index].item()
                         if row.get(name) != value:
                             raise ValueError("HDF5 timing and row metadata disagree")
-                    yield {"dataset": "frames", "index": index}, _checked_observation(row)
+                    yield {"dataset": "frames", "index": index}, row
         elif storage_format == "jsonl":
             with path.open(encoding="utf-8") as source:
                 for index, line in enumerate(source):
                     if not line.endswith("\n"):
                         raise ValueError("Incomplete JSONL observation")
                     row = self._storage._read_preservation_json(line.encode())
-                    if not isinstance(row, dict):
-                        raise ValueError("Scientific observation must be an object")
                     yield {"line": index + 1}, _checked_observation(row)
         else:
             raise ValueError("Unsupported scientific storage format")
@@ -434,7 +479,10 @@ class ReconstructionManager:
 
 def _checked_observation(row):
     """Reject unreadable timing without inspecting scientific payload suitability."""
-    if not isinstance(row, dict) or not all(_number(row.get(k)) for k in (
+    _object(row, "Scientific observation")
+    if not isinstance(row.get("timestamp_status"), str):
+        raise ValueError("Original timestamp status must be a string")
+    if not all(_number(row.get(k)) for k in (
             "session_time_s", "experiment_time_s", "acquisition_node_local_time_s")):
         raise ValueError("Original observation timing is missing or nonfinite")
     for name in ("device_local_time", "frame_index"):

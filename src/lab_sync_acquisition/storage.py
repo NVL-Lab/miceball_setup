@@ -866,17 +866,23 @@ class PersistentStorageManager:
                 raise ValueError("Reconstruction product is unavailable or aliased")
         return path
 
-    @service_operation(new_work=True)
-    def write_timing_reconstruction(self, result: dict) -> Path:
-        """Durably publish one immutable derived version; only identical retries are accepted."""
-        import hashlib
-
+    @staticmethod
+    def _validate_timing_result(result: Any) -> dict:
+        """Require the same derived-result envelope at publication and decoded readback."""
         if (not isinstance(result, dict) or result.get("format") != "offline_timing_v1"
                 or result.get("version") is None
                 or not isinstance(result.get("artifacts"), list)
                 or not isinstance(result.get("issues"), list)
                 or not isinstance(result.get("quality"), dict)):
             raise ValueError("A complete offline timing result envelope is required")
+        return result
+
+    @service_operation(new_work=True)
+    def write_timing_reconstruction(self, result: dict) -> Path:
+        """Durably publish one immutable derived version; only identical retries are accepted."""
+        import hashlib
+
+        self._validate_timing_result(result)
         serialized = json.dumps(result, sort_keys=True, allow_nan=False, separators=(",", ":"))
         envelope = json.dumps({"sha256": hashlib.sha256(serialized.encode()).hexdigest(),
                                "result": json.loads(serialized)}, sort_keys=True, allow_nan=False)
@@ -916,7 +922,9 @@ class PersistentStorageManager:
             path = self._timing_reconstruction_path(session_id, version)
             raw = path.read_bytes()
             envelope = self._read_preservation_json(raw)
-            result = envelope["result"]
+            if not isinstance(envelope, dict):
+                raise ValueError("Reconstructed timing envelope must be an object")
+            result = self._validate_timing_result(envelope.get("result"))
             serialized = json.dumps(result, sort_keys=True, allow_nan=False, separators=(",", ":"))
             if (envelope.get("sha256") != hashlib.sha256(serialized.encode()).hexdigest()
                     or result.get("format") != "offline_timing_v1"
