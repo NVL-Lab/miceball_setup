@@ -46,13 +46,12 @@ def _measurement(quality):
         s0, n1, n2, s3 = [sample[k] for k in ("sent_session_time_s", "received_local_time_s",
                                              "sent_local_time_s", "received_session_time_s")]
         resolution = sample["local_clock_resolution_s"]
-        if (not all(_number(v) for v in (s0, n1, n2, s3, resolution)) or resolution < 0
-                or n2 < n1 or s3 < s0 or (ends is not None and (s0 < ends[0] or n1 < ends[1]))):
-            raise ValueError("Invalid cross-clock measurement boundaries")
-        ends = s3, n2
         rate_min = config.initial_scale - config.clock_rate_error_bound
         intervals.append(clock_exchange_interval((s0, n1, n2, s3), resolution, session_resolution,
                                                 rate_min, config.initial_scale + config.clock_rate_error_bound))
+        if ends is not None and (s0 < ends[0] or n1 < ends[1]):
+            raise ValueError("Invalid cross-clock measurement boundaries")
+        ends = s3, n2
     anchor = n1 + (n2 - n1) / 2
     uncertainty = quality["uncertainty_s"]
     if (quality["measured_local_time_s"] != anchor or not _number(uncertainty) or uncertainty < 0):

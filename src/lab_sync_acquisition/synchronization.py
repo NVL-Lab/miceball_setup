@@ -23,12 +23,28 @@ if TYPE_CHECKING:
 
 
 def clock_exchange_interval(values, local_resolution_s, session_resolution_s, rate_min, rate_max):
-    """Calculate the causal interval with explicit measured clock quantization."""
+    """Validate one exchange before projecting its quantization-inclusive causal interval."""
+    if len(values) != 4 or any(type(v) not in (int, float) or not isfinite(v) for v in values):
+        raise ValueError("Cross-clock samples must be finite numbers")
+    if any(type(v) not in (int, float) or not isfinite(v) or v < 0
+           for v in (local_resolution_s, session_resolution_s)):
+        raise ValueError("Measured clock resolutions must be finite and nonnegative")
+    if (any(type(v) not in (int, float) or not isfinite(v) for v in (rate_min, rate_max))
+            or not 0 < rate_min <= rate_max):
+        raise ValueError("Clock-rate bounds must be finite, positive and ordered")
     s0, n1, n2, s3 = values
+    if n2 < n1 or s3 < s0:
+        raise ValueError("Invalid cross-clock ordering")
     rounding = (2 * session_resolution_s + rate_max * local_resolution_s
                 + sum(ulp(float(v)) for v in values) * max(1., rate_max))
     mid = n1 + (n2 - n1) / 2
-    return mid, s0 + rate_min * (mid - n1) - rounding, s3 - rate_min * (n2 - mid) + rounding
+    lower = s0 + rate_min * (mid - n1) - rounding
+    upper = s3 - rate_min * (n2 - mid) + rounding
+    if not all(isfinite(v) for v in (mid, lower, upper)):
+        raise ValueError("Cross-clock exchange bounds must be finite")
+    if lower > upper:
+        raise ValueError("Cross-clock exchange contradicts the configured clock-rate bound")
+    return mid, lower, upper
 
 
 def project_clock_interval(local_time_s, anchor_s, lower_s, upper_s, rate_min, rate_max):
@@ -314,20 +330,14 @@ class SynchronizationManager:
                 for sample in exchanges:
                     values = [sample[k] for k in ("sent_session_time_s", "received_local_time_s",
                                                   "sent_local_time_s", "received_session_time_s")]
-                    if any(type(v) not in (float, int) or not isfinite(v) for v in values):
-                        raise ValueError("Cross-clock samples must be finite numbers")
                     s0, n1, n2, s3 = values
                     resolution = sample.get("local_clock_resolution_s")
-                    if type(resolution) not in (int, float) or not isfinite(resolution) or resolution < 0:
-                        raise ValueError("Measured local clock resolution is required")
-                    if (n2 < n1 or s3 < s0 or (previous_end is not None and s0 < previous_end)
+                    mid, lower, upper = clock_exchange_interval(values, resolution, session_resolution, rate_min, rate_max)
+                    if ((previous_end is not None and s0 < previous_end)
                             or (previous_local_end is not None and n1 < previous_local_end)):
                         raise ValueError("Invalid cross-clock ordering")
                     previous_end = s3
                     previous_local_end = n2
-                    mid, lower, upper = clock_exchange_interval(values, resolution, session_resolution, rate_min, rate_max)
-                    if lower > upper:
-                        raise ValueError("Cross-clock exchange contradicts the configured clock-rate bound")
                     intervals.append((mid, lower, upper))
                 anchor = intervals[-1][0]
                 projected_intervals = [project_clock_interval(anchor, n, lo, hi, rate_min, rate_max)

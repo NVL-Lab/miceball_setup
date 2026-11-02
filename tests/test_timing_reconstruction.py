@@ -120,6 +120,53 @@ class TimingReconstructionTests(unittest.TestCase):
         self.manifests.append(self.manager.finalize_stream(manifest.storage_id))
         self.rows.append(rows)
 
+    def test_impossible_individual_exchange_cannot_be_hidden_by_projection(self):
+        samples = [dict(sent_session_time_s=i * 10 - .002, received_local_time_s=100 + i * 10,
+            sent_local_time_s=100 + i * 10, received_session_time_s=i * 10 + .002,
+            local_clock_resolution_s=0.) for i in range(3)]
+        quality = self.sync.assess_cross_clock_exchanges("session", "exchange-node", samples,
+            replace_mapping=True, source_id="sync")
+        self.assertTrue(quality["acceptable"])
+        cases = ({"sent_local_time_s": 100.1}, {"sent_local_time_s": 99.},
+                 {"received_session_time_s": -.003}, {"local_clock_resolution_s": -1.},
+                 {"received_local_time_s": "invalid"}, {"sent_local_time_s": True})
+        for index, changes in enumerate(cases):
+            with self.subTest(changes=changes):
+                bad = deepcopy(samples)
+                bad[0].update(changes)
+                with self.assertRaises(ValueError):
+                    self.sync.assess_cross_clock_exchanges("session", "invalid-node", bad,
+                        replace_mapping=True, source_id="sync")
+                self.storage = PersistentStorageManager(self.root / f"invalid-exchange-{index}")
+                def mutate(messages):
+                    # Keep genuine identities, mapping and uncertainty; damage only
+                    # the retained exchange in the authentic owner assessment.
+                    for message in messages:
+                        if (message.evidence_type == "timing_quality_observation"
+                                and message.payload.get("acquisition_node_id") == "exchange-node"):
+                            message.payload["exchanges"] = deepcopy(bad)
+                    return messages
+                self.archive(mutate, release=False)
+                before = self.snapshot()
+                result = self.reconstruct(f"bad-{index}")
+                self.assertFalse(result["quality"]["complete"])
+                self.assertTrue(any(issue.startswith("exchange-node:") for issue in result["issues"]))
+                self.assertEqual(before, self.snapshot())
+
+    def test_nonfinite_exchange_values_are_rejected_at_the_shared_public_boundary(self):
+        from lab_sync_acquisition.synchronization import clock_exchange_interval
+        for value in (float("nan"), float("inf"), -float("inf"), "invalid", True):
+            for field in range(4):
+                values = [0., 100., 100., .004]
+                values[field] = value
+                with self.subTest(value=value, field=field), self.assertRaises(ValueError):
+                    clock_exchange_interval(values, 0., 0., .98, 1.02)
+            for local, session in ((value, 0.), (0., value)):
+                with self.assertRaises(ValueError):
+                    clock_exchange_interval([0., 100., 100., .004], local, session, .98, 1.02)
+        with self.assertRaises(ValueError):
+            clock_exchange_interval([-1e308, -1e308, 1e308, 1e308], 0., 0., .98, 1.02)
+
     def archive(self, mutate=None, *, release=True, partial=False):
         evidence = list(self.sync.session_timing_evidence("session", "sync")) + list(self.node.runtime_evidence)
         evidence += [RuntimeEvidenceMessage("manifest-" + m.artifact_manifest_id, "session",

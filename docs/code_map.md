@@ -2308,7 +2308,7 @@ false confirmation is returned. Large-recording performance is not established.
 
 ## src/lab_sync_acquisition/synchronization.py
 
-- clock_exchange_interval(values, local_resolution_s, session_resolution_s, rate_min, rate_max): Shares the authoritative causal exchange interval and quantization arithmetic between runtime assessment and offline consistency validation.
+- clock_exchange_interval(values, local_resolution_s, session_resolution_s, rate_min, rate_max): Validates finite timestamps/resolutions/rate bounds, endpoint order and quantization-inclusive individual feasibility before either runtime or offline projection.
 
 Offline quantization P2 correction: runtime assessments now retain the measured
 `session_clock_resolution_s`; offline validation reuses the exact exchange-bound
@@ -2323,6 +2323,18 @@ Correction developer verification: 45 methods PASS (24 offline reconstruction,
 17 adaptive-estimation and four measurement-bound regressions); the expanded exact
 audited-value regression also passed separately. This is not independent ICC
 validation or audit and does not supersede the recorded audit FAIL.
+
+Subsequent audit of `d2cc4efa39be21f41f6834c4b1bae956f713f2b1` found a second
+P2: an individually impossible exchange could appear feasible after projection.
+The shared exchange helper now owns the complete individual validation boundary;
+superseded caller checks were removed while batch chronology, preserved-bound
+consistency, trusted watermarks and pending-candidate checks remain distinct.
+Nonfinite computed intervals are rejected before projection as well. Correction
+developer verification: 47 methods PASS (26 reconstruction, 17 adaptive and four
+measurement-bound methods), including authentic owner evidence with the first
+send timestamp damaged by 0.1 seconds and related malformed-boundary cases.
+Independent ICC validation and separate re-audit of this correction remain pending;
+neither prior failed audit is superseded by developer tests. Q006/Q018 remain OPEN.
 
 Bounded adaptive-drift software is CLOSED at audited commit `321009d64043cf9e14d7400341197f22c970fb57`; see the [validation and limits](validated_workflows.md#q006-q018---adaptive-synchronization-software). Broader Q006/Q018 remain OPEN.
 
