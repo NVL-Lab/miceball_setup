@@ -2308,6 +2308,22 @@ false confirmation is returned. Large-recording performance is not established.
 
 ## src/lab_sync_acquisition/synchronization.py
 
+- clock_exchange_interval(values, local_resolution_s, session_resolution_s, rate_min, rate_max): Shares the authoritative causal exchange interval and quantization arithmetic between runtime assessment and offline consistency validation.
+
+Offline quantization P2 correction: runtime assessments now retain the measured
+`session_clock_resolution_s`; offline validation reuses the exact exchange-bound
+calculation with recorded local and Session resolutions, never the offline host's
+clock. Legacy assessments use zero only as a lower bound for the unavailable
+Session resolution; if that cannot establish a consistent interval, verification
+is explicitly unavailable rather than inventing precision. The preserved applied
+uncertainty remains the output bound. Independent correction validation/audit are
+pending; Q006/Q018 remain OPEN.
+
+Correction developer verification: 45 methods PASS (24 offline reconstruction,
+17 adaptive-estimation and four measurement-bound regressions); the expanded exact
+audited-value regression also passed separately. This is not independent ICC
+validation or audit and does not supersede the recorded audit FAIL.
+
 Bounded adaptive-drift software is CLOSED at audited commit `321009d64043cf9e14d7400341197f22c970fb57`; see the [validation and limits](validated_workflows.md#q006-q018---adaptive-synchronization-software). Broader Q006/Q018 remain OPEN.
 
 - project_clock_interval(local_time_s, anchor_s, lower_s, upper_s, rate_min, rate_max): Projects an explicit measured interval forward or backward using the existing rate-envelope arithmetic shared by runtime assessment and offline reconstruction.

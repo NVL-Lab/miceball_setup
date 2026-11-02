@@ -22,6 +22,15 @@ if TYPE_CHECKING:
     from lab_sync_acquisition.ingestor import InMemoryIngestor
 
 
+def clock_exchange_interval(values, local_resolution_s, session_resolution_s, rate_min, rate_max):
+    """Calculate the causal interval with explicit measured clock quantization."""
+    s0, n1, n2, s3 = values
+    rounding = (2 * session_resolution_s + rate_max * local_resolution_s
+                + sum(ulp(float(v)) for v in values) * max(1., rate_max))
+    mid = n1 + (n2 - n1) / 2
+    return mid, s0 + rate_min * (mid - n1) - rounding, s3 - rate_min * (n2 - mid) + rounding
+
+
 def project_clock_interval(local_time_s, anchor_s, lower_s, upper_s, rate_min, rate_max):
     """Project a bounded clock observation in either direction using explicit rate bounds."""
     distance = local_time_s - anchor_s
@@ -299,6 +308,7 @@ class SynchronizationManager:
                 if not isinstance(exchanges, list) or len(exchanges) != config.exchanges:
                     raise ValueError("Complete node-specific cross-clock exchanges are required")
                 intervals = []
+                session_resolution = get_clock_info("monotonic").resolution
                 previous_end = None
                 previous_local_end = None
                 for sample in exchanges:
@@ -310,16 +320,12 @@ class SynchronizationManager:
                     resolution = sample.get("local_clock_resolution_s")
                     if type(resolution) not in (int, float) or not isfinite(resolution) or resolution < 0:
                         raise ValueError("Measured local clock resolution is required")
-                    rounding = (2 * get_clock_info("monotonic").resolution + rate_max * resolution
-                                + sum(ulp(float(v)) for v in values) * max(1., rate_max))
                     if (n2 < n1 or s3 < s0 or (previous_end is not None and s0 < previous_end)
                             or (previous_local_end is not None and n1 < previous_local_end)):
                         raise ValueError("Invalid cross-clock ordering")
                     previous_end = s3
                     previous_local_end = n2
-                    mid = n1 + (n2 - n1) / 2
-                    lower = s0 + rate_min * (mid - n1) - rounding
-                    upper = s3 - rate_min * (n2 - mid) + rounding
+                    mid, lower, upper = clock_exchange_interval(values, resolution, session_resolution, rate_min, rate_max)
                     if lower > upper:
                         raise ValueError("Cross-clock exchange contradicts the configured clock-rate bound")
                     intervals.append((mid, lower, upper))
@@ -390,7 +396,8 @@ class SynchronizationManager:
                 "mapping": mapping.to_dict() if mapping else None,
                 "measured_local_time_s": anchor, "uncertainty_s": uncertainty,
                 "valid_until_local_time_s": anchor + remaining,
-                "configuration": config.to_dict(), "exchanges": deepcopy(exchanges), "estimator": estimator}
+                "configuration": config.to_dict(), "exchanges": deepcopy(exchanges), "estimator": estimator,
+                "session_clock_resolution_s": session_resolution}
             # Rejected candidates retain their own scope, not trusted admission progress.
             self._clock_estimates[node_id] = {"fit": fit,
                 "pending": None if refined else (point, exchanges[-1]["received_session_time_s"],

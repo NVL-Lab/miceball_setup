@@ -10,7 +10,7 @@ from lab_sync_acquisition.communication import MAPPING_UPDATE_EVIDENCE_TYPE
 from lab_sync_acquisition.local_storage import LocalStorageManager
 from lab_sync_acquisition.synchronization import (
     MappingUpdateEvidence, SynchronizationConfiguration, SynchronizationMapping,
-    project_clock_interval,
+    project_clock_interval, clock_exchange_interval,
 )
 
 
@@ -39,6 +39,9 @@ def _measurement(quality):
         raise ValueError("Incomplete bounded cross-clock measurement")
     ends = None
     intervals = []
+    session_resolution = quality.get("session_clock_resolution_s", 0.)
+    if not _number(session_resolution) or session_resolution < 0:
+        raise ValueError("Invalid preserved Session clock resolution")
     for sample in samples:
         s0, n1, n2, s3 = [sample[k] for k in ("sent_session_time_s", "received_local_time_s",
                                              "sent_local_time_s", "received_session_time_s")]
@@ -47,9 +50,9 @@ def _measurement(quality):
                 or n2 < n1 or s3 < s0 or (ends is not None and (s0 < ends[0] or n1 < ends[1]))):
             raise ValueError("Invalid cross-clock measurement boundaries")
         ends = s3, n2
-        mid = n1 + (n2 - n1) / 2
         rate_min = config.initial_scale - config.clock_rate_error_bound
-        intervals.append((mid, s0 + rate_min * (mid - n1), s3 - rate_min * (n2 - mid)))
+        intervals.append(clock_exchange_interval((s0, n1, n2, s3), resolution, session_resolution,
+                                                rate_min, config.initial_scale + config.clock_rate_error_bound))
     anchor = n1 + (n2 - n1) / 2
     uncertainty = quality["uncertainty_s"]
     if (quality["measured_local_time_s"] != anchor or not _number(uncertainty) or uncertainty < 0):
@@ -62,6 +65,8 @@ def _measurement(quality):
     if not all(_number(v) for v in (center, lo, hi, center - uncertainty, center + uncertainty)):
         raise ValueError("Measurement bounds are nonfinite")
     tolerance = sum(ulp(float(v)) for v in (center, uncertainty, lo, hi))
+    if lo > hi and "session_clock_resolution_s" not in quality:
+        raise ValueError("Legacy measurement lacks Session clock resolution needed to verify quantization")
     if lo > hi or center - uncertainty > lo + tolerance or center + uncertainty < hi - tolerance:
         raise ValueError("Preserved uncertainty contradicts the original clock exchanges")
     # The preserved applied-mapping bound already includes clock quantization and

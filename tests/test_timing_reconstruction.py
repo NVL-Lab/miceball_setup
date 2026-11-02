@@ -72,6 +72,35 @@ class TimingReconstructionTests(unittest.TestCase):
             self.node.accept_synchronization_quality("session", "sync", quality)
         return quality
 
+    def test_quantized_exchange_bounds_remain_usable_offline(self):
+        exact = [dict(sent_session_time_s=i * .1, received_local_time_s=100 + i * .1,
+            sent_local_time_s=100 + i * .1 + .010, received_session_time_s=i * .1 + .009,
+            local_clock_resolution_s=.001) for i in range(3)]
+        accepted = self.sync.assess_cross_clock_exchanges("session", "quantized", exact,
+            replace_mapping=True, source_id="sync")
+        self.assertTrue(accepted["measurement_valid"])
+        self.assertTrue(accepted["acceptable"])
+        for resolution in (.001, .002, .01):
+            samples = [dict(sent_session_time_s=30.06 + i * .1,
+                received_local_time_s=130 + i * .1, sent_local_time_s=130 + i * .1 + .010,
+                received_session_time_s=30.06 + i * .1 + .009,
+                local_clock_resolution_s=resolution) for i in range(3)]
+            # Distinct chronological batches, with the exact audited duration mismatch.
+            shift = resolution * 10000
+            for sample in samples:
+                for key in ("sent_session_time_s", "received_session_time_s"):
+                    sample[key] += shift * 1.002
+                for key in ("received_local_time_s", "sent_local_time_s"):
+                    sample[key] += shift
+            q = self.sync.assess_cross_clock_exchanges("session", "node", samples,
+                replace_mapping=True, source_id="sync")
+            self.assertTrue(q["measurement_valid"])
+            self.assertTrue(q["acceptable"])
+        self.archive()
+        result = self.reconstruct()
+        self.assertEqual(result["quality"]["reconstructed_count"], 4, result["issues"])
+        self.assertEqual(result["issues"], [])
+
     def stream(self, storage_format):
         manifest = self.manager.create_stream(session_id="session", experiment_id="experiment",
             acquisition_node_id="node", source_component_id="camera", data_product_id=storage_format,
