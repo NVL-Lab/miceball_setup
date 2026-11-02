@@ -4,13 +4,14 @@ from collections import Counter
 from copy import deepcopy
 from math import inf, isfinite, nextafter, ulp
 from pathlib import Path
+from numbers import Integral
 import stat
 
 from lab_sync_acquisition.communication import MAPPING_UPDATE_EVIDENCE_TYPE
-from lab_sync_acquisition.local_storage import LocalStorageManager
+from lab_sync_acquisition.local_storage import LocalStorageManager, validate_frame_index
 from lab_sync_acquisition.synchronization import (
-    MappingUpdateEvidence, SynchronizationConfiguration, SynchronizationMapping,
-    project_clock_interval, clock_exchange_interval,
+    MappingUpdateEvidence, SynchronizationConfiguration,
+    project_clock_interval, clock_exchange_interval, validate_clock_estimate, validate_mapping_snapshot,
 )
 
 
@@ -38,38 +39,36 @@ def _quality(value, session_id, node_id):
     configuration = _object(quality["configuration"], "Synchronization configuration")
     if any(not _number(v) for k, v in configuration.items() if k not in {"quality_interpretation", "exchanges"}):
         raise ValueError("Invalid numeric synchronization configuration")
-    SynchronizationConfiguration.from_dict(configuration)
+    config = SynchronizationConfiguration.from_dict(configuration)
     if any(type(quality.get(k)) is not bool for k in ("measurement_valid", "acceptable")):
         raise ValueError("Explicit measurement validity and quality are required")
+    if quality["acceptable"] and (quality.get("mapping") is None or not quality["measurement_valid"]):
+        raise ValueError("Acceptable quality requires a valid mapped measurement")
     if quality.get("mapping") is not None:
-        _mapping(quality["mapping"], session_id, node_id)
+        validate_mapping_snapshot(quality["mapping"], session_id, node_id)
+    if quality.get("mapping") is not None or quality["measurement_valid"]:
         if (any(not _number(quality.get(k)) for k in
                 ("measured_local_time_s", "uncertainty_s", "valid_until_local_time_s"))
-                or quality["uncertainty_s"] < 0):
+                or quality["uncertainty_s"] < 0
+                or quality["valid_until_local_time_s"] < quality["measured_local_time_s"]
+                or (quality["acceptable"] and quality["uncertainty_s"] > config.max_uncertainty_s)):
             raise ValueError("Invalid preserved quality bounds")
     if "estimator" in quality:
-        estimator = _object(quality["estimator"], "Estimator")
-        if (type(estimator.get("refinement_accepted")) is not bool
-                or not isinstance(estimator.get("disposition"), str)
-                or not _number(estimator.get("scale")) or estimator["scale"] <= 0):
-            raise ValueError("Malformed estimator fields")
-        bounds = estimator.get("rate_bounds")
-        if (not isinstance(bounds, list) or len(bounds) != 2 or not all(_number(v) for v in bounds)
-                or not 0 < bounds[0] <= bounds[1]):
-            raise ValueError("Malformed estimator rate bounds")
+        validate_clock_estimate(quality["estimator"], config)
+        if quality["estimator"]["disposition"] == "measurement_unavailable" and quality["measurement_valid"]:
+            raise ValueError("Unavailable estimator contradicts measurement validity")
     elif quality["measurement_valid"]:
         raise ValueError("Valid measurement lacks estimator evidence")
+    if quality["measurement_valid"] and quality.get("mapping") is not None:
+        scale = quality["mapping"]["scale"]
+        rate_error = max(abs(scale - (config.initial_scale - config.clock_rate_error_bound)),
+                         abs(config.initial_scale + config.clock_rate_error_bound - scale))
+        if rate_error:
+            latest = quality["measured_local_time_s"] + max(0., config.max_uncertainty_s - quality["uncertainty_s"]) / rate_error
+            tolerance = sum(ulp(float(v)) for v in (latest, quality["valid_until_local_time_s"]))
+            if quality["valid_until_local_time_s"] > latest + tolerance:
+                raise ValueError("Quality validity exceeds the preserved uncertainty budget")
     return quality
-
-
-def _mapping(value, session_id, node_id):
-    _object(value, "Synchronization mapping")
-    mapping = SynchronizationMapping.from_dict(value)
-    if (mapping.session_id != session_id or mapping.acquisition_node_id != node_id
-            or not all(_number(v) for v in (mapping.local_time_anchor_s, mapping.session_time_anchor_s,
-                                           mapping.scale, mapping.created_session_time_s)) or mapping.scale <= 0):
-        raise ValueError("Conflicting or malformed runtime mapping")
-    return mapping.to_dict()
 
 
 def _mapped(mapping, local):
@@ -197,9 +196,7 @@ class ReconstructionManager:
                         if "frame_index" in current and "frame_index" in previous:
                             if current["frame_index"] != previous["frame_index"] + 1:
                                 artifact["issues"].append("Noncontinuous original frame indices")
-                    count = manifest["details"].get("row_count")
-                    if count is not None and count != len(artifact["observations"]):
-                        raise ValueError("Observation count contradicts finalized manifest")
+                    _check_completion(manifest["details"], original)
                 except (OSError, ValueError, KeyError, TypeError, RuntimeError, ImportError) as error:
                     artifact["issues"].append(str(error))
                     # Partial parsing cannot certify the complete artifact.
@@ -240,15 +237,21 @@ class ReconstructionManager:
                     if not isinstance(payload["update_type"], str):
                         raise ValueError("Mapping-update type must be a string")
                     update = MappingUpdateEvidence.from_dict(payload)
+                    if (not _number(update.created_session_time_s)
+                            or not isinstance(update.reason, str)
+                            or (update.update_type == "created" and (update.previous_mapping is not None or update.new_mapping is None))
+                            or (update.update_type == "replaced" and (update.previous_mapping is None or update.new_mapping is None))
+                            or (update.update_type == "retired" and (update.previous_mapping is None or update.new_mapping is not None))):
+                        raise ValueError("Mapping-update lifecycle is inconsistent")
                     if update.previous_mapping is not None:
-                        _mapping(update.previous_mapping.to_dict(), session_id, node)
+                        validate_mapping_snapshot(update.previous_mapping.to_dict(), session_id, node)
                     if update.new_mapping is not None:
-                        mapping = _mapping(update.new_mapping.to_dict(), session_id, node)
+                        mapping = validate_mapping_snapshot(update.new_mapping.to_dict(), session_id, node)
                         context["mappings"].append((mapping, message))
                 elif kind == "mapping_activation":
                     if message["source_id"] != node or not _number(payload["activated_local_time_s"]):
                         raise ValueError("Mapping activation owner or boundary mismatch")
-                    _mapping(payload["mapping"], session_id, node)
+                    validate_mapping_snapshot(payload["mapping"], session_id, node)
                     context["activations"].append(message)
                 elif "quality" in payload:
                     if message["source_id"] != node or not _number(payload["applied_local_time_s"]):
@@ -268,6 +271,20 @@ class ReconstructionManager:
                 owners.update(m["source_id"] for m in context["assessments"].values())
                 if len(owners) != 1:
                     raise ValueError("Synchronization evidence authority is missing or conflicting")
+                for mapping, update in context["mappings"]:
+                    payload = update["payload"]
+                    if payload["reason"] == "measured_cross_clock_exchange":
+                        details = payload["details"]
+                        matches = [m["payload"] for m in context["assessments"].values()
+                                   if m["payload"].get("mapping") == mapping
+                                   and m["payload"].get("exchanges") == details.get("exchanges")]
+                        if (len(matches) != 1 or any(details.get(k) != matches[0].get(k)
+                                for k in ("configuration", "estimator"))
+                                or mapping["scale"] != matches[0]["estimator"]["scale"]
+                                or mapping["local_time_anchor_s"] != matches[0]["measured_local_time_s"]
+                                or not _number(details.get("uncertainty_s"))
+                                or details["uncertainty_s"] != matches[0]["uncertainty_s"]):
+                            raise ValueError("Measured mapping details contradict owner assessment")
                 for name, boundary in (("activations", "activated_local_time_s"),
                                        ("applications", "applied_local_time_s")):
                     context[name].sort(key=lambda m: m["payload"][boundary])
@@ -380,7 +397,9 @@ class ReconstructionManager:
                 embedded = _object(self._storage._read_preservation_json(source.attrs["metadata_json"]), "HDF5 metadata")
                 if (source.attrs["artifact_manifest_id"] != manifest["artifact_manifest_id"]
                         or any(embedded[k] != manifest[k] for k in (
-                            "session_id", "experiment_id", "acquisition_node_id", "source_component_id", "artifact_type"))):
+                            "session_id", "experiment_id", "acquisition_node_id", "source_component_id", "artifact_type"))
+                        or embedded.get("storage_format") != "hdf5"
+                        or (metadata is not None and embedded != metadata)):
                     raise ValueError("HDF5 identity contradicts its manifest")
                 names = ("session_time_s", "experiment_time_s", "acquisition_node_local_time_s", "frame_index",
                          "timestamp_status", "record_metadata_json")
@@ -388,11 +407,23 @@ class ReconstructionManager:
                     raise ValueError("HDF5 scientific/timing objects must be datasets")
                 if source["frames"].ndim < 1:
                     raise ValueError("HDF5 frames require an observation dimension")
-                if (any(source[name].dtype.kind not in "iuf" for name in names[:4])
+                import numpy as np
+                schema = _object(embedded["schema"], "HDF5 frame schema")
+                shape = schema["frame_shape"]
+                if (not isinstance(shape, list) or len(shape) not in {2, 3}
+                        or any(type(size) is not int or size < 1 for size in shape)
+                        or source["frames"].shape[1:] != tuple(shape)
+                        or source["frames"].dtype != np.dtype(schema["frame_dtype"])
+                        or source["frames"].dtype.kind not in "biuf"):
+                    raise ValueError("HDF5 frames contradict their declared schema")
+                if (any(source[name].dtype.kind not in "iuf" for name in names[:3])
+                        or source["frame_index"].dtype.kind not in "iu"
                         or any(h5py.check_string_dtype(source[name].dtype) is None for name in names[4:])):
                     raise ValueError("HDF5 timing/metadata dataset types are invalid")
                 count = len(source["frames"])
-                if (source.attrs["persisted_frame_count"] != count
+                persisted = source.attrs["persisted_frame_count"]
+                if (isinstance(persisted, (bool, np.bool_)) or not isinstance(persisted, Integral)
+                        or persisted != count
                         or any(source[name].shape != (count,) for name in names)):
                     raise ValueError("HDF5 timing datasets are incomplete or misaligned")
                 for index in range(count):
@@ -480,12 +511,52 @@ class ReconstructionManager:
 def _checked_observation(row):
     """Reject unreadable timing without inspecting scientific payload suitability."""
     _object(row, "Scientific observation")
-    if not isinstance(row.get("timestamp_status"), str):
+    if not isinstance(row.get("timestamp_status"), str) or "\x00" in row["timestamp_status"]:
         raise ValueError("Original timestamp status must be a string")
     if not all(_number(row.get(k)) for k in (
             "session_time_s", "experiment_time_s", "acquisition_node_local_time_s")):
         raise ValueError("Original observation timing is missing or nonfinite")
-    for name in ("device_local_time", "frame_index"):
-        if name in row and not _number(row[name]):
-            raise ValueError("Original native timing/index cannot be represented")
+    if not isinstance(row.get("experiment_id"), str) or not row["experiment_id"]:
+        raise ValueError("Original Experiment identity is missing")
+    if "device_local_time" in row and not _number(row["device_local_time"]):
+        raise ValueError("Original native timing cannot be represented")
+    if "frame_index" in row:
+        validate_frame_index(row["frame_index"])
     return row
+
+
+def _check_completion(details, rows):
+    """Check declared final counts and endpoints against the decoded observations."""
+    count = len(rows)
+    if details.get("storage_format") == "hdf5":
+        required = {"accepted_frame_count", "persisted_frame_count", "duration_s"}
+        required.update(f"{boundary}_{field}" for boundary in ("first", "last")
+                        for field in ("frame_index", "session_time_s", "experiment_time_s",
+                                      "acquisition_node_local_time_s"))
+        if not required.issubset(details):
+            raise ValueError("Finalized HDF5 timing/count information is incomplete")
+    for key in ("row_count", "accepted_row_count", "written_row_count", "durable_row_count",
+                "accepted_frame_count", "persisted_frame_count"):
+        if key in details and (type(details[key]) is not int or details[key] != count):
+            raise ValueError(f"Observation count contradicts finalized {key}")
+    if "buffered_row_count" in details and (type(details["buffered_row_count"]) is not int
+                                            or details["buffered_row_count"] != 0):
+        raise ValueError("Finalized observations still claim buffered rows")
+    for boundary, row in (("first", rows[0] if rows else {}), ("last", rows[-1] if rows else {})):
+        for field in ("frame_index", "session_time_s", "experiment_time_s", "acquisition_node_local_time_s"):
+            key = f"{boundary}_{field}"
+            if key in details:
+                expected = row.get(field)
+                value = details[key]
+                if expected is not None:
+                    if field == "frame_index":
+                        validate_frame_index(value)
+                    elif not _number(value):
+                        raise ValueError(f"Invalid finalized {key}")
+                if value != expected:
+                    raise ValueError(f"Observation endpoint contradicts finalized {key}")
+    if "duration_s" in details:
+        expected = rows[-1]["session_time_s"] - rows[0]["session_time_s"] if rows else None
+        value = details["duration_s"]
+        if (expected is not None and not _number(value)) or value != expected:
+            raise ValueError("Observation duration contradicts finalized manifest")

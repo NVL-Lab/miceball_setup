@@ -11,7 +11,7 @@ from contextlib import contextmanager, nullcontext
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from math import isfinite
+from math import isfinite, ulp
 from numbers import Integral
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from tempfile import NamedTemporaryFile, TemporaryFile
@@ -21,7 +21,8 @@ from typing import Any, Iterable, Iterator, Mapping
 from uuid import uuid4
 
 from lab_sync_acquisition.service_readiness import ServiceReadiness, apply_dependency_readiness
-from lab_sync_acquisition.local_storage import ArtifactManifest, inspect_storage_capacity, validate_deletion_evidence
+from lab_sync_acquisition.local_storage import ArtifactManifest, inspect_storage_capacity, validate_deletion_evidence, validate_frame_index
+from lab_sync_acquisition.synchronization import validate_mapping_snapshot
 from lab_sync_acquisition.communication import RuntimeEvidenceMessage
 from lab_sync_acquisition.service_maintenance import service_operation
 
@@ -875,6 +876,120 @@ class PersistentStorageManager:
                 or not isinstance(result.get("issues"), list)
                 or not isinstance(result.get("quality"), dict)):
             raise ValueError("A complete offline timing result envelope is required")
+        # A digest establishes byte identity, not consistency of the result it wraps.
+        try:
+            def issues(value):
+                return isinstance(value, list) and all(isinstance(v, str) for v in value)
+            if (result["algorithm"] != "bounded_clock_envelopes_v1" or not issues(result["issues"])
+                    or not isinstance(result["archive_sha256"], dict)
+                    or not isinstance(result["input_evidence_ids"], list)):
+                raise ValueError("Invalid reconstructed timing provenance envelope")
+            if any(not isinstance(k, str) or not k or not isinstance(v, str) or len(v) != 64
+                    or any(c not in "0123456789abcdef" for c in v) for k, v in result["archive_sha256"].items()):
+                raise ValueError("Invalid original archive digest")
+            evidence = result["input_evidence_ids"]
+            if (any(not isinstance(v, str) or not v for v in evidence)
+                    or len(set(evidence)) != len(evidence)):
+                raise ValueError("Invalid reconstruction evidence identities")
+            evidence = set(evidence)
+            counts = {}
+            reconstructed = 0
+            artifact_ids = set()
+            artifact_issues = False
+            for artifact in result["artifacts"]:
+                if not isinstance(artifact, dict) or not issues(artifact["issues"]):
+                    raise ValueError("Invalid reconstructed artifact")
+                manifest = artifact["manifest"]
+                if (not isinstance(manifest, dict) or manifest["session_id"] != result["session_id"]
+                        or any(not isinstance(manifest[k], str) or not manifest[k] for k in (
+                            "session_id", "experiment_id", "acquisition_node_id", "source_component_id",
+                            "artifact_manifest_id", "storage_id"))
+                        or manifest["artifact_manifest_id"] in artifact_ids
+                        or not isinstance(artifact["observations"], list)):
+                    raise ValueError("Conflicting reconstructed artifact identity")
+                artifact_ids.add(manifest["artifact_manifest_id"])
+                artifact_issues |= bool(artifact["issues"])
+                positions = set()
+                for row in artifact["observations"]:
+                    if (not isinstance(row, dict) or not issues(row["issues"])
+                            or not isinstance(row["original_timing"], dict)
+                            or row["quality"] not in {"refined", "refined_runtime_degraded", "unavailable"}):
+                        raise ValueError("Invalid reconstructed observation")
+                    original = row["original_timing"]
+                    if (any(type(original[k]) not in (int, float) or not isfinite(original[k])
+                            for k in ("session_time_s", "experiment_time_s", "acquisition_node_local_time_s"))
+                            or not isinstance(original["timestamp_status"], str)):
+                        raise ValueError("Invalid original observation timing")
+                    if "frame_index" in original:
+                        validate_frame_index(original["frame_index"])
+                    position = row["position"]
+                    if (not isinstance(position, dict) or not (
+                            set(position) == {"line"} and type(position["line"]) is int and position["line"] > 0
+                            or set(position) == {"dataset", "index"} and position["dataset"] == "frames"
+                            and type(position["index"]) is int and position["index"] >= 0)):
+                        raise ValueError("Invalid original observation position")
+                    key = tuple(sorted(position.items()))
+                    if key in positions:
+                        raise ValueError("Duplicate original observation position")
+                    positions.add(key)
+                    provenance = row["provenance"]
+                    if (not isinstance(provenance, dict) or any(provenance[k] != manifest[k] for k in (
+                            "session_id", "experiment_id", "acquisition_node_id", "source_component_id",
+                            "artifact_manifest_id", "storage_id"))):
+                        raise ValueError("Conflicting reconstructed observation provenance")
+                    runtime = row["runtime"]
+                    if runtime is not None:
+                        if (not isinstance(runtime, dict) or type(runtime["session_time_s"]) not in (int, float)
+                                or runtime["session_time_s"] != original["session_time_s"]
+                                or runtime["quality"] not in {"acceptable", "degraded"}
+                                or (runtime["uncertainty_s"] is not None and (
+                                    type(runtime["uncertainty_s"]) not in (int, float)
+                                    or not isfinite(runtime["uncertainty_s"]) or runtime["uncertainty_s"] < 0))):
+                            raise ValueError("Invalid reconstructed runtime assessment")
+                    if "runtime_mapping" in provenance:
+                        validate_mapping_snapshot(provenance["runtime_mapping"], result["session_id"], manifest["acquisition_node_id"])
+                    estimate = row["reconstructed"]
+                    if (estimate is None) != (row["quality"] == "unavailable"):
+                        raise ValueError("Reconstruction availability contradicts its quality")
+                    if estimate is not None:
+                        if runtime is None or "runtime_mapping" not in provenance or not result["archive_sha256"]:
+                            raise ValueError("Reconstructed timing lacks runtime/archive provenance")
+                        expected = "refined" if runtime["quality"] == "acceptable" else "refined_runtime_degraded"
+                        if (row["issues"] or row["quality"] != expected
+                                or (row["quality"] == "refined" and original["timestamp_status"] != "runtime_timestamped")):
+                            raise ValueError("Reconstructed quality contradicts runtime status or diagnostics")
+                        if (not isinstance(estimate, dict) or any(type(estimate[k]) not in (int, float)
+                                or not isfinite(estimate[k]) for k in (
+                                    "session_time_s", "uncertainty_s", "lower_session_time_s", "upper_session_time_s"))):
+                            raise ValueError("Invalid reconstructed clock bounds")
+                        center, uncertainty = estimate["session_time_s"], estimate["uncertainty_s"]
+                        lower, upper = estimate["lower_session_time_s"], estimate["upper_session_time_s"]
+                        tolerance = sum(ulp(float(v)) for v in (center, uncertainty, lower, upper))
+                        if (uncertainty < 0 or not lower <= center <= upper
+                                or center - uncertainty > lower + tolerance
+                                or center + uncertainty < upper - tolerance):
+                            raise ValueError("Contradictory reconstructed clock bounds")
+                        links = [provenance[k] for k in ("mapping_update_evidence_id", "mapping_activation_evidence_id",
+                            "quality_application_evidence_id", "quality_assessment_evidence_id")]
+                        support = provenance["refinement_evidence_ids"]
+                        if (not isinstance(support, list) or not support
+                                or any(not isinstance(v, str) or v not in evidence for v in links + support)
+                                or len(set(support)) != len(support)):
+                            raise ValueError("Reconstruction evidence links are incomplete")
+                        reconstructed += 1
+                    counts[row["quality"]] = counts.get(row["quality"], 0) + 1
+            quality = result["quality"]
+            count = sum(counts.values())
+            complete = (bool(count) and not result["issues"] and not artifact_issues
+                        and counts.get("refined", 0) == count)
+            if (type(quality["observation_count"]) is not int or quality["observation_count"] != count
+                    or type(quality["reconstructed_count"]) is not int or quality["reconstructed_count"] != reconstructed
+                    or not isinstance(quality["by_status"], dict) or quality["by_status"] != counts
+                    or any(type(v) is not int for v in quality["by_status"].values())
+                    or type(quality["complete"]) is not bool or quality["complete"] != complete):
+                raise ValueError("Reconstructed quality summary contradicts its observations")
+        except (KeyError, TypeError, OverflowError) as error:
+            raise ValueError("Malformed reconstructed timing result") from error
         return result
 
     @service_operation(new_work=True)

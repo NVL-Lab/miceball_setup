@@ -11,6 +11,7 @@ import stat
 from dataclasses import dataclass, field, replace
 from copy import deepcopy
 from pathlib import Path
+from numbers import Integral
 from time import monotonic, time
 from typing import Any, Iterable
 from uuid import uuid4
@@ -27,6 +28,15 @@ REQUIRED_SCIENTIFIC_ROW_FIELDS = frozenset(
         "experiment_id",
     }
 )
+
+
+def validate_frame_index(index):
+    """Require the canonical scientific frame index without lossy coercion."""
+    if isinstance(index, bool) or not isinstance(index, Integral):
+        raise ValueError("frame_index must be an integer")
+    if not -(2**63) <= int(index) < 2**63:
+        raise ValueError("frame_index is outside int64 range")
+    return int(index)
 
 
 def _local_filesystem_identity(path: Path) -> list[str]:
@@ -1208,11 +1218,7 @@ class LocalStorageManager:
             raise ValueError("frame shape does not match stream schema")
         if frame.dtype != np.dtype(stream.metadata["schema"]["frame_dtype"]):
             raise ValueError("frame dtype does not match stream schema")
-        index = row.get("frame_index")
-        if isinstance(index, bool) or not isinstance(index, (int, np.integer)):
-            raise ValueError("frame_index must be an integer")
-        if not -(2**63) <= int(index) < 2**63:
-            raise ValueError("frame_index is outside int64 range")
+        index = validate_frame_index(row.get("frame_index"))
         for name in ("session_time_s", "experiment_time_s", "acquisition_node_local_time_s"):
             value = row[name]
             if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):

@@ -60,6 +60,37 @@ def project_clock_interval(local_time_s, anchor_s, lower_s, upper_s, rate_min, r
     return lower_s + low_rate * distance, upper_s + high_rate * distance
 
 
+def validate_clock_estimate(estimator, configuration):
+    """Check the rate-polygon summary shared by runtime production and readback."""
+    if (not isinstance(estimator, dict)
+            or type(estimator.get("refinement_accepted")) is not bool):
+        raise ValueError("Malformed estimator fields")
+    bounds = estimator.get("rate_bounds")
+    scale = estimator.get("scale")
+    if not isinstance(bounds, list) or len(bounds) != 2:
+        raise ValueError("Malformed estimator rate bounds")
+    try:
+        finite = all(type(v) in (int, float) and isfinite(v) for v in (scale, *bounds))
+    except OverflowError:
+        finite = False
+    if not finite or not 0 < bounds[0] <= bounds[1] or scale <= 0:
+        raise ValueError("Malformed estimator rate bounds")
+    low = configuration.initial_scale - configuration.clock_rate_error_bound
+    high = configuration.initial_scale + configuration.clock_rate_error_bound
+    if not isfinite(high):
+        raise ValueError("Configured rate envelope is nonfinite")
+    # Polygon interpolation and vertex averaging can round at an envelope edge.
+    tolerance = 8 * max(ulp(float(v)) for v in (scale, *bounds, low, high))
+    if (scale < bounds[0] - tolerance or scale > bounds[1] + tolerance
+            or bounds[0] < low - tolerance or bounds[1] > high + tolerance):
+        raise ValueError("Estimator scale, rate bounds and configuration contradict each other")
+    accepted = estimator["refinement_accepted"]
+    dispositions = ({"initial_assumption", "consistent", "sustained_change"} if accepted
+                    else {"isolated_or_unconfirmed_change", "measurement_unavailable"})
+    if not isinstance(estimator.get("disposition"), str) or estimator["disposition"] not in dispositions:
+        raise ValueError("Estimator disposition contradicts refinement acceptance")
+
+
 @dataclass(frozen=True)
 class SynchronizationConfiguration:
     """Explicit bounds and policy for measured distributed synchronization."""
@@ -132,6 +163,23 @@ class SynchronizationMapping:
             scale=data["scale"],
             created_session_time_s=data["created_session_time_s"],
         )
+
+
+def validate_mapping_snapshot(value, session_id, node_id):
+    """Validate preserved affine mapping data without creating runtime authority."""
+    if not isinstance(value, dict):
+        raise ValueError("Synchronization mapping must be an object")
+    mapping = SynchronizationMapping.from_dict(value)
+    try:
+        finite = all(type(v) in (int, float) and isfinite(v) for v in (
+            mapping.local_time_anchor_s, mapping.session_time_anchor_s,
+            mapping.scale, mapping.created_session_time_s))
+    except OverflowError:
+        finite = False
+    if (mapping.session_id != session_id or mapping.acquisition_node_id != node_id
+            or not finite or mapping.scale <= 0):
+        raise ValueError("Conflicting or malformed runtime mapping")
+    return mapping.to_dict()
 
 
 @dataclass(frozen=True)
@@ -383,6 +431,7 @@ class SynchronizationManager:
             center = sum(v[1] + v[0] * (anchor - fit_anchor) for v in polygon) / len(polygon)
             estimator = {"scale": scale, "rate_bounds": [min(v[0] for v in polygon), max(v[0] for v in polygon)],
                          "refinement_accepted": refined, "disposition": disposition}
+            validate_clock_estimate(estimator, config)
             mapping = self.get_active_mapping(session_id, node_id)
             if mapping is not None and old is None:
                 raise RuntimeError("Active mapping has no verified measurement provenance")

@@ -2158,7 +2158,7 @@ recovery is introduced. Phase 16 and M015 remain open.
 - PersistentStorageManager.write_timing_reconstruction(result): Fsyncs, non-overwritingly publishes and reads back one immutable derived version, accepting identical retries and refusing conflicts or aliases without changing raw/archival products.
 - PersistentStorageManager.read_timing_reconstruction(session_id, version): Reconfirms a derived version's identity, digest, file/directory durability and unchanged readback independently of Session bindings.
 - PersistentStorageManager._timing_reconstruction_path(session_id, version=None): Validates the derived directory or a specific version's safe identity, ancestry and exclusive regular-file ownership outside closed archival products.
-- PersistentStorageManager._validate_timing_result(result): Applies the same minimum derived-result object/array shape contract to publication and decoded readback, without acting as a scientific computation authority.
+- PersistentStorageManager._validate_timing_result(result): Checks derived envelope/observation structure, positions, scope/evidence links, conservative numerical bounds and truthful quality summaries at publication and readback, without recomputing scientific results.
 - PersistentStorageManager: Owns durable Session Records, Evidence Archives, saved-Session selection, recovery and global scientific-artifact collection without scientific-envelope persistence.
 - PersistentStorageManager(storage_root, *, global_artifact_root=None, retrieval_endpoints=None, evidence_publisher=None, component_id="storage"): Uses an explicit directory root for existing Session/framework products, retaining node-keyed retrieval settings and collection-evidence publication.
 - PersistentStorageManager.verify_installation_retrieval(node_id, source_path, expected_content, *, max_bytes): Retrieves one explicitly designated dummy file through existing SSH/SFTP into a bounded auto-cleaned temporary destination and reports exact comparison with independent expected bytes without creating Session or artifact evidence.
@@ -2264,11 +2264,11 @@ The prior adaptive-runtime closure and its evidence are unchanged.
 - _number(value): Recognizes finite plain numeric timing values without accepting booleans.
 - _object(value, label): Requires decoded objects without coercing arrays or scalars into mappings.
 - _quality(value, session_id, node_id): Validates assessment scope, configuration, mapping, estimator and numeric bounds consistently for owner evidence and node activation/application snapshots.
-- _mapping(value, session_id, node_id): Validates preserved affine mapping identity, finite values and positive scale.
 - _mapped(mapping, local): Applies the preserved affine mapping to an original local timestamp.
 - _measurement(quality): Validates complete chronological exchanges and recovers their conservative preserved measured bound, rejecting contradictions rather than substituting the offline host's clock precision.
 - _project_measurement(bound, local): Uses the shared explicit rate-envelope projection with conservative outward floating-point bounds.
 - _checked_observation(row): Checks representable original timing/index fields without validating scientific payload suitability.
+- _check_completion(details, rows): Compares finalized row/frame counts, declared timing/index endpoints and duration with decoded observations, including empty HDF5 streams.
 
 The numerical method is `bounded_clock_envelopes_v1`: intersect propagated measured
 intervals within confirmed chronological segments using the original explicit rate
@@ -2336,10 +2336,30 @@ false confirmation is returned. Large-recording performance is not established.
 - TimingReconstructionTests.reconstruct(version="v1", storage=None): Invokes the public offline workflow against accessible original node storage.
 - TimingReconstructionTests.snapshot(): Captures original and historical product bytes independently of derived outputs.
 - TimingReconstructionTests.observations(result): Flattens public reconstruction observations for behavioral assertions.
+- TimingReconstructionTests.test_fractional_hdf5_indices_and_matching_metadata_are_not_confirmed(): Reproduces fractional dataset/metadata indices and verifies artifact isolation and immutable originals.
+- TimingReconstructionTests.test_estimator_semantic_contradictions_cannot_confirm_reconstruction(): Rejects inconsistent estimator scale, configured rate bounds and disposition through archived owner evidence.
+- TimingReconstructionTests.test_finalized_hdf5_counts_bounds_and_schema_must_agree(): Checks dataset indices, timing endpoints, count types and frame schema against preserved metadata.
+- TimingReconstructionTests.test_missing_and_contradictory_finalized_metadata_is_unavailable(): Rejects missing/contradictory final counts and endpoints without invalidating independent artifacts.
+- TimingReconstructionTests.test_hdf5_full_integer_boundaries_and_empty_stream_remain_readable(): Preserves valid signed-int64 boundary indices and finalized empty frame streams.
+- TimingReconstructionTests.test_fixed_rate_estimator_and_assessment_only_mapping_are_valid_offline(): Preserves zero-width nonunit rate envelopes and assessment-only estimates distinct from active mappings.
+- TimingReconstructionTests.test_jsonl_optional_indices_use_the_same_integer_contract(): Applies canonical optional frame-index semantics to JSONL while accepting valid boundary indices.
+- TimingReconstructionTests.test_mapping_update_details_must_match_the_preserved_assessment(): Rejects contradictory measured mapping configuration, exchanges, estimator and uncertainty.
+- TimingReconstructionTests.test_quality_validity_cannot_outlast_its_preserved_uncertainty_budget(): Refuses an applied quality snapshot whose claimed expiry exceeds its explicit uncertainty allowance.
+- TimingReconstructionTests.test_derived_result_semantics_are_checked_on_publication_and_readback(): Rejects inconsistent derived summaries, uncertainty and evidence links even with a matching content digest.
 
 ## src/lab_sync_acquisition/synchronization.py
 
 - clock_exchange_interval(values, local_resolution_s, session_resolution_s, rate_min, rate_max): Validates finite timestamps/resolutions/rate bounds, endpoint order and quantization-inclusive individual feasibility before either runtime or offline projection.
+- validate_clock_estimate(estimator, configuration): Checks finite positive polygon rate bounds, scale/envelope containment with floating-point roundoff allowance, and refinement/disposition consistency for production and offline consumers.
+- validate_mapping_snapshot(value, session_id, node_id): Checks preserved affine mapping scope, finite values and positive scale for reconstruction evidence and derived readback, replacing the offline-only `_mapping` helper without changing runtime ownership.
+
+Q006/Q018 producer/consumer reconciliation correction is implemented for developer
+verification, not independently validated or audited. It also checks HDF5 embedded
+identity/schema, finalized endpoints/counts, measured mapping/assessment agreement
+and decoded derived-result consistency. Existing exchange feasibility/quantization
+and trusted/pending ordering safeguards remain in place. Reconstruction diagnostics
+isolate damaged artifacts; collection light-verification is not promoted into full
+timing validation. Q006/Q018 remain OPEN; prior audit histories are unchanged.
 
 Offline quantization P2 correction: runtime assessments now retain the measured
 `session_clock_resolution_s`; offline validation reuses the exact exchange-bound
@@ -2417,6 +2437,8 @@ Bounded adaptive-drift software is CLOSED at audited commit `321009d64043cf9e14d
 - Session.record_experiment_lifecycle: Records canonical Experiment lifecycle evidence and applies the terminal-identity check to every `experiment_start`, including direct callers.
 
 ## src/lab_sync_acquisition/local_storage.py
+
+- validate_frame_index(index): Returns an integer signed-int64 scientific frame index without accepting booleans or lossy numeric coercion, shared by the HDF5 writer and offline readers.
 
 **Q034 Slice 1: CLOSED within validated read-only owner scope.** Historical
 inventory through LocalStorageManager and AcquisitionNode has completed

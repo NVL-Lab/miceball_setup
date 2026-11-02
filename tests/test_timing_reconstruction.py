@@ -332,6 +332,191 @@ class TimingReconstructionTests(unittest.TestCase):
         self.assertFalse(result["quality"]["complete"])
         self.assertTrue(result["artifacts"][1]["issues"])
 
+    def test_fractional_hdf5_indices_and_matching_metadata_are_not_confirmed(self):
+        self.archive()
+        path = Path(self.manifests[1].local_storage_path)
+        with h5py.File(path, "r+") as source:
+            del source["frame_index"]
+            source.create_dataset("frame_index", data=[.5, 1.5])
+            for index in range(2):
+                row = json.loads(source["record_metadata_json"].asstr()[index])
+                row["frame_index"] = index + .5
+                source["record_metadata_json"][index] = json.dumps(row)
+        before = self.snapshot()
+        result = self.reconstruct()
+        self.assertFalse(result["quality"]["complete"])
+        self.assertEqual(result["quality"]["reconstructed_count"], 2)
+        self.assertTrue(result["artifacts"][1]["issues"])
+        self.assertEqual(before, self.snapshot())
+
+    def test_estimator_semantic_contradictions_cannot_confirm_reconstruction(self):
+        cases = ({"scale": 2.5}, {"scale": .55, "rate_bounds": [.5, .6]},
+                 {"disposition": "invented"},
+                 {"refinement_accepted": True, "disposition": "isolated_or_unconfirmed_change"})
+        for index, changes in enumerate(cases):
+            with self.subTest(changes=changes):
+                self.storage = PersistentStorageManager(self.root / f"estimator-contract-{index}")
+                def mutate(messages):
+                    for message in messages:
+                        for q in (message.payload, message.payload.get("quality"), message.payload.get("measurement")):
+                            if isinstance(q, dict) and "estimator" in q:
+                                q["estimator"].update(deepcopy(changes))
+                    return messages
+                self.archive(mutate, release=False)
+                before = self.snapshot()
+                result = self.reconstruct()
+                self.assertFalse(result["quality"]["complete"])
+                self.assertEqual(result["quality"]["reconstructed_count"], 0)
+                self.assertTrue(result["issues"])
+                self.assertEqual(before, self.snapshot())
+
+    def test_finalized_hdf5_counts_bounds_and_schema_must_agree(self):
+        self.archive()
+        path = Path(self.manifests[1].local_storage_path)
+        original = path.read_bytes()
+        for case in ("shifted_indices", "shifted_native_time", "boolean_count", "float_count", "frame_schema",
+                     "unsigned_index_overflow"):
+            with self.subTest(case=case):
+                path.write_bytes(original)
+                with h5py.File(path, "r+") as source:
+                    if case == "boolean_count":
+                        source.attrs["persisted_frame_count"] = True
+                    elif case == "float_count":
+                        source.attrs["persisted_frame_count"] = 2.
+                    elif case == "frame_schema":
+                        del source["frames"]
+                        source.create_dataset("frames", data=np.zeros((2, 1, 1), dtype="uint8"))
+                    elif case == "unsigned_index_overflow":
+                        del source["frame_index"]
+                        source.create_dataset("frame_index", data=np.array([2**63, 2**63+1], dtype="uint64"))
+                        for index in range(2):
+                            row = json.loads(source["record_metadata_json"].asstr()[index])
+                            row["frame_index"] = 2**63 + index
+                            source["record_metadata_json"][index] = json.dumps(row)
+                    else:
+                        field = "frame_index" if case == "shifted_indices" else "experiment_time_s"
+                        for index in range(2):
+                            source[field][index] += 10
+                            row = json.loads(source["record_metadata_json"].asstr()[index])
+                            row[field] = source[field][index].item()
+                            source["record_metadata_json"][index] = json.dumps(row)
+                before = self.snapshot()
+                result = self.reconstruct(case)
+                self.assertFalse(result["quality"]["complete"])
+                self.assertEqual(result["quality"]["reconstructed_count"], 2)
+                self.assertTrue(result["artifacts"][1]["issues"])
+                self.assertEqual(before, self.snapshot())
+
+    def test_missing_and_contradictory_finalized_metadata_is_unavailable(self):
+        original = self.manifests[1]
+        for index, change in enumerate(({"persisted_frame_count": 1}, {"first_frame_index": None},
+                                       {"duration_s": 99}, {"first_frame_index": "missing"})):
+            with self.subTest(change=change):
+                self.storage = PersistentStorageManager(self.root / f"completion-{index}")
+                details = {**original.details, **change}
+                if change.get("first_frame_index") == "missing":
+                    del details["first_frame_index"]
+                self.manifests[1] = replace(original, details=details)
+                Path(original.local_managed_paths[2]).write_text(json.dumps(self.manifests[1].to_dict()))
+                self.archive(release=False)
+                before = self.snapshot()
+                result = self.reconstruct()
+                self.assertFalse(result["quality"]["complete"])
+                self.assertEqual(result["quality"]["reconstructed_count"], 2)
+                self.assertEqual(before, self.snapshot())
+
+    def test_hdf5_full_integer_boundaries_and_empty_stream_remain_readable(self):
+        for index, first in enumerate((-(2**63), 2**63-2)):
+            manifest = self.manager.create_stream(session_id="session", experiment_id="experiment",
+                acquisition_node_id="node", source_component_id="camera", data_product_id=f"boundary-{index}",
+                artifact_type="frames", storage_format="hdf5", schema={"frame_shape": [2, 3], "frame_dtype": "uint8"})
+            rows = deepcopy(self.rows[1])
+            for offset, row in enumerate(rows):
+                row["frame_index"] = np.int64(first + offset)
+            self.manager.append_rows(manifest.storage_id, rows)
+            self.manifests.append(self.manager.finalize_stream(manifest.storage_id))
+        empty = self.manager.create_stream(session_id="session", experiment_id="experiment",
+            acquisition_node_id="node", source_component_id="camera", data_product_id="empty",
+            artifact_type="frames", storage_format="hdf5", schema={"frame_shape": [2, 3], "frame_dtype": "uint8"})
+        self.manifests.append(self.manager.finalize_stream(empty.storage_id))
+        self.archive()
+        result = self.reconstruct()
+        self.assertTrue(result["quality"]["complete"], result["issues"])
+        self.assertEqual(result["quality"]["observation_count"], 8)
+        self.assertEqual(result["artifacts"][-1]["observations"], [])
+
+    def test_fixed_rate_estimator_and_assessment_only_mapping_are_valid_offline(self):
+        fixed = SynchronizationManager()
+        fixed.prepare_session("session")
+        fixed.configure_distributed_session("session", configuration(initial_scale=1.5,
+            clock_rate_error_bound=0., max_mapping_age_s=100000))
+        fixed.start_distributed_session("session")
+        samples = [dict(sent_session_time_s=i*.15-.002, received_local_time_s=100+i*.1,
+            sent_local_time_s=100+i*.1, received_session_time_s=i*.15+.002,
+            local_clock_resolution_s=0.) for i in range(3)]
+        fixed.assess_cross_clock_exchanges("session", "fixed-node", samples, replace_mapping=True, source_id="sync")
+        self.time = 31
+        samples = [dict(sent_session_time_s=30.06+i*.1002-.002, received_local_time_s=130+i*.1,
+            sent_local_time_s=130+i*.1, received_session_time_s=30.06+i*.1002+.002,
+            local_clock_resolution_s=0.) for i in range(3)]
+        q = self.sync.assess_cross_clock_exchanges("session", "node", samples, replace_mapping=False, source_id="sync")
+        self.assertNotEqual(q["mapping"]["scale"], q["estimator"]["scale"])
+        def mutate(messages):
+            return messages + list(fixed.session_timing_evidence("session", "sync"))
+        self.archive(mutate)
+        self.assertTrue(self.reconstruct()["quality"]["complete"])
+
+    def test_jsonl_optional_indices_use_the_same_integer_contract(self):
+        self.archive()
+        path = Path(self.manifests[0].local_storage_path)
+        original = path.read_bytes()
+        for index, value in enumerate((.5, True, 2**63, -(2**63)-1)):
+            with self.subTest(value=value):
+                rows = [json.loads(line) for line in original.splitlines()]
+                rows[0]["frame_index"] = value
+                path.write_text("".join(json.dumps(row) + "\n" for row in rows))
+                result = self.reconstruct(f"index-{index}")
+                self.assertFalse(result["quality"]["complete"])
+                self.assertEqual(result["quality"]["reconstructed_count"], 2)
+        for index, value in enumerate((-(2**63), 2**63-2)):
+            rows = [json.loads(line) for line in original.splitlines()]
+            for offset, row in enumerate(rows):
+                row["frame_index"] = value + offset
+            path.write_text("".join(json.dumps(row) + "\n" for row in rows))
+            self.assertTrue(self.reconstruct(f"valid-index-{index}")["quality"]["complete"])
+
+    def test_mapping_update_details_must_match_the_preserved_assessment(self):
+        for index, field in enumerate(("estimator", "exchanges", "configuration", "uncertainty_s")):
+            with self.subTest(field=field):
+                self.storage = PersistentStorageManager(self.root / f"mapping-contract-{index}")
+                def mutate(messages):
+                    message = next(m for m in messages if m.evidence_type == "mapping_update_evidence")
+                    if field == "estimator":
+                        message.payload["details"][field]["scale"] = 2.5
+                    elif field == "exchanges":
+                        message.payload["details"][field][0]["sent_local_time_s"] += .1
+                    elif field == "configuration":
+                        message.payload["details"][field]["initial_scale"] = 1.1
+                    else:
+                        message.payload["details"][field] += 1
+                    return messages
+                self.archive(mutate, release=False)
+                result = self.reconstruct()
+                self.assertFalse(result["quality"]["complete"])
+                self.assertEqual(result["quality"]["reconstructed_count"], 0)
+
+    def test_quality_validity_cannot_outlast_its_preserved_uncertainty_budget(self):
+        def mutate(messages):
+            for message in messages:
+                for q in (message.payload, message.payload.get("quality"), message.payload.get("measurement")):
+                    if isinstance(q, dict) and "assessment_sequence" in q:
+                        q["valid_until_local_time_s"] += 1000000
+            return messages
+        self.archive(mutate)
+        result = self.reconstruct()
+        self.assertFalse(result["quality"]["complete"])
+        self.assertEqual(result["quality"]["reconstructed_count"], 0)
+
     def test_malformed_hdf5_structures_preserve_partial_results_and_diagnostics(self):
         self.archive()
         path = Path(self.manifests[1].local_storage_path)
@@ -433,6 +618,54 @@ class TimingReconstructionTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     self.storage.read_timing_reconstruction("session", "v1")
                 self.assertEqual(path.read_bytes(), before)
+
+    def test_derived_result_semantics_are_checked_on_publication_and_readback(self):
+        import hashlib
+        self.archive()
+        valid = self.reconstruct()
+        variants = []
+        for field, value in (("observation_count", 999), ("reconstructed_count", 999), ("by_status", {})):
+            result = deepcopy(valid)
+            result["quality"][field] = value
+            variants.append(result)
+        result = deepcopy(valid)
+        result["artifacts"][0]["observations"][0]["reconstructed"]["uncertainty_s"] = -1
+        variants.append(result)
+        result = deepcopy(valid)
+        result["artifacts"][0]["observations"][0]["provenance"]["session_id"] = "other"
+        variants.append(result)
+        result = deepcopy(valid)
+        result["artifacts"][0]["observations"][0]["provenance"]["refinement_evidence_ids"] = ["not-preserved"]
+        variants.append(result)
+        result = deepcopy(valid)
+        result["artifacts"][0]["observations"][0]["runtime"]["uncertainty_s"] = -1
+        variants.append(result)
+        result = deepcopy(valid)
+        result["artifacts"][0]["observations"][0]["provenance"]["runtime_mapping"]["session_id"] = "other"
+        variants.append(result)
+        result = deepcopy(valid)
+        result["archive_sha256"]["runtime_evidence"] = []
+        variants.append(result)
+        result = deepcopy(valid)
+        result["artifacts"][0]["observations"][0]["issues"].append("inconsistent evidence")
+        variants.append(result)
+        result = deepcopy(valid)
+        result["artifacts"][0]["observations"][0]["runtime"]["quality"] = "degraded"
+        variants.append(result)
+        for index, result in enumerate(variants):
+            with self.subTest(index=index):
+                result["version"] = f"damaged-{index}"
+                with self.assertRaises(ValueError):
+                    self.storage.write_timing_reconstruction(result)
+                # A digest proves bytes, not the semantic validity of a decoded result.
+                serialized = json.dumps(result, sort_keys=True, allow_nan=False, separators=(",", ":"))
+                path = self.root / f"archive/session_session/reconstructed_timing/damaged-{index}.json"
+                path.write_text(json.dumps({"result": result,
+                    "sha256": hashlib.sha256(serialized.encode()).hexdigest()}))
+                before = path.read_bytes()
+                with self.assertRaises(ValueError):
+                    PersistentStorageManager(self.root / "archive").read_timing_reconstruction("session", result["version"])
+                self.assertEqual(before, path.read_bytes())
 
     def test_degraded_runtime_can_be_refined_without_relabeling_original(self):
         path = Path(self.manifests[0].local_storage_path)
