@@ -336,9 +336,13 @@ class SynchronizationManager:
             disposition = "consistent" if state else "initial_assumption"
             if fit is None:
                 pending = state["pending"]
-                if (pending is not None and anchor > pending[0][0]
-                        and exchanges[0]["sent_session_time_s"] >= pending[1]):
-                    fit = self._constrain_clock_estimate(self._constrain_clock_estimate(None, pending[0]), point)
+                if pending is not None:
+                    previous_point, session_end, local_end = pending
+                    if (anchor > previous_point[0]
+                            and exchanges[0]["sent_session_time_s"] >= session_end
+                            and exchanges[0]["received_local_time_s"] >= local_end):
+                        fit = self._constrain_clock_estimate(
+                            self._constrain_clock_estimate(None, previous_point), point)
                 disposition = "sustained_change" if fit is not None else "isolated_or_unconfirmed_change"
             refined = fit is not None
             if not refined:
@@ -380,7 +384,8 @@ class SynchronizationManager:
                 "configuration": config.to_dict(), "exchanges": deepcopy(exchanges), "estimator": estimator}
             # Rejected candidates retain their own scope, not trusted admission progress.
             self._clock_estimates[node_id] = {"fit": fit,
-                "pending": None if refined else (point, exchanges[-1]["received_session_time_s"]),
+                "pending": None if refined else (point, exchanges[-1]["received_session_time_s"],
+                                                  exchanges[-1]["sent_local_time_s"]),
                 "last_local_time_s": anchor if refined else state["last_local_time_s"],
                 "last_session_time_s": (exchanges[-1]["received_session_time_s"] if refined
                                         else state["last_session_time_s"])}

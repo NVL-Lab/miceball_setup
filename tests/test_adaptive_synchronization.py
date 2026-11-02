@@ -146,6 +146,53 @@ class AdaptiveSynchronizationTests(unittest.TestCase):
             self.assertEqual(before, self.owner.session_timing_evidence('session', 'sync'))
         self.assertTrue(self.assess(170, 70)['acceptable'])
 
+    def test_pending_change_requires_complete_boundaries_on_both_clocks(self):
+        def exchanges(local, session, long_last=False):
+            result = []
+            for i in range(3):
+                duration = 1.0 if long_last and i == 2 else .001
+                result.append(dict(sent_session_time_s=session + i * .1,
+                    received_local_time_s=local + i * .1,
+                    sent_local_time_s=local + i * .1 + duration,
+                    received_session_time_s=session + i * .1 + duration,
+                    local_clock_resolution_s=0.0))
+            return result
+
+        cases = ((161.199, 62.201, False), (160.6, 62.201, False),
+                 (161.201, 62.199, False), (161.2, 62.2, True), (161.201, 62.201, True))
+        for interrupted in (False, True):
+            for index, (local, session, expected) in enumerate(cases):
+                node = f'node-{interrupted}-{index}'
+                with self.subTest(interrupted=interrupted, local=local, session=session):
+                    for t in (0., 10., 20., 30., 40.):
+                        self.owner.assess_cross_clock_exchanges('session', node, exchanges(100 + t, t),
+                            replace_mapping=True, source_id='sync')
+                    mapping = self.owner.get_active_mapping('session', node)
+                    first = exchanges(160., 61., long_last=True)
+                    rejected = self.owner.assess_cross_clock_exchanges('session', node, first,
+                        replace_mapping=True, source_id='sync')
+                    self.assertFalse(rejected['estimator']['refinement_accepted'])
+                    if interrupted:
+                        self.owner.mark_synchronization_unavailable('session', node, 'sync',
+                            'partial measurement interrupted', exchanges=first[:1])
+                    second = exchanges(local, session)
+                    quality = self.owner.assess_cross_clock_exchanges('session', node, second,
+                        replace_mapping=True, source_id='sync')
+                    self.assertEqual(quality['estimator']['refinement_accepted'], expected)
+                    self.assertEqual(quality['acceptable'], expected)
+                    if expected:
+                        self.assertEqual(quality['estimator']['disposition'], 'sustained_change')
+                        self.assertNotEqual(self.owner.get_active_mapping('session', node), mapping)
+                    else:
+                        self.assertEqual(self.owner.get_active_mapping('session', node), mapping)
+                    evidence = self.owner.session_timing_evidence('session', 'sync')
+                    self.assertEqual(quality, self.owner.assess_cross_clock_exchanges('session', node, second,
+                        replace_mapping=True, source_id='sync'))
+                    self.assertEqual(evidence, self.owner.session_timing_evidence('session', 'sync'))
+                    self.assertIn(rejected, [m.payload for m in evidence])
+                    if not expected:
+                        self.assertTrue(self.assess(180, 80, node=node)['acceptable'])
+
     def test_sustained_change_still_requires_independent_evidence_after_anomaly(self):
         for n in range(10):
             self.assess(100 + n * 10, n * 10)

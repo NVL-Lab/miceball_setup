@@ -2196,8 +2196,23 @@ the pending-change test passed for intervening partial failure and replay. The
 regression-first owner and NATS checks reproduced the defect; an owner-only fix
 also reproduced the node-side obstruction. One subsequent test attempt timed out
 during startup before reaching this boundary; rerun and the final selection
-passed. Independent ICC correction validation and separate Codex re-audit remain
-pending. Q006/Q018 are OPEN; no documentation closure or deployment claim is made.
+passed. At that handoff, independent ICC correction validation and separate Codex
+re-audit remained pending. Q006/Q018 stayed OPEN without a closure or deployment claim.
+
+**Pending-boundary P2 correction:** Subsequent ICC validation passed 15/15
+SynchronizationManager and 7/7 AcquisitionNode checks. The independent re-audit
+of `c6b2529` nevertheless returned FAIL: midpoint ordering allowed overlapping
+node-local candidate windows to confirm a changed fit. The bounded correction
+retains the final node-local send time in the existing pending tuple and requires
+the next candidate to start at or after both previous clock endpoints before
+combination. Rejected candidates still cannot advance trusted admission cursors.
+No public API, configuration, AcquisitionNode or NATS consumer changes are needed.
+Developer correction verification passed 24 focused methods: 18 adaptive/timing
+publication, four measurement-bound and two isolated real-NATS workflows. The
+new regression reproduced the audited false confirmation before correction and
+now covers ten boundary/interruption combinations, including recovery and replay.
+Independent validation and re-audit of this correction remain pending; Q006/Q018
+remain OPEN.
 
 ### Remaining scope
 
