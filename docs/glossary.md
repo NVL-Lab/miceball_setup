@@ -1755,6 +1755,14 @@ Derived timing produced by offline reconstruction after auditing Runtime Timing 
 
 Reconstructed Timing may refine estimates or identify degraded intervals, but it remains distinguishable from Runtime Timing.
 
+Decision 379's accepted remaining-software scope requires separate, versioned
+reconstructed timestamps and uncertainty linked to original observations, runtime
+mappings and supporting evidence, with reconstruction-quality reporting. Original
+scientific records and Runtime Timing are not modified. Per-observation uncertainty
+must be reconstructable; a stored uncertainty field on every frame is not required.
+The offline implementation awaits independent validation/audit; adaptive runtime
+software closure does not establish offline reconstruction validation.
+
 ---
 
 # Storage Manager
@@ -1847,9 +1855,11 @@ Decision 380 specifies local affine application:
 the existing `session_time_anchor_s`, `local_time_anchor_s` and `scale` fields.
 Experiment Time derives from Session Time. Mapping history and each
 AcquisitionNode-local activation boundary are preserved for reconstruction;
-no mapping ID is required on every observation. Advanced measurement/drift,
-uncertainty, hardware synchronization and offline refinement remain open under
-Q006/Q018 beyond the minimum demonstrably valid method required by Decision 379.
+no mapping ID is required on every observation. Decision 379's adaptive runtime
+software is CLOSED within its independently validated scope. Q006/Q018 remain
+OPEN for the accepted uncertainty-reconstruction and versioned offline timing
+software's independent validation/audit and deployment validation;
+hardware-assisted synchronization is DEFERRED.
 
 ---
 

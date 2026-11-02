@@ -1374,8 +1374,12 @@ and separate Codex audit PASS support this closure. See the
 [authoritative evidence, correction history and limits](validated_workflows.md#q006-q018---adaptive-synchronization-software).
 Synthetic clocks, simulated devices and isolated local NATS do not establish
 physical timing accuracy, cross-machine deployment, actual process-crash/power-loss
-recovery or exhaustive concurrency. Q006/Q018 remain OPEN for richer representation,
-hardware synchronization and offline refinement; W056 and G5 scope are unchanged.
+recovery or exhaustive concurrency. Q006/Q018 remain OPEN for the accepted
+uncertainty-reconstruction and versioned offline timing software's independent
+validation/audit and deployment validation; hardware-assisted synchronization is
+explicitly DEFERRED. See Decision
+379's remaining-software clarification. This does not change the adaptive-software
+closure, its evidence or W056/G5 scope.
 
 ## Completed Q022 Slice 3 Operational Evidence Transport (W057)
 

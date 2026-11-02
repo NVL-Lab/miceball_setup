@@ -6074,10 +6074,15 @@ crash test. Existing G5 deployment evidence does not establish synchronization
 quality and is not expanded by this closure.
 
 Only this adaptive runtime software scope is complete and independently validated.
-Q006/Q018 remain OPEN for richer timing/uncertainty representations, further
-refinement beyond this bounded implementation, hardware synchronization, and
-offline refinement/reconstruction timing work. No new architecture, deployment
-certification, clock restoration or unrelated milestone closure is implied.
+Q006/Q018 remain OPEN for accepted per-observation uncertainty reconstruction,
+separate versioned offline timestamps/uncertainty and reconstruction-quality
+reporting, plus deployment validation. Decision 379's remaining-software
+clarification settles these requirements. The subsequent offline developer
+implementation awaits separate independent validation/audit and is not certified
+by this adaptive-runtime closure;
+hardware-assisted synchronization is explicitly DEFERRED. The adaptive closure,
+evidence and correction history above are unchanged. No deployment certification,
+clock restoration or unrelated milestone closure is implied.
 
 # Q034 Slice 1 - Historical Scientific-Artifact Inventory
 

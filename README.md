@@ -426,7 +426,41 @@ finalization, and local completion summaries. Slice 20.3 implements Session,
 Controller, and AcquisitionNode integration for explicitly selected scientific
 products. Global retrieval, light verification, and collection-pass evidence are
 implemented in the later slices described below; broader global integration,
-transfer scheduling, reconstruction, and export remain future work.
+transfer scheduling, general reconstruction and export remain future work. Bounded
+offline timing reconstruction is implemented as described below, pending separate
+independent validation and audit.
+
+### Offline timing reconstruction (Q006/Q018)
+
+```python
+from lab_sync_acquisition import PersistentStorageManager, ReconstructionManager
+
+storage = PersistentStorageManager(archive_root, global_artifact_root=collected_root)
+reconstruction = ReconstructionManager(storage)
+result = reconstruction.reconstruct_session(session_id, version="timing-v1")
+saved = storage.read_timing_reconstruction(session_id, "timing-v1")
+```
+
+Inputs are confirmed historical Session preservation products and exact archived
+collection destinations, not a live Session. To read accessible originals instead,
+pass `local_storage_roots={node_id: node_storage_root}` to `ReconstructionManager`;
+discovery reuses LocalStorageManager's historical identity and alias checks.
+Framework-managed JSONL and HDF5 timing are supported; HDF5 pixels are not loaded.
+External vendor formats and unresolved observation/index associations are reported,
+not inferred. Acquisition-time runtime uncertainty and offline results remain
+distinct. Refinement uses preserved measured bounds and configured rate envelopes
+on both sides of an observation, without bridging confirmed drift-change segments.
+Unbracketed, missing or conflicting evidence remains explicitly unavailable.
+
+Derived versions are stored in `session_<id>/reconstructed_timing/<version>.json`,
+outside Session Records and Evidence Archives. Original scientific/timing records,
+archival products and earlier versions are not rewritten. Identical explicit
+retries reconfirm durability; conflicting or damaged existing versions are refused,
+not repaired. Publication/durability failures propagate. `quality.complete` requires
+all observations to be refined without degraded runtime status or reported issues;
+it is not a physical synchronization-accuracy certification. Inspect per-artifact,
+per-observation and input-evidence issues even when useful partial results exist.
+Q006/Q018 remain OPEN; hardware-assisted synchronization remains deferred.
 
 Local HDF5 scientific persistence is now implemented and covered by synthetic
 array tests. Select `storage_format="hdf5"` in

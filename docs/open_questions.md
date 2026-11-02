@@ -88,8 +88,10 @@ Additional questions:
 **Status:** OPEN - minimum distributed synchronization contracts are resolved by
 Decisions 379-381. Decision 379's bounded adaptive-estimation and independent-quality
 software scope is CLOSED after independent validation and final audit PASS of
-`321009d64043cf9e14d7400341197f22c970fb57`; detailed timing representation, hardware
-synchronization and offline refinement remain open. See the
+`321009d64043cf9e14d7400341197f22c970fb57`. Decision 379's remaining-software
+clarification settles reconstructable uncertainty and versioned offline results;
+their independent validation/audit and deployment validation remain pending. Hardware-assisted
+synchronization is explicitly DEFERRED. See the
 [software closure and limits](validated_workflows.md#q006-q018---adaptive-synchronization-software).
 
 ### Why this matters
@@ -131,21 +133,30 @@ a new segment. Applied quality still uses the latest raw bounds, and future
 validity retains the configured rate envelope. No new estimator configuration or
 evidence pipeline is introduced. Independent validation and audit are complete for
 this bounded scope; algorithm, weights and thresholds are not unresolved
-architectural decisions. This does not close the remaining questions below.
+architectural decisions. This does not complete the remaining software below.
 
-### Remaining questions
+### Accepted offline software (implemented; independent validation pending)
 
-* How should detailed timestamp uncertainty be represented beyond the accepted
-  requirement to account for uncertainty and preserve degraded timestamp status?
-* What additional precision requirements are needed beyond existing timing schemas?
-* What hardware synchronization models and offline refinement methods are needed?
-* How are reconstructed drift estimates linked to the runtime mappings they audit?
-* How is runtime drift-estimation evidence represented without exposing the SynchronizationManager algorithm as architecture?
+* Reconstruct per-observation timing uncertainty from original timestamps, mapping
+  history and synchronization evidence; mandatory per-frame uncertainty fields
+  are not required.
+* Produce separate, versioned offline reconstructed timestamps and uncertainty,
+  linked to original observations, runtime mappings and supporting evidence.
+* Report reconstruction quality while preserving every original scientific and
+  runtime timing record, using existing representations where sufficient.
+
+These requirements are accepted under Decisions 029, 154-175 and 379-381, not
+unresolved requests for another schema or algorithm decision. Offline numerical
+methods remain implementation choices. Hardware-assisted synchronization, including
+PTP, external clocks and hardware triggers, is deferred and is not part of this
+software implementation scope. The subsequent ICC-authorized implementation is
+documented under `reconstruction.py` in `code_map.md`; developer tests do not replace
+independent IPython validation or audit. Q006/Q018 remain OPEN.
 
 ### Blocks
 
-* Advanced synchronization beyond the completed bounded adaptive runtime software
-* Reconstruction quality reporting
+* Independent validation/audit of offline timing and reconstruction-quality reporting
+* Remaining deployment validation
 
 ---
 
@@ -2139,8 +2150,9 @@ They do not decide Controller restart or repeated-action execution, so Q016 rema
 synchronization gate for Q022 Slice 2. Decision 379's Q006/Q018 clarification
 accepts adaptive-estimation behavior and independent quality assessment, now CLOSED
 within bounded software scope after independent ICC validation and final Codex
-audit PASS of `321009d64043cf9e14d7400341197f22c970fb57`. The remaining
-representation, hardware and offline scope below is not complete.
+audit PASS of `321009d64043cf9e14d7400341197f22c970fb57`. The accepted remaining
+uncertainty-reconstruction and offline software below awaits independent validation/audit;
+hardware-assisted synchronization is explicitly DEFERRED.
 
 Phase 11's historical mapping-ownership scope is now supplemented by measured
 cross-clock exchanges, the accepted local affine formula, and synchronization
@@ -2227,18 +2239,31 @@ At that implementation handoff, independent validation and re-audit remained
 pending. Their subsequent completion is recorded in the closure linked above;
 Q006/Q018 remain OPEN for broader work, not for either corrected P2.
 
-### Remaining scope
+### Accepted remaining software and deferred scope
 
-- richer SynchronizationObservation and timing-uncertainty representations
-- further refinement beyond the completed bounded adaptive runtime implementation,
-  preserving existing prospective activation semantics
-- hardware synchronization
-- offline refinement and reconstruction timing estimators
+- reconstructable per-observation uncertainty using original timestamps, mapping
+  history and retained synchronization evidence, without mandatory per-frame
+  uncertainty fields
+- offline timing refinement producing separate, versioned reconstructed timestamps
+  and uncertainty, with exact links to original observations, runtime mappings and
+  supporting evidence
+- reconstruction-quality reporting and preservation of all original scientific
+  records and immutable runtime timing
+
+Decision 379 records these accepted requirements; Q006 tracks the same software
+awaiting independent validation/audit. The ICC-authorized implementation reads
+preserved evidence and supported scientific files, reconstructs acquisition-time
+uncertainty and bounded offline timing, and publishes separate immutable versions
+through StorageManager. See `code_map.md` for interfaces and developer test results.
+Existing representations are reused where sufficient. This scope
+does not require a new observation schema, service or evidence pipeline.
+Hardware-assisted synchronization (PTP, external clocks, hardware triggers or
+other hardware synchronization implementation) is DEFERRED, not authorized work.
 
 Cadence and quality thresholds are configurable, not newly chosen constants;
 their accepted configurability is no longer an unresolved architectural question.
 
-The future synchronization design must preserve the accepted Phase 11 principles:
+The remaining implementation must preserve the accepted Phase 11 principles:
 
 - SynchronizationManager remains the owner of Session Time.
 - SynchronizationManager owns synchronization evidence creation and mapping lifecycle.
@@ -2249,9 +2274,10 @@ The future synchronization design must preserve the accepted Phase 11 principles
 Decisions 154-175 and 380 already govern preserved evidence and immutable
 mapping/activation history. Decision 379 reaffirms explicit prospective boundaries,
 traceable discontinuities and no slewing or runtime timestamp rewriting. Complete
-evidence remains available for future offline refinement, which cannot replace
-real-time closed-loop estimation. No offline algorithm or implementation is
-authorized by this documentation synchronization.
+evidence remains available for offline refinement, which cannot replace real-time
+closed-loop estimation. Offline requirements are accepted, but implementation
+authorization and independent validation/audit remain separate workflow stages.
+The current developer implementation is not independent validation or closure.
 
 This question does not block the accepted minimum Q022 Slice 2 synchronization
 implementation. It does not authorize deferring valid cross-clock measurement,

@@ -830,6 +830,106 @@ class PersistentStorageManager:
         return {"sessions": sessions, "capacity": self.check_experiment_capacity(0)}
 
     @service_operation()
+    def read_timing_reconstruction_inputs(self, session_id: str) -> dict:
+        """Read a confirmed historical evidence snapshot, without restoring a Session."""
+        self._timing_reconstruction_path(session_id)
+        with self._preservation_lock:
+            baseline = self._read_stage_b_baseline(session_id)
+            import hashlib
+
+            return {"session_id": session_id,
+                    "session_record": deepcopy(baseline["session_record"]),
+                    "compilation_summary": deepcopy(baseline["compilation_summary"]),
+                    "runtime_evidence": deepcopy(baseline["runtime_evidence"]),
+                    "collection_evidence": deepcopy([m for m in baseline["runtime_evidence"]
+                        if m["evidence_id"] in baseline["compilation_summary"]["runtime_evidence_origins"].get("storage_manager", [])
+                        and m["evidence_type"] == "global_artifact_collection_evidence"]),
+                    "artifact_collection_handoff": deepcopy(baseline["artifact_collection_handoff"]),
+                    "archive_sha256": {name: hashlib.sha256(data).hexdigest()
+                                       for name, data in baseline["raw"].items()}}
+
+    def _timing_reconstruction_path(self, session_id: str, version: str | None = None) -> Path:
+        """Keep versioned derived products outside immutable archival products and aliases."""
+        for value in ((session_id,) if version is None else (session_id, version)):
+            if (not isinstance(value, str) or not value or value in {".", ".."}
+                    or any(c in value for c in "/\\\x00:")):
+                raise ValueError("Session and reconstruction version must be safe nonempty identifiers")
+        directory = self._session_directory(session_id) / "reconstructed_timing"
+        self._require_framework_product_paths(directory)
+        if version is None:
+            return directory
+        path = directory / (version + ".json")
+        if os.path.lexists(path):
+            info = path.lstat()
+            if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1
+                    or getattr(info, "st_file_attributes", 0) & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)):
+                raise ValueError("Reconstruction product is unavailable or aliased")
+        return path
+
+    @service_operation(new_work=True)
+    def write_timing_reconstruction(self, result: dict) -> Path:
+        """Durably publish one immutable derived version; only identical retries are accepted."""
+        import hashlib
+
+        if (not isinstance(result, dict) or result.get("format") != "offline_timing_v1"
+                or result.get("version") is None
+                or not isinstance(result.get("artifacts"), list)
+                or not isinstance(result.get("issues"), list)
+                or not isinstance(result.get("quality"), dict)):
+            raise ValueError("A complete offline timing result envelope is required")
+        serialized = json.dumps(result, sort_keys=True, allow_nan=False, separators=(",", ":"))
+        envelope = json.dumps({"sha256": hashlib.sha256(serialized.encode()).hexdigest(),
+                               "result": json.loads(serialized)}, sort_keys=True, allow_nan=False)
+        with self._preservation_lock:
+            path = self._timing_reconstruction_path(result.get("session_id"), result.get("version"))
+            path.parent.mkdir(parents=True, exist_ok=True)
+            self._timing_reconstruction_path(result["session_id"], result["version"])
+            temporary = None
+            try:
+                if not os.path.lexists(path):
+                    with NamedTemporaryFile(dir=path.parent, prefix=".incomplete-timing-", delete=False) as output:
+                        temporary = Path(output.name)
+                    self._write_record_contents(temporary, envelope)
+                    self._timing_reconstruction_path(result["session_id"], result["version"])
+                    try:
+                        os.link(temporary, path)
+                    except FileExistsError:
+                        pass  # A competing writer must still have identical contents.
+                    temporary.unlink()
+                    temporary = None
+                saved = self.read_timing_reconstruction(result["session_id"], result["version"])
+                if saved != json.loads(serialized):
+                    raise ValueError("Reconstruction version already contains different results")
+                return path
+            finally:
+                if temporary is not None:
+                    temporary.unlink(missing_ok=True)
+
+    @service_operation()
+    def read_timing_reconstruction(self, session_id: str, version: str) -> dict:
+        """Verify and read an immutable derived version independently of live bindings."""
+        import hashlib
+
+        if version is None:
+            raise ValueError("An explicit reconstruction version is required")
+        with self._preservation_lock:
+            path = self._timing_reconstruction_path(session_id, version)
+            raw = path.read_bytes()
+            envelope = self._read_preservation_json(raw)
+            result = envelope["result"]
+            serialized = json.dumps(result, sort_keys=True, allow_nan=False, separators=(",", ":"))
+            if (envelope.get("sha256") != hashlib.sha256(serialized.encode()).hexdigest()
+                    or result.get("format") != "offline_timing_v1"
+                    or result.get("session_id") != session_id or result.get("version") != version):
+                raise ValueError("Reconstructed timing identity or contents are inconsistent")
+            with path.open("r+b") as source:
+                os.fsync(source.fileno())
+            self._sync_artifact_handoff_directory(path)
+            if path.read_bytes() != raw:
+                raise RuntimeError("Reconstructed timing changed during confirmation")
+            return result
+
+    @service_operation()
     def confirm_collected_originals(self, session_id: str, manifests: list[dict]) -> dict:
         """Verify exact handoff, archived collection outcomes and current collected files."""
         with self._preservation_lock, self._handoff_collection_guard(session_id):

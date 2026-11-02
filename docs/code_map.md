@@ -2154,6 +2154,10 @@ recovery is introduced. Phase 16 and M015 remain open.
 
 ## src/lab_sync_acquisition/storage.py
 
+- PersistentStorageManager.read_timing_reconstruction_inputs(session_id): Returns a detached, validated historical Stage A/B snapshot, origin-filtered collection evidence and archive-product digests without attaching a Session.
+- PersistentStorageManager.write_timing_reconstruction(result): Fsyncs, non-overwritingly publishes and reads back one immutable derived version, accepting identical retries and refusing conflicts or aliases without changing raw/archival products.
+- PersistentStorageManager.read_timing_reconstruction(session_id, version): Reconfirms a derived version's identity, digest, file/directory durability and unchanged readback independently of Session bindings.
+- PersistentStorageManager._timing_reconstruction_path(session_id, version=None): Validates the derived directory or a specific version's safe identity, ancestry and exclusive regular-file ownership outside closed archival products.
 - PersistentStorageManager: Owns durable Session Records, Evidence Archives, saved-Session selection, recovery and global scientific-artifact collection without scientific-envelope persistence.
 - PersistentStorageManager(storage_root, *, global_artifact_root=None, retrieval_endpoints=None, evidence_publisher=None, component_id="storage"): Uses an explicit directory root for existing Session/framework products, retaining node-keyed retrieval settings and collection-evidence publication.
 - PersistentStorageManager.verify_installation_retrieval(node_id, source_path, expected_content, *, max_bytes): Retrieves one explicitly designated dummy file through existing SSH/SFTP into a bounded auto-cleaned temporary destination and reports exact comparison with independent expected bytes without creating Session or artifact evidence.
@@ -2244,10 +2248,69 @@ recovery is introduced. Phase 16 and M015 remain open.
 - InMemoryIngestor.maintenance_diagnostics(ingestor, storage_manager): Reports retained Session intake, journal failures, and supported known-journal recoverability without claiming recovery or deleting evidence/journals.
 - Principal-service _close_maintenance_resources(force): Reuses each target's existing resource cleanup without clearing evidence, deleting journals, or cascading closeout to other services.
 
+## src/lab_sync_acquisition/reconstruction.py
+
+**Implementation status:** Developer implementation complete; independent ICC
+IPython validation and separate independent audit remain pending. Q006/Q018 OPEN.
+The prior adaptive-runtime closure and its evidence are unchanged.
+
+- ReconstructionManager(storage_manager, *, local_storage_roots=None): Owns offline timing computation from confirmed archives and exact collected or inventoried original scientific files, without live services, reservations or clock restoration.
+- ReconstructionManager.reconstruct_session(session_id, *, version): Reads JSONL/HDF5 timing, reconstructs applicable runtime uncertainty, computes separate bounded offline timestamps and quality, links exact observations/mappings/evidence, and preserves the explicit derived version through StorageManager.
+- ReconstructionManager._timing_contexts(session_id, evidence, issues): Joins owner assessments, mapping updates and node applications with identity, authority, configuration and chronological validation while retaining rejected/partial evidence diagnostics.
+- ReconstructionManager._artifact_source(manifest, evidence, inventories): Selects only an exact inventoried original or origin-confirmed archived collection destination, refusing unsupported external associations and unsafe aliases.
+- ReconstructionManager._read_observations(path, manifest, metadata): Reads JSONL rows or aligned HDF5 timing/metadata without pixels, checking scope, completion and source stability without writing inputs.
+- ReconstructionManager._reconstruct_observation(manifest, position, row, context): Links a row to its applicable activation and quality, reconstructs runtime uncertainty and reports bracketed offline bounds or explicit unavailability.
+- _number(value): Recognizes finite plain numeric timing values without accepting booleans.
+- _mapping(value, session_id, node_id): Validates preserved affine mapping identity, finite values and positive scale.
+- _mapped(mapping, local): Applies the preserved affine mapping to an original local timestamp.
+- _measurement(quality): Validates complete chronological exchanges and recovers their conservative preserved measured bound, rejecting contradictions rather than substituting the offline host's clock precision.
+- _project_measurement(bound, local): Uses the shared explicit rate-envelope projection with conservative outward floating-point bounds.
+- _checked_observation(row): Checks representable original timing/index fields without validating scientific payload suitability.
+
+The numerical method is `bounded_clock_envelopes_v1`: intersect propagated measured
+intervals within confirmed chronological segments using the original explicit rate
+envelope, not an assumed constant learned drift. Rejected refinements are preserved
+and excluded from support; missing/partial assessments remain visible. Results
+outside a bracketed measured segment are unavailable, not extrapolated refinement.
+Runtime uncertainty can still be reconstructed with explicit degraded status.
+Output identities use existing Session/Experiment/node/source/manifest/storage IDs,
+exact JSONL line or HDF5 dataset/index, mapping values and evidence IDs, plus input
+archive digests. No per-frame uncertainty/mapping field is added to raw products.
+
+Developer verification: 44 distinct focused methods PASS (23 new reconstruction workflows,
+17 existing adaptive methods and four measurement-bound methods), plus five of
+eight selected regression methods PASS, including isolated real NATS future-anomaly
+recovery/Experiment start-stop and archive/handoff preservation. Three historical
+buffered-observation methods fail before timing measurement at the unchanged
+Controller confirmed-claim prerequisite; all three fail identically when unchanged
+HEAD synchronization code is loaded in memory. They are not counted as passes.
+Initial developer runs exposed and corrected fixture errors and a temporary-link
+publication-order issue. Cross-owner overlap may truthfully refuse a transient
+second link; an explicit retry after publication confirms the unchanged version.
+
+Validation uses synthetic clocks/devices, disk-backed owners and simulated SSH
+collection; it is not physical accuracy, cross-machine, Linux, power-loss or
+exhaustive concurrency validation. No automatic repair of damaged versions or
+uncertain filesystem aliases is added. Process death between link promotion and
+temporary-link removal can require existing explicit investigation/recovery; no
+false confirmation is returned. Large-recording performance is not established.
+
+## tests/test_timing_reconstruction.py
+
+- TimingReconstructionTests: Exercises public disk-backed reconstruction, real owner-produced timing evidence, release/replacement isolation, collection, exact provenance, failures/cancellation/retries, conflicting inputs and unchanged originals/archives.
+- TimingReconstructionTests.setUp(): Creates disposable scientific owners with explicit synthetic clock bounds and JSONL/HDF5 records spanning multiple mapping activations.
+- TimingReconstructionTests.quality(local, session, *, rate=1.002, apply=True): Produces bounded exchanges through SynchronizationManager and optionally applies the returned quality through AcquisitionNode.
+- TimingReconstructionTests.stream(storage_format): Writes and finalizes synthetic observations using the public LocalStorageManager API.
+- TimingReconstructionTests.archive(mutate=None, *, release=True, partial=False): Preserves complete or partial owner evidence through Ingestor/StorageManager and optionally releases original node/intake bindings, with explicit test-only mutation for failure injection.
+- TimingReconstructionTests.reconstruct(version="v1", storage=None): Invokes the public offline workflow against accessible original node storage.
+- TimingReconstructionTests.snapshot(): Captures original and historical product bytes independently of derived outputs.
+- TimingReconstructionTests.observations(result): Flattens public reconstruction observations for behavioral assertions.
+
 ## src/lab_sync_acquisition/synchronization.py
 
 Bounded adaptive-drift software is CLOSED at audited commit `321009d64043cf9e14d7400341197f22c970fb57`; see the [validation and limits](validated_workflows.md#q006-q018---adaptive-synchronization-software). Broader Q006/Q018 remain OPEN.
 
+- project_clock_interval(local_time_s, anchor_s, lower_s, upper_s, rate_min, rate_max): Projects an explicit measured interval forward or backward using the existing rate-envelope arithmetic shared by runtime assessment and offline reconstruction.
 - SynchronizationManager.maintenance_evidence(): Returns retained timing/mapping and framework evidence with stable producer identities for service retirement.
 
 - SynchronizationMapping: Stores the accepted immutable local-to-Session mapping fields with a plain-data round trip.

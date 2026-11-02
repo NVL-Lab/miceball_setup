@@ -5025,6 +5025,10 @@ Raw runtime timing evidence remains preserved.
 
 Any reconstructed or refined timing is derived evidence and remains distinguishable from runtime timing.
 
+Decision 379's accepted remaining-software clarification specifies reconstructable
+per-observation uncertainty and separate, versioned offline timing results with
+links to original observations, runtime mappings and supporting evidence.
+
 ## Decision 160: Timing quality policy is experimenter-configured
 
 **Status:** Accepted
@@ -5390,6 +5394,12 @@ readiness and degraded timing. Advanced estimation, measurement algorithms,
 hardware synchronization and offline refinement remain open under Q006/Q018,
 except for the minimum demonstrably valid measurement method required by the
 current implementation.
+
+**Current scope clarification:** Decision 379's subsequent adaptive-software
+closure and accepted remaining-software clarification supersede this earlier
+open-scope summary: adaptive runtime drift is CLOSED, uncertainty reconstruction
+and versioned offline timing await independent validation/audit, and hardware synchronization
+is explicitly DEFERRED. The historical Phase 11 decision is unchanged.
 
 ## Decision 173: AcquisitionNode local-time reports are not SynchronizationObservations
 
@@ -11048,7 +11058,8 @@ remains available through the existing scientific evidence-preservation paths fo
 future offline refinement and reconstruction (Decisions 154-159). Derived offline
 timing stays distinguishable from Runtime Timing and does not replace real-time
 drift estimation needed for closed-loop Experiments. No offline refinement
-algorithm or implementation is authorized here.
+algorithm or implementation is authorized here. That runtime-slice authorization
+boundary does not defer the accepted offline requirements recorded below.
 
 **Adaptive implementation status:** CLOSED within bounded software scope after
 independent ICC validation and final independent audit PASS of
@@ -11057,9 +11068,39 @@ isolated-anomaly resistance, sustained-change adaptation and independent applied
 quality reuse the existing timing and mapping interfaces. Rejected/partial evidence
 is retained; future validity keeps configured rate bounds. Both ordering-related
 P2 findings are resolved. See the [closure, evidence and limitations](validated_workflows.md#q006-q018---adaptive-synchronization-software).
-Q006/Q018 remain OPEN for broader representation, hardware and offline work. W056's
+Q006/Q018 remain OPEN for remaining software and deployment work; hardware-assisted
+synchronization is explicitly deferred as clarified below. W056's
 historical validation is unchanged; no physical timing accuracy, deployment,
 hardware synchronization, offline refinement or clock restoration is certified.
+
+### Accepted Q006/Q018 remaining-software clarification
+
+Adaptive runtime drift estimation is CLOSED within the independently validated
+software scope above. The remaining accepted software work is reconstructable
+per-observation uncertainty and offline timing refinement, not another runtime
+estimator or a replacement synchronization authority.
+
+Per-observation timing uncertainty must be reconstructable from original
+timestamps, mapping history and synchronization evidence. Mandatory per-frame
+uncertainty fields are not required. Reuse existing timing/evidence representations
+where sufficient, including preserved mapping activation boundaries.
+
+Under Decisions 029 and 154-175, offline reconstruction produces separate,
+versioned reconstructed timestamps and uncertainty, linked to the original
+observations, runtime mappings and supporting evidence, with reconstruction-quality
+reporting. All original scientific records and Runtime Timing remain immutable;
+derived results do not replace them or activate historical mappings at runtime.
+Numerical methods remain implementation choices within these contracts.
+
+Hardware-assisted synchronization is explicitly DEFERRED. No PTP, external clocks,
+hardware triggers or other hardware synchronization implementation is authorized.
+This clarification adds no service, evidence pipeline or persistence authority.
+The preceding documentation synchronization did not authorize implementation.
+Subsequent ICC-authorized offline software now implements bounded reconstruction
+from preserved JSONL/HDF5 timing and evidence, with StorageManager-owned immutable
+derived versions. It awaits independent IPython validation and independent audit;
+Q006/Q018 remain OPEN. See `code_map.md` for interfaces, developer verification and
+limitations. Existing adaptive closure evidence and correction reports are unchanged.
 
 **Implementation status (minimum Q022 Slice 2 only):** Implemented in Q022 Slice 2,
 independently manually validated and finally audited PASS (W056, commit 3e573f5), including periodic

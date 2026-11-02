@@ -94,6 +94,7 @@ from lab_sync_acquisition.session import (
     ScientificOutputSelection,
 )
 from lab_sync_acquisition.service_readiness import ServiceReadiness
+from lab_sync_acquisition.reconstruction import ReconstructionManager
 from lab_sync_acquisition.service_maintenance import ServiceMaintenanceInterface
 from lab_sync_acquisition.opencv_camera import (
     OpenCVCameraConfig,
@@ -167,6 +168,7 @@ __all__ = [
     "LocalStorageManager",
     "MAPPING_UPDATE_EVIDENCE_TYPE",
     "ReadinessCheck",
+    "ReconstructionManager",
     "MESSAGE_CLASSES",
     "MappingUpdateEvidence",
     "RUNTIME_CONTROL_COMMAND_RESULT_STATUSES",

@@ -22,6 +22,13 @@ if TYPE_CHECKING:
     from lab_sync_acquisition.ingestor import InMemoryIngestor
 
 
+def project_clock_interval(local_time_s, anchor_s, lower_s, upper_s, rate_min, rate_max):
+    """Project a bounded clock observation in either direction using explicit rate bounds."""
+    distance = local_time_s - anchor_s
+    low_rate, high_rate = (rate_min, rate_max) if distance >= 0 else (rate_max, rate_min)
+    return lower_s + low_rate * distance, upper_s + high_rate * distance
+
+
 @dataclass(frozen=True)
 class SynchronizationConfiguration:
     """Explicit bounds and policy for measured distributed synchronization."""
@@ -317,8 +324,10 @@ class SynchronizationManager:
                         raise ValueError("Cross-clock exchange contradicts the configured clock-rate bound")
                     intervals.append((mid, lower, upper))
                 anchor = intervals[-1][0]
-                lower = max(lo + rate_min * (anchor - n) for n, lo, _ in intervals)
-                upper = min(hi + rate_max * (anchor - n) for n, _, hi in intervals)
+                projected_intervals = [project_clock_interval(anchor, n, lo, hi, rate_min, rate_max)
+                                       for n, lo, hi in intervals]
+                lower = max(lo for lo, _ in projected_intervals)
+                upper = min(hi for _, hi in projected_intervals)
                 if not isfinite(lower) or not isfinite(upper) or lower > upper:
                     raise ValueError("Measured clock exchanges are inconsistent")
                 state = self._clock_estimates.get(node_id)
