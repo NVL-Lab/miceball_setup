@@ -146,12 +146,14 @@ Do not bury important behavior in a lower-level function default that higher-lev
 
 # Reuse Before Adding
 
-Before creating a new function, class, or module:
+Before adding functions, classes, modules, state, interfaces, or mechanisms:
 
 1. Check whether equivalent logic already exists.
 2. Reuse existing code when it fits the same responsibility.
-3. Extend existing code only if doing so keeps the responsibility clear.
-4. Create new code only when there is a distinct architectural reason.
+3. Consider extending, consolidating, or replacing existing functionality while
+   keeping responsibilities clear.
+4. Justify new mechanisms, abstractions or persistent state by a concrete need
+   that existing structures cannot reasonably satisfy.
 
 Do not duplicate logic because it is faster.
 
@@ -460,6 +462,22 @@ Do not silently decide these in code.
 # Simplicity First
 
 Prefer the simplest solution that satisfies the current architectural requirements.
+
+"Smallest implementation" minimizes the size and complexity of the final complete
+implementation, not individual diffs or the number/size of implementation slices.
+Implementation scope is a coherent, manageable unit for review and validation;
+implementation simplicity is the minimum necessary complexity of the resulting
+codebase. Do not optimize scope size at the expense of final simplicity.
+
+Prefer a larger well-contained consolidation over a smaller patch that leaves
+parallel mechanisms or unnecessary redundancy. Safely remove superseded internal
+paths while preserving accepted contracts and required compatibility. Do not
+artificially fragment work into tiny slices that require temporary scaffolding,
+duplicate logic or additional integration complexity.
+
+These principles never authorize architectural changes, removal of necessary
+safeguards, weaker tests, skipped independent validation/audits, or unrelated work.
+Apply them during the existing impact review and ICC scope authorization.
 
 Do not build infrastructure for hypothetical future needs.
 

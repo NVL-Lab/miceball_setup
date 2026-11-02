@@ -127,6 +127,134 @@ class DistributedSynchronizationTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(any(m.evidence_type == "mapping_activation" for m in self.node.runtime_evidence))
         self.assertTrue((await self.controller.stop_launched_session()).succeeded)
 
+    async def _use_authorized_transport(self, **settings):
+        from nats.js.api import KeyValueConfig, StorageType
+        from unittest.mock import AsyncMock
+        from lab_sync_acquisition import ServiceMaintenanceInterface
+        from tests.nats_server_fixture import (restartable_jetstream_server,
+                                               CONTROLLER_AUTHORITY_SERVER_CONFIGURATION)
+        if not NATS_SERVER:
+            self.skipTest("optional local nats-server unavailable")
+        server = await self.enterAsyncContext(restartable_jetstream_server(
+            server_configuration=CONTROLLER_AUTHORITY_SERVER_CONFIGURATION))
+        url = server.url.replace("nats://", "nats://demo:demo@")
+        storage = self.ingestor._storage_manager
+        boundaries, maintenance = {}, {}
+        for role, identity, owner in (("controller", "controller", self.controller),
+                ("ingestor", "ingestor", self.ingestor), ("storage_manager", "storage", storage),
+                ("synchronization_manager", "sync", self.sync), ("acquisition_node", "node", self.node)):
+            maintenance[identity] = ServiceMaintenanceInterface(owner, RuntimeParticipant(role, identity),
+                ingestor=self.ingestor, storage_manager=storage, preservation_window_s=.1,
+                close_resources=AsyncMock(return_value=True))
+            boundary = boundaries[identity] = NatsCommunicationBoundary(role, identity, (url,))
+            await boundary.connect()
+            self.addAsyncCleanup(boundary.close)
+            boundary.configure_controller_authority(account="LAB", bucket="AUTHORITY", key="controller", timeout_s=2)
+        await boundaries["controller"]._require_jetstream().create_key_value(
+            KeyValueConfig(bucket="AUTHORITY", storage=StorageType.FILE, history=2))
+        await boundaries["controller"].ensure_streams()
+        await maintenance["controller"].acquire_controller_authority(boundaries["controller"],
+            account="LAB", bucket="AUTHORITY", key="controller", timeout_s=2)
+        self.communication = NatsControllerCommunication(boundaries["controller"])
+        self.sync_handler = NatsSynchronizationManagerCommunication(boundaries["sync"], self.sync)
+        self.addAsyncCleanup(self.sync_handler.close)
+        self.ingestor_handler = NatsIngestorCommunication(boundaries["ingestor"], self.ingestor)
+        for handler in (self.sync_handler, self.ingestor_handler,
+                NatsStorageManagerCommunication(boundaries["storage"], storage),
+                NatsAcquisitionNodeCommunication(boundaries["node"], self.node)):
+            await handler.subscribe_commands()
+        self.config["synchronization_configuration"] = configuration(
+            **{"assessment_interval_s": 60, **settings})
+        return boundaries
+
+    async def test_cancelled_periodic_measurement_retains_partial_evidence(self):
+        boundaries = await self._use_authorized_transport(result_window_s=2, assessment_interval_s=.05)
+        await self.start()
+        reads = 0
+        reached, resume = asyncio.Event(), asyncio.Event()
+        publish = boundaries["node"].publish_command_result
+        async def pause_second(result, operation):
+            nonlocal reads
+            if operation == "read_local_time":
+                reads += 1
+                if reads == 2:
+                    reached.set()
+                    await resume.wait()
+            await publish(result, operation)
+        try:
+            with patch.object(boundaries["node"], "publish_command_result", side_effect=pause_second):
+                await asyncio.wait_for(reached.wait(), 3)
+                await self.sync_handler.close()
+        finally:
+            resume.set()
+        evidence = self.sync.session_timing_evidence(self.sid, "sync")
+        cancelled = [m for m in evidence if 'CancelledError' in m.payload.get('reason', '')]
+        self.assertEqual(len(cancelled), 1)
+        self.assertEqual(len(cancelled[0].payload['exchanges']), 1)
+        self.assertFalse(cancelled[0].payload['acceptable'])
+        self.assertTrue(self.sync.is_running)
+        await self.sync.complete_session_evidence_publication(self.sid, source_id='sync',
+            publisher=boundaries['sync'].publish_evidence)
+        self.assertTrue(self.ingestor.has_durable_runtime_evidence(cancelled[0]))
+
+    async def test_partial_measurement_failure_retains_actual_exchanges_and_retry_recovers(self):
+        boundaries = await self._use_authorized_transport()
+        await self.start()
+        mapping = self.node.status()["active_synchronization_mapping"]
+        reads = 0
+        publish = boundaries["node"].publish_command_result
+        async def lose_second(result, operation):
+            nonlocal reads
+            if operation == "read_local_time":
+                reads += 1
+                if reads == 2:
+                    return
+            await publish(result, operation)
+        async def assess():
+            return await self.communication.request_runtime_command(self.participants[1],
+                "assess_synchronization", self.sid, {"node_ids": ["node"]}, 10)
+        with patch.object(boundaries["node"], "publish_command_result", side_effect=lose_second):
+            failed = await assess()
+        self.assertFalse(failed.success)
+        partial = [m for m in self.sync.session_timing_evidence(self.sid, "sync")
+                   if m.payload.get("measurement_valid") is False]
+        self.assertEqual(len(partial[-1].payload["exchanges"]), 1)
+        self.assertFalse(partial[-1].payload["acceptable"])
+        recovered = await assess()
+        self.assertTrue(recovered.success, recovered.reason)
+        self.assertEqual(self.node.status()["active_synchronization_mapping"], mapping)
+        self.assertTrue(self.ingestor.has_durable_runtime_evidence(partial[-1]))
+        await self.experiment()
+        iteration = await self.communication.request_runtime_command(self.participants[-1],
+            "run_one_iteration", self.sid, {}, 3)
+        self.assertTrue(iteration.success, iteration.reason)
+        self.assertTrue((await self.controller.stop_launched_experiment("experiment")).succeeded)
+        original = Path(self.node.local_storage_manager.manifests[0].local_storage_path)
+        scientific_bytes = original.read_bytes()
+        refreshed = await self.communication.request_runtime_command(self.participants[1], "resynchronize",
+            self.sid, {"node_ids": ["node"]}, 3)
+        self.assertTrue(refreshed.success, refreshed.reason)
+        self.assertEqual(len(self.node.mapping_activation_history), 2)
+        self.assertEqual(original.read_bytes(), scientific_bytes)
+        self.assertTrue((await self.controller.stop_launched_session()).succeeded)
+        with patch.object(boundaries["sync"], "publish_evidence", side_effect=OSError("publication interrupted")):
+            failed_stop = await self.communication.request_runtime_command(self.participants[1], "stop_runtime",
+                self.sid, {}, 3, command_id="adaptive-stop")
+        self.assertFalse(failed_stop.success)
+        evidence = self.sync.session_timing_evidence(self.sid, "sync")
+        with self.assertRaises(RuntimeError):
+            self.sync.release_session(self.sid, ingestor=self.ingestor)
+        stopped = await self.communication.request_runtime_command(self.participants[1], "stop_runtime",
+            self.sid, {}, 3, command_id="adaptive-stop")
+        self.assertTrue(stopped.success, stopped.reason)
+        duplicate = await self.communication.request_runtime_command(self.participants[1], "stop_runtime",
+            self.sid, {}, 3, command_id="adaptive-stop")
+        self.assertEqual(duplicate.result_id, stopped.result_id)
+        self.assertEqual(evidence, self.sync.session_timing_evidence(self.sid, "sync"))
+        self.assertTrue(all(self.ingestor.has_durable_runtime_evidence(m) for m in evidence))
+        self.assertTrue(self.sync.release_session(self.sid, ingestor=self.ingestor))
+        self.assertEqual(original.read_bytes(), scientific_bytes)
+
     async def test_quality_assessment_does_not_replace_mapping_but_resynchronization_does(self):
         await self.start()
         mapping = self.node.status()["active_synchronization_mapping"]

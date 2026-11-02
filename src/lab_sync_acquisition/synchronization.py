@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from collections.abc import Awaitable, Callable
 from copy import deepcopy
-from math import isfinite
+from math import isfinite, ulp
 from threading import RLock
 from time import get_clock_info, monotonic
 from typing import Any, TYPE_CHECKING
@@ -235,6 +235,7 @@ class SynchronizationManager:
         self._distributed_configuration: SynchronizationConfiguration | None = None
         self._measured_mapping_quality: dict[str, dict[str, Any]] = {}
         self._distributed_evidence: list[RuntimeEvidenceMessage] = []
+        self._clock_estimates: dict[str, dict[str, Any]] = {}
 
     @service_operation(new_work=True)
     def configure_distributed_session(self, session_id: str, configuration: dict[str, Any]) -> None:
@@ -267,77 +268,150 @@ class SynchronizationManager:
     def assess_cross_clock_exchanges(self, session_id: str, node_id: str,
                                     exchanges: list[dict[str, Any]], *, replace_mapping: bool,
                                     source_id: str) -> dict[str, Any]:
-        """Bound clock offset by causal exchanges; never assume symmetric delay."""
+        """Learn bounded affine clock relationships independently of applied quality."""
         with self._mapping_lock:
             config = self._distributed_configuration
             if (self._prepared_session_id != session_id or config is None or not self.is_running
                     or self._publication_session_id == session_id):
                 raise RuntimeError("Current distributed Session Time is unavailable")
-            if not isinstance(node_id, str) or not node_id or len(exchanges) != config.exchanges:
-                raise ValueError("Complete node-specific cross-clock exchanges are required")
-            intervals = []
-            previous_end = None
-            for sample in exchanges:
-                values = [sample[k] for k in ("sent_session_time_s", "received_local_time_s",
-                                              "sent_local_time_s", "received_session_time_s")]
-                if any(type(v) not in (float, int) or not isfinite(v) for v in values):
-                    raise ValueError("Cross-clock samples must be finite numbers")
-                s0, n1, n2, s3 = values
-                resolution = sample.get("local_clock_resolution_s")
-                if type(resolution) not in (int, float) or not isfinite(resolution) or resolution < 0:
-                    raise ValueError("Measured local clock resolution is required")
-                rounding = 2 * get_clock_info("monotonic").resolution + config.initial_scale * resolution
-                if n2 < n1 or s3 < s0 or (previous_end is not None and s0 < previous_end):
-                    raise ValueError("Invalid cross-clock ordering")
-                previous_end = s3
-                mid = (n1 + n2) / 2
-                lower = s0 + (config.initial_scale - config.clock_rate_error_bound) * (mid - n1) - rounding
-                upper = s3 - (config.initial_scale - config.clock_rate_error_bound) * (n2 - mid) + rounding
-                if lower > upper:
-                    raise ValueError("Cross-clock exchange contradicts the configured clock-rate bound")
-                intervals.append((mid, lower, upper))
-            anchor = intervals[-1][0]
-            # Intersect causal bounds, widening for the explicit clock-rate assumption.
-            lower = max(lo + config.initial_scale * (anchor - n)
-                        - config.clock_rate_error_bound * abs(anchor - n) for n, lo, _ in intervals)
-            upper = min(hi + config.initial_scale * (anchor - n)
-                        + config.clock_rate_error_bound * abs(anchor - n) for n, _, hi in intervals)
-            if not isfinite(lower) or not isfinite(upper) or lower > upper:
-                raise ValueError("Measured clock exchanges are inconsistent")
-            center, uncertainty = (lower + upper) / 2, (upper - lower) / 2
-            mapping = self.get_active_mapping(session_id, node_id)
+            if not isinstance(node_id, str) or not node_id or not isinstance(source_id, str) or not source_id:
+                raise ValueError("Explicit node and evidence source identities are required")
             old = self._measured_mapping_quality.get(node_id)
-            if mapping is not None and not replace_mapping:
-                if old is None:
-                    raise RuntimeError("Active mapping has no verified measurement provenance")
-                projected = mapping.session_time_anchor_s + mapping.scale * (anchor - mapping.local_time_anchor_s)
-                uncertainty += abs(projected - center)
-                age = self.current_session_time_s - mapping.created_session_time_s
-                uncertainty = max(uncertainty, old["uncertainty_s"] +
-                                  config.clock_rate_error_bound * abs(anchor - old["measured_local_time_s"]))
-            else:
-                age = 0.0
-            acceptable = uncertainty <= config.max_uncertainty_s and age < config.max_mapping_age_s
-            if replace_mapping and acceptable:
+            previous = next((m for m in reversed(self._distributed_evidence)
+                if m.session_id == session_id and m.payload.get("acquisition_node_id") == node_id
+                and m.payload.get("exchanges") == exchanges and m.payload.get("measurement_valid") is True), None)
+            if previous is not None:
+                if previous.source_id != source_id:
+                    raise ValueError("Timing evidence publisher identity changed")
+                if old == previous.payload:
+                    return deepcopy(old)
+                raise ValueError("Historical clock measurements cannot replace current evidence")
+            rate_min = config.initial_scale - config.clock_rate_error_bound
+            rate_max = config.initial_scale + config.clock_rate_error_bound
+            try:
+                if not isinstance(exchanges, list) or len(exchanges) != config.exchanges:
+                    raise ValueError("Complete node-specific cross-clock exchanges are required")
+                intervals = []
+                previous_end = None
+                previous_local_end = None
+                for sample in exchanges:
+                    values = [sample[k] for k in ("sent_session_time_s", "received_local_time_s",
+                                                  "sent_local_time_s", "received_session_time_s")]
+                    if any(type(v) not in (float, int) or not isfinite(v) for v in values):
+                        raise ValueError("Cross-clock samples must be finite numbers")
+                    s0, n1, n2, s3 = values
+                    resolution = sample.get("local_clock_resolution_s")
+                    if type(resolution) not in (int, float) or not isfinite(resolution) or resolution < 0:
+                        raise ValueError("Measured local clock resolution is required")
+                    rounding = (2 * get_clock_info("monotonic").resolution + rate_max * resolution
+                                + sum(ulp(float(v)) for v in values) * max(1., rate_max))
+                    if (n2 < n1 or s3 < s0 or (previous_end is not None and s0 < previous_end)
+                            or (previous_local_end is not None and n1 < previous_local_end)):
+                        raise ValueError("Invalid cross-clock ordering")
+                    previous_end = s3
+                    previous_local_end = n2
+                    mid = n1 + (n2 - n1) / 2
+                    lower = s0 + rate_min * (mid - n1) - rounding
+                    upper = s3 - rate_min * (n2 - mid) + rounding
+                    if lower > upper:
+                        raise ValueError("Cross-clock exchange contradicts the configured clock-rate bound")
+                    intervals.append((mid, lower, upper))
+                anchor = intervals[-1][0]
+                lower = max(lo + rate_min * (anchor - n) for n, lo, _ in intervals)
+                upper = min(hi + rate_max * (anchor - n) for n, _, hi in intervals)
+                if not isfinite(lower) or not isfinite(upper) or lower > upper:
+                    raise ValueError("Measured clock exchanges are inconsistent")
+                state = self._clock_estimates.get(node_id)
+                if state and (anchor <= state["last_local_time_s"]
+                        or exchanges[0]["sent_session_time_s"] < state["last_session_time_s"]):
+                    raise ValueError("Stale or overlapping cross-clock measurements")
+            except (ValueError, KeyError, TypeError) as error:
+                self.mark_synchronization_unavailable(session_id, node_id, source_id,
+                    str(error), exchanges=exchanges)
+                raise ValueError(str(error)) from error
+
+            # A feasible polygon retains joint offset/rate constraints, not a second history.
+            point = (anchor, lower, upper)
+            fit = self._constrain_clock_estimate(state["fit"] if state else None, point)
+            disposition = "consistent" if state else "initial_assumption"
+            if fit is None:
+                pending = state["pending"]
+                if pending is not None:
+                    fit = self._constrain_clock_estimate(self._constrain_clock_estimate(None, pending), point)
+                disposition = "sustained_change" if fit is not None else "isolated_or_unconfirmed_change"
+            refined = fit is not None
+            if not refined:
+                fit = state["fit"]
+            fit_anchor, polygon = fit
+            scale = sum(v[0] for v in polygon) / len(polygon)
+            center = sum(v[1] + v[0] * (anchor - fit_anchor) for v in polygon) / len(polygon)
+            estimator = {"scale": scale, "rate_bounds": [min(v[0] for v in polygon), max(v[0] for v in polygon)],
+                         "refinement_accepted": refined, "disposition": disposition}
+            mapping = self.get_active_mapping(session_id, node_id)
+            if mapping is not None and old is None:
+                raise RuntimeError("Active mapping has no verified measurement provenance")
+            candidate_uncertainty = max(abs(center - lower), abs(upper - center))
+            if replace_mapping and refined and candidate_uncertainty <= config.max_uncertainty_s:
                 method = self.replace_active_mapping if mapping is not None else self.create_and_activate_mapping
-                mapping = method(session_id, node_id, anchor, center, config.initial_scale,
+                mapping = method(session_id, node_id, anchor, center, scale,
                     "measured_cross_clock_exchange", {"exchanges": deepcopy(exchanges),
-                    "uncertainty_s": uncertainty, "configuration": config.to_dict()})
-            remaining = max(0.0, config.max_mapping_age_s - age) / (config.initial_scale + config.clock_rate_error_bound)
-            if config.clock_rate_error_bound:
+                    "uncertainty_s": candidate_uncertainty, "estimator": deepcopy(estimator),
+                    "configuration": config.to_dict()})
+            projected = (mapping.session_time_anchor_s + mapping.scale * (anchor - mapping.local_time_anchor_s)
+                         if mapping else center)
+            # Even rejected observations bound current quality; fitting cannot hide their error.
+            uncertainty = max(abs(projected - lower), abs(upper - projected))
+            age = self.current_session_time_s - mapping.created_session_time_s if mapping else 0.
+            acceptable = uncertainty <= config.max_uncertainty_s and age < config.max_mapping_age_s
+            remaining = max(0.0, config.max_mapping_age_s - age) / rate_max
+            # Historical rate confidence is not a bound on future drift changes.
+            rate_error = max(abs((mapping.scale if mapping else scale) - rate_min),
+                             abs(rate_max - (mapping.scale if mapping else scale)))
+            if rate_error:
                 remaining = min(remaining, max(0.0, config.max_uncertainty_s - uncertainty)
-                                / config.clock_rate_error_bound)
+                                / rate_error)
             quality = {"session_id": session_id, "acquisition_node_id": node_id,
-                "assessment_sequence": len(self._distributed_evidence) + 1,
+                "measurement_valid": True,
                 "acceptable": acceptable and mapping is not None,
                 "mapping": mapping.to_dict() if mapping else None,
                 "measured_local_time_s": anchor, "uncertainty_s": uncertainty,
                 "valid_until_local_time_s": anchor + remaining,
-                "configuration": config.to_dict(), "exchanges": deepcopy(exchanges)}
-            self._measured_mapping_quality[node_id] = deepcopy(quality)
-            self._distributed_evidence.append(RuntimeEvidenceMessage(uuid4().hex, session_id,
-                "timing_quality_observation", source_id, deepcopy(quality), True))
-            return quality
+                "configuration": config.to_dict(), "exchanges": deepcopy(exchanges), "estimator": estimator}
+            self._clock_estimates[node_id] = {"fit": fit, "pending": None if refined else point,
+                "last_local_time_s": anchor, "last_session_time_s": exchanges[-1]["received_session_time_s"]}
+            return self._retain_timing_quality(source_id, quality)
+
+    def _constrain_clock_estimate(self, fit, point):
+        """Intersect an affine offset/rate polygon with one bounded observation."""
+        anchor, lower, upper = point
+        if fit is None:
+            config = self._distributed_configuration
+            lo, hi = config.initial_scale - config.clock_rate_error_bound, config.initial_scale + config.clock_rate_error_bound
+            return anchor, [(lo, lower), (hi, lower), (hi, upper), (lo, upper)]
+        previous_anchor, vertices = fit
+        polygon = [(rate, value + rate * (anchor - previous_anchor)) for rate, value in vertices]
+        for boundary, sign in ((lower, 1), (upper, -1)):
+            clipped = []
+            for a, b in zip(polygon, polygon[1:] + polygon[:1]):
+                inside_a, inside_b = sign * (a[1] - boundary) >= 0, sign * (b[1] - boundary) >= 0
+                if inside_a:
+                    clipped.append(a)
+                if inside_a != inside_b:
+                    fraction = (boundary - a[1]) / (b[1] - a[1])
+                    clipped.append((a[0] + fraction * (b[0] - a[0]), boundary))
+            polygon = clipped
+            if not polygon:
+                return None
+        return anchor, polygon
+
+    def _retain_timing_quality(self, source_id, quality):
+        """Assign one stable retained identity before exposing a detached assessment."""
+        quality["assessment_sequence"] = len(self._distributed_evidence) + 1
+        message = RuntimeEvidenceMessage(uuid4().hex, quality["session_id"],
+            "timing_quality_observation", source_id, deepcopy(quality), True)
+        self._distributed_evidence.append(message)
+        self._measured_mapping_quality[quality["acquisition_node_id"]] = deepcopy(quality)
+        return deepcopy(quality)
 
     def session_timing_evidence(self, session_id: str, source_id: str) -> tuple[RuntimeEvidenceMessage, ...]:
         """Return stable timing publication identities without closing the Session clock."""
@@ -357,17 +431,20 @@ class SynchronizationManager:
 
     @service_operation()
     def mark_synchronization_unavailable(self, session_id: str, node_id: str,
-                                         source_id: str, reason: str) -> dict[str, Any]:
+                                         source_id: str, reason: str, *, exchanges=None) -> dict[str, Any]:
         """Retain a failed assessment without fabricating a new clock relationship."""
         with self._mapping_lock:
-            if self._prepared_session_id != session_id or node_id not in self._measured_mapping_quality:
-                raise RuntimeError("No measured mapping is available for this Session/node")
-            quality = deepcopy(self._measured_mapping_quality[node_id])
-            quality.update(acceptable=False, reason=reason, assessment_sequence=len(self._distributed_evidence) + 1)
-            self._measured_mapping_quality[node_id] = quality
-            self._distributed_evidence.append(RuntimeEvidenceMessage(uuid4().hex, session_id,
-                "timing_quality_observation", source_id, deepcopy(quality), True))
-            return deepcopy(quality)
+            if (self._prepared_session_id != session_id or self._distributed_configuration is None
+                    or not self.is_running or self._publication_session_id == session_id):
+                raise RuntimeError("Current distributed Session Time is unavailable")
+            quality = deepcopy(self._measured_mapping_quality.get(node_id, {
+                "session_id": session_id, "acquisition_node_id": node_id, "mapping": None,
+                "configuration": self._distributed_configuration.to_dict()}))
+            quality.update(acceptable=False, measurement_valid=False, reason=reason,
+                           exchanges=deepcopy(exchanges) if exchanges is not None else [])
+            if "estimator" in quality:
+                quality["estimator"].update(refinement_accepted=False, disposition="measurement_unavailable")
+            return self._retain_timing_quality(source_id, quality)
 
     @service_operation(new_work=True)
     def prepare_session(self, session_id: str) -> ServiceReadiness:
@@ -465,6 +542,7 @@ class SynchronizationManager:
             self._publication_session_id = None
             self._distributed_configuration = None
             self._measured_mapping_quality.clear()
+            self._clock_estimates.clear()
             self._distributed_evidence = [m for m in self._distributed_evidence if m.session_id != session_id]
             self._prepared_session_id = None
             self._started_at_monotonic_s = None

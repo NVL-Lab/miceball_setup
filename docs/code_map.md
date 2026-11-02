@@ -2006,7 +2006,7 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 - NatsSynchronizationManagerCommunication(boundary, synchronization_manager): Routes measured synchronization, readiness, Session preparation and timing closeout over existing command/result streams while retaining timing authority in SynchronizationManager.
 - NatsSynchronizationManagerCommunication.subscribe_commands(): Serializes command admission and rejects conflicting identities or mismatched stop Sessions before cancelling periodic work outside the runtime lock, then routes owner operations with existing correlated results and idempotency.
 - NatsSynchronizationManagerCommunication.close(): Cancels periodic assessment and unsubscribes transport callbacks without terminating acquisition or changing Session lifecycle.
-- NatsSynchronizationManagerCommunication._measure_node: Collects causal NATS exchanges and requests owner-side validity assessment before confirmed mapping delivery.
+- NatsSynchronizationManagerCommunication._measure_node: Collects causal NATS exchanges for owner-side assessment and confirmed mapping delivery, retaining completed partial exchanges on transport failure or cancellation.
 - NatsSynchronizationManagerCommunication._deliver_quality: Requires correlated node acceptance of owner-issued mapping/quality state.
 - NatsSynchronizationManagerCommunication._publish_timing: Publishes stable owner-created timing evidence without closing Session Time.
 - NatsSynchronizationManagerCommunication._periodic_assessment: Performs configured serialized checks, retaining unconfirmed evidence across transient cycle failures until later publication or explicit closeout, without automatically resynchronizing or stopping nodes.
@@ -2252,14 +2252,16 @@ recovery is introduced. Phase 16 and M015 remain open.
 - AcquisitionNodeLocalTimeReport: Stores one immutable AcquisitionNode local-time report as plain data without representing SynchronizationObservation evidence.
 - MappingUpdateEvidence: Stores immutable created, replaced, or retired mapping evidence with optional previous/new mappings and a plain-data round trip.
 - MappingUpdateEvidence.to_runtime_evidence_message: Wraps mapping update plain data in the existing RuntimeEvidenceMessage boundary using evidence type `mapping_update_evidence`.
-- SynchronizationManager: Owns the Session clock, measured affine mapping validity and lifecycle, quality evidence and publication identities without advanced drift estimation.
+- SynchronizationManager: Owns Session Time, adaptive bounded affine clock estimation, independently assessed applied-mapping quality, mapping lifecycle and stable timing-evidence publication identities.
 - SynchronizationConfiguration(exchanges, initial_scale, clock_rate_error_bound, max_uncertainty_s, max_mapping_age_s, assessment_interval_s, result_window_s, quality_interpretation): Requires explicit finite measurement/rate/age/cadence bounds and a supported degraded-condition policy label, with to_dict/from_dict round trips.
 - SynchronizationManager.configure_distributed_session(session_id, configuration): Validates and binds explicit immutable Session synchronization configuration under the mapping lock.
 - SynchronizationManager.distributed_configuration: Exposes the immutable configured distributed measurement contract.
 - SynchronizationManager.start_distributed_session(session_id): Starts the prepared single Session clock once, refusing stopped-clock restoration and preserving its epoch on retries.
-- SynchronizationManager.assess_cross_clock_exchanges(session_id, node_id, exchanges, *, replace_mapping, source_id): Intersects causal measured offset intervals including clock resolution/rate error, owns validity and optional mapping replacement, and retains quality evidence.
+- SynchronizationManager.assess_cross_clock_exchanges(session_id, node_id, exchanges, *, replace_mapping, source_id): Accumulates bounded affine rate/offset constraints, resists isolated anomalies, adapts to supported changes and assesses the applied mapping independently while preserving optional prospective replacement and measurement evidence.
+- SynchronizationManager._constrain_clock_estimate(fit, point): Intersects the existing node estimate's joint offset/rate polygon with one bounded observation at a common local anchor.
+- SynchronizationManager._retain_timing_quality(source_id, quality): Assigns a stable evidence identity and sequence once, retaining detached quality snapshots through the existing timing-evidence path.
 - SynchronizationManager.session_timing_evidence(session_id, source_id): Returns stable mapping-update and quality evidence identities for current Session publication without archival claims.
-- SynchronizationManager.mark_synchronization_unavailable(session_id, node_id, source_id, reason): Preserves the measured relationship while reporting failed quality assessment without fabricated clock information.
+- SynchronizationManager.mark_synchronization_unavailable(session_id, node_id, source_id, reason, *, exchanges=None): Retains failed or partial measurement evidence and unavailable quality without fabricating a mapping or absent exchange timestamps.
 - SynchronizationManager.prepare_session(session_id): Confirms Session-specific preparation independently of pre-Session service readiness, rejecting a different active preparation binding.
 - SynchronizationManager.abort_session_initialization(session_id): Clears only matching preparation state without altering mapping or established timing evidence.
 - SynchronizationManager.complete_session_evidence_publication(session_id, *, source_id, publisher): Stops prepared Session Time, retires only that Session's mappings, retains stable message identities and publishes its timing evidence before confirmation, guarding further timing changes without service retirement or archival claims.
@@ -2615,9 +2617,17 @@ automatic. Kill integration and overall closeout validation remain deferred.
 - DistributedSynchronizationTests: Exercises measured startup, Experiment lifecycle, affine mapping/provenance, scoped health context, degraded quality, cancellation, retries, publication failures and release safety through real owners and broker adapters.
 - DistributedSynchronizationTests.collect_buffered: Delivers controlled buffered scientific observations through the public iteration command for acquisition-time mapping/quality and local artifact checks.
 - DistributedSynchronizationTests.advance_local_clock: Waits for a strictly later representable local clock tick so buffered-observation transition tests do not depend on platform timer granularity.
+- DistributedSynchronizationTests._use_authorized_transport: Reuses disk-backed fixture owners with a disposable authority-configured JetStream broker for current Controller admission and synchronization cancellation/publication workflows.
 - MeasuredClockBoundsTests: Verifies causal offset bounds under asymmetric delay/variability, explicit configuration rejection and detached stable timing evidence readback.
 - run_participant(role, url, directory, ready, stop): Runs a test node or synchronization owner in a spawned process, with harness-only startup/shutdown signaling and NATS-only framework communication.
 - CrossProcessTimingTests: Exercises independent node/clock processes against optional real local JetStream, checking scientific timing and finalized local output without shared service owners.
+
+## tests/test_adaptive_synchronization.py
+
+- AdaptiveSynchronizationTests: Exercises bounded adaptive rate estimation, independent current quality, drift changes, outliers, uncertainty, measurement replay/failure and evidence-confirmed Session retirement through the timing owner's public APIs.
+- AdaptiveSynchronizationTests.samples(local, session, rate=1.0, delay=.002): Builds deterministic causal exchanges from an explicit synthetic clock relationship and delay.
+- AdaptiveSynchronizationTests.assess(local, session, rate=1., *, replace=True, node='node', delay=.002): Advances the controlled test clock and submits a synthetic bounded measurement through the public assessment API.
+- AdaptivePublicationTests: Exercises cancelled closeout and explicit retry with unchanged retained evidence identities and a single mapping retirement.
 
 ## tests/test_remote_archive_closure.py
 

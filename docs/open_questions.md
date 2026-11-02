@@ -86,7 +86,9 @@ Additional questions:
 ## Q006: What is the detailed drift and timing-uncertainty representation?
 
 **Status:** OPEN - minimum distributed synchronization contracts are resolved by
-Decisions 379-381; advanced timing/estimation and offline refinement remain open.
+Decisions 379-381. Decision 379's accepted Q006/Q018 adaptive-estimation and
+independent-quality clarification is implemented pending independent validation
+and audit; detailed timing representation and offline refinement remain open.
 
 ### Why this matters
 
@@ -103,11 +105,33 @@ without per-observation mapping IDs. Readiness and periodic quality assessment
 requirements are accepted, with configurable cadence/thresholds and existing
 TimingQualityPolicy/Controller consequences for degradation.
 
-### Questions
+### Accepted behavior and implementation boundary
 
-* Can drift vary during a session?
-* Which advanced drift-estimation and measurement algorithms are needed beyond
-  the minimum demonstrably valid cross-clock measurement method required now?
+Decision 379's user-accepted Q006/Q018 clarification settles that relative drift
+may change during a Session. Accumulated bounded observations must support
+confidence from consistent history, resistance to isolated anomalies, greater
+responsiveness with limited history, and eventual adaptation to sustained drift
+changes without unjustified uncertainty reduction or assumed symmetric network
+delays. Mapping refinement and current quality assessment are distinct: rejected
+or downweighted observations cannot silently hide degradation. Existing quality
+policies and Controller consequences remain unchanged.
+
+Decisions 154-175 and 380 already preserve mapping/activation history and immutable
+runtime timestamps. Decision 379 reaffirms prospective correction without slewing
+and complete evidence for offline refinement, not replacement of real-time
+estimation. W056 validated only the minimum distributed method, not this advanced
+behavior; its historical results are unchanged.
+
+The numerical method is implemented within the existing assessment owner using
+bounded affine offset/rate constraints; consistent history narrows feasible rates,
+and two mutually consistent observations outside the historical fit can establish
+a new segment. Applied quality still uses the latest raw bounds, and future
+validity retains the configured rate envelope. No new estimator configuration or
+evidence pipeline is introduced. Independent validation/audit remain pending;
+algorithm, weights and thresholds are not unresolved architectural decisions.
+
+### Remaining questions
+
 * How should detailed timestamp uncertainty be represented beyond the accepted
   requirement to account for uncertainty and preserve degraded timestamp status?
 * What additional precision requirements are needed beyond existing timing schemas?
@@ -2109,7 +2133,10 @@ They do not decide Controller restart or repeated-action execution, so Q016 rema
 ## Q018: Synchronization observation, drift estimation, and mapping refinement model
 
 **Status:** OPEN - Decisions 379-381 resolve the minimum distributed scientific
-synchronization gate for Q022 Slice 2, not advanced synchronization design.
+synchronization gate for Q022 Slice 2. Decision 379's Q006/Q018 clarification
+accepts adaptive-estimation behavior and independent quality assessment, now
+implemented pending independent validation/audit. The remaining
+representation/refinement scope below is not complete.
 
 Phase 11's historical mapping-ownership scope is now supplemented by measured
 cross-clock exchanges, the accepted local affine formula, and synchronization
@@ -2120,12 +2147,42 @@ Initial mappings may use an explicit, conservatively bounded clock-rate assumpti
 without prior drift estimation. Temporary degradation retains timing/provenance
 and degraded status; existing policy and Controller authority govern consequences.
 
-The following remain open beyond the minimum demonstrably valid measurement
-method required for the current implementation:
+### Accepted adaptive behavior; independent verification pending
 
-- advanced cross-clock measurement and drift-estimation algorithms
+Decision 379's accepted clarification and Q006 distinguish robust adaptive
+estimation from independent current-quality assessment. Historical confidence
+must resist isolated anomalies without preventing adaptation to sustained drift
+changes or hiding degraded quality. Limited history requires greater
+responsiveness; uncertainty remains justified by bounded measurements.
+
+Whether to refine a mapping and whether current quality is acceptable are distinct
+questions. Relevant rejected/downweighted observations must still inform quality
+assessment; retaining a mapping must not conceal deterioration. Existing
+TimingQualityPolicy, configuration and Controller authority remain unchanged.
+
+The implementation extends the existing bounded cross-clock assessment, mapping
+lifecycle and timing-evidence path rather than adding a separate estimator owner.
+It retains rejected/partial measurements, suppresses replay-driven confidence
+growth and keeps assessment-only mappings unchanged. Developer tests cover known
+drift, changes, anomalies, asymmetric delay, uncertainty, retirement and isolated
+local NATS cancellation/publication retries with disk-backed intake. Independent
+manual validation and audit are still required; W056 does not establish this new
+behavior. No hardware, cross-machine accuracy or physical crash validation is
+claimed. Numerical methods and implementation parameters remain implementation
+choices. See Decision 379 and `code_map.md` for the shared contract and interfaces.
+
+Developer verification: 25 focused methods passed (14 adaptive/publication,
+four measurement-bound, five immutable-mapping and two isolated real-NATS
+workflows). Earlier selected historical fixtures failed at existing Controller
+authority/Experiment-configuration prerequisites; representative failures were
+reproduced with unchanged HEAD synchronization sources and were not repaired in
+this scope. These results are not independent validation or audit evidence.
+
+### Remaining scope
+
 - richer SynchronizationObservation and timing-uncertainty representations
-- advanced mapping-refinement and update strategies
+- detailed refinement strategies within the accepted adaptive behavior and
+  existing prospective activation semantics
 - hardware synchronization
 - offline refinement and reconstruction timing estimators
 
@@ -2139,6 +2196,13 @@ The future synchronization design must preserve the accepted Phase 11 principles
 - AcquisitionNode reports local timing information and applies accepted mappings.
 - Runtime Timing remains immutable.
 - Any reconstructed or refined timing remains distinguishable from Runtime Timing.
+
+Decisions 154-175 and 380 already govern preserved evidence and immutable
+mapping/activation history. Decision 379 reaffirms explicit prospective boundaries,
+traceable discontinuities and no slewing or runtime timestamp rewriting. Complete
+evidence remains available for future offline refinement, which cannot replace
+real-time closed-loop estimation. No offline algorithm or implementation is
+authorized by this documentation synchronization.
 
 This question does not block the accepted minimum Q022 Slice 2 synchronization
 implementation. It does not authorize deferring valid cross-clock measurement,

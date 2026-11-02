@@ -3123,23 +3123,33 @@ class NatsSynchronizationManagerCommunication:
         requester = NatsControllerCommunication(self._boundary)
         node = RuntimeParticipant("acquisition_node", node_id)
         exchanges = []
-        for _ in range(config.exchanges):
-            sent = owner.current_session_time_s
-            result = await requester.request_runtime_command(node, "read_local_time", session_id,
-                                                            {}, config.result_window_s)
-            received = owner.current_session_time_s
-            if (result is None or result.success is not True
-                    or result.payload.get("acquisition_node_id") != node_id):
-                raise RuntimeError(f"Cross-clock exchange unconfirmed: {node_id}")
-            exchanges.append({"sent_session_time_s": sent,
-                "received_local_time_s": result.payload["received_local_time_s"],
-                "sent_local_time_s": result.payload["sent_local_time_s"],
-                "local_clock_resolution_s": result.payload["local_clock_resolution_s"],
-                "received_session_time_s": received})
-        quality = owner.assess_cross_clock_exchanges(session_id, node_id, exchanges,
-                        replace_mapping=replace_mapping, source_id=self._boundary.component_id)
-        await self._deliver_quality(session_id, node, quality)
-        return quality
+        sequence = owner._measured_mapping_quality.get(node_id, {}).get("assessment_sequence")
+        try:
+            for _ in range(config.exchanges):
+                sent = owner.current_session_time_s
+                result = await requester.request_runtime_command(node, "read_local_time", session_id,
+                                                                {}, config.result_window_s)
+                received = owner.current_session_time_s
+                if (result is None or result.success is not True
+                        or result.payload.get("acquisition_node_id") != node_id):
+                    raise RuntimeError(f"Cross-clock exchange unconfirmed: {node_id}")
+                exchanges.append({"sent_session_time_s": sent,
+                    "received_local_time_s": result.payload["received_local_time_s"],
+                    "sent_local_time_s": result.payload["sent_local_time_s"],
+                    "local_clock_resolution_s": result.payload["local_clock_resolution_s"],
+                    "received_session_time_s": received})
+            quality = owner.assess_cross_clock_exchanges(session_id, node_id, exchanges,
+                            replace_mapping=replace_mapping, source_id=self._boundary.component_id)
+            await self._deliver_quality(session_id, node, quality)
+            return quality
+        except (Exception, asyncio.CancelledError) as error:
+            latest = owner._measured_mapping_quality.get(node_id, {})
+            # Owner validation already records rejected batches. Transport failures
+            # and cancellation must also retain the actually received partial batch.
+            if latest.get("assessment_sequence") == sequence or latest.get("acceptable"):
+                owner.mark_synchronization_unavailable(session_id, node_id, self._boundary.component_id,
+                    f"{type(error).__name__}: {error}", exchanges=exchanges)
+            raise
 
     async def _deliver_quality(self, session_id, node, quality):
         result = await NatsControllerCommunication(self._boundary).request_runtime_command(
@@ -3163,9 +3173,8 @@ class NatsSynchronizationManagerCommunication:
                     for node_id in node_ids:
                         try:
                             await self._measure_node(session_id, node_id, replace_mapping=False)
-                        except Exception as error:
-                            quality = owner.mark_synchronization_unavailable(session_id, node_id,
-                                self._boundary.component_id, str(error))
+                        except Exception:
+                            quality = owner._measured_mapping_quality[node_id]
                             try:
                                 await self._deliver_quality(session_id, RuntimeParticipant("acquisition_node", node_id), quality)
                             except Exception:

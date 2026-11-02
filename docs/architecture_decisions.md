@@ -11010,8 +11010,58 @@ Q006/Q018 remain open for advanced drift estimation, measurement algorithms,
 hardware synchronization and offline refinement, except for the minimum
 demonstrably valid measurement method required by the current implementation.
 
-**Implementation status:** Implemented in Q022 Slice 2, independently manually
-validated and finally audited PASS (W056, commit 3e573f5), including periodic
+### Accepted Q006/Q018 adaptive-estimation clarification
+
+The user-accepted Q006/Q018 clarification supplements the minimum contract above;
+it does not replace Decisions 154-175 or 380-381. Accepted behavior is distinguished
+from implementation and independent validation in the status records below.
+
+SynchronizationManager estimates relative clock-rate differences from accumulated
+bounded cross-clock observations, accounting for network-delay variability and
+measurement uncertainty without assuming symmetric network delays. Consistent
+historical observations build confidence; limited history requires greater
+responsiveness. The estimator resists isolated anomalous measurements while
+adapting to sustained changes in relative drift. A single anomalous observation
+after thousands of consistent measurements must not cause an abrupt correction,
+but repeated evidence of a genuine drift change must eventually influence the
+estimate despite historical confidence. Drift is not assumed constant indefinitely,
+and uncertainty must not be narrowed without justification.
+
+Evidence sufficient to refine a clock relationship and evidence that current
+synchronization quality is acceptable are separate assessments. Insufficient or
+anomalous evidence may leave the current mapping unchanged. Rejected or
+downweighted observations must nevertheless inform quality assessment when
+relevant; outlier handling must not silently conceal deteriorating quality.
+Existing configurable TimingQualityPolicy interpretation and Controller
+consequences remain authoritative under Decisions 156, 160-161 and 381.
+
+The numerical method remains a SynchronizationManager implementation choice under
+Decision 168. No Kalman filter, regression algorithm, weighting formula, estimator
+parameter or numerical performance threshold is prescribed by this clarification.
+
+Decisions 163, 168, 170, 172, 174-175 and 380 already govern immutable mapping
+history and prospective replacement at explicit activation boundaries. Preserve
+previous mappings, activation history and traceable discontinuities; never rewrite
+recorded runtime timestamps or introduce gradual clock slewing. Complete
+synchronization evidence, including relevant rejected/downweighted observations,
+remains available through the existing scientific evidence-preservation paths for
+future offline refinement and reconstruction (Decisions 154-159). Derived offline
+timing stays distinguishable from Runtime Timing and does not replace real-time
+drift estimation needed for closed-loop Experiments. No offline refinement
+algorithm or implementation is authorized here.
+
+**Adaptive implementation status:** Implemented for developer verification in
+`SynchronizationManager.assess_cross_clock_exchanges()`, with accumulated bounded
+affine constraints, isolated-anomaly resistance, supported sustained-change
+adaptation and separate applied-mapping quality. Existing timing evidence retains
+rejected/partial exchanges, estimator diagnostics and stable publication identities.
+Historical rate confidence does not replace configured future-drift bounds.
+Q006/Q018 remain OPEN; independent manual validation and separate audit are pending.
+This does not extend W056's historical validation or implement hardware
+synchronization, offline refinement or clock restoration.
+
+**Implementation status (minimum Q022 Slice 2 only):** Implemented in Q022 Slice 2,
+independently manually validated and finally audited PASS (W056, commit 3e573f5), including periodic
 publication recovery and command-admission corrections. This is bounded local
 JetStream/software validation, not multi-host accuracy, hardware timing or
 power-loss verification. W001-W055 remain historical records. Q019 remains CLOSED;
@@ -14552,7 +14602,7 @@ requirements remain authoritative.
 376. Ingestor and StorageManager share one computer/process and startup/shutdown/restart lifetime with permitted local calls and distinct ownership; all process-crossing communication, including Controller access, uses NATS. Decision 377 qualifies scientific-envelope intake while preserving active durability and archival guarantees.
 377. Routine scientific observations and their metadata stay in AcquisitionNode-local scientific products regardless of size; Ingestor receives operational runtime evidence and manifests, not routine scientific envelopes. Historical W051/W052 remain validated; implementation reconciliation and future streaming are not completed or defined here.
 378. Installation declarations and explicit Experiment selections govern adapter scientific production and local persistence; cleanly replace obsolete collection/envelope architecture while retaining active operational and archival responsibilities, with final independent integration audit of functionality and obsolete-path removal.
-379. SynchronizationManager establishes node-specific mappings from sufficient measured cross-clock exchanges accounting for delay, variability and uncertainty; bounded initial clock-rate assumptions are explicit, and configurable quality checks are distinct from complete resynchronization.
+379. SynchronizationManager establishes node-specific mappings from measured bounded cross-clock exchanges; explicit initial rate bounds and configurable quality checks remain, with Q006/Q018 adaptive drift estimation and independent quality assessment implemented pending independent validation and audit.
 380. AcquisitionNode applies authorized affine mappings locally and prospectively, derives Experiment Time from Session Time, and preserves required scientific timing, mapping history and local activation boundaries without per-observation mapping IDs.
 381. Acceptable synchronization is required at Session acquisition readiness and before each Experiment; configurable periodic assessments preserve degraded timing/provenance, with consequences governed by existing TimingQualityPolicy and Controller authority, never transport timestamps or assumed shared clocks.
 382. The Normal Stop marker is last-call, not proof by itself; Ingestor finalizes acquisition intake only after complete durable receipt verification, and finalized intake plus verified Stage A establishes preservation eligibility without transferring Controller lifecycle or independent service-release authority.

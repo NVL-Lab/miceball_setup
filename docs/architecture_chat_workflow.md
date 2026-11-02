@@ -83,7 +83,8 @@ or acceptance.
   synchronization before implementation.
 - Prepares Codex implementation instructions and reviews implementation reports.
 - Reviews the proposed scope against the pre-implementation impact and
-  invariant-coverage analysis before authorizing implementation.
+  invariant-coverage analysis before authorizing implementation, evaluating final
+  complexity and unnecessary duplication, not merely whether a slice is small.
 - May inspect code to understand implementation, assess reports, and plan
   independent validation.
 - Coordinates independent manual IPython validation, independent audits, and
@@ -213,6 +214,9 @@ complete an impact and invariant-coverage review that:
 - Distinguishes paths that already enforce the invariant, delegate to shared
   enforcement, or require correction.
 - Identifies existing tests and meaningful coverage gaps.
+- Examines reuse, extension, consolidation and safe replacement of existing
+  functions, classes, state and interfaces before proposing new mechanisms;
+  justifies new abstractions or persistent state by concrete necessity.
 - Separates confirmed defects from suspected risks and unrelated issues.
 - Establishes a coherent proposed implementation boundary before coding.
 
@@ -227,6 +231,17 @@ follow the existing LLC/HLC clarification process below; scope review does not
 authorize new architecture. Codex's engineering obligations for enforcement,
 consolidation, and regression reproduction are defined in
 [AGENTS.md](../AGENTS.md#impact-analysis-and-invariant-enforcement).
+
+"Smallest implementation" means the simplest complete resulting implementation,
+not the smallest diff or implementation slice. Scope defines a coherent,
+manageable unit for review and validation; simplicity minimizes final codebase
+complexity. Prefer a larger well-contained consolidation over a smaller change
+that leaves duplicate mechanisms. Safely remove superseded internal paths while
+preserving required compatibility. Do not fragment coherent work into tiny slices
+that add scaffolding, parallel implementations or integration complexity. Apply
+[Reuse Before Adding and Simplicity First](../AGENTS.md#reuse-before-adding),
+without changing accepted architecture, weakening safeguards/tests, expanding
+scope, or bypassing authorization, independent validation or audit stages.
 
 ## Implementation Reporting
 
