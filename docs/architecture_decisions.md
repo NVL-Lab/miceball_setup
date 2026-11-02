@@ -11050,15 +11050,16 @@ timing stays distinguishable from Runtime Timing and does not replace real-time
 drift estimation needed for closed-loop Experiments. No offline refinement
 algorithm or implementation is authorized here.
 
-**Adaptive implementation status:** Implemented for developer verification in
-`SynchronizationManager.assess_cross_clock_exchanges()`, with accumulated bounded
-affine constraints, isolated-anomaly resistance, supported sustained-change
-adaptation and separate applied-mapping quality. Existing timing evidence retains
-rejected/partial exchanges, estimator diagnostics and stable publication identities.
-Historical rate confidence does not replace configured future-drift bounds.
-Q006/Q018 remain OPEN; independent manual validation and separate audit are pending.
-This does not extend W056's historical validation or implement hardware
-synchronization, offline refinement or clock restoration.
+**Adaptive implementation status:** CLOSED within bounded software scope after
+independent ICC validation and final independent audit PASS of
+`321009d64043cf9e14d7400341197f22c970fb57`. Accumulated bounded affine estimation,
+isolated-anomaly resistance, sustained-change adaptation and independent applied
+quality reuse the existing timing and mapping interfaces. Rejected/partial evidence
+is retained; future validity keeps configured rate bounds. Both ordering-related
+P2 findings are resolved. See the [closure, evidence and limitations](validated_workflows.md#q006-q018---adaptive-synchronization-software).
+Q006/Q018 remain OPEN for broader representation, hardware and offline work. W056's
+historical validation is unchanged; no physical timing accuracy, deployment,
+hardware synchronization, offline refinement or clock restoration is certified.
 
 **Implementation status (minimum Q022 Slice 2 only):** Implemented in Q022 Slice 2,
 independently manually validated and finally audited PASS (W056, commit 3e573f5), including periodic
@@ -14602,7 +14603,7 @@ requirements remain authoritative.
 376. Ingestor and StorageManager share one computer/process and startup/shutdown/restart lifetime with permitted local calls and distinct ownership; all process-crossing communication, including Controller access, uses NATS. Decision 377 qualifies scientific-envelope intake while preserving active durability and archival guarantees.
 377. Routine scientific observations and their metadata stay in AcquisitionNode-local scientific products regardless of size; Ingestor receives operational runtime evidence and manifests, not routine scientific envelopes. Historical W051/W052 remain validated; implementation reconciliation and future streaming are not completed or defined here.
 378. Installation declarations and explicit Experiment selections govern adapter scientific production and local persistence; cleanly replace obsolete collection/envelope architecture while retaining active operational and archival responsibilities, with final independent integration audit of functionality and obsolete-path removal.
-379. SynchronizationManager establishes node-specific mappings from measured bounded cross-clock exchanges; explicit initial rate bounds and configurable quality checks remain, with Q006/Q018 adaptive drift estimation and independent quality assessment implemented pending independent validation and audit.
+379. SynchronizationManager establishes node-specific mappings from measured bounded cross-clock exchanges; explicit initial rate bounds and configurable quality checks remain, with bounded Q006/Q018 adaptive drift estimation and independent quality assessment complete and independently validated/audited; broader Q006/Q018 work remains OPEN.
 380. AcquisitionNode applies authorized affine mappings locally and prospectively, derives Experiment Time from Session Time, and preserves required scientific timing, mapping history and local activation boundaries without per-observation mapping IDs.
 381. Acceptable synchronization is required at Session acquisition readiness and before each Experiment; configurable periodic assessments preserve degraded timing/provenance, with consequences governed by existing TimingQualityPolicy and Controller authority, never transport timestamps or assumed shared clocks.
 382. The Normal Stop marker is last-call, not proof by itself; Ingestor finalizes acquisition intake only after complete durable receipt verification, and finalized intake plus verified Stage A establishes preservation eligibility without transferring Controller lifecycle or independent service-release authority.

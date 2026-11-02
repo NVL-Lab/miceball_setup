@@ -86,10 +86,11 @@ Additional questions:
 ## Q006: What is the detailed drift and timing-uncertainty representation?
 
 **Status:** OPEN - minimum distributed synchronization contracts are resolved by
-Decisions 379-381. Decision 379's accepted Q006/Q018 adaptive-estimation and
-independent-quality clarification is implemented with a bounded audit-P2 correction
-pending independent validation and re-audit; detailed timing representation and
-offline refinement remain open.
+Decisions 379-381. Decision 379's bounded adaptive-estimation and independent-quality
+software scope is CLOSED after independent validation and final audit PASS of
+`321009d64043cf9e14d7400341197f22c970fb57`; detailed timing representation, hardware
+synchronization and offline refinement remain open. See the
+[software closure and limits](validated_workflows.md#q006-q018---adaptive-synchronization-software).
 
 ### Why this matters
 
@@ -128,8 +129,9 @@ bounded affine offset/rate constraints; consistent history narrows feasible rate
 and two mutually consistent observations outside the historical fit can establish
 a new segment. Applied quality still uses the latest raw bounds, and future
 validity retains the configured rate envelope. No new estimator configuration or
-evidence pipeline is introduced. Independent validation/audit remain pending;
-algorithm, weights and thresholds are not unresolved architectural decisions.
+evidence pipeline is introduced. Independent validation and audit are complete for
+this bounded scope; algorithm, weights and thresholds are not unresolved
+architectural decisions. This does not close the remaining questions below.
 
 ### Remaining questions
 
@@ -142,7 +144,7 @@ algorithm, weights and thresholds are not unresolved architectural decisions.
 
 ### Blocks
 
-* Advanced synchronization features, not the accepted minimum Q022 Slice 2 method
+* Advanced synchronization beyond the completed bounded adaptive runtime software
 * Reconstruction quality reporting
 
 ---
@@ -2135,9 +2137,10 @@ They do not decide Controller restart or repeated-action execution, so Q016 rema
 
 **Status:** OPEN - Decisions 379-381 resolve the minimum distributed scientific
 synchronization gate for Q022 Slice 2. Decision 379's Q006/Q018 clarification
-accepts adaptive-estimation behavior and independent quality assessment, now
-implemented with its audit-P2 correction pending independent validation/re-audit. The remaining
-representation/refinement scope below is not complete.
+accepts adaptive-estimation behavior and independent quality assessment, now CLOSED
+within bounded software scope after independent ICC validation and final Codex
+audit PASS of `321009d64043cf9e14d7400341197f22c970fb57`. The remaining
+representation, hardware and offline scope below is not complete.
 
 Phase 11's historical mapping-ownership scope is now supplemented by measured
 cross-clock exchanges, the accepted local affine formula, and synchronization
@@ -2148,7 +2151,7 @@ Initial mappings may use an explicit, conservatively bounded clock-rate assumpti
 without prior drift estimation. Temporary degradation retains timing/provenance
 and degraded status; existing policy and Controller authority govern consequences.
 
-### Accepted adaptive behavior; independent verification pending
+### Completed bounded adaptive runtime software
 
 Decision 379's accepted clarification and Q006 distinguish robust adaptive
 estimation from independent current-quality assessment. Historical confidence
@@ -2166,11 +2169,20 @@ lifecycle and timing-evidence path rather than adding a separate estimator owner
 It retains rejected/partial measurements, suppresses replay-driven confidence
 growth and keeps assessment-only mappings unchanged. Developer tests cover known
 drift, changes, anomalies, asymmetric delay, uncertainty, retirement and isolated
-local NATS cancellation/publication retries with disk-backed intake. Correction
-validation and re-audit remain required as recorded below; W056 does not establish
-this new behavior. No hardware, cross-machine accuracy or physical crash validation is
-claimed. Numerical methods and implementation parameters remain implementation
-choices. See Decision 379 and `code_map.md` for the shared contract and interfaces.
+local NATS cancellation/publication retries with disk-backed intake. The bounded
+software scope is now complete and independently validated: developer verification
+24/24 PASS, independent ICC IPython validation 14/14 PASS and separate Codex audit
+PASS with no confirmed P0-P3 findings. Both P2 findings below are resolved. See the
+[authoritative closure, evidence and limitations](validated_workflows.md#q006-q018---adaptive-synchronization-software).
+W056's historical results are unchanged. No physical timing accuracy, cross-machine
+deployment or physical crash validation is claimed. Numerical methods remain
+implementation choices; see Decision 379 and `code_map.md` for contracts/interfaces.
+
+### Historical implementation and correction reports
+
+The following earlier reports preserve the failed audits and their correction
+sequence. Their then-pending validation statements do not override the completed
+bounded-software closure above; evidence counts overlap and are not additive.
 
 Developer verification: 25 focused methods passed (14 adaptive/publication,
 four measurement-bound, five immutable-mapping and two isolated real-NATS
@@ -2211,14 +2223,15 @@ Developer correction verification passed 24 focused methods: 18 adaptive/timing
 publication, four measurement-bound and two isolated real-NATS workflows. The
 new regression reproduced the audited false confirmation before correction and
 now covers ten boundary/interruption combinations, including recovery and replay.
-Independent validation and re-audit of this correction remain pending; Q006/Q018
-remain OPEN.
+At that implementation handoff, independent validation and re-audit remained
+pending. Their subsequent completion is recorded in the closure linked above;
+Q006/Q018 remain OPEN for broader work, not for either corrected P2.
 
 ### Remaining scope
 
 - richer SynchronizationObservation and timing-uncertainty representations
-- detailed refinement strategies within the accepted adaptive behavior and
-  existing prospective activation semantics
+- further refinement beyond the completed bounded adaptive runtime implementation,
+  preserving existing prospective activation semantics
 - hardware synchronization
 - offline refinement and reconstruction timing estimators
 

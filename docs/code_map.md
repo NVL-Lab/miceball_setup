@@ -2246,6 +2246,8 @@ recovery is introduced. Phase 16 and M015 remain open.
 
 ## src/lab_sync_acquisition/synchronization.py
 
+Bounded adaptive-drift software is CLOSED at audited commit `321009d64043cf9e14d7400341197f22c970fb57`; see the [validation and limits](validated_workflows.md#q006-q018---adaptive-synchronization-software). Broader Q006/Q018 remain OPEN.
+
 - SynchronizationManager.maintenance_evidence(): Returns retained timing/mapping and framework evidence with stable producer identities for service retirement.
 
 - SynchronizationMapping: Stores the accepted immutable local-to-Session mapping fields with a plain-data round trip.

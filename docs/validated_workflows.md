@@ -5994,6 +5994,91 @@ audit were executed during this documentation-only recording of supplied evidenc
 
 ---
 
+# Q006-Q018 - Adaptive Synchronization Software
+
+**Status:** CLOSED within the bounded adaptive-drift software scope of Decision
+379 and Decisions 154-175, 380-381. Final independently audited implementation:
+`321009d64043cf9e14d7400341197f22c970fb57`; audit **PASS**, no confirmed P0-P3
+findings. Broader Q006/Q018 remain OPEN.
+
+## Implemented behavior and boundaries
+
+SynchronizationManager extends its existing bounded cross-clock assessment with
+accumulated feasible affine offset/rate constraints. Consistent informative
+measurements narrow the feasible rate range without assuming symmetric network
+delays. Isolated incompatible observations leave the fit unchanged; independent,
+chronological pending observations can establish a changed segment, allowing
+sustained drift adaptation without treating historical drift as constant forever.
+
+Refinement acceptance and current applied-mapping quality are separate. Rejected
+observations still inform quality and remain timing evidence. Future validity
+retains configured rate bounds rather than treating learned confidence as a
+future-drift guarantee. Assessment-only calls preserve the applied mapping.
+Complete node-local and Session-time boundaries govern pending combinations;
+rejected candidates do not advance trusted admission cursors.
+
+Existing mapping creation/replacement, immutable runtime timestamps, prospective
+node activation, retained historical mappings, Session/node isolation and
+evidence-confirmed retirement remain authoritative. Controller retains lifecycle
+authority, and deployed communication remains NATS-based. Partial measurements,
+failure/cancellation evidence and stable publication identities use the existing
+timing-evidence path. No new synchronization service, configuration parameter or
+public command is introduced. `assess_cross_clock_exchanges()` keeps its signature;
+`mark_synchronization_unavailable(..., *, exchanges=None)` accepts available
+partial exchanges. AcquisitionNode quality admission reuses its existing history
+and owner-issued sequence checks; it does not acquire estimation authority.
+
+## Failed audits and bounded corrections
+
+- Audit of `597de41` returned **FAIL, P2**: a rejected future timestamp advanced
+  trusted ordering cursors and blocked genuine recovery. Cursors now advance only
+  on accepted refinement; rejected evidence and pending candidates remain separate.
+  The corresponding node-side check derives trusted ordering from existing quality
+  history while retaining authority, sequence, duplicate and conflict checks.
+- Re-audit of `c6b252905a5b403b14ca27ac82df723b660b1949` returned **FAIL, P2**:
+  midpoint progression and Session-time ordering allowed overlapping node-local
+  candidates to confirm sustained drift. The existing pending tuple now also
+  retains its final node-local send time; combining candidates requires complete
+  non-overlapping boundaries on both clocks without promoting rejected timestamps.
+- Final independent audit of `321009d64043cf9e14d7400341197f22c970fb57`
+  returned **PASS** and confirmed both findings resolved within exercised scope.
+  Earlier implementation/validation results did not establish those corrections;
+  their historical reports remain in Q018.
+
+## Accepted verification evidence
+
+- **Codex developer verification: 24/24 PASS**: 18 adaptive/publication methods,
+  four measurement-bound methods and two isolated real-NATS workflows. The new
+  regression reproduced the overlap defect before correction and then covered ten
+  boundary/interruption combinations, recovery and replay.
+- **Independent ICC IPython validation: 14/14 PASS**, including the audited overlap,
+  refusal without mapping replacement, rejected-evidence preservation, future-anomaly
+  recovery and genuine sustained drift at scale 1.01.
+- **Separate independent Codex audit: PASS**: 98 adversarial boundary cases with
+  551 passing checks; one independent real-NATS workflow covering multiple rejected
+  future reports, assessment-only recovery, explicit remapping, AcquisitionNode
+  admission, Controller Experiment start/stop and durable evidence; 12 disk-backed
+  cancellation/retry/retirement checks; and nine selected repository regressions.
+
+These are distinct evidence sources and overlapping workflows, not an additive
+unique-test total. No tests, deployment validation or audit were rerun for this
+documentation-only closure. W056's earlier minimum-method validation is unchanged.
+
+## Limitations and remaining scope
+
+Validation used synthetic clocks, simulated devices, injected faults and an
+isolated local broker. It does not establish physical timing accuracy, cross-machine
+deployment, hardware synchronization, actual process-crash/power-loss recovery or
+exhaustive concurrency behavior. Journal/owner reconstruction is not a physical
+crash test. Existing G5 deployment evidence does not establish synchronization
+quality and is not expanded by this closure.
+
+Only this adaptive runtime software scope is complete and independently validated.
+Q006/Q018 remain OPEN for richer timing/uncertainty representations, further
+refinement beyond this bounded implementation, hardware synchronization, and
+offline refinement/reconstruction timing work. No new architecture, deployment
+certification, clock restoration or unrelated milestone closure is implied.
+
 # Q034 Slice 1 - Historical Scientific-Artifact Inventory
 
 **Status: CLOSED within validated read-only software scope.** ICC accepted the

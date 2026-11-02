@@ -1356,6 +1356,27 @@ accuracy or power-loss validation. W001-W055 are unchanged; Q019 remains CLOSED,
 and Q022, Q024, Phase 16 and M015 remain OPEN. Remaining Q022 deployment and
 installation obligations are not closed by W056.
 
+## Completed Q006/Q018 Adaptive Synchronization Software
+
+**Status:** CLOSED within bounded adaptive-drift software scope under Decision 379;
+final independent audit PASS, no confirmed P0-P3 findings, at
+`321009d64043cf9e14d7400341197f22c970fb57`.
+
+Existing SynchronizationManager assessment now learns bounded relative rate,
+resists isolated anomalies, adapts to sustained changes and assesses the applied
+mapping independently. Complete pending-candidate boundaries on both clocks and
+refinement-only trusted admission resolve both P2 findings. Existing Controller,
+NATS, prospective activation, immutable timing and evidence-retirement contracts
+remain unchanged.
+
+Developer verification 24/24 PASS, independent ICC IPython validation 14/14 PASS
+and separate Codex audit PASS support this closure. See the
+[authoritative evidence, correction history and limits](validated_workflows.md#q006-q018---adaptive-synchronization-software).
+Synthetic clocks, simulated devices and isolated local NATS do not establish
+physical timing accuracy, cross-machine deployment, actual process-crash/power-loss
+recovery or exhaustive concurrency. Q006/Q018 remain OPEN for richer representation,
+hardware synchronization and offline refinement; W056 and G5 scope are unchanged.
+
 ## Completed Q022 Slice 3 Operational Evidence Transport (W057)
 
 **Status:** CLOSED - bounded implementation, independent IPython validation and
