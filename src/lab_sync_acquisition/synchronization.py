@@ -401,7 +401,8 @@ class SynchronizationManager:
                 if not isfinite(lower) or not isfinite(upper) or lower > upper:
                     raise ValueError("Measured clock exchanges are inconsistent")
                 state = self._clock_estimates.get(node_id)
-                if state and (anchor <= state["last_local_time_s"]
+                if state and (anchor <= state["fit"][0]
+                        or exchanges[0]["received_local_time_s"] < state["last_local_time_s"]
                         or exchanges[0]["sent_session_time_s"] < state["last_session_time_s"]):
                     raise ValueError("Stale or overlapping cross-clock measurements")
             except (ValueError, KeyError, TypeError) as error:
@@ -467,7 +468,7 @@ class SynchronizationManager:
             self._clock_estimates[node_id] = {"fit": fit,
                 "pending": None if refined else (point, exchanges[-1]["received_session_time_s"],
                                                   exchanges[-1]["sent_local_time_s"]),
-                "last_local_time_s": anchor if refined else state["last_local_time_s"],
+                "last_local_time_s": exchanges[-1]["sent_local_time_s"] if refined else state["last_local_time_s"],
                 "last_session_time_s": (exchanges[-1]["received_session_time_s"] if refined
                                         else state["last_session_time_s"])}
             return self._retain_timing_quality(source_id, quality)

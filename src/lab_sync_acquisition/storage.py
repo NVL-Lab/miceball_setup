@@ -21,7 +21,10 @@ from typing import Any, Iterable, Iterator, Mapping
 from uuid import uuid4
 
 from lab_sync_acquisition.service_readiness import ServiceReadiness, apply_dependency_readiness
-from lab_sync_acquisition.local_storage import ArtifactManifest, inspect_storage_capacity, validate_deletion_evidence, validate_frame_index
+from lab_sync_acquisition.local_storage import (
+    ArtifactManifest, inspect_storage_capacity, validate_deletion_evidence,
+    validate_frame_index, validate_observation_coverage,
+)
 from lab_sync_acquisition.synchronization import validate_mapping_snapshot
 from lab_sync_acquisition.communication import RuntimeEvidenceMessage
 from lab_sync_acquisition.service_maintenance import service_operation
@@ -867,8 +870,7 @@ class PersistentStorageManager:
                 raise ValueError("Reconstruction product is unavailable or aliased")
         return path
 
-    @staticmethod
-    def _validate_timing_result(result: Any) -> dict:
+    def _validate_timing_result(self, result: Any) -> dict:
         """Require the same derived-result envelope at publication and decoded readback."""
         if (not isinstance(result, dict) or result.get("format") != "offline_timing_v1"
                 or result.get("version") is None
@@ -909,7 +911,6 @@ class PersistentStorageManager:
                     raise ValueError("Conflicting reconstructed artifact identity")
                 artifact_ids.add(manifest["artifact_manifest_id"])
                 artifact_issues |= bool(artifact["issues"])
-                positions = set()
                 for row in artifact["observations"]:
                     if (not isinstance(row, dict) or not issues(row["issues"])
                             or not isinstance(row["original_timing"], dict)
@@ -922,16 +923,6 @@ class PersistentStorageManager:
                         raise ValueError("Invalid original observation timing")
                     if "frame_index" in original:
                         validate_frame_index(original["frame_index"])
-                    position = row["position"]
-                    if (not isinstance(position, dict) or not (
-                            set(position) == {"line"} and type(position["line"]) is int and position["line"] > 0
-                            or set(position) == {"dataset", "index"} and position["dataset"] == "frames"
-                            and type(position["index"]) is int and position["index"] >= 0)):
-                        raise ValueError("Invalid original observation position")
-                    key = tuple(sorted(position.items()))
-                    if key in positions:
-                        raise ValueError("Duplicate original observation position")
-                    positions.add(key)
                     provenance = row["provenance"]
                     if (not isinstance(provenance, dict) or any(provenance[k] != manifest[k] for k in (
                             "session_id", "experiment_id", "acquisition_node_id", "source_component_id",
@@ -978,6 +969,9 @@ class PersistentStorageManager:
                             raise ValueError("Reconstruction evidence links are incomplete")
                         reconstructed += 1
                     counts[row["quality"]] = counts.get(row["quality"], 0) + 1
+                validate_observation_coverage(manifest["details"],
+                    [row["original_timing"] for row in artifact["observations"]],
+                    [row["position"] for row in artifact["observations"]], complete=not artifact["issues"])
             quality = result["quality"]
             count = sum(counts.values())
             complete = (bool(count) and not result["issues"] and not artifact_issues
@@ -988,6 +982,12 @@ class PersistentStorageManager:
                     or any(type(v) is not int for v in quality["by_status"].values())
                     or type(quality["complete"]) is not bool or quality["complete"] != complete):
                 raise ValueError("Reconstructed quality summary contradicts its observations")
+            if complete:
+                expected = self.read_artifact_collection_handoff(result["session_id"])
+                supplied = {a["manifest"]["artifact_manifest_id"]: a["manifest"] for a in result["artifacts"]}
+                accepted = {a["artifact_manifest"]["artifact_manifest_id"]: a["artifact_manifest"] for a in expected["artifacts"]}
+                if supplied != accepted or any(a["missing_finalization_evidence"] for a in expected["artifacts"]):
+                    raise ValueError("Complete reconstruction differs from its authoritative artifact scope")
         except (KeyError, TypeError, OverflowError) as error:
             raise ValueError("Malformed reconstructed timing result") from error
         return result

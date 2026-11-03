@@ -101,9 +101,12 @@ class DistributedSynchronizationTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result.succeeded, result.error)
 
     async def test_measured_mapping_drives_local_science_and_experiment_finalization(self):
+        await self._use_authorized_transport()
         await self.start()
         await self.experiment()
-        result = await self.request(self.participants[-1], "run_one_iteration")
+        result = await self.communication.request_runtime_command(self.participants[-1],
+            "run_one_iteration", self.sid, {}, 3)
+        self.assertIsNotNone(result)
         self.assertTrue(result.success, result.reason)
         local = self.node.local_storage_manager
         stopped = await self.controller.stop_launched_experiment("experiment")

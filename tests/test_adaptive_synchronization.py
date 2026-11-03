@@ -193,6 +193,46 @@ class AdaptiveSynchronizationTests(unittest.TestCase):
                     if not expected:
                         self.assertTrue(self.assess(180, 80, node=node)['acceptable'])
 
+    def test_trusted_batches_require_complete_nonoverlapping_windows(self):
+        def windows(local, session, long=False):
+            return [dict(sent_session_time_s=session+i*.1, received_local_time_s=local+i*.1,
+                sent_local_time_s=local+i*.1+(1. if long and i==2 else .001),
+                received_session_time_s=session+i*.1+(1. if long and i==2 else .001),
+                local_clock_resolution_s=0.) for i in range(3)]
+        for index, (local, session, valid) in enumerate(((101.199, 1.201, False),
+                (101.2, 1.2, True), (101.201, 1.201, True), (101.201, 1.199, False))):
+            node = f'trusted-{index}'
+            with self.subTest(local=local, session=session):
+                first = self.owner.assess_cross_clock_exchanges('session', node, windows(100., 0., True),
+                    replace_mapping=True, source_id='sync')
+                mapping = self.owner.get_active_mapping('session', node)
+                batch = windows(local, session)
+                if valid:
+                    q = self.owner.assess_cross_clock_exchanges('session', node, batch,
+                        replace_mapping=True, source_id='sync')
+                    self.assertTrue(q['estimator']['refinement_accepted'])
+                    self.assertTrue(q['acceptable'])
+                else:
+                    with self.assertRaises(ValueError):
+                        self.owner.assess_cross_clock_exchanges('session', node, batch,
+                            replace_mapping=True, source_id='sync')
+                    self.assertEqual(mapping, self.owner.get_active_mapping('session', node))
+                    failed = self.owner.session_timing_evidence('session', 'sync')[-1].payload
+                    self.assertFalse(failed['measurement_valid'])
+                    self.assertEqual(failed['exchanges'], batch)
+                    self.assertTrue(self.assess(110., 10., node=node)['acceptable'])
+        # Coarse clock precision can make an entire new batch coincide with the
+        # previous endpoint; midpoint progress still distinguishes it from replay.
+        first = self.owner.assess_cross_clock_exchanges('session', 'coarse', windows(100., 0., True),
+            replace_mapping=True, source_id='sync')
+        boundary = [dict(sent_session_time_s=1.2, received_local_time_s=101.2,
+            sent_local_time_s=101.2, received_session_time_s=1.2,
+            local_clock_resolution_s=0.) for _ in range(3)]
+        result = self.owner.assess_cross_clock_exchanges('session', 'coarse', boundary,
+            replace_mapping=True, source_id='sync')
+        self.assertGreater(result['measured_local_time_s'], first['measured_local_time_s'])
+        self.assertTrue(result['estimator']['refinement_accepted'])
+
     def test_sustained_change_still_requires_independent_evidence_after_anomaly(self):
         for n in range(10):
             self.assess(100 + n * 10, n * 10)

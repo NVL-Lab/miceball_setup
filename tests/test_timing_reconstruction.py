@@ -437,7 +437,8 @@ class TimingReconstructionTests(unittest.TestCase):
             self.manifests.append(self.manager.finalize_stream(manifest.storage_id))
         empty = self.manager.create_stream(session_id="session", experiment_id="experiment",
             acquisition_node_id="node", source_component_id="camera", data_product_id="empty",
-            artifact_type="frames", storage_format="hdf5", schema={"frame_shape": [2, 3], "frame_dtype": "uint8"})
+            artifact_type="frames", storage_format="hdf5", schema={"frame_shape": [2, 3], "frame_dtype": "uint8"},
+            details={"write_status": "device-managed"})
         self.manifests.append(self.manager.finalize_stream(empty.storage_id))
         self.archive()
         result = self.reconstruct()
@@ -666,6 +667,142 @@ class TimingReconstructionTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     PersistentStorageManager(self.root / "archive").read_timing_reconstruction("session", result["version"])
                 self.assertEqual(before, path.read_bytes())
+
+    def test_derived_coverage_reconciles_manifests_positions_and_complete_scope(self):
+        import hashlib
+        manifest = self.manager.create_stream(session_id="session", experiment_id="experiment",
+            acquisition_node_id="node", source_component_id="camera", data_product_id="coverage",
+            artifact_type="events", schema={})
+        rows = deepcopy(self.rows[0])
+        middle = deepcopy(rows[0])
+        middle.update(acquisition_node_local_time_s=110., frame_index=1)
+        middle["session_time_s"] = self.first["session_time_anchor_s"] + self.first["scale"] * (110-self.first["local_time_anchor_s"])
+        middle["experiment_time_s"] = middle["session_time_s"]
+        rows[-1]["frame_index"] = 2
+        self.manager.append_rows(manifest.storage_id, [rows[0], middle, rows[1]])
+        self.manifests.append(self.manager.finalize_stream(manifest.storage_id))
+        self.archive()
+        self.storage.close_session_evidence_archive("session")
+        valid = self.reconstruct()
+        self.assertTrue(valid["quality"]["complete"])
+        before = self.snapshot()
+        for case in ("missing_middle", "missing_hdf5", "outside_position", "wrong_format",
+                     "reordered", "missing_artifact"):
+            with self.subTest(case=case):
+                result = deepcopy(valid)
+                result["version"] = case
+                if case == "missing_middle":
+                    result["artifacts"][-1]["observations"].pop(1)
+                elif case == "missing_hdf5":
+                    result["artifacts"][1]["observations"].pop()
+                elif case == "outside_position":
+                    result["artifacts"][0]["observations"][-1]["position"] = {"line": 99}
+                elif case == "wrong_format":
+                    result["artifacts"][1]["observations"][0]["position"] = {"line": 1}
+                elif case == "reordered":
+                    result["artifacts"][0]["observations"].reverse()
+                else:
+                    result["artifacts"].pop(0)
+                count = sum(len(a["observations"]) for a in result["artifacts"])
+                result["quality"].update(observation_count=count, reconstructed_count=count, by_status={"refined": count})
+                with self.assertRaises(ValueError):
+                    self.storage.write_timing_reconstruction(result)
+                serialized = json.dumps(result, sort_keys=True, allow_nan=False, separators=(",", ":"))
+                path = self.root / f"archive/session_session/reconstructed_timing/{case}.json"
+                path.write_text(json.dumps({"result": result, "sha256": hashlib.sha256(serialized.encode()).hexdigest()}))
+                original = path.read_bytes()
+                with self.assertRaises(ValueError):
+                    PersistentStorageManager(self.root / "archive").read_timing_reconstruction("session", case)
+                self.assertEqual(path.read_bytes(), original)
+        partial = deepcopy(valid)
+        partial["version"] = "explicit-partial"
+        partial["artifacts"][-1]["observations"].pop(1)
+        partial["artifacts"][-1]["issues"].append("Original readback is incomplete")
+        partial["quality"].update(complete=False, observation_count=6, reconstructed_count=6, by_status={"refined": 6})
+        self.storage.write_timing_reconstruction(partial)
+        self.assertEqual(partial, self.storage.read_timing_reconstruction("session", partial["version"]))
+        reordered = deepcopy(valid)
+        reordered["version"] = "artifact-order"
+        reordered["artifacts"].reverse()
+        self.storage.write_timing_reconstruction(reordered)
+        self.assertEqual(reordered, self.storage.read_timing_reconstruction("session", reordered["version"]))
+        self.assertEqual(before, self.snapshot())
+
+    def test_mapping_history_rejects_broken_links_retirement_authority_and_forks(self):
+        self.sync.stop()
+        self.sync.retire_active_mapping("session", "node", "finished")
+        for index, case in enumerate(("previous", "retirement_authority", "retirement_previous", "double_retirement", "fork")):
+            with self.subTest(case=case):
+                self.storage = PersistentStorageManager(self.root / f"history-{index}")
+                def mutate(messages):
+                    updates = [m for m in messages if m.evidence_type == "mapping_update_evidence"]
+                    replaced = next(m for m in updates if m.payload["update_type"] == "replaced")
+                    retired = next(m for m in updates if m.payload["update_type"] == "retired")
+                    if case == "previous":
+                        replaced.payload["previous_mapping"]["scale"] = .5
+                    elif case == "retirement_authority":
+                        messages[messages.index(retired)] = replace(retired, source_id="other-sync")
+                    elif case == "retirement_previous":
+                        retired.payload["previous_mapping"] = deepcopy(updates[0].payload["new_mapping"])
+                    elif case == "double_retirement":
+                        messages.append(replace(retired, evidence_id="second-retirement"))
+                    else:
+                        updates[-2].payload["previous_mapping"] = deepcopy(updates[0].payload["new_mapping"])
+                    return messages
+                self.archive(mutate, release=False)
+                self.storage.close_session_evidence_archive("session")
+                before = self.snapshot()
+                result = self.reconstruct()
+                self.assertFalse(result["quality"]["complete"])
+                self.assertEqual(result["quality"]["reconstructed_count"], 0)
+                self.assertTrue(result["issues"])
+                self.assertEqual(before, self.snapshot())
+
+    def test_mapping_history_uses_links_not_delivery_order_or_unique_event_times(self):
+        self.sync.create_and_activate_mapping("session", "ties", 100., 0., 1., "manual")
+        self.sync.replace_active_mapping("session", "ties", 110., 10., 1., "manual")
+        self.sync.retire_active_mapping("session", "ties", "finished")
+        self.sync.stop()
+        self.sync.retire_active_mapping("session", "node", "finished")
+        def reorder(messages):
+            updates = [m for m in messages if m.evidence_type == "mapping_update_evidence"]
+            return list(reversed(updates)) + [m for m in messages if m not in updates]
+        self.archive(reorder)
+        self.storage.close_session_evidence_archive("session")
+        before = self.snapshot()
+        result = self.reconstruct()
+        self.assertTrue(result["quality"]["complete"], result["issues"])
+        self.assertEqual(before, self.snapshot())
+
+    def test_trusted_measurement_boundaries_remain_reconstructable_after_rejection(self):
+        def windows(local, session, long=False):
+            return [dict(sent_session_time_s=session+i*.1, received_local_time_s=local+i*.1,
+                sent_local_time_s=local+i*.1+(1. if long and i==2 else .001),
+                received_session_time_s=session+i*.1+(1. if long and i==2 else .001),
+                local_clock_resolution_s=0.) for i in range(3)]
+        self.time = 30.
+        for node in ("rejected-window", "touching-window"):
+            first = self.sync.assess_cross_clock_exchanges("session", node, windows(100, 0, True),
+                replace_mapping=True, source_id="sync")
+            if node == "rejected-window":
+                with self.assertRaises(ValueError):
+                    self.sync.assess_cross_clock_exchanges("session", node, windows(101.199, 1.201),
+                        replace_mapping=True, source_id="sync")
+                second = self.sync.assess_cross_clock_exchanges("session", node, windows(110, 10),
+                    replace_mapping=True, source_id="sync")
+            else:
+                second = self.sync.assess_cross_clock_exchanges("session", node, windows(101.2, 1.2),
+                    replace_mapping=True, source_id="sync")
+            self.assertTrue(first["measurement_valid"])
+            self.assertTrue(second["measurement_valid"])
+        self.archive()
+        self.storage.close_session_evidence_archive("session")
+        before = self.snapshot()
+        result = self.reconstruct()
+        self.assertEqual(result["quality"]["reconstructed_count"], 4)
+        self.assertTrue(any("unavailable measurement" in issue for issue in result["issues"]))
+        self.assertFalse(any("Overlapping or stale accepted" in issue for issue in result["issues"]))
+        self.assertEqual(before, self.snapshot())
 
     def test_degraded_runtime_can_be_refined_without_relabeling_original(self):
         path = Path(self.manifests[0].local_storage_path)

@@ -2158,7 +2158,7 @@ recovery is introduced. Phase 16 and M015 remain open.
 - PersistentStorageManager.write_timing_reconstruction(result): Fsyncs, non-overwritingly publishes and reads back one immutable derived version, accepting identical retries and refusing conflicts or aliases without changing raw/archival products.
 - PersistentStorageManager.read_timing_reconstruction(session_id, version): Reconfirms a derived version's identity, digest, file/directory durability and unchanged readback independently of Session bindings.
 - PersistentStorageManager._timing_reconstruction_path(session_id, version=None): Validates the derived directory or a specific version's safe identity, ancestry and exclusive regular-file ownership outside closed archival products.
-- PersistentStorageManager._validate_timing_result(result): Checks derived envelope/observation structure, positions, scope/evidence links, conservative numerical bounds and truthful quality summaries at publication and readback, without recomputing scientific results.
+- PersistentStorageManager._validate_timing_result(result): Checks derived structure, shared artifact coverage, scope/evidence links, numerical bounds and quality summaries at publication/readback, requiring complete products to match the authoritative finalized handoff without recomputing scientific results.
 - PersistentStorageManager: Owns durable Session Records, Evidence Archives, saved-Session selection, recovery and global scientific-artifact collection without scientific-envelope persistence.
 - PersistentStorageManager(storage_root, *, global_artifact_root=None, retrieval_endpoints=None, evidence_publisher=None, component_id="storage"): Uses an explicit directory root for existing Session/framework products, retaining node-keyed retrieval settings and collection-evidence publication.
 - PersistentStorageManager.verify_installation_retrieval(node_id, source_path, expected_content, *, max_bytes): Retrieves one explicitly designated dummy file through existing SSH/SFTP into a bounded auto-cleaned temporary destination and reports exact comparison with independent expected bytes without creating Session or artifact evidence.
@@ -2257,7 +2257,7 @@ The prior adaptive-runtime closure and its evidence are unchanged.
 
 - ReconstructionManager(storage_manager, *, local_storage_roots=None): Owns offline timing computation from confirmed archives and exact collected or inventoried original scientific files, without live services, reservations or clock restoration.
 - ReconstructionManager.reconstruct_session(session_id, *, version): Reads JSONL/HDF5 timing, reconstructs applicable runtime uncertainty, computes separate bounded offline timestamps and quality, links exact observations/mappings/evidence, and preserves the explicit derived version through StorageManager.
-- ReconstructionManager._timing_contexts(session_id, evidence, issues): Joins owner assessments, mapping updates and node applications with identity, authority, configuration and chronological validation while retaining rejected/partial evidence diagnostics.
+- ReconstructionManager._timing_contexts(session_id, evidence, issues): Joins owner assessments, complete creation/replacement/retirement history and node applications using authority, predecessor links, owner time and measurement chronology while retaining rejected/partial evidence diagnostics.
 - ReconstructionManager._artifact_source(manifest, evidence, inventories): Selects only an exact inventoried original or origin-confirmed archived collection destination, refusing unsupported external associations and unsafe aliases.
 - ReconstructionManager._read_observations(path, manifest, metadata): Reads JSONL rows or aligned HDF5 timing/metadata without pixels, checking scope, completion and source stability without writing inputs.
 - ReconstructionManager._reconstruct_observation(manifest, position, row, context): Links a row to its applicable activation and quality, reconstructs runtime uncertainty and reports bracketed offline bounds or explicit unavailability.
@@ -2268,7 +2268,6 @@ The prior adaptive-runtime closure and its evidence are unchanged.
 - _measurement(quality): Validates complete chronological exchanges and recovers their conservative preserved measured bound, rejecting contradictions rather than substituting the offline host's clock precision.
 - _project_measurement(bound, local): Uses the shared explicit rate-envelope projection with conservative outward floating-point bounds.
 - _checked_observation(row): Checks representable original timing/index fields without validating scientific payload suitability.
-- _check_completion(details, rows): Compares finalized row/frame counts, declared timing/index endpoints and duration with decoded observations, including empty HDF5 streams.
 
 The numerical method is `bounded_clock_envelopes_v1`: intersect propagated measured
 intervals within confirmed chronological segments using the original explicit rate
@@ -2346,6 +2345,10 @@ false confirmation is returned. Large-recording performance is not established.
 - TimingReconstructionTests.test_mapping_update_details_must_match_the_preserved_assessment(): Rejects contradictory measured mapping configuration, exchanges, estimator and uncertainty.
 - TimingReconstructionTests.test_quality_validity_cannot_outlast_its_preserved_uncertainty_budget(): Refuses an applied quality snapshot whose claimed expiry exceeds its explicit uncertainty allowance.
 - TimingReconstructionTests.test_derived_result_semantics_are_checked_on_publication_and_readback(): Rejects inconsistent derived summaries, uncertainty and evidence links even with a matching content digest.
+- TimingReconstructionTests.test_derived_coverage_reconciles_manifests_positions_and_complete_scope(): Rejects omitted rows/artifacts and invalid positions at publication/readback while accepting explicitly partial coverage and artifact reordering.
+- TimingReconstructionTests.test_mapping_history_rejects_broken_links_retirement_authority_and_forks(): Preserves contradictory lifecycle evidence through disk-backed intake/archive closure and verifies unavailable reconstruction rather than false completeness.
+- TimingReconstructionTests.test_mapping_history_uses_links_not_delivery_order_or_unique_event_times(): Accepts legitimate predecessor-linked mapping transitions despite reordered delivery and equal owner timestamps.
+- TimingReconstructionTests.test_trusted_measurement_boundaries_remain_reconstructable_after_rejection(): Confirms runtime rejection/recovery and touching-window admission produce chronological archived offline support.
 
 ## src/lab_sync_acquisition/synchronization.py
 
@@ -2439,6 +2442,7 @@ Bounded adaptive-drift software is CLOSED at audited commit `321009d64043cf9e14d
 ## src/lab_sync_acquisition/local_storage.py
 
 - validate_frame_index(index): Returns an integer signed-int64 scientific frame index without accepting booleans or lossy numeric coercion, shared by the HDF5 writer and offline readers.
+- validate_observation_coverage(details, rows, positions, *, complete): Reconciles format-specific positions, final counts and timing/index endpoints for scientific readback and derived persistence, allowing explicitly diagnosed partial coverage and replacing the offline-only `_check_completion` helper.
 
 **Q034 Slice 1: CLOSED within validated read-only owner scope.** Historical
 inventory through LocalStorageManager and AcquisitionNode has completed
@@ -2773,6 +2777,7 @@ automatic. Kill integration and overall closeout validation remain deferred.
 - AdaptiveSynchronizationTests: Exercises bounded adaptive estimation, quality independence, future-anomaly recovery, pending-change independence, replay/overlap protection, uncertainty and evidence-confirmed retirement through public timing APIs.
 - AdaptiveSynchronizationTests.samples(local, session, rate=1.0, delay=.002): Builds deterministic causal exchanges from an explicit synthetic clock relationship and delay.
 - AdaptiveSynchronizationTests.assess(local, session, rate=1., *, replace=True, node='node', delay=.002): Advances the controlled test clock and submits a synthetic bounded measurement through the public assessment API.
+- AdaptiveSynchronizationTests.test_trusted_batches_require_complete_nonoverlapping_windows(): Rejects trusted local/Session exchange overlap, preserves rejected evidence/recovery, and accepts touching or coarse-clock endpoints with genuine midpoint progress.
 - AdaptivePublicationTests: Exercises cancelled closeout and explicit retry with unchanged retained evidence identities and a single mapping retirement.
 
 ## tests/test_remote_archive_closure.py

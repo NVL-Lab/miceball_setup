@@ -39,6 +39,73 @@ def validate_frame_index(index):
     return int(index)
 
 
+def validate_observation_coverage(details, rows, positions, *, complete):
+    """Reconcile decoded/derived positions and timing with declared final coverage."""
+    if not isinstance(details, dict) or len(positions) != len(rows):
+        raise ValueError("Invalid artifact coverage information")
+    storage_format = details.get("storage_format", "jsonl")
+    if complete and storage_format not in ("jsonl", "hdf5"):
+        raise ValueError("Unsupported scientific storage format")
+    previous = -1
+    for index, position in enumerate(positions):
+        if not isinstance(position, dict):
+            raise ValueError("Invalid original observation position")
+        if storage_format == "jsonl" and set(position) == {"line"} and type(position["line"]) is int:
+            ordinal = position["line"] - 1
+        elif (storage_format == "hdf5" and set(position) == {"dataset", "index"}
+                and position["dataset"] == "frames" and type(position["index"]) is int):
+            ordinal = position["index"]
+        else:
+            raise ValueError("Observation position contradicts its storage format")
+        if ordinal <= previous or ordinal < 0 or (complete and ordinal != index):
+            raise ValueError("Original observation coverage is missing, repeated or reordered")
+        previous = ordinal
+    if not complete:
+        return  # Explicit diagnostics may preserve an incomplete parsing prefix.
+    if (details.get("write_status") == "uncertain"
+            or details.get("finalization_outcome", "finalized") != "finalized"):
+        raise ValueError("Original observation completeness is unconfirmed")
+    count = len(rows)
+    if type(details.get("row_count")) is not int or details["row_count"] != count:
+        raise ValueError("Observation count contradicts finalized manifest")
+    if storage_format == "hdf5":
+        required = {"accepted_frame_count", "persisted_frame_count", "duration_s"}
+        required.update(f"{boundary}_{field}" for boundary in ("first", "last")
+                        for field in ("frame_index", "session_time_s", "experiment_time_s",
+                                      "acquisition_node_local_time_s"))
+        if not required.issubset(details):
+            raise ValueError("Finalized HDF5 timing/count information is incomplete")
+    for key in ("row_count", "accepted_row_count", "written_row_count", "durable_row_count",
+                "accepted_frame_count", "persisted_frame_count"):
+        if key in details and (type(details[key]) is not int or details[key] != count):
+            raise ValueError(f"Observation count contradicts finalized {key}")
+    if "buffered_row_count" in details and (type(details["buffered_row_count"]) is not int
+                                            or details["buffered_row_count"] != 0):
+        raise ValueError("Finalized observations still claim buffered rows")
+    try:
+        for boundary, row in (("first", rows[0] if rows else {}), ("last", rows[-1] if rows else {})):
+            for field in ("frame_index", "session_time_s", "experiment_time_s", "acquisition_node_local_time_s"):
+                key = f"{boundary}_{field}"
+                if key in details:
+                    expected = row.get(field)
+                    value = details[key]
+                    if expected is not None:
+                        if field == "frame_index":
+                            validate_frame_index(value)
+                        elif type(value) not in (int, float) or not math.isfinite(value):
+                            raise ValueError(f"Invalid finalized {key}")
+                    if value != expected:
+                        raise ValueError(f"Observation endpoint contradicts finalized {key}")
+        if "duration_s" in details:
+            expected = rows[-1]["session_time_s"] - rows[0]["session_time_s"] if rows else None
+            value = details["duration_s"]
+            if ((expected is not None and (type(value) not in (int, float) or not math.isfinite(value)))
+                    or value != expected):
+                raise ValueError("Observation duration contradicts finalized manifest")
+    except OverflowError as error:
+        raise ValueError("Finalized timing exceeds the supported finite range") from error
+
+
 def _local_filesystem_identity(path: Path) -> list[str]:
     """Do not mistake a remotely shared mount for independent host-local capacity."""
     host = socket.gethostname()

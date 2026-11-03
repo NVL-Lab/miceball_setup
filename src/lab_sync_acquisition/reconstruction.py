@@ -5,10 +5,11 @@ from copy import deepcopy
 from math import inf, isfinite, nextafter, ulp
 from pathlib import Path
 from numbers import Integral
+from itertools import groupby
 import stat
 
 from lab_sync_acquisition.communication import MAPPING_UPDATE_EVIDENCE_TYPE
-from lab_sync_acquisition.local_storage import LocalStorageManager, validate_frame_index
+from lab_sync_acquisition.local_storage import LocalStorageManager, validate_frame_index, validate_observation_coverage
 from lab_sync_acquisition.synchronization import (
     MappingUpdateEvidence, SynchronizationConfiguration,
     project_clock_interval, clock_exchange_interval, validate_clock_estimate, validate_mapping_snapshot,
@@ -196,7 +197,8 @@ class ReconstructionManager:
                         if "frame_index" in current and "frame_index" in previous:
                             if current["frame_index"] != previous["frame_index"] + 1:
                                 artifact["issues"].append("Noncontinuous original frame indices")
-                    _check_completion(manifest["details"], original)
+                    validate_observation_coverage(manifest["details"], original,
+                        [row["position"] for row in artifact["observations"]], complete=True)
                 except (OSError, ValueError, KeyError, TypeError, RuntimeError, ImportError) as error:
                     artifact["issues"].append(str(error))
                     # Partial parsing cannot certify the complete artifact.
@@ -245,9 +247,9 @@ class ReconstructionManager:
                         raise ValueError("Mapping-update lifecycle is inconsistent")
                     if update.previous_mapping is not None:
                         validate_mapping_snapshot(update.previous_mapping.to_dict(), session_id, node)
-                    if update.new_mapping is not None:
-                        mapping = validate_mapping_snapshot(update.new_mapping.to_dict(), session_id, node)
-                        context["mappings"].append((mapping, message))
+                    mapping = (validate_mapping_snapshot(update.new_mapping.to_dict(), session_id, node)
+                               if update.new_mapping is not None else None)
+                    context["mappings"].append((mapping, message))
                 elif kind == "mapping_activation":
                     if message["source_id"] != node or not _number(payload["activated_local_time_s"]):
                         raise ValueError("Mapping activation owner or boundary mismatch")
@@ -271,9 +273,33 @@ class ReconstructionManager:
                 owners.update(m["source_id"] for m in context["assessments"].values())
                 if len(owners) != 1:
                     raise ValueError("Synchronization evidence authority is missing or conflicting")
+                # Owner Session time orders groups; predecessor links resolve ties
+                # without trusting transport delivery order or inventing map IDs.
+                history = sorted(context["mappings"], key=lambda item: item[1]["payload"]["created_session_time_s"])
+                active = None
+                ordered = []
+                for timestamp, events in groupby(history, key=lambda item: item[1]["payload"]["created_session_time_s"]):
+                    pending = list(events)
+                    while pending:
+                        matches = []
+                        for item in pending:
+                            previous = item[1]["payload"]["previous_mapping"]
+                            if ((previous is None and active is None)
+                                    or (previous is not None and active is not None
+                                        and all(previous[k] == v for k, v in active.items()))):
+                                matches.append(item)
+                        if len(matches) != 1:
+                            raise ValueError("Mapping lifecycle history is broken or ambiguous")
+                        item = matches[0]
+                        pending.remove(item)
+                        active = item[0]
+                        if active is not None and active["created_session_time_s"] > timestamp:
+                            raise ValueError("Mapping update precedes its mapping creation")
+                        ordered.append(item)
+                context["mappings"] = ordered
                 for mapping, update in context["mappings"]:
                     payload = update["payload"]
-                    if payload["reason"] == "measured_cross_clock_exchange":
+                    if mapping is not None and payload["reason"] == "measured_cross_clock_exchange":
                         details = payload["details"]
                         matches = [m["payload"] for m in context["assessments"].values()
                                    if m["payload"].get("mapping") == mapping
@@ -523,40 +549,3 @@ def _checked_observation(row):
     if "frame_index" in row:
         validate_frame_index(row["frame_index"])
     return row
-
-
-def _check_completion(details, rows):
-    """Check declared final counts and endpoints against the decoded observations."""
-    count = len(rows)
-    if details.get("storage_format") == "hdf5":
-        required = {"accepted_frame_count", "persisted_frame_count", "duration_s"}
-        required.update(f"{boundary}_{field}" for boundary in ("first", "last")
-                        for field in ("frame_index", "session_time_s", "experiment_time_s",
-                                      "acquisition_node_local_time_s"))
-        if not required.issubset(details):
-            raise ValueError("Finalized HDF5 timing/count information is incomplete")
-    for key in ("row_count", "accepted_row_count", "written_row_count", "durable_row_count",
-                "accepted_frame_count", "persisted_frame_count"):
-        if key in details and (type(details[key]) is not int or details[key] != count):
-            raise ValueError(f"Observation count contradicts finalized {key}")
-    if "buffered_row_count" in details and (type(details["buffered_row_count"]) is not int
-                                            or details["buffered_row_count"] != 0):
-        raise ValueError("Finalized observations still claim buffered rows")
-    for boundary, row in (("first", rows[0] if rows else {}), ("last", rows[-1] if rows else {})):
-        for field in ("frame_index", "session_time_s", "experiment_time_s", "acquisition_node_local_time_s"):
-            key = f"{boundary}_{field}"
-            if key in details:
-                expected = row.get(field)
-                value = details[key]
-                if expected is not None:
-                    if field == "frame_index":
-                        validate_frame_index(value)
-                    elif not _number(value):
-                        raise ValueError(f"Invalid finalized {key}")
-                if value != expected:
-                    raise ValueError(f"Observation endpoint contradicts finalized {key}")
-    if "duration_s" in details:
-        expected = rows[-1]["session_time_s"] - rows[0]["session_time_s"] if rows else None
-        value = details["duration_s"]
-        if (expected is not None and not _number(value)) or value != expected:
-            raise ValueError("Observation duration contradicts finalized manifest")
