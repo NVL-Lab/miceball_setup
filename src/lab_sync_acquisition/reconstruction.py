@@ -280,22 +280,29 @@ class ReconstructionManager:
                 ordered = []
                 for timestamp, events in groupby(history, key=lambda item: item[1]["payload"]["created_session_time_s"]):
                     pending = list(events)
-                    while pending:
-                        matches = []
-                        for item in pending:
-                            previous = item[1]["payload"]["previous_mapping"]
-                            if ((previous is None and active is None)
-                                    or (previous is not None and active is not None
-                                        and all(previous[k] == v for k, v in active.items()))):
-                                matches.append(item)
-                        if len(matches) != 1:
-                            raise ValueError("Mapping lifecycle history is broken or ambiguous")
-                        item = matches[0]
-                        pending.remove(item)
-                        active = item[0]
-                        if active is not None and active["created_session_time_s"] > timestamp:
+                    for mapping, _ in pending:
+                        if mapping is not None and mapping["created_session_time_s"] > timestamp:
                             raise ValueError("Mapping update precedes its mapping creation")
-                        ordered.append(item)
+                    # Eligible first steps can dead-end. Only complete chains
+                    # establish uniqueness, independently of delivery order.
+                    search = [(active, [], pending)]
+                    solutions = []
+                    while search and len(solutions) < 2:
+                        candidate, chain, remaining = search.pop()
+                        if not remaining:
+                            solutions.append((candidate, chain))
+                            continue
+                        for index, item in enumerate(remaining):
+                            previous = item[1]["payload"]["previous_mapping"]
+                            if ((previous is None and candidate is None)
+                                    or (previous is not None and candidate is not None
+                                        and all(previous[k] == v for k, v in candidate.items()))):
+                                search.append((item[0], chain + [item],
+                                               remaining[:index] + remaining[index + 1:]))
+                    if len(solutions) != 1:
+                        raise ValueError("Mapping lifecycle history is broken or ambiguous")
+                    active, chain = solutions[0]
+                    ordered.extend(chain)
                 context["mappings"] = ordered
                 for mapping, update in context["mappings"]:
                     payload = update["payload"]

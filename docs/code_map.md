@@ -2257,7 +2257,7 @@ The prior adaptive-runtime closure and its evidence are unchanged.
 
 - ReconstructionManager(storage_manager, *, local_storage_roots=None): Owns offline timing computation from confirmed archives and exact collected or inventoried original scientific files, without live services, reservations or clock restoration.
 - ReconstructionManager.reconstruct_session(session_id, *, version): Reads JSONL/HDF5 timing, reconstructs applicable runtime uncertainty, computes separate bounded offline timestamps and quality, links exact observations/mappings/evidence, and preserves the explicit derived version through StorageManager.
-- ReconstructionManager._timing_contexts(session_id, evidence, issues): Joins owner assessments, complete creation/replacement/retirement history and node applications using authority, predecessor links, owner time and measurement chronology while retaining rejected/partial evidence diagnostics.
+- ReconstructionManager._timing_contexts(session_id, evidence, issues): Joins owner assessments, uniquely complete predecessor-linked lifecycle chains within equal-owner-time groups and node applications while checking authority and measurement chronology and retaining rejected/partial evidence diagnostics.
 - ReconstructionManager._artifact_source(manifest, evidence, inventories): Selects only an exact inventoried original or origin-confirmed archived collection destination, refusing unsupported external associations and unsafe aliases.
 - ReconstructionManager._read_observations(path, manifest, metadata): Reads JSONL rows or aligned HDF5 timing/metadata without pixels, checking scope, completion and source stability without writing inputs.
 - ReconstructionManager._reconstruct_observation(manifest, position, row, context): Links a row to its applicable activation and quality, reconstructs runtime uncertainty and reports bracketed offline bounds or explicit unavailability.
@@ -2330,7 +2330,7 @@ false confirmation is returned. Large-recording performance is not established.
 - TimingReconstructionTests: Exercises public disk-backed reconstruction, real owner-produced timing evidence, release/replacement isolation, collection, exact provenance, failures/cancellation/retries, conflicting inputs and unchanged originals/archives.
 - TimingReconstructionTests.setUp(): Creates disposable scientific owners with explicit synthetic clock bounds and JSONL/HDF5 records spanning multiple mapping activations.
 - TimingReconstructionTests.quality(local, session, *, rate=1.002, apply=True): Produces bounded exchanges through SynchronizationManager and optionally applies the returned quality through AcquisitionNode.
-- TimingReconstructionTests.stream(storage_format): Writes and finalizes synthetic observations using the public LocalStorageManager API.
+- TimingReconstructionTests.stream(storage_format, *, observations=None, data_product_id=None): Writes and finalizes selected synthetic observations/products using the public LocalStorageManager API.
 - TimingReconstructionTests.archive(mutate=None, *, release=True, partial=False): Preserves complete or partial owner evidence through Ingestor/StorageManager and optionally releases original node/intake bindings, with explicit test-only mutation for failure injection.
 - TimingReconstructionTests.reconstruct(version="v1", storage=None): Invokes the public offline workflow against accessible original node storage.
 - TimingReconstructionTests.snapshot(): Captures original and historical product bytes independently of derived outputs.
@@ -2348,6 +2348,9 @@ false confirmation is returned. Large-recording performance is not established.
 - TimingReconstructionTests.test_derived_coverage_reconciles_manifests_positions_and_complete_scope(): Rejects omitted rows/artifacts and invalid positions at publication/readback while accepting explicitly partial coverage and artifact reordering.
 - TimingReconstructionTests.test_mapping_history_rejects_broken_links_retirement_authority_and_forks(): Preserves contradictory lifecycle evidence through disk-backed intake/archive closure and verifies unavailable reconstruction rather than false completeness.
 - TimingReconstructionTests.test_mapping_history_uses_links_not_delivery_order_or_unique_event_times(): Accepts legitimate predecessor-linked mapping transitions despite reordered delivery and equal owner timestamps.
+- TimingReconstructionTests.test_equal_timestamp_remapping_reconstructs_both_formats_in_any_delivery_order(): Reconstructs measured remapping after tied creation/retirement through disk-backed preservation in different delivery orders without changing originals or active bindings.
+- TimingReconstructionTests.test_equal_timestamp_replacement_chain_requires_complete_ordering(): Accepts a uniquely complete tied replacement chain whose initially eligible retirement would dead-end.
+- TimingReconstructionTests.test_equal_timestamp_multiple_complete_histories_and_impossible_chains_are_refused(): Refuses genuinely ambiguous tied epochs and impossible predecessor chains without changing original or archived bytes.
 - TimingReconstructionTests.test_trusted_measurement_boundaries_remain_reconstructable_after_rejection(): Confirms runtime rejection/recovery and touching-window admission produce chronological archived offline support.
 
 ## src/lab_sync_acquisition/synchronization.py

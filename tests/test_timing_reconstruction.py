@@ -101,14 +101,15 @@ class TimingReconstructionTests(unittest.TestCase):
         self.assertEqual(result["quality"]["reconstructed_count"], 4, result["issues"])
         self.assertEqual(result["issues"], [])
 
-    def stream(self, storage_format):
+    def stream(self, storage_format, *, observations=None, data_product_id=None):
         manifest = self.manager.create_stream(session_id="session", experiment_id="experiment",
-            acquisition_node_id="node", source_component_id="camera", data_product_id=storage_format,
+            acquisition_node_id="node", source_component_id="camera", data_product_id=data_product_id or storage_format,
             artifact_type="frames" if storage_format == "hdf5" else "events",
             storage_format=storage_format,
             schema={"frame_shape": [2, 3], "frame_dtype": "uint8"} if storage_format == "hdf5" else {})
         rows = []
-        for i, (local, mapping) in enumerate(((105., self.first), (115., self.second))):
+        for i, (local, mapping) in enumerate(observations if observations is not None else
+                                           ((105., self.first), (115., self.second))):
             session = mapping["session_time_anchor_s"] + mapping["scale"] * (local - mapping["local_time_anchor_s"])
             row = dict(experiment_id="experiment", session_time_s=session, experiment_time_s=session,
                 acquisition_node_local_time_s=local, timestamp_status="runtime_timestamped", frame_index=i,
@@ -773,6 +774,82 @@ class TimingReconstructionTests(unittest.TestCase):
         result = self.reconstruct()
         self.assertTrue(result["quality"]["complete"], result["issues"])
         self.assertEqual(before, self.snapshot())
+
+    def test_equal_timestamp_remapping_reconstructs_both_formats_in_any_delivery_order(self):
+        self.time = 31.06
+        self.sync.retire_active_mapping("session", "node", "prepare remapping")
+        self.sync.create_and_activate_mapping("session", "node", 129., 29.058, 1.002, "preparation")
+        self.sync.retire_active_mapping("session", "node", "preparation ended")
+        self.quality(130., 30.06)
+        mapping = self.sync.get_active_mapping("session", "node").to_dict()
+        for fmt in ("jsonl", "hdf5"):
+            self.stream(fmt, observations=[(t, mapping) for t in (135., 136., 137.)],
+                        data_product_id="remapped-" + fmt)
+        self.quality(140., 40.08)
+        self.sync.stop()
+        self.sync.retire_active_mapping("session", "node", "finished")
+        binding = self.node.local_storage_manager
+        for order in ("forward", "reverse", "rotate"):
+            with self.subTest(order=order):
+                self.storage = PersistentStorageManager(self.root / order)
+                def reorder(messages):
+                    updates = [m for m in messages if m.evidence_type == "mapping_update_evidence"]
+                    if order == "reverse":
+                        updates.reverse()
+                    elif order == "rotate":
+                        updates = updates[2:] + updates[:2]
+                    return updates + [m for m in messages if m.evidence_type != "mapping_update_evidence"]
+                self.archive(reorder, release=False)
+                self.storage.close_session_evidence_archive("session")
+                before = self.snapshot()
+                result = self.reconstruct()
+                self.assertTrue(result["quality"]["complete"], result["issues"])
+                self.assertEqual(result["quality"]["reconstructed_count"], 10)
+                self.assertEqual([len(a["observations"]) for a in result["artifacts"]][-2:], [3, 3])
+                self.assertEqual(before, self.snapshot())
+                self.assertIs(self.node.local_storage_manager, binding)
+                self.assertEqual(self.node.reserved_for_session_id, "session")
+
+    def test_equal_timestamp_replacement_chain_requires_complete_ordering(self):
+        self.time = 30.
+        self.sync.replace_active_mapping("session", "node", 129., 29.058, 1.002, "manual")
+        self.sync.replace_active_mapping("session", "node", 129.5, 29.559, 1.002, "manual")
+        self.sync.replace_active_mapping("session", "node", 129., 29.058, 1.002, "manual")
+        self.sync.retire_active_mapping("session", "node", "finished")
+        self.quality(130., 30.06)
+        self.archive()
+        self.storage.close_session_evidence_archive("session")
+        before = self.snapshot()
+        result = self.reconstruct()
+        self.assertTrue(result["quality"]["complete"], result["issues"])
+        self.assertEqual(result["quality"]["reconstructed_count"], 4)
+        self.assertEqual(before, self.snapshot())
+
+    def test_equal_timestamp_multiple_complete_histories_and_impossible_chains_are_refused(self):
+        self.time = 30.
+        self.sync.retire_active_mapping("session", "node", "end baseline")
+        for local in (128., 129.):
+            self.sync.create_and_activate_mapping("session", "node", local, 29., 1., "manual")
+            self.sync.retire_active_mapping("session", "node", "finished")
+        self.quality(130., 30.06)
+        for case in ("ambiguous", "impossible"):
+            with self.subTest(case=case):
+                self.storage = PersistentStorageManager(self.root / case)
+                def mutate(messages):
+                    if case == "impossible":
+                        retired = next(m for m in reversed(messages)
+                            if m.evidence_type == "mapping_update_evidence"
+                            and m.payload["update_type"] == "retired")
+                        retired.payload["previous_mapping"]["scale"] = .5
+                    return messages
+                self.archive(mutate, release=False)
+                self.storage.close_session_evidence_archive("session")
+                before = self.snapshot()
+                result = self.reconstruct()
+                self.assertFalse(result["quality"]["complete"])
+                self.assertEqual(result["quality"]["reconstructed_count"], 0)
+                self.assertTrue(any("broken or ambiguous" in issue for issue in result["issues"]))
+                self.assertEqual(before, self.snapshot())
 
     def test_trusted_measurement_boundaries_remain_reconstructable_after_rejection(self):
         def windows(local, session, long=False):
