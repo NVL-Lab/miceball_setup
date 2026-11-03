@@ -5398,7 +5398,8 @@ current implementation.
 **Current scope clarification:** Decision 379's subsequent adaptive-software
 closure and accepted remaining-software clarification supersede this earlier
 open-scope summary: adaptive runtime drift is CLOSED, uncertainty reconstruction
-and versioned offline timing await independent validation/audit, and hardware synchronization
+and versioned offline timing are CLOSED within validated software scope, deployment
+validation remains outstanding, and hardware synchronization
 is explicitly DEFERRED. The historical Phase 11 decision is unchanged.
 
 ## Decision 173: AcquisitionNode local-time reports are not SynchronizationObservations
@@ -11098,9 +11099,11 @@ This clarification adds no service, evidence pipeline or persistence authority.
 The preceding documentation synchronization did not authorize implementation.
 Subsequent ICC-authorized offline software now implements bounded reconstruction
 from preserved JSONL/HDF5 timing and evidence, with StorageManager-owned immutable
-derived versions. It awaits independent IPython validation and independent audit;
-Q006/Q018 remain OPEN. See `code_map.md` for interfaces, developer verification and
-limitations. Existing adaptive closure evidence and correction reports are unchanged.
+derived versions. This software scope is CLOSED after independent ICC validation
+and Codex audit PASS of `e192ebf454b40276381365f6c3e37218eadbd321`; see the
+[closure, evidence and limits](validated_workflows.md#q006-q018---offline-timing-software-closure).
+Q006/Q018 remain OPEN for deployment validation. See `code_map.md` for interfaces.
+Existing adaptive closure evidence and correction reports are unchanged.
 
 **Implementation status (minimum Q022 Slice 2 only):** Implemented in Q022 Slice 2,
 independently manually validated and finally audited PASS (W056, commit 3e573f5), including periodic

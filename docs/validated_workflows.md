@@ -6073,16 +6073,91 @@ exhaustive concurrency behavior. Journal/owner reconstruction is not a physical
 crash test. Existing G5 deployment evidence does not establish synchronization
 quality and is not expanded by this closure.
 
-Only this adaptive runtime software scope is complete and independently validated.
-Q006/Q018 remain OPEN for accepted per-observation uncertainty reconstruction,
+At this adaptive-runtime closure, only that scope was complete and independently
+validated. Q006/Q018 remained OPEN for accepted per-observation uncertainty reconstruction,
 separate versioned offline timestamps/uncertainty and reconstruction-quality
 reporting, plus deployment validation. Decision 379's remaining-software
 clarification settles these requirements. The subsequent offline developer
-implementation awaits separate independent validation/audit and is not certified
+implementation then awaited separate independent validation/audit and was not certified
 by this adaptive-runtime closure;
 hardware-assisted synchronization is explicitly DEFERRED. The adaptive closure,
 evidence and correction history above are unchanged. No deployment certification,
-clock restoration or unrelated milestone closure is implied.
+clock restoration or unrelated milestone closure is implied. The subsequent
+offline software closure below supersedes that pending-software status, not the
+adaptive evidence or remaining deployment limitations.
+
+# Q006-Q018 - Offline Timing Software Closure
+
+**Status:** CLOSED within the accepted software timing scope of Decisions 029,
+154-175 and 379-381. Final audited implementation:
+`e192ebf454b40276381365f6c3e37218eadbd321`; independent Codex audit **PASS**, no
+confirmed P0-P3 findings. Adaptive runtime software retains its separate closure
+above. Q006/Q018 remain OPEN for the already tracked deployment validation;
+hardware-assisted synchronization remains explicitly DEFERRED.
+
+## Implemented scope
+
+SynchronizationManager remains the Session Time, assessment and mapping-lifecycle
+owner; AcquisitionNode applies immutable mappings prospectively. Reconstruction
+uses original timestamps, historical mapping/quality applications and retained
+cross-clock evidence to recover per-observation uncertainty. Shared runtime/offline
+exchange validation includes recorded clock quantization, individual causal
+feasibility and explicit clock-rate envelopes. No mandatory per-frame uncertainty
+field, new clock authority or runtime timestamp rewriting is introduced.
+
+Offline bounded-clock refinement produces separate timestamps, conservative
+uncertainty and quality diagnostics within supported measurement segments.
+JSONL/HDF5 identities, observation positions, counts and finalized timing/index
+endpoints are reconciled with manifests. Provenance links original observations,
+runtime mappings, assessments and supporting evidence. Invalid or unavailable
+inputs cannot certify complete reconstruction; damaged artifacts retain diagnostics.
+StorageManager owns immutable version publication, identical retries, conflicting
+write refusal and readback. Original scientific files, Runtime Timing, Session
+Records, Evidence Archives and earlier derived versions remain unchanged.
+
+Mapping history is reconciled by owner timestamp and predecessor contracts,
+independently of transport delivery order. For equal-timestamp groups, exactly one
+complete transition chain is required; zero or multiple complete chains are
+refused. Forks, contradictory predecessors, duplicate retirements and conflicting
+authority remain invalid. Multiple initially eligible transitions alone do not
+establish ambiguity. Existing adaptive anomaly-recovery and pending-window
+safeguards are preserved.
+
+## Correction history and accepted evidence
+
+Earlier failed audits identified omitted quantization and individual-exchange
+feasibility, incomplete structural/semantic consumer validation, incomplete derived
+coverage, contradictory lifecycle history and inconsistent trusted-window admission.
+The bounded corrections consolidated shared numerical/assessment/coverage checks
+and cross-record reconciliation; historical reports remain in `code_map.md`.
+The audit of `16b0229a731a0fc2f563cb4549de88cc827d856b` then found that greedy
+equal-timestamp selection rejected a uniquely complete create/retire/create history.
+Complete-chain reconciliation replaced that selection; the final audit confirmed
+the reproduction resolved without weakening invalid-history refusal.
+
+- **Developer verification: 87/87 PASS.**
+- **Independent ICC validation:** cross-record checks 59/59 PASS and targeted
+  equal-timestamp checks 20/20 PASS.
+- **Independent Codex audit:** 52 passing assertions across ten independently
+  constructed disk-backed workflows, 15 ordering checks against exhaustive
+  permutation results, and 14 selected regression methods PASS. The original
+  six-observation JSONL/HDF5 reproduction succeeded under all six tied-event
+  delivery permutations; separated-time control, invalid-history diagnostics,
+  reconstructed-owner readback and unchanged original/archive bytes were checked.
+
+These evidence categories are distinct and overlapping, not an additive unique-test
+total. No validation or audit was rerun for this documentation-only closure.
+
+## Limitations
+
+The final audit used synthetic clocks, simulated devices and local disk-backed
+owners. It did not establish live NATS, hardware timing accuracy, cross-machine
+deployment, actual process-crash/power-loss recovery or exhaustive concurrency.
+Earlier bounded broker checks retain their own scope, not a broader deployment
+claim. Pathological large equal-timestamp groups have not been performance-validated.
+Owner reconstruction is not physical crash testing. Hardware-assisted
+synchronization is neither implemented nor validated. Q006/Q018 retain deployment
+validation as outstanding; this closure does not close G5 or unrelated milestones.
 
 # Q034 Slice 1 - Historical Scientific-Artifact Inventory
 

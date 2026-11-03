@@ -2251,9 +2251,12 @@ recovery is introduced. Phase 16 and M015 remain open.
 
 ## src/lab_sync_acquisition/reconstruction.py
 
-**Implementation status:** Developer implementation complete; independent ICC
-IPython validation and separate independent audit remain pending. Q006/Q018 OPEN.
-The prior adaptive-runtime closure and its evidence are unchanged.
+**Implementation status:** CLOSED within validated software scope at
+`e192ebf454b40276381365f6c3e37218eadbd321`, independent audit PASS with no confirmed
+P0-P3 findings. See the [authoritative closure, evidence and limits](validated_workflows.md#q006-q018---offline-timing-software-closure).
+Q006/Q018 remain OPEN for deployment validation; hardware synchronization remains
+DEFERRED. The prior adaptive-runtime closure and historical correction reports
+below are unchanged; their then-pending statements do not override this closure.
 
 - ReconstructionManager(storage_manager, *, local_storage_roots=None): Owns offline timing computation from confirmed archives and exact collected or inventoried original scientific files, without live services, reservations or clock restoration.
 - ReconstructionManager.reconstruct_session(session_id, *, version): Reads JSONL/HDF5 timing, reconstructs applicable runtime uncertainty, computes separate bounded offline timestamps and quality, links exact observations/mappings/evidence, and preserves the explicit derived version through StorageManager.

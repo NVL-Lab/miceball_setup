@@ -90,7 +90,9 @@ Decisions 379-381. Decision 379's bounded adaptive-estimation and independent-qu
 software scope is CLOSED after independent validation and final audit PASS of
 `321009d64043cf9e14d7400341197f22c970fb57`. Decision 379's remaining-software
 clarification settles reconstructable uncertainty and versioned offline results;
-their independent validation/audit and deployment validation remain pending. Hardware-assisted
+their software implementation is now CLOSED after independent validation and audit
+PASS of `e192ebf454b40276381365f6c3e37218eadbd321`. Deployment validation remains
+outstanding. Hardware-assisted
 synchronization is explicitly DEFERRED. See the
 [software closure and limits](validated_workflows.md#q006-q018---adaptive-synchronization-software).
 
@@ -133,9 +135,9 @@ a new segment. Applied quality still uses the latest raw bounds, and future
 validity retains the configured rate envelope. No new estimator configuration or
 evidence pipeline is introduced. Independent validation and audit are complete for
 this bounded scope; algorithm, weights and thresholds are not unresolved
-architectural decisions. This does not complete the remaining software below.
+architectural decisions. Offline software has the separate completed scope below.
 
-### Accepted offline software (implemented; independent validation pending)
+### Accepted offline software (CLOSED within validated software scope)
 
 * Reconstruct per-observation timing uncertainty from original timestamps, mapping
   history and synchronization evidence; mandatory per-frame uncertainty fields
@@ -151,11 +153,12 @@ methods remain implementation choices. Hardware-assisted synchronization, includ
 PTP, external clocks and hardware triggers, is deferred and is not part of this
 software implementation scope. The subsequent ICC-authorized implementation is
 documented under `reconstruction.py` in `code_map.md`; developer tests do not replace
-independent IPython validation or audit. Q006/Q018 remain OPEN.
+independent IPython validation or audit. Both stages have now passed; see the
+[offline software closure, evidence and limits](validated_workflows.md#q006-q018---offline-timing-software-closure).
+Q006/Q018 remain OPEN for deployment validation, not missing software architecture.
 
 ### Blocks
 
-* Independent validation/audit of offline timing and reconstruction-quality reporting
 * Remaining deployment validation
 
 ---
@@ -2151,7 +2154,10 @@ synchronization gate for Q022 Slice 2. Decision 379's Q006/Q018 clarification
 accepts adaptive-estimation behavior and independent quality assessment, now CLOSED
 within bounded software scope after independent ICC validation and final Codex
 audit PASS of `321009d64043cf9e14d7400341197f22c970fb57`. The accepted remaining
-uncertainty-reconstruction and offline software below awaits independent validation/audit;
+uncertainty-reconstruction and offline software is now CLOSED within validated
+software scope at `e192ebf454b40276381365f6c3e37218eadbd321`; deployment validation
+remains outstanding. See the
+[offline software closure](validated_workflows.md#q006-q018---offline-timing-software-closure);
 hardware-assisted synchronization is explicitly DEFERRED.
 
 Phase 11's historical mapping-ownership scope is now supplemented by measured
@@ -2239,7 +2245,7 @@ At that implementation handoff, independent validation and re-audit remained
 pending. Their subsequent completion is recorded in the closure linked above;
 Q006/Q018 remain OPEN for broader work, not for either corrected P2.
 
-### Accepted remaining software and deferred scope
+### Completed offline software and deferred scope
 
 - reconstructable per-observation uncertainty using original timestamps, mapping
   history and retained synchronization evidence, without mandatory per-frame
@@ -2251,7 +2257,7 @@ Q006/Q018 remain OPEN for broader work, not for either corrected P2.
   records and immutable runtime timing
 
 Decision 379 records these accepted requirements; Q006 tracks the same software
-awaiting independent validation/audit. The ICC-authorized implementation reads
+now independently validated and audited PASS. The ICC-authorized implementation reads
 preserved evidence and supported scientific files, reconstructs acquisition-time
 uncertainty and bounded offline timing, and publishes separate immutable versions
 through StorageManager. See `code_map.md` for interfaces and developer test results.
@@ -2263,7 +2269,7 @@ other hardware synchronization implementation) is DEFERRED, not authorized work.
 Cadence and quality thresholds are configurable, not newly chosen constants;
 their accepted configurability is no longer an unresolved architectural question.
 
-The remaining implementation must preserve the accepted Phase 11 principles:
+The completed implementation preserves the accepted Phase 11 principles:
 
 - SynchronizationManager remains the owner of Session Time.
 - SynchronizationManager owns synchronization evidence creation and mapping lifecycle.
@@ -2277,7 +2283,9 @@ traceable discontinuities and no slewing or runtime timestamp rewriting. Complet
 evidence remains available for offline refinement, which cannot replace real-time
 closed-loop estimation. Offline requirements are accepted, but implementation
 authorization and independent validation/audit remain separate workflow stages.
-The current developer implementation is not independent validation or closure.
+The separate independent validation/audit and bounded software closure are recorded
+in the workflow reference above. Q018 remains OPEN for deployment validation;
+deferred hardware work is not implicitly authorized by software completion.
 
 This question does not block the accepted minimum Q022 Slice 2 synchronization
 implementation. It does not authorize deferring valid cross-clock measurement,

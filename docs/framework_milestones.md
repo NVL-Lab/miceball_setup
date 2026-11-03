@@ -1375,11 +1375,31 @@ and separate Codex audit PASS support this closure. See the
 Synthetic clocks, simulated devices and isolated local NATS do not establish
 physical timing accuracy, cross-machine deployment, actual process-crash/power-loss
 recovery or exhaustive concurrency. Q006/Q018 remain OPEN for the accepted
-uncertainty-reconstruction and versioned offline timing software's independent
-validation/audit and deployment validation; hardware-assisted synchronization is
+deployment validation; uncertainty reconstruction and versioned offline timing
+software are now separately CLOSED below. Hardware-assisted synchronization is
 explicitly DEFERRED. See Decision
 379's remaining-software clarification. This does not change the adaptive-software
 closure, its evidence or W056/G5 scope.
+
+## Completed Q006/Q018 Offline Timing Software
+
+**Status:** CLOSED within accepted software scope at independently audited commit
+`e192ebf454b40276381365f6c3e37218eadbd321`; audit PASS, no confirmed P0-P3 findings.
+Per-observation uncertainty, separate immutable offline versions, exact JSONL/HDF5
+coverage/provenance and complete predecessor-chain lifecycle reconciliation are
+implemented. Equal-owner-time groups require exactly one complete ordering,
+independently of delivery order. Original scientific/runtime/archive records and
+the earlier adaptive-drift closure remain unchanged.
+
+Developer verification 87/87 PASS, ICC cross-record validation 59/59 PASS, ICC
+equal-timestamp validation 20/20 PASS, and independent audit evidence (52 assertions
+across ten disk-backed workflows, 15 ordering checks, 14 regression methods PASS)
+support this closure. See the
+[authoritative software closure and limitations](validated_workflows.md#q006-q018---offline-timing-software-closure).
+Q006/Q018 remain OPEN for tracked deployment validation. Hardware synchronization
+is DEFERRED; no live-NATS, hardware, cross-machine, physical crash/power-loss,
+exhaustive concurrency or pathological tie-group performance claim is added.
+No G5, Phase 16 or unrelated milestone closure is implied.
 
 ## Completed Q022 Slice 3 Operational Evidence Transport (W057)
 
