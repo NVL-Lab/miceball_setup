@@ -1,5 +1,47 @@
 # Code Map
 
+## GUI Integration Unit 1 (implementation; independent validation/audit pending)
+
+- `communication._validate_browser_context(context)`: Validates the optional connection identity, Controller instance and grant generation independently of cooperative human identity.
+- `ExternalSessionLaunchRequest(..., browser_context=None)` and `ExternalControllerRequest(..., browser_context=None)`: Extend existing detached envelopes without changing legacy caller signatures; GUI mode requires connection context for every external request.
+- `ExternalControllerRequest`: Also supports fixed Controller-state, non-executing outcome, Take Over/View Only and configured-node inventory operations without a selected Session.
+- `Controller.browser_control(client_id, context, operation, *, instance_id)`: Owns the current browser holder/generation and admits new GUI work without cancelling already-admitted operations.
+- `Controller.read_controller_state(*, instance_id, control)`: Projects detached accepted configuration, Session/Experiment state and lifecycle evidence without reconstructing live ownership from stored records.
+- `NatsExternalSessionLaunchReceiver(..., browser_control_required=False)`: Reuses lifetime request/task/result ownership while enforcing configured GUI context, delegating grants to Controller and exposing non-executing outcome reads.
+- `launch_independent_service(..., browser_control_required=False)`: Passes explicit GUI enforcement configuration to the original Controller receiver; the authoritative deployment loader validates the optional boolean and required external client.
+- `miceball_gui.backend.create_gui_app(*, servers, controller_id, client_id, origin, timeout_s, max_request_bytes=1048576)`: Serves the existing shell through an origin-checked aiohttp backend, binds one identity per WebSocket and uses a shared external NATS client without forwarding browser-supplied identities.
+- `miceball_gui.backend.main()`: Implements the separately packaged `miceball-gui` startup command with explicit deployment connection/binding settings.
+- `miceball_gui.backend._ConnectedShell` and its HTMLParser callbacks: Parse the shared static shell, retain presentation initialization and replace demo module entry points with the connected entry without duplicating HTML.
+- `static/connected.js`: Replaces browser-local operational authority with Controller snapshots, gated Session/Experiment commands and read-only pending-outcome reconciliation; unrelated unit controls are unavailable.
+- `static/connected.css`: Reuses existing visual tokens and shell layout for bounded connected forms, status and responsive controls.
+- `GUIIntegrationTests`: Uses actual web/WebSocket requests, restricted external NATS, authority-registered participant NATS, disk-backed owners and a simulated camera to exercise Unit 1 without production deployments.
+- `GUIIntegrationTests.backend()/browser()/message()/completed()/take()/launch_parameters()`: Compose disposable browser-facing public workflows with explicit test deployment inputs and non-executing outcome polling.
+- `GUIIntegrationTests.test_browser_session_workflow_and_takeover()`: Checks two-browser admission, immutable readback, Session start/Normal Stop/release and successive launch.
+- `GUIIntegrationTests.test_identity_namespace_origin_and_nonexecuting_lookup()`: Checks origin/identity refusal, shared-client isolation, actual inventory, unsupported routes and unknown outcome readback without execution.
+- `GUIIntegrationTests.test_backend_restart_does_not_restore_control_or_replay()`: Reconnects a new backend/browser to the same Controller and requires explicit takeover.
+- `GUIIntegrationTests.test_admitted_experiment_survives_takeover_while_waiting_for_lifecycle_lock()`: Preserves an admitted Experiment across takeover/disconnect and checks artifacts and duplicate/conflicting requests.
+- `GUIIntegrationTests.test_lost_reply_is_uncertain_and_lookup_does_not_repeat_launch()`: Drops an actual NATS reply and verifies non-executing outcome recovery and one launch execution.
+- `GUIIntegrationTests.test_preservation_failure_blocks_release_and_explicit_retry_reuses_cleanup()`: Injects Stage A persistence failure through the GUI route and checks blocked release, explicit recovery and no repeated completed cleanup.
+- `GUIIntegrationTests.test_controller_reconstruction_reports_new_lifetime_without_session_recovery()`: Reconstructs the Controller owner and verifies unknown old outcomes, lost live binding and retained initial metadata, not physical crash recovery.
+- `GUIIntegrationTests.test_concurrent_takeovers_fence_new_work_and_explicit_view_only_relinquishes()`: Checks single-holder concurrency, explicit relinquishment and truthful failed launch.
+- `BackendOfflineTests.test_page_and_bounded_uncertainty_without_operational_broker()`: Verifies the shell serves without a broker and initial transport admission returns bounded uncertainty rather than simulated readiness.
+- `BackendOfflineTests`: Exercises real HTTP/WebSocket availability independently of the optional broker workflow fixtures.
+- `DeploymentConfigurationTests.test_gui_browser_control_requirement_preserves_explicit_controller_client()`: Validates explicit guarded GUI deployment while rejecting nonboolean flags and missing external identities.
+- `confirmStop(kind, initiateStop, description=...)`: Reuses the existing presentation-only confirmation dialog for demonstration or connected Stop descriptions without owning operation state.
+
+Existing CLI envelopes remain compatible; configuring `browser_control_required=true`
+closes the unscoped route for the selected GUI backend client. Q029/Q030 remain OPEN.
+New live state/outcome/inventory reads do not retain historical snapshot caches;
+mutating operation identity, pending tasks and outcomes reuse the existing cache.
+No independent validation, audit or milestone closure is claimed by this implementation.
+Developer verification: 41 focused Python methods PASS (backend workflows, request
+models, deployment loader and GUI shell), plus one separately run targeted
+preservation-failure regression PASS; five selected JavaScript Stop/navigation
+tests PASS and connected-entry syntax check PASS. Developer browser checks used
+disposable simulated-device owners over isolated real NATS for launch/start/Normal
+Stop/release and reconnect/View Only, plus disconnected presentation in both themes.
+No physical hardware, deployed broker, cross-machine or physical crash claim is made.
+
 ## src/lab_sync_acquisition/controller_authority.py
 
 - ControllerClaimSnapshot: Carries the exact inspected installation claim scope, Controller operational-instance ID and KV revision for conditional manual recovery.

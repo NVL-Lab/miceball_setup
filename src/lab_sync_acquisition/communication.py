@@ -512,8 +512,10 @@ class ExternalSessionLaunchRequest:
     selections: dict[str, list[dict[str, Any]]]
     config_parameters: dict[str, Any]
     scientific_outputs: list[dict[str, Any]]
+    browser_context: dict[str, Any] | None = None
 
     def __post_init__(self):
+        _validate_browser_context(self.browser_context)
         for name in ("controller_id", "client_id", "request_id"):
             _validate_subject_token(name, getattr(self, name))
         if not isinstance(self.selections, dict) or not self.selections:
@@ -543,7 +545,7 @@ class ExternalSessionLaunchRequest:
     def from_dict(cls, data: dict[str, Any]) -> ExternalSessionLaunchRequest:
         """Reject unknown fields and reconstruct a detached request."""
         from copy import deepcopy
-        if not isinstance(data, dict) or set(data) != set(cls.__dataclass_fields__):
+        if not isinstance(data, dict) or set(data) - set(cls.__dataclass_fields__) or set(cls.__dataclass_fields__) - {"browser_context"} - set(data):
             raise ValueError("Invalid external Session-launch envelope")
         return cls(**deepcopy(data))
 
@@ -595,7 +597,25 @@ class ExternalSessionLaunchResult:
 
 
 # Fixed external operations and their existing Controller result names, not RPC.
+def _validate_browser_context(context):
+    """Validate connection binding separately from cooperative experimenter identity."""
+    if context is None:
+        return
+    if not isinstance(context, dict) or set(context) != {"browser_id", "instance_id", "generation"}:
+        raise ValueError("Invalid browser connection context")
+    _validate_subject_token("browser_id", context["browser_id"])
+    if context["instance_id"] is not None:
+        _validate_subject_token("instance_id", context["instance_id"])
+    if type(context["generation"]) is not int or context["generation"] < 0:
+        raise ValueError("Invalid browser grant generation")
+
+
 EXTERNAL_CONTROLLER_OPERATIONS = {
+    "read_controller_state": "read_controller_state",
+    "read_operation_outcome": "read_operation_outcome",
+    "take_browser_control": "take_browser_control",
+    "view_only": "view_only",
+    "get_node_inventory": "get_node_inventory",
     "read_session_configuration": "read_session_configuration",
     "start_launched_session": "start_session",
     "start_launched_experiment": "start_experiment",
@@ -620,11 +640,13 @@ class ExternalControllerRequest:
     operation: str
     session_id: str | None
     parameters: dict[str, Any]
+    browser_context: dict[str, Any] | None = None
 
     def __post_init__(self):
+        _validate_browser_context(self.browser_context)
         for name in ("controller_id", "client_id", "request_id"):
             _validate_subject_token(name, getattr(self, name))
-        if self.operation == "read_storage_sessions":
+        if self.operation in {"read_storage_sessions", "read_controller_state", "read_operation_outcome", "take_browser_control", "view_only", "get_node_inventory"}:
             if self.session_id is not None:
                 raise ValueError("Storage enumeration has no selected Session")
         else:
@@ -632,6 +654,11 @@ class ExternalControllerRequest:
         if self.operation not in EXTERNAL_CONTROLLER_OPERATIONS:
             raise ValueError("Unsupported external Controller operation")
         schemas = {
+            "read_controller_state": (set(), set()),
+            "read_operation_outcome": ({"target_request_id", "instance_id"}, set()),
+            "take_browser_control": (set(), set()),
+            "view_only": (set(), set()),
+            "get_node_inventory": ({"node_id"}, set()),
             "read_session_configuration": (set(), set()),
             "start_launched_session": (set(), set()),
             "start_launched_experiment": ({"experiment_id", "configuration", "scientific_outputs"}, {"details", "runtime_health_mapping"}),
@@ -649,6 +676,9 @@ class ExternalControllerRequest:
         if (not isinstance(self.parameters, dict) or not required <= self.parameters.keys()
                 or self.parameters.keys() - required - optional):
             raise ValueError("Invalid parameters for external Controller operation")
+        for name in ("target_request_id", "instance_id", "node_id"):
+            if name in self.parameters:
+                _validate_subject_token(name, self.parameters[name])
         if "administrator_mode" in self.parameters:
             name = self.parameters["experimenter_name"]
             if (type(self.parameters["administrator_mode"]) is not bool
@@ -697,7 +727,7 @@ class ExternalControllerRequest:
     def from_dict(cls, data: dict[str, Any]) -> ExternalControllerRequest:
         """Read only the explicit external-operation envelope."""
         from copy import deepcopy
-        if not isinstance(data, dict) or set(data) != set(cls.__dataclass_fields__):
+        if not isinstance(data, dict) or set(data) - set(cls.__dataclass_fields__) or set(cls.__dataclass_fields__) - {"browser_context"} - set(data):
             raise ValueError("Invalid external Controller envelope")
         return cls(**deepcopy(data))
 
@@ -718,7 +748,7 @@ class ExternalControllerResult:
     def __post_init__(self):
         for name in ("controller_id", "client_id", "request_id"):
             _validate_subject_token(name, getattr(self, name))
-        if self.operation == "read_storage_sessions":
+        if self.operation in {"read_storage_sessions", "read_controller_state", "read_operation_outcome", "take_browser_control", "view_only", "get_node_inventory"}:
             if self.session_id is not None:
                 raise ValueError("Storage enumeration result has no selected Session")
         else:

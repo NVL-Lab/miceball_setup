@@ -521,7 +521,13 @@ implementation gap, not authority to reopen historical Sessions or alter evidenc
 
 **Status:** OPEN - Decisions 404, 412-413 and 425 settle command/result direction,
 selected NATS visualization, browser control identity, takeover and authoritative
-reconnection requirements; detailed interfaces and implementation remain pending.
+reconnection requirements. GUI Integration Unit 1 implements the bounded backend,
+Controller-enforced browser grants and authoritative Session/operation readback;
+independent ICC validation and Codex audit remain pending. See the
+[implementation interfaces and developer evidence](code_map.md#gui-integration-unit-1-implementation-independent-validationaudit-pending).
+Scientific visualization/result delivery, Q031/Q032 and other GUI units remain
+outside this implementation; Q029 is not closed. The earlier reports below retain
+their historical validation status rather than overriding this bounded update.
 Decision 422 resolves the initial G5 external lifecycle boundary. Following launch-boundary validation,
 the authorized bounded extension implements Session start, Experiment start/stop
 and expiry readback, Normal Stop, saved collection and release through the same

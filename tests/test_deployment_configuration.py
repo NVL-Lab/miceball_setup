@@ -67,6 +67,16 @@ class DeploymentConfigurationTests(unittest.TestCase):
         self.assertEqual(self.load("controller")["known_nodes"], ("node",))
         self.assertEqual(self.load("ingestor")["storage_root"], self.root / "records")
 
+    def test_gui_browser_control_requirement_preserves_explicit_controller_client(self):
+        config = {**self.roles["controller"], "external_client_id": "gui", "browser_control_required": True}
+        self.assertTrue(self.load("controller", config)["browser_control_required"])
+        for changes in ({"browser_control_required": "true"}, {"browser_control_required": 1}):
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                self.load("controller", {**config, **changes})
+        del config["external_client_id"]
+        with self.assertRaises(ValueError):
+            self.load("controller", config)
+
     def test_controller_external_client_is_explicit_optional_and_strictly_validated(self):
         self.assertNotIn("external_client_id", self.load("controller"))
         self.assertEqual(self.load("controller", {**self.roles["controller"], "external_client_id": "tester"})["external_client_id"], "tester")

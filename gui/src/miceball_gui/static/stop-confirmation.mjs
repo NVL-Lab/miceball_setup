@@ -2,7 +2,7 @@ let dialog;
 let pendingStop = null;
 
 // This gate has no execution state: only explicit confirmation invokes its caller.
-export function confirmStop(kind, initiateStop) {
+export function confirmStop(kind, initiateStop, description = 'Confirm to initiate the existing browser-local Stop workflow. Keeping it running or dismissing this dialog does not initiate a Stop.') {
   if (!dialog) {
     dialog = document.createElement('dialog');
     dialog.className = 'catalog-dialog';
@@ -25,6 +25,7 @@ export function confirmStop(kind, initiateStop) {
   }
   if (dialog.open) return;
   dialog.querySelector('#stop-confirmation-title').textContent = `Stop ${kind}?`;
+  dialog.querySelector('p').textContent = description;
   pendingStop = initiateStop;
   dialog.showModal();
   dialog.querySelector('[data-keep-running]').focus();

@@ -3063,6 +3063,50 @@ class Controller:
             return self._record_failed_command(name, error)
 
     @service_operation()
+    def browser_control(self, client_id, context, operation, *, instance_id):
+        """Own browser grants and fence new GUI admissions, not admitted operations."""
+        from lab_sync_acquisition.communication import _validate_browser_context
+        _validate_browser_context(context)
+        if context is None:
+            raise ValueError("Browser connection context is required")
+        with self._service_operation_lock:
+            if getattr(self, "_browser_instance", None) != instance_id:
+                self._browser_instance = instance_id
+                self._browser_holder = None
+                self._browser_generation = 0
+            identity = (client_id, context["browser_id"])
+            read_only = operation in {"read_controller_state", "read_operation_outcome",
+                "read_session_configuration", "get_node_inventory", "read_storage_sessions", "read_storage_session"}
+            if operation in {"take_browser_control", "view_only"}:
+                if context["instance_id"] != instance_id:
+                    raise ValueError("Read current Controller identity before selecting control")
+                if operation == "take_browser_control":
+                    self._browser_holder = identity
+                    self._browser_generation += 1
+                elif self._browser_holder == identity:
+                    self._browser_holder = None
+                    self._browser_generation += 1
+            elif not read_only and (context["instance_id"] != instance_id
+                    or self._browser_holder != identity
+                    or context["generation"] != self._browser_generation):
+                raise PermissionError("Browser does not hold current Controller control")
+            return {"instance_id": instance_id, "generation": self._browser_generation,
+                "browser_id": context["browser_id"], "controlling": self._browser_holder == identity,
+                "holder": list(self._browser_holder) if self._browser_holder else None}
+
+    @service_operation()
+    def read_controller_state(self, *, instance_id, control):
+        """Return detached current state; preserved records never resurrect a Session."""
+        session = self._session
+        return ControllerCommandResult("read_controller_state", True, _to_plain_data({
+            "controller_id": self._component_id, "instance_id": instance_id, "control": control,
+            "status": self.get_status(),
+            "configuration": session.configuration.to_dict() if session else None,
+            "session_lifecycle": session.transition_history if session else (),
+            "experiments": session.experiment_descriptors if session else (),
+        }))
+
+    @service_operation()
     def read_session_configuration(self, *, expected_session_id: str | None = None) -> ControllerCommandResult:
         """Read the current launched Session's detached accepted values without mutation."""
         session = self._require_session(expected_session_id=expected_session_id)

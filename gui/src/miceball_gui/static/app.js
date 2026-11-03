@@ -167,6 +167,7 @@ demonstrationNotifications.push(...Array.from({ length: 10 }, (_, index) => ({
   description: `Historical demonstration ${index + 1}: an earlier fictional operational warning. Acknowledgment does not establish resolution.`,
   acknowledged: true,
 })));
+if (document.documentElement.dataset.runtime === 'connected') demonstrationNotifications.length = 0;
 let notifications = demonstrationNotifications.filter(item => !item.acknowledged).map((notification) => ({ ...notification }));
 let acknowledgedNotifications = new Set(demonstrationNotifications.filter(item => item.acknowledged).map(item => item.id));
 

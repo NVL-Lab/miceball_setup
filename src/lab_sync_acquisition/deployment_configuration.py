@@ -103,7 +103,7 @@ def _validate_service_configuration(data, directory, role):
     required = common | specific[role]
     optional = {"service_id"} if role == "acquisition-node" else set()
     if role == "controller":
-        optional.add("external_client_id")
+        optional |= {"external_client_id", "browser_control_required"}
     if pair:
         optional |= {"no_operational_dependents", "external_dependents", "result_window_s"}
     if not isinstance(data, dict):
@@ -142,6 +142,9 @@ def _validate_service_configuration(data, directory, role):
     if role == "controller":
         if "external_client_id" in data:
             _identity(data["external_client_id"], "client", "external_client_id")
+        if "browser_control_required" in data and (type(data["browser_control_required"]) is not bool
+                or (data["browser_control_required"] and "external_client_id" not in data)):
+            raise ValueError("browser_control_required needs a boolean and external_client_id")
         nodes = data["known_nodes"]
         if not isinstance(nodes, list):
             raise ValueError("known_nodes requires an explicit list, including [] when none are registered")

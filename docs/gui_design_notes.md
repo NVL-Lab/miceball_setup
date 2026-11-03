@@ -9,6 +9,16 @@ packaged top-level `gui/` project in this repository, outside the existing
 
 ## Implemented browser-demo presentation (not framework integration)
 
+**Connected-entry implementation update:** GUI Integration Unit 1 now serves this
+shell from a separate Python backend using existing external NATS operations,
+Controller-owned browser grants and authoritative Session/configuration/outcome
+readback. Static preview/Pages remain the demonstration described below; their
+local lifecycle modules are not loaded by the connected entry. Setup identity
+fields, actual inventory selections and explicit framework configuration feed real
+launch; accepted values remain read-only. Other unit controls are unavailable,
+not simulated scientific execution. See [connected setup and scope](../gui/README.md#connected-backend-integration-unit-1-independent-validation-pending).
+This is developer implementation status, not independent validation, audit or closure.
+
 Slice 6, as corrected by the project owner, adds read-only availability
 presentation for the four accepted operation categories. Scientific Validation
 and operator interaction remain unpopulated; no new procedure, input, duration,

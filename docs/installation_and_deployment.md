@@ -1135,8 +1135,10 @@ until the separate ICC validation and audit have accepted this backend.
 
 ## 11. Controller Session/Experiment Lifecycle And GUI
 
-The service CLI starts/maintains Controller. The separate GUI is intended to
-operate that same owner; GUI integration is pending. There is no requirement for
+The service CLI starts/maintains Controller. GUI Integration Unit 1 now implements
+a separately packaged Python web backend operating that same owner through the
+existing external NATS interface; independent ICC validation and audit are pending.
+There is no requirement for
 a separate Controller operator CLI and no defect implied by its absence.
 
 | Purpose | Existing public Controller API |
@@ -1151,8 +1153,22 @@ a separate Controller operator CLI and no defect implied by its absence.
 
 These are integration API references, not shell commands or instructions to create
 a second Controller. The existing production launcher retains its owner internally
-and has no implemented GUI Session-command integration. This guide invents no
-GUI transport, private-state attachment or temporary alternate lifecycle.
+and the GUI never attaches to that private object. For connected operation, set
+the Controller deployment's existing `external_client_id` to the designated GUI
+backend identity and add `browser_control_required: true`. Keep broker permissions
+restricted to that identity's exact external subjects and request inboxes, including
+the new control/state/outcome/inventory operations. The default false retains the
+existing non-GUI testing-client contract; it is not a GUI bypass route.
+
+Install the core and separate `gui/` project, then run the explicitly configured
+`miceball-gui` entry point; see [connected GUI setup](../gui/README.md#connected-backend-integration-unit-1-independent-validation-pending)
+for arguments, configuration input and limitations. One backend NATS client binds
+server-assigned WebSocket identities; Controller enforces View Only/Take Over.
+Reconnection performs state/outcome reads, never lifecycle replay. Backend restart
+does not recreate service owners, and Controller restart does not reconstruct a
+running Session from preserved metadata. Q031/Q032, scientific visualization,
+Analysis/Validation, Storage GUI and service administration remain outside Unit 1.
+This implementation status does not establish deployment validation or close Q029.
 
 Launched operations require retained communication and scoped owner confirmations.
 Historical in-process development APIs cannot operate on launched bindings.

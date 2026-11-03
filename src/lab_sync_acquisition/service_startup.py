@@ -82,11 +82,13 @@ def load_acquisition_node(path, synchronization_source_id):
 async def launch_independent_service(*, role, servers, service_id, ingestor_id, storage_id,
                                      preservation_window_s, result_window_s,
                                      synchronization_id=None, known_nodes=None, node_config=None,
-                                     external_client_id=None, controller_claim_account=None,
+                                     external_client_id=None, browser_control_required=False, controller_claim_account=None,
                                      controller_claim_bucket=None, controller_claim_key=None, report=print):
     """Run one explicit owner with remote preservation, readiness and existing maintenance."""
     from math import isfinite
     servers = tuple(servers)
+    if type(browser_control_required) is not bool or (browser_control_required and (role != "controller" or external_client_id is None)):
+        raise ValueError("Browser control requires the Controller's explicit external client")
     if (not servers or any(not isinstance(s, str) or not s.strip() for s in servers)
             or type(result_window_s) not in {int, float} or not isfinite(result_window_s) or result_window_s <= 0
             or type(preservation_window_s) not in {int, float} or not isfinite(preservation_window_s) or preservation_window_s <= 0):
@@ -151,7 +153,7 @@ async def launch_independent_service(*, role, servers, service_id, ingestor_id, 
     if external_client_id is not None:
         external = NatsExternalSessionLaunchReceiver(boundary, owner, communication=communication,
             maintenance=maintenance, client_id=external_client_id, participants=dependencies,
-            result_window_s=result_window_s)
+            result_window_s=result_window_s, browser_control_required=browser_control_required)
 
     async def startup():
         admitted = False

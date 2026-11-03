@@ -1,9 +1,93 @@
 # Miceball GUI
 
-This separately packaged browser interface is a demonstration with fictional
+The static preview of this separately packaged browser interface is a demonstration with fictional
 Setup information, a Protocol Editor, and six primary sections and contextual Parameters. It runs entirely
 in the browser. Launch Session and other operational-looking controls do not
 start or contact scientific framework services or execute scientific algorithms.
+
+## Connected backend (Integration Unit 1; independent validation pending)
+
+The Python backend serves the existing shell with a connected Setup/Session/Experiment
+path instead of loading the demonstration lifecycle modules. Install the core checkout
+and this separate package in a compatible Python 3.12 environment:
+
+```text
+python -m pip install -e . -e ./gui
+miceball-gui --server nats://GUI_USER:GUI_PASSWORD@BROKER:4222 --controller CONTROLLER_ID --client GUI_CLIENT_ID --origin http://GUI_HOST:8043 --host 0.0.0.0 --port 8043 --timeout 10
+```
+
+Replace every deployment value; no framework services or broker are started by this
+command. `--origin` is the exact browser origin (no trailing slash); Host and WebSocket
+Origin checks reject other origins. Use HTTPS termination on untrusted networks;
+this is not a human authentication system. Never expose broker credentials to browsers.
+
+In the existing Controller deployment JSON, set `external_client_id` to the backend's
+client ID and `browser_control_required` to `true`. Broker permissions must authorize
+only this backend identity for the intended `controller_external.CONTROLLER_ID.CLIENT_ID.OPERATION`
+subjects and request inboxes, including the added control/read operations below.
+The backend refuses readiness against a legacy unguarded external endpoint. Existing
+Controller claim settings and independent service startup remain mandatory.
+
+Open the configured origin, choose View Only or explicitly Take Over. Controller
+owns grants; each WebSocket has a server-assigned browser identity. Reconnection or
+backend restart establishes a new observing connection, not automatic control.
+Superseded connections cannot issue new mutations; already-admitted work continues.
+
+Refresh inventory for an actual configured AcquisitionNode and select its returned
+device declarations. Enter explicit framework Session configuration JSON, including
+required deployment settings and final metadata; scientific outputs are explicit.
+Controller validates readiness, selection and durable initial preservation. No
+fictional inventory or capacity is substituted. Accepted configuration is read-only.
+Launch does not start acquisition: use Start Session afterward. Experiment ID,
+configuration (duration, node recording budgets, preservation budget, participants
+and applicable overrides) and outputs use the existing public framework schemas.
+Start/Stop Experiment, explicit expiry reconciliation, Normal Session Stop and
+release delegate to existing Controller operations. Released Sessions permit another
+launch without restarting the GUI.
+
+Readback uses `read_controller_state`, existing `read_session_configuration`,
+`get_node_inventory` and non-executing `read_operation_outcome`. Pending/uncertain
+request identities are retained in browser session storage only for readback, never
+automatic lifecycle replay. Controller restart changes the operational-instance
+identity; lost outcomes remain unknown, and no running Session is reconstructed
+from historical metadata. Initial NATS connection availability is reported without
+preventing the web page from loading.
+
+Analysis/Validation, scientific visualization, Storage integration, Services
+administration/freshness and notifications are unavailable in this connected unit.
+Static GitHub Pages remains demonstration-only; it cannot operate this backend.
+Developer tests: `python -B -m unittest gui.tests.test_backend` from repository root
+with GUI dependencies and the existing optional local NATS test binary installed.
+These are developer checks, not ICC independent validation, audit or deployment closure.
+
+### Public interfaces
+
+The existing lifecycle methods and result serialization methods remain unchanged.
+The new bounded external operations are `read_controller_state`,
+`read_operation_outcome`, `take_browser_control`, `view_only` and `get_node_inventory`.
+
+```text
+Controller(acquisition_node=None, ingestor=None, storage_manager=None, session_record_path=None, synchronization_manager=None, *, component_id="controller")
+  browser_control(client_id, context, operation, *, instance_id)
+  read_controller_state(*, instance_id, control)
+ExternalSessionLaunchRequest(controller_id, client_id, request_id, selections, config_parameters, scientific_outputs, browser_context=None)
+ExternalControllerRequest(controller_id, client_id, request_id, operation, session_id, parameters, browser_context=None)
+ExternalControllerResult(controller_id, client_id, request_id, operation, session_id, status, outcome=None, error=None)
+NatsExternalSessionLaunchReceiver(boundary, controller, *, communication, maintenance, client_id, participants, result_window_s, browser_control_required=False)
+  start()
+  close()
+create_gui_app(*, servers, controller_id, client_id, origin, timeout_s, max_request_bytes=1048576)
+main()
+confirmStop(kind, initiateStop, description="Confirm to initiate the existing browser-local Stop workflow. Keeping it running or dismissing this dialog does not initiate a Stop.")
+```
+
+`browser_context` contains `browser_id`, `instance_id` and integer `generation`;
+the backend constructs it, never browser request JSON. It is a connection/grant
+binding, not human authentication. Request `to_dict()`/`from_dict()` retain detached
+values and accept legacy envelopes lacking this optional field. New live reads
+are non-executing and uncached; admitted mutations retain existing lifetime-only
+duplicate protection. `launch_independent_service()` additionally accepts the
+keyword `browser_control_required=False`; no new service launcher is introduced.
 
 ## Local preview
 

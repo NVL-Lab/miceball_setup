@@ -881,7 +881,8 @@ class NatsExternalSessionLaunchReceiver:
 
     def __init__(self, boundary: NatsCommunicationBoundary, controller: Controller, *,
                  communication: NatsControllerCommunication, maintenance,
-                 client_id: str, participants: Iterable[RuntimeParticipant], result_window_s: float):
+                 client_id: str, participants: Iterable[RuntimeParticipant], result_window_s: float,
+                 browser_control_required: bool = False):
         from math import isfinite
         build_runtime_subject(None, "command", "client", client_id, "launch")
         if boundary.component_type != "controller" or controller._component_id != boundary.component_id:
@@ -900,6 +901,9 @@ class NatsExternalSessionLaunchReceiver:
         self._requests = {}
         self._subscriptions = []
         self._closed = False
+        if type(browser_control_required) is not bool:
+            raise ValueError("Browser control requirement must be explicit boolean")
+        self._browser_control_required = browser_control_required
 
     async def start(self) -> None:
         """Own exact supported subscriptions, disjoint from runtime/maintenance."""
@@ -932,17 +936,31 @@ class NatsExternalSessionLaunchReceiver:
                 raise ValueError("External launch requires a NATS request inbox")
             parameters = json.dumps({"operation": operation, "request": request.to_dict()},
                 sort_keys=True, separators=(",", ":"), allow_nan=False)
+            if self._browser_control_required and request.browser_context is None:
+                raise ValueError("This external client requires browser connection context")
             record = self._requests.get(request.request_id)
-            if record is not None:
+            if operation in {"read_controller_state", "read_operation_outcome", "get_node_inventory"}:
+                if record is not None:
+                    raise ValueError("Read request identity conflicts with a retained operation")
+                if request.browser_context is not None:
+                    self._controller.browser_control(request.client_id, request.browser_context, operation,
+                        instance_id=self._maintenance.operational_instance_id)
+                # Live snapshots/queries do not accumulate cached historical snapshots.
+                record = [parameters, None, None]
+                await self._execute(request, record)
+            elif record is not None:
                 if record[0] != parameters:
                     raise ValueError("Conflicting parameters for an existing logical request")
             else:
+                if request.browser_context is not None:
+                    self._controller.browser_control(request.client_id, request.browser_context, operation,
+                        instance_id=self._maintenance.operational_instance_id)
                 # No suspension between lookup, registration and task ownership.
                 record = [parameters, None, None]
                 self._requests[request.request_id] = record
                 record[1] = asyncio.create_task(self._execute(request, record))
             result = record[2] or _external_operation_result(request, "pending")
-        except (ValueError, TypeError, KeyError, AttributeError, RuntimeError) as error:
+        except (ValueError, TypeError, KeyError, AttributeError, RuntimeError, PermissionError) as error:
             # Malformed IDs cannot safely be reflected into a correlated result.
             try:
                 data = json.loads(message.data.decode("utf-8"))
@@ -982,6 +1000,32 @@ class NatsExternalSessionLaunchReceiver:
 
     async def _dispatch(self, request):
         if isinstance(request, ExternalControllerRequest):
+            instance = self._maintenance.operational_instance_id
+            if request.operation in {"read_controller_state", "take_browser_control", "view_only"}:
+                control = (self._controller.browser_control(request.client_id, request.browser_context,
+                    "read_controller_state", instance_id=instance) if request.browser_context else None)
+                state = self._controller.read_controller_state(instance_id=instance, control=control)
+                state.details["browser_control_required"] = self._browser_control_required
+                state.details["configured_nodes"] = [p.component_id for p in self._participants
+                                                     if p.component_type == "acquisition_node"]
+                state.details["pending_operations"] = [json.loads(v[0])["request"] for v in self._requests.values()
+                                                       if v[2] is None]
+                return ControllerCommandResult(request.operation, True, state.details)
+            if request.operation == "read_operation_outcome":
+                target = self._requests.get(request.parameters["target_request_id"])
+                same = request.parameters["instance_id"] == instance
+                result = target[2].to_dict() if same and target and target[2] else None
+                return ControllerCommandResult(request.operation, True, {"instance_id": instance,
+                    "status": "unknown" if not same or target is None else result["status"] if result else "pending",
+                    "result": result})
+            if request.operation == "get_node_inventory":
+                matches = [p for p in self._participants if p.component_type == "acquisition_node"
+                           and p.component_id == request.parameters["node_id"]]
+                if len(matches) != 1:
+                    raise ValueError("Inventory requires a configured AcquisitionNode")
+                result = await self._controller.get_node_inventory(matches[0], communication=self._communication,
+                    result_window_s=self._window)
+                return ControllerCommandResult(request.operation, True, result)
             # Trust-boundary check; Controller also rechecks after lifecycle lock waits.
             if (request.operation not in {"collect_saved_session_artifacts_remote", "read_storage_sessions",
                                           "read_storage_session", "delete_original_artifacts"}
