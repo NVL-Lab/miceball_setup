@@ -952,6 +952,16 @@ recovery evidence (Decisions 389/390). Ordinary maintenance cannot overwrite
 rejected history. Actual interrupted-write repair stays separately authorized under
 Decisions 339/342/347; do not delete/recreate state as a repair shortcut.
 
+Framework evidence replay can add journal-backed duplicate intake audit after a
+successful startup announcement. Dependent registration/confirmation therefore
+continues the verified intact archive prefix before checking exact current
+preservation and instance history. Failed writes, corrupt/missing history and
+unconfirmed readback still refuse admission; this is not interrupted-write repair.
+This correction has developer regression coverage, not independent deployment
+validation or audit closure. A retained startup failure does not automatically
+retry registration; preserve its result reason and use existing maintenance before
+an explicitly authorized service relaunch.
+
 Framework archives use administrative UTC archival-write months at
 `<storage_root>/framework/evidence/YYYY-MM/`. Delayed/recovered evidence is not
 backdated; original timing remains unchanged. Historical partitions stay immutable,

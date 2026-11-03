@@ -413,15 +413,18 @@ class ServiceMaintenanceInterface:
 
     def _require_dependent_instance_authority(self, participant, instance):
         """Reject superseded identities using current preserved chronological history."""
-        with self.ingestor._intake_lock, self.ingestor.framework_preservation_guard(
-                self.storage_manager, verify_journal=True) as archive:
-            instances, _, _, histories = self._dependent_history(
-                self.ingestor.compile_framework_runtime_evidence(), archive)
-            current = instances[participant]
-            if instance != current and any(m.payload["dependent_maintenance"]["registration"][
-                    "operational_instance_id"] == instance for m in histories[participant]):
-                raise RuntimeError("Superseded dependent instance cannot regain authority")
-            return current
+        with self.ingestor._intake_lock:
+            # Broker replay adds durable intake audit after startup confirmation.
+            # Verify/continue the intact prefix before requiring current equality.
+            self.ingestor.continue_framework_evidence_archive()
+            with self.ingestor.framework_preservation_guard(self.storage_manager, verify_journal=True) as archive:
+                instances, _, _, histories = self._dependent_history(
+                    self.ingestor.compile_framework_runtime_evidence(), archive)
+                current = instances[participant]
+                if instance != current and any(m.payload["dependent_maintenance"]["registration"][
+                        "operational_instance_id"] == instance for m in histories[participant]):
+                    raise RuntimeError("Superseded dependent instance cannot regain authority")
+                return current
 
     def _validate_dependent_state(self, state, *, prior_registration=None):
         """Validate preserved dependent identities and the existing release contract."""

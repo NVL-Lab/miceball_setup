@@ -22,6 +22,7 @@ from lab_sync_acquisition.nats_communication import (
 from lab_sync_acquisition.service_launcher import ServiceLauncher, launch_storage_services, main
 from tests.test_session_launch import _Boundary, _Broker
 from tests.fakes import ReadyFakeAdapter
+from tests.nats_server_fixture import NATS_SERVER, restartable_jetstream_server
 
 
 class ExternalDependentConfigurationTests(unittest.TestCase):
@@ -64,6 +65,94 @@ class ExternalDependentConfigurationTests(unittest.TestCase):
                 "--framework-journal", "framework.jsonl", "--preservation-window-s", "1",
                 "--external-dependent", "controller/control", "--result-window-s", "1"]), 0)
         self.assertEqual(launch.call_args.kwargs["external_dependents"], (RuntimeParticipant("controller", "control"),))
+
+
+@unittest.skipUnless(NATS_SERVER, "optional isolated nats-server unavailable")
+class ExternalDependentRegistrationTransportTests(unittest.IsolatedAsyncioTestCase):
+    async def test_replayed_framework_history_preserves_registration_across_owner_restart(self):
+        import nats
+        from nats.js.api import KeyValueConfig, StorageType
+        from lab_sync_acquisition import NatsCommunicationBoundary
+
+        server = await self.enterAsyncContext(restartable_jetstream_server())
+        root = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        participants = tuple(RuntimeParticipant(kind, identity) for kind, identity in (
+            ("synchronization_manager", "sync"), ("acquisition_node", "node"), ("controller", "control")))
+        reports = []
+
+        async def capture(launcher, *, startup):
+            await startup()
+            for boundary in launcher.boundaries:
+                self.addAsyncCleanup(boundary.close)
+            return launcher
+
+        async def pair():
+            with patch.object(ServiceLauncher, "run", capture):
+                return await launch_storage_services(servers=(server.url,), ingestor_id="intake",
+                    storage_id="storage", storage_root=root / "storage", recovery_journal_root=root / "journals",
+                    framework_journal=root / "framework.jsonl", preservation_window_s=3,
+                    operational_dependents={}, external_dependents=participants, result_window_s=3,
+                    controller_claim_account="$G", controller_claim_bucket="AUTHORITY", controller_claim_key="controller",
+                    report=reports.append)
+
+        async def producer(participant):
+            owner = (SynchronizationManager() if participant.component_type == "synchronization_manager" else
+                Controller(component_id=participant.component_id) if participant.component_type == "controller" else
+                AcquisitionNode(device_manager=DeviceManager((ReadyFakeAdapter("device", "fake", (), True),)),
+                    node_id=participant.component_id, role="acquisition", synchronization_source_id="sync"))
+            boundary = NatsCommunicationBoundary(participant.component_type, participant.component_id, (server.url,))
+            await boundary.connect()
+            self.addAsyncCleanup(boundary.close)
+            interface = ServiceMaintenanceInterface(owner, participant, ingestor=None, storage_manager=None,
+                preservation_window_s=3, close_resources=AsyncMock(return_value=True),
+                evidence_publisher=boundary.publish_evidence, framework_communication=NatsControllerCommunication(boundary),
+                framework_ingestor=RuntimeParticipant("ingestor", "intake"),
+                framework_storage=RuntimeParticipant("storage_manager", "storage"))
+            if participant.component_type == "controller":
+                await interface.acquire_controller_authority(boundary, account="$G", bucket="AUTHORITY",
+                    key="controller", timeout_s=3)
+                await NatsServiceMaintenanceCommunication(boundary, interface).subscribe_commands()
+            elif participant.component_type == "acquisition_node":
+                await NatsAcquisitionNodeCommunication(boundary, owner).subscribe_commands()
+            else:
+                await NatsSynchronizationManagerCommunication(boundary, owner).subscribe_commands()
+            await interface.register_ingestor_dependency()
+            return interface, boundary
+
+        first = await pair()
+        previous, boundary = await producer(participants[0])
+        await boundary.close()
+        for boundary in first.boundaries:
+            await boundary.close()
+        second = await pair()
+        intake = second.maintenance[0].ingestor
+        storage = second.maintenance[0].storage_manager
+        evidence = intake.compile_framework_runtime_evidence()["runtime_evidence"][0]
+        before = len(intake.compile_framework_runtime_evidence()["ingest_audit"])
+        await second.boundaries[0].publish_evidence(evidence)
+
+        async def received():
+            while len(intake.compile_framework_runtime_evidence()["ingest_audit"]) <= before:
+                await asyncio.sleep(.01)
+        await asyncio.wait_for(received(), 3)
+        self.assertTrue(any(json.loads(line).get("startup", {}).get("archival_confirmed")
+            for line in reports if line.startswith("{")))
+
+        client = await nats.connect(server.url)
+        self.addAsyncCleanup(client.close)
+        await client.jetstream().create_key_value(KeyValueConfig(bucket="AUTHORITY", storage=StorageType.FILE))
+        for participant in participants:
+            interface, _ = await producer(participant)
+            await interface.register_ingestor_dependency()
+            self.assertFalse(interface.terminated)
+            self.assertTrue(second.maintenance[0].operational_dependents[participant]())
+        self.assertNotEqual(previous.operational_instance_id,
+            second.maintenance[0]._dependent_instances[participants[0]])
+        with intake.framework_preservation_guard(storage, verify_journal=True) as archived:
+            compiled = intake.compile_framework_runtime_evidence()
+            self.assertEqual(archived["runtime_evidence"], [m.to_dict() for m in compiled["runtime_evidence"]])
+            self.assertEqual(archived["ingest_audit"], [m.to_dict() for m in compiled["ingest_audit"]])
+            self.assertTrue(any(a["reason"] == "already_accepted" for a in archived["ingest_audit"]))
 
 
 class ExternalDependentMaintenanceTests(unittest.IsolatedAsyncioTestCase):
@@ -1398,6 +1487,53 @@ class ExternalDependentMaintenanceTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(RuntimeError):
             await interface.register_ingestor_dependency()
         self.assertTrue(self.intake_interface.operational_dependents[self.dependent]())
+
+    async def test_registration_preserves_framework_intake_after_startup_confirmation(self):
+        participant = RuntimeParticipant("synchronization_manager", "sync")
+        await self.backend((participant,))
+        _, interface, _, _ = await self.producer(participant.component_type, participant.component_id)
+        original = self.intake.compile_framework_runtime_evidence()["runtime_evidence"][0]
+        archived = self.storage.get_framework_preservation_confirmation()
+        audit = self.intake.receive_runtime_evidence(original)
+        self.assertEqual(audit.reason, "already_accepted")
+        with self.assertRaisesRegex(RuntimeError, "Current framework intake"):
+            with self.intake.framework_preservation_guard(self.storage):
+                pass
+        await interface.register_ingestor_dependency()
+        with self.intake.framework_preservation_guard(self.storage) as current:
+            self.assertEqual(current["runtime_evidence"], archived["runtime_evidence"])
+            self.assertEqual(current["ingest_audit"][:-1], archived["ingest_audit"])
+            self.assertEqual(current["ingest_audit"][-1], audit.to_dict())
+        self.assertTrue(self.intake_interface.operational_dependents[participant]())
+        self.assertFalse(interface.terminated)
+
+    async def test_registration_after_late_intake_refuses_failed_preservation_until_explicit_retry(self):
+        participant = RuntimeParticipant("synchronization_manager", "sync")
+        await self.backend((participant,))
+        _, interface, _, _ = await self.producer(participant.component_type, participant.component_id)
+        self.intake.receive_runtime_evidence(RuntimeEvidenceMessage(
+            "late-framework-warning", None, "warning", "sync", {"reason": "retained"}, True))
+        with patch.object(self.storage, "_write_framework_evidence_archive", side_effect=OSError("disk failed")):
+            with self.assertRaisesRegex(RuntimeError, "registration is unconfirmed"):
+                await interface.register_ingestor_dependency()
+        self.assertTrue(self.intake_interface.operational_dependents[participant]())
+        await interface.register_ingestor_dependency()
+        with self.intake.framework_preservation_guard(self.storage) as current:
+            self.assertIn("late-framework-warning", [m["evidence_id"] for m in current["runtime_evidence"]])
+
+    async def test_registration_cannot_continue_corrupt_history_after_late_intake(self):
+        participant = RuntimeParticipant("synchronization_manager", "sync")
+        await self.backend((participant,))
+        _, interface, _, _ = await self.producer(participant.component_type, participant.component_id)
+        self.intake.receive_runtime_evidence(RuntimeEvidenceMessage(
+            "late-framework-warning", None, "warning", "sync", {}, True))
+        product = next((self.root / "storage/framework/evidence").glob("????-??")) / "runtime_evidence.jsonl"
+        product.write_bytes(b"corrupt\n")
+        before = {p: p.read_bytes() for p in self.root.rglob("*") if p.is_file()}
+        with self.assertRaisesRegex(RuntimeError, "registration is unconfirmed"):
+            await interface.register_ingestor_dependency()
+        self.assertEqual(before, {p: p.read_bytes() for p in before})
+        self.assertTrue(self.intake_interface.operational_dependents[participant]())
 
     async def test_stale_instance_readback_cannot_confirm_retirement(self):
         await self.backend()
