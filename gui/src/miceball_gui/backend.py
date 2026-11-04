@@ -22,35 +22,27 @@ OPERATIONS = READS | {"take_browser_control", "view_only", "launch_session", "st
 
 
 class _ConnectedShell(HTMLParser):
-    """Reuse the static shell without loading its demonstration module owners."""
+    """Retain shared presenters and mark their single connected execution mode."""
 
     def __init__(self):
         super().__init__(convert_charrefs=False)
         self.parts = []
-        self.skip_script = False
 
     def handle_starttag(self, tag, attrs):
         values = dict(attrs)
-        if tag == "script" and values.get("type") == "module" and values.get("src") != "app.js":
-            self.skip_script = True
-        elif tag == "html":
+        if tag == "html":
             values["data-runtime"] = "connected"
             self.parts.append("<html " + " ".join(f'{k}="{escape(v or "", quote=True)}"' for k, v in values.items()) + ">")
-        elif not self.skip_script:
+        else:
             self.parts.append(self.get_starttag_text())
 
     def handle_endtag(self, tag):
-        if tag == "script" and self.skip_script:
-            self.skip_script = False
-            return
-        if not self.skip_script:
-            if tag == "body":
-                self.parts.append('<script type="module" src="connected.js"></script>')
-            self.parts.append(f"</{tag}>")
+        if tag == "body":
+            self.parts.append('<script type="module" src="connected.js"></script>')
+        self.parts.append(f"</{tag}>")
 
     def handle_data(self, data):
-        if not self.skip_script:
-            self.parts.append(data)
+        self.parts.append(data)
 
     def handle_decl(self, decl):
         self.parts.append(f"<!{decl}>")
@@ -62,8 +54,7 @@ class _ConnectedShell(HTMLParser):
         self.handle_data(f"&#{name};")
 
     def handle_comment(self, data):
-        if not self.skip_script:
-            self.parts.append(f"<!--{data}-->")
+        self.parts.append(f"<!--{data}-->")
 
 
 def create_gui_app(*, servers, controller_id, client_id, origin, timeout_s, max_request_bytes=1048576):
@@ -186,7 +177,7 @@ def create_gui_app(*, servers, controller_id, client_id, origin, timeout_s, max_
     static = Path(__file__).with_name("static")
 
     async def index(request):
-        # Connected entry uses the same shell/styles, without importing demo owners.
+        # Presenters select fixture execution or connected bindings from this marker.
         text = (static / "index.html").read_text(encoding="utf-8")
         shell = _ConnectedShell()
         shell.feed(text)

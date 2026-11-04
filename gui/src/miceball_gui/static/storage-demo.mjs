@@ -1,7 +1,8 @@
 import { formatCalendarDate } from './calendar-date.mjs';
 
 // Fictional, page-local readback examples. These are not framework records.
-export function createStorageDemo() {
+export function createStorageDemo(connected = false) {
+  if (connected) return { connected: true, sessions: [], collection: new Set(), deletion: new Set(), deleteAfter: false };
   const session = (id, owner, status, completedAt, verified, experiments) => ({
     id, name: `${id}_session`, owner, project: 'Visual Learning', animal: 'M1023', date: completedAt ? '2026-07-30' : '2026-10-24',
     status, completedAt, verified, unresolved: status === 'incomplete', size: null,

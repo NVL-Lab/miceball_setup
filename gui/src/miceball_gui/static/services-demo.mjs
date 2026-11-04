@@ -1,5 +1,9 @@
 // Fictional, page-memory presentation fixtures. No discovery, polling or commands.
-export function createServicesDemo() {
+export function createServicesDemo(connected = false) {
+  if (connected) return { connected: true, administrator: false, selectedId: null, detail: 'Status', refreshSeconds: 0,
+    lastPreviewRefresh: null, services: ['Controller', 'AcquisitionNode', 'Ingestor', 'StorageManager', 'Synchronization Manager'].map((name, index) => ({
+      id: `unconfirmed-${index}`, name, computer: 'Deployment location unconfirmed', readiness: 'Unknown', connectivity: 'Unknown',
+      confirmed: null, current: false, dependencies: 'Service-specific readback is not connected.', information: 'No authoritative service report retrieved.' })), obligations: [] };
   return {
     administrator: false, selectedId: 'controller', detail: 'Status', refreshSeconds: 10,
     lastPreviewRefresh: null,
@@ -47,6 +51,7 @@ export function sessionStopPreview(outcome) {
 
 // Local presentation attempt only; never changes a configured service report.
 export function beginShutdownPreview(model, serviceId = null) {
+  if (model.connected) throw new Error('Service maintenance integration is unavailable.');
   if (!model.administrator) throw new Error('Administrator mode required.');
   const participants = serviceId ? model.services.filter(s => s.id === serviceId) : model.services;
   if (!participants.length) throw new Error('Select a configured service.');

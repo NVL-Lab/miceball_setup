@@ -2,7 +2,8 @@
 import { clone, devices, declaredCoverage } from './protocol-demo.mjs';
 import { executionContext } from './session-context.mjs';
 
-export const deviceExamples = {
+import { connectedMode } from './protocol-demo.mjs';
+export const deviceExamples = connectedMode ? {} : {
   orca: { acquisition: true, fields: [{ id: 'orca.exposure', label: 'Example exposure (ms)', type: 'number', value: 10, min: 1, max: 1000 }, { id: 'orca.trigger', label: 'Example trigger mode', type: 'select', value: 'Internal', options: ['Internal', 'External'] }] },
   logitech: { acquisition: true, fields: [{ id: 'logitech.rate', label: 'Example frame rate (Hz)', type: 'number', value: 30, min: 1, max: 60 }] },
   extra: { acquisition: true, fields: [{ id: 'extra.rate', label: 'Example frame rate (Hz)', type: 'number', value: 20, min: 1, max: 60 }] },
@@ -29,13 +30,13 @@ function freezeConfiguration(configuration) {
 }
 export function experimentTemplates(state, operation, owner) {
   state = executionContext(state);
-  state.experimentTemplates ??= Object.entries(operationExamples).map(([id, example]) => Object.freeze({ id: `experiment-${id}`, operation: id, owner: null, name: example.name, configuration: freezeConfiguration(exampleConfiguration(id)) }));
+  state.experimentTemplates ??= state.connected ? [] : Object.entries(operationExamples).map(([id, example]) => Object.freeze({ id: `experiment-${id}`, operation: id, owner: null, name: example.name, configuration: freezeConfiguration(exampleConfiguration(id)) }));
   return state.experimentTemplates.filter(template => template.operation === operation && (template.owner === null || template.owner === owner));
 }
 export function experimentView(state, step, record) {
   state = executionContext(state);
   if (!record.experiment) {
-    const working = exampleConfiguration(step.operation);
+    const working = state.connected ? { durationSeconds: null, participants: [], values: {}, experimentId: '', recordingBudgets: {}, preservationBudget: null, outputs: [] } : exampleConfiguration(step.operation);
     working.participants = working.participants.filter(id => state.selectedDevices.includes(id));
     const historical = ['completed', 'needs-review'].includes(record.status);
     record.experiment = { working, startingConfiguration: clone(working), templateId: '', editing: !historical, attempts: historical ? [freezeConfiguration(working)] : [] };
@@ -51,7 +52,7 @@ export function experimentView(state, step, record) {
 export function updateExperiment(state, step, record, patch) {
   const view = experimentView(state, step, record);
   if (view.readOnly) throw new Error('Executed configuration is read-only. Prepare a new demonstration attempt first.');
-  for (const key of ['durationSeconds', 'participants', 'values']) if (key in patch) view.bundle.working[key] = patch[key];
+  for (const key of ['durationSeconds', 'participants', 'values', 'experimentId', 'recordingBudgets', 'preservationBudget', 'outputs']) if (key in patch) view.bundle.working[key] = patch[key];
   return experimentView(state, step, record);
 }
 export function loadExperimentTemplate(state, step, record, id, owner, replaceModified = false) {
@@ -90,8 +91,16 @@ export function experimentIssues(state, step, configuration) {
   if (!Number.isFinite(configuration.durationSeconds) || configuration.durationSeconds <= 0) issues.push('Set a positive planned duration.');
   if (configuration.participants.some(id => !state.selectedDevices.includes(id))) issues.push('Remove participants outside this Session device pool.');
   const participants = devices.filter(device => configuration.participants.includes(device.id));
-  if (!participants.some(device => deviceExamples[device.id]?.acquisition)) issues.push('Select at least one demonstration data-acquisition device.');
-  if (participants.some(device => !device.available)) issues.push('A participating demonstration device is unavailable.');
+  if (!participants.some(device => deviceExamples[device.id]?.acquisition)) issues.push(state.connected ? 'Select at least one declared data-acquisition device.' : 'Select at least one demonstration data-acquisition device.');
+  if (participants.some(device => !device.available)) issues.push(state.connected ? 'Participating inventory is unconfirmed.' : 'A participating demonstration device is unavailable.');
+  if (state.connected) {
+    if (!configuration.experimentId?.trim()) issues.push('Set an Experiment ID.');
+    if (!Number.isFinite(configuration.preservationBudget) || configuration.preservationBudget <= 0) issues.push('Set an explicit preservation budget.');
+    for (const node of new Set(participants.map(device => device.nodeId))) {
+      if (!Number.isFinite(configuration.recordingBudgets?.[node]) || configuration.recordingBudgets[node] <= 0) issues.push(`Set an explicit recording budget for ${node}.`);
+    }
+    return issues;
+  }
   if (declaredCoverage(step.required, configuration.participants).some(row => !row.providers.some(device => device.available))) issues.push('A required capability has no available participating provider.');
   const fields = participants.flatMap(device => deviceExamples[device.id]?.fields || []);
   if (fields.some(field => {

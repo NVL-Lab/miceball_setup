@@ -15,30 +15,34 @@ const analysisPanel = document.querySelector('#panel-analysis');
 let validationTimer = null;
 
 function outputPanel(id, title, content, caption) {
+  if (state.connected) { title = title.replace(/simulated|example/gi, 'unavailable'); content = '<div class="output-unavailable">Scientific output delivery is not connected.</div>'; caption = 'No scientific results or live visualization have been retrieved.'; }
   return `<section class="output-panel" id="${id}" data-output-title="${escape(title)}" aria-label="${escape(title)}"><header><h3>${escape(title)}</h3><button type="button" data-expand-output aria-expanded="false" aria-label="Expand ${escape(title)}">Expand ↗</button></header><div class="output-content">${content}</div><p class="output-caption">${escape(caption)}</p></section>`;
 }
 function tracePlot(id) {
+  if (state.connected) return '';
   return `<div class="plot-legend">${traceExamples.map((series, index) => `<label><input type="checkbox" data-trace-toggle="${id}-${index}" checked><span style="color:${series.color}">●</span>${series.name}</label>`).join('')}</div><svg class="demo-plot" viewBox="0 0 500 220" role="img" aria-label="Fixed illustrative activity traces"><rect class="plot-surface" x="0" y="0" width="500" height="220"/>${[45,85,125,165].map(y => `<path class="plot-grid" d="M42 ${y}H480"/>`).join('')}${[42,150,260,370,480].map(x => `<path class="plot-grid" d="M${x} 20V182"/>`).join('')}<path class="plot-axis" d="M42 20V182H480"/>${traceExamples.map((series, index) => `<polyline data-trace="${id}-${index}" points="${series.points.map((y, x) => `${45 + x * 22.5},${y}`).join(' ')}" fill="none" stroke="${series.color}" stroke-width="2.5"/>`).join('')}<text class="plot-text" x="190" y="211">Example samples</text><text class="plot-text" x="8" y="34">a.u.</text><text class="plot-text" x="38" y="199">0</text><text class="plot-text" x="467" y="199">20</text></svg>`;
 }
 function distributionPlot() {
+  if (state.connected) return '';
   return `<svg class="demo-plot" viewBox="0 0 500 220" role="img" aria-label="Fixed illustrative distribution"><rect class="plot-surface" width="500" height="220"/>${[45,85,125,165].map(y => `<path class="plot-grid" d="M42 ${y}H480"/>`).join('')}<path class="plot-axis" d="M42 20V182H480"/>${distributionExample.map((height, index) => `<rect x="${53 + index * 41}" y="${182 - height}" width="29" height="${height}" rx="2" fill="#4c91c4"/>`).join('')}<text class="plot-text" x="181" y="211">Example value bins</text><text class="plot-text" x="8" y="34">count</text></svg>`;
 }
 function imageMarkup(interactive = false) {
+  if (state.connected) return '';
   return `${interactive ? '<label class="roi-example-control">Illustrative selection <select aria-label="Example ROI"><option>Example ROI 1</option><option>Example ROI 2</option><option>Example ROI 3</option></select><span class="roi-example-label">Example ROI 1 selected</span></label>' : ''}<img class="scientific-image" src="${scientificImageExample}" alt="Synthetic fluorescence-style field; not acquired scientific data">`;
 }
 
-function renderExperiment() {
+export function renderExperiment() {
   const { monitor, record } = monitoredExperiment(state);
   const identity = monitor?.identity || executionIdentity(state);
   const information = [
     ['Animal', identity.animal], ['Session', identity.name], ['Experiment', monitor?.name || 'No demonstration launched'],
     ['Attempt', monitor?.attemptId || 'No demonstration attempt'],
-    ['Status', record ? record.stopRequested ? 'Stop requested (demo)' : `${record.status} (demo)` : 'Preview only'], ['Elapsed time', 'Not measured'],
+    ['Status', record ? record.stopRequested ? 'Stop requested (demo)' : state.connected ? record.status : `${record.status} (demo)` : 'Preview only'], ['Elapsed time', 'Not measured'],
     ['Planned duration', monitor ? `${monitor.configuration.durationSeconds} s` : 'Not selected'],
   ];
   // Keep output DOM nodes alive when monitoring context changes or tabs are revisited.
   if (!experimentPanel.querySelector('.experiment-output-grid')) {
-    experimentPanel.innerHTML = `<h2 id="heading-experiment" class="visually-hidden">Experiment</h2><div class="view-heading"><div><h2>Experiment</h2><p>Simulated monitoring · no acquisition or processing</p></div><button type="button" data-science-session>Back to Session</button></div><div class="experiment-output-grid"><div class="experiment-left"><section class="experiment-monitor-information"><dl id="experiment-monitor-fields"></dl><div id="experiment-monitor-progress"></div></section>${outputPanel('experiment-image', 'Live image · simulated', imageMarkup(), 'Fixed synthetic image example; no camera connection. Image colors do not change with theme.')}</div><div class="experiment-right">${outputPanel('experiment-plot-1', 'Plot 1', tracePlot('experiment'), 'Fixed illustrative traces, not real-time scientific measurements.')}${outputPanel('experiment-plot-2', 'Plot 2', distributionPlot(), 'Application-defined output surface · fixed demonstration values.')}</div></div>`;
+    experimentPanel.innerHTML = `<h2 id="heading-experiment" class="visually-hidden">Experiment</h2><div class="view-heading"><div><h2>Experiment</h2><p>${state.connected ? 'Authoritative Controller monitoring' : 'Simulated monitoring · no acquisition or processing'}</p></div><button type="button" data-science-session>Back to Session</button></div><div class="experiment-output-grid"><div class="experiment-left"><section class="experiment-monitor-information"><dl id="experiment-monitor-fields"></dl><div id="experiment-monitor-progress"></div></section>${outputPanel('experiment-image', 'Live image · simulated', imageMarkup(), 'Fixed synthetic image example; no camera connection. Image colors do not change with theme.')}</div><div class="experiment-right">${outputPanel('experiment-plot-1', 'Plot 1', tracePlot('experiment'), 'Fixed illustrative traces, not real-time scientific measurements.')}${outputPanel('experiment-plot-2', 'Plot 2', distributionPlot(), 'Application-defined output surface · fixed demonstration values.')}</div></div>`;
   }
   experimentPanel.querySelector('#experiment-monitor-fields').innerHTML = information.map(([label, value]) => `<div><dt>${label}</dt><dd>${escape(value)}</dd></div>`).join('');
   experimentPanel.querySelector('#experiment-monitor-progress').innerHTML = record?.status === 'running' ? record.stopRequested
@@ -47,15 +51,18 @@ function renderExperiment() {
     : record?.results.at(-1)?.origin === 'Simulated Normal Stop'
       ? '<p role="status">Local Normal Stop demonstration finished; outputs are retained. No real distributed cleanup or preservation is confirmed.</p>'
       : '<p>Launch is available only in Session. Scientific output shown below is illustrative, including before any demonstration launch.</p>';
+  if (state.connected) experimentPanel.querySelector('#experiment-monitor-progress').innerHTML = record?.status === 'running' ? '<label>Execution progress<progress aria-label="Controller Experiment progress"></progress></label><button type="button" class="stop-experiment-demo" data-stop-experiment>Stop Experiment</button><button type="button" data-reconcile-expiry>Check expiry</button><p>No completion percentage is inferred. Cleanup and preservation require Controller confirmation.</p>' : '<p>Experiment status follows Controller evidence. Scientific output delivery is unavailable.</p>';
   const lastValidation = executionContext(state).lastDeviceValidation;
   if (lastValidation) experimentPanel.querySelector('#experiment-monitor-progress').insertAdjacentHTML('beforeend', `<p class="validation-ended" role="status">Device Validation for ${escape(lastValidation.deviceName)} ended: ${lastValidation.endedBy === 'maximum-duration' ? 'configured maximum duration reached' : 'manual Stop Validation'}. Browser-local only; physical cleanup remains unverified.</p>`);
   renderDeviceValidation();
   // Restore the user's visibility choice after the validation visibility sweep,
   // and refresh the read-only snapshot on every Experiment lifecycle render.
   if (!executionContext(state).deviceValidation) renderParameters();
+  if (state.connected) state.actions.syncControls?.();
 }
 
 function renderDeviceValidation() {
+  if (state.connected) return;
   const validation = executionContext(state).deviceValidation;
   let panel = experimentPanel.querySelector('#device-validation-view');
   if (!panel) {
@@ -87,7 +94,7 @@ function renderDeviceValidation() {
 function renderAnalysis() {
   if (!analysisPanel.querySelector('.analysis-output-grid')) {
     const metrics = '<table class="example-metrics"><caption>Illustrative numerical results</caption><thead><tr><th>Example metric</th><th>Value</th></tr></thead><tbody><tr><td>Regions</td><td>14</td></tr><tr><td>Quality score</td><td>0.87</td></tr><tr><td>Selected examples</td><td>4</td></tr><tr><td>Result status</td><td>Demonstration only</td></tr></tbody></table>';
-    analysisPanel.innerHTML = `<h2 id="heading-analysis" class="visually-hidden">Analysis</h2><div class="view-heading"><div><h2>Analysis</h2><p id="analysis-context"></p></div><button type="button" data-science-session>Back to Session</button></div><p class="view-notice">Generic output surfaces with fictional examples, not mandatory Analysis outputs. No algorithms or code execution. Existing result/review actions remain in Session.</p><div class="analysis-output-grid">${outputPanel('analysis-traces', 'Activity traces · example', tracePlot('analysis'), 'Fixed trace data. Legend selections are local display choices.')}${outputPanel('analysis-image', 'Image / interaction · example', imageMarkup(true), 'Selection demonstration only. No ROI identification or neuron-selection algorithm.')}${outputPanel('analysis-metrics', 'Numerical results / table · example', metrics, 'Fictional numbers, not computed scientific metrics.')}${outputPanel('analysis-distribution', 'Distribution · example', distributionPlot(), 'Application-defined output example. Other applications may use different panel contents.')}</div>`;
+    analysisPanel.innerHTML = `<h2 id="heading-analysis" class="visually-hidden">Analysis</h2><div class="view-heading"><div><h2>Analysis</h2><p id="analysis-context"></p></div><button type="button" data-science-session>Back to Session</button></div><p class="view-notice">${state.connected ? 'Analysis integration unavailable. Output surfaces remain available for inspection; no algorithm has run.' : 'Generic output surfaces with fictional examples, not mandatory Analysis outputs. No algorithms or code execution. Existing result/review actions remain in Session.'}</p><div class="analysis-output-grid">${outputPanel('analysis-traces', 'Activity traces · example', tracePlot('analysis'), 'Fixed trace data. Legend selections are local display choices.')}${outputPanel('analysis-image', 'Image / interaction · example', imageMarkup(true), 'Selection demonstration only. No ROI identification or neuron-selection algorithm.')}${outputPanel('analysis-metrics', 'Numerical results / table · example', metrics, 'Fictional numbers, not computed scientific metrics.')}${outputPanel('analysis-distribution', 'Distribution · example', distributionPlot(), 'Application-defined output example. Other applications may use different panel contents.')}</div>`;
   }
   const { step, record } = selectedStepContext(state);
   const isAnalysis = step && operations.find(operation => operation.id === step.operation)?.type === 'Analysis';
@@ -98,6 +105,11 @@ function renderAnalysis() {
 
 for (const panel of [experimentPanel, analysisPanel]) {
   panel.addEventListener('click', event => {
+    if (state.connected && event.target.closest('[data-stop-experiment], [data-finish-experiment-stop], [data-stop-validation], [data-close-validation], [data-reconcile-expiry]')) {
+      if (event.target.closest('[data-stop-experiment]')) state.actions.stopExperiment?.();
+      if (event.target.closest('[data-reconcile-expiry]')) state.actions.reconcileExpiry?.();
+      return;
+    }
     if (event.target.closest('[data-stop-validation], [data-close-validation]')) {
       stopDeviceValidation(state); renderExperiment(); return;
     }

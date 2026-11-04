@@ -7,7 +7,7 @@ export function freeOperationChoices(state) {
   const context = executionContext(state);
   return operations.map(operation => {
     const missing = declaredCoverage(operation.required, context.selectedDevices).filter(row => !row.providers.length).map(row => row.capability);
-    return { operation, missing, compatible: missing.length === 0 };
+    return { operation, missing, compatible: !operation.unavailable && missing.length === 0 };
   });
 }
 
@@ -31,11 +31,11 @@ export function sessionProgress(state) {
   const progress = state.sessionDemo[state.protocolId] ??= { selectedId: null, steps: {} };
   steps.forEach((step, index) => {
     if (progress.steps[step.id]) return;
-    const completed = !!protocol && index < 2 && (step.mandatory || state.included.includes(step.id));
+    const completed = !state.connected && !!protocol && index < 2 && (step.mandatory || state.included.includes(step.id));
     progress.steps[step.id] = {
       status: completed ? 'completed' : index === 2 ? 'ready' : 'not-started',
       results: completed ? [{ name: step.name, operation: step.operation, summary: 'Illustrative existing result — no scientific artifact.', origin: 'Initial mock scenario' }] : [],
-      history: [completed ? 'Illustrative completed result supplied by the mock scenario; nothing was executed.' : 'No demonstration run yet.'],
+      history: [state.connected ? 'No Controller execution reported.' : completed ? 'Illustrative completed result supplied by the mock scenario; nothing was executed.' : 'No demonstration run yet.'],
       reviewReason: '',
       attempts: [],
     };
@@ -70,6 +70,10 @@ export function sessionStepView(state, step) {
   if (included && status === 'needs-review' && (record.results.length || record.recordedInputs?.some(input => input.outcome === 'accepted')) && !running) actions.push('validate');
   if (included && !step.mandatory && !running && !['completed', 'satisfied', 'needs-review', 'skipped'].includes(status)) actions.push('skip');
   if (status === 'running') actions.push('complete', 'error');
+  if (state.connected) {
+    actions.splice(0, actions.length);
+    if (experiment && ready && !running && !experiment.readOnly && !operation.unavailable) actions.push('run');
+  }
   return { record, status, stopPending: !!record.stopRequested, operation, experiment, issues, supports, required, optional, ready, included, actions, running };
 }
 
@@ -98,6 +102,7 @@ export function clearRecordingSelection(state, stepId) {
 }
 
 export function actOnSessionStep(state, stepId, action) {
+  if (state.connected || state.activeSession?.connected) throw new Error('Connected execution requires Controller admission.');
   state = executionContext(state);
   const protocol = executionProtocol(state);
   const step = executionSteps(state).find(item => item.id === stepId);
@@ -164,6 +169,7 @@ export function monitoredExperiment(state) {
   return { monitor, record: monitor ? state.sessionDemo?.[monitor.protocolId]?.steps[monitor.stepId] : null };
 }
 export function requestExperimentStop(state) {
+  if (state.connected || state.activeSession?.connected) throw new Error('Connected Stop requires Controller admission.');
   const { record } = monitoredExperiment(state);
   if (!record || record.status !== 'running') throw new Error('No running demonstration Experiment to stop.');
   if (!record.stopRequested) {

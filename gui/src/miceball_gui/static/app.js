@@ -3,6 +3,20 @@ import { createAnimalCatalog, saveAnimalDemo } from './animal-demo.mjs';
 import { createNavigationMenu } from './navigation-menu.mjs';
 
 const animalCatalog = createAnimalCatalog();
+const connected = document.documentElement.dataset.runtime === 'connected';
+if (connected) {
+  document.querySelector('.topbar__eyebrow').textContent = 'Miceball';
+  animalCatalog.clear();
+  for (const select of document.querySelectorAll('[data-catalog-select]')) {
+    for (const option of [...select.options]) if (!option.value.startsWith('__new_')) option.remove();
+    select.add(new Option('Not selected', '', true, true), select.firstElementChild);
+  }
+  for (const input of document.querySelectorAll('.session-identity-grid input')) input.value = '';
+  document.querySelector('[aria-labelledby="notes-title"] textarea').value = '';
+  document.querySelector('#catalog-save').textContent = 'Use local entry';
+  updateAnimalSummary({});
+  for (const small of document.querySelectorAll('.session-identity-grid small')) small.textContent = 'Unsent local preparation';
+}
 const sectionNames = {
   setup: "Setup",
   session: "Session",
@@ -65,7 +79,7 @@ const catalogForms = {
     valueField: "project_name",
     fields: [
       { name: "project_name", label: "Project name", type: "text", wide: true },
-      { name: "primary_experimenter", label: "Primary experimenter", type: "select", options: ["Taylor Kim", "Morgan Lee"] },
+      { name: "primary_experimenter", label: "Primary experimenter", type: connected ? "text" : "select", options: ["Taylor Kim", "Morgan Lee"] },
     ],
   },
   animal: {
@@ -202,7 +216,8 @@ function renderNotifications() {
   if (notifications.length === 0) {
     const empty = document.createElement("div");
     empty.className = "alerts-empty";
-    empty.innerHTML = "<div><strong>No unacknowledged alerts</strong><p>Restore the fictional entries to repeat the visual test.</p></div>";
+    empty.innerHTML = connected ? '<div><strong>Warnings and errors unavailable</strong><p>Authoritative notification integration is not connected.</p></div>' : "<div><strong>No unacknowledged alerts</strong><p>Restore the fictional entries to repeat the visual test.</p></div>";
+    if (connected) { alertsBadge.hidden = true; alertsTrigger.setAttribute('aria-label', 'Warnings and errors unavailable'); restoreAlerts.disabled = true; }
     alertsList.append(empty);
     return;
   }
@@ -368,6 +383,8 @@ catalogForm.addEventListener("submit", (event) => {
 });
 
 catalogDialog.addEventListener("close", () => {
+  // A queued close event must not clear a newly reopened catalog dialog.
+  if (catalogDialog.open) return;
   if (catalogDialog.returnValue !== "save" && activeCatalogSelect) {
     activeCatalogSelect.value = activeCatalogSelect.dataset.previousValue;
   }

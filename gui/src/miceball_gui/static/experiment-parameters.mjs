@@ -5,8 +5,8 @@ export function activeParameterSnapshot(state) {
   if (!context) return null;
   const monitor = context.experimentMonitor;
   const monitoredRecord = monitor ? context.sessionDemo?.[monitor.protocolId]?.steps[monitor.stepId] : null;
-  if (monitor && monitoredRecord?.status === 'running') {
-    return { name: monitor.name, source: 'Fixed executing-attempt configuration', configuration: clone(monitor.configuration) };
+  if (monitor && (monitoredRecord?.status === 'running' || context.connected)) {
+    return { name: monitor.name, source: monitoredRecord?.status === 'running' ? 'Fixed executing-attempt configuration' : 'Fixed executed-attempt configuration', configuration: clone(monitor.configuration) };
   }
   const progress = context.sessionDemo?.[context.protocolId];
   const steps = context.protocols.find(item => item.id === context.protocolId)?.steps || context.freeOperations || [];

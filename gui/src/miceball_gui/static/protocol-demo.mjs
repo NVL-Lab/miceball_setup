@@ -2,10 +2,14 @@
 export const operationCategories = Object.freeze(['Experiment', 'Analysis', 'Scientific Validation', 'Operator interaction']);
 
 export function operationCategoryAvailability() {
-  return operationCategories.map(category => ({ category, count: operations.filter(operation => operation.type === category).length }));
+  return operationCategories.map(category => ({ category, count: operations.filter(operation => operation.type === category && !operation.unavailable).length }));
 }
 
-export const operations = [
+export const connectedMode = globalThis.document?.documentElement?.dataset?.runtime === 'connected';
+export const operations = connectedMode ? [
+  { id: 'acquisition', name: 'Data acquisition', type: 'Experiment', description: 'Explicitly configured framework acquisition.', required: [], optional: [] },
+  ...['Analysis', 'Scientific Validation', 'Operator interaction'].map(type => ({ id: type, name: type, type, required: [], optional: [], unavailable: true })),
+] : [
   { id: 'initial', name: 'Initial imaging', type: 'Experiment', description: 'Acquire initial imaging for ROI identification.', required: ['imaging_camera'], optional: ['behavior_video'] },
   { id: 'roi', name: 'Suite2p ROI identification', type: 'Analysis', recordedInput: true, description: 'Identify ROIs using the application-supplied Suite2p operation.', required: [], optional: [] },
   { id: 'baseline', name: 'Baseline recording', type: 'Experiment', description: 'Record baseline activity.', required: ['imaging_camera'], optional: ['behavior_video'] },
@@ -14,7 +18,7 @@ export const operations = [
   { id: 'calibrate', name: 'Cursor calibration', type: 'Analysis', recordedInput: true, description: 'Calibrate the neural cursor.', required: [], optional: [] },
   { id: 'loop', name: 'Closed-loop acquisition', type: 'Experiment', description: 'Run the application-supplied closed-loop operation.', required: ['imaging_camera', 'visual_stimulation', 'reward_delivery'], optional: ['behavior_video'] },
 ];
-export const devices = [
+export const devices = connectedMode ? [] : [
   { id: 'orca', name: 'Camera (ORCA-Fusion)', detail: 'S/N 123456', capabilities: ['imaging_camera'], available: true },
   { id: 'display', name: 'Stimulus display (XB273U)', detail: '2560 × 1440', capabilities: ['visual_stimulation'], available: true },
   { id: 'reward', name: 'Reward solenoid (NI)', detail: 'NI-01', capabilities: ['reward_delivery'], available: true },
@@ -71,6 +75,8 @@ export function assignCapability(step, kind, capability, selected) {
   }
 }
 export function createDemo() {
+  if (connectedMode) return { connected: true, definitions: [], protocols: [], templates: [], protocolId: null,
+    templateId: '', included: [], selectedDevices: [], inventory: {}, actions: {}, controllerSnapshot: null };
   const steps = operations.map((op, i) => ({ ...clone(op), id: `step-${i}`, operation: op.id, mandatory: op.id !== 'holo', configuration: '' }));
   const definitions = steps.map(step => freezeDefinition({ ...clone(step), id: `shared-${step.operation}`, owner: null }));
   steps.forEach(step => { step.definitionId = `shared-${step.operation}`; });

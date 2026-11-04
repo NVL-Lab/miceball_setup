@@ -12,11 +12,13 @@ packaged top-level `gui/` project in this repository, outside the existing
 **Connected-entry implementation update:** GUI Integration Unit 1 now serves this
 shell from a separate Python backend using existing external NATS operations,
 Controller-owned browser grants and authoritative Session/configuration/outcome
-readback. Static preview/Pages remain the demonstration described below; their
-local lifecycle modules are not loaded by the connected entry. Setup identity
-fields, actual inventory selections and explicit framework configuration feed real
-launch; accepted values remain read-only. Other unit controls are unavailable,
-not simulated scientific execution. See [connected setup and scope](../gui/README.md#connected-backend-integration-unit-1-independent-validation-pending).
+readback. The authorized presentation-preservation correction retains the original
+shared presenters in both modes rather than replacing cards/workspaces. Connected
+mode suppresses fixture initialization and simulated execution, binds existing
+controls to the same backend and distinguishes local preparation from accepted
+read-only values. Analysis, Storage, Services and scientific output surfaces remain
+present with explicitly unavailable operational integration, not fictional outcomes.
+See [connected setup and scope](../gui/README.md#connected-backend-integration-unit-1-independent-validation-pending).
 This is developer implementation status, not independent validation, audit or closure.
 
 Slice 6, as corrected by the project owner, adds read-only availability

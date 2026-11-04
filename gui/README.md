@@ -7,8 +7,11 @@ start or contact scientific framework services or execute scientific algorithms.
 
 ## Connected backend (Integration Unit 1; independent validation pending)
 
-The Python backend serves the existing shell with a connected Setup/Session/Experiment
-path instead of loading the demonstration lifecycle modules. Install the core checkout
+The Python backend serves the approved shared Setup, Session, Parameters, Experiment,
+Analysis, Storage and Services presenters. A single connected-mode marker selects
+Controller readback and operation bindings instead of fixture initialization or
+simulated lifecycle handlers; connected mode does not replace the workspaces.
+Install the core checkout
 and this separate package in a compatible Python 3.12 environment:
 
 ```text
@@ -34,13 +37,20 @@ backend restart establishes a new observing connection, not automatic control.
 Superseded connections cannot issue new mutations; already-admitted work continues.
 
 Refresh inventory for an actual configured AcquisitionNode and select its returned
-device declarations. Enter explicit framework Session configuration JSON, including
-required deployment settings and final metadata; scientific outputs are explicit.
+device declarations in the existing device card. Catalog dialogs create local,
+unsaved entries only. Session identity, notes and storage retain their original
+controls; the storage card's additional configuration disclosure accepts explicit
+framework fields not yet covered by dedicated controls, including `protocol_plan`
+and synchronization settings. No local protocol/catalog/template edit claims durable
+application persistence. Only final Controller-accepted Session values are preserved.
 Controller validates readiness, selection and durable initial preservation. No
 fictional inventory or capacity is substituted. Accepted configuration is read-only.
-Launch does not start acquisition: use Start Session afterward. Experiment ID,
-configuration (duration, node recording budgets, preservation budget, participants
-and applicable overrides) and outputs use the existing public framework schemas.
+Launch does not start acquisition: use Start Session afterward. Experiment identity
+and configuration use the existing Session preparation and Parameters controls:
+duration, node recording budgets, preservation budget, participating devices,
+explicit scientific outputs and adapter-declared overrides. Missing values are not
+filled from the former camera/stimulation examples. The read-only drawer uses
+Controller-reported executed configuration, not later working edits.
 Start/Stop Experiment, explicit expiry reconciliation, Normal Session Stop and
 release delegate to existing Controller operations. Released Sessions permit another
 launch without restarting the GUI.
@@ -55,10 +65,25 @@ preventing the web page from loading.
 
 Analysis/Validation, scientific visualization, Storage integration, Services
 administration/freshness and notifications are unavailable in this connected unit.
+Their original workspaces and harmless interactions remain; missing data is unknown
+or unavailable, never fictional readiness, capacity, history or scientific output.
+Application protocol definitions not present in page memory cannot be reconstructed
+from the framework's name-only protocol association. Unverified device-to-node
+associations remain unavailable until actual inventory establishes a unique match.
 Static GitHub Pages remains demonstration-only; it cannot operate this backend.
 Developer tests: `python -B -m unittest gui.tests.test_backend` from repository root
 with GUI dependencies and the existing optional local NATS test binary installed.
 These are developer checks, not ICC independent validation, audit or deployment closure.
+
+Rendered developer verification is available through
+`python -B -m unittest gui.tests.test_connected_browser.ConnectedPresentationTests.test_shared_presentation_and_controller_actions_in_browser -v`.
+It requires Node, Playwright (`LAB_SYNC_PLAYWRIGHT_MODULE` may select its installed
+module), an installed browser (`LAB_SYNC_BROWSER_CHANNEL`, e.g. `msedge`), Git and the
+optional test NATS binary. It uses disposable owners/storage and isolated brokers,
+not the deployment. `LAB_SYNC_GUI_EVIDENCE_DIR` optionally retains screenshots and a
+comparison manifest; otherwise generated evidence is temporary. The comparison
+baseline is the committed HEAD static demonstration, extracted to temporary storage.
+Independent validation, audit and owner visual acceptance remain separate stages.
 
 ### Public interfaces
 
@@ -78,7 +103,7 @@ NatsExternalSessionLaunchReceiver(boundary, controller, *, communication, mainte
   close()
 create_gui_app(*, servers, controller_id, client_id, origin, timeout_s, max_request_bytes=1048576)
 main()
-confirmStop(kind, initiateStop, description="Confirm to initiate the existing browser-local Stop workflow. Keeping it running or dismissing this dialog does not initiate a Stop.")
+confirmStop(kind, initiateStop, description="Confirm to initiate the existing browser-local Stop workflow. Keeping it running or dismissing this dialog does not initiate a Stop.", labels={})
 ```
 
 `browser_context` contains `browser_id`, `instance_id` and integer `generation`;

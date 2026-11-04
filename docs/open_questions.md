@@ -523,6 +523,8 @@ implementation gap, not authority to reopen historical Sessions or alter evidenc
 selected NATS visualization, browser control identity, takeover and authoritative
 reconnection requirements. GUI Integration Unit 1 implements the bounded backend,
 Controller-enforced browser grants and authoritative Session/operation readback;
+the presentation-preservation correction reconnects the original shared workspaces
+and controls while isolating demonstration execution and unavailable integrations;
 independent ICC validation and Codex audit remain pending. See the
 [implementation interfaces and developer evidence](code_map.md#gui-integration-unit-1-implementation-independent-validationaudit-pending).
 Scientific visualization/result delivery, Q031/Q032 and other GUI units remain

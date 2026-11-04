@@ -1,228 +1,213 @@
-// Framework snapshots are display inputs, never a browser-owned lifecycle.
+// Shared presenters own markup; this entry binds them to the existing backend.
+import { state, renderSetup } from './protocol-setup.js';
+import { devices, clone } from './protocol-demo.mjs';
+import { deviceExamples, experimentView, experimentIssues } from './experiment-demo.mjs';
+import { applyControllerSnapshot } from './session-context.mjs';
+import { selectedStepContext } from './session-demo.mjs';
+import { renderSession } from './session-view.js';
+import { renderParameters } from './parameters-view.js';
+import { renderExperiment } from './scientific-views.js';
+import { navigate } from './gui-presentation.js';
 import { confirmStop } from './stop-confirmation.mjs';
+
 const $ = selector => document.querySelector(selector);
-const pretty = value => JSON.stringify(value, null, 2);
-let socket, browserId, current = null, confirmed = false, refreshing = false, busy = false;
+let socket, browserId, confirmed = false, busy = false, refreshing = false, lastRender = '';
 const waiting = new Map();
 let outcomes = [];
 try { const stored = JSON.parse(sessionStorage.getItem('miceball-pending') || '[]');
   if (Array.isArray(stored)) outcomes = stored.filter(o => o && typeof o.request_id === 'string' && typeof o.instance_id === 'string');
 } catch (_) {}
-const save = () => sessionStorage.setItem('miceball-pending', pretty(outcomes));
+const current = () => state.controllerSnapshot;
+const save = () => sessionStorage.setItem('miceball-pending', JSON.stringify(outcomes));
 
-$('.topbar__eyebrow').textContent = 'Miceball';
-$('.topbar').insertAdjacentHTML('beforeend', `<div><span id="connection-state" role="status">Connecting</span>
-  <button id="view-only" type="button">View Only</button><button id="take-over" type="button">Take Over</button></div>`);
-$('.alerts').hidden = true;
-$('.setup-demo-note').textContent = 'Controller connection unconfirmed';
-$('.identity-selects').innerHTML = ['Experimenter', 'Project', 'Animal'].map(name =>
-  `<label>${name}<input id="working-${name.toLowerCase()}" type="text"></label>`).join('');
-$('#animal-summary').remove();
-for (const input of $('.session-identity-grid').querySelectorAll('input')) input.value = '';
-for (const small of $('.session-identity-grid').querySelectorAll('small')) small.textContent = '';
-$('.setup-card[aria-labelledby="template-title"]').innerHTML = '<h3>Protocol</h3><label>Protocol name (optional)<input id="working-protocol" type="text"></label>';
-$('[aria-labelledby="notes-title"] textarea').value = '';
-$('.device-card .demo-chip').textContent = 'Unconfirmed';
-$('.device-list').innerHTML = `<select id="inventory-node" aria-label="Configured AcquisitionNode"></select>
-  <button id="load-inventory" type="button">Refresh inventory</button><div id="device-selection"></div>
-  <details><summary>Device declarations</summary><pre id="inventory-result"></pre></details>`;
-$('[aria-labelledby="storage-title"]').innerHTML = `<h3>Deployment configuration</h3>
-  <label>Session configuration (JSON)<textarea id="launch-configuration" rows="9" spellcheck="false"></textarea></label>
-  <details><summary>Scientific outputs</summary><label>Scientific outputs (JSON)<textarea id="launch-outputs" rows="5" spellcheck="false">[]</textarea></label></details>`;
-$('.readiness-card').innerHTML = '<h3>Accepted Session configuration</h3><pre id="accepted-configuration"></pre>';
-$('.launch-session-demo').id = 'launch-session';
-$('#launch-session').innerHTML = '<strong>Launch Session</strong><span>Controller connection unconfirmed</span>';
-$('#launch-demo-note').textContent = '';
-$('#panel-session').innerHTML = `<h2>Session</h2><dl id="session-status"></dl>
-  <div class="session-context-links"><button id="start-session" type="button">Start Session</button>
-  <button id="normal-stop" type="button">Stop Session</button><button id="release-session" type="button">Release Session</button></div>
-  <h3>Operations</h3><div id="operation-results" role="status"></div><h3>Lifecycle</h3><pre id="session-lifecycle"></pre>`;
-$('#panel-experiment').innerHTML = `<h2>Experiment</h2><p id="active-experiment"></p>
-  <label>Experiment ID<input id="experiment-id" type="text"></label>
-  <label>Experiment configuration (JSON)<textarea id="experiment-configuration" rows="10" spellcheck="false"></textarea></label>
-  <label>Scientific outputs (JSON)<textarea id="experiment-outputs" rows="5" spellcheck="false">[]</textarea></label>
-  <button id="start-experiment" type="button">Start Experiment</button><button id="stop-experiment" type="button">Stop Experiment</button>
-  <button id="reconcile-expiry" type="button">Check expiry</button><pre id="experiment-state"></pre>`;
-for (const section of ['analysis', 'storage', 'services', 'parameters']) {
-  $(`#panel-${section}`).replaceChildren(Object.assign(document.createElement('p'), {textContent: `${section[0].toUpperCase()+section.slice(1)} integration unavailable in this unit.`}));
+$('.topbar').insertAdjacentHTML('beforeend', '<div class="connection-tools"><span id="connection-state" role="status">Connecting</span><button id="view-only" type="button">View Only</button><button id="take-over" type="button">Take Over</button></div>');
+$('.setup-demo-note').textContent = 'Controller connection unconfirmed. Local preparation is not acceptance or persistence.';
+const storageCard = $('[aria-labelledby="storage-title"]');
+const storageBody = storageCard.querySelector('.setup-disclosure-body') || storageCard;
+storageCard.querySelector('input').readOnly = false;
+storageCard.querySelector('input').value = '';
+storageCard.querySelector('button').disabled = true;
+$('.storage-path code').textContent = 'Assigned by the configured storage owners';
+for (const value of $('.storage-stats').querySelectorAll('dd')) value.textContent = 'Unavailable';
+$('#launch-demo-note').textContent = 'Requests Controller acceptance, reservation and durable preservation. Launch does not start an Experiment.';
+for (const button of document.querySelectorAll('#view-only, #take-over')) button.className = 'dialog-button';
+storageBody.insertAdjacentHTML('beforeend', '<label>Error evidence location<input id="error-evidence-location"></label><details><summary>Additional Session configuration</summary><label>Framework configuration fields (JSON)<textarea id="session-framework-fields" rows="7" spellcheck="false" placeholder="Explicit protocol_plan, synchronization_configuration and applicable storage/acquisition settings"></textarea></label></details>');
+($('.device-card .setup-disclosure-body') || $('.device-card')).insertAdjacentHTML('afterbegin', '<div class="inventory-controls"><label>Configured AcquisitionNode<select id="inventory-node"></select></label><button id="load-inventory" type="button">Refresh inventory</button><span id="inventory-status" role="status">Inventory unconfirmed</span></div>');
+$('.readiness-card').insertAdjacentHTML('beforeend', '<details><summary>Accepted Session configuration</summary><pre id="accepted-configuration">No accepted configuration confirmed</pre></details>');
+$('#load-inventory').className = 'dialog-button';
+$('#inventory-status').className = 'prototype-caption';
+$('#device-validation-maximum').disabled = true;
+$('#device-validation-maximum').closest('label').title = 'Device Validation integration unavailable';
+
+function canControl() {
+  return confirmed && current()?.control?.controlling && !busy && !outcomes.some(o => ['pending', 'uncertain'].includes(o.status));
 }
-const selections = new Map();
-let inventory = null;
-
 function controls() {
-  const status = current?.status;
-  const can = confirmed && current?.control?.controlling && !busy
-    && !outcomes.some(o => ['pending', 'uncertain'].includes(o.status));
-  $('#launch-session').disabled = !can || Boolean(status?.session_id);
-  $('#launch-configuration').readOnly = Boolean(status?.session_id);
-  $('#launch-outputs').readOnly = Boolean(status?.session_id);
-  for (const input of $('#panel-setup').querySelectorAll('input, textarea')) input.disabled = Boolean(status?.session_id) || !confirmed || !current?.control?.controlling;
-  $('#start-session').disabled = !can || status?.session_state !== 'initialized';
-  $('#normal-stop').disabled = !can || !status?.session_id;
-  $('#release-session').disabled = !can || !['completed', 'failed', 'aborted'].includes(status?.session_state);
-  $('#start-experiment').disabled = !can || status?.session_state !== 'running' || Boolean(status?.active_experiment_id);
-  $('#stop-experiment').disabled = !can || !status?.active_experiment_id;
-  $('#reconcile-expiry').disabled = !can || !status?.active_experiment_id;
+  const status = current()?.status;
+  $('.launch-session-demo').disabled = !canControl() || Boolean(status?.session_id);
+  $('.launch-session-demo span').textContent = !confirmed ? 'Controller connection unconfirmed' : status?.session_id ? 'Session accepted' : current()?.control?.controlling ? 'Request Controller launch' : 'View Only';
+  for (const input of document.querySelectorAll('.session-identity-grid input, #session-framework-fields, #error-evidence-location')) input.readOnly = Boolean(status?.session_id);
+  storageCard.querySelector('input').readOnly = Boolean(status?.session_id);
+  for (const button of document.querySelectorAll('[data-launch-experiment], [data-stop-experiment], [data-reconcile-expiry], [data-stop-session], [data-start-session], [data-release-session]')) {
+    if (!canControl()) button.disabled = true;
+    if (button.hasAttribute('data-start-session')) button.disabled = !canControl() || status?.session_state !== 'initialized';
+    if (button.hasAttribute('data-stop-session')) button.disabled = !canControl() || !status?.session_id;
+    if (button.hasAttribute('data-release-session')) button.disabled = !canControl() || !['completed', 'failed', 'aborted'].includes(status?.session_state);
+    if (button.hasAttribute('data-stop-experiment') || button.hasAttribute('data-reconcile-expiry')) button.disabled = !canControl() || !status?.active_experiment_id;
+    if (button.hasAttribute('data-launch-experiment')) {
+      const {step, record} = selectedStepContext(state);
+      button.disabled = !canControl() || status?.session_state !== 'running' || Boolean(status?.active_experiment_id)
+        || !step || experimentIssues(state, step, experimentView(state, step, record).configuration).length > 0;
+    }
+  }
   $('#take-over').disabled = !confirmed || busy;
   $('#view-only').disabled = !confirmed || busy;
-  $('#load-inventory').disabled = !confirmed || busy;
-  $('#experiment-configuration').readOnly = Boolean(status?.active_experiment_id);
-  $('#experiment-outputs').readOnly = Boolean(status?.active_experiment_id);
-  for (const input of $('#device-selection').querySelectorAll('input')) input.disabled = !can || Boolean(status?.session_id);
+  $('#load-inventory').disabled = !confirmed || busy || !$('#inventory-node').value;
+  for (const input of document.querySelectorAll('#session-device-list input')) input.disabled = Boolean(status?.session_id) || !devices.find(device => device.id === input.dataset.device)?.available;
+  let display = $('#operation-results');
+  if (!display) { display = document.createElement('div'); display.id = 'operation-results'; display.className = 'session-feedback'; display.setAttribute('role', 'status'); $('#panel-session').append(display); }
+  display.replaceChildren(...outcomes.map(entry => {
+    const details = document.createElement('details'), summary = document.createElement('summary'), text = document.createElement('p');
+    summary.textContent = `${entry.operation} · ${entry.status}`;
+    text.textContent = `${entry.request_id || 'Request identity unavailable'} · ${entry.result?.error || 'No automatic replay. Completion follows Controller readback.'}`;
+    details.append(summary, text); return details;
+  }));
 }
-
+state.actions.syncControls = controls;
 function request(operation, parameters = {}, session_id = null) {
   if (socket?.readyState !== WebSocket.OPEN) return Promise.reject(new Error('Backend disconnected; outcome unconfirmed'));
-  const id = crypto.randomUUID();
+  const id = crypto.randomUUID(), request_id = `${browserId}-${id}`, instance_id = current()?.instance_id;
   return new Promise((resolve, reject) => {
-    const uncertain = reason => Object.assign(new Error(reason), {request_id: `${browserId}-${id}`, instance_id: current?.instance_id});
+    const uncertain = reason => Object.assign(new Error(reason), {request_id, instance_id});
     const timer = setTimeout(() => { waiting.delete(id); reject(uncertain('Response timeout; outcome unconfirmed')); }, 30000);
-    waiting.set(id, {resolve, reject, timer, uncertain});
+    waiting.set(id, {resolve: message => resolve({...message, submitted_request_id: request_id, submitted_instance_id: instance_id}), reject, timer, uncertain});
     socket.send(JSON.stringify({id, operation, session_id, parameters}));
   });
 }
-
 function requireResult(reply) {
-  const result = reply.result;
-  if (!result || result.status !== 'succeeded') throw new Error(result?.error || reply.error || result?.status || reply.status);
-  return result.outcome.details;
+  if (reply.result?.status !== 'succeeded') throw new Error(reply.result?.error || reply.error || reply.result?.status || reply.status);
+  return reply.result.outcome.details;
 }
-
 async function refresh() {
   if (refreshing) return;
   refreshing = true;
   try {
-    current = requireResult(await request('read_controller_state'));
-    confirmed = true;
-    for (const operation of current.pending_operations) {
-      if (!outcomes.some(o => o.request_id === operation.request_id && o.instance_id === current.instance_id)) {
-        outcomes.push({operation: operation.operation, request_id: operation.request_id,
-          instance_id: current.instance_id, status: 'pending'});
+    const snapshot = requireResult(await request('read_controller_state'));
+    const previous = current();
+    applyControllerSnapshot(state, snapshot); confirmed = true;
+    if (snapshot.configuration && (previous?.status?.session_id !== snapshot.status.session_id || previous?.instance_id !== snapshot.instance_id)) {
+      const config = snapshot.configuration, metadata = config.session_parameters || {};
+      const inputs = document.querySelectorAll('.session-identity-grid input');
+      [metadata.name, metadata.date, metadata.number].forEach((value, index) => { inputs[index].value = value ?? ''; });
+      inputs[1].dispatchEvent(new Event('input'));
+      for (const key of ['experimenter', 'project', 'animal']) {
+        if (typeof metadata[key] !== 'string' || !metadata[key]) continue;
+        const select = $(`#${key}-select`);
+        let option = [...select.options].find(item => item.textContent === metadata[key]);
+        if (!option) { option = new Option(metadata[key], metadata[key]); select.add(option, select.lastElementChild); }
+        select.value = option.value; select.dataset.previousValue = option.value;
       }
+      storageCard.querySelector('input').value = config.storage_location || '';
+      $('#error-evidence-location').value = config.error_evidence_location || '';
+      $('#session-framework-fields').value = JSON.stringify(config, null, 2);
+      $('[aria-labelledby="notes-title"] textarea').value = metadata.notes || '';
     }
-    $('#connection-state').textContent = `${current.controller_id} · ${current.control.controlling ? 'Controlling' : 'View Only'}`;
-    $('.setup-demo-note').textContent = current.status.session_id ? 'Accepted Session configuration is fixed' : current.control.controlling ? 'Session preparation' : 'View Only';
-    $('#launch-session span').textContent = current.control.controlling ? 'Controller launch' : 'View Only';
-    $('#accepted-configuration').textContent = pretty(current.configuration);
-    $('#session-status').textContent = `${current.status.session_id || 'No active Session'} · ${current.status.session_state || 'No Session'}`;
-    $('#session-lifecycle').textContent = pretty(current.session_lifecycle);
-    $('#active-experiment').textContent = current.status.active_experiment_id || 'No active Experiment';
-    $('#experiment-state').textContent = pretty(current.experiments);
+    for (const operation of snapshot.pending_operations) if (!outcomes.some(o => o.request_id === operation.request_id && o.instance_id === snapshot.instance_id)) outcomes.push({operation: operation.operation, request_id: operation.request_id, instance_id: snapshot.instance_id, status: 'pending'});
+    $('#connection-state').textContent = `${snapshot.controller_id} · ${snapshot.control.controlling ? 'Controlling' : 'View Only'}`;
+    $('.setup-demo-note').textContent = snapshot.status.session_id ? 'Accepted Session configuration is fixed. Catalog and unsent application edits cannot alter it.' : 'Unsent local preparation · Controller validates launch and preservation.';
+    $('#accepted-configuration').textContent = JSON.stringify(snapshot.configuration, null, 2);
     const choice = $('#inventory-node');
-    if (pretty([...choice.options].map(o => o.value)) !== pretty(current.configured_nodes)) {
-      choice.replaceChildren(...current.configured_nodes.map(id => Object.assign(document.createElement('option'), {value: id, textContent: id})));
-    }
+    if (JSON.stringify([...choice.options].map(o => o.value)) !== JSON.stringify(snapshot.configured_nodes)) choice.replaceChildren(...snapshot.configured_nodes.map(id => new Option(id, id)));
+    let completedNavigation = null;
     for (const entry of outcomes.filter(o => ['pending', 'uncertain'].includes(o.status))) {
       const result = requireResult(await request('read_operation_outcome', {target_request_id: entry.request_id, instance_id: entry.instance_id}));
-      entry.status = result.status;
-      entry.result = result.result;
+      entry.status = result.status; entry.result = result.result;
+      if (entry.status === 'succeeded' && entry.instance_id === snapshot.instance_id) {
+        if (entry.operation === 'launch_session' && snapshot.status.session_id) completedNavigation = 'session';
+        if (entry.operation === 'start_launched_experiment' && snapshot.status.active_experiment_id) completedNavigation = 'experiment';
+      }
     }
     save();
-    $('#operation-results').replaceChildren(...outcomes.map(entry => {
-      const details = document.createElement('details'), summary = document.createElement('summary'), data = document.createElement('pre');
-      summary.textContent = `${entry.operation} · ${entry.status}`;
-      data.textContent = pretty(entry); details.append(summary, data); return details;
-    }));
-  } catch (error) {
-    confirmed = false;
-    $('#connection-state').textContent = `Unconfirmed · ${error.message}`;
-  } finally { refreshing = false; controls(); }
+    const signature = JSON.stringify([snapshot.instance_id, snapshot.control, snapshot.status, snapshot.configuration, snapshot.experiments]);
+    if (signature !== lastRender) { lastRender = signature; renderSetup(); renderSession(); renderExperiment(); if (!$('#panel-parameters').hidden) renderParameters(); }
+    if (completedNavigation) navigate(completedNavigation);
+  } catch (error) { confirmed = false; $('#connection-state').textContent = `Unconfirmed · ${error.message}`; }
+  finally { refreshing = false; controls(); }
 }
-
-async function command(operation, parameters = {}, session_id = current?.status?.session_id || null) {
-  if (!confirmed || busy || (!current.control.controlling && !['view_only', 'take_browser_control'].includes(operation))) return;
+async function command(operation, parameters = {}, session_id = current()?.status?.session_id || null) {
+  if (!confirmed || busy || (!current()?.control.controlling && !['view_only', 'take_browser_control'].includes(operation))) return;
+  if (!['view_only', 'take_browser_control'].includes(operation) && !canControl()) return;
   busy = true; controls();
   try {
     const reply = await request(operation, parameters, session_id);
-    const result = reply.result;
-    outcomes.push({operation, instance_id: reply.instance_id, request_id: result?.request_id,
-      status: result?.status || reply.status, result: result || reply});
-    save();
+    outcomes.push({operation, instance_id: reply.instance_id || reply.submitted_instance_id, request_id: reply.result?.request_id || reply.submitted_request_id, status: reply.result?.status || reply.status, result: reply.result || reply}); save();
   } catch (error) {
     if (error.request_id && error.instance_id) { outcomes.push({operation, status: 'uncertain', request_id: error.request_id, instance_id: error.instance_id}); save(); }
-    $('#operation-results').textContent = `Uncertain: ${error.message}. No automatic replay.`;
-  } finally { busy = false; controls(); await refresh(); }
+    $('#connection-state').textContent = `Unconfirmed · ${error.message}`;
+  } finally { busy = false; await refresh(); controls(); }
 }
-
-function parse(selector) { return JSON.parse($(selector).value); }
-function run(action) {
-  return () => { try { action(); } catch (error) { $('#operation-results').textContent = error.message; } };
-}
+const localAction = action => async () => { try { await action(); } catch (error) { $('.setup-demo-note').textContent = error.message; } };
+state.actions.launchSession = localAction(async () => {
+  const config = JSON.parse($('#session-framework-fields').value);
+  config.storage_location = storageCard.querySelector('input').value;
+  config.error_evidence_location = $('#error-evidence-location').value;
+  config.session_parameters = {...config.session_parameters};
+  for (const key of ['experimenter', 'project', 'animal']) {
+    const select = $(`#${key}-select`);
+    if (select.value.startsWith('__new_')) throw new Error(`Finish the local ${key} entry.`);
+    if (select.value) config.session_parameters[key] = select.selectedOptions[0].textContent;
+  }
+  const inputs = document.querySelectorAll('.session-identity-grid input');
+  Object.assign(config.session_parameters, {name: inputs[0].value, date: inputs[1].value, number: inputs[2].value ? Number(inputs[2].value) : null, notes: $('[aria-labelledby="notes-title"] textarea').value});
+  state.submittedProcedure = clone(state.protocols.find(protocol => protocol.id === state.protocolId) || null);
+  if (state.submittedProcedure) state.submittedProcedure.included = clone(state.included);
+  config.protocol_reference = state.submittedProcedure?.name || null;
+  const selections = {};
+  for (const id of state.selectedDevices) {
+    const device = devices.find(item => item.id === id);
+    if (!device?.available) throw new Error('Selected inventory is unconfirmed.');
+    (selections[device.nodeId] ??= []).push(clone(device.declaration));
+  }
+  await command('launch_session', {selections, config_parameters: config, scientific_outputs: []}, null);
+  if (current()?.status.session_id) navigate('session');
+});
+state.actions.startSession = () => command('start_launched_session');
+state.actions.stopSession = () => { const sid = current()?.status.session_id; confirmStop('Session', () => command('normal_stop_session', {}, sid), 'Request Normal Stop and preservation. Completion requires Controller confirmation.'); };
+state.actions.releaseSession = () => { const sid = current()?.status.session_id; confirmStop('Session release', () => command('release_session', {}, sid), 'Release only after Controller confirms terminal preservation and cleanup.', {title: 'Release Session?', confirm: 'Release Session', cancel: 'Cancel'}); };
+state.actions.startExperiment = localAction(async () => {
+  const {step, record} = selectedStepContext(state), configuration = experimentView(state, step, record).configuration;
+  const participating_devices = {}, device_configurations = {};
+  for (const id of configuration.participants) {
+    const device = devices.find(item => item.id === id);
+    if (!device?.available) throw new Error('Participating inventory is unconfirmed.');
+    (participating_devices[device.nodeId] ??= []).push(device.deviceId);
+    const parameters = {};
+    for (const field of deviceExamples[id]?.fields || []) if (Object.hasOwn(configuration.values, field.id)) parameters[field.name] = configuration.values[field.id];
+    if (Object.keys(parameters).length) (device_configurations[device.nodeId] ??= {})[device.deviceId] = parameters;
+  }
+  state.submittedExperiment = {stepId: step.id, experimentId: configuration.experimentId};
+  await command('start_launched_experiment', {experiment_id: configuration.experimentId, configuration: {duration_s: configuration.durationSeconds, participating_devices, device_configurations, recording_budgets: configuration.recordingBudgets, preservation_budget_bytes: configuration.preservationBudget}, scientific_outputs: configuration.outputs});
+  if (current()?.status.active_experiment_id) navigate('experiment');
+});
+state.actions.stopExperiment = () => { const sid = current()?.status.session_id, id = current()?.status.active_experiment_id; confirmStop('Experiment', () => command('stop_launched_experiment', {experiment_id: id}, sid), 'Request early Stop and preservation; the Session remains active.'); };
+state.actions.reconcileExpiry = () => command('reconcile_launched_experiment_expiry', {experiment_id: current()?.status.active_experiment_id});
 $('#take-over').onclick = () => command('take_browser_control', {}, null);
 $('#view-only').onclick = () => command('view_only', {}, null);
-$('#launch-session').onclick = run(() => {
-  const config = parse('#launch-configuration'), metadata = {...(config.session_parameters || {})};
-  for (const field of ['experimenter', 'project', 'animal']) {
-    const value = $(`#working-${field}`).value.trim(); if (value) metadata[field] = value;
-  }
-  const notes = $('[aria-labelledby="notes-title"] textarea').value.trim();
-  if (notes) metadata.notes = notes;
-  const name = $('.session-identity-grid input[type="text"]').value.trim();
-  if (name) metadata.name = name;
-  const date = $('.session-identity-grid input[type="date"]').value;
-  if (date) metadata.date = date;
-  const number = $('.session-identity-grid input[type="number"]').value;
-  if (number) metadata.number = Number(number);
-  if (Object.keys(metadata).length) config.session_parameters = metadata;
-  const protocol = $('#working-protocol').value.trim();
-  if (protocol) config.protocol_reference = protocol;
-  return command('launch_session', {selections: Object.fromEntries(selections),
-    config_parameters: config, scientific_outputs: parse('#launch-outputs')}, null);
-});
-$('#start-session').onclick = () => command('start_launched_session');
-$('#normal-stop').onclick = () => {
-  const sid = current.status.session_id;
-  confirmStop('Session', () => command('normal_stop_session', {}, sid), 'Request Normal Stop and preservation of acquired data. Confirmation does not establish cleanup or durable completion.');
-};
-$('#release-session').onclick = () => {
-  if ($('#release-confirmation')) return;
-  const sid = current.status.session_id;
-  const dialog = document.createElement('dialog'); dialog.className = 'catalog-dialog';
-  dialog.id = 'release-confirmation'; dialog.setAttribute('aria-labelledby', 'release-confirmation-title');
-  dialog.innerHTML = '<form method="dialog"><h2 id="release-confirmation-title">Release Session?</h2><p>Controller will verify terminal preservation and cleanup before releasing the Session binding.</p><div class="catalog-dialog__actions"><button value="cancel">Cancel</button><button value="release">Release Session</button></div></form>';
-  dialog.onclose = () => { if (dialog.returnValue === 'release') command('release_session', {}, sid); dialog.remove(); };
-  document.body.append(dialog); dialog.showModal();
-};
-$('#start-experiment').onclick = run(() => command('start_launched_experiment', {experiment_id: $('#experiment-id').value,
-  configuration: parse('#experiment-configuration'), scientific_outputs: parse('#experiment-outputs')}));
-$('#stop-experiment').onclick = () => {
-  const id = current.status.active_experiment_id;
-  const sid = current.status.session_id;
-  confirmStop('Experiment', () => command('stop_launched_experiment', {experiment_id: id}, sid), 'Request early Stop and preservation of acquired data. The Session remains active.');
-};
-$('#reconcile-expiry').onclick = () => command('reconcile_launched_experiment_expiry', {experiment_id: current.status.active_experiment_id});
 $('#load-inventory').onclick = async () => {
   const node = $('#inventory-node').value;
   try {
-    inventory = requireResult(await request('get_node_inventory', {node_id: node}));
-    $('#inventory-result').textContent = pretty(inventory);
-    $('#device-selection').replaceChildren(...inventory.devices.map(device => {
-      const label = document.createElement('label'), input = document.createElement('input');
-      input.type = 'checkbox'; input.checked = (selections.get(node) || []).some(d => d.device_id === device.device_id);
-      input.onchange = () => { const ids = new Set(selections.get(node)?.map(d => d.device_id));
-        input.checked ? ids.add(device.device_id) : ids.delete(device.device_id);
-        const values = inventory.devices.filter(d => ids.has(d.device_id));
-        values.length ? selections.set(node, values) : selections.delete(node); };
-      label.append(input, document.createTextNode(device.device_id)); return label;
-    }));
-    controls();
-  } catch (error) { $('#inventory-result').textContent = `Inventory unconfirmed: ${error.message}`; }
+    const inventory = requireResult(await request('get_node_inventory', {node_id: node})); state.inventory[node] = clone(inventory);
+    devices.splice(0, devices.length, ...devices.filter(device => device.nodeId !== node), ...inventory.devices.map(declaration => ({id: `${node}/${declaration.device_id}`, nodeId: node, deviceId: declaration.device_id, declaration: clone(declaration), name: declaration.device_id, detail: node, capabilities: declaration.declared_capabilities || [], available: declaration.enabled === true})));
+    for (const device of devices.filter(item => item.nodeId === node)) deviceExamples[device.id] = {acquisition: Boolean(device.declaration.scientific_products?.length), fields: Object.entries(inventory.session_parameter_definitions?.[device.deviceId] || {}).map(([name, definition]) => ({id: `${device.id}.${name}`, name, label: name, type: definition.type === 'boolean' ? 'checkbox' : ['integer', 'number'].includes(definition.type) ? 'number' : 'text', integer: definition.type === 'integer', min: definition.minimum ?? definition.exclusive_minimum, max: definition.maximum, nullable: definition.nullable}))};
+    if (current()) applyControllerSnapshot(state, current());
+    $('#inventory-status').textContent = `${node}: inventory confirmed; readiness remains Controller-owned`;
+  } catch (error) { for (const device of devices.filter(item => item.nodeId === node)) device.available = false; $('#inventory-status').textContent = `${node}: unconfirmed · ${error.message}`; }
+  renderSetup(); renderSession(); controls();
 };
-
 function connect() {
-  confirmed = false; controls();
-  socket = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`);
-  socket.onmessage = event => {
-    const message = JSON.parse(event.data);
-    if (message.type === 'connected') { browserId = message.browser_id; refresh(); return; }
-    const pending = waiting.get(message.id);
-    if (pending) { clearTimeout(pending.timer); waiting.delete(message.id); pending.resolve(message); }
-  };
-  socket.onclose = () => {
-    confirmed = false; controls(); $('#connection-state').textContent = 'Backend disconnected · last-known state';
-    for (const pending of waiting.values()) { clearTimeout(pending.timer); pending.reject(pending.uncertain('Connection lost; outcome uncertain')); }
-    waiting.clear(); setTimeout(connect, 2000);
-  };
+  confirmed = false; controls(); socket = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`);
+  socket.onmessage = event => { const message = JSON.parse(event.data); if (message.type === 'connected') { browserId = message.browser_id; refresh(); return; } const pending = waiting.get(message.id); if (pending) { clearTimeout(pending.timer); waiting.delete(message.id); pending.resolve(message); } };
+  socket.onclose = () => { confirmed = false; for (const device of devices) device.available = false; renderSetup(); controls(); $('#connection-state').textContent = 'Backend disconnected · last-known state'; for (const pending of waiting.values()) { clearTimeout(pending.timer); pending.reject(pending.uncertain('Connection lost; outcome uncertain')); } waiting.clear(); setTimeout(connect, 2000); };
 }
 connect();
 setInterval(() => { if (socket?.readyState === WebSocket.OPEN) refresh(); }, 2000);

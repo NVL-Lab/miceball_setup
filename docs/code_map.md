@@ -11,9 +11,16 @@
 - `launch_independent_service(..., browser_control_required=False)`: Passes explicit GUI enforcement configuration to the original Controller receiver; the authoritative deployment loader validates the optional boolean and required external client.
 - `miceball_gui.backend.create_gui_app(*, servers, controller_id, client_id, origin, timeout_s, max_request_bytes=1048576)`: Serves the existing shell through an origin-checked aiohttp backend, binds one identity per WebSocket and uses a shared external NATS client without forwarding browser-supplied identities.
 - `miceball_gui.backend.main()`: Implements the separately packaged `miceball-gui` startup command with explicit deployment connection/binding settings.
-- `miceball_gui.backend._ConnectedShell` and its HTMLParser callbacks: Parse the shared static shell, retain presentation initialization and replace demo module entry points with the connected entry without duplicating HTML.
-- `static/connected.js`: Replaces browser-local operational authority with Controller snapshots, gated Session/Experiment commands and read-only pending-outcome reconciliation; unrelated unit controls are unavailable.
-- `static/connected.css`: Reuses existing visual tokens and shell layout for bounded connected forms, status and responsive controls.
+- `miceball_gui.backend._ConnectedShell` and its HTMLParser callbacks: Preserve original presenter entry points, mark connected mode and append one connected binding entry without duplicating HTML or workspace construction.
+- `static/connected.js`: Binds original controls to the existing backend, projects Controller readback, adapts actual node inventory and explicit preparation, and reconciles pending outcomes without lifecycle replay.
+- `static/connected.css`: Adds narrowly scoped connection/inventory indicators and unavailable output contents without restyling the approved workspaces or controls.
+- `session-context.applyControllerSnapshot(state, snapshot)`: Detaches authoritative Session/Experiment readback into presentation context, matches selected declarations only to unique reserved-node inventory, and projects executed configurations and lifecycle evidence without fabricated scientific results.
+- `protocol-demo.connectedMode`: Reads the shared shell marker once to select fixture data or empty connected preparation and supported operation categories.
+- `protocol-setup.renderSetup()`, `session-view.renderSession()`, `parameters-view.renderParameters()`, `scientific-views.renderExperiment()`: Refresh the original shared workspaces from local preparation or Controller-derived context while keeping one set of operational handlers.
+- `services-demo.createServicesDemo(connected=false)` and `storage-demo.createStorageDemo(connected=false)`: Supply unchanged demonstration fixtures or explicitly unknown/empty connected presentation data without executing unsupported operations.
+- `ConnectedPresentationTests`: Reuses existing disposable Controller/NATS fixtures to run real browser interactions and compare the committed original demonstration with connected rendering in both themes and supported viewport sizes.
+- `ConnectedPresentationTests.test_shared_presentation_and_controller_actions_in_browser()`: Exercises original controls for acquisition, control takeover, Stop, release/reuse and reconnect, retaining optional screenshot/manifest evidence outside source files.
+- `test_connected_state.mjs`: Exercises connected preparation, detached accepted/executed readback, unavailable associations and refusal of demonstration execution in connected context.
 - `GUIIntegrationTests`: Uses actual web/WebSocket requests, restricted external NATS, authority-registered participant NATS, disk-backed owners and a simulated camera to exercise Unit 1 without production deployments.
 - `GUIIntegrationTests.backend()/browser()/message()/completed()/take()/launch_parameters()`: Compose disposable browser-facing public workflows with explicit test deployment inputs and non-executing outcome polling.
 - `GUIIntegrationTests.test_browser_session_workflow_and_takeover()`: Checks two-browser admission, immutable readback, Session start/Normal Stop/release and successive launch.
@@ -27,13 +34,18 @@
 - `BackendOfflineTests.test_page_and_bounded_uncertainty_without_operational_broker()`: Verifies the shell serves without a broker and initial transport admission returns bounded uncertainty rather than simulated readiness.
 - `BackendOfflineTests`: Exercises real HTTP/WebSocket availability independently of the optional broker workflow fixtures.
 - `DeploymentConfigurationTests.test_gui_browser_control_requirement_preserves_explicit_controller_client()`: Validates explicit guarded GUI deployment while rejecting nonboolean flags and missing external identities.
-- `confirmStop(kind, initiateStop, description=...)`: Reuses the existing presentation-only confirmation dialog for demonstration or connected Stop descriptions without owning operation state.
+- `confirmStop(kind, initiateStop, description=..., labels={})`: Reuses one presentation-only confirmation gate for Stop or labeled Session release without owning execution state.
 
 Existing CLI envelopes remain compatible; configuring `browser_control_required=true`
 closes the unscoped route for the selected GUI backend client. Q029/Q030 remain OPEN.
 New live state/outcome/inventory reads do not retain historical snapshot caches;
 mutating operation identity, pending tasks and outcomes reuse the existing cache.
 No independent validation, audit or milestone closure is claimed by this implementation.
+Presentation-preservation correction developer verification: 80 JavaScript tests,
+26 backend/shell methods and one rendered browser workflow PASS. The browser workflow
+captured 127 comparison screenshots at 1440x1000 and 800x900 in both themes, using
+disposable owners and an isolated broker. These checks do not establish independent
+validation, audit, hardware or deployment acceptance.
 Developer verification: 41 focused Python methods PASS (backend workflows, request
 models, deployment loader and GUI shell), plus one separately run targeted
 preservation-failure regression PASS; five selected JavaScript Stop/navigation

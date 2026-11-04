@@ -1,6 +1,6 @@
 import { createDemo, operations, devices, clone, selectProtocol, selectTemplate, coverage, saveProtocol, moveStep, assignCapability, preparedSteps, savedOccurrence, copyStepToEdit, saveReusableStep } from './protocol-demo.mjs';
 
-import { launchSessionDemo } from './session-context.mjs';
+import { launchSessionDemo, executionProtocol } from './session-context.mjs';
 import { sessionIdentity, navigate } from './gui-presentation.js';
 
 const validationLimit = document.createElement('label');
@@ -111,8 +111,8 @@ function currentProtocol() { return state.protocols.find(p => p.id === state.pro
 function coverageRows(rows, empty) {
   return rows.length ? rows.map(row => `<tr><td>${escape(row.capability)}</td><td class="${row.providers.length ? 'coverage-good' : 'coverage-missing'}">${row.providers.length ? '✓ Covered' : '○ Missing'}</td><td>${row.providers.map(device => escape(device.name)).join(', ') || '—'}</td></tr>`).join('') : `<tr><td colspan="3">${empty}</td></tr>`;
 }
-function renderSetup() {
-  const protocol = currentProtocol();
+export function renderSetup() {
+  const protocol = state.connected && state.activeSession ? executionProtocol(state) : currentProtocol();
   $('#protocol-select').innerHTML = option('', 'None — Free Mode') + state.protocols.map(p => option(p.id, p.name + (p.protected ? ' · Lab reference' : ''))).join('');
   $('#protocol-select').value = protocol?.id || '';
   $('#protocol-description').textContent = protocol?.description || 'Free Mode: launch without a predefined protocol, then choose supported scientific operations in Session.';
@@ -125,12 +125,23 @@ function renderSetup() {
   $('#template-description').textContent = state.templates.find(t => t.id === state.templateId)?.description || 'Configure this Session manually. No template selected.';
   $('#session-steps').closest('section').hidden = !protocol;
   $('#session-steps').innerHTML = (protocol?.steps || []).map((s, i) => `<tr><td>${i + 1}</td><td>${escape(s.name)}</td><td><input type="checkbox" data-step="${escape(s.id)}" aria-label="Include ${escape(s.name)}" ${s.mandatory || state.included.includes(s.id) ? 'checked' : ''} ${s.mandatory ? 'disabled' : ''}></td><td>${s.mandatory ? 'Yes' : 'No'}</td><td class="step-description-cell">${escape(s.description)}</td></tr>`).join('');
-  const result = coverage(state);
+  const result = coverage(state.connected && state.activeSession ? state.activeSession : state);
+  const selectedDevices = state.connected && state.activeSession ? state.activeSession.selectedDevices : state.selectedDevices;
   $('#capability-rows').innerHTML = coverageRows(result.required, 'No required hardware capabilities for these steps.');
   $('#optional-capabilities').innerHTML = coverageRows(result.optional, 'No additional optional capabilities.');
-  $('#session-device-list').innerHTML = devices.map(d => `<label class="session-device"><input type="checkbox" data-device="${d.id}" aria-label="Select ${escape(d.name)}" ${state.selectedDevices.includes(d.id) ? 'checked' : ''}><span><strong>${escape(d.name)}</strong><small>${escape(d.detail)} · ${d.capabilities.map(escape).join(', ')}</small></span><span class="device-state ${d.available ? 'is-ready' : ''}">${d.available ? 'Connected (demo)' : 'Unavailable (demo)'}</span></label>`).join('');
+  $('#session-device-list').innerHTML = devices.map(d => `<label class="session-device"><input type="checkbox" data-device="${escape(d.id)}" aria-label="Select ${escape(d.name)}" ${selectedDevices.includes(d.id) ? 'checked' : ''} ${state.connected && state.activeSession ? 'disabled' : ''}><span><strong>${escape(d.name)}</strong><small>${escape(d.detail)} · ${d.capabilities.map(escape).join(', ')}</small></span><span class="device-state ${!state.connected && d.available ? 'is-ready' : ''}">${state.connected ? d.available ? 'Inventory confirmed · readiness checked at admission' : 'Availability unconfirmed' : d.available ? 'Connected (demo)' : 'Unavailable (demo)'}</span></label>`).join('');
   const missing = result.required.filter(r => !r.providers.length).length;
   readiness.innerHTML = `<li><span class="${missing ? 'missing-dot' : ''}">${missing ? '!' : '✓'}</span> Capability coverage <strong>${missing ? `${missing} missing` : 'All covered'}</strong></li><li><span class="${result.unavailable.length ? 'missing-dot' : ''}">·</span> Selected device availability <strong>${result.unavailable.length ? `${result.unavailable.length} unavailable` : 'Available (demo)'}</strong></li><li><span>·</span> Optional steps intentionally skipped <strong>${result.skipped}</strong></li><li><span>·</span> Runtime readiness <strong>Not checked — visual demo</strong></li>`;
+  if (state.connected) {
+    readiness.innerHTML = `<li>Capability coverage <strong>${missing ? `${missing} missing` : 'Declared coverage only'}</strong></li><li>Runtime readiness <strong>Controller validates on admission</strong></li><li>Accepted Session <strong>${escape(state.controllerSnapshot?.status?.session_state || 'None / unconfirmed')}</strong></li>`;
+    deviceCard.querySelector('p.prototype-caption').textContent = 'Installed declarations from configured AcquisitionNodes. Availability and readiness are separate.';
+    $('#protocol-select').disabled = Boolean(state.activeSession);
+    if (state.activeSession) {
+      $('#protocol-select').replaceChildren(new Option(state.controllerSnapshot.configuration.protocol_reference || 'None — Free Mode', 'accepted', true, true));
+      $('#session-template').disabled = true;
+      for (const input of $('#session-steps').querySelectorAll('input')) input.disabled = true;
+    }
+  }
 }
 function updateDirty() {
   $('#editor-dirty-label').textContent = JSON.stringify(draft) !== originalDraft ? 'Unsaved changes' : 'Draft';
@@ -323,6 +334,7 @@ $('#cancel-protocol').addEventListener('click', () => {
 });
 discardDialog.addEventListener('close', () => { if (discardDialog.returnValue === 'discard') closeEditor(); discardDialog.returnValue = ''; });
 $('.launch-session-demo').addEventListener('click', () => {
+  if (state.connected) { state.actions.launchSession?.(); return; }
   try {
     launchSessionDemo(state, sessionIdentity(), {
       number: $('.session-identity-grid input[type="number"]').value,
