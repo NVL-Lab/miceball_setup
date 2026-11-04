@@ -37,7 +37,6 @@ html[data-theme="dark"] :is(#panel-parameters, #panel-experiment, #panel-analysi
 .experiment-launch-stack { display: grid; gap: 8px; margin-top: 12px; }
 .session-card .launch-experiment-demo { min-height: 54px; font-size: 14px; }
 .launch-experiment-demo small { display: block; margin-top: 4px; font-weight: 400; }
-.session-card button:disabled, #panel-parameters button:disabled { opacity: .55; cursor: default; }
 .parameter-toolbar { display: flex; gap: 8px; margin-bottom: 12px; }
 .parameter-fields { padding: 0; margin: 0; border: 0; min-width: 0; }
 .parameter-section { border: 1px solid var(--line); border-radius: 8px; background: var(--surface); margin-bottom: 12px; }

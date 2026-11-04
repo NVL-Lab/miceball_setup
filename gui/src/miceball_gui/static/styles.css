@@ -17,6 +17,9 @@
   --line: #dde5ee;
   --surface: #ffffff;
   --workspace: #f4f7fa;
+  --button-disabled-bg: #e8ecf1;
+  --button-disabled-text: #606b78;
+  --button-disabled-border: #cbd2db;
   --sidebar-collapsed: 58px;
   --sidebar-expanded: 205px;
   --topbar-height: 72px;
@@ -51,7 +54,6 @@
 .storage-session[draggable="true"] { cursor: grab; }
 .storage-session[draggable="true"]:active { cursor: grabbing; }
 #panel-storage button, .storage-dialog button { white-space: normal; }
-#panel-storage button:disabled, .storage-dialog button:disabled { opacity: .5; cursor: default; }
 .storage-check { display: block; margin-top: 12px; }
 .storage-capacity { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; }
 .storage-capacity dd { margin: 0; }
@@ -1213,6 +1215,9 @@ button {
 }
 
 html[data-theme="dark"] {
+  --button-disabled-bg: #2b323b;
+  --button-disabled-text: #a6b0bd;
+  --button-disabled-border: #46515e;
   color-scheme: dark;
   --navy-950: #080d13;
   --navy-900: #0d141d;
@@ -1427,6 +1432,23 @@ html[data-theme="dark"] .dialog-button--primary {
 .experiment-parameter-drawer h3 { margin-top:0; }
 .calendar-date-readout { display:block; color:var(--ink-600); margin-top:5px; }
 .section-nav .nav-item[hidden] { display:none !important; }
+/* Native :disabled also covers inherited fieldset disabling. These visual-only
+   overrides beat workspace/primary/destructive/hover rules, including later CSS.
+   Keep native hit testing and tooltips; enabled controls never match this rule. */
+button:disabled {
+  background: var(--button-disabled-bg) !important;
+  color: var(--button-disabled-text) !important;
+  border-color: var(--button-disabled-border) !important;
+  opacity: 1 !important;
+  cursor: not-allowed !important;
+  box-shadow: none !important;
+  filter: none !important;
+  transform: none !important;
+  text-shadow: none !important;
+  animation: none !important;
+  transition: none !important;
+}
+button:disabled :is(span, small, strong, em, svg) { color: inherit !important; }
 @media(max-width:1000px) and (min-width:701px) { #panel-experiment:not([hidden]).has-parameters-drawer { grid-template-columns:minmax(0,1fr) minmax(220px,30%); } }
 @media(max-width:700px) {
   #panel-experiment:not([hidden]).has-parameters-drawer { display:flex; flex-direction:column; }

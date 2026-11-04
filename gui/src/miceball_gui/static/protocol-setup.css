@@ -9,7 +9,6 @@
   border-radius: 6px; background: var(--surface); color: var(--ink-900);
   font: inherit; font-size: 11px; cursor: pointer;
 }
-.protocol-toolbar button:disabled, .protocol-editor button:disabled { opacity: .45; cursor: default; }
 .protocol-toolbar .proto-primary, .protocol-editor .proto-primary { background: #286fcd; border-color: #286fcd; color: #fff; }
 .protocol-description { margin: 10px 0 0; padding: 9px 10px; border-radius: 6px; background: #f3f7fb; color: var(--ink-600); font-size: 11px; line-height: 1.5; }
 .prototype-caption { margin: 0 0 10px; color: var(--ink-600); font-size: 11px; line-height: 1.5; }
@@ -46,7 +45,7 @@
 .editor-footer button { min-height: 44px; min-width: 120px; font-size: 13px; }
 .reusable-step-actions { margin-bottom: 14px; }
 .reusable-step-actions > button { margin-bottom: 10px; }
-.protocol-editor :disabled { opacity: .85; }
+.protocol-editor :is(input, select, textarea):disabled { opacity: .85; }
 .protocol-editor [hidden] { display: none !important; }
 .protocol-editor label { display: grid; gap: 7px; margin-bottom: 14px; color: var(--ink-600); font-size: 11px; font-weight: 600; }
 .protocol-editor :is(input, select, textarea) { width: 100%; min-width: 0; padding: 9px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink-900); font: inherit; font-size: 12px; }

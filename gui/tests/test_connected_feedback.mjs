@@ -37,6 +37,27 @@ const section = async (target, name) => {
 const shot = async name => {
   await page.screenshot({path: `${directory}/${name}.png`, fullPage: true}); screenshots.push(name);
 };
+const buttonStyle = locator => locator.evaluate(button => {
+  const style = getComputedStyle(button);
+  return {background: style.backgroundColor, color: style.color, border: style.borderColor,
+    cursor: style.cursor, opacity: style.opacity, shadow: style.boxShadow, transform: style.transform};
+});
+const disabledStyle = async locator => {
+  assert.equal(await locator.isDisabled(), true);
+  const style = await buttonStyle(locator);
+  assert.equal(style.cursor, 'not-allowed');
+  assert.equal(style.opacity, '1'); // Muted colors retain readable contrast without fading text.
+  assert.equal(style.shadow, 'none');
+  assert.equal(style.transform, 'none');
+  const rgb = value => value.match(/[\d.]+/g).slice(0, 3).map(Number).map(v => {
+    const s = v / 255; return s <= .04045 ? s / 12.92 : ((s + .055) / 1.055) ** 2.4;
+  }).reduce((sum, v, i) => sum + v * [.2126, .7152, .0722][i], 0);
+  const a = rgb(style.color), b = rgb(style.background);
+  assert.ok((Math.max(a,b) + .05) / (Math.min(a,b) + .05) >= 4.5, 'disabled text remains readable');
+  await locator.hover();
+  assert.deepEqual(await buttonStyle(locator), style, 'disabled hover must not look enabled');
+  return style;
+};
 try {
   await page.goto(process.env.MICEBALL_BROWSER_ORIGIN);
   await page.locator('#connection-state').filter({hasText: 'View Only'}).waitFor();
@@ -47,6 +68,7 @@ try {
   assert.match(await services.locator('.services-feedback').innerText(), /readiness checks.*unavailable/i);
   assert.equal(await services.locator('[data-readiness]').count(), 5);
   assert.equal(await services.locator('[data-readiness]').first().isDisabled(), true);
+  await disabledStyle(services.locator('[data-readiness]').first());
   assert.equal(await services.locator('[data-expand-service]').first().getAttribute('aria-expanded'), 'true');
   await services.locator('[data-readiness]').first().evaluate(button => button.click());
   assert.equal(await services.locator('[data-expand-service]').first().getAttribute('aria-expanded'), 'true');
@@ -75,16 +97,32 @@ try {
     await page.setViewportSize({width, height});
     for (const theme of ['light', 'dark']) {
       if (await page.locator('html').getAttribute('data-theme') !== theme) await page.locator('#theme-toggle').click();
+      await disabledStyle(services.locator('[data-readiness]').first());
+      await disabledStyle(services.locator('[data-shutdown-framework]'));
       await shot(`services-feedback-${width}-${theme}`);
     }
+  }
+  assert.ok(requests.every(operation => operation === 'read_controller_state'));
+  await section(page, 'session');
+  for (const selector of ['[data-start-session]', '[data-stop-session]', '[data-release-session]']) {
+    await disabledStyle(page.locator(selector));
+    await page.locator(selector).evaluate(button => button.click());
   }
   assert.ok(requests.every(operation => operation === 'read_controller_state'));
   await section(page, 'setup');
   await page.locator('[data-open-setup]').click();
   const refresh = page.locator('#load-inventory'), status = page.locator('#inventory-status');
+  const enabledRefresh = await buttonStyle(refresh);
   await refresh.click();
   await status.filter({hasText: 'Refreshing inventory'}).waitFor();
   assert.equal(await refresh.isDisabled(), true);
+  const pendingRefresh = await disabledStyle(refresh);
+  assert.notDeepEqual(pendingRefresh, enabledRefresh);
+  for (const theme of ['light', 'dark']) {
+    if (await page.locator('html').getAttribute('data-theme') !== theme) await page.locator('#theme-toggle').click();
+    await disabledStyle(refresh);
+    await shot(`inventory-disabled-${theme}`);
+  }
   assert.equal(await page.locator('#inventory-node').isDisabled(), true);
   await refresh.evaluate(button => {button.click(); button.dispatchEvent(new MouseEvent('click', {bubbles: true}));});
   assert.equal(inventoryRequests.length, 1);
@@ -96,6 +134,7 @@ try {
   reply(inventoryRequests[0].route, inventoryRequests[0].message, 'succeeded', inventory);
   await status.filter({hasText: 'inventory confirmed; readiness remains Controller-owned'}).waitFor();
   assert.equal(await refresh.isEnabled(), true);
+  assert.deepEqual(await buttonStyle(refresh), enabledRefresh, 'successful reply restores enabled appearance');
   assert.match(await page.locator('#session-device-list').innerText(), /actual-device/);
   assert.equal(await page.locator('#session-device-list input').count(), 1);
   await refresh.click();
@@ -145,6 +184,25 @@ try {
   await baseline.goto(process.env.MICEBALL_DEMO_ORIGIN);
   const demo = await browser.newPage({viewport: {width: 1440, height: 1000}});
   await demo.goto(process.env.MICEBALL_DEMO_CURRENT_ORIGIN);
+  // Native fieldset inheritance is the other disabled mechanism in the GUI.
+  // Exercise browser semantics with the actual application styles, without an operation.
+  await demo.evaluate(() => {
+    const form = document.createElement('form'); form.id = 'disabled-inheritance-test';
+    form.style.cssText = 'position:fixed;z-index:1000;top:100px;left:250px';
+    form.innerHTML = '<fieldset disabled><legend>Test only</legend><button type="button">Inherited disabled</button></fieldset><button type="button">Enabled comparison</button>';
+    document.body.append(form);
+  });
+  for (const theme of ['light', 'dark']) {
+    if (await demo.locator('html').getAttribute('data-theme') !== theme) await demo.locator('#theme-toggle').click();
+    const inherited = demo.locator('#disabled-inheritance-test fieldset button');
+    assert.equal(await inherited.getAttribute('disabled'), null);
+    await disabledStyle(inherited);
+    assert.equal(await demo.locator('#disabled-inheritance-test > button').isEnabled(), true);
+  }
+  await demo.locator('#disabled-inheritance-test').evaluate(form => form.remove());
+  for (const target of [baseline, demo]) {
+    if (await target.locator('html').getAttribute('data-theme') !== 'light') await target.locator('#theme-toggle').click();
+  }
   for (const target of [baseline, demo]) {
     await section(target, 'services');
     await target.locator('[data-expand-service]').first().click();
@@ -152,6 +210,25 @@ try {
   assert.equal(await demo.locator('#panel-services').innerText(), await baseline.locator('#panel-services').innerText());
   const demoBefore = await baseline.locator('#panel-services').screenshot();
   assert.deepEqual(await demo.locator('#panel-services').screenshot(), demoBefore);
+  for (const theme of ['light', 'dark']) {
+    for (const target of [baseline, demo]) if (await target.locator('html').getAttribute('data-theme') !== theme) await target.locator('#theme-toggle').click();
+    // Ordinary enabled buttons retain exactly their previous computed appearance.
+    assert.deepEqual(await buttonStyle(demo.locator('[data-readiness]').first()), await buttonStyle(baseline.locator('[data-readiness]').first()));
+    await section(demo, 'storage');
+    await demo.locator('[data-storage-workspace="collection"]').click();
+    await disabledStyle(demo.locator('[data-store-review]'));
+    await demo.locator('[data-add-session]').first().click();
+    assert.equal(await demo.locator('[data-store-review]').isEnabled(), true);
+    await demo.locator('[data-remove-session]').first().click();
+    await disabledStyle(demo.locator('[data-store-review]'));
+    await demo.locator('[data-storage-workspace="deletion"]').click();
+    await disabledStyle(demo.locator('[data-delete-review]'));
+    await section(demo, 'setup');
+    await demo.locator('#protocol-select').selectOption('');
+    await disabledStyle(demo.locator('#edit-protocol'));
+    await section(demo, 'services');
+    await demo.screenshot({path: `${directory}/disabled-demo-${theme}.png`, fullPage: true});
+  }
   for (const target of [baseline, demo]) {
     await target.locator('[data-readiness]').first().click();
     assert.match(await target.locator('.services-feedback').innerText(), /Readiness preview requested/);

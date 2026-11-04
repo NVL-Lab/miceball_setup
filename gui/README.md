@@ -7,6 +7,14 @@ start or contact scientific framework services or execute scientific algorithms.
 
 ## Connected backend (Integration Unit 1; independent validation pending)
 
+Disabled buttons share muted, readable colors and a not-allowed cursor in both
+themes, including pending requests, View Only controls and missing prerequisites.
+Native `disabled` and disabled-fieldset inheritance control this visual treatment;
+enabled buttons retain their workspace styling. This presentation correction does
+not change command admission or close Integration Unit 1. The rendered feedback
+regression below covers both themes, pending inventory, unavailable readiness,
+View Only Session controls and restoration when controls become enabled.
+
 The Python backend serves the approved shared Setup, Session, Parameters, Experiment,
 Analysis, Storage and Services presenters. A single connected-mode marker selects
 Controller readback and operation bindings instead of fixture initialization or
