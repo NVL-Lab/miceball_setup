@@ -1,6 +1,7 @@
 """Rendered Services and inventory feedback with controlled transport outcomes."""
 
 import asyncio
+import json
 import os
 from pathlib import Path
 import shutil
@@ -13,6 +14,8 @@ from aiohttp import web
 from aiohttp.test_utils import TestClient, TestServer
 
 from gui.tests.test_backend import create_gui_app
+from lab_sync_acquisition import AcquisitionNode, DeviceDeclaration, DeviceManager, ScientificProductDeclaration
+from lab_sync_acquisition.device_adapter import DeviceAdapter
 
 
 class ConnectedFeedbackTests(unittest.IsolatedAsyncioTestCase):
@@ -48,10 +51,19 @@ class ConnectedFeedbackTests(unittest.IsolatedAsyncioTestCase):
             await demo.start_server()
             self.addAsyncCleanup(demo.close)
             demos[name] = str(demo.make_url("/"))
+        identities = ['camera" onpointerover="window.__auditMarkupExecuted = 1" data-tail="',
+            'camera "double" and \'single\'', 'camera & <metadata> [0] #', 'ordinary-camera']
+        product = ScientificProductDeclaration("frames", "camera_frames", {}, "jsonl")
+        inventory_owner = AcquisitionNode(device_manager=DeviceManager(
+            DeviceAdapter(identity, "test-camera", (), False) for identity in identities),
+            node_id="node", role="acquisition", synchronization_source_id="sync",
+            device_declarations=tuple(DeviceDeclaration(identity, "test-camera", True, False, (), (product,))
+                for identity in identities))
         environment = {**os.environ, "LAB_SYNC_PLAYWRIGHT_MODULE": module,
             "MICEBALL_BROWSER_ORIGIN": origin, "MICEBALL_DEMO_ORIGIN": demos["baseline"],
             "MICEBALL_DEMO_CURRENT_ORIGIN": demos["current"],
-            "MICEBALL_BROWSER_EVIDENCE": os.environ.get("LAB_SYNC_GUI_EVIDENCE_DIR", directory)}
+            "MICEBALL_BROWSER_EVIDENCE": os.environ.get("LAB_SYNC_GUI_EVIDENCE_DIR", directory),
+            "MICEBALL_DEVICE_IDENTITY_INVENTORY": json.dumps(inventory_owner.get_inventory())}
         result = await asyncio.to_thread(subprocess.run,
             [node, str(Path(__file__).with_suffix(".mjs"))], env=environment,
             capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120)

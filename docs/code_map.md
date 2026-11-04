@@ -22,6 +22,7 @@
 - `ConnectedPresentationTests.test_shared_presentation_and_controller_actions_in_browser()`: Exercises original controls for acquisition, control takeover, Stop, release/reuse and reconnect, retaining optional screenshot/manifest evidence outside source files.
 - `ConnectedFeedbackTests`: Renders the existing backend shell and disconnected demo on disposable web servers with controlled WebSocket outcomes, without contacting deployment services.
 - `ConnectedFeedbackTests.test_services_and_inventory_feedback_in_browser()`: Checks Services/inventory feedback and request guards plus shared disabled-button appearance, readable contrast, fieldset inheritance, View Only controls and enabled-state restoration across themes.
+  It also checks framework-produced quoted/metacharacter device identities remain inert and unchanged through participant selection and outgoing Experiment configuration.
 - `test_connected_state.mjs`: Exercises connected preparation, detached accepted/executed readback, unavailable associations and refusal of demonstration execution in connected context.
 - `GUIIntegrationTests`: Uses actual web/WebSocket requests, restricted external NATS, authority-registered participant NATS, disk-backed owners and a simulated camera to exercise Unit 1 without production deployments.
 - `GUIIntegrationTests.backend()/browser()/message()/completed()/take()/launch_parameters()`: Compose disposable browser-facing public workflows with explicit test deployment inputs and non-executing outcome polling.

@@ -108,6 +108,12 @@ web servers with controlled WebSocket responses for pending, failure, disconnect
 and stale-owner cases; it does not establish live transport behavior. It also
 compares disconnected Services pixels and interactions with committed HEAD.
 This correction remains pending independent manual validation and a separate audit.
+The same rendered regression covers the bounded Unit 1 attribute-injection
+correction: Session participant and Validation attributes use the existing HTML
+escaping helper, preserving original identifiers in DOM data and outgoing requests.
+Framework-produced quoted/metacharacter identities and the audited event-handler
+payload are checked with controlled replies; no acquisition is executed by those
+cases. Independent validation and a new complete Unit 1 audit remain separate.
 
 ### Public interfaces
 

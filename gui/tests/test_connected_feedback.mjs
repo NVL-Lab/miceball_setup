@@ -13,10 +13,13 @@ const errors = [], requests = [], inventoryRequests = [], screenshots = [];
 page.on('pageerror', error => errors.push(error.message));
 const directory = process.env.MICEBALL_BROWSER_EVIDENCE;
 await mkdir(directory, {recursive: true});
-let connection, instance = 'feedback-instance';
+let connection, instance = 'feedback-instance', acceptedConfiguration = null;
+const experimentRequests = [];
 const snapshot = () => ({controller_id: 'feedback', instance_id: instance,
-  control: {controlling: false, generation: 0}, status: {session_id: null},
-  configuration: null, experiments: [], configured_nodes: ['node'], pending_operations: []});
+  control: {controlling: Boolean(acceptedConfiguration), generation: 0},
+  status: {session_id: acceptedConfiguration?.session_id || null, session_state: acceptedConfiguration ? 'running' : null,
+    active_experiment_id: null, experiment_lifecycle_evidence: []},
+  configuration: acceptedConfiguration, experiments: [], configured_nodes: ['node'], pending_operations: []});
 const reply = (route, message, status, details, error) => route.send(JSON.stringify({type: 'result',
   id: message.id, instance_id: instance, result: {status, error, outcome: {details}}}));
 await page.routeWebSocket('**/ws', route => {
@@ -25,6 +28,10 @@ await page.routeWebSocket('**/ws', route => {
     const message = JSON.parse(raw); requests.push(message.operation);
     if (message.operation === 'read_controller_state') reply(route, message, 'succeeded', snapshot());
     else if (message.operation === 'get_node_inventory') inventoryRequests.push({route, message});
+    else if (message.operation === 'start_launched_experiment') {
+      experimentRequests.push(message);
+      reply(route, message, 'rejected', null, 'Controlled fixture: acquisition is not executed');
+    }
     else throw new Error(`Unexpected operation: ${message.operation}`);
   });
   route.send(JSON.stringify({type: 'connected', browser_id: 'feedback-browser'}));
@@ -180,6 +187,53 @@ try {
   await status.filter({hasText: 'inventory confirmed'}).waitFor();
   assert.equal(await page.locator('#session-device-list input').isEnabled(), true);
   await shot('inventory-feedback-recovered');
+  const identityInventory = JSON.parse(process.env.MICEBALL_DEVICE_IDENTITY_INVENTORY);
+  acceptedConfiguration = {session_id: 'identity-session', selected_devices: identityInventory.devices,
+    expected_runtime_participants: [{component_type: 'acquisition_node', component_id: 'node'}],
+    session_parameters: {name: 'Identity regression'}, protocol_reference: null};
+  await page.locator('#accepted-configuration').filter({hasText: 'identity-session'}).waitFor({state: 'attached'});
+  await refresh.click();
+  await status.filter({hasText: 'Refreshing inventory'}).waitFor();
+  reply(inventoryRequests.at(-1).route, inventoryRequests.at(-1).message, 'succeeded', identityInventory);
+  await status.filter({hasText: 'inventory confirmed'}).waitFor();
+  assert.deepEqual(await page.locator('#session-device-list input').evaluateAll(inputs => inputs.map(input => input.dataset.device)),
+    identityInventory.devices.map(device => `node/${device.device_id}`));
+  await section(page, 'session');
+  await page.locator('[data-prepare-free-operation]').click();
+  await page.locator('.experiment-additional-devices').evaluate(element => element.open = true);
+  await page.evaluate(() => {window.__auditMarkupExecuted = 0;});
+  for (const [index, device] of identityInventory.devices.entries()) {
+    const checkbox = page.locator('[data-session-experiment-device]').nth(index);
+    await checkbox.hover();
+    assert.equal(await page.evaluate(() => window.__auditMarkupExecuted), 0, 'inventory identity must not become executable markup');
+    assert.equal(await checkbox.getAttribute('data-session-experiment-device'), `node/${device.device_id}`);
+    assert.equal(await checkbox.getAttribute('onpointerover'), null);
+    await checkbox.check();
+    assert.equal(await checkbox.isChecked(), true);
+    const validation = page.locator('[data-validate-device]').nth(index);
+    assert.equal(await validation.getAttribute('data-validate-device'), `node/${device.device_id}`);
+    assert.equal(await validation.getAttribute('onpointerover'), null);
+    await validation.hover();
+    assert.equal(await page.evaluate(() => window.__auditMarkupExecuted), 0);
+    await checkbox.uncheck();
+    assert.equal(await checkbox.isChecked(), false);
+    await checkbox.check();
+  }
+  assert.equal(await page.locator('#panel-session [onpointerover]').count(), 0);
+  assert.equal(await page.locator('#panel-session metadata').count(), 0);
+  await shot('device-identities-inert');
+  await page.locator('[data-session-navigate="parameters"]').click();
+  await page.locator('#experiment-duration').fill('2');
+  await page.locator('[data-framework-field="experimentId"]').fill('identity-regression');
+  await page.locator('[data-framework-field="preservationBudget"]').fill('100000');
+  await page.locator('[data-recording-budget]').fill('100000');
+  await page.locator('[data-return-session]').click();
+  await page.locator('[data-launch-experiment]').click();
+  await page.locator('#operation-results').filter({hasText: 'rejected'}).waitFor();
+  assert.equal(experimentRequests.length, 1);
+  assert.deepEqual(experimentRequests[0].parameters.configuration.participating_devices.node,
+    identityInventory.devices.map(device => device.device_id));
+  assert.equal(await page.evaluate(() => window.__auditMarkupExecuted), 0);
   const baseline = await browser.newPage({viewport: {width: 1440, height: 1000}});
   await baseline.goto(process.env.MICEBALL_DEMO_ORIGIN);
   const demo = await browser.newPage({viewport: {width: 1440, height: 1000}});
@@ -243,7 +297,7 @@ try {
   await baseline.close(); await demo.close();
   assert.deepEqual(errors, []);
   await writeFile(`${directory}/feedback.json`, JSON.stringify({result: 'PASS', transport: 'controlled WebSocket replies; real GUI/backend shell', inventoryRequests: inventoryRequests.length, screenshots}, null, 2));
-  console.log('PASS: Services unavailable controls/details, independent expansion, unchanged demo pixels/interactions; inventory pending, duplicate guard, success, failure, pending reply, disconnect, reconnect, stale owner refusal and explicit recovery');
+  console.log('PASS: Services/inventory feedback and unchanged demo; quoted, metacharacter and injection identities stay inert and round-trip through selection and the outgoing Experiment request');
 } catch (error) {
   await shot('feedback-failure'); console.error(errors); throw error;
 } finally {await browser.close();}
