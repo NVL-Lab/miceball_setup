@@ -14,12 +14,13 @@ page.on('pageerror', error => errors.push(error.message));
 const directory = process.env.MICEBALL_BROWSER_EVIDENCE;
 await mkdir(directory, {recursive: true});
 let connection, instance = 'feedback-instance', acceptedConfiguration = null;
+let reportedExperiments = [], activeExperiment = null, lifecycle = [];
 const experimentRequests = [];
 const snapshot = () => ({controller_id: 'feedback', instance_id: instance,
   control: {controlling: Boolean(acceptedConfiguration), generation: 0},
   status: {session_id: acceptedConfiguration?.session_id || null, session_state: acceptedConfiguration ? 'running' : null,
-    active_experiment_id: null, experiment_lifecycle_evidence: []},
-  configuration: acceptedConfiguration, experiments: [], configured_nodes: ['node'], pending_operations: []});
+    active_experiment_id: activeExperiment, experiment_lifecycle_evidence: lifecycle},
+  configuration: acceptedConfiguration, experiments: reportedExperiments, configured_nodes: ['node'], pending_operations: []});
 const reply = (route, message, status, details, error) => route.send(JSON.stringify({type: 'result',
   id: message.id, instance_id: instance, result: {status, error, outcome: {details}}}));
 await page.routeWebSocket('**/ws', route => {
@@ -188,6 +189,9 @@ try {
   assert.equal(await page.locator('#session-device-list input').isEnabled(), true);
   await shot('inventory-feedback-recovered');
   const identityInventory = JSON.parse(process.env.MICEBALL_DEVICE_IDENTITY_INVENTORY);
+  const parameterDevice = identityInventory.devices[0].device_id;
+  identityInventory.session_parameter_definitions[parameterDevice] = {
+    gain: {type: 'number', minimum: 0}, gate: {type: 'boolean'}, label: {type: 'string'}};
   acceptedConfiguration = {session_id: 'identity-session', selected_devices: identityInventory.devices,
     expected_runtime_participants: [{component_type: 'acquisition_node', component_id: 'node'}],
     session_parameters: {name: 'Identity regression'}, protocol_reference: null};
@@ -221,19 +225,52 @@ try {
   }
   assert.equal(await page.locator('#panel-session [onpointerover]').count(), 0);
   assert.equal(await page.locator('#panel-session metadata').count(), 0);
+  assert.equal(await page.locator('.experiment-parameter-summary').innerText(), 'No explicit adapter overrides.');
   await shot('device-identities-inert');
   await page.locator('[data-session-navigate="parameters"]').click();
+  const labelValue = '<img src=x onerror="window.__summaryInjected=1"> & "quoted"';
+  await page.evaluate(() => {window.__summaryInjected = 0;});
+  await page.locator('[data-example-value]').nth(0).fill('3.5');
+  await page.locator('[data-example-value]').nth(1).check();
+  await page.locator('[data-example-value]').nth(1).uncheck();
+  await page.locator('[data-example-value]').nth(2).fill(labelValue);
   await page.locator('#experiment-duration').fill('2');
   await page.locator('[data-framework-field="experimentId"]').fill('identity-regression');
   await page.locator('[data-framework-field="preservationBudget"]').fill('100000');
   await page.locator('[data-recording-budget]').fill('100000');
   await page.locator('[data-return-session]').click();
+  const populatedSummary = `gain: 3.5 · gate: No · label: ${labelValue}`;
+  assert.equal(await page.locator('.experiment-parameter-summary').innerText(), populatedSummary);
+  assert.equal(await page.locator('.experiment-parameter-summary img').count(), 0);
+  assert.equal(await page.evaluate(() => window.__summaryInjected), 0);
+  await shot('connected-working-summary');
   await page.locator('[data-launch-experiment]').click();
   await page.locator('#operation-results').filter({hasText: 'rejected'}).waitFor();
   assert.equal(experimentRequests.length, 1);
   assert.deepEqual(experimentRequests[0].parameters.configuration.participating_devices.node,
     identityInventory.devices.map(device => device.device_id));
+  assert.deepEqual(experimentRequests[0].parameters.configuration.device_configurations.node[parameterDevice],
+    {gain: 3.5, gate: false, label: labelValue});
   assert.equal(await page.evaluate(() => window.__auditMarkupExecuted), 0);
+  // Controlled owner readback exercises executed presentation, not acquisition.
+  activeExperiment = 'identity-regression';
+  reportedExperiments = [{experiment_id: activeExperiment, scientific_outputs: [],
+    configuration: structuredClone(experimentRequests[0].parameters.configuration)}];
+  await page.locator('.experiment-current-card h4').filter({hasText: 'executed'}).waitFor();
+  assert.equal(await page.locator('.experiment-parameter-summary').innerText(), populatedSummary);
+  await page.locator('[data-session-navigate="parameters"]').click();
+  assert.equal(await page.locator('[data-example-value]').first().inputValue(), '3.5');
+  assert.equal(await page.locator('[data-example-value]').first().isDisabled(), true);
+  await page.locator('[data-return-session]').click();
+  await shot('connected-executed-summary');
+  lifecycle = [{experiment_id: activeExperiment, event_type: 'experiment_stop', sequence: 1, session_time_s: 2}];
+  activeExperiment = 'without-overrides';
+  reportedExperiments.push({experiment_id: activeExperiment, scientific_outputs: [],
+    configuration: {...structuredClone(experimentRequests[0].parameters.configuration), device_configurations: {}}});
+  lifecycle.push({experiment_id: activeExperiment, event_type: 'experiment_start', sequence: 2, session_time_s: 2});
+  await page.locator('[data-session-step]').filter({hasText: 'without-overrides'}).click();
+  assert.equal(await page.locator('.experiment-parameter-summary').innerText(), 'No explicit adapter overrides.');
+  assert.equal(await page.evaluate(() => window.__summaryInjected), 0);
   const baseline = await browser.newPage({viewport: {width: 1440, height: 1000}});
   await baseline.goto(process.env.MICEBALL_DEMO_ORIGIN);
   const demo = await browser.newPage({viewport: {width: 1440, height: 1000}});
@@ -294,10 +331,24 @@ try {
     await target.locator('[data-admin-close]').click();
   }
   await demo.screenshot({path: `${directory}/services-feedback-demo.png`, fullPage: true});
+  await demo.reload();
+  await section(demo, 'session');
+  await demo.locator('[data-session-step]').first().click();
+  assert.match(await demo.locator('.experiment-parameter-summary').innerText(), /Example exposure \(ms\): 10/);
+  await demo.locator('[data-prepare-experiment]').click();
+  await demo.locator('[data-session-navigate="parameters"]').click();
+  await demo.locator('[data-example-value]').first().fill('25');
+  await demo.locator('[data-return-session]').click();
+  assert.match(await demo.locator('.experiment-parameter-summary').innerText(), /Example exposure \(ms\): 25/);
+  while (await demo.locator('.experiment-devices input[type="checkbox"]:checked').count()) {
+    const id = await demo.locator('.experiment-devices input[type="checkbox"]:checked').first().getAttribute('data-session-experiment-device');
+    await demo.locator(`[data-session-experiment-device=${JSON.stringify(id)}]`).first().uncheck();
+  }
+  assert.equal(await demo.locator('.experiment-parameter-summary').innerText(), 'No applicable example parameters.');
   await baseline.close(); await demo.close();
   assert.deepEqual(errors, []);
   await writeFile(`${directory}/feedback.json`, JSON.stringify({result: 'PASS', transport: 'controlled WebSocket replies; real GUI/backend shell', inventoryRequests: inventoryRequests.length, screenshots}, null, 2));
-  console.log('PASS: Services/inventory feedback and unchanged demo; quoted, metacharacter and injection identities stay inert and round-trip through selection and the outgoing Experiment request');
+  console.log('PASS: working/executed and empty/populated summaries in both modes, escaped parameter text, unchanged outgoing overrides, and device-selection injection regression');
 } catch (error) {
   await shot('feedback-failure'); console.error(errors); throw error;
 } finally {await browser.close();}

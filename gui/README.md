@@ -114,6 +114,10 @@ escaping helper, preserving original identifiers in DOM data and outgoing reques
 Framework-produced quoted/metacharacter identities and the audited event-handler
 payload are checked with controlled replies; no acquisition is executed by those
 cases. Independent validation and a new complete Unit 1 audit remain separate.
+The Session summary fallback correction is covered there as well: nonempty
+escaped parameter summaries take precedence over mode-specific empty messages,
+for working and executed configuration. The regression checks both modes and
+unchanged outgoing overrides; this does not establish independent validation.
 
 ### Public interfaces
 
