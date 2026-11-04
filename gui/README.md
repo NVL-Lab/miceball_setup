@@ -67,6 +67,14 @@ Analysis/Validation, scientific visualization, Storage integration, Services
 administration/freshness and notifications are unavailable in this connected unit.
 Their original workspaces and harmless interactions remain; missing data is unknown
 or unavailable, never fictional readiness, capacity, history or scientific output.
+Connected Services retains unknown role placeholders and visibly explains that
+readiness checks and automatic status refresh are unavailable. Refresh now reports
+that limitation without claiming a check; details and administrator descriptions
+do not imply simulated operational results. Disconnected demonstration behavior
+is unchanged. Inventory refresh immediately shows pending work, admits one request
+at a time, and restores controls on completion or connection loss. Confirmed
+inventory is not service readiness; failed, pending or superseded-owner results
+remain unconfirmed and never trigger automatic retry.
 Application protocol definitions not present in page memory cannot be reconstructed
 from the framework's name-only protocol association. Unverified device-to-node
 associations remain unavailable until actual inventory establishes a unique match.
@@ -84,6 +92,14 @@ not the deployment. `LAB_SYNC_GUI_EVIDENCE_DIR` optionally retains screenshots a
 comparison manifest; otherwise generated evidence is temporary. The comparison
 baseline is the committed HEAD static demonstration, extracted to temporary storage.
 Independent validation, audit and owner visual acceptance remain separate stages.
+
+The bounded Services/inventory feedback regression is
+`python -B -m unittest gui.tests.test_connected_feedback -v`, with the same browser
+environment variables. It renders the production GUI/backend shell on disposable
+web servers with controlled WebSocket responses for pending, failure, disconnect
+and stale-owner cases; it does not establish live transport behavior. It also
+compares disconnected Services pixels and interactions with committed HEAD.
+This correction remains pending independent manual validation and a separate audit.
 
 ### Public interfaces
 

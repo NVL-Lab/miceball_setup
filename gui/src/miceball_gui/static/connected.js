@@ -12,6 +12,7 @@ import { confirmStop } from './stop-confirmation.mjs';
 
 const $ = selector => document.querySelector(selector);
 let socket, browserId, confirmed = false, busy = false, refreshing = false, lastRender = '';
+let inventoryRequest = null;
 const waiting = new Map();
 let outcomes = [];
 try { const stored = JSON.parse(sessionStorage.getItem('miceball-pending') || '[]');
@@ -62,7 +63,8 @@ function controls() {
   }
   $('#take-over').disabled = !confirmed || busy;
   $('#view-only').disabled = !confirmed || busy;
-  $('#load-inventory').disabled = !confirmed || busy || !$('#inventory-node').value;
+  $('#load-inventory').disabled = Boolean(inventoryRequest) || !confirmed || busy || !$('#inventory-node').value;
+  $('#inventory-node').disabled = Boolean(inventoryRequest);
   for (const input of document.querySelectorAll('#session-device-list input')) input.disabled = Boolean(status?.session_id) || !devices.find(device => device.id === input.dataset.device)?.available;
   let display = $('#operation-results');
   if (!display) { display = document.createElement('div'); display.id = 'operation-results'; display.className = 'session-feedback'; display.setAttribute('role', 'status'); $('#panel-session').append(display); }
@@ -195,14 +197,26 @@ $('#take-over').onclick = () => command('take_browser_control', {}, null);
 $('#view-only').onclick = () => command('view_only', {}, null);
 $('#load-inventory').onclick = async () => {
   const node = $('#inventory-node').value;
+  if (inventoryRequest || !confirmed || busy || !node) return;
+  const connection = socket, instance = current()?.instance_id;
+  inventoryRequest = node;
+  $('#inventory-status').textContent = `${node}: Refreshing inventory; confirmation pending`;
+  $('#inventory-status').setAttribute('aria-busy', 'true');
+  controls();
   try {
-    const inventory = requireResult(await request('get_node_inventory', {node_id: node})); state.inventory[node] = clone(inventory);
+    const inventory = requireResult(await request('get_node_inventory', {node_id: node}));
+    if (connection !== socket || socket.readyState !== WebSocket.OPEN || instance !== current()?.instance_id) throw new Error('Inventory belongs to an unconfirmed connection or Controller instance');
+    state.inventory[node] = clone(inventory);
     devices.splice(0, devices.length, ...devices.filter(device => device.nodeId !== node), ...inventory.devices.map(declaration => ({id: `${node}/${declaration.device_id}`, nodeId: node, deviceId: declaration.device_id, declaration: clone(declaration), name: declaration.device_id, detail: node, capabilities: declaration.declared_capabilities || [], available: declaration.enabled === true})));
     for (const device of devices.filter(item => item.nodeId === node)) deviceExamples[device.id] = {acquisition: Boolean(device.declaration.scientific_products?.length), fields: Object.entries(inventory.session_parameter_definitions?.[device.deviceId] || {}).map(([name, definition]) => ({id: `${device.id}.${name}`, name, label: name, type: definition.type === 'boolean' ? 'checkbox' : ['integer', 'number'].includes(definition.type) ? 'number' : 'text', integer: definition.type === 'integer', min: definition.minimum ?? definition.exclusive_minimum, max: definition.maximum, nullable: definition.nullable}))};
     if (current()) applyControllerSnapshot(state, current());
     $('#inventory-status').textContent = `${node}: inventory confirmed; readiness remains Controller-owned`;
   } catch (error) { for (const device of devices.filter(item => item.nodeId === node)) device.available = false; $('#inventory-status').textContent = `${node}: unconfirmed · ${error.message}`; }
-  renderSetup(); renderSession(); controls();
+  finally {
+    inventoryRequest = null;
+    $('#inventory-status').removeAttribute('aria-busy');
+    renderSetup(); renderSession(); controls();
+  }
 };
 function connect() {
   confirmed = false; controls(); socket = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`);
