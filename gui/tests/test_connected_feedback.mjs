@@ -66,7 +66,143 @@ const disabledStyle = async locator => {
   assert.deepEqual(await buttonStyle(locator), style, 'disabled hover must not look enabled');
   return style;
 };
+async function verifyRenderingSafety() {
+  const target = await browser.newPage({viewport: {width: 1440, height: 1000}});
+  const inventory = JSON.parse(process.env.MICEBALL_RENDERING_INVENTORY);
+  const node = process.env.MICEBALL_RENDERING_NODE, text = process.env.MICEBALL_RENDERING_TEXT;
+  const device = inventory.devices[0], product = device.scientific_products[0];
+  const definitions = inventory.session_parameter_definitions[device.device_id];
+  const names = Object.keys(definitions), submitted = [];
+  const metadata = {name: text, experimenter: text, project: text, animal: text, notes: text, date: '2026-10-24'};
+  const configuration = {session_id: 'rendering-session', selected_devices: inventory.devices,
+    expected_runtime_participants: [{component_type: 'acquisition_node', component_id: node}],
+    session_parameters: metadata, protocol_reference: null, storage_location: text, error_evidence_location: text};
+  let controlling = true, executed = null;
+  const state = () => ({controller_id: text, instance_id: 'rendering-instance',
+    control: {controlling, generation: 1}, configuration, configured_nodes: [node], pending_operations: [],
+    status: {session_id: configuration.session_id, session_state: 'running',
+      active_experiment_id: executed?.experiment_id || null, experiment_lifecycle_evidence: []},
+    experiments: executed ? [executed] : []});
+  target.on('pageerror', error => errors.push(error.message));
+  await target.addInitScript(() => {window.__renderingInjected = 0;});
+  await target.routeWebSocket('**/ws', route => {
+    route.onMessage(raw => {
+      const message = JSON.parse(raw);
+      let details, status = 'succeeded';
+      if (message.operation === 'read_controller_state') details = state();
+      else if (message.operation === 'get_node_inventory') {
+        assert.equal(message.parameters.node_id, node); details = inventory;
+      } else if (message.operation === 'start_launched_experiment') {
+        submitted.push(message); status = 'rejected';
+      } else throw new Error(`Unexpected rendering operation: ${message.operation}`);
+      route.send(JSON.stringify({type: 'result', id: message.id, instance_id: 'rendering-instance',
+        result: {status, request_id: text, error: status === 'rejected' ? text : null, outcome: {details}}}));
+    });
+    route.send(JSON.stringify({type: 'connected', browser_id: 'rendering-browser'}));
+  });
+  const inert = async () => {
+    assert.equal(await target.locator('[onpointerover], [onerror], [onfocus], [data-rendering-injected]').count(), 0);
+    assert.equal(await target.evaluate(() => window.__renderingInjected), 0);
+  };
+  try {
+    await target.goto(process.env.MICEBALL_BROWSER_ORIGIN);
+    await target.locator('#connection-state').filter({hasText: 'Controlling'}).waitFor();
+    assert.equal(await target.locator('#connection-state').innerText(), `${text} · Controlling`);
+    assert.equal(await target.locator('#inventory-node').inputValue(), node);
+    assert.equal(await target.locator('.session-identity-grid input').first().inputValue(), text);
+    for (const id of ['experimenter-select', 'project-select', 'animal-select']) {
+      assert.equal(await target.locator(`#${id} option:checked`).innerText(), text);
+    }
+    assert.deepEqual(JSON.parse(await target.locator('#accepted-configuration').textContent()), configuration);
+    await target.locator('[data-open-setup]').click();
+    await target.locator('#load-inventory').click();
+    await target.locator('#inventory-status').filter({hasText: 'inventory confirmed'}).waitFor();
+    assert.equal(await target.locator('#session-device-list input').getAttribute('data-device'), `${node}/${device.device_id}`);
+    assert.ok((await target.locator('#session-device-list').innerText()).includes(device.declared_capabilities[0]));
+    await inert();
+    await section(target, 'session');
+    assert.ok((await target.locator('.session-information').innerText()).includes(text));
+    await target.locator('[data-prepare-free-operation]').click();
+    await target.locator('.experiment-additional-devices').evaluate(element => element.open = true);
+    const participant = target.locator('[data-session-experiment-device]');
+    await participant.check(); await participant.uncheck(); await participant.check();
+    assert.equal(await participant.getAttribute('data-session-experiment-device'), `${node}/${device.device_id}`);
+    assert.equal(await target.locator('[data-validate-device]').getAttribute('data-validate-device'), `${node}/${device.device_id}`);
+    await target.locator('[data-session-navigate="parameters"]').click();
+    await inert(); // Regression-first: unescaped bounds create handlers/elements here.
+    for (const [index, name] of names.entries()) {
+      const control = target.locator('[data-example-value]').nth(index), definition = definitions[name];
+      assert.equal(await control.getAttribute('data-example-value'), `${node}/${device.device_id}.${name}`);
+      assert.ok((await control.locator('..').innerText()).includes(name));
+      for (const [attribute, value] of [['min', definition.minimum ?? definition.exclusive_minimum], ['max', definition.maximum]]) {
+        assert.equal(await control.getAttribute(attribute), value === undefined ? null : String(value));
+      }
+      await control.hover(); await inert();
+    }
+    const field = name => target.locator('[data-example-value]').nth(names.indexOf(name));
+    await field('gain').fill('0');
+    assert.equal(await field('gain').evaluate(input => input.checkValidity()), true);
+    await field('gain').fill('11');
+    assert.equal(await field('gain').evaluate(input => input.validity.rangeOverflow), true);
+    await field('gain').fill('0');
+    await field('gate').check(); await field('gate').uncheck();
+    await field(text).fill(text);
+    await target.locator('#experiment-duration').fill('2');
+    await target.locator('[data-framework-field="experimentId"]').fill('rendering-experiment');
+    await target.locator('[data-framework-field="preservationBudget"]').fill('100000');
+    await target.locator('[data-recording-budget]').fill('100000');
+    assert.equal(await target.locator('[data-recording-budget]').getAttribute('data-recording-budget'), node);
+    const output = {source_node_id: node, source_device_id: device.device_id, data_product_id: product.data_product_id};
+    assert.deepEqual(JSON.parse(await target.locator('[data-scientific-output]').getAttribute('data-scientific-output')), output);
+    await target.locator('[data-scientific-output]').check();
+    await target.locator('[data-return-session]').click();
+    const summary = `gain: 0 · gate: No · ${text}: ${text}`;
+    assert.equal(await target.locator('.experiment-parameter-summary').innerText(), summary);
+    await target.locator('[data-launch-experiment]').click();
+    await target.locator('#operation-results').filter({hasText: 'rejected'}).waitFor();
+    assert.equal(submitted.length, 1);
+    assert.deepEqual(submitted[0].parameters.configuration.participating_devices, {[node]: [device.device_id]});
+    assert.deepEqual(submitted[0].parameters.configuration.device_configurations,
+      {[node]: {[device.device_id]: {gain: 0, gate: false, [text]: text}}});
+    assert.deepEqual(submitted[0].parameters.scientific_outputs, [output]);
+    await target.locator('#operation-results summary').last().click();
+    assert.ok((await target.locator('#operation-results').innerText()).includes(text));
+    await inert();
+    executed = {experiment_id: 'rendering-experiment', configuration: submitted[0].parameters.configuration,
+      scientific_outputs: submitted[0].parameters.scientific_outputs};
+    await target.locator('.experiment-current-card h4').filter({hasText: 'executed'}).waitFor();
+    assert.equal(await target.locator('.experiment-parameter-summary').innerText(), summary);
+    await target.locator('[data-session-navigate="parameters"]').click();
+    assert.equal(await field('gain').inputValue(), '0');
+    assert.equal(await field('gate').isChecked(), false);
+    assert.equal(await field(text).inputValue(), text);
+    assert.equal(await field(text).isDisabled(), true);
+    for (const [width, height] of [[1440, 1000], [800, 900]]) {
+      await target.setViewportSize({width, height});
+      for (const theme of ['light', 'dark']) {
+        if (await target.locator('html').getAttribute('data-theme') !== theme) await target.locator('#theme-toggle').click();
+        await inert();
+        const name = `rendering-safety-${width}-${theme}`;
+        await target.screenshot({path: `${directory}/${name}.png`, fullPage: true}); screenshots.push(name);
+      }
+    }
+    await section(target, 'experiment');
+    await target.locator('[data-show-experiment-parameters]').click();
+    assert.ok((await target.locator('#experiment-parameters-drawer').innerText()).includes(text));
+    await inert();
+    controlling = false;
+    await target.locator('#connection-state').filter({hasText: 'View Only'}).waitFor();
+    await section(target, 'session');
+    assert.equal(await target.locator('[data-start-session]').isDisabled(), true);
+    await target.locator('[data-start-session]').evaluate(button => button.click());
+    assert.equal(submitted.length, 1);
+    await inert();
+    assert.deepEqual(errors, []);
+    console.log('PASS: nine adversarial bound cases; hostile node/device/capability/product/parameter/readback/error identities; numeric bounds, exact outgoing values, executed read-only values and View Only');
+  } finally {await target.close();}
+}
 try {
+  await verifyRenderingSafety();
   await page.goto(process.env.MICEBALL_BROWSER_ORIGIN);
   await page.locator('#connection-state').filter({hasText: 'View Only'}).waitFor();
   await section(page, 'services');
@@ -345,6 +481,24 @@ try {
     await demo.locator(`[data-session-experiment-device=${JSON.stringify(id)}]`).first().uncheck();
   }
   assert.equal(await demo.locator('.experiment-parameter-summary').innerText(), 'No applicable example parameters.');
+  // Exercise the shared Setup escaping helper through editable application data.
+  const protocolText = '"quoted" & &#34; <img data-rendering-injected src=x onerror="window.__protocolInjected=1"> \u03a9';
+  await demo.evaluate(() => {window.__protocolInjected = 0;});
+  await section(demo, 'setup');
+  await demo.locator('#copy-protocol').click();
+  await demo.locator('#protocol-name').fill(protocolText);
+  await demo.locator('#protocol-summary').fill(protocolText);
+  if (await demo.locator('#copy-step').isVisible()) await demo.locator('#copy-step').click();
+  await demo.locator('#step-form [name="name"]').fill(protocolText);
+  await demo.locator('#step-form [name="description"]').fill(protocolText);
+  assert.equal(await demo.locator('#editor-steps [data-select-step] strong').first().innerText(), protocolText);
+  assert.ok((await demo.locator('#editor-steps [data-drag-step]').first().getAttribute('aria-label')).includes(protocolText));
+  await demo.locator('#save-protocol').click();
+  assert.equal(await demo.locator('#protocol-select option:checked').innerText(), protocolText);
+  assert.equal(await demo.locator('#protocol-description').innerText(), protocolText);
+  assert.ok((await demo.locator('#session-steps').innerText()).includes(protocolText));
+  assert.equal(await demo.locator('[onerror], [data-rendering-injected]').count(), 0);
+  assert.equal(await demo.evaluate(() => window.__protocolInjected), 0);
   await baseline.close(); await demo.close();
   assert.deepEqual(errors, []);
   await writeFile(`${directory}/feedback.json`, JSON.stringify({result: 'PASS', transport: 'controlled WebSocket replies; real GUI/backend shell', inventoryRequests: inventoryRequests.length, screenshots}, null, 2));

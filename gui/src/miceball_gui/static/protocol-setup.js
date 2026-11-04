@@ -1,7 +1,7 @@
 import { createDemo, operations, devices, clone, selectProtocol, selectTemplate, coverage, saveProtocol, moveStep, assignCapability, preparedSteps, savedOccurrence, copyStepToEdit, saveReusableStep } from './protocol-demo.mjs';
 
 import { launchSessionDemo, executionProtocol } from './session-context.mjs';
-import { sessionIdentity, navigate } from './gui-presentation.js';
+import { escapeText as escape, sessionIdentity, navigate } from './gui-presentation.js';
 
 const validationLimit = document.createElement('label');
 validationLimit.className = 'validation-duration-field';
@@ -10,7 +10,6 @@ document.querySelector('.launch-session-demo').before(validationLimit);
 
 export const state = createDemo();
 const $ = selector => document.querySelector(selector);
-const escape = value => String(value).replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
 const option = (value, text) => `<option value="${escape(value)}">${escape(text)}</option>`;
 const identity = $('[aria-labelledby="session-identity-title"]');
 $('.identity-card').after(identity);

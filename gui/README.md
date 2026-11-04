@@ -119,6 +119,22 @@ escaped parameter summaries take precedence over mode-specific empty messages,
 for working and executed configuration. The regression checks both modes and
 unchanged outgoing overrides; this does not establish independent validation.
 
+The systemic rendering-safety correction uses the same `escapeText` helper for
+Setup and other Unit 1 HTML text/quoted attributes, including adapter-provided
+`minimum`, `exclusive_minimum` and `maximum` values. Existing `textContent`, DOM
+property insertion and trusted presentation markup remain unchanged; HTML escaping
+is not a JavaScript, CSS or URL sanitizer. The rendered regression exercises nine
+adversarial bound cases plus hostile node/device/capability/product identities,
+parameter names/values, accepted metadata and operation errors. It checks literal
+DOM values, no injected elements/handlers or execution, numeric editing, exact
+outgoing configuration, executed read-only values and View Only, in both themes
+and representative viewports. These cases use production presenters and
+adapter-produced inventory with controlled transport, not live scientific work.
+Raw interpolations confined to fixed demonstration notifications/Storage/Services
+fixtures and synthetic plots are not live-input safety guarantees for future
+integrations. Deferred interfaces remain disconnected. Unit 1 still requires
+independent validation and a separate complete audit; this is not closure.
+
 ### Public interfaces
 
 The existing lifecycle methods and result serialization methods remain unchanged.

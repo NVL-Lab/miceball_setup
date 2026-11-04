@@ -24,6 +24,7 @@
 - `ConnectedFeedbackTests.test_services_and_inventory_feedback_in_browser()`: Checks Services/inventory feedback and request guards plus shared disabled-button appearance, readable contrast, fieldset inheritance, View Only controls and enabled-state restoration across themes.
   It also checks framework-produced quoted/metacharacter device identities remain inert and unchanged through participant selection and outgoing Experiment configuration.
   Session summary checks cover populated/empty fallbacks in both modes, working/executed values and escaped parameter text without changing outgoing overrides.
+  Its rendered `verifyRenderingSafety()` workflow checks all three external bound sources, hostile inventory/readback/error text, exact outgoing values, executed read-only controls and View Only across both themes and representative viewport sizes.
 - `test_connected_state.mjs`: Exercises connected preparation, detached accepted/executed readback, unavailable associations and refusal of demonstration execution in connected context.
 - `GUIIntegrationTests`: Uses actual web/WebSocket requests, restricted external NATS, authority-registered participant NATS, disk-backed owners and a simulated camera to exercise Unit 1 without production deployments.
 - `GUIIntegrationTests.backend()/browser()/message()/completed()/take()/launch_parameters()`: Compose disposable browser-facing public workflows with explicit test deployment inputs and non-executing outcome polling.
@@ -3029,7 +3030,7 @@ automatic. Kill integration and overall closeout validation remain deferred.
 
 ## gui/src/miceball_gui/static/gui-presentation.js
 
-- escapeText: Escapes dynamic values inserted into GUI markup.
+- escapeText: Escapes data inserted into HTML text or quoted attributes (not JavaScript, CSS or URL contexts), shared by Setup and the other Unit 1 presenters.
 - navigate: Uses the existing GUI section-navigation event without changing operation state.
 - sessionIdentity: Reads the existing Setup identity fields for presentation without creating a second configuration model.
 - executionIdentity: Resolves the captured active Session identity, falling back to Setup only before launch.
@@ -3044,7 +3045,7 @@ automatic. Kill integration and overall closeout validation remain deferred.
 
 ## gui/src/miceball_gui/static/parameters-view.js
 
-- parameterField: Renders a typed control from an explicitly fictional device-parameter fixture.
+- parameterField: Renders a control from connected adapter metadata or demonstration fixtures, escaping labels, identifiers, values, input types and bound attributes without changing configuration semantics.
 - renderParameters: Renders the single Session-selected Experiment's working or read-only configuration and optional personal-template saving.
 - updateParameterWorking: Applies typed parameter input to shared working values while leaving participation selection in Session.
 

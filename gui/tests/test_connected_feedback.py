@@ -59,11 +59,41 @@ class ConnectedFeedbackTests(unittest.IsolatedAsyncioTestCase):
             node_id="node", role="acquisition", synchronization_source_id="sync",
             device_declarations=tuple(DeviceDeclaration(identity, "test-camera", True, False, (), (product,))
                 for identity in identities))
+        hostile = '" onpointerover="window.__renderingInjected = 1" data-tail=" <tag> & &#34; \u03a9'
+        bound_payloads = [
+            '0" onpointerover="window.__renderingInjected = 1" data-tail="',
+            '0"><img data-rendering-injected src=x onerror="window.__renderingInjected = 1">',
+            '0 & <bound> "quoted" \'single\' &#34;',
+        ]
+        definitions = {
+            f"{constraint}-{index}": {"type": "number", constraint: payload}
+            for constraint in ("minimum", "exclusive_minimum", "maximum")
+            for index, payload in enumerate(bound_payloads)
+        }
+        definitions.update({"gain": {"type": "number", "minimum": 0, "maximum": 10},
+            "gate": {"type": "boolean"}, hostile: {"type": "string"}})
+
+        class ParameterAdapter(DeviceAdapter):
+            def get_session_parameter_definitions(self):
+                return definitions
+
+        safety_node = "node-" + hostile
+        safety_device = "camera-" + hostile
+        safety_product = "frames-" + hostile
+        safety_owner = AcquisitionNode(device_manager=DeviceManager([
+            ParameterAdapter(safety_device, "test-camera", (), False)]),
+            node_id=safety_node, role="acquisition", synchronization_source_id="sync",
+            device_declarations=(DeviceDeclaration(safety_device, "test-camera", True, False,
+                ("capability-" + hostile,),
+                (ScientificProductDeclaration(safety_product, "camera_frames", {}, "jsonl"),)),))
         environment = {**os.environ, "LAB_SYNC_PLAYWRIGHT_MODULE": module,
             "MICEBALL_BROWSER_ORIGIN": origin, "MICEBALL_DEMO_ORIGIN": demos["baseline"],
             "MICEBALL_DEMO_CURRENT_ORIGIN": demos["current"],
             "MICEBALL_BROWSER_EVIDENCE": os.environ.get("LAB_SYNC_GUI_EVIDENCE_DIR", directory),
-            "MICEBALL_DEVICE_IDENTITY_INVENTORY": json.dumps(inventory_owner.get_inventory())}
+            "MICEBALL_DEVICE_IDENTITY_INVENTORY": json.dumps(inventory_owner.get_inventory()),
+            "MICEBALL_RENDERING_INVENTORY": json.dumps(safety_owner.get_inventory()),
+            "MICEBALL_RENDERING_NODE": safety_node,
+            "MICEBALL_RENDERING_TEXT": hostile}
         result = await asyncio.to_thread(subprocess.run,
             [node, str(Path(__file__).with_suffix(".mjs"))], env=environment,
             capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120)
