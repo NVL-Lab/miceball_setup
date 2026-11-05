@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 import {mkdir, writeFile} from 'node:fs/promises';
-import {verifyConfigurationIntegrity} from './test_configuration_integrity.mjs';
+import {verifyConfigurationIntegrity, verifyExperimentReconnection} from './test_configuration_integrity.mjs';
 if (!process.env.MICEBALL_BROWSER_ORIGIN) {
   console.log('Rendered feedback checks require the disposable Python fixture.');
 } else {
@@ -203,6 +203,7 @@ async function verifyRenderingSafety() {
   } finally {await target.close();}
 }
 try {
+  await verifyExperimentReconnection(browser, process.env.MICEBALL_BROWSER_ORIGIN, JSON.parse(process.env.MICEBALL_MONITORING), section);
   await verifyConfigurationIntegrity(browser, process.env.MICEBALL_BROWSER_ORIGIN, JSON.parse(process.env.MICEBALL_INTEGRITY), section);
   await verifyRenderingSafety();
   await page.goto(process.env.MICEBALL_BROWSER_ORIGIN);

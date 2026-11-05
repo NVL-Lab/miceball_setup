@@ -71,6 +71,12 @@ identity; lost outcomes remain unknown, and no running Session is reconstructed
 from historical metadata. Initial NATS connection availability is reported without
 preventing the web page from loading.
 
+Experiment monitoring reconciles each readback against the active Experiment, or
+otherwise the latest canonical Experiment-start sequence. An Experiment completed
+while disconnected therefore replaces an older monitored attempt, including for
+a fresh observer. The read-only drawer uses that attempt's accepted configuration;
+Session preparation selection and unsent working values remain separate.
+
 Analysis/Validation, scientific visualization, Storage integration, Services
 administration/freshness and notifications are unavailable in this connected unit.
 Their original workspaces and harmless interactions remain; missing data is unknown

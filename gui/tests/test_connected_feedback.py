@@ -14,7 +14,7 @@ from aiohttp import web
 from aiohttp.test_utils import TestClient, TestServer
 
 from gui.tests.test_backend import create_gui_app
-from lab_sync_acquisition import AcquisitionNode, DeviceDeclaration, DeviceManager, ScientificProductDeclaration, ScientificOutputSelection, ExperimentConfiguration, SessionConfig
+from lab_sync_acquisition import AcquisitionNode, DeviceDeclaration, DeviceManager, DeviceReadiness, ScientificProductDeclaration, ScientificOutputSelection, ExperimentConfiguration, RuntimeParticipant, Session, SessionConfig
 from lab_sync_acquisition.device_adapter import DeviceAdapter
 
 
@@ -133,6 +133,28 @@ class ConnectedFeedbackTests(unittest.IsolatedAsyncioTestCase):
             "outputs": [ScientificOutputSelection(identity, node, "frames").to_dict()
                 for node, devices in intended.items() for identity in devices],
             "additional_output": ScientificOutputSelection("__proto__", "__proto__", "frames/preview").to_dict()}
+        monitoring_declaration = DeviceDeclaration("camera", "test-camera", True, False, (), (product,))
+        monitoring_owner = AcquisitionNode(device_manager=DeviceManager([ParameterAdapter("camera", {"gain": {"type": "number"}})]),
+            node_id="node", role="acquisition", synchronization_source_id="sync", device_declarations=(monitoring_declaration,))
+        monitoring = Session("monitor-session", SessionConfig([monitoring_declaration], "test-only-storage", {}, "test-only-errors",
+            session_id="monitor-session", session_parameters={"name": "Monitor Session"},
+            expected_runtime_participants=(RuntimeParticipant("acquisition_node", "node"),)))
+        monitoring.initialize([DeviceReadiness("camera", True, "ready", ())])
+        monitoring.start()
+        monitoring_snapshots = []
+        for identity, duration, gain, start in (("first", 11, 1.25, 1), ("latest", 22, 8.5, 20)):
+            monitoring.ensure_experiment_descriptor(identity,
+                configuration=ExperimentConfiguration(duration, {"node": 100000}, 100000,
+                    {"node": {"camera": {"gain": gain}}}, {"node": ["camera"]}),
+                scientific_outputs=(ScientificOutputSelection("camera", "node", "frames"),))
+            monitoring.record_experiment_lifecycle(identity, "experiment_start", start)
+            monitoring.record_experiment_lifecycle(identity, "experiment_stop", start + duration)
+            monitoring_snapshots.append({"controller_id": "monitor-controller", "instance_id": "monitor-instance",
+                "control": {"controlling": False, "generation": 1}, "configured_nodes": ["node"], "pending_operations": [],
+                "configuration": monitoring.configuration.to_dict(),
+                "status": {"session_id": monitoring.session_id, "session_state": monitoring.current_state.value,
+                    "active_experiment_id": None, "experiment_lifecycle_evidence": [event.to_dict() for event in monitoring.experiment_lifecycle_evidence]},
+                "experiments": [descriptor.to_dict() for descriptor in monitoring.experiment_descriptors]})
         environment = {**os.environ, "LAB_SYNC_PLAYWRIGHT_MODULE": module,
             "MICEBALL_BROWSER_ORIGIN": origin, "MICEBALL_DEMO_ORIGIN": demos["baseline"],
             "MICEBALL_DEMO_CURRENT_ORIGIN": demos["current"],
@@ -141,9 +163,10 @@ class ConnectedFeedbackTests(unittest.IsolatedAsyncioTestCase):
             "MICEBALL_RENDERING_INVENTORY": json.dumps(safety_owner.get_inventory()),
             "MICEBALL_RENDERING_NODE": safety_node,
             "MICEBALL_RENDERING_TEXT": hostile,
-            "MICEBALL_INTEGRITY": json.dumps(integrity)}
+            "MICEBALL_INTEGRITY": json.dumps(integrity),
+            "MICEBALL_MONITORING": json.dumps({"snapshots": monitoring_snapshots, "inventory": monitoring_owner.get_inventory()})}
         result = await asyncio.to_thread(subprocess.run,
             [node, str(Path(__file__).with_suffix(".mjs"))], env=environment,
-            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120)
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=180)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         print(result.stdout)

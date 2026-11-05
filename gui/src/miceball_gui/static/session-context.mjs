@@ -24,6 +24,12 @@ export function applyControllerSnapshot(state, snapshot) {
   });
   // The Controller descriptors, not working edits or elapsed browser time, define executed attempts.
   const progress = context.sessionDemo[context.protocolId] ??= { selectedId: null, steps: {} };
+  const lifecycle = snapshot.status.experiment_lifecycle_evidence || [];
+  // Monitoring follows executed chronology, independently of preparation selection.
+  const latestStart = lifecycle.reduce((latest, event) => event.event_type === 'experiment_start'
+    && (!latest || event.sequence > latest.sequence) ? event : latest, null);
+  const monitoredId = snapshot.status.active_experiment_id ?? latestStart?.experiment_id;
+  context.experimentMonitor = null;
   for (const descriptor of snapshot.experiments || []) {
     const steps = context.protocols[0]?.steps || context.freeOperations;
     let step = steps.find(item => progress.steps[item.id]?.attempts?.some(attempt => attempt.id === descriptor.experiment_id));
@@ -38,12 +44,12 @@ export function applyControllerSnapshot(state, snapshot) {
     let attemptIndex = record.attempts.findIndex(attempt => attempt.id === descriptor.experiment_id);
     if (attemptIndex < 0) { attemptIndex = record.attempts.length; record.attempts.push({id: descriptor.experiment_id}); }
     record.frameworkExperimentId = descriptor.experiment_id;
-    const events = (snapshot.status.experiment_lifecycle_evidence || []).filter(event => event.experiment_id === descriptor.experiment_id);
+    const events = lifecycle.filter(event => event.experiment_id === descriptor.experiment_id);
     const last = events.at(-1)?.event_type || '';
     record.status = snapshot.status.active_experiment_id === descriptor.experiment_id ? 'running'
       : last.includes('fail') ? 'error' : last.includes('stop') || last.includes('complete') ? 'completed' : 'unavailable';
     record.attempts[attemptIndex].status = record.status;
-    record.history = (snapshot.status.experiment_lifecycle_evidence || []).filter(event => record.attempts.some(attempt => attempt.id === event.experiment_id))
+    record.history = lifecycle.filter(event => record.attempts.some(attempt => attempt.id === event.experiment_id))
       .map(event => `${event.experiment_id} / ${event.sequence}: ${event.event_type} · Session time ${event.session_time_s ?? 'unavailable'}`);
     const executed = descriptor.configuration;
     if (executed) {
@@ -55,7 +61,7 @@ export function applyControllerSnapshot(state, snapshot) {
       const bundle = record.experiment ??= { working: clone(configuration), startingConfiguration: clone(configuration), editing: false, templateId: '', attempts: [] };
       bundle.attempts[attemptIndex] = configuration;
       if (record.status === 'running') bundle.editing = false;
-      if (record.status === 'running' || !context.experimentMonitor) context.experimentMonitor = {
+      if (descriptor.experiment_id === monitoredId) context.experimentMonitor = {
         protocolId: context.protocolId, stepId: step.id, name: step.name, attemptId: descriptor.experiment_id,
         configuration, identity: context.identity };
     }

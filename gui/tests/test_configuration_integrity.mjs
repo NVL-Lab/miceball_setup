@@ -241,3 +241,72 @@ export async function verifyConfigurationIntegrity(browser, origin, fixture, sec
     console.log('PASS: independently specified Session/Experiment configurations, prototype keys, coordinate collisions, empty/unset/null/zero/false, numeric refusal, authoritative readback and no replay');
   } finally {await page.close();}
 }
+
+export async function verifyExperimentReconnection(browser, origin, fixture, section) {
+  const page = await browser.newPage(), requests = [], errors = [];
+  let snapshot = fixture.snapshots[0], connection;
+  page.on('pageerror', error => errors.push(error.message));
+  await page.routeWebSocket('**/ws', route => {
+    connection = route;
+    route.onMessage(raw => {
+      const message = JSON.parse(raw); requests.push(message.operation);
+      assert.ok(['read_controller_state', 'get_node_inventory'].includes(message.operation));
+      route.send(JSON.stringify({type: 'result', id: message.id, instance_id: 'monitor-instance',
+        result: {status: 'succeeded', outcome: {details: message.operation === 'get_node_inventory' ? fixture.inventory : snapshot}}}));
+    });
+    route.send(JSON.stringify({type: 'connected', browser_id: 'monitor-observer'}));
+  });
+  const inventory = async () => {
+    await page.locator('[data-open-setup]').click();
+    await page.locator('#load-inventory').click();
+    await page.locator('#inventory-status').filter({hasText: 'inventory confirmed'}).waitFor();
+  };
+  const monitor = async (identity, duration, gain, source) => {
+    await page.locator('#experiment-monitor-fields').filter({hasText: identity}).waitFor();
+    const information = await page.locator('#experiment-monitor-fields').innerText();
+    assert.ok(information.includes(`${duration} s`));
+    await page.locator('#experiment-parameters-drawer').filter({hasText: `gain: ${gain}`}).waitFor();
+    assert.match(await page.locator('#experiment-parameters-drawer').innerText(), new RegExp(source));
+  };
+  const reconnect = async () => {
+    connection.close();
+    await page.locator('#connection-state').filter({hasText: 'Backend disconnected'}).waitFor();
+    await page.locator('#connection-state').filter({hasText: 'View Only'}).waitFor();
+  };
+  try {
+    await page.goto(origin);
+    await page.locator('#connection-state').filter({hasText: 'View Only'}).waitFor();
+    await inventory();
+    await section(page, 'session');
+    await page.locator('[data-prepare-free-operation]').click();
+    await page.locator('[data-session-navigate="parameters"]').click();
+    await page.locator('#experiment-duration').fill('99');
+    await section(page, 'experiment');
+    await page.locator('[data-show-experiment-parameters]').click();
+    await monitor('first', 11, 1.25, 'Fixed executed-attempt configuration');
+    snapshot = fixture.snapshots[1];
+    await reconnect();
+    await monitor('latest', 22, 8.5, 'Fixed executed-attempt configuration');
+    await section(page, 'session');
+    await page.locator('[data-session-navigate="parameters"]').click();
+    assert.equal(await page.locator('#experiment-duration').inputValue(), '99');
+    assert.equal(await page.locator('#experiment-duration').isEnabled(), true);
+    await section(page, 'experiment');
+    snapshot = structuredClone(fixture.snapshots[1]);
+    snapshot.status.active_experiment_id = 'latest';
+    snapshot.status.experiment_lifecycle_evidence.pop();
+    await reconnect();
+    await monitor('latest', 22, 8.5, 'Fixed executing-attempt configuration');
+    snapshot = fixture.snapshots[1];
+    await page.reload();
+    await page.locator('#connection-state').filter({hasText: 'View Only'}).waitFor();
+    await inventory();
+    await section(page, 'experiment');
+    await page.locator('[data-show-experiment-parameters]').click();
+    await monitor('latest', 22, 8.5, 'Fixed executed-attempt configuration');
+    assert.deepEqual(errors, []);
+    assert.ok(requests.includes('read_controller_state'));
+    assert.ok(requests.every(operation => ['read_controller_state', 'get_node_inventory'].includes(operation)));
+    console.log('PASS: framework-produced first/latest lifecycle readback, completed/running reconnect, fresh observer, exact executed duration/gain and separate unsent preparation; no lifecycle replay');
+  } finally {await page.close();}
+}

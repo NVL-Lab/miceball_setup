@@ -95,6 +95,43 @@ test('unconnected Storage and Services expose unknown data without simulated out
   assert.throws(() => beginShutdownPreview(services), /unavailable/);
 });
 
+test('monitoring reconciles latest executed chronology independently of descriptor and preparation selection', () => {
+  const readback = snapshot();
+  readback.experiments = ['first', 'latest', 'prepared'].map((experiment_id, index) => ({experiment_id, scientific_outputs: [], configuration: {
+    duration_s: [11, 22, 99][index], participating_devices: {node: ['camera']},
+    device_configurations: {node: {camera: {gain: [1.25, 8.5, 99][index]}}}, recording_budgets: {node: 1000}, preservation_budget_bytes: 1000}}));
+  readback.status.experiment_lifecycle_evidence = [
+    {experiment_id: 'first', event_type: 'experiment_start', sequence: 1},
+    {experiment_id: 'first', event_type: 'experiment_stop', sequence: 2},
+    {experiment_id: 'latest', event_type: 'experiment_start', sequence: 3},
+    {experiment_id: 'latest', event_type: 'experiment_stop', sequence: 4}];
+  for (const descriptors of [readback.experiments, [...readback.experiments].reverse()]) {
+    const state = createDemo();
+    const first = structuredClone(readback);
+    first.experiments = first.experiments.slice(0, 1);
+    first.status.experiment_lifecycle_evidence = first.status.experiment_lifecycle_evidence.slice(0, 2);
+    applyControllerSnapshot(state, first);
+    prepareFreeOperation(state, 'acquisition');
+    const selected = selectedStepContext(state);
+    updateExperiment(state, selected.step, selected.record, {durationSeconds: 77});
+    applyControllerSnapshot(state, {...readback, experiments: descriptors});
+    assert.equal(state.activeSession.experimentMonitor.attemptId, 'latest');
+    assert.equal(activeParameterSnapshot(state).configuration.durationSeconds, 22);
+    assert.equal(activeParameterSnapshot(state).configuration.values[configurationIdentity('node', 'camera', 'gain')], 8.5);
+    assert.equal(selectedStepContext(state).step.id, selected.step.id);
+    assert.equal(experimentView(state, selected.step, selected.record).configuration.durationSeconds, 77);
+    const fresh = createDemo();
+    applyControllerSnapshot(fresh, {...readback, experiments: descriptors});
+    assert.equal(fresh.activeSession.experimentMonitor.attemptId, 'latest');
+    const active = structuredClone(readback); active.status.active_experiment_id = 'first';
+    active.experiments = active.experiments.slice(0, 1);
+    active.status.experiment_lifecycle_evidence = active.status.experiment_lifecycle_evidence.slice(0, 1);
+    applyControllerSnapshot(fresh, active);
+    assert.equal(fresh.activeSession.experimentMonitor.attemptId, 'first');
+    assert.equal(activeParameterSnapshot(fresh).configuration.durationSeconds, 11);
+  }
+});
+
 test('accepted device declaration matching ignores object property order, not values or ambiguous ownership', () => {
   const reordered = {scientific_products: [{data_product_id: 'frames'}], device_id: 'camera'};
   devices.push({id: configurationIdentity('node', 'camera'), nodeId: 'node', declaration: reordered});
