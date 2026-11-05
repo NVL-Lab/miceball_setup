@@ -96,9 +96,9 @@ export function experimentIssues(state, step, configuration) {
   if (participants.some(device => !device.available)) issues.push(state.connected ? 'Participating inventory is unconfirmed.' : 'A participating demonstration device is unavailable.');
   if (state.connected) {
     if (!configuration.experimentId?.trim()) issues.push('Set an Experiment ID.');
-    if (!Number.isFinite(configuration.preservationBudget) || configuration.preservationBudget <= 0) issues.push('Set an explicit preservation budget.');
+    if (!Number.isSafeInteger(configuration.preservationBudget) || configuration.preservationBudget <= 0) issues.push('Set an explicit preservation budget.');
     for (const node of new Set(participants.map(device => device.nodeId))) {
-      if (!Number.isFinite(configuration.recordingBudgets?.[node]) || configuration.recordingBudgets[node] <= 0) issues.push(`Set an explicit recording budget for ${node}.`);
+      if (!Number.isSafeInteger(configuration.recordingBudgets?.[node]) || configuration.recordingBudgets[node] <= 0) issues.push(`Set an explicit recording budget for ${node}.`);
     }
     for (const field of participants.flatMap(device => deviceExamples[device.id]?.fields || [])) {
       if (!Object.hasOwn(configuration.values, field.id)) continue;
@@ -106,8 +106,8 @@ export function experimentIssues(state, step, configuration) {
       if (value === null && field.nullable) continue;
       if (field.type === 'number') {
         try {
-          if (typeof value !== 'number' || (field.integer && !Number.isInteger(value))) throw new Error();
-          configurationNumber(String(value));
+          if (typeof value !== 'number') throw new Error();
+          configurationNumber(String(value), field.integer);
         } catch (_) { issues.push(`Correct the unsupported numeric value for ${field.label}.`); }
       }
     }

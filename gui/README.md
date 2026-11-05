@@ -152,6 +152,14 @@ unconfirmed and controlling operations disabled. This is a GUI representation
 limitation, not a restriction of the Python/framework scientific contract; use an
 authorized framework client for unsupported values. Numeric JSON verification
 requires a browser supporting source context in the JSON.parse reviver.
+Declared integer controls validate the original decimal/exponent token before
+conversion, including valid integral exponent notation. Non-integral tokens cannot
+become accepted integers through rounding; invalid text remains in working state
+and the visible summary until corrected or explicitly unset. Integer byte budgets
+use the same rule. The final submission guard reuses that parser, independently of
+native HTML validity. Untyped JSON and floating controls also refuse fractional
+tokens that would round into integers, while ordinary supported floating values
+retain the existing binary floating-point behavior.
 
 The rendered feedback regression uses independently specified Python SessionConfig
 and ExperimentConfiguration fixtures, not outgoing requests as its only expected

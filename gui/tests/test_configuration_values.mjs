@@ -28,3 +28,22 @@ test('unsupported numeric representations fail explicitly rather than silently r
   for (const value of [NaN, Infinity, -0, 9007199254740992]) assert.throws(() => stringifyConfiguration({value}), /cannot be represented faithfully/);
   for (const text of ['0', '1.25', '1e-20', '9007199254740991']) assert.equal(configurationNumber(text), Number(text));
 });
+
+test('integer input is established from the original token before conversion', () => {
+  const valid = [['7', 7], ['0', 0], ['-7', -7], ['7.0', 7], ['.0', 0], ['1e3', 1000],
+    ['100e-2', 1], ['1.25e2', 125], ['9007199254740991', 9007199254740991],
+    ['-9007199254740991', -9007199254740991], ['90071992547409910e-1', 9007199254740991]];
+  for (const [text, expected] of valid) assert.equal(configurationNumber(text, true), expected);
+  for (const text of ['1.5', '1.0000000000000001', '9007199254740991.1', '-1.0000000000000001',
+    '10000000000000001e-16', '1e-20', '1e-999999999999999999999']) {
+    assert.throws(() => configurationNumber(text, true), /not an exact integer/);
+  }
+  for (const text of ['9007199254740992', '-9007199254740992', '1e999', '-0', 'NaN', 'Infinity', '0x10', '']) {
+    assert.throws(() => configurationNumber(text, true), /cannot be represented faithfully/);
+  }
+  for (const text of ['1.5', '1e-20', '-0.25']) assert.equal(configurationNumber(text, false), Number(text));
+  for (const text of ['1.0000000000000001', '9007199254740991.1']) {
+    assert.throws(() => configurationNumber(text, false), /cannot be represented faithfully/);
+    assert.throws(() => parseConfigurationJSON(`{"overrides":{"count":${text}}}`), /cannot be represented faithfully/);
+  }
+});

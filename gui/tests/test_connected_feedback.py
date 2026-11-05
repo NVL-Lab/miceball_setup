@@ -92,7 +92,7 @@ class ConnectedFeedbackTests(unittest.IsolatedAsyncioTestCase):
                 (ScientificProductDeclaration(safety_product, "camera_frames", {}, "jsonl"),)),))
         key_values = {key: index for index, key in enumerate([
             "__proto__", "constructor", "prototype", "toString", "hasOwnProperty", "0", "01", ""])}
-        key_values.update({"empty": "", "nullable": None, "flag": False, "large": 7,
+        key_values.update({"empty": "", "nullable": None, "flag": False, "large": 7, "count": 7,
             'quoted" \u03a9': 'value " & <text> \u03a9'})
         entries = [("__proto__", "__proto__", key_values), ("constructor", "ordinary", {"gain": 1.25}),
             ("toString", "prototype", {"gain": 0}), ("hasOwnProperty", "constructor", {"gain": 4}),
@@ -105,8 +105,9 @@ class ConnectedFeedbackTests(unittest.IsolatedAsyncioTestCase):
             for _, identity, values in (entry for entry in entries if entry[0] == node_id):
                 declared = {name: {"type": "boolean" if type(value) is bool else "string" if isinstance(value, str) else "number",
                     **({"nullable": True} if value is None else {})} for name, value in values.items()}
-                if "large" in declared:
-                    declared["large"]["type"] = "integer"
+                for name in ("large", "count"):
+                    if name in declared:
+                        declared[name]["type"] = "integer"
                 declared["unset"] = {"type": "number"}
                 adapter = ParameterAdapter(identity, declared)
                 adapter.validate_session_parameters(values)

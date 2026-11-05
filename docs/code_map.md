@@ -3041,7 +3041,7 @@ automatic. Kill integration and overall closeout validation remain deferred.
 ## gui/src/miceball_gui/static/configuration-values.mjs
 
 - configurationIdentity(...coordinates): Encodes internal node/device/parameter coordinates as collision-free JSON tuples without altering framework identifiers.
-- configurationNumber(text): Parses GUI numeric input or JSON tokens and explicitly refuses unsupported nonfinite, unsafe-integer, negative-zero or underflow-to-zero representations.
+- configurationNumber(text, integer=false): Establishes exact decimal/exponent integrality from the original token before conversion when required, and refuses unsupported or fraction-to-integer rounding in GUI input and JSON boundaries.
 - parseConfigurationJSON(text): Parses configuration/readback JSON with source-token numeric verification before values enter GUI state.
 - stringifyConfiguration(value): Serializes configuration while rejecting unsupported numerical values before request submission or JSON cloning.
 

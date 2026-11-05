@@ -60,12 +60,15 @@ function updateParameterWorking(event) {
   const { step, record } = selectedStepContext(state);
   const view = experimentView(state, step, record);
   try {
+    const definition = control.dataset.exampleValue
+      ? Object.values(deviceExamples).flatMap(device => device.fields).find(field => field.id === control.dataset.exampleValue) : null;
     let numeric = null, numericError = null;
     if (control.type === 'number' && control.validity.badInput) {
       numeric = 'Invalid numeric input';
       numericError = new Error('Invalid numeric input. Enter a finite value representable by this GUI.');
     } else if (control.type === 'number' && control.value !== '') {
-      try { numeric = configurationNumber(control.value); }
+      const integer = Boolean(definition?.integer || control.dataset.recordingBudget || control.dataset.frameworkField === 'preservationBudget');
+      try { numeric = configurationNumber(control.value, integer); }
       catch (error) { numeric = control.value; numericError = error; }
     }
     if (control.id === 'experiment-duration') updateExperiment(state, step, record, { durationSeconds: numeric });
@@ -79,7 +82,6 @@ function updateParameterWorking(event) {
     }
     else if (control.dataset.exampleValue) {
       const values = { ...view.configuration.values };
-      const definition = Object.values(deviceExamples).flatMap(device => device.fields).find(field => field.id === control.dataset.exampleValue);
       if (state.connected && control.type === 'number' && control.value === '' && !definition?.nullable && !numericError) delete values[control.dataset.exampleValue];
       else values[control.dataset.exampleValue] = control.type === 'checkbox' ? control.checked : control.type === 'number' ? numeric : control.value;
       updateExperiment(state, step, record, { values });

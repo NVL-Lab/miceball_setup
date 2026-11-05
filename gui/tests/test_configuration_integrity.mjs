@@ -4,6 +4,8 @@ export async function verifyConfigurationIntegrity(browser, origin, fixture, sec
   const page = await browser.newPage();
   const sent = [], errors = [];
   let configuration = null, phase = null, executed = false, unsafeReadback = false;
+  let numericExpected = null;
+  let numericRequests = 0;
   page.on('pageerror', error => errors.push(error.message));
   await page.routeWebSocket('**/ws', route => {
     route.onMessage(raw => {
@@ -23,9 +25,15 @@ export async function verifyConfigurationIntegrity(browser, origin, fixture, sec
         configuration = fixture.session; phase = 'initialized'; details = {session_id: configuration.session_id};
       } else if (message.operation === 'start_launched_session') phase = 'running';
       else if (message.operation === 'start_launched_experiment') {
-        assert.deepEqual(message.parameters.configuration, fixture.experiment);
-        assert.deepEqual(message.parameters.scientific_outputs, fixture.outputs);
-        executed = true;
+        if (numericExpected !== null) {
+          assert.deepEqual(message.parameters.configuration.device_configurations,
+            {['__proto__']: {['__proto__']: {count: numericExpected}}});
+          numericRequests++; status = 'rejected';
+        } else {
+          assert.deepEqual(message.parameters.configuration, fixture.experiment);
+          assert.deepEqual(message.parameters.scientific_outputs, fixture.outputs);
+          executed = true;
+        }
       } else throw new Error(`Unexpected integrity operation: ${message.operation}`);
       let reply = JSON.stringify({type: 'result', id: message.id, instance_id: 'integrity-instance', result: {status, outcome: {details}}});
       if (unsafeReadback && message.operation === 'read_controller_state') reply = reply.replace('"unsupported_number":0', '"unsupported_number":9007199254740993');
@@ -62,10 +70,12 @@ export async function verifyConfigurationIntegrity(browser, origin, fixture, sec
     await page.locator('#error-evidence-location').fill(fixture.session.error_evidence_location);
     await page.locator('details').filter({has: page.locator('#session-framework-fields')}).last().evaluate(element => element.open = true);
     const fields = {protocol_plan: {}, session_parameters: fixture.session.session_parameters};
-    await page.locator('#session-framework-fields').fill('{"protocol_plan":{},"unsafe":9007199254740993}');
-    await page.locator('.launch-session-demo').click();
-    assert.equal(sent.filter(message => message.operation === 'launch_session').length, 0);
-    assert.match(await page.locator('.setup-demo-note').innerText(), /cannot be represented faithfully/);
+    for (const text of ['9007199254740993', '1.0000000000000001', '9007199254740991.1']) {
+      await page.locator('#session-framework-fields').fill(`{"protocol_plan":{},"device_configurations":{"__proto__":{"count":${text}}}}`);
+      await page.locator('.launch-session-demo').click();
+      assert.equal(sent.filter(message => message.operation === 'launch_session').length, 0);
+      assert.match(await page.locator('.setup-demo-note').innerText(), /cannot be represented faithfully/);
+    }
     await page.locator('#session-framework-fields').fill(JSON.stringify(fields));
     await page.locator('.launch-session-demo').click();
     await page.locator('[data-start-session]').waitFor();
@@ -77,6 +87,37 @@ export async function verifyConfigurationIntegrity(browser, origin, fixture, sec
       await input.check(); await input.uncheck(); await input.check();
     }
     await page.locator('[data-session-navigate="parameters"]').click();
+    await page.locator('#experiment-duration').fill('2');
+    await page.locator('[data-framework-field="experimentId"]').fill('integrity-experiment');
+    await page.locator('[data-framework-field="preservationBudget"]').fill('1000000');
+    for (const input of await page.locator('[data-recording-budget]').all()) await input.fill('100000');
+    const count = ['__proto__', '__proto__', 'count'];
+    for (const text of ['1.5', '1.0000000000000001', '9007199254740991.1', '-1.0000000000000001', '1e-20']) {
+      const input = await control('data-example-value', count);
+      await input.fill(text);
+      assert.equal(await input.inputValue(), text);
+      assert.ok((await page.locator('#parameter-feedback').innerText()).includes(text));
+      await page.locator('[data-return-session]').click();
+      assert.ok((await page.locator('.experiment-parameter-summary').innerText()).includes(`count: ${text}`));
+      assert.equal(await page.locator('[data-launch-experiment]').isDisabled(), true);
+      await page.locator('[data-launch-experiment]').evaluate(button => button.dispatchEvent(new MouseEvent('click', {bubbles: true})));
+      await page.waitForTimeout(50);
+      assert.equal(sent.filter(message => message.operation === 'start_launched_experiment').length, 0);
+      await page.locator('[data-session-navigate="parameters"]').click();
+    }
+    for (const [text, expected] of [['7', 7], ['1e3', 1000], ['100e-2', 1], ['0', 0],
+      ['9007199254740991', 9007199254740991], ['-9007199254740991', -9007199254740991]]) {
+      await (await control('data-example-value', count)).fill(text);
+      await page.locator('[data-return-session]').click();
+      assert.equal(await page.locator('[data-launch-experiment]').isEnabled(), true);
+      numericExpected = expected;
+      await page.locator('[data-launch-experiment]').click();
+      await page.waitForFunction(() => !document.querySelector('[data-launch-experiment]').disabled);
+      await page.locator('[data-session-navigate="parameters"]').click();
+    }
+    assert.equal(numericRequests, 6);
+    numericExpected = null;
+    console.log('PASS: all four audited integer cases, negative/non-integral tokens, valid exponent notation, zero and safe-integer boundaries through production editing/submission');
     for (const row of fixture.rows) {
       const coordinates = [row.node, row.device, row.name];
       const input = await control('data-example-value', coordinates);
@@ -98,7 +139,7 @@ export async function verifyConfigurationIntegrity(browser, origin, fixture, sec
     await page.locator('[data-return-session]').click();
     assert.equal(await page.locator('[data-launch-experiment]').isDisabled(), true);
     await page.locator('[data-launch-experiment]').evaluate(button => button.click());
-    assert.equal(sent.filter(message => message.operation === 'start_launched_experiment').length, 0);
+    assert.equal(sent.filter(message => message.operation === 'start_launched_experiment').length, numericRequests);
     await page.locator('[data-session-navigate="parameters"]').click();
     const overflow = await control('data-example-value', large);
     await overflow.fill(''); await overflow.pressSequentially('1e999');
@@ -107,7 +148,7 @@ export async function verifyConfigurationIntegrity(browser, origin, fixture, sec
     await page.locator('[data-return-session]').click();
     assert.equal(await page.locator('[data-launch-experiment]').isDisabled(), true);
     await page.locator('[data-launch-experiment]').evaluate(button => button.click());
-    assert.equal(sent.filter(message => message.operation === 'start_launched_experiment').length, 0);
+    assert.equal(sent.filter(message => message.operation === 'start_launched_experiment').length, numericRequests);
     await page.locator('[data-session-navigate="parameters"]').click();
     await (await control('data-example-value', large)).fill('7');
     await page.locator('[data-return-session]').click();
@@ -134,7 +175,7 @@ export async function verifyConfigurationIntegrity(browser, origin, fixture, sec
     unsafeReadback = false;
     await page.locator('#connection-state').filter({hasText: 'Controlling'}).waitFor();
     assert.equal(sent.filter(message => message.operation === 'launch_session').length, 1);
-    assert.equal(sent.filter(message => message.operation === 'start_launched_experiment').length, 1);
+    assert.equal(sent.filter(message => message.operation === 'start_launched_experiment').length, numericRequests + 1);
     assert.deepEqual(errors, []);
     console.log('PASS: independently specified Session/Experiment configurations, prototype keys, coordinate collisions, empty/unset/null/zero/false, numeric refusal, authoritative readback and no replay');
   } finally {await page.close();}

@@ -1,10 +1,24 @@
 // Internal keys encode coordinates; framework requests retain the original names.
 export const configurationIdentity = (...coordinates) => JSON.stringify(coordinates);
 
-export function configurationNumber(text) {
-  const value = Number(text);
-  if (!String(text).trim() || !Number.isFinite(value)
-      || (Number.isInteger(value) && !Number.isSafeInteger(value))
+export function configurationNumber(text, integer = false) {
+  const token = String(text).trim();
+  const parts = /^([+-]?)(?:(\d+)(?:\.(\d*))?|\.(\d+))(?:[eE]([+-]?\d+))?$/.exec(token);
+  let exactInteger = false;
+  if (parts) {
+    const fraction = parts[3] ?? parts[4] ?? '';
+    const digits = (parts[2] || '') + fraction;
+    // Compare decimal places with trailing zeros without expanding an exponent.
+    const places = BigInt(fraction.length) - BigInt(parts[5] || '0');
+    const zeros = BigInt(digits.length - digits.replace(/0+$/, '').length);
+    exactInteger = !/[1-9]/.test(digits) || places <= zeros;
+    if (integer && !exactInteger) {
+      throw new Error(`Numeric value ${text} is not an exact integer. Enter an integer value.`);
+    }
+  }
+  const value = parts ? Number(token) : NaN;
+  if (!parts || !Number.isFinite(value)
+      || (Number.isInteger(value) && (!Number.isSafeInteger(value) || !exactInteger))
       || Object.is(value, -0)
       || (value === 0 && /[1-9]/.test(String(text).split(/[eE]/)[0]))) {
     throw new Error(`Numeric value ${text} cannot be represented faithfully by this GUI. Use a supported value or an authorized framework client.`);
