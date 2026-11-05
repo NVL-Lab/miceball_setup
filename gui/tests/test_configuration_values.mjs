@@ -1,6 +1,29 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {configurationIdentity, configurationNumber, parseConfigurationJSON, stringifyConfiguration} from '../src/miceball_gui/static/configuration-values.mjs';
+import {configurationIdentity, scientificOutputIdentity, configurationEqual, configurationNumber, parseConfigurationJSON, stringifyConfiguration} from '../src/miceball_gui/static/configuration-values.mjs';
+
+test('scientific-output identity uses exact coordinates independent of record property order', () => {
+  const canonical = {source_device_id: 'b/c', source_node_id: 'a', data_product_id: 'frames'};
+  const reordered = {data_product_id: 'frames', source_node_id: 'a', source_device_id: 'b/c'};
+  assert.equal(scientificOutputIdentity(canonical), scientificOutputIdentity(reordered));
+  const distinct = [canonical, {source_node_id: 'a/b', source_device_id: 'c', data_product_id: 'frames'},
+    {...canonical, data_product_id: 'frames/preview'}, {...canonical, source_device_id: 'b/c '},
+    {source_node_id: '__proto__', source_device_id: 'quotes" & <device>', data_product_id: ''}];
+  assert.equal(new Set(distinct.map(scientificOutputIdentity)).size, distinct.length);
+  assert.deepEqual(JSON.parse(scientificOutputIdentity(canonical)), ['a', 'b/c', 'frames']);
+});
+
+test('configuration equality preserves declaration values, array order, null and own-property identity', () => {
+  const first = JSON.parse('{"__proto__":{"name":"x","products":[{"id":"frames","schema":{}}]},"enabled":false,"capabilities":null}');
+  const second = JSON.parse('{"capabilities":null,"enabled":false,"__proto__":{"products":[{"schema":{},"id":"frames"}],"name":"x"}}');
+  assert.equal(configurationEqual(first, second), true);
+  assert.equal(configurationEqual(first, {...second, capabilities: []}), false);
+  assert.equal(configurationEqual(first, {...second, enabled: 0}), false);
+  assert.equal(configurationEqual([1, 2], [2, 1]), false);
+  assert.equal(configurationEqual([], {}), false);
+  assert.equal(configurationEqual({x: null}, {}), false);
+  assert.equal(configurationEqual(first, {enabled: false, capabilities: null}), false);
+});
 
 test('configuration coordinate identities preserve distinct nodes, devices and parameter names', () => {
   const coordinates = [['a', 'b/c'], ['a/b', 'c'], ['node', 'a.b', 'c'], ['node', 'a', 'b.c'],

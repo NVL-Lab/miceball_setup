@@ -1,5 +1,5 @@
 import { clone, devices } from './protocol-demo.mjs';
-import { configurationIdentity } from './configuration-values.mjs';
+import { configurationIdentity, configurationEqual } from './configuration-values.mjs';
 
 export function applyControllerSnapshot(state, snapshot) {
   state.controllerSnapshot = clone(snapshot);
@@ -19,7 +19,7 @@ export function applyControllerSnapshot(state, snapshot) {
   const context = state.activeSession;
   const reserved = new Set((config.expected_runtime_participants || []).filter(p => p.component_type === 'acquisition_node').map(p => p.component_id));
   context.selectedDevices = (config.selected_devices || []).flatMap(declaration => {
-    const matches = devices.filter(device => reserved.has(device.nodeId) && JSON.stringify(device.declaration) === JSON.stringify(declaration));
+    const matches = devices.filter(device => reserved.has(device.nodeId) && configurationEqual(device.declaration, declaration));
     return matches.length === 1 ? [matches[0].id] : [];
   });
   // The Controller descriptors, not working edits or elapsed browser time, define executed attempts.

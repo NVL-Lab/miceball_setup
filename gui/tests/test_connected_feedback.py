@@ -14,7 +14,7 @@ from aiohttp import web
 from aiohttp.test_utils import TestClient, TestServer
 
 from gui.tests.test_backend import create_gui_app
-from lab_sync_acquisition import AcquisitionNode, DeviceDeclaration, DeviceManager, ScientificProductDeclaration, ExperimentConfiguration, SessionConfig
+from lab_sync_acquisition import AcquisitionNode, DeviceDeclaration, DeviceManager, ScientificProductDeclaration, ScientificOutputSelection, ExperimentConfiguration, SessionConfig
 from lab_sync_acquisition.device_adapter import DeviceAdapter
 
 
@@ -112,7 +112,8 @@ class ConnectedFeedbackTests(unittest.IsolatedAsyncioTestCase):
                 adapter = ParameterAdapter(identity, declared)
                 adapter.validate_session_parameters(values)
                 adapters.append(adapter)
-                declaration = DeviceDeclaration(identity, "test-camera", True, False, (), (product,))
+                products = (product, ScientificProductDeclaration("frames/preview", "camera_frames", {}, "jsonl")) if not declarations and not node_declarations else (product,)
+                declaration = DeviceDeclaration(identity, "test-camera", True, False, (), products)
                 node_declarations.append(declaration)
                 intended[node_id][identity] = values
                 rows.extend({"node": node_id, "device": identity, "name": name, "value": value}
@@ -129,7 +130,9 @@ class ConnectedFeedbackTests(unittest.IsolatedAsyncioTestCase):
             session_id="integrity-session", session_parameters=metadata).to_dict()
         intended_session["expected_runtime_participants"] = [{"component_type": "acquisition_node", "component_id": node} for node in owners]
         integrity = {"inventories": owners, "rows": rows, "experiment": intended_experiment, "session": intended_session,
-            "outputs": [{"source_node_id": node, "source_device_id": identity, "data_product_id": "frames"} for node, devices in intended.items() for identity in devices]}
+            "outputs": [ScientificOutputSelection(identity, node, "frames").to_dict()
+                for node, devices in intended.items() for identity in devices],
+            "additional_output": ScientificOutputSelection("__proto__", "__proto__", "frames/preview").to_dict()}
         environment = {**os.environ, "LAB_SYNC_PLAYWRIGHT_MODULE": module,
             "MICEBALL_BROWSER_ORIGIN": origin, "MICEBALL_DEMO_ORIGIN": demos["baseline"],
             "MICEBALL_DEMO_CURRENT_ORIGIN": demos["current"],

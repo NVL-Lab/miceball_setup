@@ -95,6 +95,25 @@ test('unconnected Storage and Services expose unknown data without simulated out
   assert.throws(() => beginShutdownPreview(services), /unavailable/);
 });
 
+test('accepted device declaration matching ignores object property order, not values or ambiguous ownership', () => {
+  const reordered = {scientific_products: [{data_product_id: 'frames'}], device_id: 'camera'};
+  devices.push({id: configurationIdentity('node', 'camera'), nodeId: 'node', declaration: reordered});
+  try {
+    const state = createDemo();
+    applyControllerSnapshot(state, snapshot());
+    assert.deepEqual(state.activeSession.selectedDevices, [configurationIdentity('node', 'camera')]);
+    devices[0].declaration = {...reordered, scientific_products: [{data_product_id: 'other'}]};
+    applyControllerSnapshot(state, snapshot());
+    assert.deepEqual(state.activeSession.selectedDevices, []);
+    devices[0].declaration = reordered;
+    devices.push({id: configurationIdentity('other', 'camera'), nodeId: 'other', declaration: reordered});
+    const readback = snapshot();
+    readback.configuration.expected_runtime_participants.push({component_type: 'acquisition_node', component_id: 'other'});
+    applyControllerSnapshot(state, readback);
+    assert.deepEqual(state.activeSession.selectedDevices, []);
+  } finally {devices.length = 0;}
+});
+
 test('authoritative readback preserves delimiter-containing coordinates and distinct executed values', () => {
   const declarations = [{device_id: 'a.b'}, {device_id: 'a'}, {device_id: 'b/c'}, {device_id: 'c'}];
   const coordinates = [['node', 'a.b'], ['node', 'a'], ['a', 'b/c'], ['a/b', 'c']];

@@ -1,6 +1,22 @@
 // Internal keys encode coordinates; framework requests retain the original names.
 export const configurationIdentity = (...coordinates) => JSON.stringify(coordinates);
 
+export const scientificOutputIdentity = output => configurationIdentity(
+  output.source_node_id, output.source_device_id, output.data_product_id);
+
+// Compare JSON-like declarations without assigning meaning to object-key order.
+export function configurationEqual(left, right) {
+  if (left === right) return true;
+  if (!left || !right || typeof left !== 'object' || typeof right !== 'object') return false;
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return Array.isArray(left) && Array.isArray(right) && left.length === right.length
+      && left.every((value, index) => configurationEqual(value, right[index]));
+  }
+  const keys = Object.keys(left);
+  return keys.length === Object.keys(right).length
+    && keys.every(key => Object.hasOwn(right, key) && configurationEqual(left[key], right[key]));
+}
+
 export function configurationNumber(text, integer = false) {
   const token = String(text).trim();
   const parts = /^([+-]?)(?:(\d+)(?:\.(\d*))?|\.(\d+))(?:[eE]([+-]?\d+))?$/.exec(token);

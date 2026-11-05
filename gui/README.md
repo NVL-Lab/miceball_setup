@@ -143,6 +143,13 @@ strings and explicit null; Use default removes an override and Set null is
 available only for nullable definitions. Executed controls remain read-only and
 the drawer distinguishes explicit null from missing overrides.
 
+Scientific-output checkboxes and edits compare the exact source node, source
+device and data-product tuple, not serialized record property order. Canonical
+framework readback therefore remains selected in executed Parameters, and repeat
+deselection removes the intended output without altering other identities.
+Accepted device declarations also compare complete values independently of
+object-key order; unique reserved-node association is still required.
+
 The browser explicitly refuses integer-valued numbers outside JavaScript's safe
 integer range, nonfinite values, negative zero and underflow to zero rather than
 silently changing scientific values. Refusal applies to numeric editing, additional
@@ -164,9 +171,12 @@ retain the existing binary floating-point behavior.
 The rendered feedback regression uses independently specified Python SessionConfig
 and ExperimentConfiguration fixtures, not outgoing requests as its only expected
 values. It covers special keys, multi-node/delimiter collisions, empty/unset/null,
-numeric refusal and independently supplied executed readback. The separate real
-NATS rendered workflow checks ordinary and nullable adapter overrides against
-Controller-accepted descriptors, plus explicit autonomous-expiry reconciliation.
+numeric refusal and independently supplied executed readback. Framework-produced
+scientific-output records exercise empty and partial repeat selections, distinct
+products and repeated edits against separately specified intended output sets.
+The separate real NATS rendered workflow checks ordinary and nullable adapter
+overrides and an explicitly outputless repeat against Controller-accepted
+descriptors, plus explicit autonomous-expiry reconciliation.
 Its explicit mapping-age test configuration accommodates the long screenshot pass.
 These are developer checks only, not independent validation, audit or closure.
 

@@ -6,6 +6,7 @@ export async function verifyConfigurationIntegrity(browser, origin, fixture, sec
   let configuration = null, phase = null, executed = false, unsafeReadback = false;
   let numericExpected = null;
   let numericRequests = 0;
+  let completed = false, repeatExpected = null, repeatRequests = 0;
   page.on('pageerror', error => errors.push(error.message));
   await page.routeWebSocket('**/ws', route => {
     route.onMessage(raw => {
@@ -15,7 +16,8 @@ export async function verifyConfigurationIntegrity(browser, origin, fixture, sec
         details = {controller_id: 'integrity', instance_id: 'integrity-instance', control: {controlling: true, generation: 1},
           configured_nodes: Object.keys(fixture.inventories), pending_operations: [], configuration,
           status: {session_id: configuration?.session_id || null, session_state: phase,
-            active_experiment_id: executed ? 'integrity-experiment' : null, experiment_lifecycle_evidence: []},
+            active_experiment_id: executed && !completed ? 'integrity-experiment' : null,
+            experiment_lifecycle_evidence: completed ? [{experiment_id: 'integrity-experiment', event_type: 'experiment_stop', sequence: 1, session_time_s: 2}] : []},
           experiments: executed ? [{experiment_id: 'integrity-experiment', configuration: fixture.experiment, scientific_outputs: fixture.outputs}] : [],
           ...(unsafeReadback ? {unsupported_number: 0} : {})};
       } else if (message.operation === 'get_node_inventory') details = fixture.inventories[message.parameters.node_id];
@@ -29,6 +31,12 @@ export async function verifyConfigurationIntegrity(browser, origin, fixture, sec
           assert.deepEqual(message.parameters.configuration.device_configurations,
             {['__proto__']: {['__proto__']: {count: numericExpected}}});
           numericRequests++; status = 'rejected';
+        } else if (repeatExpected !== null) {
+          assert.equal(message.parameters.experiment_id, 'integrity-repeat');
+          assert.deepEqual(message.parameters.configuration, fixture.experiment);
+          const coordinates = outputs => outputs.map(output => [output.source_node_id, output.source_device_id, output.data_product_id]).sort();
+          assert.deepEqual(coordinates(message.parameters.scientific_outputs), coordinates(repeatExpected));
+          repeatRequests++; status = 'rejected';
         } else {
           assert.deepEqual(message.parameters.configuration, fixture.experiment);
           assert.deepEqual(message.parameters.scientific_outputs, fixture.outputs);
@@ -46,6 +54,14 @@ export async function verifyConfigurationIntegrity(browser, origin, fixture, sec
     const index = await page.locator(`[${attribute}]`).evaluateAll((elements, {key, attribute}) => elements.findIndex(element => element.getAttribute(attribute) === key), {key, attribute});
     assert.ok(index >= 0, `Missing control ${key}`);
     return page.locator(`[${attribute}]`).nth(index);
+  };
+  const outputControl = async output => {
+    const index = await page.locator('[data-scientific-output]').evaluateAll((inputs, output) => inputs.findIndex(input => {
+      const item = JSON.parse(input.dataset.scientificOutput);
+      return item.source_node_id === output.source_node_id && item.source_device_id === output.source_device_id && item.data_product_id === output.data_product_id;
+    }), output);
+    assert.ok(index >= 0, `Missing scientific output ${JSON.stringify(output)}`);
+    return page.locator('[data-scientific-output]').nth(index);
   };
   try {
     await page.goto(origin);
@@ -132,7 +148,9 @@ export async function verifyConfigurationIntegrity(browser, origin, fixture, sec
     await page.locator('[data-framework-field="experimentId"]').fill('integrity-experiment');
     await page.locator('[data-framework-field="preservationBudget"]').fill('1000000');
     for (const input of await page.locator('[data-recording-budget]').all()) await input.fill('100000');
-    for (const input of await page.locator('[data-scientific-output]').all()) await input.check();
+    for (const input of await page.locator('[data-scientific-output]').all()) assert.equal(await input.isChecked(), false);
+    for (const output of fixture.outputs) await (await outputControl(output)).check();
+    assert.equal(await (await outputControl(fixture.additional_output)).isChecked(), false);
     const large = ['__proto__', '__proto__', 'large'];
     await (await control('data-example-value', large)).fill('9007199254740993');
     assert.match(await page.locator('#parameter-feedback').innerText(), /cannot be represented faithfully/);
@@ -162,6 +180,12 @@ export async function verifyConfigurationIntegrity(browser, origin, fixture, sec
       if (typeof row.value === 'boolean') assert.equal(await input.isChecked(), row.value);
       else assert.equal(await input.inputValue(), row.value === null ? '' : String(row.value));
     }
+    for (const output of fixture.outputs) {
+      const input = await outputControl(output);
+      assert.equal(await input.isChecked(), true, 'Framework-produced selected output must render checked');
+      assert.equal(await input.isDisabled(), true);
+    }
+    assert.equal(await (await outputControl(fixture.additional_output)).isChecked(), false);
     await section(page, 'experiment');
     await page.locator('[data-show-experiment-parameters]').click();
     const drawer = await page.locator('#experiment-parameters-drawer').innerText();
@@ -176,6 +200,43 @@ export async function verifyConfigurationIntegrity(browser, origin, fixture, sec
     await page.locator('#connection-state').filter({hasText: 'Controlling'}).waitFor();
     assert.equal(sent.filter(message => message.operation === 'launch_session').length, 1);
     assert.equal(sent.filter(message => message.operation === 'start_launched_experiment').length, numericRequests + 1);
+    completed = true;
+    await page.locator('[data-prepare-experiment]').waitFor();
+    await page.locator('[data-prepare-experiment]').click();
+    await page.locator('[data-session-navigate="parameters"]').click();
+    await page.locator('[data-framework-field="experimentId"]').fill('integrity-repeat');
+    for (const output of fixture.outputs) {
+      const input = await outputControl(output);
+      assert.equal(await input.isChecked(), true);
+      await input.uncheck();
+    }
+    const first = await outputControl(fixture.outputs[0]);
+    await first.check(); await first.uncheck();
+    const submitRepeat = async outputs => {
+      repeatExpected = outputs;
+      const previous = repeatRequests;
+      await page.locator('[data-return-session]').click();
+      await page.locator('[data-launch-experiment]').click();
+      await page.waitForFunction(() => !document.querySelector('[data-launch-experiment]').disabled);
+      assert.equal(repeatRequests, previous + 1);
+      await page.locator('[data-session-navigate="parameters"]').click();
+    };
+    await submitRepeat([]);
+    for (const input of await page.locator('[data-scientific-output]').all()) assert.equal(await input.isChecked(), false);
+    const subset = [fixture.outputs.at(-1), fixture.outputs[0], fixture.additional_output];
+    for (const output of subset) {
+      const input = await outputControl(output);
+      await input.check(); await input.uncheck(); await input.check();
+    }
+    await submitRepeat(subset);
+    await (await outputControl(fixture.additional_output)).uncheck();
+    await submitRepeat([fixture.outputs.at(-1), fixture.outputs[0]]);
+    for (const output of fixture.outputs) {
+      assert.equal(await (await outputControl(output)).isChecked(), output === fixture.outputs[0] || output === fixture.outputs.at(-1));
+    }
+    assert.equal(await (await outputControl(fixture.additional_output)).isChecked(), false);
+    assert.equal(sent.filter(message => message.operation === 'start_launched_experiment').length, numericRequests + 4);
+    console.log('PASS: canonical framework outputs render selected; repeat deselection submits []; reordered editing preserves exact empty/partial sets across nodes, delimiter identities and distinct products');
     assert.deepEqual(errors, []);
     console.log('PASS: independently specified Session/Experiment configurations, prototype keys, coordinate collisions, empty/unset/null/zero/false, numeric refusal, authoritative readback and no replay');
   } finally {await page.close();}
