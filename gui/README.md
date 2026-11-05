@@ -135,6 +135,33 @@ fixtures and synthetic plots are not live-input safety guarantees for future
 integrations. Deferred interfaces remain disconnected. Unit 1 still requires
 independent validation and a separate complete audit; this is not closure.
 
+The coordinated configuration-integrity correction uses JSON-tuple internal
+coordinates and own-property-safe request dictionaries. Raw node/device/parameter
+names remain unchanged in framework requests, including prototype-sensitive keys.
+Connected Parameters distinguishes untouched/default values, explicit empty
+strings and explicit null; Use default removes an override and Set null is
+available only for nullable definitions. Executed controls remain read-only and
+the drawer distinguishes explicit null from missing overrides.
+
+The browser explicitly refuses integer-valued numbers outside JavaScript's safe
+integer range, nonfinite values, negative zero and underflow to zero rather than
+silently changing scientific values. Refusal applies to numeric editing, additional
+configuration JSON, outgoing serialization and incoming readback. Unsupported
+input cannot launch an Experiment; unsupported readback leaves communication
+unconfirmed and controlling operations disabled. This is a GUI representation
+limitation, not a restriction of the Python/framework scientific contract; use an
+authorized framework client for unsupported values. Numeric JSON verification
+requires a browser supporting source context in the JSON.parse reviver.
+
+The rendered feedback regression uses independently specified Python SessionConfig
+and ExperimentConfiguration fixtures, not outgoing requests as its only expected
+values. It covers special keys, multi-node/delimiter collisions, empty/unset/null,
+numeric refusal and independently supplied executed readback. The separate real
+NATS rendered workflow checks ordinary and nullable adapter overrides against
+Controller-accepted descriptors, plus explicit autonomous-expiry reconciliation.
+Its explicit mapping-age test configuration accommodates the long screenshot pass.
+These are developer checks only, not independent validation, audit or closure.
+
 ### Public interfaces
 
 The existing lifecycle methods and result serialization methods remain unchanged.

@@ -38,6 +38,8 @@ html[data-theme="dark"] :is(#panel-parameters, #panel-experiment, #panel-analysi
 .session-card .launch-experiment-demo { min-height: 54px; font-size: 14px; }
 .launch-experiment-demo small { display: block; margin-top: 4px; font-weight: 400; }
 .parameter-toolbar { display: flex; gap: 8px; margin-bottom: 12px; }
+.parameter-override { min-width: 0; }
+.parameter-override .parameter-toolbar { flex-wrap: wrap; align-items: center; margin: 7px 0 0; }
 .parameter-fields { padding: 0; margin: 0; border: 0; min-width: 0; }
 .parameter-section { border: 1px solid var(--line); border-radius: 8px; background: var(--surface); margin-bottom: 12px; }
 .parameter-section summary { padding: 14px 16px; cursor: pointer; font-size: 13px; font-weight: 600; }

@@ -1,4 +1,5 @@
 import { clone, devices } from './protocol-demo.mjs';
+import { configurationIdentity } from './configuration-values.mjs';
 
 export function applyControllerSnapshot(state, snapshot) {
   state.controllerSnapshot = clone(snapshot);
@@ -47,8 +48,8 @@ export function applyControllerSnapshot(state, snapshot) {
     const executed = descriptor.configuration;
     if (executed) {
       const configuration = { durationSeconds: executed.duration_s,
-        participants: Object.entries(executed.participating_devices || {}).flatMap(([node, ids]) => ids.map(id => `${node}/${id}`)),
-        values: Object.fromEntries(Object.entries(executed.device_configurations || {}).flatMap(([node, entries]) => Object.entries(entries).flatMap(([device, values]) => Object.entries(values).map(([key, value]) => [`${node}/${device}.${key}`, value])))),
+        participants: Object.entries(executed.participating_devices || {}).flatMap(([node, ids]) => ids.map(id => configurationIdentity(node, id))),
+        values: Object.fromEntries(Object.entries(executed.device_configurations || {}).flatMap(([node, entries]) => Object.entries(entries).flatMap(([device, values]) => Object.entries(values).map(([key, value]) => [configurationIdentity(node, device, key), value])))),
         experimentId: descriptor.experiment_id, recordingBudgets: clone(executed.recording_budgets || {}),
         preservationBudget: executed.preservation_budget_bytes, outputs: clone(descriptor.scientific_outputs || []) };
       const bundle = record.experiment ??= { working: clone(configuration), startingConfiguration: clone(configuration), editing: false, templateId: '', attempts: [] };

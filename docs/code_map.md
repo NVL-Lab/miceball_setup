@@ -25,6 +25,7 @@
   It also checks framework-produced quoted/metacharacter device identities remain inert and unchanged through participant selection and outgoing Experiment configuration.
   Session summary checks cover populated/empty fallbacks in both modes, working/executed values and escaped parameter text without changing outgoing overrides.
   Its rendered `verifyRenderingSafety()` workflow checks all three external bound sources, hostile inventory/readback/error text, exact outgoing values, executed read-only controls and View Only across both themes and representative viewport sizes.
+- `verifyConfigurationIntegrity(browser, origin, fixture, section)`: Exercises production Session/Experiment presenters against independently specified Python configuration models, checking exact key/value handoff, executed readback, explicit defaults/nulls and refusal without replay of unsupported numbers.
 - `test_connected_state.mjs`: Exercises connected preparation, detached accepted/executed readback, unavailable associations and refusal of demonstration execution in connected context.
 - `GUIIntegrationTests`: Uses actual web/WebSocket requests, restricted external NATS, authority-registered participant NATS, disk-backed owners and a simulated camera to exercise Unit 1 without production deployments.
 - `GUIIntegrationTests.backend()/browser()/message()/completed()/take()/launch_parameters()`: Compose disposable browser-facing public workflows with explicit test deployment inputs and non-executing outcome polling.
@@ -2933,6 +2934,8 @@ automatic. Kill integration and overall closeout validation remain deferred.
 
 ## gui/src/miceball_gui/static/protocol-demo.mjs
 
+- clone(value): Detaches JSON-like GUI state through the shared numeric-safe configuration serialization boundary rather than silently changing unsupported numbers.
+
 - preparedSteps: Lists shared and current-experimenter saved demonstration definitions for the existing step selector.
 - savedOccurrence: Creates an independently identified occurrence referencing an immutable saved demonstration definition.
 - copyStepToEdit: Copies a step into an editable working occurrence with a suggested unique name.
@@ -3035,6 +3038,13 @@ automatic. Kill integration and overall closeout validation remain deferred.
 - sessionIdentity: Reads the existing Setup identity fields for presentation without creating a second configuration model.
 - executionIdentity: Resolves the captured active Session identity, falling back to Setup only before launch.
 
+## gui/src/miceball_gui/static/configuration-values.mjs
+
+- configurationIdentity(...coordinates): Encodes internal node/device/parameter coordinates as collision-free JSON tuples without altering framework identifiers.
+- configurationNumber(text): Parses GUI numeric input or JSON tokens and explicitly refuses unsupported nonfinite, unsafe-integer, negative-zero or underflow-to-zero representations.
+- parseConfigurationJSON(text): Parses configuration/readback JSON with source-token numeric verification before values enter GUI state.
+- stringifyConfiguration(value): Serializes configuration while rejecting unsupported numerical values before request submission or JSON cloning.
+
 ## gui/src/miceball_gui/static/session-context.mjs
 
 - freezeSnapshot: Recursively freezes detached browser-local launch values and executed configuration snapshots.
@@ -3045,7 +3055,7 @@ automatic. Kill integration and overall closeout validation remain deferred.
 
 ## gui/src/miceball_gui/static/parameters-view.js
 
-- parameterField: Renders a control from connected adapter metadata or demonstration fixtures, escaping labels, identifiers, values, input types and bound attributes without changing configuration semantics.
+- parameterField(field, value, present): Renders an escaped control and connected-mode override/default/null state while preserving the original demonstration controls.
 - renderParameters: Renders the single Session-selected Experiment's working or read-only configuration and optional personal-template saving.
 - updateParameterWorking: Applies typed parameter input to shared working values while leaving participation selection in Session.
 

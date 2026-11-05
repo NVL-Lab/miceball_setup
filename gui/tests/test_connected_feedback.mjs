@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 import {mkdir, writeFile} from 'node:fs/promises';
+import {verifyConfigurationIntegrity} from './test_configuration_integrity.mjs';
 if (!process.env.MICEBALL_BROWSER_ORIGIN) {
   console.log('Rendered feedback checks require the disposable Python fixture.');
 } else {
@@ -117,7 +118,7 @@ async function verifyRenderingSafety() {
     await target.locator('[data-open-setup]').click();
     await target.locator('#load-inventory').click();
     await target.locator('#inventory-status').filter({hasText: 'inventory confirmed'}).waitFor();
-    assert.equal(await target.locator('#session-device-list input').getAttribute('data-device'), `${node}/${device.device_id}`);
+    assert.equal(await target.locator('#session-device-list input').getAttribute('data-device'), JSON.stringify([node, device.device_id]));
     assert.ok((await target.locator('#session-device-list').innerText()).includes(device.declared_capabilities[0]));
     await inert();
     await section(target, 'session');
@@ -126,13 +127,13 @@ async function verifyRenderingSafety() {
     await target.locator('.experiment-additional-devices').evaluate(element => element.open = true);
     const participant = target.locator('[data-session-experiment-device]');
     await participant.check(); await participant.uncheck(); await participant.check();
-    assert.equal(await participant.getAttribute('data-session-experiment-device'), `${node}/${device.device_id}`);
-    assert.equal(await target.locator('[data-validate-device]').getAttribute('data-validate-device'), `${node}/${device.device_id}`);
+    assert.equal(await participant.getAttribute('data-session-experiment-device'), JSON.stringify([node, device.device_id]));
+    assert.equal(await target.locator('[data-validate-device]').getAttribute('data-validate-device'), JSON.stringify([node, device.device_id]));
     await target.locator('[data-session-navigate="parameters"]').click();
     await inert(); // Regression-first: unescaped bounds create handlers/elements here.
     for (const [index, name] of names.entries()) {
       const control = target.locator('[data-example-value]').nth(index), definition = definitions[name];
-      assert.equal(await control.getAttribute('data-example-value'), `${node}/${device.device_id}.${name}`);
+      assert.equal(await control.getAttribute('data-example-value'), JSON.stringify([node, device.device_id, name]));
       assert.ok((await control.locator('..').innerText()).includes(name));
       for (const [attribute, value] of [['min', definition.minimum ?? definition.exclusive_minimum], ['max', definition.maximum]]) {
         assert.equal(await control.getAttribute(attribute), value === undefined ? null : String(value));
@@ -202,6 +203,7 @@ async function verifyRenderingSafety() {
   } finally {await target.close();}
 }
 try {
+  await verifyConfigurationIntegrity(browser, process.env.MICEBALL_BROWSER_ORIGIN, JSON.parse(process.env.MICEBALL_INTEGRITY), section);
   await verifyRenderingSafety();
   await page.goto(process.env.MICEBALL_BROWSER_ORIGIN);
   await page.locator('#connection-state').filter({hasText: 'View Only'}).waitFor();
@@ -337,7 +339,7 @@ try {
   reply(inventoryRequests.at(-1).route, inventoryRequests.at(-1).message, 'succeeded', identityInventory);
   await status.filter({hasText: 'inventory confirmed'}).waitFor();
   assert.deepEqual(await page.locator('#session-device-list input').evaluateAll(inputs => inputs.map(input => input.dataset.device)),
-    identityInventory.devices.map(device => `node/${device.device_id}`));
+    identityInventory.devices.map(device => JSON.stringify(['node', device.device_id])));
   await section(page, 'session');
   await page.locator('[data-prepare-free-operation]').click();
   await page.locator('.experiment-additional-devices').evaluate(element => element.open = true);
@@ -346,12 +348,12 @@ try {
     const checkbox = page.locator('[data-session-experiment-device]').nth(index);
     await checkbox.hover();
     assert.equal(await page.evaluate(() => window.__auditMarkupExecuted), 0, 'inventory identity must not become executable markup');
-    assert.equal(await checkbox.getAttribute('data-session-experiment-device'), `node/${device.device_id}`);
+    assert.equal(await checkbox.getAttribute('data-session-experiment-device'), JSON.stringify(['node', device.device_id]));
     assert.equal(await checkbox.getAttribute('onpointerover'), null);
     await checkbox.check();
     assert.equal(await checkbox.isChecked(), true);
     const validation = page.locator('[data-validate-device]').nth(index);
-    assert.equal(await validation.getAttribute('data-validate-device'), `node/${device.device_id}`);
+    assert.equal(await validation.getAttribute('data-validate-device'), JSON.stringify(['node', device.device_id]));
     assert.equal(await validation.getAttribute('onpointerover'), null);
     await validation.hover();
     assert.equal(await page.evaluate(() => window.__auditMarkupExecuted), 0);

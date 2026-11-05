@@ -1,6 +1,7 @@
 // Explicitly fictional fixtures, not device SDK definitions or a framework schema.
 import { clone, devices, declaredCoverage } from './protocol-demo.mjs';
 import { executionContext } from './session-context.mjs';
+import { configurationNumber } from './configuration-values.mjs';
 
 import { connectedMode } from './protocol-demo.mjs';
 export const deviceExamples = connectedMode ? {} : {
@@ -98,6 +99,17 @@ export function experimentIssues(state, step, configuration) {
     if (!Number.isFinite(configuration.preservationBudget) || configuration.preservationBudget <= 0) issues.push('Set an explicit preservation budget.');
     for (const node of new Set(participants.map(device => device.nodeId))) {
       if (!Number.isFinite(configuration.recordingBudgets?.[node]) || configuration.recordingBudgets[node] <= 0) issues.push(`Set an explicit recording budget for ${node}.`);
+    }
+    for (const field of participants.flatMap(device => deviceExamples[device.id]?.fields || [])) {
+      if (!Object.hasOwn(configuration.values, field.id)) continue;
+      const value = configuration.values[field.id];
+      if (value === null && field.nullable) continue;
+      if (field.type === 'number') {
+        try {
+          if (typeof value !== 'number' || (field.integer && !Number.isInteger(value))) throw new Error();
+          configurationNumber(String(value));
+        } catch (_) { issues.push(`Correct the unsupported numeric value for ${field.label}.`); }
+      }
     }
     return issues;
   }

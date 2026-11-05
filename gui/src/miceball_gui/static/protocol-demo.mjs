@@ -1,3 +1,5 @@
+import { parseConfigurationJSON, stringifyConfiguration } from './configuration-values.mjs';
+
 // Fictional application data and browser-memory preparation state.
 export const operationCategories = Object.freeze(['Experiment', 'Analysis', 'Scientific Validation', 'Operator interaction']);
 
@@ -28,7 +30,7 @@ export const devices = connectedMode ? [] : [
   { id: 'extra', name: 'Extra camera (USB)', detail: 'USB-02', capabilities: ['behavior_video'], available: true },
   { id: 'stage', name: 'Stage (ASI Tiger)', detail: 'S/N 987654', capabilities: ['positioning'], available: true },
 ];
-export const clone = value => JSON.parse(JSON.stringify(value));
+export const clone = value => parseConfigurationJSON(stringifyConfiguration(value));
 const freezeDefinition = value => Object.freeze({ ...value, required: Object.freeze([...value.required]), optional: Object.freeze([...value.optional]) });
 export function preparedSteps(state, owner) {
   return state.definitions.filter(step => step.owner === null || step.owner === owner);
@@ -76,7 +78,7 @@ export function assignCapability(step, kind, capability, selected) {
 }
 export function createDemo() {
   if (connectedMode) return { connected: true, definitions: [], protocols: [], templates: [], protocolId: null,
-    templateId: '', included: [], selectedDevices: [], inventory: {}, actions: {}, controllerSnapshot: null };
+    templateId: '', included: [], selectedDevices: [], inventory: Object.create(null), actions: {}, controllerSnapshot: null };
   const steps = operations.map((op, i) => ({ ...clone(op), id: `step-${i}`, operation: op.id, mandatory: op.id !== 'holo', configuration: '' }));
   const definitions = steps.map(step => freezeDefinition({ ...clone(step), id: `shared-${step.operation}`, owner: null }));
   steps.forEach(step => { step.definitionId = `shared-${step.operation}`; });

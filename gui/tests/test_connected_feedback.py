@@ -14,7 +14,7 @@ from aiohttp import web
 from aiohttp.test_utils import TestClient, TestServer
 
 from gui.tests.test_backend import create_gui_app
-from lab_sync_acquisition import AcquisitionNode, DeviceDeclaration, DeviceManager, ScientificProductDeclaration
+from lab_sync_acquisition import AcquisitionNode, DeviceDeclaration, DeviceManager, ScientificProductDeclaration, ExperimentConfiguration, SessionConfig
 from lab_sync_acquisition.device_adapter import DeviceAdapter
 
 
@@ -74,18 +74,61 @@ class ConnectedFeedbackTests(unittest.IsolatedAsyncioTestCase):
             "gate": {"type": "boolean"}, hostile: {"type": "string"}})
 
         class ParameterAdapter(DeviceAdapter):
+            def __init__(self, identity, definitions):
+                super().__init__(identity, "test-camera", (), False)
+                self.definitions = definitions
+
             def get_session_parameter_definitions(self):
-                return definitions
+                return self.definitions
 
         safety_node = "node-" + hostile
         safety_device = "camera-" + hostile
         safety_product = "frames-" + hostile
         safety_owner = AcquisitionNode(device_manager=DeviceManager([
-            ParameterAdapter(safety_device, "test-camera", (), False)]),
+            ParameterAdapter(safety_device, definitions)]),
             node_id=safety_node, role="acquisition", synchronization_source_id="sync",
             device_declarations=(DeviceDeclaration(safety_device, "test-camera", True, False,
                 ("capability-" + hostile,),
                 (ScientificProductDeclaration(safety_product, "camera_frames", {}, "jsonl"),)),))
+        key_values = {key: index for index, key in enumerate([
+            "__proto__", "constructor", "prototype", "toString", "hasOwnProperty", "0", "01", ""])}
+        key_values.update({"empty": "", "nullable": None, "flag": False, "large": 7,
+            'quoted" \u03a9': 'value " & <text> \u03a9'})
+        entries = [("__proto__", "__proto__", key_values), ("constructor", "ordinary", {"gain": 1.25}),
+            ("toString", "prototype", {"gain": 0}), ("hasOwnProperty", "constructor", {"gain": 4}),
+            ("node", "a.b", {"c": 2}), ("node", "a", {"b.c": 9}),
+            ("a", "b/c", {"gain": 3}), ("a/b", "c", {"gain": 4})]
+        owners, intended, rows, declarations = {}, {}, [], []
+        for node_id in dict.fromkeys(node for node, _, _ in entries):
+            adapters, node_declarations = [], []
+            intended[node_id] = {}
+            for _, identity, values in (entry for entry in entries if entry[0] == node_id):
+                declared = {name: {"type": "boolean" if type(value) is bool else "string" if isinstance(value, str) else "number",
+                    **({"nullable": True} if value is None else {})} for name, value in values.items()}
+                if "large" in declared:
+                    declared["large"]["type"] = "integer"
+                declared["unset"] = {"type": "number"}
+                adapter = ParameterAdapter(identity, declared)
+                adapter.validate_session_parameters(values)
+                adapters.append(adapter)
+                declaration = DeviceDeclaration(identity, "test-camera", True, False, (), (product,))
+                node_declarations.append(declaration)
+                intended[node_id][identity] = values
+                rows.extend({"node": node_id, "device": identity, "name": name, "value": value}
+                    for name, value in values.items())
+            owners[node_id] = AcquisitionNode(device_manager=DeviceManager(adapters), node_id=node_id,
+                role="acquisition", synchronization_source_id="sync", device_declarations=node_declarations).get_inventory()
+            declarations.extend(node_declarations)
+        intended_experiment = ExperimentConfiguration(2, recording_budgets={node: 100000 for node in owners},
+            preservation_budget_bytes=1000000, device_configurations=intended,
+            participating_devices={node: list(devices) for node, devices in intended.items()}).to_dict()
+        metadata = {"name": "Integrity Session", "date": "2026-11-04", "number": 0, "notes": "notes",
+            "experimenter": "Scientist", "extra": {"__proto__": [0, False, None, ""]}}
+        intended_session = SessionConfig(declarations, "test-only-storage", {}, "test-only-errors",
+            session_id="integrity-session", session_parameters=metadata).to_dict()
+        intended_session["expected_runtime_participants"] = [{"component_type": "acquisition_node", "component_id": node} for node in owners]
+        integrity = {"inventories": owners, "rows": rows, "experiment": intended_experiment, "session": intended_session,
+            "outputs": [{"source_node_id": node, "source_device_id": identity, "data_product_id": "frames"} for node, devices in intended.items() for identity in devices]}
         environment = {**os.environ, "LAB_SYNC_PLAYWRIGHT_MODULE": module,
             "MICEBALL_BROWSER_ORIGIN": origin, "MICEBALL_DEMO_ORIGIN": demos["baseline"],
             "MICEBALL_DEMO_CURRENT_ORIGIN": demos["current"],
@@ -93,7 +136,8 @@ class ConnectedFeedbackTests(unittest.IsolatedAsyncioTestCase):
             "MICEBALL_DEVICE_IDENTITY_INVENTORY": json.dumps(inventory_owner.get_inventory()),
             "MICEBALL_RENDERING_INVENTORY": json.dumps(safety_owner.get_inventory()),
             "MICEBALL_RENDERING_NODE": safety_node,
-            "MICEBALL_RENDERING_TEXT": hostile}
+            "MICEBALL_RENDERING_TEXT": hostile,
+            "MICEBALL_INTEGRITY": json.dumps(integrity)}
         result = await asyncio.to_thread(subprocess.run,
             [node, str(Path(__file__).with_suffix(".mjs"))], env=environment,
             capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120)

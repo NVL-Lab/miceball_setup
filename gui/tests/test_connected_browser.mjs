@@ -13,10 +13,17 @@ if (!process.env.MICEBALL_BROWSER_ORIGIN) {
   const page = await browser.newPage({viewport: {width: 1440, height: 1000}});
   const errors = [];
   const submitted = [];
+  const submittedData = [];
+  let lastState;
   page.on('pageerror', error => errors.push(error.message));
-  page.on('websocket', socket => socket.on('framesent', frame => {
-    try { submitted.push(JSON.parse(frame.payload).operation); } catch (_) {}
-  }));
+  page.on('websocket', socket => {
+    socket.on('framesent', frame => {
+      try { const data = JSON.parse(frame.payload); submitted.push(data.operation); submittedData.push(data); } catch (_) {}
+    });
+    socket.on('framereceived', frame => {
+      try { const details = JSON.parse(frame.payload).result?.outcome?.details; if (details?.experiments) lastState = details; } catch (_) {}
+    });
+  });
   const config = JSON.parse(process.env.MICEBALL_BROWSER_CONFIGURATION);
   const section = async name => {
     await page.locator('#navigation-toggle').click();
@@ -66,11 +73,17 @@ if (!process.env.MICEBALL_BROWSER_ORIGIN) {
     await page.locator('[data-framework-field="preservationBudget"]').fill('1000000');
     await page.locator('[data-recording-budget]').fill('1000000');
     await page.locator('[data-scientific-output]').first().check();
+    await page.locator('[data-example-value]').nth(0).fill('1');
+    await page.locator('[data-example-value]').nth(3).fill('1');
+    await page.locator('[data-example-value]').nth(3).fill('');
     await shot('connected-parameters');
     await page.locator('[data-return-session]').click();
     await shot('connected-session');
     await page.locator('[data-launch-experiment]').click();
     await page.locator('[data-stop-experiment]').waitFor();
+    const intendedOverrides = {node: {device: {frames_per_collect: 1, fps: null}}};
+    assert.deepEqual(submittedData.find(message => message.operation === 'start_launched_experiment').parameters.configuration.device_configurations, intendedOverrides);
+    assert.deepEqual(lastState.experiments.find(experiment => experiment.experiment_id === 'browser-recording').configuration.device_configurations, intendedOverrides);
     const observer = await browser.newPage();
     await observer.goto(process.env.MICEBALL_BROWSER_ORIGIN);
     await observer.locator('#connection-state').filter({hasText: 'View Only'}).waitFor();
@@ -86,6 +99,7 @@ if (!process.env.MICEBALL_BROWSER_ORIGIN) {
     await page.locator('#connection-state').filter({hasText: 'Controlling'}).waitFor();
     await observer.close();
     await page.locator('[data-show-experiment-parameters]').click();
+    assert.match(await page.locator('#experiment-parameters-drawer').innerText(), /fps: null/);
     await shot('connected-experiment-drawer');
     await page.locator('[data-show-experiment-parameters]').click();
     await page.locator('[data-stop-experiment]').click();
@@ -144,6 +158,17 @@ if (!process.env.MICEBALL_BROWSER_ORIGIN) {
       }
       if (mode === 'connected') {
         await section('session');
+        await page.locator('[data-prepare-experiment]').click();
+        await page.locator('[data-session-navigate="parameters"]').click();
+        await page.locator('#experiment-duration').fill('1');
+        await page.locator('[data-framework-field="experimentId"]').fill('browser-expiry');
+        await page.locator('[data-return-session]').click();
+        await page.locator('[data-launch-experiment]').click();
+        await page.locator('[data-reconcile-expiry]').waitFor();
+        await page.waitForTimeout(1500);
+        await page.locator('[data-reconcile-expiry]').click();
+        await page.waitForFunction(() => document.querySelector('#experiment-monitor-fields')?.textContent.includes('completed'));
+        await section('session');
         await page.locator('[data-stop-session]').click();
         await page.locator('[data-confirm-stop]').click();
         await page.locator('[data-release-session]').click();
@@ -153,8 +178,9 @@ if (!process.env.MICEBALL_BROWSER_ORIGIN) {
         await page.locator('.launch-session-demo').click();
         await page.locator('[data-start-session]').waitFor();
         assert.equal(submitted.filter(operation => operation === 'launch_session').length, 2);
-        assert.equal(submitted.filter(operation => operation === 'start_launched_experiment').length, 1);
+        assert.equal(submitted.filter(operation => operation === 'start_launched_experiment').length, 2);
         assert.equal(submitted.filter(operation => operation === 'stop_launched_experiment').length, 1);
+        assert.equal(submitted.filter(operation => operation === 'reconcile_launched_experiment_expiry').length, 1);
         await page.reload();
         await page.locator('#connection-state').filter({hasText: 'View Only'}).waitFor();
         assert.equal(submitted.filter(operation => operation === 'launch_session').length, 2);

@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import {configurationIdentity} from '../src/miceball_gui/static/configuration-values.mjs';
 
 globalThis.document = {documentElement: {dataset: {runtime: 'connected'}}};
 const {createDemo, devices, operations} = await import('../src/miceball_gui/static/protocol-demo.mjs');
@@ -35,12 +36,12 @@ test('connected preparation begins without fictional devices, protocols, results
 });
 
 test('accepted identity and executed values survive working edits, completion and detached readback', () => {
-  devices.push({id: 'node/camera', nodeId: 'node', declaration: structuredClone(declaration)});
+  devices.push({id: configurationIdentity('node', 'camera'), nodeId: 'node', declaration: structuredClone(declaration)});
   const state = createDemo(), original = snapshot();
   applyControllerSnapshot(state, original);
   original.configuration.session_parameters.name = 'Changed externally';
   assert.equal(state.activeSession.identity.name, 'Accepted name');
-  assert.deepEqual(state.activeSession.selectedDevices, ['node/camera']);
+  assert.deepEqual(state.activeSession.selectedDevices, [configurationIdentity('node', 'camera')]);
   prepareFreeOperation(state, 'acquisition');
   const {step,record} = selectedStepContext(state);
   updateExperiment(state, step, record, {durationSeconds: 12});
@@ -92,4 +93,27 @@ test('unconnected Storage and Services expose unknown data without simulated out
   assert.ok(services.services.every(service => service.current === false && service.confirmed === null));
   services.administrator = true;
   assert.throws(() => beginShutdownPreview(services), /unavailable/);
+});
+
+test('authoritative readback preserves delimiter-containing coordinates and distinct executed values', () => {
+  const declarations = [{device_id: 'a.b'}, {device_id: 'a'}, {device_id: 'b/c'}, {device_id: 'c'}];
+  const coordinates = [['node', 'a.b'], ['node', 'a'], ['a', 'b/c'], ['a/b', 'c']];
+  devices.push(...coordinates.map(([nodeId, deviceId], i) => ({id: configurationIdentity(nodeId, deviceId), nodeId, deviceId, declaration: declarations[i]})));
+  try {
+    const state = createDemo();
+    const readback = snapshot();
+    readback.configuration.selected_devices = declarations;
+    readback.configuration.expected_runtime_participants = ['node', 'a', 'a/b'].map(component_id => ({component_type: 'acquisition_node', component_id}));
+    readback.status.active_experiment_id = 'distinct';
+    readback.experiments = [{experiment_id: 'distinct', scientific_outputs: [], configuration: {
+      duration_s: 2, participating_devices: {node: ['a.b', 'a'], a: ['b/c'], 'a/b': ['c']},
+      device_configurations: {node: {'a.b': {c: 2}, a: {'b.c': 9}}, a: {'b/c': {gain: 3}}, 'a/b': {c: {gain: 4}}},
+      recording_budgets: {}, preservation_budget_bytes: 1000}}];
+    applyControllerSnapshot(state, readback);
+    assert.equal(new Set(state.activeSession.selectedDevices).size, 4);
+    const values = activeParameterSnapshot(state).configuration.values;
+    for (const [coordinates, value] of [[['node', 'a.b', 'c'], 2], [['node', 'a', 'b.c'], 9], [['a', 'b/c', 'gain'], 3], [['a/b', 'c', 'gain'], 4]]) {
+      assert.equal(values[configurationIdentity(...coordinates)], value);
+    }
+  } finally {devices.length = 0;}
 });

@@ -9,6 +9,7 @@ import { renderParameters } from './parameters-view.js';
 import { renderExperiment } from './scientific-views.js';
 import { navigate } from './gui-presentation.js';
 import { confirmStop } from './stop-confirmation.mjs';
+import { configurationIdentity, configurationNumber, parseConfigurationJSON, stringifyConfiguration } from './configuration-values.mjs';
 
 const $ = selector => document.querySelector(selector);
 let socket, browserId, confirmed = false, busy = false, refreshing = false, lastRender = '';
@@ -79,11 +80,12 @@ state.actions.syncControls = controls;
 function request(operation, parameters = {}, session_id = null) {
   if (socket?.readyState !== WebSocket.OPEN) return Promise.reject(new Error('Backend disconnected; outcome unconfirmed'));
   const id = crypto.randomUUID(), request_id = `${browserId}-${id}`, instance_id = current()?.instance_id;
+  const data = stringifyConfiguration({id, operation, session_id, parameters});
   return new Promise((resolve, reject) => {
     const uncertain = reason => Object.assign(new Error(reason), {request_id, instance_id});
     const timer = setTimeout(() => { waiting.delete(id); reject(uncertain('Response timeout; outcome unconfirmed')); }, 30000);
     waiting.set(id, {resolve: message => resolve({...message, submitted_request_id: request_id, submitted_instance_id: instance_id}), reject, timer, uncertain});
-    socket.send(JSON.stringify({id, operation, session_id, parameters}));
+    socket.send(data);
   });
 }
 function requireResult(reply) {
@@ -150,7 +152,7 @@ async function command(operation, parameters = {}, session_id = current()?.statu
 }
 const localAction = action => async () => { try { await action(); } catch (error) { $('.setup-demo-note').textContent = error.message; } };
 state.actions.launchSession = localAction(async () => {
-  const config = JSON.parse($('#session-framework-fields').value);
+  const config = parseConfigurationJSON($('#session-framework-fields').value);
   config.storage_location = storageCard.querySelector('input').value;
   config.error_evidence_location = $('#error-evidence-location').value;
   config.session_parameters = {...config.session_parameters};
@@ -160,11 +162,12 @@ state.actions.launchSession = localAction(async () => {
     if (select.value) config.session_parameters[key] = select.selectedOptions[0].textContent;
   }
   const inputs = document.querySelectorAll('.session-identity-grid input');
-  Object.assign(config.session_parameters, {name: inputs[0].value, date: inputs[1].value, number: inputs[2].value ? Number(inputs[2].value) : null, notes: $('[aria-labelledby="notes-title"] textarea').value});
+  if (inputs[2].validity.badInput) throw new Error('Invalid Session number. Enter a finite value representable by this GUI.');
+  Object.assign(config.session_parameters, {name: inputs[0].value, date: inputs[1].value, number: inputs[2].value ? configurationNumber(inputs[2].value) : null, notes: $('[aria-labelledby="notes-title"] textarea').value});
   state.submittedProcedure = clone(state.protocols.find(protocol => protocol.id === state.protocolId) || null);
   if (state.submittedProcedure) state.submittedProcedure.included = clone(state.included);
   config.protocol_reference = state.submittedProcedure?.name || null;
-  const selections = {};
+  const selections = Object.create(null);
   for (const id of state.selectedDevices) {
     const device = devices.find(item => item.id === id);
     if (!device?.available) throw new Error('Selected inventory is unconfirmed.');
@@ -178,14 +181,16 @@ state.actions.stopSession = () => { const sid = current()?.status.session_id; co
 state.actions.releaseSession = () => { const sid = current()?.status.session_id; confirmStop('Session release', () => command('release_session', {}, sid), 'Release only after Controller confirms terminal preservation and cleanup.', {title: 'Release Session?', confirm: 'Release Session', cancel: 'Cancel'}); };
 state.actions.startExperiment = localAction(async () => {
   const {step, record} = selectedStepContext(state), configuration = experimentView(state, step, record).configuration;
-  const participating_devices = {}, device_configurations = {};
+  const issues = experimentIssues(state, step, configuration);
+  if (issues.length) throw new Error(issues.join(' '));
+  const participating_devices = Object.create(null), device_configurations = Object.create(null);
   for (const id of configuration.participants) {
     const device = devices.find(item => item.id === id);
     if (!device?.available) throw new Error('Participating inventory is unconfirmed.');
     (participating_devices[device.nodeId] ??= []).push(device.deviceId);
-    const parameters = {};
+    const parameters = Object.create(null);
     for (const field of deviceExamples[id]?.fields || []) if (Object.hasOwn(configuration.values, field.id)) parameters[field.name] = configuration.values[field.id];
-    if (Object.keys(parameters).length) (device_configurations[device.nodeId] ??= {})[device.deviceId] = parameters;
+    if (Object.keys(parameters).length) (device_configurations[device.nodeId] ??= Object.create(null))[device.deviceId] = parameters;
   }
   state.submittedExperiment = {stepId: step.id, experimentId: configuration.experimentId};
   await command('start_launched_experiment', {experiment_id: configuration.experimentId, configuration: {duration_s: configuration.durationSeconds, participating_devices, device_configurations, recording_budgets: configuration.recordingBudgets, preservation_budget_bytes: configuration.preservationBudget}, scientific_outputs: configuration.outputs});
@@ -207,8 +212,8 @@ $('#load-inventory').onclick = async () => {
     const inventory = requireResult(await request('get_node_inventory', {node_id: node}));
     if (connection !== socket || socket.readyState !== WebSocket.OPEN || instance !== current()?.instance_id) throw new Error('Inventory belongs to an unconfirmed connection or Controller instance');
     state.inventory[node] = clone(inventory);
-    devices.splice(0, devices.length, ...devices.filter(device => device.nodeId !== node), ...inventory.devices.map(declaration => ({id: `${node}/${declaration.device_id}`, nodeId: node, deviceId: declaration.device_id, declaration: clone(declaration), name: declaration.device_id, detail: node, capabilities: declaration.declared_capabilities || [], available: declaration.enabled === true})));
-    for (const device of devices.filter(item => item.nodeId === node)) deviceExamples[device.id] = {acquisition: Boolean(device.declaration.scientific_products?.length), fields: Object.entries(inventory.session_parameter_definitions?.[device.deviceId] || {}).map(([name, definition]) => ({id: `${device.id}.${name}`, name, label: name, type: definition.type === 'boolean' ? 'checkbox' : ['integer', 'number'].includes(definition.type) ? 'number' : 'text', integer: definition.type === 'integer', min: definition.minimum ?? definition.exclusive_minimum, max: definition.maximum, nullable: definition.nullable}))};
+    devices.splice(0, devices.length, ...devices.filter(device => device.nodeId !== node), ...inventory.devices.map(declaration => ({id: configurationIdentity(node, declaration.device_id), nodeId: node, deviceId: declaration.device_id, declaration: clone(declaration), name: declaration.device_id, detail: node, capabilities: declaration.declared_capabilities || [], available: declaration.enabled === true})));
+    for (const device of devices.filter(item => item.nodeId === node)) deviceExamples[device.id] = {acquisition: Boolean(device.declaration.scientific_products?.length), fields: Object.entries(inventory.session_parameter_definitions?.[device.deviceId] || {}).map(([name, definition]) => ({id: configurationIdentity(node, device.deviceId, name), name, label: name, type: definition.type === 'boolean' ? 'checkbox' : ['integer', 'number'].includes(definition.type) ? 'number' : 'text', integer: definition.type === 'integer', min: definition.minimum ?? definition.exclusive_minimum, max: definition.maximum, nullable: definition.nullable}))};
     if (current()) applyControllerSnapshot(state, current());
     $('#inventory-status').textContent = `${node}: inventory confirmed; readiness remains Controller-owned`;
   } catch (error) { for (const device of devices.filter(item => item.nodeId === node)) device.available = false; $('#inventory-status').textContent = `${node}: unconfirmed · ${error.message}`; }
@@ -220,7 +225,18 @@ $('#load-inventory').onclick = async () => {
 };
 function connect() {
   confirmed = false; controls(); socket = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`);
-  socket.onmessage = event => { const message = JSON.parse(event.data); if (message.type === 'connected') { browserId = message.browser_id; refresh(); return; } const pending = waiting.get(message.id); if (pending) { clearTimeout(pending.timer); waiting.delete(message.id); pending.resolve(message); } };
+  socket.onmessage = event => {
+    let message;
+    try { message = parseConfigurationJSON(event.data); }
+    catch (error) {
+      confirmed = false; controls(); $('#connection-state').textContent = `Unconfirmed: ${error.message}`;
+      for (const pending of waiting.values()) { clearTimeout(pending.timer); pending.reject(pending.uncertain(error.message)); }
+      waiting.clear(); return;
+    }
+    if (message.type === 'connected') { browserId = message.browser_id; refresh(); return; }
+    const pending = waiting.get(message.id);
+    if (pending) { clearTimeout(pending.timer); waiting.delete(message.id); pending.resolve(message); }
+  };
   socket.onclose = () => { confirmed = false; for (const device of devices) device.available = false; renderSetup(); controls(); $('#connection-state').textContent = 'Backend disconnected · last-known state'; for (const pending of waiting.values()) { clearTimeout(pending.timer); pending.reject(pending.uncertain('Connection lost; outcome uncertain')); } waiting.clear(); setTimeout(connect, 2000); };
 }
 connect();
