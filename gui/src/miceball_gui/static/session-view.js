@@ -6,6 +6,7 @@ import { devices, operationCategoryAvailability } from './protocol-demo.mjs';
 import { sessionStopPreview } from './services-demo.mjs';
 import { escapeText as escape, executionIdentity, navigate } from './gui-presentation.js';
 import { executionContext, executionProtocol, executionSteps } from './session-context.mjs';
+import { configurationStringText } from './configuration-values.mjs';
 import { selectedStepContext, freeOperationChoices, prepareFreeOperation, selectRecording, clearRecordingSelection } from './session-demo.mjs';
 import { openRecordingPicker } from './recording-picker.js';
 import { startDeviceValidation } from './device-validation-demo.mjs';
@@ -179,7 +180,7 @@ function experimentConfigurationMarkup(step, view) {
   const additional = devices.filter(device => executionContext(state).selectedDevices.includes(device.id) && !listed.has(device.id));
   const outside = devices.filter(device => configuration.participants.includes(device.id) && !executionContext(state).selectedDevices.includes(device.id));
   const missing = groups.filter(group => group.required && !group.covered).map(group => group.capability);
-  const parameters = configuration.participants.flatMap(id => (deviceExamples[id]?.fields || []).filter(field => !state.connected || Object.hasOwn(configuration.values, field.id)).map(field => `${field.label}: ${configuration.values[field.id] === true ? 'Yes' : configuration.values[field.id] === false ? 'No' : configuration.values[field.id]}`));
+  const parameters = configuration.participants.flatMap(id => (deviceExamples[id]?.fields || []).filter(field => !state.connected || Object.hasOwn(configuration.values, field.id)).map(field => `${field.label}: ${configuration.values[field.id] === true ? 'Yes' : configuration.values[field.id] === false ? 'No' : state.connected && field.type === 'text' ? configurationStringText(configuration.values[field.id]) : configuration.values[field.id]}`));
   const otherIssues = view.issues.filter(issue => !issue.includes('required capability'));
   const auxiliary = view.actions.filter(action => ['validate', 'skip'].includes(action));
   return `<div class="experiment-summary-grid">

@@ -4,6 +4,18 @@ export const configurationIdentity = (...coordinates) => JSON.stringify(coordina
 export const scientificOutputIdentity = output => configurationIdentity(
   output.source_node_id, output.source_device_id, output.data_product_id);
 
+export function configurationStringText(value) {
+  if (typeof value !== 'string') return value?.invalidString ?? '';
+  return stringifyConfiguration(value).replace(/[\u007f-\uffff]/g,
+    character => `\\u${character.charCodeAt(0).toString(16).padStart(4, '0')}`);
+}
+
+export function parseConfigurationString(text) {
+  const value = parseConfigurationJSON(text);
+  if (typeof value !== 'string') throw new Error('Expected a JSON string.');
+  return value;
+}
+
 // Compare JSON-like declarations without assigning meaning to object-key order.
 export function configurationEqual(left, right) {
   if (left === right) return true;

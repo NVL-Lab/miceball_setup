@@ -5,4 +5,5 @@ html[data-runtime="connected"] .inventory-controls { display: flex; flex-wrap: w
 html[data-runtime="connected"] .inventory-controls label { flex: 1; }
 html[data-runtime="connected"] #accepted-configuration { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 240px; overflow-y: auto; font-size: 12px; }
 html[data-runtime="connected"] #session-framework-fields { width: 100%; box-sizing: border-box; }
+html[data-runtime="connected"] textarea.configuration-string { min-height: 36px; width: 100%; resize: vertical; }
 html[data-runtime="connected"] .output-unavailable { display: grid; place-items: center; min-height: 180px; padding: 20px; color: var(--ink-600); }

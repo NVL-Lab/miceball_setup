@@ -2,6 +2,7 @@ import { devices } from './protocol-demo.mjs';
 import { activeParameterSnapshot } from './experiment-parameters.mjs';
 import { deviceExamples } from './experiment-demo.mjs';
 import { escapeText as escape } from './gui-presentation.js';
+import { configurationStringText } from './configuration-values.mjs';
 export function createExperimentParameterDrawer(experiment, state) {
   let drawerOpen = false;
   function renderDrawer() {
@@ -24,7 +25,7 @@ export function createExperimentParameterDrawer(experiment, state) {
     let drawer = experiment.querySelector('#experiment-parameters-drawer');
     if (!drawer) { drawer = document.createElement('aside'); drawer.id = 'experiment-parameters-drawer'; drawer.className = 'experiment-parameter-drawer setup-card'; drawer.setAttribute('aria-label', 'Read-only Experiment parameters'); experiment.append(drawer); }
     const snapshot = activeParameterSnapshot(state);
-    drawer.innerHTML = snapshot ? `<h3>Parameters · ${escape(snapshot.name)}</h3><p class="prototype-caption">${escape(snapshot.source)} · ${state.connected ? 'read-only Controller configuration' : 'read-only browser demonstration'}</p><dl><dt>Planned duration (seconds)</dt><dd>${escape(snapshot.configuration.durationSeconds ?? 'Unavailable')}</dd>${snapshot.configuration.participants.map(id => `<dt>${escape(devices.find(device => device.id === id)?.name || id)}</dt><dd>${(deviceExamples[id]?.fields || []).map(field => `${escape(field.label)}: ${escape(Object.hasOwn(snapshot.configuration.values, field.id) ? snapshot.configuration.values[field.id] === null ? 'null' : snapshot.configuration.values[field.id] : 'No explicit override')}`).join('<br>') || 'No parameter definitions available for this device.'}</dd>`).join('')}</dl>` : '<h3>Experiment Parameters</h3><p>No prepared or executed parameter configuration is available for this scientific step in an active Session. No defaults are invented.</p>';
+    drawer.innerHTML = snapshot ? `<h3>Parameters · ${escape(snapshot.name)}</h3><p class="prototype-caption">${escape(snapshot.source)} · ${state.connected ? 'read-only Controller configuration' : 'read-only browser demonstration'}</p><dl><dt>Planned duration (seconds)</dt><dd>${escape(snapshot.configuration.durationSeconds ?? 'Unavailable')}</dd>${snapshot.configuration.participants.map(id => `<dt>${escape(devices.find(device => device.id === id)?.name || id)}</dt><dd>${(deviceExamples[id]?.fields || []).map(field => `${escape(field.label)}: ${escape(Object.hasOwn(snapshot.configuration.values, field.id) ? snapshot.configuration.values[field.id] === null ? 'null' : state.connected && field.type === 'text' ? configurationStringText(snapshot.configuration.values[field.id]) : snapshot.configuration.values[field.id] : 'No explicit override')}`).join('<br>') || 'No parameter definitions available for this device.'}</dd>`).join('')}</dl>` : '<h3>Experiment Parameters</h3><p>No prepared or executed parameter configuration is available for this scientific step in an active Session. No defaults are invented.</p>';
     drawer.hidden = !drawerOpen; experiment.classList.toggle('has-parameters-drawer', drawerOpen);
   }
   return renderDrawer;

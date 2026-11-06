@@ -47,7 +47,8 @@ html[data-theme="dark"] :is(#panel-parameters, #panel-experiment, #panel-analysi
 .parameter-section-body { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 24px; padding: 4px 16px 16px; }
 .parameter-section-body p { grid-column: 1 / -1; margin: 0; color: var(--ink-600); font-size: 11px; line-height: 1.6; }
 .parameter-section-body label, .personal-template-area label { display: grid; gap: 7px; color: var(--ink-600); font-size: 12px; }
-#panel-parameters :is(input:not([type="checkbox"]), select), .roi-example-control select { width: 100%; min-width: 0; padding: 9px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink-900); font: inherit; }
+.parameter-section-body textarea[data-configuration-string] { width: 100%; min-height: 36px; resize: vertical; }
+#panel-parameters :is(input:not([type="checkbox"]), select, textarea), .roi-example-control select { width: 100%; min-width: 0; padding: 9px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink-900); font: inherit; }
 #panel-parameters .parameter-checkbox { display: flex; align-items: center; gap: 10px; }
 .parameter-checkbox input { width: 16px; height: 16px; accent-color: var(--blue-500); }
 .parameter-fields:disabled { opacity: .8; }

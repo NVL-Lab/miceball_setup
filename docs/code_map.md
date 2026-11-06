@@ -3038,11 +3038,14 @@ automatic. Kill integration and overall closeout validation remain deferred.
 - navigate: Uses the existing GUI section-navigation event without changing operation state.
 - sessionIdentity: Reads the existing Setup identity fields for presentation without creating a second configuration model.
 - executionIdentity: Resolves the captured active Session identity, falling back to Setup only before launch.
+- configurationStringEditor(control): Converts a connected configuration string control to an explicitly labelled JSON-string textarea while preserving its attributes and form placement.
 
 ## gui/src/miceball_gui/static/configuration-values.mjs
 
 - configurationIdentity(...coordinates): Encodes internal node/device/parameter coordinates as collision-free JSON tuples without altering framework identifiers.
 - scientificOutputIdentity(output): Reuses tuple identity for the exact source node, source device and data product, independently of record property order.
+- configurationStringText(value): Produces a lossless ASCII JSON-string representation, or retains the raw text of an invalid unsent string draft.
+- parseConfigurationString(text): Reuses the configuration JSON parser and admits only a string value without coercion or character normalization.
 - configurationEqual(left, right): Compares JSON-like declaration values recursively without object-key-order sensitivity, preserving own keys, types, array ordering and complete declaration agreement.
 - configurationNumber(text, integer=false): Establishes exact decimal/exponent integrality from the original token before conversion when required, and refuses unsupported or fraction-to-integer rounding in GUI input and JSON boundaries.
 - parseConfigurationJSON(text): Parses configuration/readback JSON with source-token numeric verification before values enter GUI state.
@@ -3058,7 +3061,8 @@ automatic. Kill integration and overall closeout validation remain deferred.
 
 ## gui/src/miceball_gui/static/parameters-view.js
 
-- parameterField(field, value, present): Renders an escaped control and connected-mode override/default/null state while preserving the original demonstration controls.
+- stringField(attributes, value): Renders a labelled, escaped JSON-string editor with an explicit invalid-draft marker for the existing form validation boundary.
+- parameterField(field, value, present): Renders an escaped typed control, lossless connected string representation and override/default/null state while preserving the original demonstration controls.
 - renderParameters: Renders the single Session-selected Experiment's working or read-only configuration and optional personal-template saving.
 - updateParameterWorking: Applies typed parameter input to shared working values while leaving participation selection in Session.
 

@@ -149,6 +149,21 @@ strings and explicit null; Use default removes an override and Set null is
 available only for nullable definitions. Executed controls remain read-only and
 the drawer distinguishes explicit null from missing overrides.
 
+Connected string parameters and Experiment IDs use labelled JSON-string textareas.
+For example, `"alpha\nbeta"` represents a string containing LF, whereas
+`"alpha\\nbeta"` represents a literal backslash followed by `n`. The same codec
+is used for Session name, notes and storage/error paths. Control characters and
+non-ASCII code units are escaped explicitly, including CR, LF, CRLF, NUL and lone
+surrogates; HTML/textarea normalization cannot silently alter accepted strings.
+Session summaries and the executed-parameter drawer use the same representation.
+Empty string is `""`; Use default and Set null retain their separate meanings.
+Malformed JSON-string edits remain invalid unsent drafts and cannot pass the
+shared Experiment submission guard, even if disabled-button presentation is
+bypassed. Accepted Session fields remain read-only. Additional configuration JSON
+already preserves escaped strings and retains its existing numeric checks.
+Disconnected demonstration controls are unchanged. This is developer
+implementation status, not independent validation, audit or Unit 1 closure.
+
 Scientific-output checkboxes and edits compare the exact source node, source
 device and data-product tuple, not serialized record property order. Canonical
 framework readback therefore remains selected in executed Parameters, and repeat

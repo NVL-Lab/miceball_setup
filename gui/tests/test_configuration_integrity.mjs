@@ -7,6 +7,7 @@ export async function verifyConfigurationIntegrity(browser, origin, fixture, sec
   let numericExpected = null;
   let numericRequests = 0;
   let completed = false, repeatExpected = null, repeatRequests = 0;
+  let repeatConfiguration = fixture.experiment;
   page.on('pageerror', error => errors.push(error.message));
   await page.routeWebSocket('**/ws', route => {
     route.onMessage(raw => {
@@ -33,7 +34,7 @@ export async function verifyConfigurationIntegrity(browser, origin, fixture, sec
           numericRequests++; status = 'rejected';
         } else if (repeatExpected !== null) {
           assert.equal(message.parameters.experiment_id, 'integrity-repeat');
-          assert.deepEqual(message.parameters.configuration, fixture.experiment);
+          assert.deepEqual(message.parameters.configuration, repeatConfiguration);
           const coordinates = outputs => outputs.map(output => [output.source_node_id, output.source_device_id, output.data_product_id]).sort();
           assert.deepEqual(coordinates(message.parameters.scientific_outputs), coordinates(repeatExpected));
           repeatRequests++; status = 'rejected';
@@ -78,14 +79,21 @@ export async function verifyConfigurationIntegrity(browser, origin, fixture, sec
         await input.nth(index).check();
       }
     }
-    await page.locator('.session-identity-grid input[type="text"]').fill(fixture.session.session_parameters.name);
+    await page.locator('.session-identity-grid textarea[data-configuration-string]').fill(JSON.stringify(fixture.session.session_parameters.name));
     await page.locator('.session-identity-grid input[type="date"]').fill(fixture.session.session_parameters.date);
     await page.locator('.session-identity-grid input[type="number"]').fill('0');
-    await page.locator('[aria-labelledby="notes-title"] textarea').fill('notes');
-    await page.locator('[aria-labelledby="storage-title"] input').first().fill(fixture.session.storage_location);
-    await page.locator('#error-evidence-location').fill(fixture.session.error_evidence_location);
+    await page.locator('[aria-labelledby="notes-title"] textarea').fill(JSON.stringify(fixture.session.session_parameters.notes));
+    await page.locator('[aria-labelledby="storage-title"] textarea[data-configuration-string]:not(#error-evidence-location)').fill(JSON.stringify(fixture.session.storage_location));
+    await page.locator('#error-evidence-location').fill(JSON.stringify(fixture.session.error_evidence_location));
     await page.locator('details').filter({has: page.locator('#session-framework-fields')}).last().evaluate(element => element.open = true);
     const fields = {protocol_plan: {}, session_parameters: fixture.session.session_parameters};
+    for (const invalid of ['"raw\r\nnewline"', 'true']) {
+      await page.locator('#session-framework-fields').fill(JSON.stringify(fields));
+      await page.locator('.session-identity-grid textarea[data-configuration-string]').fill(invalid);
+      await page.locator('.launch-session-demo').click();
+      assert.equal(sent.filter(message => message.operation === 'launch_session').length, 0);
+    }
+    await page.locator('.session-identity-grid textarea[data-configuration-string]').fill(JSON.stringify(fixture.session.session_parameters.name));
     for (const text of ['9007199254740993', '1.0000000000000001', '9007199254740991.1']) {
       await page.locator('#session-framework-fields').fill(`{"protocol_plan":{},"device_configurations":{"__proto__":{"count":${text}}}}`);
       await page.locator('.launch-session-demo').click();
@@ -95,6 +103,14 @@ export async function verifyConfigurationIntegrity(browser, origin, fixture, sec
     await page.locator('#session-framework-fields').fill(JSON.stringify(fields));
     await page.locator('.launch-session-demo').click();
     await page.locator('[data-start-session]').waitFor();
+    for (const [selector, value] of [
+      ['.session-identity-grid textarea[data-configuration-string]', fixture.session.session_parameters.name],
+      ['[aria-labelledby="notes-title"] textarea', fixture.session.session_parameters.notes],
+      ['[aria-labelledby="storage-title"] textarea[data-configuration-string]:not(#error-evidence-location)', fixture.session.storage_location],
+      ['#error-evidence-location', fixture.session.error_evidence_location]]) {
+      assert.equal(JSON.parse(await page.locator(selector).inputValue()), value);
+      assert.equal(await page.locator(selector).getAttribute('readonly'), '');
+    }
     await page.locator('[data-start-session]').click();
     await page.locator('[data-prepare-free-operation]').click();
     await page.locator('.experiment-additional-devices').evaluate(element => element.open = true);
@@ -104,7 +120,7 @@ export async function verifyConfigurationIntegrity(browser, origin, fixture, sec
     }
     await page.locator('[data-session-navigate="parameters"]').click();
     await page.locator('#experiment-duration').fill('2');
-    await page.locator('[data-framework-field="experimentId"]').fill('integrity-experiment');
+    await page.locator('[data-framework-field="experimentId"]').fill(JSON.stringify('integrity-experiment'));
     await page.locator('[data-framework-field="preservationBudget"]').fill('1000000');
     for (const input of await page.locator('[data-recording-budget]').all()) await input.fill('100000');
     const count = ['__proto__', '__proto__', 'count'];
@@ -134,18 +150,37 @@ export async function verifyConfigurationIntegrity(browser, origin, fixture, sec
     assert.equal(numericRequests, 6);
     numericExpected = null;
     console.log('PASS: all four audited integer cases, negative/non-integral tokens, valid exponent notation, zero and safe-integer boundaries through production editing/submission');
+    for (const invalid of ['unquoted', '"alpha\nbeta"', '"alpha\r\nbeta"', 'null']) {
+      const input = await control('data-example-value', ['__proto__', '__proto__', 'LF']);
+      await input.fill(invalid);
+      assert.equal(await input.evaluate(element => element.validity.customError), true);
+      await page.locator('[data-return-session]').click();
+      assert.equal(await page.locator('[data-launch-experiment]').isDisabled(), true);
+      await page.locator('[data-launch-experiment]').evaluate(button => button.click());
+      assert.equal(sent.filter(message => message.operation === 'start_launched_experiment').length, numericRequests);
+      await page.locator('[data-session-navigate="parameters"]').click();
+    }
     for (const row of fixture.rows) {
       const coordinates = [row.node, row.device, row.name];
       const input = await control('data-example-value', coordinates);
       if (row.value === null) await (await control('data-null-parameter', coordinates)).click();
       else if (typeof row.value === 'boolean') {await input.check(); if (!row.value) await input.uncheck();}
-      else {await input.fill(row.value === '' ? 'temporary' : String(row.value)); if (row.value === '') await input.fill('');}
+      else await input.fill(typeof row.value === 'string' ? JSON.stringify(row.value) : String(row.value));
     }
     const unset = ['constructor', 'ordinary', 'unset'];
+    const nullableString = ['__proto__', '__proto__', 'nullable_string'];
+    await (await control('data-example-value', nullableString)).fill('"null"');
+    assert.equal(JSON.parse(await (await control('data-example-value', nullableString)).inputValue()), 'null');
+    await (await control('data-null-parameter', nullableString)).click();
+    assert.equal(await (await control('data-example-value', nullableString)).inputValue(), '');
+    const emptyString = ['__proto__', '__proto__', 'empty'];
+    await (await control('data-unset-parameter', emptyString)).click();
+    assert.equal(await (await control('data-example-value', emptyString)).inputValue(), '');
+    await (await control('data-example-value', emptyString)).fill('""');
     await (await control('data-example-value', unset)).fill('42');
     await (await control('data-unset-parameter', unset)).click();
     await page.locator('#experiment-duration').fill('2');
-    await page.locator('[data-framework-field="experimentId"]').fill('integrity-experiment');
+    await page.locator('[data-framework-field="experimentId"]').fill(JSON.stringify('integrity-experiment'));
     await page.locator('[data-framework-field="preservationBudget"]').fill('1000000');
     for (const input of await page.locator('[data-recording-budget]').all()) await input.fill('100000');
     for (const input of await page.locator('[data-scientific-output]').all()) assert.equal(await input.isChecked(), false);
@@ -178,6 +213,10 @@ export async function verifyConfigurationIntegrity(browser, origin, fixture, sec
       const input = await control('data-example-value', [row.node, row.device, row.name]);
       assert.equal(await input.isDisabled(), true);
       if (typeof row.value === 'boolean') assert.equal(await input.isChecked(), row.value);
+      else if (typeof row.value === 'string') {
+        assert.equal(await input.inputValue(), row.representation);
+        assert.equal(JSON.parse(await input.inputValue()), row.value);
+      }
       else assert.equal(await input.inputValue(), row.value === null ? '' : String(row.value));
     }
     for (const output of fixture.outputs) {
@@ -192,6 +231,7 @@ export async function verifyConfigurationIntegrity(browser, origin, fixture, sec
     assert.match(drawer, /nullable: null/);
     assert.match(drawer, /unset: No explicit override/);
     assert.doesNotMatch(drawer, /nullable: Unavailable/);
+    for (const representation of ['LF: "alpha\\nbeta"', 'CR: "alpha\\rbeta"', 'CRLF: "alpha\\r\\nbeta"']) assert.ok(drawer.includes(representation));
     unsafeReadback = true;
     await page.locator('#connection-state').filter({hasText: 'Unconfirmed'}).waitFor();
     await section(page, 'session');
@@ -204,7 +244,7 @@ export async function verifyConfigurationIntegrity(browser, origin, fixture, sec
     await page.locator('[data-prepare-experiment]').waitFor();
     await page.locator('[data-prepare-experiment]').click();
     await page.locator('[data-session-navigate="parameters"]').click();
-    await page.locator('[data-framework-field="experimentId"]').fill('integrity-repeat');
+    await page.locator('[data-framework-field="experimentId"]').fill(JSON.stringify('integrity-repeat'));
     for (const output of fixture.outputs) {
       const input = await outputControl(output);
       assert.equal(await input.isChecked(), true);
@@ -235,7 +275,16 @@ export async function verifyConfigurationIntegrity(browser, origin, fixture, sec
       assert.equal(await (await outputControl(output)).isChecked(), output === fixture.outputs[0] || output === fixture.outputs.at(-1));
     }
     assert.equal(await (await outputControl(fixture.additional_output)).isChecked(), false);
-    assert.equal(sent.filter(message => message.operation === 'start_launched_experiment').length, numericRequests + 4);
+    const editedString = 'edited\r\nvalue\0';
+    const stringInput = await control('data-example-value', ['__proto__', '__proto__', 'LF']);
+    await stringInput.fill('"edited\\r\\nvalue\\u0000"');
+    assert.equal(JSON.parse(await stringInput.inputValue()), editedString);
+    repeatConfiguration = structuredClone(fixture.experiment);
+    repeatConfiguration.device_configurations['__proto__']['__proto__'].LF = editedString;
+    await submitRepeat([fixture.outputs.at(-1), fixture.outputs[0]]);
+    assert.equal(JSON.parse(await stringInput.inputValue()), editedString);
+    assert.equal(sent.filter(message => message.operation === 'start_launched_experiment').length, numericRequests + 5);
+    console.log('PASS: public adapter string contracts; LF/CR/CRLF, controls, Unicode/surrogates and literal escapes; exact read-only representations, untouched repeats, edited requests and invalid-token submission refusal');
     console.log('PASS: canonical framework outputs render selected; repeat deselection submits []; reordered editing preserves exact empty/partial sets across nodes, delimiter identities and distinct products');
     assert.deepEqual(errors, []);
     console.log('PASS: independently specified Session/Experiment configurations, prototype keys, coordinate collisions, empty/unset/null/zero/false, numeric refusal, authoritative readback and no replay');

@@ -94,6 +94,9 @@ class ConnectedFeedbackTests(unittest.IsolatedAsyncioTestCase):
             "__proto__", "constructor", "prototype", "toString", "hasOwnProperty", "0", "01", ""])}
         key_values.update({"empty": "", "nullable": None, "flag": False, "large": 7, "count": 7,
             'quoted" \u03a9': 'value " & <text> \u03a9'})
+        key_values.update({"LF": "alpha\nbeta", "CR": "alpha\rbeta", "CRLF": "alpha\r\nbeta",
+            "controls": "\0\t\b\f\v\x1b\x7f\x85", "unicode": "\u03a9\U0001f600\u2028\u2029\ufeff",
+            "literal_escape": r"alpha\nbeta", "surrogate": "\ud800", "ordinary": 'plain & "quoted"', "nullable_string": None})
         entries = [("__proto__", "__proto__", key_values), ("constructor", "ordinary", {"gain": 1.25}),
             ("toString", "prototype", {"gain": 0}), ("hasOwnProperty", "constructor", {"gain": 4}),
             ("node", "a.b", {"c": 2}), ("node", "a", {"b.c": 9}),
@@ -108,6 +111,8 @@ class ConnectedFeedbackTests(unittest.IsolatedAsyncioTestCase):
                 for name in ("large", "count"):
                     if name in declared:
                         declared[name]["type"] = "integer"
+                if "nullable_string" in declared:
+                    declared["nullable_string"]["type"] = "string"
                 declared["unset"] = {"type": "number"}
                 adapter = ParameterAdapter(identity, declared)
                 adapter.validate_session_parameters(values)
@@ -116,7 +121,8 @@ class ConnectedFeedbackTests(unittest.IsolatedAsyncioTestCase):
                 declaration = DeviceDeclaration(identity, "test-camera", True, False, (), products)
                 node_declarations.append(declaration)
                 intended[node_id][identity] = values
-                rows.extend({"node": node_id, "device": identity, "name": name, "value": value}
+                rows.extend({"node": node_id, "device": identity, "name": name, "value": value,
+                    "representation": json.dumps(value, ensure_ascii=True) if isinstance(value, str) else None}
                     for name, value in values.items())
             owners[node_id] = AcquisitionNode(device_manager=DeviceManager(adapters), node_id=node_id,
                 role="acquisition", synchronization_source_id="sync", device_declarations=node_declarations).get_inventory()
@@ -124,7 +130,7 @@ class ConnectedFeedbackTests(unittest.IsolatedAsyncioTestCase):
         intended_experiment = ExperimentConfiguration(2, recording_budgets={node: 100000 for node in owners},
             preservation_budget_bytes=1000000, device_configurations=intended,
             participating_devices={node: list(devices) for node, devices in intended.items()}).to_dict()
-        metadata = {"name": "Integrity Session", "date": "2026-11-04", "number": 0, "notes": "notes",
+        metadata = {"name": "Integrity\r\nSession\0", "date": "2026-11-04", "number": 0, "notes": "notes\r\n\0\t",
             "experimenter": "Scientist", "extra": {"__proto__": [0, False, None, ""]}}
         intended_session = SessionConfig(declarations, "test-only-storage", {}, "test-only-errors",
             session_id="integrity-session", session_parameters=metadata).to_dict()

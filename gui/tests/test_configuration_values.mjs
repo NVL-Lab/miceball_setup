@@ -1,6 +1,25 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {configurationIdentity, scientificOutputIdentity, configurationEqual, configurationNumber, parseConfigurationJSON, stringifyConfiguration} from '../src/miceball_gui/static/configuration-values.mjs';
+import {configurationIdentity, scientificOutputIdentity, configurationEqual, configurationNumber, parseConfigurationJSON, stringifyConfiguration, configurationStringText, parseConfigurationString} from '../src/miceball_gui/static/configuration-values.mjs';
+
+test('string representation preserves exact control characters, escapes and Unicode code units', () => {
+  const cases = [['alpha\nbeta', '"alpha\\nbeta"'], ['alpha\rbeta', '"alpha\\rbeta"'],
+    ['alpha\r\nbeta', '"alpha\\r\\nbeta"'], ['plain & "quoted"', '"plain & \\"quoted\\""'],
+    ['', '""'], ['\\n', '"\\\\n"'], ['\0\t\b\f\v\x1b\x7f\x85', '"\\u0000\\t\\b\\f\\u000b\\u001b\\u007f\\u0085"'],
+    ['\u03a9\ud83d\ude00\u2028\u2029\ufeff\ud800', '"\\u03a9\\ud83d\\ude00\\u2028\\u2029\\ufeff\\ud800"']];
+  for (const [value, text] of cases) {
+    assert.equal(configurationStringText(value), text);
+    assert.equal(parseConfigurationString(text), value);
+    assert.match(text, /^[\x20-\x7e]*$/);
+  }
+});
+
+test('invalid string edits are explicit drafts, not accepted string values', () => {
+  for (const text of ['unquoted', '"alpha\nbeta"', '"alpha\rbeta"', '"alpha\r\nbeta"', 'null', 'true', '42', '{}', '[]']) {
+    assert.throws(() => parseConfigurationString(text));
+    assert.equal(configurationStringText({invalidString: text}), text);
+  }
+});
 
 test('scientific-output identity uses exact coordinates independent of record property order', () => {
   const canonical = {source_device_id: 'b/c', source_node_id: 'a', data_product_id: 'frames'};

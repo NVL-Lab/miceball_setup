@@ -7,9 +7,9 @@ import { selectedStepContext } from './session-demo.mjs';
 import { renderSession } from './session-view.js';
 import { renderParameters } from './parameters-view.js';
 import { renderExperiment } from './scientific-views.js';
-import { navigate } from './gui-presentation.js';
+import { navigate, configurationStringEditor } from './gui-presentation.js';
 import { confirmStop } from './stop-confirmation.mjs';
-import { configurationIdentity, configurationNumber, parseConfigurationJSON, stringifyConfiguration } from './configuration-values.mjs';
+import { configurationIdentity, configurationNumber, parseConfigurationJSON, stringifyConfiguration, configurationStringText, parseConfigurationString } from './configuration-values.mjs';
 
 const $ = selector => document.querySelector(selector);
 let socket, browserId, confirmed = false, busy = false, refreshing = false, lastRender = '';
@@ -34,6 +34,12 @@ for (const value of $('.storage-stats').querySelectorAll('dd')) value.textConten
 $('#launch-demo-note').textContent = 'Requests Controller acceptance, reservation and durable preservation. Launch does not start an Experiment.';
 for (const button of document.querySelectorAll('#view-only, #take-over')) button.className = 'dialog-button';
 storageBody.insertAdjacentHTML('beforeend', '<label>Error evidence location<input id="error-evidence-location"></label><details><summary>Additional Session configuration</summary><label>Framework configuration fields (JSON)<textarea id="session-framework-fields" rows="7" spellcheck="false" placeholder="Explicit protocol_plan, synchronization_configuration and applicable storage/acquisition settings"></textarea></label></details>');
+const sessionName = configurationStringEditor($('.session-identity-grid input[type="text"]'));
+const sessionDate = $('.session-identity-grid input[type="date"]');
+const sessionNumber = $('.session-identity-grid input[type="number"]');
+const sessionNotes = configurationStringEditor($('[aria-labelledby="notes-title"] textarea'));
+const storageLocation = configurationStringEditor(storageCard.querySelector('input'));
+const errorLocation = configurationStringEditor($('#error-evidence-location'));
 ($('.device-card .setup-disclosure-body') || $('.device-card')).insertAdjacentHTML('afterbegin', '<div class="inventory-controls"><label>Configured AcquisitionNode<select id="inventory-node"></select></label><button id="load-inventory" type="button">Refresh inventory</button><span id="inventory-status" role="status">Inventory unconfirmed</span></div>');
 $('.readiness-card').insertAdjacentHTML('beforeend', '<details><summary>Accepted Session configuration</summary><pre id="accepted-configuration">No accepted configuration confirmed</pre></details>');
 $('#load-inventory').className = 'dialog-button';
@@ -48,8 +54,7 @@ function controls() {
   const status = current()?.status;
   $('.launch-session-demo').disabled = !canControl() || Boolean(status?.session_id);
   $('.launch-session-demo span').textContent = !confirmed ? 'Controller connection unconfirmed' : status?.session_id ? 'Session accepted' : current()?.control?.controlling ? 'Request Controller launch' : 'View Only';
-  for (const input of document.querySelectorAll('.session-identity-grid input, #session-framework-fields, #error-evidence-location')) input.readOnly = Boolean(status?.session_id);
-  storageCard.querySelector('input').readOnly = Boolean(status?.session_id);
+  for (const control of [sessionName, sessionDate, sessionNumber, sessionNotes, storageLocation, errorLocation, $('#session-framework-fields')]) control.readOnly = Boolean(status?.session_id);
   for (const button of document.querySelectorAll('[data-launch-experiment], [data-stop-experiment], [data-reconcile-expiry], [data-stop-session], [data-start-session], [data-release-session]')) {
     if (!canControl()) button.disabled = true;
     if (button.hasAttribute('data-start-session')) button.disabled = !canControl() || status?.session_state !== 'initialized';
@@ -101,9 +106,10 @@ async function refresh() {
     applyControllerSnapshot(state, snapshot); confirmed = true;
     if (snapshot.configuration && (previous?.status?.session_id !== snapshot.status.session_id || previous?.instance_id !== snapshot.instance_id)) {
       const config = snapshot.configuration, metadata = config.session_parameters || {};
-      const inputs = document.querySelectorAll('.session-identity-grid input');
-      [metadata.name, metadata.date, metadata.number].forEach((value, index) => { inputs[index].value = value ?? ''; });
-      inputs[1].dispatchEvent(new Event('input'));
+      sessionName.value = configurationStringText(metadata.name ?? '');
+      sessionDate.value = metadata.date ?? '';
+      sessionNumber.value = metadata.number ?? '';
+      sessionDate.dispatchEvent(new Event('input'));
       for (const key of ['experimenter', 'project', 'animal']) {
         if (typeof metadata[key] !== 'string' || !metadata[key]) continue;
         const select = $(`#${key}-select`);
@@ -111,10 +117,10 @@ async function refresh() {
         if (!option) { option = new Option(metadata[key], metadata[key]); select.add(option, select.lastElementChild); }
         select.value = option.value; select.dataset.previousValue = option.value;
       }
-      storageCard.querySelector('input').value = config.storage_location || '';
-      $('#error-evidence-location').value = config.error_evidence_location || '';
+      storageLocation.value = configurationStringText(config.storage_location ?? '');
+      errorLocation.value = configurationStringText(config.error_evidence_location ?? '');
       $('#session-framework-fields').value = JSON.stringify(config, null, 2);
-      $('[aria-labelledby="notes-title"] textarea').value = metadata.notes || '';
+      sessionNotes.value = configurationStringText(metadata.notes ?? '');
     }
     for (const operation of snapshot.pending_operations) if (!outcomes.some(o => o.request_id === operation.request_id && o.instance_id === snapshot.instance_id)) outcomes.push({operation: operation.operation, request_id: operation.request_id, instance_id: snapshot.instance_id, status: 'pending'});
     $('#connection-state').textContent = `${snapshot.controller_id} · ${snapshot.control.controlling ? 'Controlling' : 'View Only'}`;
@@ -153,17 +159,16 @@ async function command(operation, parameters = {}, session_id = current()?.statu
 const localAction = action => async () => { try { await action(); } catch (error) { $('.setup-demo-note').textContent = error.message; } };
 state.actions.launchSession = localAction(async () => {
   const config = parseConfigurationJSON($('#session-framework-fields').value);
-  config.storage_location = storageCard.querySelector('input').value;
-  config.error_evidence_location = $('#error-evidence-location').value;
+  config.storage_location = parseConfigurationString(storageLocation.value);
+  config.error_evidence_location = parseConfigurationString(errorLocation.value);
   config.session_parameters = {...config.session_parameters};
   for (const key of ['experimenter', 'project', 'animal']) {
     const select = $(`#${key}-select`);
     if (select.value.startsWith('__new_')) throw new Error(`Finish the local ${key} entry.`);
     if (select.value) config.session_parameters[key] = select.selectedOptions[0].textContent;
   }
-  const inputs = document.querySelectorAll('.session-identity-grid input');
-  if (inputs[2].validity.badInput) throw new Error('Invalid Session number. Enter a finite value representable by this GUI.');
-  Object.assign(config.session_parameters, {name: inputs[0].value, date: inputs[1].value, number: inputs[2].value ? configurationNumber(inputs[2].value) : null, notes: $('[aria-labelledby="notes-title"] textarea').value});
+  if (sessionNumber.validity.badInput) throw new Error('Invalid Session number. Enter a finite value representable by this GUI.');
+  Object.assign(config.session_parameters, {name: parseConfigurationString(sessionName.value), date: sessionDate.value, number: sessionNumber.value ? configurationNumber(sessionNumber.value) : null, notes: parseConfigurationString(sessionNotes.value)});
   state.submittedProcedure = clone(state.protocols.find(protocol => protocol.id === state.protocolId) || null);
   if (state.submittedProcedure) state.submittedProcedure.included = clone(state.included);
   config.protocol_reference = state.submittedProcedure?.name || null;

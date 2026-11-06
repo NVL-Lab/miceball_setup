@@ -110,7 +110,7 @@ async function verifyRenderingSafety() {
     await target.locator('#connection-state').filter({hasText: 'Controlling'}).waitFor();
     assert.equal(await target.locator('#connection-state').innerText(), `${text} · Controlling`);
     assert.equal(await target.locator('#inventory-node').inputValue(), node);
-    assert.equal(await target.locator('.session-identity-grid input').first().inputValue(), text);
+    assert.equal(JSON.parse(await target.locator('.session-identity-grid textarea[data-configuration-string]').inputValue()), text);
     for (const id of ['experimenter-select', 'project-select', 'animal-select']) {
       assert.equal(await target.locator(`#${id} option:checked`).innerText(), text);
     }
@@ -147,9 +147,9 @@ async function verifyRenderingSafety() {
     assert.equal(await field('gain').evaluate(input => input.validity.rangeOverflow), true);
     await field('gain').fill('0');
     await field('gate').check(); await field('gate').uncheck();
-    await field(text).fill(text);
+    await field(text).fill(JSON.stringify(text));
     await target.locator('#experiment-duration').fill('2');
-    await target.locator('[data-framework-field="experimentId"]').fill('rendering-experiment');
+    await target.locator('[data-framework-field="experimentId"]').fill(JSON.stringify('rendering-experiment'));
     await target.locator('[data-framework-field="preservationBudget"]').fill('100000');
     await target.locator('[data-recording-budget]').fill('100000');
     assert.equal(await target.locator('[data-recording-budget]').getAttribute('data-recording-budget'), node);
@@ -157,7 +157,7 @@ async function verifyRenderingSafety() {
     assert.deepEqual(JSON.parse(await target.locator('[data-scientific-output]').getAttribute('data-scientific-output')), output);
     await target.locator('[data-scientific-output]').check();
     await target.locator('[data-return-session]').click();
-    const summary = `gain: 0 · gate: No · ${text}: ${text}`;
+    const summary = `gain: 0 · gate: No · ${text}: ${JSON.stringify(text).replaceAll('\u03a9', '\\u03a9')}`;
     assert.equal(await target.locator('.experiment-parameter-summary').innerText(), summary);
     await target.locator('[data-launch-experiment]').click();
     await target.locator('#operation-results').filter({hasText: 'rejected'}).waitFor();
@@ -176,7 +176,7 @@ async function verifyRenderingSafety() {
     await target.locator('[data-session-navigate="parameters"]').click();
     assert.equal(await field('gain').inputValue(), '0');
     assert.equal(await field('gate').isChecked(), false);
-    assert.equal(await field(text).inputValue(), text);
+    assert.equal(JSON.parse(await field(text).inputValue()), text);
     assert.equal(await field(text).isDisabled(), true);
     for (const [width, height] of [[1440, 1000], [800, 900]]) {
       await target.setViewportSize({width, height});
@@ -372,13 +372,13 @@ try {
   await page.locator('[data-example-value]').nth(0).fill('3.5');
   await page.locator('[data-example-value]').nth(1).check();
   await page.locator('[data-example-value]').nth(1).uncheck();
-  await page.locator('[data-example-value]').nth(2).fill(labelValue);
+  await page.locator('[data-example-value]').nth(2).fill(JSON.stringify(labelValue));
   await page.locator('#experiment-duration').fill('2');
-  await page.locator('[data-framework-field="experimentId"]').fill('identity-regression');
+  await page.locator('[data-framework-field="experimentId"]').fill(JSON.stringify('identity-regression'));
   await page.locator('[data-framework-field="preservationBudget"]').fill('100000');
   await page.locator('[data-recording-budget]').fill('100000');
   await page.locator('[data-return-session]').click();
-  const populatedSummary = `gain: 3.5 · gate: No · label: ${labelValue}`;
+  const populatedSummary = `gain: 3.5 · gate: No · label: ${JSON.stringify(labelValue)}`;
   assert.equal(await page.locator('.experiment-parameter-summary').innerText(), populatedSummary);
   assert.equal(await page.locator('.experiment-parameter-summary img').count(), 0);
   assert.equal(await page.evaluate(() => window.__summaryInjected), 0);
