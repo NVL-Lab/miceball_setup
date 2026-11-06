@@ -795,6 +795,8 @@ class ServiceMaintenanceInterface:
             self._framework_ingestor, "register_operational_dependent", payload, self.preservation_window_s)
         if accepted is None or not accepted.success or accepted.payload.get("registration") != payload:
             raise RuntimeError("Ingestor dependent registration is unconfirmed")
+        if self._dependency_registration != payload:
+            self._dependency_release_delivered = False
         self._dependency_registration = payload
 
     async def deliver_dependency_release(self, command, result):
@@ -862,6 +864,7 @@ class ServiceMaintenanceInterface:
             self._framework_ingestor, "confirm_dependent_release", payload, self.preservation_window_s)
         if result is None or not result.success or result.payload.get("confirmation") != payload:
             raise RuntimeError("Ingestor dependency confirmation remains unconfirmed; process retained")
+        self._dependency_release_delivered = True
 
     async def _receive_dependent_command(self, command):
         """Validate current owner readback before changing an Ingestor-owned blocker."""
@@ -1034,6 +1037,9 @@ class ServiceMaintenanceInterface:
             recognized = self.controller_command_admission.recognized
             payload = {"operational_instance_id": self.operational_instance_id,
                        "maintenance_attempt": deepcopy(self._attempt),
+                       "retirement_delivery": {
+                           "required": self._dependent_delivery_required,
+                           "dependency_release_confirmed": self._dependency_release_delivered},
                        "recognized_controller": None if recognized is None else {
                 "controller_instance_id": recognized[0], "controller_claim_revision": recognized[1],
                 "controller_id": recognized[2], "receiver_instance_id": self.operational_instance_id}}

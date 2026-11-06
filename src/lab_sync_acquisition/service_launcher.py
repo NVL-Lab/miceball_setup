@@ -137,6 +137,9 @@ class ServiceLauncher:
                 completion_error = None
                 boundary = next(b for b in self.boundaries if b.component_id == owner.participant.component_id
                                 and b.component_type == owner.participant.component_type)
+                deliveries = tuple(boundary._maintenance_delivery_tasks.values())
+                if deliveries:
+                    await asyncio.gather(*(asyncio.shield(task) for task in deliveries), return_exceptions=True)
                 for command_id, pair in tuple(boundary._pending_dependent_deliveries.items()):
                     try:
                         await owner.complete_retirement(*pair)

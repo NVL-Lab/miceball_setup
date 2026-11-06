@@ -26,7 +26,7 @@ const current = () => state.controllerSnapshot;
 const save = () => sessionStorage.setItem('miceball-pending', JSON.stringify(outcomes));
 function invalidateServiceConfirmation() {
   // Replace projections so replies admitted before this loss cannot promote them.
-  liveServices = liveServices.map(service => ({...service, current: false, pending: false, attempt: null}));
+  liveServices = liveServices.map(service => ({...service, current: false, diagnosticsCurrent: false, pending: false, attempt: null}));
   updateServices(liveServices);
 }
 
@@ -119,7 +119,7 @@ async function refresh() {
     liveServices = (snapshot.configured_services || []).map(participant => {
       const id = configurationIdentity(participant.component_type, participant.component_id);
       const prior = previousServices.find(s => s.id === id);
-      if (prior) return changedOwner ? {...prior, current: false, pending: false, attempt: null} : prior;
+      if (prior) return changedOwner ? {...prior, current: false, diagnosticsCurrent: false, pending: false, attempt: null} : prior;
       return {id, participant,
         name: ({controller: 'Controller', acquisition_node: 'AcquisitionNode', ingestor: 'Ingestor', storage_manager: 'StorageManager', synchronization_manager: 'Synchronization Manager'})[participant.component_type],
         computer: participant.component_id, readiness: 'Unknown', current: false, confirmed: null};
@@ -293,10 +293,13 @@ serviceActions.refresh = async id => {
       const result = requireResult(await request('read_service_status', {participant: service.participant}));
       if (!confirmed || connection !== socket || socket.readyState !== WebSocket.OPEN || instance !== current()?.instance_id || !liveServices.includes(service)) return;
       service.current = result.current === true;
+      service.details = result.details;
+      service.diagnosticsCurrent = typeof result.details?.operational_instance_id === 'string'
+        && result.details.operational_instance_id.length > 0;
       service.attempt = service.current ? result.details.maintenance_attempt : null;
-      if (service.current) { service.readiness = result.report.ready ? 'Ready' : 'Not ready'; service.confirmed = new Date().toISOString(); service.details = result.details; service.information = result.report.reason; }
-      else service.information = result.reason;
-    } catch (error) { service.current = false; service.attempt = null; service.information = `Availability unknown: ${error.message}`; }
+      if (service.current) { service.readiness = result.report.ready ? 'Ready' : 'Not ready'; service.confirmed = new Date().toISOString(); service.information = result.report.reason; }
+      else service.information = result.details?.readiness_error || result.reason;
+    } catch (error) { service.current = false; service.diagnosticsCurrent = false; service.attempt = null; service.information = `Availability unknown: ${error.message}`; }
     finally { service.pending = false; updateServices(liveServices); }
   }));
   const sid = current()?.status?.session_id;

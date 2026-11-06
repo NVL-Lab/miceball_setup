@@ -142,6 +142,7 @@ class NatsCommunicationBoundary:
         self._dependency_result_observer = None
         self.maintenance_command_handled: Callable[[RuntimeCommandMessage, RuntimeCommandResultMessage], None] | None = None
         self._pending_dependent_deliveries = {}
+        self._maintenance_delivery_tasks = {}
         self._partial_result_subscriptions: dict[Subscription, NATS] = {}
         self._partial_result_cleanup_task: asyncio.Task | None = None
         self._controller_claim_attempted = False
@@ -457,6 +458,11 @@ class NatsCommunicationBoundary:
                 client.options["allow_reconnect"] = False
 
             async def finish():
+                deliveries = tuple(self._maintenance_delivery_tasks.values())
+                for delivery in deliveries:
+                    delivery.cancel()
+                if deliveries:
+                    await asyncio.gather(*deliveries, return_exceptions=True)
                 if self._jetstream is None or client.is_closed or not client.is_connected:
                     await client.close()
                 else:
@@ -3224,15 +3230,33 @@ async def _complete_maintenance_delivery(boundary, command, result):
     if (interface is not None and result is not None and result.success
             and command.command_type in {"stop", "kill"}
             and result.payload.get("termination_confirmed") is True):
+        retained = boundary._pending_dependent_deliveries.get(command.command_id)
+        if retained is not None and (retained[0].to_dict() != command.to_dict()
+                or retained[1].to_dict() != result.to_dict()):
+            raise RuntimeError("Conflicting retirement delivery identity")
         boundary._pending_dependent_deliveries[command.command_id] = (command, result)
-        await interface.complete_retirement(command, result)
+        if boundary._close_task is not None or command.command_id in boundary._maintenance_delivery_tasks:
+            return
+
+        async def complete():
+            try:
+                # Ingestor reads this owner back through the same subscription.
+                # Release the callback, but retain delivery and exit obligations.
+                await interface.complete_retirement(command, result)
+                observer = boundary.maintenance_command_handled
+                if observer is not None:
+                    observer(command, result)
+                boundary._pending_dependent_deliveries.pop(command.command_id, None)
+            except Exception:
+                logger.exception("Retirement delivery remains unconfirmed; process retained")
+            finally:
+                boundary._maintenance_delivery_tasks.pop(command.command_id, None)
+
+        boundary._maintenance_delivery_tasks[command.command_id] = asyncio.create_task(complete())
+        return
     observer = getattr(boundary, "maintenance_command_handled", None)
     if observer is not None:
         observer(command, result)
-    retained = boundary._pending_dependent_deliveries.get(command.command_id)
-    if (retained is not None and result is not None and retained[0].to_dict() == command.to_dict()
-            and retained[1].to_dict() == result.to_dict()):
-        boundary._pending_dependent_deliveries.pop(command.command_id, None)
 
 
 def _logical_command(command):

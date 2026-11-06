@@ -10,14 +10,15 @@
 - `NatsExternalSessionLaunchReceiver.close(*, retiring_command_id=None)`: Joins admitted work except the exact self-retirement request or existing framework-shutdown task that is closing its own receiver.
 - `NatsControllerCommunication.request_runtime_command(...)`: Also correlates the existing framework-scoped Stop/Kill/Cancel commands through the same fresh nonce and subscription teardown boundary.
 - `NatsSynchronizationManagerCommunication`'s `read_session_time` response: Includes Session/source identity and retained `session_timing_evidence` for bounded external read-only projection.
-- `ServiceMaintenanceInterface._diagnostic_payload()`: Also detaches operational-instance identity, the active maintenance attempt and existing durably accepted recovery authorizations for exact continuation selection.
+- `ServiceMaintenanceInterface._diagnostic_payload()`: Also detaches operational-instance identity, the active maintenance attempt, dependency-release confirmation and existing durably accepted recovery authorizations for exact continuation selection; none proves OS exit.
 - `_execute_maintenance_command(...)`: Preserves nonce and Controller-instance transport correlation for owner recovery results as well as ordinary maintenance replies.
 - `services-view.serviceActions.refresh(id?)`, `maintain(operation, service, administrator_id, recovery=null)`, `canControl()` and `frameworkOutcome()`: Bind existing Services controls to the shared connected request/outcome path without owning maintenance or control grants.
-- `services-view.updateServices(services, notice='')`: Repaints the existing shared rows/details from configured membership and current/historical owner reports.
+- `services-view.updateServices(services, notice='')`: Repaints configured membership and separately labeled owner diagnostics/readiness without clearing operator feedback during routine refresh; Review obligations presents an evidence snapshot.
 - `services-view.startServicesRefresh()`: Enables configurable connected status refresh with the accepted 10-second default.
 - `connected.invalidateServiceConfirmation()`: Retains last-known reports while invalidating current confirmation and older in-flight projections after Controller/backend communication loss.
 - `GUIIntegrationTests`: Adds public web/NATS coverage of status, Session Kill, blocked Stop/Cancel/Kill, takeover fencing, timing readback, self-retirement, receiver quiescence and complete framework shutdown with disk-backed simulated owners.
 - `verifyMaintenanceBinding()`: Exercises production browser confirmation and exact-target Stop/Kill/Cancel dispatch with controlled transport, not live owner execution.
+- `ExternalDependentRegistrationTransportTests.remote_retirement_workflow(...)`: Exercises disk-backed owner retirement over isolated real NATS, including delayed/lost confirmation, duplicates, preservation failure and transport interruption without replaying cleanup.
 
 Developer verification: 28 targeted backend/schema/maintenance/recovery methods,
 29 selected JavaScript tests, 17 GUI shell methods and two production-browser
@@ -25,6 +26,15 @@ workflows PASS. Final retirement and superseded-authorization checks were rerun
 after their bounded changes. Two additional legacy authority-fixture failures
 were reproduced against unchanged HEAD and are not repaired here. These are
 developer checks, not ICC independent validation or audit.
+
+Bounded retirement/diagnostic correction developer verification: five isolated
+real-NATS transport methods, seven selected backend methods, four maintenance
+methods, 17 GUI shell methods and one production-browser method PASS. The browser
+checks persistent feedback, actual obligation snapshots, unknown-readiness
+diagnostics and stale-owner response refusal. Five selected legacy tests still
+fail (four authority-fixture errors and one retirement assertion); the same
+failures reproduce with affected production modules and tests loaded from HEAD.
+No independent validation, audit or closure is claimed for this correction.
 
 Unit 1 remains CLOSED. Unit 2 is developer implementation, not independently
 validated/audited or closed. Recovery selects existing durable owner authorizations;
@@ -2096,7 +2106,7 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 - NatsStorageManagerCommunication._reconfirm_archive_closure(command, result): Requires matching current closed-archive preservation before reconfirming a retained or historical successful closure through the owner.
 - NatsStorageManagerCommunication._read_saved_session_result(record, operation): Validates persisted result correlation, subject/body routing and collection-evidence or closed-summary identity before matching.
 - _subscribe_participant_commands(boundary, receive): Subscribes fresh-only to existing participant command subjects, notifying an installed maintenance lifetime observer only after exact result publication and delivery ACK complete.
-- _complete_maintenance_delivery(boundary, command, result): Retains the exact published/ACKed retirement while awaiting Ingestor confirmation, then notifies launcher exit gating without substituting cached results from another request.
+- _complete_maintenance_delivery(boundary, command, result): Retains the exact published/ACKed retirement in an owned, coalesced completion task so the command subscription can answer Ingestor readback; only confirmed completion notifies launcher exit gating, and close joins/cancels tasks without clearing unresolved deliveries.
 - NatsControllerCommunication.request_maintenance_readback(participant, operation, payload, result_window_s): Reuses existing Session-independent commands with fresh owner/operation-scoped nonce correlation, bounded waiting and temporary-subscription cleanup for dependent registration and confirmation.
 - _validate_owner_request(boundary, command): Validates target, requester, command, Session, connectivity, and transient reply correlation for the bounded owner operations.
 - NatsControllerCommunication.request_persistence_command(participant, command_type, session_id, payload, result_window_s, *, command_id): Makes a scoped owner request with fresh-only nonce-correlated results, including Session-independent preserve_service_evidence; Session operations still require their real Session identity.

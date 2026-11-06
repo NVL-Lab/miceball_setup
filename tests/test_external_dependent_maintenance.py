@@ -69,6 +69,144 @@ class ExternalDependentConfigurationTests(unittest.TestCase):
 
 @unittest.skipUnless(NATS_SERVER, "optional isolated nats-server unavailable")
 class ExternalDependentRegistrationTransportTests(unittest.IsolatedAsyncioTestCase):
+    async def test_remote_retirement_allows_ingestor_owner_readback_before_exit(self):
+        await self.remote_retirement_workflow()
+
+    async def test_remote_retirement_lost_ack_retains_process_until_explicit_completion(self):
+        await self.remote_retirement_workflow(lose_reply=True)
+
+    async def test_remote_retirement_preservation_failure_prevents_cleanup(self):
+        await self.remote_retirement_workflow(fail_preservation=True)
+
+    async def test_remote_retirement_transport_close_retains_unconfirmed_delivery(self):
+        await self.remote_retirement_workflow(interrupt=True)
+
+    async def remote_retirement_workflow(self, *, lose_reply=False, fail_preservation=False, interrupt=False):
+        import nats
+        from nats.js.api import KeyValueConfig, StorageType
+        from lab_sync_acquisition import NatsCommunicationBoundary
+
+        server = await self.enterAsyncContext(restartable_jetstream_server())
+        root = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        participant = RuntimeParticipant("synchronization_manager", "sync")
+
+        async def capture(launcher, *, startup):
+            await startup()
+            for boundary in launcher.boundaries:
+                self.addAsyncCleanup(boundary.close)
+            return launcher
+
+        with patch.object(ServiceLauncher, "run", capture):
+            pair = await launch_storage_services(servers=(server.url,), ingestor_id="intake",
+                storage_id="storage", storage_root=root / "storage", recovery_journal_root=root / "journals",
+                framework_journal=root / "framework.jsonl", preservation_window_s=2,
+                operational_dependents={}, external_dependents=(participant,), result_window_s=.5,
+                controller_claim_account="$G", controller_claim_bucket="AUTHORITY", controller_claim_key="controller",
+                report=lambda text: None)
+        client = await nats.connect(server.url)
+        self.addAsyncCleanup(client.close)
+        await client.jetstream().create_key_value(KeyValueConfig(bucket="AUTHORITY", storage=StorageType.FILE))
+        boundary = NatsCommunicationBoundary("synchronization_manager", "sync", (server.url,))
+        await boundary.connect()
+        self.addAsyncCleanup(boundary.close)
+        owner = SynchronizationManager()
+        maintenance = ServiceMaintenanceInterface(owner, participant, ingestor=None, storage_manager=None,
+            preservation_window_s=2, close_resources=AsyncMock(return_value=True),
+            evidence_publisher=boundary.publish_evidence, framework_communication=NatsControllerCommunication(boundary),
+            framework_ingestor=RuntimeParticipant("ingestor", "intake"),
+            framework_storage=RuntimeParticipant("storage_manager", "storage"))
+        boundary.configure_controller_authority(account="$G", bucket="AUTHORITY", key="controller", timeout_s=2)
+        handler = NatsSynchronizationManagerCommunication(boundary, owner)
+        await handler.subscribe_commands()
+        async def close_handler():
+            if boundary.connected:
+                await handler.close()
+        self.addAsyncCleanup(close_handler)
+        launcher = ServiceLauncher((maintenance,), (boundary,), report=lambda text: None)
+        await maintenance.register_ingestor_dependency()
+        control = Controller(component_id="control")
+        control_boundary = NatsCommunicationBoundary("controller", "control", (server.url,))
+        await control_boundary.connect()
+        self.addAsyncCleanup(control_boundary.close)
+        authority = ServiceMaintenanceInterface(control, RuntimeParticipant("controller", "control"),
+            ingestor=None, storage_manager=None, preservation_window_s=2, close_resources=AsyncMock(return_value=True))
+        await authority.acquire_controller_authority(control_boundary, account="$G", bucket="AUTHORITY",
+            key="controller", timeout_s=2)
+        requests = NatsControllerCommunication(control_boundary)
+        if fail_preservation:
+            storage = pair.maintenance[0].storage_manager
+            with patch.object(storage, "_write_framework_evidence_archive", side_effect=OSError("disk unavailable")):
+                blocked = await requests.request_runtime_command(participant, "stop", None,
+                    {"stop_attempt_id": "blocked-stop", "administrator_id": "operator"}, 4)
+            self.assertFalse(blocked.success)
+            self.assertEqual(blocked.payload["outcome"], "blocked")
+            self.assertFalse(maintenance.terminated)
+            self.assertEqual(maintenance.close_resources.await_count, 0)
+            self.assertFalse(launcher.exit_ready)
+            await requests.request_runtime_command(participant, "cancel", None,
+                {"stop_attempt_id": "blocked-stop", "administrator_id": "operator"}, 4)
+        confirmation_started, allow_reply = asyncio.Event(), asyncio.Event()
+        native = pair.boundaries[0].publish_command_result
+        original_commands = []
+
+        async def observe(message):
+            original_commands.append(message.data)
+
+        observer = await client.subscribe("messages.command.synchronization_manager.sync.stop", cb=observe)
+        self.addAsyncCleanup(observer.unsubscribe)
+
+        async def delayed_reply(result, operation):
+            if operation == "confirm_dependent_release":
+                confirmation_started.set()
+                await allow_reply.wait()
+                if lose_reply:
+                    return
+            await native(result, operation)
+
+        with patch.object(pair.boundaries[0], "publish_command_result", delayed_reply):
+            try:
+                result = await requests.request_runtime_command(participant, "stop", None,
+                    {"stop_attempt_id": "remote-stop", "administrator_id": "operator"}, 4, command_id="exact-stop")
+                self.assertTrue(result.success, result)
+                await asyncio.wait_for(confirmation_started.wait(), 3)
+                self.assertFalse(launcher.exit_ready)
+                status = await requests.request_runtime_command(participant, "check_readiness", None, {}, 2)
+                self.assertTrue(status.payload["operational_retirement_confirmed"])
+                self.assertFalse(status.payload["retirement_delivery"]["dependency_release_confirmed"])
+                # Redeliver the exact wire command, not a new Stop or new nonce.
+                await client.jetstream().publish("messages.command.synchronization_manager.sync.stop", original_commands[0])
+                status = await requests.request_runtime_command(participant, "check_readiness", None, {}, 2)
+                self.assertTrue(status.success)
+                self.assertEqual(maintenance.close_resources.await_count, 1)
+                if interrupt:
+                    await boundary.close()
+                    self.assertTrue(maintenance.terminated)
+                    self.assertFalse(launcher.exit_ready)
+                    return
+            finally:
+                allow_reply.set()
+            if lose_reply:
+                await asyncio.sleep(2.1)  # Let the explicitly configured acknowledgment window expire.
+                self.assertFalse(launcher.exit_ready)
+                self.assertTrue(maintenance.terminated)
+                self.assertEqual(maintenance.close_resources.await_count, 1)
+
+        async def exit_confirmed():
+            while not launcher.exit_ready:
+                await asyncio.sleep(.01)
+        if lose_reply:
+            before = pair.maintenance[0].ingestor.compile_framework_runtime_evidence()
+            self.assertTrue(await launcher.stop_locally("operator"))
+            self.assertEqual(before, pair.maintenance[0].ingestor.compile_framework_runtime_evidence())
+        else:
+            await asyncio.wait_for(exit_confirmed(), 3)
+        self.assertTrue(maintenance.terminated)
+        self.assertFalse(pair.maintenance[0].operational_dependents[participant]())
+        status = await requests.request_runtime_command(participant, "check_readiness", None, {}, 2)
+        self.assertTrue(status.payload["operational_retirement_confirmed"])
+        self.assertIsNone(status.payload["maintenance_attempt"])
+        self.assertTrue(status.payload["retirement_delivery"]["dependency_release_confirmed"])
+
     async def test_replayed_framework_history_preserves_registration_across_owner_restart(self):
         import nats
         from nats.js.api import KeyValueConfig, StorageType

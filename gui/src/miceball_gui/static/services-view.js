@@ -9,15 +9,20 @@ export const servicesAdministrator = () => model.administrator;
 export const serviceActions = {};
 export function updateServices(services, notice = '') {
   model.services = services;
-  message = notice;
+  refreshNotice = notice;
   for (const service of services) {
     service.connectivity = service.current ? 'Confirmed communication' : 'Unknown';
-    service.dependencies = service.details ? JSON.stringify(service.details.service_diagnostics || service.details, null, 2) : 'No current dependency confirmation';
+    service.dependencies = service.details ? JSON.stringify({
+      readiness_error: service.details.readiness_error,
+      dependency_readiness: service.details.dependency_readiness,
+      service_diagnostics: service.details.service_diagnostics,
+    }, null, 2) : 'No current dependency confirmation';
   }
   renderServices();
 }
 let refreshTimer;
 let message = '';
+let refreshNotice = '';
 let expandedService = null, shutdownAttempt = null, killTarget = null;
 let historyExpanded = false;
 const danger = document.createElement('dialog');
@@ -68,6 +73,14 @@ function serviceDetails(service) {
     History: `<ol><li>${service.confirmed ? (connected ? `Last-known report: ${escape(service.confirmed)}` : `Fictional status report · Oct 24, ${service.confirmed}`) : 'No confirmed status report'}</li><li>${connected ? 'Last-known reports are historical, not current availability.' : `${escape(service.connectivity)} transport example; no inferred lifecycle replay, cleanup or recovery.`}</li></ol>`,
   };
   const obligations = model.obligations.filter(item => item.service === service.name);
+  if (connected) {
+    const retired = service.details?.operational_retirement_confirmed === true;
+    const delivery = service.details?.retirement_delivery;
+    content.Status += `<p>${service.diagnosticsCurrent ? 'Current owner diagnostics' : 'Last-known or unavailable owner diagnostics'}; last-confirmed readiness is shown separately.</p>`;
+    if (retired) content.Status += service.diagnosticsCurrent
+      ? `<p>Operational retirement confirmed. ${delivery?.required && !delivery.dependency_release_confirmed ? 'Dependency-release confirmation remains outstanding; the process must be retained.' : 'OS process exit is not established by this report.'} Kill is unavailable because there is no current blocked Stop attempt. This GUI cannot retry retained retirement delivery.</p>`
+      : '<p>Last-known owner reported operational retirement. Current retirement, dependency confirmation and OS process exit are unconfirmed.</p>';
+  }
   return `<div class="services-detail-tabs" role="group" aria-label="Service detail views">${Object.keys(content).map(name => `<button type="button" data-detail="${name}" aria-pressed="${model.detail === name}">${name}</button>`).join('')}</div><div class="services-detail-content">${content[model.detail]}</div>${obligations.length ? `<h4>Represented obligations / blockers</h4><ul>${obligations.map(item=>`<li>${escape(item.description)} — ${escape(item.outcome)}</li>`).join('')}</ul>` : ''}${connected ? `${service.lastOperation ? `<p class="services-callout">${escape(service.lastOperation.operation)} · ${escape(service.lastOperation.result?.outcome?.details?.outcome || service.lastOperation.status)} ${escape(service.lastOperation.result?.error || '')}</p>` : ''}<p>${escape(service.information || 'No confirmed report')}</p><details><summary>Owner report and remaining obligations</summary><pre>${escape(JSON.stringify({readiness: service.details || null, operation: service.lastOperation || null}, null, 2))}</pre></details>` : ''}${service.readiness === 'Unhealthy' ? `<p>${escape(service.information)}</p>` : ''}${model.administrator ? `<div class="service-specific-administration"><h4>Selected-service administration</h4><button type="button" data-stop-service="${escape(service.id)}">Stop Service</button>${connected && service.attempt?.outcome === 'blocked' ? `<button type="button" data-live-kill="${escape(service.id)}">Kill Service…</button><button type="button" data-live-cancel="${escape(service.id)}">Cancel Stop attempt</button>` : ''}<button type="button" data-administrative="Supported recovery attempts">Recovery availability…</button><button type="button" data-administrative="Abandon outstanding obligations">Review obligations…</button></div>` : ''}`;
 }
 
@@ -83,7 +96,7 @@ function administrativeOperations() {
 function renderServices() {
   const unacknowledged = notificationHistory().filter(item => !item.acknowledged).length;
   panel.innerHTML = `<header class="services-header"><div><h2 id="heading-services">Services</h2><p>Framework status, notifications and administrative operations</p><small>${connected ? 'Configured membership · service-owned readiness · Controller admission remains authoritative' : 'Browser-local demonstration · fictional reports, no live services or commands'}</small></div><div class="services-refresh"><label>Auto refresh (s)<select id="services-refresh"><option value="0">Off</option>${[5,10,30,60].map(n=>`<option value="${n}" ${model.refreshSeconds === n ? 'selected' : ''}>${n}</option>`).join('')}</select></label><button type="button" data-refresh-services>Refresh now</button></div><div class="services-mode" role="group" aria-label="Services mode"><span>Mode:</span><button type="button" data-mode="experimenter" aria-pressed="${!model.administrator}">Experimenter</button><button type="button" data-mode="administrator" aria-pressed="${model.administrator}">Administrator</button></div></header>
-    <p class="services-feedback" ${connected ? 'id="services-readiness-unavailable"' : ''} role="status">${escape(message || (model.lastPreviewRefresh ? `Preview refreshed locally at ${model.lastPreviewRefresh}; fixture confirmations are unchanged.` : (connected ? 'Only valid current checks confirm availability; communication loss alone is not failure.' : 'Automatic refresh repaints fictional information only; it does not confirm availability.')))}</p>
+    <p class="services-feedback" ${connected ? 'id="services-readiness-unavailable"' : ''} role="status">${escape(message || refreshNotice || (model.lastPreviewRefresh ? `Preview refreshed locally at ${model.lastPreviewRefresh}; fixture confirmations are unchanged.` : (connected ? 'Only valid current checks confirm availability; communication loss alone is not failure.' : 'Automatic refresh repaints fictional information only; it does not confirm availability.')))}</p>
     <section class="services-card"><h3>Configured services (${model.services.length})</h3><ul class="services-list" aria-label="Configured services">${serviceRows()}</ul></section>
     <section class="services-card services-warning-card"><h3>Warnings and errors <small>${connected ? 'Unavailable' : `${unacknowledged} unacknowledged`}</small></h3><p class="services-muted">${connected ? 'Authoritative warning and error history is unavailable.' : 'Latest three entries by default. Acknowledgment is not resolution or deletion.'}</p><div id="services-history" class="services-history" role="region" aria-label="Warning and error history" tabindex="0">${notificationRows()}</div>${notificationHistory().length > 3 ? `<button type="button" data-toggle-history aria-controls="services-history" aria-expanded="${historyExpanded}">${historyExpanded ? 'Show less' : 'Show more'}</button>` : ''}</section>${administrativeOperations()}`;
   if (connected && !serviceActions.refresh) {
@@ -145,6 +158,10 @@ panel.addEventListener('click', event => {
     if (button.dataset.detail) { model.detail = button.dataset.detail; renderServices(); return; }
     if (button.dataset.administrative) {
       const service = model.services.find(s => s.id === model.selectedId);
+      if (button.dataset.administrative === 'Abandon outstanding obligations') {
+        administrativePreview.innerHTML = `<h2 id="admin-preview-title">Owner obligations and retirement</h2><p>${escape(service?.name || 'Selected service')} / ${escape(service?.computer || '')}</p><p>${service?.diagnosticsCurrent ? 'Current owner diagnostics' : 'Last-known or unavailable owner diagnostics; not current confirmation'}. Operational retirement, dependency-release confirmation and OS process exit are distinct. This view does not execute recovery or abandon obligations.</p><pre>${escape(JSON.stringify(service?.details || null, null, 2))}</pre><p>An operationally retired service is not a blocked Stop attempt and is not eligible for another Kill. Retained retirement-delivery completion is not exposed by this external interface.</p><div class="catalog-dialog__actions"><button type="button" data-admin-close>Close</button></div>`;
+        administrativePreview.showModal(); return;
+      }
       const operations = ['recover_archive_write', 'recover_session_record_write', 'recover_artifact_transfer', 'preserve_scientific_artifact', 'cleanup_device_resources', 'dispose_temporary_evidence'];
       const authorizations = service?.current ? (service.details?.recovery_authorizations || []).filter(record =>
         operations.includes(record.payload?.details?.operation)
@@ -154,7 +171,10 @@ panel.addEventListener('click', event => {
         message = 'No supported exact-target recovery with existing durable administrator authorization is currently reported. Obligation abandonment is unavailable through this interface. No command sent.';
         renderServices(); return;
       }
-      if (!model.administrator || !serviceActions.canControl?.()) return;
+      if (!model.administrator || !serviceActions.canControl?.()) {
+        message = 'Recovery execution requires current Controller control and a confirmed operation context. No command sent.';
+        renderServices(); return;
+      }
       administrativePreview.innerHTML = `<h2 id="admin-preview-title">Explicit authorized recovery</h2><p>${escape(service.name)} / ${escape(service.computer)}</p><label>Existing owner authorization<select data-recovery-choice>${authorizations.map((record, index) => `<option value="${index}">${escape(record.payload.details.operation)} · ${escape(record.payload.administrator_id)}</option>`).join('')}</select></label><pre data-recovery-scope></pre><p data-recovery-warning></p><label><input type="checkbox" data-recovery-authorized> I explicitly authorize this exact operation and scope, including the stated consequences.</label><div class="catalog-dialog__actions"><button type="button" data-admin-close>Cancel</button><button type="button" data-recovery-confirm disabled>Execute authorized recovery</button></div>`;
       const choice = administrativePreview.querySelector('[data-recovery-choice]'), check = administrativePreview.querySelector('[data-recovery-authorized]'), submit = administrativePreview.querySelector('[data-recovery-confirm]');
       const selection = () => authorizations[Number(choice.value)];

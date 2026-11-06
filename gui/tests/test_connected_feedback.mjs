@@ -222,8 +222,9 @@ async function verifyMaintenanceBinding() {
     administrator_id: 'Lab Operator', details: {operation: 'cleanup_device_resources', command_id: 'cleanup-command',
       obligation: {session_id: 'historical-session', device_ids: ['camera']}}}}];
   const submitted = [];
-  let controlling = true, attempt = null, sequence = 0;
-  const state = () => ({controller_id: 'feedback', instance_id: 'maintenance-instance',
+  let controlling = true, attempt = null, sequence = 0, unknown = false;
+  let ownerInstance = 'maintenance-instance', holdStatus = false, staleReply = null;
+  const state = () => ({controller_id: 'feedback', instance_id: ownerInstance,
     control: {controlling, generation: 1}, status: {session_id: null, session_state: null},
     configuration: null, experiments: [], configured_nodes: [], configured_services: [participant], pending_operations: []});
   await target.routeWebSocket('**/ws', route => {
@@ -231,8 +232,16 @@ async function verifyMaintenanceBinding() {
       const request = JSON.parse(raw);
       if (request.operation === 'read_controller_state') { reply(route, request, 'succeeded', state()); return; }
       if (request.operation === 'read_service_status') {
-        reply(route, request, 'succeeded', {current: true, report: {...participant, ready: true, required: true, reason: 'ready'},
-          details: {maintenance_attempt: attempt, recovery_authorizations: authorizations}, participant}); return;
+        const response = {current: !unknown, report: unknown ? null : {...participant, ready: true, required: true, reason: 'ready'},
+          reason: unknown ? 'Current readiness is unconfirmed' : null,
+          details: {maintenance_attempt: attempt, recovery_authorizations: authorizations, operational_instance_id: 'maintenance-owner',
+            readiness_error: unknown ? 'Dependency readiness is unknown: acquisition_node/offline-node' : undefined,
+            dependency_readiness: [{participant: {component_type: 'acquisition_node', component_id: 'offline-node'}, service_readiness: null}],
+            operational_retirement_confirmed: !attempt && !authorizations.length,
+            retirement_delivery: {required: true, dependency_release_confirmed: false},
+            remaining_obligations: ['Exact retained delivery obligation']}, participant};
+        if (holdStatus) { holdStatus = false; staleReply = () => reply(route, request, 'succeeded', response); return; }
+        reply(route, request, 'succeeded', response); return;
       }
       submitted.push(request);
       if (request.operation === 'stop_service') {
@@ -294,6 +303,40 @@ async function verifyMaintenanceBinding() {
     await target.locator('[data-stop-service]').evaluate(button => button.dispatchEvent(new MouseEvent('click', {bubbles:true})));
     assert.equal(submitted.length, 5);
     assert.equal(await target.locator('[onpointerover], [onerror]').count(), 0);
+    controlling = true;
+    await target.locator('#connection-state').filter({hasText: 'Controlling'}).waitFor();
+    await target.locator('[data-administrative="Supported recovery attempts"]').click();
+    const feedback = await target.locator('.services-feedback').innerText();
+    assert.match(feedback, /No supported exact-target recovery/);
+    await target.waitForTimeout(4300); // More than two ordinary Controller refreshes.
+    assert.equal(await target.locator('.services-feedback').innerText(), feedback);
+    await target.locator('[data-administrative="Abandon outstanding obligations"]').click();
+    const obligations = target.locator('.services-danger[open]');
+    assert.match(await obligations.innerText(), /Exact retained delivery obligation/);
+    assert.match(await obligations.innerText(), /Operational retirement, dependency-release confirmation and OS process exit are distinct/);
+    await target.waitForTimeout(2200);
+    assert.equal(await obligations.isVisible(), true);
+    await obligations.locator('[data-admin-close]').click();
+    assert.equal(await target.locator('[data-live-kill]').count(), 0);
+    unknown = true;
+    await target.locator('[data-readiness]').click();
+    await target.getByText('Dependency readiness is unknown: acquisition_node/offline-node', {exact: true}).waitFor();
+    assert.match(await target.locator('.services-detail-content').innerText(), /Current owner diagnostics/);
+    assert.match(await target.locator('.service-status').innerText(), /availability unknown/);
+    assert.match(await target.locator('section.inline-service-details').innerText(), /offline-node/);
+    assert.equal(await target.locator('[data-live-kill]').count(), 0);
+    assert.equal(submitted.length, 5); // Inspection never sends a maintenance mutation.
+    unknown = false; holdStatus = true;
+    await target.locator('[data-readiness]').click();
+    for (let i = 0; i < 100 && !staleReply; i++) await target.waitForTimeout(20);
+    assert.ok(staleReply);
+    unknown = true; ownerInstance = 'replacement-controller';
+    // The changed Controller replaces projections and obtains new diagnostics.
+    await target.waitForTimeout(4300);
+    staleReply();
+    await target.waitForTimeout(200);
+    assert.match(await target.locator('.service-status').innerText(), /availability unknown/);
+    assert.match(await target.locator('section.inline-service-details').innerText(), /offline-node/);
     console.log('PASS: production Services confirmation, exact Stop/Kill/Cancel target and attempt, blocked/completed feedback, View Only and inert service identity; controlled transport only');
   } finally { await target.close(); }
 }

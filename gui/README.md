@@ -212,6 +212,16 @@ These are developer checks only, not independent validation, audit or closure.
 
 ### Unit 2 developer implementation (not independent validation or closure)
 
+The bounded retirement/diagnostic correction releases NATS command callbacks while
+tracked dependency-confirmation work completes; missing confirmation still retains
+the process. Services retains diagnostics when aggregate readiness is unknown,
+keeps recovery explanations across refresh and shows owner evidence in Review
+obligations. Operational retirement, dependency confirmation and OS exit remain
+distinct. The existing external interface has no retained-retirement-delivery
+continuation operation; that integration is stopped for ICC review, not supplied
+through another Stop, Kill or recovery command. These corrections still require
+independent manual validation and audit; Unit 2 is not closed.
+
 Services refresh reuses configured Controller participants and existing owner
 readiness/dependency diagnostics. The existing refresh selector defaults to 10
 seconds. Valid current reports confirm communication/readiness; failed, invalid or
