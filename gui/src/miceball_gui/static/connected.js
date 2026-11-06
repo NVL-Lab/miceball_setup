@@ -9,11 +9,14 @@ import { renderParameters } from './parameters-view.js';
 import { renderExperiment } from './scientific-views.js';
 import { navigate, configurationStringEditor } from './gui-presentation.js';
 import { confirmStop } from './stop-confirmation.mjs';
+import { serviceActions, updateServices, startServicesRefresh } from './services-view.js';
 import { configurationIdentity, configurationNumber, parseConfigurationJSON, stringifyConfiguration, configurationStringText, parseConfigurationString } from './configuration-values.mjs';
 
 const $ = selector => document.querySelector(selector);
 let socket, browserId, confirmed = false, busy = false, refreshing = false, lastRender = '';
 let inventoryRequest = null;
+let liveServices = [];
+let timingPending = false;
 const waiting = new Map();
 let outcomes = [];
 try { const stored = JSON.parse(sessionStorage.getItem('miceball-pending') || '[]');
@@ -21,6 +24,11 @@ try { const stored = JSON.parse(sessionStorage.getItem('miceball-pending') || '[
 } catch (_) {}
 const current = () => state.controllerSnapshot;
 const save = () => sessionStorage.setItem('miceball-pending', JSON.stringify(outcomes));
+function invalidateServiceConfirmation() {
+  // Replace projections so replies admitted before this loss cannot promote them.
+  liveServices = liveServices.map(service => ({...service, current: false, pending: false, attempt: null}));
+  updateServices(liveServices);
+}
 
 $('.topbar').insertAdjacentHTML('beforeend', '<div class="connection-tools"><span id="connection-state" role="status">Connecting</span><button id="view-only" type="button">View Only</button><button id="take-over" type="button">Take Over</button></div>');
 $('.setup-demo-note').textContent = 'Controller connection unconfirmed. Local preparation is not acceptance or persistence.';
@@ -67,6 +75,7 @@ function controls() {
         || !step || experimentIssues(state, step, experimentView(state, step, record).configuration).length > 0;
     }
   }
+  for (const button of document.querySelectorAll('[data-live-session-kill]')) button.disabled = !canControl() || current()?.status?.last_command?.command !== 'normal_stop_session' || current()?.status?.last_command?.succeeded !== false;
   $('#take-over').disabled = !confirmed || busy;
   $('#view-only').disabled = !confirmed || busy;
   $('#load-inventory').disabled = Boolean(inventoryRequest) || !confirmed || busy || !$('#inventory-node').value;
@@ -80,6 +89,7 @@ function controls() {
     text.textContent = `${entry.request_id || 'Request identity unavailable'} · ${entry.result?.error || 'No automatic replay. Completion follows Controller readback.'}`;
     details.append(summary, text); return details;
   }));
+  updateServices(liveServices);
 }
 state.actions.syncControls = controls;
 function request(operation, parameters = {}, session_id = null) {
@@ -104,6 +114,17 @@ async function refresh() {
     const snapshot = requireResult(await request('read_controller_state'));
     const previous = current();
     applyControllerSnapshot(state, snapshot); confirmed = true;
+    const previousServices = liveServices;
+    const changedOwner = previous?.instance_id !== snapshot.instance_id;
+    liveServices = (snapshot.configured_services || []).map(participant => {
+      const id = configurationIdentity(participant.component_type, participant.component_id);
+      const prior = previousServices.find(s => s.id === id);
+      if (prior) return changedOwner ? {...prior, current: false, pending: false, attempt: null} : prior;
+      return {id, participant,
+        name: ({controller: 'Controller', acquisition_node: 'AcquisitionNode', ingestor: 'Ingestor', storage_manager: 'StorageManager', synchronization_manager: 'Synchronization Manager'})[participant.component_type],
+        computer: participant.component_id, readiness: 'Unknown', current: false, confirmed: null};
+    });
+    if ((!previousServices.length || changedOwner) && liveServices.length) serviceActions.refresh();
     if (snapshot.configuration && (previous?.status?.session_id !== snapshot.status.session_id || previous?.instance_id !== snapshot.instance_id)) {
       const config = snapshot.configuration, metadata = config.session_parameters || {};
       sessionName.value = configurationStringText(metadata.name ?? '');
@@ -138,10 +159,12 @@ async function refresh() {
       }
     }
     save();
+    updateServices(liveServices);
+    $('#live-closeout-status').textContent = JSON.stringify({closeout: snapshot.closeout || 'Unconfirmed', timing_interpretations: snapshot.timing || []}, null, 2);
     const signature = JSON.stringify([snapshot.instance_id, snapshot.control, snapshot.status, snapshot.configuration, snapshot.experiments]);
     if (signature !== lastRender) { lastRender = signature; renderSetup(); renderSession(); renderExperiment(); if (!$('#panel-parameters').hidden) renderParameters(); }
     if (completedNavigation) navigate(completedNavigation);
-  } catch (error) { confirmed = false; $('#connection-state').textContent = `Unconfirmed · ${error.message}`; }
+  } catch (error) { confirmed = false; invalidateServiceConfirmation(); $('#connection-state').textContent = `Unconfirmed · ${error.message}`; }
   finally { refreshing = false; controls(); }
 }
 async function command(operation, parameters = {}, session_id = current()?.status?.session_id || null) {
@@ -150,9 +173,15 @@ async function command(operation, parameters = {}, session_id = current()?.statu
   busy = true; controls();
   try {
     const reply = await request(operation, parameters, session_id);
-    outcomes.push({operation, instance_id: reply.instance_id || reply.submitted_instance_id, request_id: reply.result?.request_id || reply.submitted_request_id, status: reply.result?.status || reply.status, result: reply.result || reply}); save();
+    const entry = {operation, instance_id: reply.instance_id || reply.submitted_instance_id, request_id: reply.result?.request_id || reply.submitted_request_id, status: reply.result?.status || reply.status, result: reply.result || reply};
+    outcomes.push(entry); save();
+    return entry;
   } catch (error) {
-    if (error.request_id && error.instance_id) { outcomes.push({operation, status: 'uncertain', request_id: error.request_id, instance_id: error.instance_id}); save(); }
+    if (error.request_id && error.instance_id) {
+      const entry = {operation, status: 'uncertain', request_id: error.request_id, instance_id: error.instance_id};
+      outcomes.push(entry); save();
+      return entry;
+    }
     $('#connection-state').textContent = `Unconfirmed · ${error.message}`;
   } finally { busy = false; await refresh(); controls(); }
 }
@@ -183,6 +212,14 @@ state.actions.launchSession = localAction(async () => {
 });
 state.actions.startSession = () => command('start_launched_session');
 state.actions.stopSession = () => { const sid = current()?.status.session_id; confirmStop('Session', () => command('normal_stop_session', {}, sid), 'Request Normal Stop and preservation. Completion requires Controller confirmation.'); };
+document.addEventListener('click', event => {
+  const button = event.target.closest('[data-live-session-kill]');
+  if (!button || button.disabled || !canControl()) return;
+  const sid = current()?.status.session_id;
+  confirmStop('Session Kill', () => command('kill_session', {operator_authorized: true}, sid),
+    'Explicitly authorize forced Session closeout. Partial preservation and cleanup obligations may remain. This does not Kill a service.',
+    {title: 'Authorize Kill Session?', confirm: 'Authorize Kill Session', cancel: 'Cancel'});
+});
 state.actions.releaseSession = () => { const sid = current()?.status.session_id; confirmStop('Session release', () => command('release_session', {}, sid), 'Release only after Controller confirms terminal preservation and cleanup.', {title: 'Release Session?', confirm: 'Release Session', cancel: 'Cancel'}); };
 state.actions.startExperiment = localAction(async () => {
   const {step, record} = selectedStepContext(state), configuration = experimentView(state, step, record).configuration;
@@ -234,7 +271,7 @@ function connect() {
     let message;
     try { message = parseConfigurationJSON(event.data); }
     catch (error) {
-      confirmed = false; controls(); $('#connection-state').textContent = `Unconfirmed: ${error.message}`;
+      confirmed = false; invalidateServiceConfirmation(); controls(); $('#connection-state').textContent = `Unconfirmed: ${error.message}`;
       for (const pending of waiting.values()) { clearTimeout(pending.timer); pending.reject(pending.uncertain(error.message)); }
       waiting.clear(); return;
     }
@@ -242,7 +279,56 @@ function connect() {
     const pending = waiting.get(message.id);
     if (pending) { clearTimeout(pending.timer); waiting.delete(message.id); pending.resolve(message); }
   };
-  socket.onclose = () => { confirmed = false; for (const device of devices) device.available = false; renderSetup(); controls(); $('#connection-state').textContent = 'Backend disconnected · last-known state'; for (const pending of waiting.values()) { clearTimeout(pending.timer); pending.reject(pending.uncertain('Connection lost; outcome uncertain')); } waiting.clear(); setTimeout(connect, 2000); };
+  socket.onclose = () => { confirmed = false; invalidateServiceConfirmation(); for (const device of devices) device.available = false; renderSetup(); controls(); $('#connection-state').textContent = 'Backend disconnected · last-known state'; for (const pending of waiting.values()) { clearTimeout(pending.timer); pending.reject(pending.uncertain('Connection lost; outcome uncertain')); } waiting.clear(); setTimeout(connect, 2000); };
 }
+$('.readiness-card').insertAdjacentHTML('beforeend', '<details><summary>Authoritative timing and closeout</summary><pre id="live-timing-status">Unconfirmed</pre><pre id="live-closeout-status">Unconfirmed</pre></details>');
+serviceActions.canControl = canControl;
+serviceActions.frameworkOutcome = () => outcomes.findLast(entry => entry.operation === 'shutdown_framework');
+serviceActions.refresh = async id => {
+  if (!confirmed) return;
+  const connection = socket, instance = current()?.instance_id;
+  await Promise.all(liveServices.filter(s => (!id || s.id === id) && !s.pending).map(async service => {
+    service.pending = true; updateServices(liveServices, 'Checking readiness; confirmation pending');
+    try {
+      const result = requireResult(await request('read_service_status', {participant: service.participant}));
+      if (!confirmed || connection !== socket || socket.readyState !== WebSocket.OPEN || instance !== current()?.instance_id || !liveServices.includes(service)) return;
+      service.current = result.current === true;
+      service.attempt = service.current ? result.details.maintenance_attempt : null;
+      if (service.current) { service.readiness = result.report.ready ? 'Ready' : 'Not ready'; service.confirmed = new Date().toISOString(); service.details = result.details; service.information = result.report.reason; }
+      else service.information = result.reason;
+    } catch (error) { service.current = false; service.attempt = null; service.information = `Availability unknown: ${error.message}`; }
+    finally { service.pending = false; updateServices(liveServices); }
+  }));
+  const sid = current()?.status?.session_id;
+  if (!id && sid && !timingPending && liveServices.some(s => s.participant.component_type === 'synchronization_manager')) {
+    timingPending = true;
+    try {
+      const timing = requireResult(await request('read_synchronization_status', {}, sid));
+      if (connection === socket && socket.readyState === WebSocket.OPEN && instance === current()?.instance_id && sid === current()?.status?.session_id)
+        $('#live-timing-status').textContent = JSON.stringify(timing, null, 2);
+    } catch (error) { $('#live-timing-status').textContent = `Current timing unavailable: ${error.message}`; }
+    finally { timingPending = false; }
+  }
+};
+serviceActions.maintain = async (operation, service, administrator_id, recovery = null) => {
+  if (!canControl()) return;
+  const parameters = {administrator_id, authorized: true};
+  if (recovery) Object.assign(parameters, recovery);
+  if (service) {
+    parameters.participant = service.participant;
+    if (!recovery && operation !== 'stop_service') {
+      if (service.attempt?.outcome !== 'blocked') return;
+      parameters.stop_attempt_id = service.attempt.stop_attempt_id;
+    }
+    service.attempt = null;
+    service.lastOperation = {operation, status: 'pending'};
+  }
+  updateServices(liveServices, 'Operation submitted; owner confirmation pending. No automatic retry or force escalation.');
+  const entry = await command(operation, parameters, null);
+  if (service) service.lastOperation = entry;
+  if (service) await serviceActions.refresh(service.id);
+  updateServices(liveServices);
+};
+startServicesRefresh();
 connect();
 setInterval(() => { if (socket?.readyState === WebSocket.OPEN) refresh(); }, 2000);

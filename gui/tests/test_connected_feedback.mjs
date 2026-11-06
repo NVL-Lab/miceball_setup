@@ -17,18 +17,31 @@ await mkdir(directory, {recursive: true});
 let connection, instance = 'feedback-instance', acceptedConfiguration = null;
 let reportedExperiments = [], activeExperiment = null, lifecycle = [];
 const experimentRequests = [];
+let serviceResponse = 'unknown';
+let controllerResponse = 'succeeded';
+const serviceRequests = [];
 const snapshot = () => ({controller_id: 'feedback', instance_id: instance,
   control: {controlling: Boolean(acceptedConfiguration), generation: 0},
   status: {session_id: acceptedConfiguration?.session_id || null, session_state: acceptedConfiguration ? 'running' : null,
     active_experiment_id: activeExperiment, experiment_lifecycle_evidence: lifecycle},
-  configuration: acceptedConfiguration, experiments: reportedExperiments, configured_nodes: ['node'], pending_operations: []});
+  configuration: acceptedConfiguration, experiments: reportedExperiments, configured_nodes: ['node'], pending_operations: [],
+  configured_services: ['controller', 'acquisition_node', 'ingestor', 'storage_manager', 'synchronization_manager'].map(component_type => ({component_type, component_id: component_type === 'acquisition_node' ? 'node' : component_type}))});
 const reply = (route, message, status, details, error) => route.send(JSON.stringify({type: 'result',
   id: message.id, instance_id: instance, result: {status, error, outcome: {details}}}));
 await page.routeWebSocket('**/ws', route => {
   connection = route;
   route.onMessage(raw => {
     const message = JSON.parse(raw); requests.push(message.operation);
-    if (message.operation === 'read_controller_state') reply(route, message, 'succeeded', snapshot());
+    if (message.operation === 'read_controller_state') reply(route, message, controllerResponse,
+      controllerResponse === 'succeeded' ? snapshot() : null, controllerResponse === 'succeeded' ? null : 'Controller unavailable');
+    else if (message.operation === 'read_service_status') {
+      serviceRequests.push({route, message});
+      if (serviceResponse !== 'held') reply(route, message, 'succeeded', {
+        participant: message.parameters.participant, current: serviceResponse === 'ready',
+        report: serviceResponse === 'ready' ? {...message.parameters.participant, ready: true, required: true, reason: 'ready'} : null,
+        reason: serviceResponse === 'ready' ? null : 'Current readiness is unconfirmed', details: {}});
+    }
+    else if (message.operation === 'read_synchronization_status') reply(route, message, 'succeeded', {current: false, timing: null, reason: 'Unavailable'});
     else if (message.operation === 'get_node_inventory') inventoryRequests.push({route, message});
     else if (message.operation === 'start_launched_experiment') {
       experimentRequests.push(message);
@@ -202,7 +215,90 @@ async function verifyRenderingSafety() {
     console.log('PASS: nine adversarial bound cases; hostile node/device/capability/product/parameter/readback/error identities; numeric bounds, exact outgoing values, executed read-only values and View Only');
   } finally {await target.close();}
 }
+async function verifyMaintenanceBinding() {
+  const target = await browser.newPage();
+  const participant = {component_type: 'acquisition_node', component_id: 'node"&<id'};
+  let authorizations = [{evidence_id: 'cleanup-authorization', payload: {decision: 'resume', target: participant,
+    administrator_id: 'Lab Operator', details: {operation: 'cleanup_device_resources', command_id: 'cleanup-command',
+      obligation: {session_id: 'historical-session', device_ids: ['camera']}}}}];
+  const submitted = [];
+  let controlling = true, attempt = null, sequence = 0;
+  const state = () => ({controller_id: 'feedback', instance_id: 'maintenance-instance',
+    control: {controlling, generation: 1}, status: {session_id: null, session_state: null},
+    configuration: null, experiments: [], configured_nodes: [], configured_services: [participant], pending_operations: []});
+  await target.routeWebSocket('**/ws', route => {
+    route.onMessage(raw => {
+      const request = JSON.parse(raw);
+      if (request.operation === 'read_controller_state') { reply(route, request, 'succeeded', state()); return; }
+      if (request.operation === 'read_service_status') {
+        reply(route, request, 'succeeded', {current: true, report: {...participant, ready: true, required: true, reason: 'ready'},
+          details: {maintenance_attempt: attempt, recovery_authorizations: authorizations}, participant}); return;
+      }
+      submitted.push(request);
+      if (request.operation === 'stop_service') {
+        attempt = {stop_attempt_id: `attempt-${++sequence}`, target: participant, outcome: 'blocked', blockers: ['Preservation incomplete'], failures: []};
+        reply(route, request, 'failed', {outcome: 'blocked', attempt}, 'Closeout blocked');
+      } else if (request.operation === 'kill_service' || request.operation === 'cancel_service') {
+        assert.equal(request.parameters.stop_attempt_id, attempt.stop_attempt_id);
+        attempt = null;
+        reply(route, request, request.operation === 'kill_service' ? 'succeeded' : 'failed',
+          {outcome: request.operation === 'kill_service' ? 'completed' : 'failed', termination_confirmed: request.operation === 'kill_service'});
+      } else if (request.operation === 'cleanup_device_resources') {
+        authorizations = [];
+        reply(route, request, 'succeeded', {actual_outcome: 'succeeded', preservation: {archival_confirmed: true}});
+      } else throw new Error(`Unexpected maintenance operation ${request.operation}`);
+    });
+    route.send(JSON.stringify({type: 'connected', browser_id: 'maintenance-browser'}));
+  });
+  try {
+    await target.goto(process.env.MICEBALL_BROWSER_ORIGIN);
+    await target.locator('#connection-state').filter({hasText: 'Controlling'}).waitFor();
+    await section(target, 'services');
+    await target.locator('[data-expand-service]').click();
+    await target.locator('[data-mode="administrator"]').click();
+    await target.locator('[data-danger-enter]').click();
+    const authorize = async selector => {
+      await target.locator(selector).click();
+      const dialog = target.locator('.services-danger[open]');
+      assert.equal(await dialog.locator('[data-live-confirm]').isDisabled(), true);
+      await dialog.locator('[data-live-administrator]').fill('Lab Operator');
+      await dialog.locator('[data-live-authorized]').check();
+      await dialog.locator('[data-live-confirm]').click();
+    };
+    await authorize('[data-stop-service]');
+    await target.locator('[data-live-kill]').waitFor();
+    assert.deepEqual(submitted[0].parameters, {participant, administrator_id: 'Lab Operator', authorized: true});
+    await target.locator('.services-callout').filter({hasText: 'blocked'}).waitFor();
+    await authorize('[data-live-kill]');
+    await target.locator('.services-callout').filter({hasText: 'completed'}).waitFor();
+    assert.deepEqual(submitted[1].parameters, {participant, administrator_id: 'Lab Operator', authorized: true, stop_attempt_id: 'attempt-1'});
+    assert.equal(await target.locator('[data-live-kill]').count(), 0);
+    await authorize('[data-stop-service]');
+    await target.locator('[data-live-cancel]').waitFor();
+    await authorize('[data-live-cancel]');
+    await target.locator('.services-callout').filter({hasText: 'cancel_service'}).waitFor();
+    assert.equal(submitted[3].parameters.stop_attempt_id, 'attempt-2');
+    assert.equal(await target.locator('[data-live-kill]').count(), 0);
+    await target.locator('[data-administrative="Supported recovery attempts"]').click();
+    const recoveryDialog = target.locator('.services-danger[open]');
+    assert.equal(await recoveryDialog.locator('[data-recovery-confirm]').isDisabled(), true);
+    await recoveryDialog.locator('[data-recovery-authorized]').check();
+    await recoveryDialog.locator('[data-recovery-confirm]').click();
+    await target.locator('.services-callout').filter({hasText: 'cleanup_device_resources'}).waitFor();
+    assert.deepEqual(submitted[4].parameters, {participant, administrator_id: 'Lab Operator', authorized: true,
+      authorization_evidence_id: 'cleanup-authorization', recovery_command_id: 'cleanup-command',
+      obligation: {session_id: 'historical-session', device_ids: ['camera']}});
+    controlling = false;
+    await target.locator('#connection-state').filter({hasText: 'View Only'}).waitFor();
+    assert.equal(await target.locator('[data-stop-service]').isDisabled(), true);
+    await target.locator('[data-stop-service]').evaluate(button => button.dispatchEvent(new MouseEvent('click', {bubbles:true})));
+    assert.equal(submitted.length, 5);
+    assert.equal(await target.locator('[onpointerover], [onerror]').count(), 0);
+    console.log('PASS: production Services confirmation, exact Stop/Kill/Cancel target and attempt, blocked/completed feedback, View Only and inert service identity; controlled transport only');
+  } finally { await target.close(); }
+}
 try {
+  await verifyMaintenanceBinding();
   await verifyExperimentReconnection(browser, process.env.MICEBALL_BROWSER_ORIGIN, JSON.parse(process.env.MICEBALL_MONITORING), section);
   await verifyConfigurationIntegrity(browser, process.env.MICEBALL_BROWSER_ORIGIN, JSON.parse(process.env.MICEBALL_INTEGRITY), section);
   await verifyRenderingSafety();
@@ -212,23 +308,66 @@ try {
   const services = page.locator('#panel-services');
   await services.locator('[data-expand-service]').first().click();
   assert.doesNotMatch(await services.innerText(), /simulat|fictional|fixture|transport example|preview refreshed/i);
-  assert.match(await services.locator('.services-feedback').innerText(), /readiness checks.*unavailable/i);
+  assert.match(await services.locator('.services-feedback').innerText(), /current checks|Checking readiness/i);
   assert.equal(await services.locator('[data-readiness]').count(), 5);
-  assert.equal(await services.locator('[data-readiness]').first().isDisabled(), true);
-  await disabledStyle(services.locator('[data-readiness]').first());
+  assert.equal(await services.locator('[data-readiness]').first().isEnabled(), true);
   assert.equal(await services.locator('[data-expand-service]').first().getAttribute('aria-expanded'), 'true');
   await services.locator('[data-readiness]').first().evaluate(button => button.click());
   assert.equal(await services.locator('[data-expand-service]').first().getAttribute('aria-expanded'), 'true');
   await services.locator('[data-detail="History"]').click();
   assert.doesNotMatch(await services.innerText(), /simulat|fictional|fixture|transport example/i);
   await services.locator('[data-detail="Dependencies"]').click();
-  assert.match(await services.innerText(), /readback is not connected/);
+  assert.match(await services.innerText(), /No current dependency confirmation|Services start independently/);
   await services.locator('[data-detail="Status"]').click();
-  assert.match(await services.locator('.services-detail-content').innerText(), /Unknown \(unverified\)/);
+  assert.match(await services.locator('.services-detail-content').innerText(), /Unknown/);
   await services.locator('[data-refresh-services]').click();
-  assert.match(await services.locator('.services-feedback').innerText(), /unavailable/i);
+  assert.match(await services.locator('.services-feedback').innerText(), /current checks|Checking readiness/i);
   assert.doesNotMatch(await services.innerText(), /preview refreshed|fixture/i);
-  assert.equal(await services.locator('#services-refresh').isDisabled(), true);
+  assert.equal(await services.locator('#services-refresh').isEnabled(), true);
+  assert.equal(await services.locator('#services-refresh').inputValue(), '10');
+  await services.locator('#services-refresh').selectOption('0');
+  serviceResponse = 'ready';
+  await services.locator('[data-readiness]').first().click();
+  await services.locator('.service-status').first().filter({hasText: 'Ready · current confirmation'}).waitFor();
+  serviceResponse = 'unknown';
+  await services.locator('[data-readiness]').first().click();
+  await services.locator('.service-status').first().filter({hasText: 'Last known: Ready · availability unknown'}).waitFor();
+  serviceResponse = 'held';
+  const beforeHeld = serviceRequests.length;
+  await services.locator('[data-readiness]').first().click();
+  await services.locator('[data-readiness]').first().filter({hasText: 'Checking'}).waitFor();
+  await services.locator('[data-readiness]').first().evaluate(button => { button.click(); button.dispatchEvent(new MouseEvent('click', {bubbles:true})); });
+  assert.equal(serviceRequests.length, beforeHeld + 1);
+  const delayedService = serviceRequests.at(-1);
+  reply(delayedService.route, delayedService.message, 'succeeded', {current: false, report: null, reason: 'Invalid current report', details: {}});
+  await services.locator('[data-readiness]').first().filter({hasText: 'Check readiness'}).waitFor();
+  assert.equal(await services.locator('[data-expand-service]').count(), 5, 'Unknown status does not remove configured membership');
+  await services.locator('[data-readiness]').first().click();
+  await services.locator('[data-readiness]').first().filter({hasText: 'Checking'}).waitFor();
+  const obsolete = serviceRequests.at(-1), afterObsolete = serviceRequests.length;
+  instance = 'feedback-new-owner';
+  for (let i = 0; i < 100 && serviceRequests.length < afterObsolete + 5; i++) await page.waitForTimeout(50);
+  assert.equal(serviceRequests.length, afterObsolete + 5);
+  reply(obsolete.route, obsolete.message, 'succeeded', {current: true, report: {...obsolete.message.parameters.participant, ready: true, required: true, reason: 'obsolete ready'}, details: {}});
+  for (const pending of serviceRequests.slice(afterObsolete)) reply(pending.route, pending.message, 'succeeded', {current: false, report: null, reason: 'New owner unconfirmed', details: {}});
+  await services.locator('[data-readiness]').first().filter({hasText: 'Check readiness'}).waitFor();
+  assert.equal(await services.locator('.service-status').first().innerText(), 'Last known: Ready · availability unknown', 'An old owner response cannot promote current availability or erase historical confirmation');
+  serviceResponse = 'ready';
+  await services.locator('[data-readiness]').first().click();
+  await services.locator('.service-status').first().filter({hasText: 'current confirmation'}).waitFor();
+  serviceResponse = 'held';
+  await services.locator('[data-readiness]').first().click();
+  await services.locator('[data-readiness]').first().filter({hasText: 'Checking'}).waitFor();
+  const beforeLoss = serviceRequests.at(-1);
+  controllerResponse = 'rejected';
+  await page.locator('#connection-state').filter({hasText: 'Unconfirmed'}).waitFor();
+  await services.locator('.service-status').first().filter({hasText: 'availability unknown'}).waitFor();
+  controllerResponse = 'succeeded';
+  await page.locator('#connection-state').filter({hasText: 'View Only'}).waitFor();
+  reply(beforeLoss.route, beforeLoss.message, 'succeeded', {current: true, report: {...beforeLoss.message.parameters.participant, ready: true, required: true, reason: 'late ready'}, details: {}});
+  await page.waitForTimeout(50);
+  assert.equal(await services.locator('.service-status').first().innerText(), 'Last known: Ready · availability unknown', 'An earlier check cannot re-confirm availability after a newer communication loss');
+  serviceResponse = 'unknown';
   await services.locator('[data-expand-service]').first().focus();
   await page.keyboard.press('Enter');
   assert.equal(await services.locator('[data-expand-service]').first().getAttribute('aria-expanded'), 'false');
@@ -244,18 +383,18 @@ try {
     await page.setViewportSize({width, height});
     for (const theme of ['light', 'dark']) {
       if (await page.locator('html').getAttribute('data-theme') !== theme) await page.locator('#theme-toggle').click();
-      await disabledStyle(services.locator('[data-readiness]').first());
+      assert.equal(await services.locator('[data-readiness]').first().isEnabled(), true);
       await disabledStyle(services.locator('[data-shutdown-framework]'));
       await shot(`services-feedback-${width}-${theme}`);
     }
   }
-  assert.ok(requests.every(operation => operation === 'read_controller_state'));
+  assert.ok(requests.every(operation => ['read_controller_state', 'read_service_status'].includes(operation)));
   await section(page, 'session');
   for (const selector of ['[data-start-session]', '[data-stop-session]', '[data-release-session]']) {
     await disabledStyle(page.locator(selector));
     await page.locator(selector).evaluate(button => button.click());
   }
-  assert.ok(requests.every(operation => operation === 'read_controller_state'));
+  assert.ok(requests.every(operation => ['read_controller_state', 'read_service_status'].includes(operation)));
   await section(page, 'setup');
   await page.locator('[data-open-setup]').click();
   const refresh = page.locator('#load-inventory'), status = page.locator('#inventory-status');

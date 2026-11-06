@@ -42,7 +42,7 @@ this is not a human authentication system. Never expose broker credentials to br
 In the existing Controller deployment JSON, set `external_client_id` to the backend's
 client ID and `browser_control_required` to `true`. Broker permissions must authorize
 only this backend identity for the intended `controller_external.CONTROLLER_ID.CLIENT_ID.OPERATION`
-subjects and request inboxes, including the added control/read operations below.
+subjects and request inboxes, including the applicable bounded operations below.
 The backend refuses readiness against a legacy unguarded external endpoint. Existing
 Controller claim settings and independent service startup remain mandatory.
 
@@ -84,21 +84,20 @@ while disconnected therefore replaces an older monitored attempt, including for
 a fresh observer. The read-only drawer uses that attempt's accepted configuration;
 Session preparation selection and unsent working values remain separate.
 
-Analysis/Validation, scientific visualization, Storage integration, Services
-administration/freshness and notifications are unavailable in this connected unit.
+Analysis/Validation, scientific visualization, Storage integration and notifications
+remain unavailable. Unit 2's developer implementation below connects Services
+readiness and bounded maintenance without changing Unit 1's audited history.
 Their original workspaces and harmless interactions remain; missing data is unknown
 or unavailable, never fictional readiness, capacity, history or scientific output.
-Connected Services retains unknown role placeholders and visibly explains that
-readiness checks and automatic status refresh are unavailable. Refresh now reports
-that limitation without claiming a check; details and administrator descriptions
-do not imply simulated operational results. Disconnected demonstration behavior
-is unchanged. Inventory refresh immediately shows pending work, admits one request
+Connected Services uses configured service identities and owner reports; absent
+current confirmation remains unknown. Disconnected demonstration behavior is
+unchanged. Inventory refresh immediately shows pending work, admits one request
 at a time, and restores controls on completion or connection loss. Confirmed
 inventory is not service readiness; failed, pending or superseded-owner results
 remain unconfirmed and never trigger automatic retry.
-Decision 441 resolves the Q031 architecture for future live Services freshness;
+Decision 441 resolves the Q031 architecture for live Services freshness;
 see [Q031 tracking](../docs/open_questions.md#q031-how-is-gui-service-status-freshness-established).
-Its implementation and validation remain pending; Unit 1 closure is unchanged.
+Unit 2 independent validation/audit remain pending; Unit 1 closure is unchanged.
 Application protocol definitions not present in page memory cannot be reconstructed
 from the framework's name-only protocol association. Unverified device-to-node
 associations remain unavailable until actual inventory establishes a unique match.
@@ -211,22 +210,66 @@ descriptors, plus explicit autonomous-expiry reconciliation.
 Its explicit mapping-age test configuration accommodates the long screenshot pass.
 These are developer checks only, not independent validation, audit or closure.
 
+### Unit 2 developer implementation (not independent validation or closure)
+
+Services refresh reuses configured Controller participants and existing owner
+readiness/dependency diagnostics. The existing refresh selector defaults to 10
+seconds. Valid current reports confirm communication/readiness; failed, invalid or
+timed-out checks leave availability unknown and retain last-known reports as
+history. Per-target pending guards and connection/Controller-instance checks
+prevent overlapping checks and obsolete replies promoting current availability.
+Installed membership and previously retrieved device declarations are not erased
+by failed checks. Inventory is not readiness or reservation permission.
+
+The original Administrator confirmation flow now submits exact-target Stop,
+explicit Kill or Cancel of a current owner-reported blocked attempt, and
+Controller-coordinated whole-framework shutdown. Administrator mode alone does
+not authorize an operation. View Only cannot mutate; takeover and existing request
+identity/outcome lookup remain authoritative. No force escalation or retry is
+automatic. Controller retirement can make GUI outcome readback unavailable; loss
+of that connection is not confirmation of retirement or OS process exit.
+
+Session Kill uses the existing explicitly authorized Controller closeout and
+Session binding. Setup exposes read-only timing evidence/Controller interpretation
+and closeout information; no GUI synchronization computation or release authority
+is introduced. Recovery availability offers only existing durably authorized owner
+records for the six existing commands: archive/Session Record/transfer recovery,
+scientific-artifact preservation, device-resource cleanup and corrupt temporary-
+evidence disposal. The original command, obligation, administrator and authorization
+identities are unchanged; owners recheck all prerequisites and confirmation remains
+distinct from evidence preservation. Disposal explicitly warns of permanent loss.
+Creating administrator decisions and abandoning obligations are unavailable through
+this interface; absent an exact authorized procedure, no recovery command is sent.
+This unit exposes no generic recovery/abandonment command, claim
+clearing, process supervision, scientific visualization or hardware synchronization.
+
+Developer verification commands: `python -B -m unittest gui.tests.test_backend -v`
+and the two rendered workflows described above (set the existing Playwright/browser
+environment variables). Use disposable brokers/storage only. These checks do not
+replace subsequent independent manual validation and audit; Unit 2 remains OPEN.
+
 ### Public interfaces
 
-The existing lifecycle methods and result serialization methods remain unchanged.
-The new bounded external operations are `read_controller_state`,
+Existing result serialization signatures remain unchanged; Session Kill adds the
+optional expected-Session binding shown below. Unit 1's bounded operations are `read_controller_state`,
 `read_operation_outcome`, `take_browser_control`, `view_only` and `get_node_inventory`.
+Unit 2 adds `kill_session`, `read_service_status`, `read_synchronization_status`,
+`stop_service`, `kill_service`, `cancel_service`, `shutdown_framework` and the six
+existing recovery command names. Recovery accepts only an exact configured target,
+administrator authorization, existing authorization-evidence ID, original recovery
+command ID and obligation; it cannot create a new administrator decision.
 
 ```text
 Controller(acquisition_node=None, ingestor=None, storage_manager=None, session_record_path=None, synchronization_manager=None, *, component_id="controller")
   browser_control(client_id, context, operation, *, instance_id)
   read_controller_state(*, instance_id, control)
+  kill_session(*, communication, result_window_s, operator_authorized, reason=None, storage_participant=None, expected_session_id=None)
 ExternalSessionLaunchRequest(controller_id, client_id, request_id, selections, config_parameters, scientific_outputs, browser_context=None)
 ExternalControllerRequest(controller_id, client_id, request_id, operation, session_id, parameters, browser_context=None)
 ExternalControllerResult(controller_id, client_id, request_id, operation, session_id, status, outcome=None, error=None)
 NatsExternalSessionLaunchReceiver(boundary, controller, *, communication, maintenance, client_id, participants, result_window_s, browser_control_required=False)
   start()
-  close()
+  close(*, retiring_command_id=None)
 create_gui_app(*, servers, controller_id, client_id, origin, timeout_s, max_request_bytes=1048576)
 main()
 confirmStop(kind, initiateStop, description="Confirm to initiate the existing browser-local Stop workflow. Keeping it running or dismissing this dialog does not initiate a Stop.", labels={})

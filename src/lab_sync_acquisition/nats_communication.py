@@ -939,7 +939,7 @@ class NatsExternalSessionLaunchReceiver:
             if self._browser_control_required and request.browser_context is None:
                 raise ValueError("This external client requires browser connection context")
             record = self._requests.get(request.request_id)
-            if operation in {"read_controller_state", "read_operation_outcome", "get_node_inventory"}:
+            if operation in {"read_controller_state", "read_operation_outcome", "get_node_inventory", "read_service_status", "read_synchronization_status"}:
                 if record is not None:
                     raise ValueError("Read request identity conflicts with a retained operation")
                 if request.browser_context is not None:
@@ -980,9 +980,16 @@ class NatsExternalSessionLaunchReceiver:
             new_work = isinstance(request, ExternalSessionLaunchRequest) or request.operation in {
                 "start_launched_session", "start_launched_experiment", "delete_original_artifacts",
                 "collect_saved_session_artifacts_remote"}
-            outcome = await (self._execute_new_work(request) if new_work else self._execute_existing_work(request))
-            result = _external_operation_result(request, "succeeded" if outcome.succeeded else "failed",
-                _to_plain_data(outcome.to_dict()), outcome.error)
+            # Retirement must not count its own issuer as unfinished Controller work.
+            retirement = isinstance(request, ExternalControllerRequest) and request.operation in {
+                "stop_service", "kill_service", "cancel_service", "shutdown_framework"}
+            outcome = await (self._dispatch(request) if retirement else
+                            self._execute_new_work(request) if new_work else self._execute_existing_work(request))
+            if isinstance(outcome.details, dict) and outcome.details.get("outcome") == "unconfirmed":
+                result = _external_operation_result(request, "uncertain", error=outcome.error)
+            else:
+                result = _external_operation_result(request, "succeeded" if outcome.succeeded else "failed",
+                    _to_plain_data(outcome.to_dict()), outcome.error)
         except asyncio.CancelledError:
             result = _external_operation_result(request, "failed",
                 error="Service execution interrupted; cleanup may remain outstanding")
@@ -1008,6 +1015,8 @@ class NatsExternalSessionLaunchReceiver:
                 state.details["browser_control_required"] = self._browser_control_required
                 state.details["configured_nodes"] = [p.component_id for p in self._participants
                                                      if p.component_type == "acquisition_node"]
+                state.details["configured_services"] = [p.to_dict() for p in
+                    dict.fromkeys((*self._participants, self._maintenance.participant))]
                 state.details["pending_operations"] = [json.loads(v[0])["request"] for v in self._requests.values()
                                                        if v[2] is None]
                 return ControllerCommandResult(request.operation, True, state.details)
@@ -1026,6 +1035,77 @@ class NatsExternalSessionLaunchReceiver:
                 result = await self._controller.get_node_inventory(matches[0], communication=self._communication,
                     result_window_s=self._window)
                 return ControllerCommandResult(request.operation, True, result)
+            if request.operation in ({"read_service_status", "stop_service", "kill_service", "cancel_service"} | SERVICE_RECOVERY_COMMAND_TYPES):
+                participant = RuntimeParticipant.from_dict(request.parameters["participant"])
+                if participant not in (*self._participants, self._maintenance.participant):
+                    raise ValueError("Service operation requires an exact configured participant")
+                p = request.parameters
+                if request.operation == "read_service_status":
+                    if participant == self._maintenance.participant:
+                        payload = self._maintenance._readiness_payload()
+                    else:
+                        result = await self._communication.request_runtime_command(
+                            participant, "check_readiness", None, {}, self._window)
+                        payload = result.payload if result and result.success else {}
+                    report = NatsServiceMaintenanceCommunication._readiness_report(participant,
+                        payload.get("service_readiness"))
+                    node = payload.get("acquisition_node_readiness")
+                    if participant.component_type == "acquisition_node" and isinstance(node, dict):
+                        if node.get("node_id") == participant.component_id and type(node.get("ready")) is bool:
+                            report = ServiceReadiness(participant.component_id, participant.component_type,
+                                True, node["ready"], "ready" if node["ready"] else "node_prerequisites_unready")
+                    return ControllerCommandResult(request.operation, True, {
+                        "participant": participant.to_dict(), "current": report is not None,
+                        "report": report.to_dict() if report else None, "details": deepcopy(payload),
+                        "reason": None if report else "Current readiness is unconfirmed"})
+                recovery = request.operation in SERVICE_RECOVERY_COMMAND_TYPES
+                operation = request.operation if recovery else request.operation.removesuffix("_service")
+                if recovery:
+                    payload = {"authorization_evidence_id": p["authorization_evidence_id"],
+                        "administrator_id": p["administrator_id"], "obligation": deepcopy(p["obligation"])}
+                    try:
+                        result = await self._communication.request_runtime_command(participant, operation, None,
+                            payload, self._window, command_id=p["recovery_command_id"])
+                    except (ValueError, RuntimeError, OSError, TimeoutError):
+                        result = None
+                    valid = result is not None and result.payload.get("command_id") == p["recovery_command_id"]
+                    valid = (valid and result.payload.get("target") == participant.to_dict()
+                        and result.payload.get("operation") == operation
+                        and result.payload.get("authorization_evidence_id") == p["authorization_evidence_id"]
+                        and result.payload.get("obligation") == p["obligation"])
+                    if not valid:
+                        return ControllerCommandResult(operation, False, {"outcome": "unconfirmed"},
+                            "Recovery outcome is unconfirmed; no automatic retry")
+                    return ControllerCommandResult(operation, result.success, deepcopy(result.payload), result.reason)
+                attempt_id = request.request_id if operation == "stop" else p["stop_attempt_id"]
+                payload = {"administrator_id": p["administrator_id"], "stop_attempt_id": attempt_id}
+                if operation == "kill":
+                    payload["authorized"] = True
+                try:
+                    result = await self._communication.request_runtime_command(participant, operation, None,
+                        payload, self._window, command_id=request.request_id)
+                except (ValueError, RuntimeError, OSError, TimeoutError):
+                    result = None
+                if result is None:
+                    return ControllerCommandResult(request.operation, False,
+                        {"participant": participant.to_dict(), "stop_attempt_id": attempt_id,
+                         "outcome": "unconfirmed"}, "Service maintenance outcome is unconfirmed; do not replay")
+                attempt = result.payload.get("attempt")
+                valid = (isinstance(attempt, dict) and attempt.get("stop_attempt_id") == attempt_id
+                    and attempt.get("target") == participant.to_dict()
+                    and all(isinstance(attempt.get(k, []), list) for k in ("blockers", "failures", "remaining_obligations")))
+                if not valid or (result.success and (result.payload.get("outcome") != "completed"
+                        or result.payload.get("termination_confirmed") is not True)):
+                    return ControllerCommandResult(request.operation, False,
+                        {"participant": participant.to_dict(), "stop_attempt_id": attempt_id,
+                         "outcome": "unconfirmed"}, "Invalid owner maintenance confirmation")
+                return ControllerCommandResult(request.operation, result.success,
+                    deepcopy(result.payload), result.reason)
+            if request.operation == "shutdown_framework":
+                return await self._controller.shutdown_framework(
+                    tuple(dict.fromkeys((*self._participants, self._maintenance.participant))),
+                    communication=self._communication, stop_attempt_id=request.request_id,
+                    administrator_id=request.parameters["administrator_id"], result_window_s=self._window)
             # Trust-boundary check; Controller also rechecks after lifecycle lock waits.
             if (request.operation not in {"collect_saved_session_artifacts_remote", "read_storage_sessions",
                                           "read_storage_session", "delete_original_artifacts"}
@@ -1033,6 +1113,22 @@ class NatsExternalSessionLaunchReceiver:
                 raise ValueError("External operation does not target the current Controller Session")
             p = request.parameters
             expected = {"expected_session_id": request.session_id}
+            if request.operation == "read_synchronization_status":
+                self._controller._require_session(**expected)
+                targets = [p for p in self._participants if p.component_type == "synchronization_manager"]
+                if len(targets) != 1:
+                    raise ValueError("Timing readback requires one configured SynchronizationManager")
+                result = await self._communication.request_runtime_command(targets[0], "read_session_time",
+                    request.session_id, {}, self._window)
+                self._controller._require_session(**expected)
+                payload = result.payload if result and result.success else None
+                if payload is not None and (payload.get("session_id") != request.session_id
+                        or payload.get("source_id") != targets[0].component_id
+                        or not isinstance(payload.get("timing_evidence"), list)):
+                    payload = None
+                return ControllerCommandResult(request.operation, True,
+                    {"session_id": request.session_id, "current": payload is not None,
+                     "timing": deepcopy(payload), "reason": None if payload else "Session timing evidence is unavailable"})
             if request.operation in {"read_storage_sessions", "read_storage_session", "delete_original_artifacts"}:
                 arguments = {"communication": self._communication, "storage_participant": self._storage_participant(),
                              "result_window_s": self._window, **deepcopy(p)}
@@ -1066,6 +1162,10 @@ class NatsExternalSessionLaunchReceiver:
                 return await self._controller.normal_stop_session(communication=self._communication,
                     storage_participant=self._storage_participant(), result_window_s=self._window,
                     reason=p.get("reason"), **expected)
+            if request.operation == "kill_session":
+                return await self._controller.kill_session(communication=self._communication,
+                    storage_participant=self._storage_participant(), result_window_s=self._window,
+                    operator_authorized=p["operator_authorized"], reason=p.get("reason"), **expected)
             if request.operation == "collect_saved_session_artifacts_remote":
                 return await self._controller.collect_saved_session_artifacts_remote(request.session_id,
                     evidence_id=p["evidence_id"], communication=self._communication,
@@ -1092,14 +1192,25 @@ class NatsExternalSessionLaunchReceiver:
             raise ValueError("External operation requires one configured StorageManager")
         return matches[0]
 
-    async def close(self) -> None:
+    async def close(self, *, retiring_command_id=None) -> None:
         """Close admission and join owned work; client teardown never calls this."""
         self._closed = True
         for subscription in tuple(self._subscriptions):
             await _unsubscribe_session_subscription(subscription)
             self._subscriptions.remove(subscription)
-        for _, task, _ in self._requests.values():
-            await asyncio.shield(task)
+        attempt = self._maintenance._attempt
+        retirement = (retiring_command_id is not None and attempt is not None
+            and any(command["command_id"] == retiring_command_id and command["command_type"] in {"stop", "kill", "prepare_stop"}
+                    for command in attempt["commands"]))
+        for request_id, (parameters, task, _) in self._requests.items():
+            # The retiring command cannot wait for itself through an owner callback.
+            request = json.loads(parameters)
+            self_retirement = (retirement and request_id == retiring_command_id
+                and request["operation"] in {"stop_service", "kill_service"}
+                and request["request"]["parameters"]["participant"] == self._maintenance.participant.to_dict())
+            coordinated_retirement = retirement and task is self._controller._framework_shutdown_task
+            if not self_retirement and not coordinated_retirement:
+                await asyncio.shield(task)
 
 
 class NatsControllerCommunication:
@@ -1325,7 +1436,7 @@ class NatsControllerCommunication:
                                       *, command_id: str | None = None) -> RuntimeCommandResultMessage | None:
         """Issue scoped runtime work with fresh per-attempt reply correlation."""
         if (((not isinstance(session_id, str) or not session_id)
-                and not (session_id is None and command_type in {"check_readiness", "get_inventory"}))
+                and not (session_id is None and command_type in ({"check_readiness", "get_inventory", "stop", "kill", "cancel"} | SERVICE_RECOVERY_COMMAND_TYPES)))
                 or "request_nonce" in payload
                 or not isinstance(participant, RuntimeParticipant)):
             raise ValueError("An explicit Session, participant and caller payload are required")
@@ -3293,7 +3404,10 @@ class NatsSynchronizationManagerCommunication:
                         if owner._prepared_session_id != command.session_id or not owner.is_running:
                             raise RuntimeError("Current Session clock is unavailable")
                         result = _participant_result(self._boundary, command, True, None,
-                            {"session_time_s": owner.current_session_time_s})
+                            {"session_time_s": owner.current_session_time_s,
+                             "session_id": command.session_id, "source_id": self._boundary.component_id,
+                             "timing_evidence": [m.to_dict() for m in owner.session_timing_evidence(
+                                 command.session_id, self._boundary.component_id)]})
                     elif command.command_type == "stop_runtime":
                         await owner.complete_session_evidence_publication(command.session_id,
                             source_id=self._boundary.component_id, publisher=self._boundary.publish_evidence)
@@ -3363,7 +3477,10 @@ async def _execute_maintenance_command(boundary, service, command):
                     "Individual-service maintenance is not configured", {"outcome": "failed", "termination_confirmed": False})
     if interface.evidence_publisher is None:
         interface.evidence_publisher = boundary.publish_evidence
-    return await interface.execute_command(command)
+    result = await interface.execute_command(command)
+    # Recovery returns owner evidence rather than _result(); retain transport correlation.
+    return replace(result, controller_instance_id=command.controller_instance_id,
+        payload={**result.payload, "request_nonce": command.payload.get("request_nonce")})
 
 
 class NatsServiceMaintenanceCommunication:

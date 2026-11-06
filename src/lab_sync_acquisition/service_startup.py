@@ -132,7 +132,9 @@ async def launch_independent_service(*, role, servers, service_id, ingestor_id, 
 
     async def cleaned(force):
         if external is not None:
-            await external.close()
+            attempt = maintenance._attempt
+            commands = attempt.get("commands", []) if attempt is not None else []
+            await external.close(retiring_command_id=commands[-1]["command_id"] if commands else None)
         if isinstance(runtime, NatsAcquisitionNodeCommunication):
             await runtime.stop_acquisition_execution()
         if isinstance(runtime, NatsSynchronizationManagerCommunication) and runtime._assessment_task is not None:

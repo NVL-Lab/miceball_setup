@@ -164,6 +164,244 @@ class GUIIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await self.completed(two, "release_session", sid=sid))["status"], "succeeded")
         self.assertEqual((await self.completed(two, "launch_session", self.launch_parameters()))["status"], "succeeded")
 
+    async def test_services_readback_membership_and_maintenance_fencing(self):
+        observer, _ = await self.browser()
+        target = {"component_type": "acquisition_node", "component_id": "node"}
+        state = (await self.completed(observer, "read_controller_state"))["outcome"]["details"]
+        self.assertIn(target, state["configured_services"])
+        report = await self.completed(observer, "read_service_status", {"participant": target})
+        self.assertEqual(report["status"], "succeeded", report)
+        self.assertTrue(report["outcome"]["details"]["current"])
+        self.assertEqual(report["outcome"]["details"]["report"]["component_id"], "node")
+        admin = {"participant": target, "administrator_id": "operator", "authorized": True}
+        self.assertEqual((await self.completed(observer, "stop_service", admin))["status"], "rejected")
+        await self.take(observer)
+        bad = {**admin, "participant": {**target, "component_id": "unconfigured"}}
+        self.assertEqual((await self.completed(observer, "stop_service", bad))["status"], "rejected")
+        self.assertEqual((await self.completed(observer, "stop_service", {**admin, "authorized": False}))["status"], "rejected")
+        unknown = await self.completed(observer, "kill_service", {**admin, "stop_attempt_id": "unknown"})
+        self.assertNotEqual(unknown["status"], "succeeded")
+        first = await self.completed(observer, "stop_service", admin, identifier="stop-node")
+        self.assertEqual(first["status"], "succeeded", first)
+        duplicate = await self.completed(observer, "stop_service", admin, identifier="stop-node")
+        self.assertEqual(first, duplicate)
+        self.assertTrue(first["outcome"]["details"]["termination_confirmed"])
+
+    async def test_service_failed_check_is_unknown_and_retains_configured_membership(self):
+        ws, _ = await self.browser()
+        target = {"component_type": "acquisition_node", "component_id": "node"}
+        good = await self.completed(ws, "read_service_status", {"participant": target})
+        self.assertTrue(good["outcome"]["details"]["current"])
+        with patch.object(self.receiver._communication, "request_runtime_command", return_value=None):
+            unknown = await self.completed(ws, "read_service_status", {"participant": target})
+        self.assertFalse(unknown["outcome"]["details"]["current"])
+        self.assertIsNone(unknown["outcome"]["details"]["report"])
+        snapshot = (await self.completed(ws, "read_controller_state"))["outcome"]["details"]
+        self.assertIn(target, snapshot["configured_services"])
+        self.assertIn("node", snapshot["configured_nodes"])
+
+    async def test_session_kill_uses_accepted_owner_contract_and_current_binding(self):
+        ws, _ = await self.browser()
+        await self.take(ws)
+        launch = await self.completed(ws, "launch_session", self.launch_parameters())
+        sid = launch["outcome"]["details"]["session_id"]
+        self.assertEqual((await self.completed(ws, "start_launched_session", sid=sid))["status"], "succeeded")
+        self.assertEqual((await self.completed(ws, "kill_session", {"operator_authorized": False}, sid))["status"], "rejected")
+        self.assertEqual((await self.completed(ws, "kill_session", {"operator_authorized": True}, "wrong-session"))["status"], "rejected")
+        killed = await self.completed(ws, "kill_session", {"operator_authorized": True}, sid)
+        self.assertEqual(killed["status"], "succeeded", killed)
+        self.assertEqual(self.controller.get_status()["session_state"], "aborted")
+        snapshot = (await self.completed(ws, "read_controller_state"))["outcome"]["details"]
+        self.assertTrue(snapshot["closeout"]["cleanup_confirmed"])
+        self.assertEqual(snapshot["configuration"]["session_id"], sid)
+
+    async def test_blocked_service_attempt_readback_cancel_and_unknown_reply(self):
+        ws, _ = await self.browser()
+        await self.take(ws)
+        launch = await self.completed(ws, "launch_session", self.launch_parameters())
+        sid = launch["outcome"]["details"]["session_id"]
+        admin = {"participant": {"component_type": "acquisition_node", "component_id": "node"},
+                 "administrator_id": "operator", "authorized": True}
+        blocked = await self.completed(ws, "stop_service", admin)
+        self.assertEqual(blocked["status"], "failed", blocked)
+        self.assertEqual(blocked["outcome"]["details"]["outcome"], "blocked")
+        attempt = blocked["outcome"]["details"]["attempt"]
+        report = await self.completed(ws, "read_service_status", {"participant": admin["participant"]})
+        self.assertEqual(report["outcome"]["details"]["details"]["maintenance_attempt"]["stop_attempt_id"], attempt["stop_attempt_id"])
+        cancelled = await self.completed(ws, "cancel_service", {**admin, "stop_attempt_id": attempt["stop_attempt_id"]})
+        self.assertEqual(cancelled["status"], "failed", cancelled)
+        self.assertEqual(cancelled["outcome"]["details"]["attempt"]["outcome"], "failed")
+        self.assertEqual(self.controller.get_status()["session_id"], sid)
+        with patch.object(self.receiver._communication, "request_runtime_command", return_value=None):
+            uncertain = await self.completed(ws, "stop_service", admin)
+        self.assertEqual(uncertain["status"], "uncertain", uncertain)
+        self.assertIsNone(uncertain["outcome"])
+
+    async def test_live_timing_readback_is_session_scoped_and_does_not_assess(self):
+        ws, _ = await self.browser()
+        await self.take(ws)
+        launch = await self.completed(ws, "launch_session", self.launch_parameters())
+        sid = launch["outcome"]["details"]["session_id"]
+        before = await self.completed(ws, "read_synchronization_status", sid=sid)
+        self.assertFalse(before["outcome"]["details"]["current"])
+        self.assertEqual((await self.completed(ws, "start_launched_session", sid=sid))["status"], "succeeded")
+        evidence = self.clock.session_timing_evidence(sid, "sync")
+        report = await self.completed(ws, "read_synchronization_status", sid=sid)
+        self.assertTrue(report["outcome"]["details"]["current"], report)
+        self.assertEqual(report["outcome"]["details"]["timing"]["session_id"], sid)
+        self.assertEqual(report["outcome"]["details"]["timing"]["timing_evidence"], [m.to_dict() for m in evidence])
+        bad = await self.completed(ws, "read_synchronization_status", sid="another-session")
+        self.assertEqual(bad["status"], "rejected")
+
+    async def test_framework_shutdown_delegates_exact_configured_scope_without_force(self):
+        from lab_sync_acquisition.controller import ControllerCommandResult
+        ws, _ = await self.browser()
+        await self.take(ws)
+        with patch.object(self.controller, "shutdown_framework", new=AsyncMock(
+                return_value=ControllerCommandResult("shutdown_framework", False, {"outcome": "failed"}, "blocked"))) as shutdown:
+            result = await self.completed(ws, "shutdown_framework", {"administrator_id": "operator", "authorized": True})
+        self.assertEqual(result["status"], "failed", result)
+        self.assertEqual(set(shutdown.call_args.args[0]), {*self.participants, RuntimeParticipant("controller", "controller")})
+        self.assertNotIn("authorize_kill", shutdown.call_args.kwargs)
+        self.assertEqual(shutdown.call_args.kwargs["administrator_id"], "operator")
+
+    async def test_controller_stop_can_close_its_issuing_receiver_without_self_join(self):
+        from lab_sync_acquisition import NatsServiceMaintenanceCommunication
+        self.maintenance.ingestor = self.ingestor
+        self.maintenance.storage_manager = self.storage
+        transport = NatsServiceMaintenanceCommunication(self.communication._boundary, self.maintenance)
+        await transport.subscribe_commands()
+        async def cleaned(force):
+            commands = self.maintenance._attempt["commands"]
+            await self.receiver.close(retiring_command_id=commands[-1]["command_id"])
+            return True
+        self.maintenance.close_resources = cleaned
+        ws, _ = await self.browser()
+        await self.take(ws)
+        reply = await self.message(ws, "stop_service", {"participant": {
+            "component_type": "controller", "component_id": "controller"},
+            "administrator_id": "operator", "authorized": True})
+        self.assertIn(reply["result"]["status"], {"pending", "succeeded"})
+        async def retired():
+            while not self.maintenance.terminated:
+                await asyncio.sleep(.01)
+        try:
+            await asyncio.wait_for(retired(), 5)
+        except TimeoutError:
+            self.fail(str([r.to_dict() for r in self.maintenance.command_results]))
+        self.assertTrue(any(r.payload.get("termination_confirmed") is True for r in self.maintenance.command_results))
+
+    async def test_receiver_close_still_joins_unrelated_admitted_session_work(self):
+        ws, _ = await self.browser()
+        await self.take(ws)
+        launch = await self.completed(ws, "launch_session", self.launch_parameters())
+        sid = launch["outcome"]["details"]["session_id"]
+        entered, resume = asyncio.Event(), asyncio.Event()
+        original = self.controller.start_launched_session
+        async def paused(**kwargs):
+            entered.set()
+            await resume.wait()
+            return await original(**kwargs)
+        with patch.object(self.controller, "start_launched_session", side_effect=paused):
+            reply = await self.message(ws, "start_launched_session", sid=sid)
+            self.assertEqual(reply["result"]["status"], "pending")
+            await asyncio.wait_for(entered.wait(), 2)
+            closing = asyncio.create_task(self.receiver.close(retiring_command_id=reply["result"]["request_id"]))
+            try:
+                await asyncio.sleep(.05)
+                self.assertFalse(closing.done())
+                resume.set()
+                await asyncio.wait_for(closing, 5)
+            finally:
+                resume.set()
+                await closing
+        self.assertEqual(self.controller.get_status()["session_state"], "running")
+
+    async def test_framework_shutdown_runs_existing_owners_over_nats(self):
+        from lab_sync_acquisition import NatsServiceMaintenanceCommunication
+        self.maintenance.ingestor = self.ingestor
+        self.maintenance.storage_manager = self.storage
+        self.controller._ingestor = self.ingestor
+        self.controller._storage_manager = self.storage
+        transport = NatsServiceMaintenanceCommunication(self.communication._boundary, self.maintenance)
+        await transport.subscribe_commands()
+        async def cleaned(force):
+            commands = self.maintenance._attempt["commands"]
+            await self.receiver.close(retiring_command_id=commands[-1]["command_id"])
+            return True
+        self.maintenance.close_resources = cleaned
+        ws, _ = await self.browser()
+        await self.take(ws)
+        await self.message(ws, "shutdown_framework", {"administrator_id": "operator", "authorized": True})
+        async def completed_shutdown():
+            while True:
+                result = self.controller.get_status()["last_command"]
+                if result is not None and result.command == "shutdown_framework":
+                    return result
+                await asyncio.sleep(.01)
+        result = await asyncio.wait_for(completed_shutdown(), 15)
+        self.assertTrue(result.succeeded, result.to_dict())
+        for owner in (self.controller, self.node, self.clock, self.ingestor, self.storage):
+            self.assertTrue(owner._maintenance.terminated)
+
+    async def test_blocked_service_kill_requires_current_control_and_exact_attempt(self):
+        first, _ = await self.browser()
+        second, _ = await self.browser()
+        await self.take(first)
+        launch = await self.completed(first, "launch_session", self.launch_parameters())
+        sid = launch["outcome"]["details"]["session_id"]
+        admin = {"participant": {"component_type": "acquisition_node", "component_id": "node"},
+                 "administrator_id": "operator", "authorized": True}
+        stopped = await self.completed(first, "stop_service", admin)
+        self.assertEqual(stopped["outcome"]["details"]["outcome"], "blocked", stopped)
+        attempt_id = stopped["outcome"]["details"]["attempt"]["stop_attempt_id"]
+        await self.take(second)
+        revoked = await self.completed(first, "kill_service", {**admin, "stop_attempt_id": attempt_id})
+        self.assertEqual(revoked["status"], "rejected")
+        killed = await self.completed(second, "kill_service", {**admin, "stop_attempt_id": attempt_id})
+        self.assertEqual(killed["status"], "succeeded", killed)
+        self.assertTrue(killed["outcome"]["details"]["termination_confirmed"])
+        self.assertEqual(self.controller.get_status()["session_id"], sid)
+
+    async def test_existing_durable_recovery_authorization_is_required_and_scope_is_preserved(self):
+        owner = self.storage._maintenance
+        sid = "recovery-session"
+        evidence = {"accepted_session_config": {"session_id": sid}, "lifecycle_evidence": [],
+            "readiness_evidence": [], "device_readiness_evidence": [], "service_readiness_evidence": [],
+            "final_session_status": None, "cleanup_evidence": {}}
+        with patch("lab_sync_acquisition.storage.os.fsync", side_effect=OSError("interrupted write")):
+            with self.assertRaises(OSError):
+                self.storage.write_initial_session_record(sid, **evidence)
+        obligation = {"session_id": sid, "record_kind": "initial"}
+        authorization = await owner.record_administrator_decision("operator", "resume", {
+            "operation": "recover_session_record_write", "obligation": obligation, "command_id": "exact-recovery"})
+        parameters = {"participant": {"component_type": "storage_manager", "component_id": "storage"},
+            "administrator_id": "operator", "authorized": True, "recovery_command_id": "exact-recovery",
+            "authorization_evidence_id": authorization["evidence"]["evidence_id"], "obligation": obligation}
+        ws, _ = await self.browser()
+        denied = await self.completed(ws, "recover_session_record_write", parameters)
+        self.assertEqual(denied["status"], "rejected")
+        await self.take(ws)
+        readback = await self.completed(ws, "read_service_status", {"participant": parameters["participant"]})
+        self.assertIn(authorization["evidence"], readback["outcome"]["details"]["details"]["recovery_authorizations"])
+        recovered = await self.completed(ws, "recover_session_record_write", parameters, identifier="recover-once")
+        self.assertEqual(recovered["status"], "succeeded", recovered)
+        self.assertEqual(recovered["outcome"]["details"]["obligation"], obligation)
+        path = Path(recovered["outcome"]["details"]["confirmation"]["path"])
+        self.assertEqual(self.storage.read_session_record(path)["accepted_session_config"], evidence["accepted_session_config"])
+        before = path.read_bytes(), path.stat().st_mtime_ns
+        duplicate = await self.completed(ws, "recover_session_record_write", parameters, identifier="recover-once")
+        self.assertEqual(duplicate, recovered)
+        self.assertEqual((path.read_bytes(), path.stat().st_mtime_ns), before)
+        await owner.record_administrator_decision("operator", "drop", {"obligation": obligation})
+        fresh = await self.completed(ws, "read_service_status", {"participant": parameters["participant"]})
+        self.assertNotIn(authorization["evidence"], fresh["outcome"]["details"]["details"]["recovery_authorizations"])
+        rejected = await self.completed(ws, "recover_session_record_write", {**parameters,
+            "recovery_command_id": "different", "obligation": {"session_id": "wrong", "record_kind": "initial"}})
+        self.assertEqual(rejected["status"], "failed", rejected)
+        self.assertEqual(rejected["outcome"]["details"]["actual_outcome"], "refused")
+        self.assertEqual((path.read_bytes(), path.stat().st_mtime_ns), before)
+
     async def test_identity_namespace_origin_and_nonexecuting_lookup(self):
         one, _ = await self.browser()
         two, _ = await self.browser()

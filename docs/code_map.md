@@ -1,5 +1,37 @@
 # Code Map
 
+## GUI Integration Unit 2 (implementation; independent validation/audit pending)
+
+- `ExternalControllerRequest` / `ExternalControllerResult`: Validate bounded Session Kill, service/timing reads, Stop/Kill/Cancel, framework shutdown and the six existing `SERVICE_RECOVERY_COMMAND_TYPES` with explicit target, administrator and owner authorization rather than arbitrary commands.
+- `EXTERNAL_CONTROLLER_SESSIONLESS_OPERATIONS`: Shares request/result Session-scope validation so framework-scoped operations cannot diverge at their reply boundary.
+- `Controller.kill_session(..., expected_session_id=None)`: Rechecks the selected Session under the existing closeout lock before forced closeout.
+- `Controller.read_controller_state(...)`: Also projects existing timing interpretations and cleanup/preservation information without deriving new timing or release decisions.
+- `NatsExternalSessionLaunchReceiver`: Projects configured membership and owner readiness, delegates exact-target maintenance and framework shutdown, and retains the existing browser fencing and request/outcome cache.
+- `NatsExternalSessionLaunchReceiver.close(*, retiring_command_id=None)`: Joins admitted work except the exact self-retirement request or existing framework-shutdown task that is closing its own receiver.
+- `NatsControllerCommunication.request_runtime_command(...)`: Also correlates the existing framework-scoped Stop/Kill/Cancel commands through the same fresh nonce and subscription teardown boundary.
+- `NatsSynchronizationManagerCommunication`'s `read_session_time` response: Includes Session/source identity and retained `session_timing_evidence` for bounded external read-only projection.
+- `ServiceMaintenanceInterface._diagnostic_payload()`: Also detaches operational-instance identity, the active maintenance attempt and existing durably accepted recovery authorizations for exact continuation selection.
+- `_execute_maintenance_command(...)`: Preserves nonce and Controller-instance transport correlation for owner recovery results as well as ordinary maintenance replies.
+- `services-view.serviceActions.refresh(id?)`, `maintain(operation, service, administrator_id, recovery=null)`, `canControl()` and `frameworkOutcome()`: Bind existing Services controls to the shared connected request/outcome path without owning maintenance or control grants.
+- `services-view.updateServices(services, notice='')`: Repaints the existing shared rows/details from configured membership and current/historical owner reports.
+- `services-view.startServicesRefresh()`: Enables configurable connected status refresh with the accepted 10-second default.
+- `connected.invalidateServiceConfirmation()`: Retains last-known reports while invalidating current confirmation and older in-flight projections after Controller/backend communication loss.
+- `GUIIntegrationTests`: Adds public web/NATS coverage of status, Session Kill, blocked Stop/Cancel/Kill, takeover fencing, timing readback, self-retirement, receiver quiescence and complete framework shutdown with disk-backed simulated owners.
+- `verifyMaintenanceBinding()`: Exercises production browser confirmation and exact-target Stop/Kill/Cancel dispatch with controlled transport, not live owner execution.
+
+Developer verification: 28 targeted backend/schema/maintenance/recovery methods,
+29 selected JavaScript tests, 17 GUI shell methods and two production-browser
+workflows PASS. Final retirement and superseded-authorization checks were rerun
+after their bounded changes. Two additional legacy authority-fixture failures
+were reproduced against unchanged HEAD and are not repaired here. These are
+developer checks, not ICC independent validation or audit.
+
+Unit 1 remains CLOSED. Unit 2 is developer implementation, not independently
+validated/audited or closed. Recovery selects existing durable owner authorizations;
+actions without a supported exact scope remain visibly unavailable. No generic
+recovery, abandonment or broker-claim clearing route is exposed. Q031 remains OPEN
+for independent verification. Deployment and hardware validation remain deferred.
+
 ## GUI Integration Unit 1
 
 **Status:** CLOSED within accepted software scope; independent full audit PASS at

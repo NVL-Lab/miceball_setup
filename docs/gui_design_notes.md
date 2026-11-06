@@ -24,6 +24,13 @@ PASS at `83ee000f885744e0486b5873acde5625a0d5b0d6`; see the
 [evidence and remaining limits](validated_workflows.md#gui-integration-unit-1---software-scope-closure).
 Later-unit functionality and hardware/cross-machine deployment remain deferred.
 
+**Subsequent Unit 2 implementation:** Existing Services refresh and exact-target
+maintenance bindings, Session Kill, timing-evidence and closeout presentation are
+connected within the [developer implementation boundary](../gui/README.md#unit-2-developer-implementation-not-independent-validation-or-closure).
+Independent manual validation and audit remain pending. This qualifies the
+historical Unit 1 statement about unavailable Services integration, not its closure
+or the remaining scientific/Storage/notification and deployment deferrals.
+
 Slice 6, as corrected by the project owner, adds read-only availability
 presentation for the four accepted operation categories. Scientific Validation
 and operator interaction remain unpopulated; no new procedure, input, duration,
@@ -711,10 +718,12 @@ Experiment devices. Services uses the same six-tab shell and light/dark styling.
 ### Accepted functional direction (integration remains pending)
 
 **Status:** Accepted functional requirements in Decisions 414-418, 423, 425 and 441,
-with layout qualified by Decision 431, not implemented
-or validated GUI functionality. Detailed widgets, layouts and technical contracts
+with layout qualified by Decision 431. Bounded Unit 2 bindings are implemented as
+noted above, not independently validated/audited; broader Services and notification
+integration remains outstanding. Detailed widgets, layouts and technical contracts
 remain implementation work under Q030-Q033. Q031's architectural freshness
-contract is resolved by Decision 441; implementation and validation are pending.
+contract is resolved by Decision 441; Unit 2's bounded developer implementation
+is recorded above, with independent validation/audit pending.
 
 A permanently accessible **Services tab** shows all configured framework services
 for inspection, startup guidance and existing administrative operations. This
@@ -756,7 +765,8 @@ checks unknown and last-known reports historical, and prevent older replies from
 replacing newer observations through existing correlation/ordering. Communication
 loss alone does not establish unreadiness or a problem. GUI status cannot override
 Controller admission, maintenance restrictions or service-owned readiness.
-Implementation remains pending. No heartbeat, registry, monitoring service,
+The bounded Unit 2 implementation remains pending independent verification.
+No heartbeat, registry, monitoring service,
 additional persistence, lifecycle states, automatic recovery or guaranteed
 detection latency is authorized.
 

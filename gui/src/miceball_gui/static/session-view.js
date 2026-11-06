@@ -103,6 +103,7 @@ export function renderSession() {
         }).join('')}</ol>
         ${state.connected ? '<div class="session-context-links"><button type="button" data-start-session>Start Session</button><button type="button" data-release-session>Release Session</button></div>' : ''}
         <button type="button" class="stop-session-demo" data-stop-session>Stop Session<small>${state.connected ? 'Controller Normal Stop' : 'Browser-local orderly Stop demonstration'}</small></button>
+        ${state.connected ? '<button type="button" data-live-session-kill disabled>Kill Session…</button>' : ''}
       </section>
       <section class="session-card session-selected-card" aria-label="Selected step">
         ${step ? selectedStepMarkup(state, protocol, step) : free ? '<h3>No operation prepared</h3><p>Choose an operation to prepare its configuration. Nothing starts automatically.</p>' : '<h3>No protocol steps</h3><p>Add steps using the Protocol Editor in Setup.</p>'}

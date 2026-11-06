@@ -36,6 +36,7 @@ export function refreshServicesPreview(model, at) {
 
 export function serviceReadinessLabel(service) {
   if (!service.confirmed) return 'Unknown availability';
+  if (service.participant) return service.current ? `${service.readiness} · current confirmation` : `Last known: ${service.readiness} · availability unknown`;
   return service.current ? `${service.readiness} · fixture confirmation` : `Last known: ${service.readiness} · availability unknown`;
 }
 

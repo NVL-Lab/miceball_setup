@@ -611,6 +611,7 @@ def _validate_browser_context(context):
 
 
 EXTERNAL_CONTROLLER_OPERATIONS = {
+    **{operation: operation for operation in SERVICE_RECOVERY_COMMAND_TYPES},
     "read_controller_state": "read_controller_state",
     "read_operation_outcome": "read_operation_outcome",
     "take_browser_control": "take_browser_control",
@@ -622,12 +623,26 @@ EXTERNAL_CONTROLLER_OPERATIONS = {
     "stop_launched_experiment": "stop_experiment",
     "reconcile_launched_experiment_expiry": "reconcile_launched_experiment_expiry",
     "normal_stop_session": "normal_stop_session",
+    "kill_session": "kill_session",
+    "read_service_status": "read_service_status",
+    "read_synchronization_status": "read_synchronization_status",
+    "stop_service": "stop_service",
+    "kill_service": "kill_service",
+    "cancel_service": "cancel_service",
+    "shutdown_framework": "shutdown_framework",
     "collect_saved_session_artifacts_remote": "collect_saved_session_artifacts_remote",
     "release_session": "release_session",
     "read_storage_sessions": "read_storage_sessions",
     "read_storage_session": "read_storage_session",
     "delete_original_artifacts": "delete_original_artifacts",
 }
+
+EXTERNAL_CONTROLLER_SESSIONLESS_OPERATIONS = frozenset({
+    *SERVICE_RECOVERY_COMMAND_TYPES,
+    "read_storage_sessions", "read_controller_state", "read_operation_outcome",
+    "take_browser_control", "view_only", "get_node_inventory", "read_service_status",
+    "stop_service", "kill_service", "cancel_service", "shutdown_framework",
+})
 
 
 @dataclass(frozen=True)
@@ -646,7 +661,7 @@ class ExternalControllerRequest:
         _validate_browser_context(self.browser_context)
         for name in ("controller_id", "client_id", "request_id"):
             _validate_subject_token(name, getattr(self, name))
-        if self.operation in {"read_storage_sessions", "read_controller_state", "read_operation_outcome", "take_browser_control", "view_only", "get_node_inventory"}:
+        if self.operation in EXTERNAL_CONTROLLER_SESSIONLESS_OPERATIONS:
             if self.session_id is not None:
                 raise ValueError("Storage enumeration has no selected Session")
         else:
@@ -654,6 +669,9 @@ class ExternalControllerRequest:
         if self.operation not in EXTERNAL_CONTROLLER_OPERATIONS:
             raise ValueError("Unsupported external Controller operation")
         schemas = {
+            **{operation: ({"participant", "administrator_id", "authorized", "recovery_command_id",
+                            "authorization_evidence_id", "obligation"}, set())
+               for operation in SERVICE_RECOVERY_COMMAND_TYPES},
             "read_controller_state": (set(), set()),
             "read_operation_outcome": ({"target_request_id", "instance_id"}, set()),
             "take_browser_control": (set(), set()),
@@ -665,6 +683,13 @@ class ExternalControllerRequest:
             "stop_launched_experiment": ({"experiment_id"}, {"details"}),
             "reconcile_launched_experiment_expiry": ({"experiment_id"}, set()),
             "normal_stop_session": (set(), {"reason"}),
+            "kill_session": ({"operator_authorized"}, {"reason"}),
+            "read_service_status": ({"participant"}, set()),
+            "read_synchronization_status": (set(), set()),
+            "stop_service": ({"participant", "administrator_id", "authorized"}, set()),
+            "kill_service": ({"participant", "administrator_id", "authorized", "stop_attempt_id"}, set()),
+            "cancel_service": ({"participant", "administrator_id", "authorized", "stop_attempt_id"}, set()),
+            "shutdown_framework": ({"administrator_id", "authorized"}, set()),
             "collect_saved_session_artifacts_remote": ({"evidence_id", "experimenter_name", "administrator_mode"}, {"deletion"}),
             "release_session": (set(), set()),
             "read_storage_sessions": ({"experimenter_name", "administrator_mode"}, set()),
@@ -679,6 +704,27 @@ class ExternalControllerRequest:
         for name in ("target_request_id", "instance_id", "node_id"):
             if name in self.parameters:
                 _validate_subject_token(name, self.parameters[name])
+        if self.operation in ({"stop_service", "kill_service", "cancel_service", "shutdown_framework"} | SERVICE_RECOVERY_COMMAND_TYPES):
+            if (self.parameters["authorized"] is not True
+                    or not isinstance(self.parameters["administrator_id"], str)
+                    or not self.parameters["administrator_id"].strip()):
+                raise ValueError("Explicit administrator identity and operation authorization are required")
+        if self.operation in SERVICE_RECOVERY_COMMAND_TYPES:
+            if (any(not isinstance(self.parameters[name], str) or not self.parameters[name]
+                    for name in ("recovery_command_id", "authorization_evidence_id"))
+                    or not isinstance(self.parameters["obligation"], dict) or not self.parameters["obligation"]):
+                raise ValueError("Recovery requires the exact existing authorization, command and obligation")
+        if "participant" in self.parameters:
+            target = self.parameters["participant"]
+            if not isinstance(target, dict) or set(target) != {"component_type", "component_id"}:
+                raise ValueError("Exact service identity is required")
+            if target["component_type"] not in {"controller", "acquisition_node", "ingestor", "storage_manager", "synchronization_manager"}:
+                raise ValueError("Unsupported service type")
+            _validate_subject_token("component_id", target["component_id"])
+        if "stop_attempt_id" in self.parameters:
+            _validate_subject_token("stop_attempt_id", self.parameters["stop_attempt_id"])
+        if self.operation == "kill_session" and self.parameters["operator_authorized"] is not True:
+            raise ValueError("Kill Session requires explicit operator authorization")
         if "administrator_mode" in self.parameters:
             name = self.parameters["experimenter_name"]
             if (type(self.parameters["administrator_mode"]) is not bool
@@ -748,7 +794,7 @@ class ExternalControllerResult:
     def __post_init__(self):
         for name in ("controller_id", "client_id", "request_id"):
             _validate_subject_token(name, getattr(self, name))
-        if self.operation in {"read_storage_sessions", "read_controller_state", "read_operation_outcome", "take_browser_control", "view_only", "get_node_inventory"}:
+        if self.operation in EXTERNAL_CONTROLLER_SESSIONLESS_OPERATIONS:
             if self.session_id is not None:
                 raise ValueError("Storage enumeration result has no selected Session")
         else:

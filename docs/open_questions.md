@@ -683,12 +683,14 @@ missing communication means unknown availability, not proven hardware failure.
 Controller reserves whole nodes; device selection/Experiment participation does
 not authorize device-level cross-Session reservation. See Decision 425.
 
-Remaining work is to connect existing service-owned readiness reports, dependency
-checks and Controller-authoritative information to GUI refresh/readback, using
-existing correlation and ordering. Decision 441 defines current confirmation,
+Unit 2 implements bounded service-owned readiness/dependency and configured-member
+readback through the existing Controller receiver and GUI Services controls;
+independent validation and audit remain pending. See the
+[implementation boundary](code_map.md#gui-integration-unit-2-implementation-independent-validationaudit-pending).
+Decision 441 defines current confirmation,
 unknown availability after failed/timed-out/invalid checks, historical last-known
 reports and protection against older responses replacing newer observations.
-Implement and independently validate these contracts without a new monitoring
+Independently validate these contracts without a new monitoring
 mechanism; Q030 retains presentation choices. No guaranteed disappearance-detection
 latency or automatic recovery is introduced.
 

@@ -6,6 +6,16 @@ const panel = document.querySelector('#panel-services');
 const connected = document.documentElement?.dataset?.runtime === 'connected';
 const model = createServicesDemo(connected);
 export const servicesAdministrator = () => model.administrator;
+export const serviceActions = {};
+export function updateServices(services, notice = '') {
+  model.services = services;
+  message = notice;
+  for (const service of services) {
+    service.connectivity = service.current ? 'Confirmed communication' : 'Unknown';
+    service.dependencies = service.details ? JSON.stringify(service.details.service_diagnostics || service.details, null, 2) : 'No current dependency confirmation';
+  }
+  renderServices();
+}
 let refreshTimer;
 let message = '';
 let expandedService = null, shutdownAttempt = null, killTarget = null;
@@ -48,17 +58,17 @@ administrativePreview.addEventListener('change', event => {
 });
 
 function serviceRows() {
-  return model.services.map(service => `<li><div class="service-row ${expandedService === service.id ? 'is-selected' : ''}" data-expand-service="${service.id}" role="button" tabindex="0" aria-expanded="${expandedService === service.id}" aria-controls="detail-${service.id}" aria-label="${escape(service.name)} · ${escape(service.computer)}"><div class="service-identity"><strong>${escape(service.name)}</strong><small>${escape(service.computer)}</small></div><div class="service-report"><span class="service-status ${service.current && service.readiness === 'Ready' ? 'service-good' : 'service-caution'}">${escape(serviceReadinessLabel(service))}</span><small>${escape(service.connectivity)}${connected ? ' · unverified' : ' · simulated'}</small><small>Last confirmed: ${service.confirmed ? `Oct 24, ${service.confirmed} (fixture)` : 'Never confirmed'}</small></div><div class="service-row-actions"><button type="button" data-readiness="${service.id}">Check readiness</button><span aria-hidden="true">${expandedService === service.id ? '▴' : '▾'}</span></div></div><section id="detail-${service.id}" class="inline-service-details" ${expandedService === service.id ? '' : 'hidden'} aria-label="${escape(service.name)} details">${expandedService === service.id ? serviceDetails(service) : ''}</section></li>`).join('');
+  return model.services.map(service => `<li><div class="service-row ${expandedService === service.id ? 'is-selected' : ''}" data-expand-service="${escape(service.id)}" role="button" tabindex="0" aria-expanded="${expandedService === service.id}" aria-controls="detail-${escape(service.id)}" aria-label="${escape(service.name)} · ${escape(service.computer)}"><div class="service-identity"><strong>${escape(service.name)}</strong><small>${escape(service.computer)}</small></div><div class="service-report"><span class="service-status ${service.current && service.readiness === 'Ready' ? 'service-good' : 'service-caution'}">${escape(serviceReadinessLabel(service))}</span><small>${escape(service.connectivity)}${connected ? '' : ' · simulated'}</small><small>Last confirmed: ${service.confirmed ? (connected ? escape(service.confirmed) : `Oct 24, ${service.confirmed} (fixture)`) : 'Never confirmed'}</small></div><div class="service-row-actions"><button type="button" data-readiness="${escape(service.id)}" ${service.pending ? 'disabled' : ''}>${service.pending ? 'Checking…' : 'Check readiness'}</button><span aria-hidden="true">${expandedService === service.id ? '▴' : '▾'}</span></div></div><section id="detail-${escape(service.id)}" class="inline-service-details" ${expandedService === service.id ? '' : 'hidden'} aria-label="${escape(service.name)} details">${expandedService === service.id ? serviceDetails(service) : ''}</section></li>`).join('');
 }
 
 function serviceDetails(service) {
   const content = {
-    Status: `<p class="services-callout">${escape(serviceReadinessLabel(service))}</p><dl><dt>Connectivity</dt><dd>${escape(service.connectivity)} ${connected ? '(unverified)' : '(simulated)'}</dd><dt>Last confirmed</dt><dd>${service.confirmed ? `Oct 24, ${service.confirmed} (fixture)` : 'Unknown'}</dd><dt>Computer</dt><dd>${escape(service.computer)}</dd></dl>`,
+    Status: `<p class="services-callout">${escape(serviceReadinessLabel(service))}</p><dl><dt>Connectivity</dt><dd>${escape(service.connectivity)} ${connected ? '' : '(simulated)'}</dd><dt>Last confirmed</dt><dd>${service.confirmed ? (connected ? escape(service.confirmed) : `Oct 24, ${service.confirmed} (fixture)`) : 'Unknown'}</dd><dt>Computer</dt><dd>${escape(service.computer)}</dd></dl>`,
     Dependencies: `<p>${escape(service.dependencies)}</p><p>Services start independently of the GUI. Use the deployment owner's startup instructions; no universal startup order or OS process launch is supplied here.</p>`,
-    History: `<ol><li>${service.confirmed ? `Fictional status report · Oct 24, ${service.confirmed}` : 'No confirmed status report'}</li><li>${connected ? 'Connectivity history unavailable; no service report has been retrieved.' : `${escape(service.connectivity)} transport example; no inferred lifecycle replay, cleanup or recovery.`}</li></ol>`,
+    History: `<ol><li>${service.confirmed ? (connected ? `Last-known report: ${escape(service.confirmed)}` : `Fictional status report · Oct 24, ${service.confirmed}`) : 'No confirmed status report'}</li><li>${connected ? 'Last-known reports are historical, not current availability.' : `${escape(service.connectivity)} transport example; no inferred lifecycle replay, cleanup or recovery.`}</li></ol>`,
   };
   const obligations = model.obligations.filter(item => item.service === service.name);
-  return `<div class="services-detail-tabs" role="group" aria-label="Service detail views">${Object.keys(content).map(name => `<button type="button" data-detail="${name}" aria-pressed="${model.detail === name}">${name}</button>`).join('')}</div><div class="services-detail-content">${content[model.detail]}</div>${obligations.length ? `<h4>Represented obligations / blockers</h4><ul>${obligations.map(item=>`<li>${escape(item.description)} — ${escape(item.outcome)}</li>`).join('')}</ul>` : ''}${service.readiness === 'Unhealthy' ? `<p>${escape(service.information)}</p>` : ''}${model.administrator ? `<div class="service-specific-administration"><h4>Selected-service administration</h4><button type="button" data-stop-service="${service.id}">Stop Service</button><button type="button" data-administrative="Supported recovery attempts">Recovery availability…</button><button type="button" data-administrative="Abandon outstanding obligations">Review obligations…</button></div>` : ''}`;
+  return `<div class="services-detail-tabs" role="group" aria-label="Service detail views">${Object.keys(content).map(name => `<button type="button" data-detail="${name}" aria-pressed="${model.detail === name}">${name}</button>`).join('')}</div><div class="services-detail-content">${content[model.detail]}</div>${obligations.length ? `<h4>Represented obligations / blockers</h4><ul>${obligations.map(item=>`<li>${escape(item.description)} — ${escape(item.outcome)}</li>`).join('')}</ul>` : ''}${connected ? `${service.lastOperation ? `<p class="services-callout">${escape(service.lastOperation.operation)} · ${escape(service.lastOperation.result?.outcome?.details?.outcome || service.lastOperation.status)} ${escape(service.lastOperation.result?.error || '')}</p>` : ''}<p>${escape(service.information || 'No confirmed report')}</p><details><summary>Owner report and remaining obligations</summary><pre>${escape(JSON.stringify({readiness: service.details || null, operation: service.lastOperation || null}, null, 2))}</pre></details>` : ''}${service.readiness === 'Unhealthy' ? `<p>${escape(service.information)}</p>` : ''}${model.administrator ? `<div class="service-specific-administration"><h4>Selected-service administration</h4><button type="button" data-stop-service="${escape(service.id)}">Stop Service</button>${connected && service.attempt?.outcome === 'blocked' ? `<button type="button" data-live-kill="${escape(service.id)}">Kill Service…</button><button type="button" data-live-cancel="${escape(service.id)}">Cancel Stop attempt</button>` : ''}<button type="button" data-administrative="Supported recovery attempts">Recovery availability…</button><button type="button" data-administrative="Abandon outstanding obligations">Review obligations…</button></div>` : ''}`;
 }
 
 function notificationRows() {
@@ -67,25 +77,30 @@ function notificationRows() {
 
 function administrativeOperations() {
   if (!model.administrator) return '';
-  return `<section id="services-administration" class="services-card services-danger" aria-label="Administrative operations"><h3>Whole-framework shutdown</h3><button type="button" class="shutdown-framework-demo" data-shutdown-framework>Shutdown Framework</button><p>Whole-framework scope, distinct from Stop Service, Session Stop and Experiment Stop. ${connected ? 'Service shutdown integration unavailable. No command can be sent.' : 'Separate confirmation required. Browser-local demonstration only.'}</p></section>`;
+  return `<section id="services-administration" class="services-card services-danger" aria-label="Administrative operations"><h3>Whole-framework shutdown</h3><button type="button" class="shutdown-framework-demo" data-shutdown-framework>Shutdown Framework</button><p>Whole-framework scope, distinct from Stop Service, Session Stop and Experiment Stop. ${connected ? 'Controller coordinates configured owners. No automatic Kill escalation.' : 'Separate confirmation required. Browser-local demonstration only.'}</p>${connected ? `<pre>${escape(JSON.stringify(serviceActions.frameworkOutcome?.() || 'No framework shutdown request recorded', null, 2))}</pre>` : ''}</section>`;
 }
 
 function renderServices() {
   const unacknowledged = notificationHistory().filter(item => !item.acknowledged).length;
-  panel.innerHTML = `<header class="services-header"><div><h2 id="heading-services">Services</h2><p>Framework status, notifications and administrative operations</p><small>${connected ? 'Service readback and maintenance integration unavailable; states are unknown.' : 'Browser-local demonstration · fictional reports, no live services or commands'}</small></div><div class="services-refresh"><label>Auto refresh (s)<select id="services-refresh"><option value="0">Off</option>${[5,10,30,60].map(n=>`<option value="${n}" ${model.refreshSeconds === n ? 'selected' : ''}>${n}</option>`).join('')}</select></label><button type="button" data-refresh-services>Refresh now</button></div><div class="services-mode" role="group" aria-label="Services mode"><span>Mode:</span><button type="button" data-mode="experimenter" aria-pressed="${!model.administrator}">Experimenter</button><button type="button" data-mode="administrator" aria-pressed="${model.administrator}">Administrator</button></div></header>
-    <p class="services-feedback" ${connected ? 'id="services-readiness-unavailable"' : ''} role="status">${escape(message || (model.lastPreviewRefresh ? `Preview refreshed locally at ${model.lastPreviewRefresh}; fixture confirmations are unchanged.` : (connected ? 'Live readiness checks and automatic status refresh are unavailable in this unit. No service check has been sent; role availability remains unknown.' : 'Automatic refresh repaints fictional information only; it does not confirm availability.')))}</p>
-    <section class="services-card"><h3>${connected ? 'Service roles · status unavailable' : `Configured services (${model.services.length})`}</h3><ul class="services-list" aria-label="Configured services">${serviceRows()}</ul></section>
+  panel.innerHTML = `<header class="services-header"><div><h2 id="heading-services">Services</h2><p>Framework status, notifications and administrative operations</p><small>${connected ? 'Configured membership · service-owned readiness · Controller admission remains authoritative' : 'Browser-local demonstration · fictional reports, no live services or commands'}</small></div><div class="services-refresh"><label>Auto refresh (s)<select id="services-refresh"><option value="0">Off</option>${[5,10,30,60].map(n=>`<option value="${n}" ${model.refreshSeconds === n ? 'selected' : ''}>${n}</option>`).join('')}</select></label><button type="button" data-refresh-services>Refresh now</button></div><div class="services-mode" role="group" aria-label="Services mode"><span>Mode:</span><button type="button" data-mode="experimenter" aria-pressed="${!model.administrator}">Experimenter</button><button type="button" data-mode="administrator" aria-pressed="${model.administrator}">Administrator</button></div></header>
+    <p class="services-feedback" ${connected ? 'id="services-readiness-unavailable"' : ''} role="status">${escape(message || (model.lastPreviewRefresh ? `Preview refreshed locally at ${model.lastPreviewRefresh}; fixture confirmations are unchanged.` : (connected ? 'Only valid current checks confirm availability; communication loss alone is not failure.' : 'Automatic refresh repaints fictional information only; it does not confirm availability.')))}</p>
+    <section class="services-card"><h3>Configured services (${model.services.length})</h3><ul class="services-list" aria-label="Configured services">${serviceRows()}</ul></section>
     <section class="services-card services-warning-card"><h3>Warnings and errors <small>${connected ? 'Unavailable' : `${unacknowledged} unacknowledged`}</small></h3><p class="services-muted">${connected ? 'Authoritative warning and error history is unavailable.' : 'Latest three entries by default. Acknowledgment is not resolution or deletion.'}</p><div id="services-history" class="services-history" role="region" aria-label="Warning and error history" tabindex="0">${notificationRows()}</div>${notificationHistory().length > 3 ? `<button type="button" data-toggle-history aria-controls="services-history" aria-expanded="${historyExpanded}">${historyExpanded ? 'Show less' : 'Show more'}</button>` : ''}</section>${administrativeOperations()}`;
-  if (connected) {
+  if (connected && !serviceActions.refresh) {
     panel.querySelector('#services-refresh').disabled = true;
     panel.querySelector('#services-refresh').setAttribute('aria-describedby', 'services-readiness-unavailable');
     for (const button of panel.querySelectorAll('[data-readiness]')) button.setAttribute('aria-describedby', 'services-readiness-unavailable');
   }
-  if (connected) for (const button of panel.querySelectorAll('[data-readiness], [data-stop-service], [data-shutdown-framework], [data-administrative]')) { button.disabled = true; button.title = 'Operational integration unavailable'; }
+  if (connected && serviceActions.refresh) for (const button of panel.querySelectorAll('[data-stop-service], [data-shutdown-framework]')) button.disabled = !serviceActions.canControl?.();
+  if (connected && !serviceActions.refresh) for (const button of panel.querySelectorAll('[data-readiness], [data-stop-service], [data-shutdown-framework], [data-administrative]')) { button.disabled = true; button.title = 'Operational integration unavailable'; }
 }
 
 function scheduleServicesRefresh() {
   clearInterval(refreshTimer);
+  if (connected && serviceActions.refresh) {
+    if (model.refreshSeconds) refreshTimer = setInterval(() => serviceActions.refresh(), model.refreshSeconds * 1000);
+    return;
+  }
   if (!connected && model.refreshSeconds) refreshTimer = setInterval(() => {
     if (panel.hidden || danger.open || administrativePreview.open) return;
     // Avoid replacing focused controls during keyboard interaction.
@@ -111,7 +126,7 @@ function selectService(id) {
   model.selectedId = id;
   expandedService = expandedService === id ? null : id;
   renderServices();
-  panel.querySelector(`[data-expand-service="${id}"]`).focus({preventScroll:true});
+  [...panel.querySelectorAll('[data-expand-service]')].find(row => row.dataset.expandService === id)?.focus({preventScroll:true});
 }
 panel.addEventListener('keydown', event => {
   const row = event.target.closest('[data-expand-service]');
@@ -119,6 +134,60 @@ panel.addEventListener('keydown', event => {
 });
 
 panel.addEventListener('click', event => {
+  if (connected && serviceActions.refresh) {
+    const button = event.target.closest('button'), row = event.target.closest('[data-expand-service]');
+    if (!button && row) { selectService(row.dataset.expandService); return; }
+    if (!button || button.disabled) return;
+    if (button.dataset.mode === 'administrator' && !model.administrator) { danger.showModal(); return; }
+    if (button.dataset.mode === 'experimenter') { setServicesAdministrator(model, false); renderServices(); return; }
+    if (button.hasAttribute('data-refresh-services')) { serviceActions.refresh(); return; }
+    if (button.dataset.readiness) { serviceActions.refresh(button.dataset.readiness); return; }
+    if (button.dataset.detail) { model.detail = button.dataset.detail; renderServices(); return; }
+    if (button.dataset.administrative) {
+      const service = model.services.find(s => s.id === model.selectedId);
+      const operations = ['recover_archive_write', 'recover_session_record_write', 'recover_artifact_transfer', 'preserve_scientific_artifact', 'cleanup_device_resources', 'dispose_temporary_evidence'];
+      const authorizations = service?.current ? (service.details?.recovery_authorizations || []).filter(record =>
+        operations.includes(record.payload?.details?.operation)
+        && record.payload?.target?.component_id === service.participant.component_id
+        && record.payload?.target?.component_type === service.participant.component_type) : [];
+      if (button.dataset.administrative !== 'Supported recovery attempts' || !authorizations.length) {
+        message = 'No supported exact-target recovery with existing durable administrator authorization is currently reported. Obligation abandonment is unavailable through this interface. No command sent.';
+        renderServices(); return;
+      }
+      if (!model.administrator || !serviceActions.canControl?.()) return;
+      administrativePreview.innerHTML = `<h2 id="admin-preview-title">Explicit authorized recovery</h2><p>${escape(service.name)} / ${escape(service.computer)}</p><label>Existing owner authorization<select data-recovery-choice>${authorizations.map((record, index) => `<option value="${index}">${escape(record.payload.details.operation)} · ${escape(record.payload.administrator_id)}</option>`).join('')}</select></label><pre data-recovery-scope></pre><p data-recovery-warning></p><label><input type="checkbox" data-recovery-authorized> I explicitly authorize this exact operation and scope, including the stated consequences.</label><div class="catalog-dialog__actions"><button type="button" data-admin-close>Cancel</button><button type="button" data-recovery-confirm disabled>Execute authorized recovery</button></div>`;
+      const choice = administrativePreview.querySelector('[data-recovery-choice]'), check = administrativePreview.querySelector('[data-recovery-authorized]'), submit = administrativePreview.querySelector('[data-recovery-confirm]');
+      const selection = () => authorizations[Number(choice.value)];
+      const showScope = () => {
+        check.checked = false; submit.disabled = true;
+        administrativePreview.querySelector('[data-recovery-scope]').textContent = JSON.stringify(selection(), null, 2);
+        administrativePreview.querySelector('[data-recovery-warning]').textContent = selection().payload.details.operation === 'dispose_temporary_evidence'
+          ? 'Permanent-loss acknowledgment: proven-corrupt temporary evidence in this exact scope will be permanently discarded. This is not scientific-original deletion.'
+          : 'Owner safety, durable authorization and current recovery prerequisites are rechecked. This does not confirm preservation, safe reuse or service retirement.';
+      };
+      choice.onchange = showScope;
+      check.onchange = () => { submit.disabled = !check.checked; };
+      submit.onclick = () => {
+        if (!check.checked || !model.administrator || !serviceActions.canControl?.()) return;
+        const authorization = selection(), details = authorization.payload.details;
+        administrativePreview.close();
+        serviceActions.maintain(details.operation, service, authorization.payload.administrator_id,
+          {authorization_evidence_id: authorization.evidence_id, recovery_command_id: details.command_id, obligation: details.obligation});
+      };
+      showScope(); administrativePreview.showModal(); return;
+    }
+    const operation = button.hasAttribute('data-stop-service') ? 'stop_service' : button.hasAttribute('data-live-kill') ? 'kill_service' : button.hasAttribute('data-live-cancel') ? 'cancel_service' : button.hasAttribute('data-shutdown-framework') ? 'shutdown_framework' : null;
+    if (operation && model.administrator && serviceActions.canControl?.()) {
+      const id = button.dataset.stopService || button.dataset.liveKill || button.dataset.liveCancel;
+      const service = model.services.find(s => s.id === id);
+      administrativePreview.innerHTML = `<h2 id="admin-preview-title">Authorize ${escape(operation)}</h2><p>${escape(service ? `${service.name} / ${service.computer}` : 'Whole configured framework')}</p><p>This does not authorize other targets. Force may lose unpreserved evidence and leave cleanup obligations. Timeout is not completion or permission to Kill.</p><label>Administrator name<input data-live-administrator></label><label><input type="checkbox" data-live-authorized> I explicitly authorize this exact operation and target.</label><div class="catalog-dialog__actions"><button type="button" data-admin-close>Cancel</button><button type="button" data-live-confirm disabled>Confirm operation</button></div>`;
+      const name = administrativePreview.querySelector('[data-live-administrator]'), check = administrativePreview.querySelector('[data-live-authorized]'), submit = administrativePreview.querySelector('[data-live-confirm]');
+      administrativePreview.oninput = () => { submit.disabled = !name.value.trim() || !check.checked; };
+      submit.onclick = () => { if (check.checked && name.value.trim() && model.administrator && serviceActions.canControl?.()) { administrativePreview.close(); serviceActions.maintain(operation, service, name.value); } };
+      administrativePreview.showModal();
+    }
+    return;
+  }
   if (connected && event.target.closest('[data-readiness], [data-stop-service], [data-shutdown-framework], [data-administrative]')) { message = 'Operational integration unavailable. No command was sent.'; renderServices(); return; }
   const button = event.target.closest('button');
   if (button?.hasAttribute('data-toggle-history')) {
@@ -164,5 +233,11 @@ panel.addEventListener('change', event => {
   if (event.target.id !== 'services-refresh') return;
   model.refreshSeconds = Number(event.target.value); scheduleServicesRefresh();
 });
+export function startServicesRefresh() {
+  danger.querySelector('p:last-of-type').textContent = 'This is a cooperative presentation safeguard, not authentication. Each operation requires separate exact-target authorization and service-owned admission.';
+  model.refreshSeconds = 10;
+  scheduleServicesRefresh();
+  renderServices();
+}
 document.addEventListener('gui-notifications-changed', () => renderServices());
 renderServices(); scheduleServicesRefresh();

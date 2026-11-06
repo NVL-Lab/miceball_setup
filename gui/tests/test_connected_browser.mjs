@@ -142,7 +142,7 @@ if (!process.env.MICEBALL_BROWSER_ORIGIN) {
               await shot(`${mode}-${size}-${theme}-administrator-dialog`);
               await page.locator('[data-danger-enter]').click();
               await shot(`${mode}-${size}-${theme}-administrator`);
-              if (mode === 'connected') assert.equal(await page.locator('[data-shutdown-framework]').isDisabled(), true);
+              if (mode === 'connected') assert.equal(await page.locator('[data-shutdown-framework]').isEnabled(), true);
               await page.locator('[data-mode="experimenter"]').click();
             }
           }

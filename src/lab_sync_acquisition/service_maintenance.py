@@ -1032,7 +1032,9 @@ class ServiceMaintenanceInterface:
     def _diagnostic_payload(self):
         with self._admission_lock:
             recognized = self.controller_command_admission.recognized
-            payload = {"recognized_controller": None if recognized is None else {
+            payload = {"operational_instance_id": self.operational_instance_id,
+                       "maintenance_attempt": deepcopy(self._attempt),
+                       "recognized_controller": None if recognized is None else {
                 "controller_instance_id": recognized[0], "controller_claim_revision": recognized[1],
                 "controller_id": recognized[2], "receiver_instance_id": self.operational_instance_id}}
 
@@ -1049,6 +1051,20 @@ class ServiceMaintenanceInterface:
                        "blockers": list(attempt["blockers"]), "failures": list(attempt["failures"])}
             for identity, attempt in self._attempts.items()
         }
+        payload["recovery_authorizations"] = []
+        for message in self._evidence:
+            details = message.payload.get("details")
+            if (message.evidence_type != "administrator_decision" or message.payload.get("decision") != "resume"
+                    or not isinstance(details, dict) or details.get("operation") not in SERVICE_RECOVERY_COMMAND_TYPES):
+                continue
+            try:
+                command = RuntimeCommandMessage(details.get("command_id"), None, details["operation"],
+                    self.participant.component_id, self.participant.component_id,
+                    {"authorization_evidence_id": message.evidence_id, "obligation": details.get("obligation")})
+                self._require_recovery_authorization(command)
+            except (ValueError, TypeError, RuntimeError, AttributeError):
+                continue
+            payload["recovery_authorizations"].append(message.to_dict())
         return payload
 
     @service_operation(new_work=True)
@@ -1415,6 +1431,8 @@ class ServiceMaintenanceInterface:
                               and m.evidence_type == "administrator_decision"), None)
         obligation = command.payload.get("obligation")
         if (authorization is None or authorization.payload.get("decision") != "resume"
+                or ("administrator_id" in command.payload
+                    and command.payload["administrator_id"] != authorization.payload.get("administrator_id"))
                 or authorization.payload.get("target") != self.participant.to_dict()
                 or not isinstance(obligation, dict) or not obligation
                 or authorization.payload["details"].get("operation") != command.command_type

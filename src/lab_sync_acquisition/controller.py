@@ -211,10 +211,12 @@ class Controller:
         self, *, communication: NatsControllerCommunication, result_window_s: float,
         operator_authorized: bool, reason: str | None = None,
         storage_participant: RuntimeParticipant | None = None,
+        expected_session_id: str | None = None,
     ) -> ControllerCommandResult:
         """Explicit forced closeout through the launched owners, never Normal Stop."""
         return await self._close_session_remote(communication, storage_participant,
-            result_window_s, reason, kill=True, operator_authorized=operator_authorized)
+            result_window_s, reason, kill=True, operator_authorized=operator_authorized,
+            expected_session_id=expected_session_id)
 
     @service_operation()
     @_session_command
@@ -3076,7 +3078,7 @@ class Controller:
                 self._browser_generation = 0
             identity = (client_id, context["browser_id"])
             read_only = operation in {"read_controller_state", "read_operation_outcome",
-                "read_session_configuration", "get_node_inventory", "read_storage_sessions", "read_storage_session"}
+                "read_session_configuration", "get_node_inventory", "read_storage_sessions", "read_storage_session", "read_service_status", "read_synchronization_status"}
             if operation in {"take_browser_control", "view_only"}:
                 if context["instance_id"] != instance_id:
                     raise ValueError("Read current Controller identity before selecting control")
@@ -3104,6 +3106,12 @@ class Controller:
             "configuration": session.configuration.to_dict() if session else None,
             "session_lifecycle": session.transition_history if session else (),
             "experiments": session.experiment_descriptors if session else (),
+            "timing": [m.to_dict() for m in self._controller_action_decision_evidence
+                       if session and m.session_id == session.session_id
+                       and isinstance(m.payload.get("interpretation"), dict)
+                       and m.payload["interpretation"].get("evidence_type") == "timing_quality_interpretation"],
+            "closeout": {"cleanup_confirmed": self._runtime_cleanup_confirmed,
+                         "preservation": self._finalization_confirmation},
         }))
 
     @service_operation()
