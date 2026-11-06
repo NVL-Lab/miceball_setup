@@ -525,8 +525,11 @@ reconnection requirements. GUI Integration Unit 1 implements the bounded backend
 Controller-enforced browser grants and authoritative Session/operation readback;
 the presentation-preservation correction reconnects the original shared workspaces
 and controls while isolating demonstration execution and unavailable integrations;
-independent ICC validation and Codex audit remain pending. See the
-[implementation interfaces and developer evidence](code_map.md#gui-integration-unit-1-implementation-independent-validationaudit-pending).
+Unit 1 is CLOSED within the accepted software scope after prior manual GUI checks
+and independent full Codex audit PASS at
+`83ee000f885744e0486b5873acde5625a0d5b0d6`. See the
+[closure evidence and deployment limitations](validated_workflows.md#gui-integration-unit-1---software-scope-closure)
+and [implementation interfaces](code_map.md#gui-integration-unit-1).
 Scientific visualization/result delivery, Q031/Q032 and other GUI units remain
 outside this implementation; Q029 is not closed. The earlier reports below retain
 their historical validation status rather than overriding this bounded update.
@@ -669,8 +672,10 @@ streaming, and a generic workflow engine remain outside the initial accepted sco
 
 ## Q031: How is GUI service-status freshness established?
 
-**Status:** OPEN - Decisions 414 and 425 accept refresh/freshness and offline
-inventory visibility; detailed status/readback implementation remains pending.
+**Status:** OPEN for implementation and validation; architecture RESOLVED by
+[Decision 441](architecture_decisions.md#decision-441-gui-service-status-freshness-reuses-authoritative-readiness-evidence-without-new-monitoring-authority),
+supplementing Decisions 284, 328, 414 and 425. Unit 1 remains CLOSED within its
+accepted software scope; Unit 2 is not implemented, validated or audited here.
 
 Installed membership remains visible even offline, using node-owned declarations
 without a GUI registry. Controller confirms launch readiness independently;
@@ -678,16 +683,14 @@ missing communication means unknown availability, not proven hardware failure.
 Controller reserves whole nodes; device selection/Experiment participation does
 not authorize device-level cross-Session reservation. See Decision 425.
 
-- Which existing readiness queries and announcements supply each configured
-  service's current or last-known status and confirmation timestamp?
-- What freshness, timeout and invalid-response rules distinguish confirmed
-  availability, stale status, unknown availability and confirmed problems?
-- How do configurable periodic refresh (default 10 seconds) and prompt incoming
-  updates reconcile without stale results replacing newer authoritative reports?
-
-Preserve Decisions 284/328. Announcements alone do not establish proactive
-disappearance detection. No framework heartbeat, registry, monitoring service or
-guaranteed detection latency is selected. Q030 retains presentation choices.
+Remaining work is to connect existing service-owned readiness reports, dependency
+checks and Controller-authoritative information to GUI refresh/readback, using
+existing correlation and ordering. Decision 441 defines current confirmation,
+unknown availability after failed/timed-out/invalid checks, historical last-known
+reports and protection against older responses replacing newer observations.
+Implement and independently validate these contracts without a new monitoring
+mechanism; Q030 retains presentation choices. No guaranteed disappearance-detection
+latency or automatic recovery is introduced.
 
 ## Q032: How are GUI operational warnings delivered, associated and retrieved?
 

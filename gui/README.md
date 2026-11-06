@@ -5,7 +5,14 @@ Setup information, a Protocol Editor, and six primary sections and contextual Pa
 in the browser. Launch Session and other operational-looking controls do not
 start or contact scientific framework services or execute scientific algorithms.
 
-## Connected backend (Integration Unit 1; independent validation pending)
+## Connected backend (Integration Unit 1)
+
+**Status:** CLOSED within the accepted software scope at audited commit
+`83ee000f885744e0486b5873acde5625a0d5b0d6`. Independent full audit PASS,
+with no confirmed P0-P3 findings. See the
+[closure evidence and limitations](../docs/validated_workflows.md#gui-integration-unit-1---software-scope-closure).
+Developer checks described below remain distinct from prior manual GUI checks
+and independent audit evidence; closure does not certify hardware or deployment.
 
 Disabled buttons share muted, readable colors and a not-allowed cursor in both
 themes, including pending requests, View Only controls and missing prerequisites.
@@ -89,6 +96,9 @@ is unchanged. Inventory refresh immediately shows pending work, admits one reque
 at a time, and restores controls on completion or connection loss. Confirmed
 inventory is not service readiness; failed, pending or superseded-owner results
 remain unconfirmed and never trigger automatic retry.
+Decision 441 resolves the Q031 architecture for future live Services freshness;
+see [Q031 tracking](../docs/open_questions.md#q031-how-is-gui-service-status-freshness-established).
+Its implementation and validation remain pending; Unit 1 closure is unchanged.
 Application protocol definitions not present in page memory cannot be reconstructed
 from the framework's name-only protocol association. Unverified device-to-node
 associations remain unavailable until actual inventory establishes a unique match.
@@ -113,13 +123,13 @@ environment variables. It renders the production GUI/backend shell on disposable
 web servers with controlled WebSocket responses for pending, failure, disconnect
 and stale-owner cases; it does not establish live transport behavior. It also
 compares disconnected Services pixels and interactions with committed HEAD.
-This correction remains pending independent manual validation and a separate audit.
+The subsequent full audit and bounded closure are recorded in the closure reference above.
 The same rendered regression covers the bounded Unit 1 attribute-injection
 correction: Session participant and Validation attributes use the existing HTML
 escaping helper, preserving original identifiers in DOM data and outgoing requests.
 Framework-produced quoted/metacharacter identities and the audited event-handler
 payload are checked with controlled replies; no acquisition is executed by those
-cases. Independent validation and a new complete Unit 1 audit remain separate.
+cases. These developer cases are distinct from the subsequent independent full audit.
 The Session summary fallback correction is covered there as well: nonempty
 escaped parameter summaries take precedence over mode-specific empty messages,
 for working and executed configuration. The regression checks both modes and
@@ -138,8 +148,8 @@ and representative viewports. These cases use production presenters and
 adapter-produced inventory with controlled transport, not live scientific work.
 Raw interpolations confined to fixed demonstration notifications/Storage/Services
 fixtures and synthetic plots are not live-input safety guarantees for future
-integrations. Deferred interfaces remain disconnected. Unit 1 still requires
-independent validation and a separate complete audit; this is not closure.
+integrations. Deferred interfaces remain disconnected. The subsequent independent
+full audit covers the accepted Unit 1 scope, not future integrations.
 
 The coordinated configuration-integrity correction uses JSON-tuple internal
 coordinates and own-property-safe request dictionaries. Raw node/device/parameter
@@ -161,8 +171,8 @@ Malformed JSON-string edits remain invalid unsent drafts and cannot pass the
 shared Experiment submission guard, even if disabled-button presentation is
 bypassed. Accepted Session fields remain read-only. Additional configuration JSON
 already preserves escaped strings and retains its existing numeric checks.
-Disconnected demonstration controls are unchanged. This is developer
-implementation status, not independent validation, audit or Unit 1 closure.
+Disconnected demonstration controls are unchanged. These implementation details
+are covered by the subsequent bounded closure referenced above.
 
 Scientific-output checkboxes and edits compare the exact source node, source
 device and data-product tuple, not serialized record property order. Canonical

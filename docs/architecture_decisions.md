@@ -14157,6 +14157,40 @@ validation or documentation closure. Q022 remains OPEN.
 
 ---
 
+## Decision 441: GUI service-status freshness reuses authoritative readiness evidence without new monitoring authority
+
+**Status:** Accepted
+
+This records the explicitly user-accepted LLC resolution of Q031, supplementing
+Decisions 284, 328, 414 and 425. Historical decisions remain unchanged; their
+previous Q031 deferrals are resolved by this clarification, not by implementation.
+
+Service status comes from existing service-owned readiness reports, dependency
+checks and Controller-authoritative information. Installed membership comes from
+existing configuration/declarations, never a GUI registry, and remains distinct
+from current availability. Refresh is configurable, defaulting to 10 seconds;
+relevant incoming evidence may update the GUI sooner.
+
+A successful valid current readiness check confirms availability. Failed,
+timed-out or invalid checks leave current availability unknown; last-known reports
+remain historical, not current confirmation. Existing distinctions between
+technical readiness, reservation and operational availability remain authoritative.
+Only actual evidence establishes unreadiness or operational problems; communication
+loss alone does not. Older responses must not overwrite newer authoritative
+observations; reuse existing correlation and ordering.
+
+GUI status cannot override Controller admission, service ownership, maintenance
+restrictions or readiness decisions. No new heartbeat, registry, monitoring
+service, lifecycle states, persistence, automatic recovery or guaranteed
+disappearance-detection latency is authorized.
+
+**Implementation status:** Q031 architecture is resolved; implementation,
+independent validation and audit remain pending. Unit 1 remains CLOSED within its
+accepted software scope; this decision does not implement, validate or audit
+Unit 2 or close Q031's remaining implementation work.
+
+---
+
 # Accepted Architectural Principles
 
 The following principles summarize the accepted decisions so far.

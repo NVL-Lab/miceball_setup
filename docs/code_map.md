@@ -1,6 +1,11 @@
 # Code Map
 
-## GUI Integration Unit 1 (implementation; independent validation/audit pending)
+## GUI Integration Unit 1
+
+**Status:** CLOSED within accepted software scope; independent full audit PASS at
+`83ee000f885744e0486b5873acde5625a0d5b0d6`, no confirmed P0-P3 findings.
+See [closure evidence and limits](validated_workflows.md#gui-integration-unit-1---software-scope-closure).
+The developer results below retain their original evidence classification.
 
 - `communication._validate_browser_context(context)`: Validates the optional connection identity, Controller instance and grant generation independently of cooperative human identity.
 - `ExternalSessionLaunchRequest(..., browser_context=None)` and `ExternalControllerRequest(..., browser_context=None)`: Extend existing detached envelopes without changing legacy caller signatures; GUI mode requires connection context for every external request.
@@ -47,7 +52,8 @@ Existing CLI envelopes remain compatible; configuring `browser_control_required=
 closes the unscoped route for the selected GUI backend client. Q029/Q030 remain OPEN.
 New live state/outcome/inventory reads do not retain historical snapshot caches;
 mutating operation identity, pending tasks and outcomes reuse the existing cache.
-No independent validation, audit or milestone closure is claimed by this implementation.
+The following historical implementation report did not itself establish independent
+validation, audit or closure; the subsequent closure is referenced above.
 Presentation-preservation correction developer verification: 80 JavaScript tests,
 26 backend/shell methods and one rendered browser workflow PASS. The browser workflow
 captured 127 comparison screenshots at 1440x1000 and 800x900 in both themes, using

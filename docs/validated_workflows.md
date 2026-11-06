@@ -6580,6 +6580,74 @@ or audit were rerun during this documentation-only closure.
 
 ---
 
+# GUI Integration Unit 1 - Software Scope Closure
+
+**Status:** CLOSED within the accepted Unit 1 software scope by ICC-authorized
+documentation closure. Final independent full audit: PASS, no confirmed P0-P3
+findings, at `83ee000f885744e0486b5873acde5625a0d5b0d6`.
+Decisions 413, 422-426 and 431 retain their existing authority and scope.
+
+## Implemented and verified boundary
+
+The separately packaged GUI backend connects the original shared presenters to
+the authorized external Controller NATS interface. Controller owns browser grants,
+View Only/Take Over, lifecycle admission and authoritative Session/configuration
+readback. Backend-assigned browser identity, superseded-control fencing and
+Session/request correlation preserve that boundary. Admitted operations continue
+during disconnect/takeover; pending, uncertain and terminal outcomes remain
+distinct, with non-executing lookup and no automatic lifecycle replay.
+
+Original controls support inventory retrieval, explicit Session/Experiment
+configuration, launch/start, Experiment Stop/expiry readback, Normal Session Stop,
+release and reuse. Monitoring selects the active or latest canonically started
+Experiment, including completed work after reconnect or fresh observation;
+read-only executed values remain separate from preparation. Exact output identity,
+string fidelity, numeric refusal and escaped rendering preserve accepted values.
+Inventory confirmation is not readiness. Connected Services displays unknown or
+unavailable information; the disconnected demonstration remains separate.
+
+## Evidence and correction history
+
+- **Developer verification:** latest string-fidelity report recorded 66 passing
+  tests, including production-browser checks. Earlier implementation counts in
+  the code map and GUI README remain historical developer evidence, not independent
+  validation or audit results.
+- **Prior independent manual GUI checks:** reported through ICC before the
+  Services/inventory and presentation-preservation corrections. No new manual
+  validation count or hardware pass is inferred from those reports.
+- **Final independent full audit:** 215 numerical/string-codec/identity checks
+  (including 176 numeric cases); 13 production-browser scenarios; 351 real-NATS
+  checks across 17 workflow boundaries, including polling/correlation assertions;
+  12 additional browser scenarios; and four selected existing regression methods,
+  all PASS. Security probes included nine inert bound-injection payloads. Browser
+  checks covered both themes at 1440x1000 and 800x900, with 127 comparison screenshots
+  and representative visual inspection. Controlled browser transport checks are
+  distinct from real-NATS workflows; existing regression methods supplement, not
+  replace, independently constructed probes.
+
+Earlier audit FAIL results are not retroactive passes. Corrections addressed
+device-attribute injection, Session-summary fallback precedence, broader rendering
+safety, configuration/key integrity, numeric fidelity, scientific-output identity
+and deselection, completed-Experiment reconnect selection, and multiline/control-
+character string representation. The final full audit independently exercised
+these boundaries and confirmed no remaining P0-P3 findings within Unit 1 scope.
+
+## Limitations and remaining work
+
+Audit workflows used simulated devices, disposable disk-backed owners and an
+isolated local broker. Controller/backend reconstruction is not physical process-
+crash or power-loss validation. No Jetson/hardware, cross-machine deployment,
+physical failure recovery, exhaustive concurrency or exhaustive security proof is
+claimed. Controlled transport scenarios do not prove live connectivity.
+
+Scientific visualization, Analysis/Validation integration, Storage GUI integration,
+live Services readiness/administration/freshness, notifications and other later-
+unit functionality remain unavailable/deferred. Q029/Q030 and related broader
+questions remain OPEN; no G5 or broader GUI/deployment milestone is closed.
+This documentation closure reran no implementation tests, manual validation or audit.
+
+---
+
 # Future Workflows
 
 The following workflows are expected to be added as the framework evolves.

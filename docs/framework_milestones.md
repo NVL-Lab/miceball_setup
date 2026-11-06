@@ -2053,6 +2053,22 @@ tests and 137 relevant regressions passed; full discovery ran 465 tests with
 458 passed, zero failures, and seven optional rendering skips. These are local
 automated results, not independent manual validation or audit evidence.
 
+## GUI Integration Unit 1 - Completed Software Scope
+
+**Status:** CLOSED within accepted Unit 1 software scope. Independent full audit
+PASS, no confirmed P0-P3 findings, at
+`83ee000f885744e0486b5873acde5625a0d5b0d6`.
+The existing GUI now uses Controller-enforced browser control, authoritative
+Session/Experiment configuration and lifecycle readback, and non-replaying outcome
+reconciliation while preserving the original presenters and disconnected demo.
+See the [authoritative closure record](validated_workflows.md#gui-integration-unit-1---software-scope-closure)
+for distinct developer/manual/audit evidence, corrected audit findings and limits.
+
+Unit 1 closure does not close Q029/Q030, G5, broader GUI integration or deployment.
+Jetson/hardware, cross-machine, physical crash/power-loss and exhaustive concurrency
+validation remain outstanding; later-unit functionality remains deferred.
+No new validation or audit was performed during documentation closure.
+
 Planned future milestones include:
 
 - First Jetson CSI camera

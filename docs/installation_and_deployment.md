@@ -1171,7 +1171,7 @@ the new control/state/outcome/inventory operations. The default false retains th
 existing non-GUI testing-client contract; it is not a GUI bypass route.
 
 Install the core and separate `gui/` project, then run the explicitly configured
-`miceball-gui` entry point; see [connected GUI setup](../gui/README.md#connected-backend-integration-unit-1-independent-validation-pending)
+`miceball-gui` entry point; see [connected GUI setup](../gui/README.md#connected-backend-integration-unit-1)
 for arguments, configuration input and limitations. One backend NATS client binds
 server-assigned WebSocket identities; Controller enforces View Only/Take Over.
 Reconnection performs state/outcome reads, never lifecycle replay. Backend restart

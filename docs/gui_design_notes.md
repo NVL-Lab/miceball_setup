@@ -18,8 +18,11 @@ mode suppresses fixture initialization and simulated execution, binds existing
 controls to the same backend and distinguishes local preparation from accepted
 read-only values. Analysis, Storage, Services and scientific output surfaces remain
 present with explicitly unavailable operational integration, not fictional outcomes.
-See [connected setup and scope](../gui/README.md#connected-backend-integration-unit-1-independent-validation-pending).
-This is developer implementation status, not independent validation, audit or closure.
+See [connected setup and scope](../gui/README.md#connected-backend-integration-unit-1).
+Unit 1 is CLOSED within its accepted software scope after independent full audit
+PASS at `83ee000f885744e0486b5873acde5625a0d5b0d6`; see the
+[evidence and remaining limits](validated_workflows.md#gui-integration-unit-1---software-scope-closure).
+Later-unit functionality and hardware/cross-machine deployment remain deferred.
 
 Slice 6, as corrected by the project owner, adds read-only availability
 presentation for the four accepted operation categories. Scientific Validation
@@ -707,10 +710,11 @@ Experiment devices. Services uses the same six-tab shell and light/dark styling.
 
 ### Accepted functional direction (integration remains pending)
 
-**Status:** Accepted functional requirements in Decisions 414-418, 423 and 425,
+**Status:** Accepted functional requirements in Decisions 414-418, 423, 425 and 441,
 with layout qualified by Decision 431, not implemented
 or validated GUI functionality. Detailed widgets, layouts and technical contracts
-remain unresolved under Q030-Q033.
+remain implementation work under Q030-Q033. Q031's architectural freshness
+contract is resolved by Decision 441; implementation and validation are pending.
 
 A permanently accessible **Services tab** shows all configured framework services
 for inspection, startup guidance and existing administrative operations. This
@@ -746,8 +750,14 @@ Distinguish current confirmation, stale/last-known reports, unknown availability
 and confirmed problems. Do not keep a disappeared service labeled currently
 confirmed available when checks can no longer establish availability. Decisions
 284/328 remain authoritative; announcements alone do not implement proactive
-disappearance detection. Freshness, queries, timeouts and announcement contracts
-remain open in Q031. No heartbeat, registry, monitoring service or guaranteed
+disappearance detection. Decision 441 resolves Q031's freshness contract: use
+existing authoritative readiness/dependency evidence, keep failed/timed-out/invalid
+checks unknown and last-known reports historical, and prevent older replies from
+replacing newer observations through existing correlation/ordering. Communication
+loss alone does not establish unreadiness or a problem. GUI status cannot override
+Controller admission, maintenance restrictions or service-owned readiness.
+Implementation remains pending. No heartbeat, registry, monitoring service,
+additional persistence, lifecycle states, automatic recovery or guaranteed
 detection latency is authorized.
 
 ### Shutdown, authorization, and outstanding obligations
