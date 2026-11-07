@@ -7,6 +7,37 @@ const connected = document.documentElement?.dataset?.runtime === 'connected';
 const model = createServicesDemo(connected);
 export const servicesAdministrator = () => model.administrator;
 export const serviceActions = {};
+export function showBlockedServiceStop(service) {
+  if (administrativePreview.open) return;
+  authorizeMaintenance('blocked_stop', service);
+}
+
+function authorizeMaintenance(operation, service) {
+  if (!connected || !model.administrator || !serviceActions.canControl?.()) return;
+  const continuation = ['blocked_stop', 'kill_service', 'cancel_service'].includes(operation);
+  const attemptId = continuation ? service?.attempt?.stop_attempt_id : null;
+  const instanceId = service?.details?.operational_instance_id;
+  if (continuation && (service?.attempt?.outcome !== 'blocked' || !attemptId)) return;
+  administrativePreview.innerHTML = `<h2 id="admin-preview-title">${operation === 'blocked_stop' ? 'Stop blocked — explicit choice required' : `Authorize ${escape(operation)}`}</h2><p>${escape(service ? `${service.name} / ${service.computer}` : 'Whole configured framework')}</p>${continuation ? `<p>Stop attempt: ${escape(attemptId)}</p><pre>${escape(JSON.stringify(service.attempt, null, 2))}</pre>` : ''}${operation === 'blocked_stop' ? '<label>Continuation<select data-live-choice><option value="cancel_service">Cancel this Stop attempt</option><option value="kill_service">Explicitly authorize maintenance Kill</option></select></label>' : ''}<p>This does not authorize other targets. Force may lose unpreserved evidence and leave cleanup obligations. Timeout is not completion or permission to Kill. Closing this dialog sends no command.</p><label>Administrator name<input data-live-administrator></label><label><input type="checkbox" data-live-authorized> I explicitly authorize this exact operation and target.</label><div class="catalog-dialog__actions"><button type="button" data-admin-close>Close without action</button><button type="button" data-live-confirm disabled>Confirm operation</button></div>`;
+  const name = administrativePreview.querySelector('[data-live-administrator]'), check = administrativePreview.querySelector('[data-live-authorized]'), submit = administrativePreview.querySelector('[data-live-confirm]');
+  administrativePreview.oninput = () => { submit.disabled = !name.value.trim() || !check.checked; };
+  const choice = administrativePreview.querySelector('[data-live-choice]');
+  if (choice) choice.onchange = () => { check.checked = false; submit.disabled = true; };
+  submit.onclick = () => {
+    if (!check.checked || !name.value.trim() || !model.administrator || !serviceActions.canControl?.()) return;
+    const current = service && model.services.find(item => item.id === service.id);
+    if (continuation && (current?.attempt?.outcome !== 'blocked' || current.attempt.stop_attempt_id !== attemptId
+        || current.details?.operational_instance_id !== instanceId)) {
+      administrativePreview.close();
+      message = 'Stop attempt changed; no continuation sent. Refresh the owner report.';
+      renderServices(); return;
+    }
+    const selected = choice ? choice.value : operation;
+    administrativePreview.close();
+    serviceActions.maintain(selected, current || service, name.value);
+  };
+  administrativePreview.showModal();
+}
 export function updateServices(services, notice = '') {
   model.services = services;
   refreshNotice = notice;
@@ -200,11 +231,7 @@ panel.addEventListener('click', event => {
     if (operation && model.administrator && serviceActions.canControl?.()) {
       const id = button.dataset.stopService || button.dataset.liveKill || button.dataset.liveCancel;
       const service = model.services.find(s => s.id === id);
-      administrativePreview.innerHTML = `<h2 id="admin-preview-title">Authorize ${escape(operation)}</h2><p>${escape(service ? `${service.name} / ${service.computer}` : 'Whole configured framework')}</p><p>This does not authorize other targets. Force may lose unpreserved evidence and leave cleanup obligations. Timeout is not completion or permission to Kill.</p><label>Administrator name<input data-live-administrator></label><label><input type="checkbox" data-live-authorized> I explicitly authorize this exact operation and target.</label><div class="catalog-dialog__actions"><button type="button" data-admin-close>Cancel</button><button type="button" data-live-confirm disabled>Confirm operation</button></div>`;
-      const name = administrativePreview.querySelector('[data-live-administrator]'), check = administrativePreview.querySelector('[data-live-authorized]'), submit = administrativePreview.querySelector('[data-live-confirm]');
-      administrativePreview.oninput = () => { submit.disabled = !name.value.trim() || !check.checked; };
-      submit.onclick = () => { if (check.checked && name.value.trim() && model.administrator && serviceActions.canControl?.()) { administrativePreview.close(); serviceActions.maintain(operation, service, name.value); } };
-      administrativePreview.showModal();
+      authorizeMaintenance(operation, service);
     }
     return;
   }

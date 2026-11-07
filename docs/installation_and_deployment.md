@@ -705,6 +705,24 @@ Choose exactly one shared-pair dependency mode:
 - Genuinely isolated pair: `no_operational_dependents: true`, without that list
   (the shared authority `result_window_s` remains required). Never declare isolation falsely.
 
+[Decision 442](architecture_decisions.md#decision-442-operational-dependency-evidence-and-explicit-terminal-maintenance-choices-preserve-retirement-safety)
+distinguishes configured AcquisitionNode membership from an established operational
+dependency. A never-registered node need not start for shutdown. Registration-
+history authority is established by existing applicable
+startup, reconstruction, integrity, historical verification and preservation
+checks, as clarified by the Decision 442 supplement. Genuine first initialization
+permits initially empty history under the existing initialization contract; offline
+status or an absent in-memory instance alone is insufficient. Actual unresolved
+dependencies remain blocking and fully resolved dependencies must not remain
+blocking under existing confirmation requirements. Unverified history fails
+closed; a newly empty journal or successful preservation alone cannot override
+detected recovery/historical problems. Undetectable catastrophic history loss
+remains unresolved under Q022, outside this correction; no new persistence or
+public interface is authorized. The working-tree correction uses verified history
+instead of treating missing confirmation alone as a node dependency; independent
+manual validation and audit remain pending. Do not remove actual
+dependents, declare false isolation or clear history to force retirement.
+
 Keep node ID, Controller known-node registration, storage endpoint key and
 dependent identity consistent. Device/product IDs are separate. Do not start
 duplicate service identities. Explicit `known_nodes` may be empty; it does not
@@ -762,9 +780,27 @@ supervisor, broker management or Session/Experiment operator CLI is supplied.
 ### Maintenance Stop, Cancel And Kill
 
 Ctrl+C in the service terminal requests local maintenance Stop with the OS username.
-A blocked local Stop automatically Cancels its attempt and keeps running.
-Failed/unconfirmed Stop also retains the process. Repeated interrupts never
-authorize Kill. Interrupted startup is joined before maintenance.
+The historical W061 implementation automatically Cancelled a blocked local attempt
+and kept running. The working-tree correction implements the accepted
+[Decision 442](architecture_decisions.md#decision-442-operational-dependency-evidence-and-explicit-terminal-maintenance-choices-preserve-retirement-safety)
+replacement below; independent manual validation and audit remain pending:
+
+- An interactive terminal presents the actual blocked attempt, blockers and
+  obligations, offering K to explicitly authorize existing Kill for that exact
+  attempt, or C to invoke existing Cancel.
+- Paired shutdown retains StorageManager preparation around Ingestor retirement.
+  Blocked preparation offers explicit cancellation, not premature StorageManager
+  retirement. Cancelling does not undo cleanup already performed.
+- With unavailable input, EOF or a non-interactive terminal, neither Kill nor
+  Cancel is automatic. Retain the exact blocked attempt and obligations, report
+  existing administrative alternatives and keep maintenance communication available.
+  Input unavailability does not permit process exit.
+
+Kill is not OS-level forced termination. Failed/unconfirmed Stop retains the
+process; repeated interrupts never authorize Kill. Interrupted startup is joined
+before maintenance. Terminal input is cancellable and does not block maintenance
+communication. Current developer testing does not establish deployed terminal or
+cross-machine validation.
 
 From a separate activated terminal:
 

@@ -151,14 +151,29 @@ async def launch_independent_service(*, role, servers, service_id, ingestor_id, 
         close_resources=cleaned, dependency_participants=dependencies,
         evidence_publisher=boundary.publish_evidence, framework_communication=communication,
         framework_ingestor=ingestor, framework_storage=storage)
-    launcher = ServiceLauncher((maintenance,), (boundary,), report=report)
+    startup_interface = NatsServiceMaintenanceCommunication(boundary, maintenance,
+        startup_participants=dependencies if role == "controller" else None,
+        startup_result_window_s=result_window_s if role == "controller" else None)
+    admitted = False
+
+    async def prepare_maintenance():
+        nonlocal admitted
+        # Never install an unclaimed Controller candidate beside the current owner.
+        if role == "controller" and boundary.controller_claim_owner != maintenance.operational_instance_id:
+            raise RuntimeError("Maintenance bootstrap requires this Controller's confirmed claim")
+        await boundary.ensure_streams()
+        admitted = True
+        await (startup_interface if runtime is None else runtime).subscribe_commands()
+
+    launcher = ServiceLauncher((maintenance,), (boundary,), report=report,
+                               prepare_maintenance=prepare_maintenance)
     if external_client_id is not None:
         external = NatsExternalSessionLaunchReceiver(boundary, owner, communication=communication,
             maintenance=maintenance, client_id=external_client_id, participants=dependencies,
             result_window_s=result_window_s, browser_control_required=browser_control_required)
 
     async def startup():
-        admitted = False
+        nonlocal admitted
         try:
             await boundary.connect()
             if role == "controller":
@@ -166,19 +181,12 @@ async def launch_independent_service(*, role, servers, service_id, ingestor_id, 
                     account=controller_claim_account, bucket=controller_claim_bucket,
                     key=controller_claim_key, timeout_s=result_window_s)
                 admitted = True
-            await boundary.ensure_streams()
+            await prepare_maintenance()
             admitted = True
-            startup_interface = NatsServiceMaintenanceCommunication(boundary, maintenance,
-                startup_participants=dependencies if role == "controller" else None,
-                startup_result_window_s=result_window_s if role == "controller" else None)
             # Existing handlers remain available for maintenance/instance readback;
             # service-owned new-work admission stays closed until registration.
             if isinstance(runtime, NatsAcquisitionNodeCommunication):
                 await runtime.start_acquisition_execution()
-            if runtime is None:
-                await startup_interface.subscribe_commands()
-            else:
-                await runtime.subscribe_commands()
             await maintenance.register_ingestor_dependency()
             status = await startup_interface.start()
             if external is not None:

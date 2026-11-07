@@ -548,6 +548,14 @@ verification retains blockers. Interrupted-write repair retains its separate
 authorization requirements. See W068 in validated_workflows.md for the separate
 83-test implementation run, 41-test/two-probe audit and verification limitations.
 
+Decision 442's accepted registration-evidence supplement reuses existing applicable
+initialization/reconstruction and verification checks for history authority,
+including permitted initially empty history at genuine first initialization.
+Detectable failures remain fail-closed; undetectable catastrophic history loss
+remains unresolved under Q022. The working-tree configured-only dependency
+correction is implemented, with independent validation/audit pending; no new
+external interface is introduced.
+
 ## Manual Service CLI (Decisions 383-388; W061-W063 Closed)
 
 The common installed `lab-sync-acquisition` entry point exposes five logical roles.
@@ -564,10 +572,13 @@ CLOSED after independent IPython validation (22/22) and focused re-audit PASS
 following two P2 corrections. See validated_workflows.md for the audit history
 and sandbox/runtime limitations; full five-role deployment remains unvalidated.
 
-The accepted complete CLI scope reuses service initialization, NATS readiness and existing
+The existing validated CLI implementation reuses service initialization, NATS readiness and existing
 maintenance Stop/authorized Kill/Cancel, preserving Decision 376's paired process.
-Ctrl+C requests local Stop, automatically Cancels a blocked attempt and keeps
-running; it never offers interactive Kill or forced repeated-Ctrl+C exit. Separate
+Historical W061 automatically Cancelled blocked local Stop. The working-tree
+Decision 442 correction offers explicit K/C, retains attempts on unavailable input
+and uses verified registration history for AcquisitionNode dependency assessment.
+Independent validation/audit remain pending. Forced repeated-Ctrl+C exit remains
+prohibited. Separate
 terminals address services directly without Controller. Confirmed maintenance and
 required final command-result handling precede process exit. Existing identities,
 temporary requesters, local OS administrator name and explicit remote administrator
@@ -584,10 +595,23 @@ installation_and_deployment.md and Decisions 383-388.
 
 ## src/lab_sync_acquisition/service_launcher.py
 
-- ServiceLauncher(maintenance, boundaries, *, report=print): Hosts explicitly composed maintenance owners, accepting an independent owner or the required paired Ingestor/StorageManager process without creating service owners.
+- service_startup.launch_independent_service.prepare_maintenance(): Reuses the retained owner command handler after stream/subscription interruption, requiring the exact Controller claim before installing Controller handlers and never rerunning scientific startup.
+- services-view.showBlockedServiceStop(service): Opens the existing connected authorization dialog only for the confirmed exact blocked Stop, without authorizing an action on presentation or dismissal.
+- services-view.authorizeMaintenance(operation, service): Shares row-button and blocked-dialog authorization, rechecking current control, owner instance and attempt identity before existing maintenance dispatch.
+- ServiceLauncherTests.wait_for_exit(launcher): Waits for public exit eligibility after asynchronous confirmed retirement delivery rather than treating callback return as completion.
+- ExternalDependentMaintenanceTests.backend(participants=None, *, result_window_s=0.02): Composes the existing disk-backed paired maintenance fixture with explicit participant/readback timing for public dependency and concurrency workflows.
+- ExternalDependentRegistrationTransportTests.test_retained_controller_startup_recovers_maintenance_before_exact_claim_release(): Exercises real JetStream Controller/SynchronizationManager interruption at streams, SDK subscription creation and registration, then explicit local retirement, dependent confirmation and exact Controller claim release where applicable.
+- ExternalDependentMaintenanceTests: Adds configured-unused/partially registered node, ordinary restart, detected history damage, pending new registration and registration-versus-Stop coverage through existing public maintenance interfaces.
+- ServiceLauncherTests: Adds exact K/C, EOF/non-interactive retention, paired preparation/cancellation/Kill and remote-resolution-during-input coverage without live operator input.
+- ServiceStartupTests.test_partial_command_subscriptions_resume_without_duplicate_handlers(): Verifies resumable partial command installation with correlated operational-instance readback and no duplicate active handlers.
+
+- ServiceLauncher(maintenance, boundaries, *, report=print, prepare_maintenance=None): Hosts existing maintenance owners with an optional async local maintenance-bootstrap callback, without acquiring authority or creating service owners.
 - ServiceLauncher.exit_ready: Confirms every hosted owner has retired and its terminal maintenance result has been handled.
 - ServiceLauncher.request_interrupt(): Queues local Stop without cancellation, Kill authorization or forced exit, including repeated Ctrl+C.
-- ServiceLauncher.stop_locally(administrator_id): Executes existing Stop/Cancel contracts, using prepared StorageManager retirement around Ingestor stop for the shared pair.
+- ServiceLauncher.stop_locally(administrator_id): Serializes local maintenance bootstrap and explicit Stop/Kill/Cancel continuation with retained paired attempt identity and coalesced interrupts.
+- ServiceLauncher._stop_locally(administrator_id): Executes the existing prepared-retirement plan, retaining exact blocked context on EOF or uncertainty instead of replaying Stop or implicitly cancelling preparation.
+- ServiceLauncher._choose_blocked_attempt(owner, payload, *, preparation=False): Presents the exact blocked attempt and awaits an explicit terminal choice while detecting remote resolution and cancelling owned input tasks.
+- _read_terminal_choice(): Uses nonblocking Windows console or POSIX terminal polling for cancellable K/C input, returning no authorization on non-interactive input or EOF.
 - ServiceLauncher.run(*, startup=None): Installs SIGINT protection before invoking an optional async startup callable, awaits interrupted initialization before local maintenance, retains cancelled/blocked/failed/unconfirmed processes, and drains communication only after confirmed retirement and result handling.
 - ServiceLauncher._feedback: Reports existing maintenance outcomes, identities, blockers and outstanding obligations without creating lifecycle evidence or outcome states.
 - ServiceLauncher._remote_handled: Validates request/result correlation using the exact published-and-acknowledged result and counts only confirmed retirement toward exit, never a cached success substituted by command ID.
@@ -2061,7 +2085,7 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 - _unsubscribe_session_subscription(subscription): Reconciles locally closed SDK subscriptions through UNSUB, connected transport flush and task completion before Controller release or Ingestor initialization-abort removes its owned handle; errors and cancellation retain the obligation.
 - NatsCommunicationBoundary.connect(): Preserves initial handshake failure/cancellation cleanup, then enables Decision 423 SDK-managed runtime reconnection with unlimited attempts and the existing SDK reconnect wait, retaining the same client, JetStream context and subscription handlers without lifecycle replay.
 - NatsCommunicationBoundary.close(): Disables further reconnection and joins one shielded SDK drain/close task through caller cancellations, using SDK close when disconnected or drain rejects reconnect admission; references retire only on successful cleanup and failures remain owned and unconfirmed.
-- NatsCommunicationBoundary._subscribe_command_results(subject, callback, **options): Acquires manual-ACK result subscriptions and accounts for exact SDK callback handles registered before construction fails, without closing the shared connection.
+- NatsCommunicationBoundary._subscribe_jetstream(subject, callback, **options): Shares manual-ACK subscription construction and exact SDK-local partial-installation cleanup between command results and participant command handlers.
 - NatsCommunicationBoundary._finish_partial_result_subscriptions(): Joins cancellation-protected partial-setup cleanup, removes local routing and callback tasks, and retains unresolved handles for retry.
 - NatsCommunicationBoundary.maintenance_command_handled(command, result): Optional synchronous lifetime observer receiving the exact request and actual result only after publication and delivery ACK; it does not imply requester receipt, execute maintenance or authorize operational retirement.
 - NatsControllerCommunication: Publishes unicast or issuer-fanned group commands, consumes and aggregates addressed per-target command results over an issuer-defined window, records missing results as unresolved, and independently presents HealthInterpretationEvidence without relaying evidence.
@@ -2105,7 +2129,7 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 - NatsStorageManagerCommunication._execute_saved_session_attempt(command, *, retained_result=None): Validates complete operation-scoped history and same-nonce identity before execution or reuse, rejecting disagreement with a retained successful closure before current archive reconfirmation.
 - NatsStorageManagerCommunication._reconfirm_archive_closure(command, result): Requires matching current closed-archive preservation before reconfirming a retained or historical successful closure through the owner.
 - NatsStorageManagerCommunication._read_saved_session_result(record, operation): Validates persisted result correlation, subject/body routing and collection-evidence or closed-summary identity before matching.
-- _subscribe_participant_commands(boundary, receive): Subscribes fresh-only to existing participant command subjects, notifying an installed maintenance lifetime observer only after exact result publication and delivery ACK complete.
+- _subscribe_participant_commands(boundary, receive): Resumes boundary-owned fresh-only command subscriptions without duplicate handlers, retaining asynchronous retirement delivery after exact result publication and delivery ACK.
 - _complete_maintenance_delivery(boundary, command, result): Retains the exact published/ACKed retirement in an owned, coalesced completion task so the command subscription can answer Ingestor readback; only confirmed completion notifies launcher exit gating, and close joins/cancels tasks without clearing unresolved deliveries.
 - NatsControllerCommunication.request_maintenance_readback(participant, operation, payload, result_window_s): Reuses existing Session-independent commands with fresh owner/operation-scoped nonce correlation, bounded waiting and temporary-subscription cleanup for dependent registration and confirmation.
 - _validate_owner_request(boundary, command): Validates target, requester, command, Session, connectivity, and transient reply correlation for the bounded owner operations.
@@ -2152,7 +2176,8 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 - ServiceMaintenanceInterface.register_ingestor_dependency(): Registers the deployed instance through fresh scoped NATS readback before unrelated operational admission.
 - ServiceMaintenanceInterface.deliver_dependency_release(command, result): Delivers exact authoritative retirement to Ingestor before launcher exit, with explicit retry retaining original command/result identity.
 - ServiceMaintenanceInterface.release_ingestor_dependency(framework_attempt_id): Confirms only a prepared Controller's final preserved coordinated-shutdown boundary, prohibiting further Ingestor-dependent work without claiming retirement.
-- ServiceMaintenanceInterface._restore_dependent_confirmations(): Reads existing journal records only when current StorageManager preservation confirms them, leaving unknown archive history blocked without repair.
+- ServiceMaintenanceInterface._restore_dependent_confirmations(): Returns verified ordered history or unconfirmed assessment using existing initial-empty/restart verification, preserving detected failures and pending publication uncertainty.
+- ServiceMaintenanceInterface._dependent_is_operational(participant): Distinguishes verified unused AcquisitionNodes from registered unresolved owners and exact preserved releases without treating configuration or instance absence alone as authority.
 - ServiceMaintenanceInterface._dependent_history(compiled, archived): Reconstructs dependent instances, confirmations, conflicts and ordered history from exact accepted and archived evidence, rejecting returns to superseded instances without changing live state.
 - ServiceMaintenanceInterface._require_dependent_instance_authority(participant, instance): Uses verified historical-prefix continuation to preserve late framework intake/audit before checking exact current archival history and rejecting superseded dependent identities.
 - ServiceMaintenanceInterface._validate_dependent_state(state, *, prior_registration=None): Validates dependent identities, confirmation envelopes, matching preserved Controller registration and exact preservation of release proof before recording or reconstructing authority.

@@ -8460,6 +8460,10 @@ Decisions 300 and 302's cleanup-confirmation and safe-reuse contracts remain.
 
 **Status:** Accepted
 
+**Subsequent clarification:** Decision 442 distinguishes configured AcquisitionNode
+membership from operational Ingestor dependencies and defines authoritative
+negative registration history. The historical contract below is preserved.
+
 Dependencies are explicit and directional, based on actual operational
 requirements. Controller must not infer dependencies merely from communication
 traffic or create reciprocal dependencies merely because services communicate.
@@ -11287,6 +11291,10 @@ dependency obligations.
 
 **Status:** Accepted
 
+**Partial supersession:** Decision 442 replaces only the automatic Cancel and
+no-interactive-Kill requirements below with explicit K/C and fail-closed unavailable-
+input handling. The historical text and W061 validation record remain unchanged.
+
 Ctrl+C invokes the running service's existing maintenance Stop locally. Confirmed
 completion permits normal exit subject to Decision 386. A blocked Stop triggers
 automatic Cancel; the launcher reports that outcome and keeps the process running.
@@ -11387,6 +11395,10 @@ Unsupported role launch paths and full deployment remain outside these closures.
 
 **Status:** Accepted
 
+**Subsequent clarification:** Decision 442 supplements dependency admission for
+configured AcquisitionNodes that never registered; it does not relax confirmation
+or preservation requirements for an actual unresolved dependent.
+
 This records the user-approved LLC clarification "External-Dependent Retirement
 Confirmation" for W068. It supplements Decisions 316, 324-326, 375-376 and
 383-388 without rewriting their historical requirements or changing service
@@ -11454,6 +11466,10 @@ W001-W067 remain CLOSED. Q006/Q018, Q024, Phase 16 and M015 remain OPEN.
 ## Decision 390: Ordinary framework archive continuation after restart
 
 **Status:** Accepted
+
+**Subsequent clarification:** Decision 442 permits intact, complete, authoritative
+negative registration history to establish that no AcquisitionNode dependency was
+created. Missing or unverified history retains the fail-closed requirements below.
 
 This records the user-approved LLC clarification for W068. It supplements
 Decisions 323, 376 and 389 while preserving the interrupted-write recovery
@@ -14188,6 +14204,102 @@ disappearance-detection latency is authorized.
 independent validation and audit remain pending. Unit 1 remains CLOSED within its
 accepted software scope; this decision does not implement, validate or audit
 Unit 2 or close Q031's remaining implementation work.
+
+---
+
+## Decision 442: Operational dependency evidence and explicit terminal maintenance choices preserve retirement safety
+
+**Status:** Accepted
+
+This records the explicitly user-accepted reliability clarifications. It narrowly
+supplements Decisions 316 and 389-390 and partially supersedes Decision 384 as
+specified below. Historical decisions, implementation reports and validation
+evidence remain intact; recording these requirements does not implement them.
+
+### Configured and operational AcquisitionNode dependencies
+
+Configuration alone does not create an operational dependency that blocks Ingestor
+retirement. A configured AcquisitionNode that never registered must not need to
+start or participate in shutdown. An actually registered dependent with unresolved
+obligations remains blocking even when offline. A registered dependent whose
+required obligations are fully resolved must not remain blocking, subject to the
+existing authoritative confirmation and preservation requirements.
+
+Absence of readiness, a running process or an in-memory instance is not proof of
+never having registered. Intact, complete, authoritative negative registration
+history may establish that no dependency was created. Missing, corrupt, incomplete,
+conflicting or otherwise unverified history remains fail-closed under Decisions
+389-390. This is not permission to clear persistent state or infer retirement from
+silence. Existing ownership, Session, maintenance, persistence and retirement
+requirements remain unchanged; reuse the existing evidence and registration
+mechanisms rather than introducing a registry or another lifecycle authority.
+
+### Accepted registration-evidence authority clarification
+
+This narrow supplement records the user's explicitly accepted final LLC
+clarification of the registration-history criterion above. Ingestor uses existing
+verified registration and release history to identify actual operational
+dependencies: configuration alone creates none; never-registered configured
+AcquisitionNodes do not block retirement; registered nodes with unresolved
+obligations remain blocking, including offline; authoritatively resolved and
+preserved obligations do not remain blocking.
+
+Existing applicable startup, reconstruction, integrity, historical verification
+and preservation checks establish whether retained registration history is
+authoritative. Genuine first initialization permits initially empty registration
+history under the existing initialization contract. Detectable missing, corrupt,
+incomplete, conflicting or unverified evidence remains fail-closed. A newly created
+empty journal or a successful preservation check alone cannot override detected
+recovery or historical verification problems.
+
+No additional persistence infrastructure, public interfaces or lifecycle mechanisms
+are authorized. The broader undetectable catastrophic-history-loss limitation
+remains unresolved under Q022 and outside this correction; the bounded correction
+does not require solving that limitation. Controller authority, maintenance,
+paired-service retirement and evidence-preservation contracts remain unchanged.
+This clarification resolves the bounded registration-evidence criterion, not the
+configured-only shutdown implementation defect or its pending verification.
+
+### Interactive terminal Stop, Kill and Cancel
+
+Ctrl+C requests existing local maintenance Stop. When Stop is blocked, the same
+interactive terminal presents the actual blocked attempt, blockers and obligations.
+K explicitly authorizes existing maintenance Kill for that same attempt; C invokes
+existing Cancel. Preserve exact attempt identity, authorization, evidence and final
+result requirements. Kill is not OS-level forced termination, and repeated Ctrl+C
+never authorizes Kill. This supersedes only Decision 384's automatic Cancel and
+no-interactive-Kill requirements, not its protection against forced process exit.
+
+### Unavailable input, EOF and non-interactive terminals
+
+Unavailable interactive input, EOF or a non-interactive terminal must cause neither
+automatic Kill nor automatic Cancel. Retain the exact blocked Stop attempt and its
+obligations, report the condition and existing administrative alternatives, and
+keep service communication available for existing maintenance operations. Input
+unavailability is not permission for OS-process exit. Reuse existing maintenance
+mechanisms; no new input subsystem, lifecycle state or maintenance authority is
+introduced.
+
+### Preserved boundaries and implementation status
+
+Decisions 385-386 continue to govern addressed administration and final-result/exit
+requirements. Decision 376's paired Ingestor/StorageManager ownership and existing
+progressive retirement and preservation contracts remain unchanged. Decision 436
+Controller exclusivity, exact-owner/revision claim release and manual crash-claim
+recovery are unchanged. No automatic escalation, takeover or replay is authorized.
+
+The separate retained retirement-delivery interface question remains unresolved:
+this decision creates no external GUI or terminal completion operation and does
+not substitute a new Stop/Kill/Cancel for exact retained-delivery completion.
+
+**Implementation status:** Following ICC review and authorization, the working tree
+implements verified-history-based AcquisitionNode dependency assessment, retained
+startup maintenance bootstrap/subscriptions, explicit terminal K/C with EOF attempt
+retention, reused GUI blocked-Stop authorization and distinct retirement/delivery/
+claim/exit diagnostics. Developer verification does not replace pending independent
+manual validation and audit. Existing W061/W062/W068 evidence describes its
+historical scope, not these amendments. Q022 and GUI Integration Unit 2 retain their
+existing open/pending scope; no deployment-readiness or closure claim is made.
 
 ---
 

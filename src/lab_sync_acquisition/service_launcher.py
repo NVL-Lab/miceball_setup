@@ -6,6 +6,7 @@ import argparse
 import asyncio
 import getpass
 import json
+import os
 from math import isfinite
 from pathlib import Path
 import signal
@@ -22,6 +23,27 @@ from lab_sync_acquisition.service_maintenance import ServiceMaintenanceInterface
 from lab_sync_acquisition.storage import PersistentStorageManager
 
 
+async def _read_terminal_choice():
+    """Read a local maintenance choice without a blocking executor/input thread."""
+    if not sys.stdin.isatty():
+        return None
+    while True:
+        if os.name == "nt":
+            import msvcrt
+            if msvcrt.kbhit():
+                character = msvcrt.getwch()
+                if character in {"\x00", "\xe0"}:
+                    msvcrt.getwch()
+                    continue
+                return None if character == "\x1a" else character.upper()
+        else:
+            import select
+            if select.select([sys.stdin], [], [], 0)[0]:
+                character = os.read(sys.stdin.fileno(), 1)
+                return character.decode("ascii", errors="replace").upper() if character else None
+        await asyncio.sleep(0.1)
+
+
 class ServiceLauncher:
     """Keep explicitly composed service owners alive until confirmed retirement.
 
@@ -29,7 +51,7 @@ class ServiceLauncher:
     pair. This class supplies no configuration, evidence authority or service owner.
     """
 
-    def __init__(self, maintenance, boundaries, *, report=print):
+    def __init__(self, maintenance, boundaries, *, report=print, prepare_maintenance=None):
         self.maintenance = tuple(maintenance)
         self.boundaries = tuple(boundaries)
         participants = [m.participant for m in self.maintenance]
@@ -52,6 +74,9 @@ class ServiceLauncher:
             if boundary.maintenance_command_handled is not None:
                 raise ValueError("Communication already has a process-lifetime observer")
         self._report = report
+        self._prepare_maintenance = prepare_maintenance
+        self._local_stop = None
+        self._local_stop_lock = asyncio.Lock()
         self._requester = uuid4().hex
         self._wake = asyncio.Event()
         self._interrupt = False
@@ -71,6 +96,13 @@ class ServiceLauncher:
             "blockers": attempt.get("blockers", []), "errors": attempt.get("failures", []),
             "remaining_obligations": attempt.get("remaining_obligations", []),
             "termination_confirmed": payload.get("termination_confirmed") is True,
+            "operational_retirement_confirmed": owner.terminated,
+            "dependency_confirmation_confirmed": (owner._dependency_release_delivered
+                if owner._dependent_delivery_required else None),
+            "final_result_handled": owner.participant in self._handled_retirements,
+            "controller_claim_released": (owner._controller_claim_boundary._controller_claim_released
+                if owner._controller_claim_boundary is not None else None),
+            "process_exit_confirmed": False,
             "operator_action": ("none" if result is not None and result.success
                 and payload.get("termination_confirmed") is True else
                 "Process retained; inspect blockers and unresolved obligations. Kill is never implicit."),
@@ -85,10 +117,10 @@ class ServiceLauncher:
                 or result.source_id != owner.participant.component_id or result.target_id != command.source_id):
             self._feedback(owner, command, error="Handled maintenance result identity mismatch")
             return
-        self._feedback(owner, command, result)
         if (result is not None and result.success and result.payload.get("outcome") == "completed"
                 and result.payload.get("termination_confirmed") is True and owner.terminated):
             self._handled_retirements.add(owner.participant)
+        self._feedback(owner, command, result)
         self._wake.set()
 
     @property
@@ -102,23 +134,74 @@ class ServiceLauncher:
         self._wake.set()
 
     async def stop_locally(self, administrator_id):
-        """Use existing maintenance Stop/Cancel and paired prepared-retirement order."""
+        """Continue explicit local Stop/Kill/Cancel with retained paired attempt identity."""
         if not isinstance(administrator_id, str) or not administrator_id.strip():
             raise ValueError("Local administrator identity is required")
-        attempt = uuid4().hex
-        pending = []
+        async with self._local_stop_lock:
+            if self._prepare_maintenance is not None:
+                try:
+                    await self._prepare_maintenance()
+                except Exception as error:
+                    self._report(f"Maintenance communication bootstrap unconfirmed: {error}; process and authority retained.")
+                    return False
+            try:
+                return await self._stop_locally(administrator_id)
+            finally:
+                # Signals arriving during this attempt are coalesced, not queued
+                # as a second Stop after an explicit Cancel or an EOF.
+                self._interrupt = False
+
+    async def _choose_blocked_attempt(self, owner, payload, *, preparation=False):
+        self._report(f"Blocked {owner.participant.component_type}/{owner.participant.component_id} "
+                     f"attempt {payload['stop_attempt_id']}: "
+                     + ("C cancels paired preparation; Kill cannot retire StorageManager before Ingestor."
+                        if preparation else "K explicitly authorizes maintenance Kill; C cancels this attempt.")
+                     + " On line-buffered terminals press Enter after the choice.")
+        while True:
+            reader = asyncio.create_task(_read_terminal_choice())
+            try:
+                while True:
+                    current = owner._attempt
+                    if (owner.terminated or current is None or current.get("outcome") != "blocked"
+                            or current.get("stop_attempt_id") != payload["stop_attempt_id"]):
+                        self._report("Blocked attempt changed through maintenance; no local continuation sent.")
+                        return None
+                    done, _ = await asyncio.wait((reader,), timeout=0.1)
+                    if done:
+                        choice = reader.result()
+                        break
+                if choice is None:
+                    self._report("Interactive input unavailable/EOF; exact blocked attempt and paired obligations retained. "
+                                 "Use existing addressed maintenance commands; no Kill or Cancel authorized.")
+                    return None
+                if choice == "C" or (choice == "K" and not preparation):
+                    return choice
+                self._report("No action authorized; choose C" + ("." if preparation else " or K."))
+            except (OSError, ValueError) as error:
+                self._report(f"Interactive input unavailable: {error}; blocked attempt retained; use addressed maintenance.")
+                return None
+            finally:
+                if not reader.done():
+                    reader.cancel()
+                await asyncio.gather(reader, return_exceptions=True)
+
+    async def _stop_locally(self, administrator_id):
+        if self._local_stop is None:
+            self._local_stop = {"attempt": uuid4().hex, "index": 0, "pending": [], "blocked": None}
+        context = self._local_stop
+        attempt, pending = context["attempt"], context["pending"]
 
         async def execute(owner, operation, payload):
             command = RuntimeCommandMessage(uuid4().hex, None, operation, self._requester,
                 owner.participant.component_id, {**payload, "administrator_id": administrator_id})
             try:
                 result = await owner.execute_command(command)
-                self._feedback(owner, command, result)
                 if (result.success and result.payload.get("outcome") == "completed"
                         and result.payload.get("termination_confirmed") is True and owner.terminated):
                     self._local_retirements[owner.participant] = (command, result)
                     await owner.complete_retirement(command, result)
                     self._handled_retirements.add(owner.participant)
+                self._feedback(owner, command, result)
                 return result
             except Exception as error:
                 self._feedback(owner, command, error=error)
@@ -132,7 +215,8 @@ class ServiceLauncher:
             plan = [(storage, "prepare_stop"), (intake, "stop"), (storage, "stop")]
         else:
             plan = [(self.maintenance[0], "stop")]
-        for owner, operation in plan:
+        while context["index"] < len(plan):
+            owner, operation = plan[context["index"]]
             if owner.terminated:
                 completion_error = None
                 boundary = next(b for b in self.boundaries if b.component_id == owner.participant.component_id
@@ -162,22 +246,38 @@ class ServiceLauncher:
                                                   ["Final maintenance command-result publication/handling"]),
                         "retained_results": [r.to_dict() for r in owner.command_results],
                         "operator_action": "Process retained; retry the original remote maintenance command."}, sort_keys=True))
+                context["index"] += 1
+                context["blocked"] = None
                 continue
             payload = {"stop_attempt_id": f"{attempt}-{owner.participant.component_type}"}
             if len(owners) == 2:
                 payload["framework_stop_attempt_id"] = attempt
-            result = await execute(owner, operation, payload)
+            result = context["blocked"]
+            if result is None:
+                result = await execute(owner, operation, payload)
+            if result is not None and result.payload.get("outcome") == "blocked":
+                context["blocked"] = result
+                choice = await self._choose_blocked_attempt(owner, payload, preparation=operation == "prepare_stop")
+                if choice is None:
+                    return False
+                if choice == "C":
+                    await execute(owner, "cancel", payload)
+                    for prepared_owner, prepared_payload in pending:
+                        if not prepared_owner.terminated and prepared_owner is not owner:
+                            await execute(prepared_owner, "cancel", prepared_payload)
+                    self._local_stop = None
+                    return False
+                result = await execute(owner, "kill", {**payload, "authorized": True})
             if result is not None and result.success:
                 if result.payload.get("prepared") is True:
                     pending.append((owner, payload))
+                context["index"] += 1
+                context["blocked"] = None
                 continue
-            if result is not None and result.payload.get("outcome") == "blocked":
-                await execute(owner, "cancel", payload)
-            for prepared_owner, prepared_payload in pending:
-                if not prepared_owner.terminated and prepared_owner is not owner:
-                    await execute(prepared_owner, "cancel", prepared_payload)
-            break
-        self._wake.set()
+            # Failed or uncertain execution is not permission to replay or discard
+            # the attempt. An explicit later action may finish retained delivery.
+            return False
+        self._local_stop = None
         return self.exit_ready
 
     async def run(self, *, startup=None):

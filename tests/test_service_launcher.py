@@ -18,6 +18,7 @@ from lab_sync_acquisition import (
 )
 from lab_sync_acquisition.service_launcher import ServiceLauncher, launch_storage_services, main
 from tests.test_session_launch import _Boundary, _Broker
+from tests.nats_server_fixture import acquire_test_controller_authority
 
 
 class LauncherCommandTests(unittest.TestCase):
@@ -65,6 +66,11 @@ class LauncherCommandTests(unittest.TestCase):
 
 
 class ServiceLauncherTests(unittest.IsolatedAsyncioTestCase):
+    async def wait_for_exit(self, launcher):
+        async with asyncio.timeout(2):
+            while not launcher.exit_ready:
+                await asyncio.sleep(0.01)
+
     async def finish_task(self, task, launcher):
         if not task.done():
             # Cancellation deliberately retains a live launcher. Terminate only
@@ -76,6 +82,10 @@ class ServiceLauncherTests(unittest.IsolatedAsyncioTestCase):
             await task
 
     def setUp(self):
+        terminal = patch("lab_sync_acquisition.service_launcher._read_terminal_choice", AsyncMock(return_value=None))
+        self.terminal_input = terminal
+        terminal.start()
+        self.addCleanup(terminal.stop)
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
@@ -106,13 +116,15 @@ class ServiceLauncherTests(unittest.IsolatedAsyncioTestCase):
         self.boundary.close.assert_awaited_once()
         self.assertEqual(json.loads(self.reports[-1])["outcome"], "completed")
 
-    async def test_blocked_stop_cancels_same_attempt_and_keeps_running(self):
+    async def test_explicit_cancel_ends_same_blocked_attempt_and_keeps_running(self):
+        await acquire_test_controller_authority(self, self.owner)
         self.assertTrue(self.controller.create_session(SessionConfig([], str(self.root), {},
             str(self.root), session_id="active")).succeeded)
-        self.assertFalse(await self.launcher.stop_locally("operator"))
+        with patch("lab_sync_acquisition.service_launcher._read_terminal_choice", AsyncMock(return_value="C")):
+            self.assertFalse(await self.launcher.stop_locally("operator"))
         commands = [r for r in self.owner.command_results]
         self.assertEqual(len(commands), 2)
-        stop, cancel = [json.loads(r) for r in self.reports]
+        stop, cancel = [json.loads(r) for r in self.reports if r.startswith("{")]
         self.assertEqual(stop["outcome"], "blocked")
         self.assertTrue(stop["blockers"])
         self.assertEqual(cancel["command"], "cancel")
@@ -120,6 +132,35 @@ class ServiceLauncherTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(self.owner.terminated)
         self.boundary.close.assert_not_awaited()
         self.close.assert_not_awaited()
+
+    async def test_eof_retains_exact_attempt_across_repeated_interrupts(self):
+        await acquire_test_controller_authority(self, self.owner)
+        self.assertTrue(self.controller.create_session(SessionConfig([], str(self.root), {},
+            str(self.root), session_id="active")).succeeded)
+        with patch("lab_sync_acquisition.service_launcher._read_terminal_choice", AsyncMock(return_value=None)):
+            self.assertFalse(await self.launcher.stop_locally("operator"))
+            self.launcher.request_interrupt()
+            self.assertFalse(await self.launcher.stop_locally("operator"))
+        self.assertEqual(len(self.owner.command_results), 1)
+        self.assertFalse(self.owner.terminated)
+        self.assertTrue(any("EOF" in report for report in self.reports))
+        with patch("lab_sync_acquisition.service_launcher._read_terminal_choice", AsyncMock(return_value="C")):
+            self.assertFalse(await self.launcher.stop_locally("operator"))
+        self.assertEqual(len(self.owner.command_results), 2)
+        attempts = [r.payload["attempt"]["stop_attempt_id"] for r in self.owner.command_results]
+        self.assertEqual(attempts[0], attempts[1])
+
+    async def test_explicit_kill_uses_same_blocked_attempt(self):
+        await acquire_test_controller_authority(self, self.owner)
+        self.assertTrue(self.controller.create_session(SessionConfig([], str(self.root), {},
+            str(self.root), session_id="active")).succeeded)
+        with patch("lab_sync_acquisition.service_launcher._read_terminal_choice", AsyncMock(return_value="K")):
+            self.assertTrue(await self.launcher.stop_locally("operator"))
+        results = self.owner.command_results
+        self.assertEqual(len(results), 2)
+        self.assertEqual(results[0].payload["attempt"]["stop_attempt_id"], results[1].payload["attempt"]["stop_attempt_id"])
+        self.close.assert_awaited_once_with(True)
+        self.assertTrue(self.launcher.exit_ready)
 
     async def test_failed_cleanup_does_not_exit_or_force_kill(self):
         self.close.return_value = False
@@ -231,6 +272,7 @@ class ServiceLauncherTests(unittest.IsolatedAsyncioTestCase):
         # Identical delivery reuses maintenance's existing result, then handles it.
         with patch.object(boundary, "publish_command_result", AsyncMock()):
             await callback(message)
+        await self.wait_for_exit(launcher)
         self.assertTrue(launcher.exit_ready)
         self.close.assert_awaited_once_with(False)
 
@@ -247,6 +289,80 @@ class ServiceLauncherTests(unittest.IsolatedAsyncioTestCase):
             [("storage_manager", "prepare_stop"), ("ingestor", "stop"), ("storage_manager", "stop")])
         self.assertTrue(all(m.terminated for m in interfaces))
         self.assertIsNotNone(self.storage.get_framework_preservation_confirmation())
+
+    async def test_paired_eof_retains_preparation_until_explicit_cancel(self):
+        boundaries = (NatsCommunicationBoundary("ingestor", "intake"), NatsCommunicationBoundary("storage_manager", "storage"))
+        interfaces = tuple(ServiceMaintenanceInterface(service, RuntimeParticipant(b.component_type, b.component_id),
+            ingestor=self.intake, storage_manager=self.storage, preservation_window_s=0,
+            close_resources=AsyncMock(return_value=True), operational_dependents={RuntimeParticipant("acquisition_node", "node"): lambda: True}
+            if service is self.intake else None) for service, b in zip((self.intake, self.storage), boundaries))
+        launcher = ServiceLauncher(interfaces, boundaries, report=self.reports.append)
+        self.assertFalse(await launcher.stop_locally("operator"))
+        self.assertTrue(interfaces[1].prepared)
+        counts = tuple(len(owner.command_results) for owner in interfaces)
+        self.assertFalse(await launcher.stop_locally("operator"))
+        self.assertEqual(counts, tuple(len(owner.command_results) for owner in interfaces))
+        with patch("lab_sync_acquisition.service_launcher._read_terminal_choice", AsyncMock(return_value="C")):
+            self.assertFalse(await launcher.stop_locally("operator"))
+        self.assertFalse(interfaces[1].prepared)
+        self.assertFalse(launcher.exit_ready)
+        self.assertTrue(all(not owner.terminated for owner in interfaces))
+
+    async def test_noninteractive_input_never_cancels_or_kills(self):
+        await acquire_test_controller_authority(self, self.owner)
+        self.assertTrue(self.controller.create_session(SessionConfig([], str(self.root), {},
+            str(self.root), session_id="active")).succeeded)
+        self.terminal_input.stop()
+        with patch("lab_sync_acquisition.service_launcher.sys.stdin", io.StringIO()):
+            self.assertFalse(await self.launcher.stop_locally("operator"))
+        self.assertEqual(len(self.owner.command_results), 1)
+        self.assertEqual(self.owner.command_results[0].payload["outcome"], "blocked")
+        self.assertFalse(self.owner.terminated)
+
+    async def test_paired_explicit_kill_does_not_skip_storage_preparation(self):
+        boundaries = (NatsCommunicationBoundary("ingestor", "intake"), NatsCommunicationBoundary("storage_manager", "storage"))
+        interfaces = tuple(ServiceMaintenanceInterface(service, RuntimeParticipant(b.component_type, b.component_id),
+            ingestor=self.intake, storage_manager=self.storage, preservation_window_s=0,
+            close_resources=AsyncMock(return_value=True), operational_dependents={RuntimeParticipant("acquisition_node", "node"): lambda: True}
+            if service is self.intake else None) for service, b in zip((self.intake, self.storage), boundaries))
+        launcher = ServiceLauncher(interfaces, boundaries, report=self.reports.append)
+        with patch("lab_sync_acquisition.service_launcher._read_terminal_choice", AsyncMock(return_value="K")):
+            result = await launcher.stop_locally("operator")
+        reports = [json.loads(r) for r in self.reports if r.startswith("{")]
+        self.assertEqual([(r["target"]["component_type"], r["command"]) for r in reports[:3]],
+                         [("storage_manager", "prepare_stop"), ("ingestor", "stop"), ("ingestor", "kill")])
+        self.assertTrue(interfaces[0].terminated)
+        self.assertEqual(result, launcher.exit_ready)
+        if launcher.exit_ready:
+            self.assertTrue(all(owner.terminated for owner in interfaces))
+        else:
+            self.assertTrue(any(r["outcome"] in {"blocked", "failed", "unconfirmed"} for r in reports[3:]))
+
+    async def test_terminal_wait_does_not_prevent_remote_cancel(self):
+        await acquire_test_controller_authority(self, self.owner)
+        self.assertTrue(self.controller.create_session(SessionConfig([], str(self.root), {},
+            str(self.root), session_id="active")).succeeded)
+        reading = asyncio.Event()
+
+        async def wait_input():
+            reading.set()
+            await asyncio.Event().wait()
+
+        with patch("lab_sync_acquisition.service_launcher._read_terminal_choice", wait_input):
+            stopping = asyncio.create_task(self.launcher.stop_locally("operator"))
+            try:
+                await asyncio.wait_for(reading.wait(), 2)
+                blocked = self.owner.command_results[-1].payload["attempt"]["stop_attempt_id"]
+                result = await self.owner.execute_command(RuntimeCommandMessage("remote-cancel", None, "cancel", "remote",
+                    "control", {"administrator_id": "other operator", "stop_attempt_id": blocked}))
+                self.assertEqual(result.payload["outcome"], "failed")
+                self.assertFalse(await asyncio.wait_for(stopping, 2))
+                self.assertFalse(self.launcher.exit_ready)
+                self.assertEqual(len(self.owner.command_results), 2)
+            finally:
+                if not stopping.done():
+                    stopping.cancel()
+                await asyncio.gather(stopping, return_exceptions=True)
 
     async def test_remote_ack_failure_retains_exit_obligation_until_redelivery(self):
         broker = _Broker()
@@ -265,6 +381,7 @@ class ServiceLauncherTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(launcher.exit_ready)
         message.ack.side_effect = None
         await callback(message)
+        await self.wait_for_exit(launcher)
         self.assertTrue(launcher.exit_ready)
         self.close.assert_awaited_once_with(False)
 
@@ -294,7 +411,8 @@ class ServiceLauncherTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(launcher.exit_ready)
         self.assertFalse(self.owner.terminated)
         self.close.assert_not_awaited()
-        self.assertEqual(json.loads(self.reports[-1])["outcome"], "failed")
+        self.assertFalse(broker.results[-1]["success"])
+        self.assertIn(json.loads(self.reports[-1])["outcome"], {"failed", "unconfirmed"})
 
     async def test_pair_startup_constructs_only_the_two_local_owners(self):
         broker = _Broker()
@@ -319,7 +437,8 @@ class ServiceLauncherTests(unittest.IsolatedAsyncioTestCase):
             result = await launch_storage_services(servers=("nats://example:4222",), ingestor_id="intake",
                 storage_id="storage", storage_root=self.root / "pair", recovery_journal_root=self.root / "journals",
                 framework_journal=self.root / "pair-framework.jsonl", preservation_window_s=0,
-                operational_dependents={}, report=self.reports.append)
+                operational_dependents={}, report=self.reports.append, result_window_s=1,
+                controller_claim_account="$G", controller_claim_bucket="AUTHORITY", controller_claim_key="controller")
         self.assertEqual(result, 0)
         self.assertEqual(len(boundaries), 2)
         self.assertTrue(all(b.connect.await_count == 1 for b in boundaries))
@@ -344,7 +463,8 @@ class ServiceLauncherTests(unittest.IsolatedAsyncioTestCase):
             result = await launch_storage_services(servers=("nats://example:4222",), ingestor_id="intake",
                 storage_id="storage", storage_root=self.root / "pair", recovery_journal_root=self.root / "journals",
                 framework_journal=self.root / "pair-framework.jsonl", preservation_window_s=0,
-                operational_dependents={}, report=self.reports.append)
+                operational_dependents={}, report=self.reports.append, result_window_s=1,
+                controller_claim_account="$G", controller_claim_bucket="AUTHORITY", controller_claim_key="controller")
         self.assertEqual(result, 0)
 
     async def test_conflicting_rejection_cannot_replace_unpublished_retirement(self):
@@ -392,6 +512,7 @@ class ServiceLauncherTests(unittest.IsolatedAsyncioTestCase):
         # receipt is fabricated or required by the publication/handling contract.
         await deliver(original, "ingestor")
         self.assertTrue(broker.results[-1]["success"])
+        await self.wait_for_exit(launcher)
         self.assertTrue(launcher.exit_ready)
         self.assertEqual(await launcher.run(), 0)
         self.assertEqual(len(interfaces[0].command_results), 1)
@@ -438,14 +559,15 @@ class ServiceLauncherTests(unittest.IsolatedAsyncioTestCase):
             self.reports.append(message)
             if message.startswith("{"):
                 value = json.loads(message)
-                if value.get("command") == "cancel" and value["target"]["component_type"] == "ingestor":
+                if value.get("outcome") == "blocked" and value["target"]["component_type"] == "ingestor":
                     retained.set()
 
         with patch.object(module, "NatsCommunicationBoundary", side_effect=boundary), patch.object(module, "InMemoryIngestor", side_effect=intake), patch.object(module, "ServiceLauncher", side_effect=capture_launcher), patch.object(NatsStorageManagerCommunication, "subscribe_commands", pause), patch.object(module.signal, "signal", side_effect=lambda *args: installed.append(args)):
             task = asyncio.create_task(launch_storage_services(servers=("nats://example:4222",), ingestor_id="intake",
                 storage_id="storage", storage_root=self.root / "pair", recovery_journal_root=self.root / "journals",
                 framework_journal=self.root / "pair-framework.jsonl", preservation_window_s=0,
-                operational_dependents={}, report=report))
+                operational_dependents={}, report=report, result_window_s=1,
+                controller_claim_account="$G", controller_claim_bucket="AUTHORITY", controller_claim_key="controller"))
             try:
                 await asyncio.wait_for(reached.wait(), 2)
                 journal = intakes[0].recovery_journal_path.read_bytes()
@@ -467,6 +589,7 @@ class ServiceLauncherTests(unittest.IsolatedAsyncioTestCase):
                 reports = [json.loads(r) for r in self.reports if r.startswith("{") and "command" in json.loads(r)]
                 self.assertTrue(any(r["command"] == "stop" and r["outcome"] == "blocked" for r in reports))
                 self.assertFalse(any(r["command"] == "kill" for r in reports))
+                self.assertFalse(any(r["command"] == "cancel" for r in reports))
             finally:
                 if launchers:
                     await self.finish_task(task, launchers[0])
@@ -499,7 +622,8 @@ class ServiceLauncherTests(unittest.IsolatedAsyncioTestCase):
                 await launch_storage_services(servers=("nats://example:4222",), ingestor_id="intake",
                     storage_id="storage", storage_root=self.root / "pair", recovery_journal_root=self.root / "journals",
                     framework_journal=self.root / "pair-framework.jsonl", preservation_window_s=0,
-                    operational_dependents={}, report=self.reports.append)
+                    operational_dependents={}, report=self.reports.append, result_window_s=1,
+                    controller_claim_account="$G", controller_claim_bucket="AUTHORITY", controller_claim_key="controller")
         boundaries[0].close.assert_awaited_once()
         self.assertIs(signal.getsignal(signal.SIGINT), previous)
         self.assertFalse(any('"outcome": "completed"' in r for r in self.reports))

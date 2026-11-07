@@ -2927,6 +2927,10 @@ obligations; Q006/Q018, Q024, Phase 16 and M015 remain OPEN. W001-W059 are uncha
 
 ### Manual service entry points resolved (Decisions 383-388)
 
+**Historical implementation scope:** The following W061-W063 behavior and evidence
+are retained. Decision 442 subsequently accepts different blocked local Stop and
+unavailable-input behavior; its implementation and validation remain pending.
+
 The accepted CLI boundary reuses one common package and existing service
 initialization/readiness/maintenance. It preserves the shared Ingestor/StorageManager
 process and other independent roles. Local Ctrl+C requests maintenance Stop;
@@ -2958,6 +2962,75 @@ maintenance/recovery and deployment integration remain outside this slice.
 Q022 remains OPEN. Q019 and W001-W066 remain CLOSED. Existing Q006/Q018, Q024,
 Phase 16 and M015 statuses are unchanged. See installation_and_deployment.md for
 the supported entry points and validated_workflows.md for verification limitations.
+
+### Accepted reliability amendments (Decision 442; independent verification pending)
+
+[Decision 442](architecture_decisions.md#decision-442-operational-dependency-evidence-and-explicit-terminal-maintenance-choices-preserve-retirement-safety)
+resolves the configured-versus-operational AcquisitionNode dependency and terminal
+K/C/EOF architectural clarifications. Configuration alone is not an operational
+blocker; authoritative complete negative registration history can establish that
+no dependency was created, while actual unresolved dependents and unverified
+history remain blocking. Terminal blocked Stop requires explicit K/C, and
+unavailable input retains the exact attempt without automatic Kill or Cancel.
+The ICC-authorized working-tree implementation now covers these amendments,
+retained startup maintenance bootstrap/subscriptions and distinct completion
+diagnostics. Independent manual validation and audit remain pending; developer
+testing does not establish deployment readiness. Q022 remains OPEN.
+
+Developer verification: 44 focused methods PASS (launcher, real-NATS dependent
+delivery/startup, history, authority and GUI backend), plus the production Edge/
+Playwright feedback fixture PASS using controlled transport. Two targeted startup/
+authority methods were rerun and passed after extending partial-installation
+coverage to SynchronizationManager. These reruns overlap the 44-method set and
+are not additional independent evidence. Interactive Windows terminal use, Linux,
+hardware, cross-machine, physical crash/power-loss and exhaustive concurrency
+validation are not established; independent manual validation and audit are next.
+
+**Registration-evidence criterion resolved (Decision 442 supplement):** Existing
+applicable startup, reconstruction, integrity, historical verification and
+preservation checks establish authority of retained registration/release history.
+Genuine first initialization permits an initially empty history under the existing
+initialization contract. Configuration alone does not create a dependency; an
+unused configured AcquisitionNode does not block retirement. Registered unresolved
+nodes remain blocking, including offline; authoritatively resolved and preserved
+obligations do not remain blocking. A newly empty journal or successful preservation
+alone cannot override detected recovery or historical verification problems.
+
+**Undetectable catastrophic-history-loss limitation (unresolved):**
+The earlier investigation established that
+`InMemoryIngestor._initialize_recovery_journal()` creates a new empty journal when
+the configured journal is absent. Missing registration history may therefore be
+replaced by an empty journal. Existing physical-journal verification and exact
+journal/archive preservation checks establish consistency of retained evidence;
+they do not necessarily distinguish genuine first initialization from catastrophic
+disappearance of all earlier registration history. An empty journal alone is not
+authoritative complete negative registration history. Publishing and preserving
+new records does not by itself resolve that historical-completeness question.
+
+The broader undetectable catastrophic-history-loss contract remains unresolved and
+explicitly outside the current reliability implementation scope; the accepted
+normal initialization/restart criterion above does not require solving it. No new
+continuity markers, history stores, deployment identities, recovery managers or
+substitute persistence mechanisms are authorized merely to distinguish those
+cases. This neither revokes Decision 442 nor relaxes Decisions 389-390: detectable
+missing, corrupt, incomplete, conflicting or unverified evidence, and actually
+registered unresolved dependencies, must remain protected. Absence of a process,
+readiness report or in-memory instance is not a negative-history proof.
+
+The original configuration-only AcquisitionNode shutdown blocker remains an active
+correction target pending independent verification. Its bounded architectural
+criterion is resolved, and the authorized working-tree correction reuses existing
+history assessment without a new persistence mechanism. This records implementation
+status, not independent validation or closure. Controller partial-startup/readback
+availability, partial subscription ownership, terminal K/C/EOF, paired retirement/
+diagnostics and reuse of GUI Kill/Cancel remain within the authorized correction;
+this limitation does not reopen their settled scope. Q022 remains OPEN.
+
+**Still unresolved:** The external interface for completing retained retirement
+delivery is separate from these amendments. Existing local launcher continuation
+does not establish a GUI or separate-terminal completion operation. No new
+interface is accepted here; return that question through ICC to LLC/HLC. Existing
+Unit 2 implementation and validation status are unchanged.
 
 ### Shared-storage external-dependent maintenance (W068 CLOSED)
 

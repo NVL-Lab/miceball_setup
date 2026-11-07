@@ -9,7 +9,7 @@ import { renderParameters } from './parameters-view.js';
 import { renderExperiment } from './scientific-views.js';
 import { navigate, configurationStringEditor } from './gui-presentation.js';
 import { confirmStop } from './stop-confirmation.mjs';
-import { serviceActions, updateServices, startServicesRefresh } from './services-view.js';
+import { serviceActions, updateServices, startServicesRefresh, showBlockedServiceStop } from './services-view.js';
 import { configurationIdentity, configurationNumber, parseConfigurationJSON, stringifyConfiguration, configurationStringText, parseConfigurationString } from './configuration-values.mjs';
 
 const $ = selector => document.querySelector(selector);
@@ -331,6 +331,11 @@ serviceActions.maintain = async (operation, service, administrator_id, recovery 
   if (service) service.lastOperation = entry;
   if (service) await serviceActions.refresh(service.id);
   updateServices(liveServices);
+  const blocked = entry.result?.outcome?.details;
+  if (operation === 'stop_service' && blocked?.outcome === 'blocked'
+      && service?.attempt?.outcome === 'blocked'
+      && service.attempt.stop_attempt_id === blocked.attempt?.stop_attempt_id && canControl())
+    showBlockedServiceStop(service);
 };
 startServicesRefresh();
 connect();

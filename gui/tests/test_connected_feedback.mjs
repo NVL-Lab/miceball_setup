@@ -275,6 +275,13 @@ async function verifyMaintenanceBinding() {
       await dialog.locator('[data-live-confirm]').click();
     };
     await authorize('[data-stop-service]');
+    const blockedDialog = target.locator('.services-danger[open]');
+    await blockedDialog.locator('[data-live-choice]').waitFor();
+    assert.match(await blockedDialog.innerText(), /attempt-1/);
+    assert.match(await blockedDialog.innerText(), /Preservation incomplete/);
+    assert.equal(await blockedDialog.locator('[data-live-confirm]').isDisabled(), true);
+    await blockedDialog.locator('[data-admin-close]').click();
+    assert.equal(submitted.length, 1); // Closing the choice never authorizes Cancel or Kill.
     await target.locator('[data-live-kill]').waitFor();
     assert.deepEqual(submitted[0].parameters, {participant, administrator_id: 'Lab Operator', authorized: true});
     await target.locator('.services-callout').filter({hasText: 'blocked'}).waitFor();
@@ -284,7 +291,12 @@ async function verifyMaintenanceBinding() {
     assert.equal(await target.locator('[data-live-kill]').count(), 0);
     await authorize('[data-stop-service]');
     await target.locator('[data-live-cancel]').waitFor();
-    await authorize('[data-live-cancel]');
+    const cancelDialog = target.locator('.services-danger[open]');
+    await cancelDialog.locator('[data-live-choice]').waitFor();
+    await cancelDialog.locator('[data-live-choice]').selectOption('cancel_service');
+    await cancelDialog.locator('[data-live-administrator]').fill('Lab Operator');
+    await cancelDialog.locator('[data-live-authorized]').check();
+    await cancelDialog.locator('[data-live-confirm]').click();
     await target.locator('.services-callout').filter({hasText: 'cancel_service'}).waitFor();
     assert.equal(submitted[3].parameters.stop_attempt_id, 'attempt-2');
     assert.equal(await target.locator('[data-live-kill]').count(), 0);

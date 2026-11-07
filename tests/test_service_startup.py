@@ -49,6 +49,31 @@ class AnnouncementBroker(_Broker):
 
 
 class ServiceStartupTests(unittest.IsolatedAsyncioTestCase):
+    async def test_partial_command_subscriptions_resume_without_duplicate_handlers(self):
+        source = self.interface(SynchronizationManager(), self.source)
+        communication = self.communication(source)
+        subscribe = self.broker.subscribe
+        calls = 0
+
+        async def fail_second(*args, **kwargs):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise ConnectionError("second subscription interrupted")
+            return await subscribe(*args, **kwargs)
+
+        with patch.object(self.broker, "subscribe", side_effect=fail_second):
+            with self.assertRaises(ConnectionError):
+                await communication.subscribe_commands()
+        await communication.subscribe_commands()
+        await communication.subscribe_commands()
+        subscriptions = [s for s in self.broker.subscriptions if s.active and ".command.synchronization_manager.sync." in s.subject]
+        self.assertEqual(len(subscriptions), 2)
+        result = await NatsControllerCommunication(self.intake._boundary).request_maintenance_readback(
+            self.source, "read_operational_instance", {}, .1)
+        self.assertTrue(result.success, result.reason)
+        self.assertEqual(result.payload["operational_instance_id"], source.operational_instance_id)
+
     async def asyncSetUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)

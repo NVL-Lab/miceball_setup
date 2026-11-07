@@ -69,6 +69,91 @@ class ExternalDependentConfigurationTests(unittest.TestCase):
 
 @unittest.skipUnless(NATS_SERVER, "optional isolated nats-server unavailable")
 class ExternalDependentRegistrationTransportTests(unittest.IsolatedAsyncioTestCase):
+    async def test_retained_controller_startup_recovers_maintenance_before_exact_claim_release(self):
+        import nats
+        from nats.js.api import KeyValueConfig, StorageType
+        from nats.js.client import JetStreamContext
+        from nats.js.errors import KeyNotFoundError
+        from lab_sync_acquisition import NatsCommunicationBoundary
+        from lab_sync_acquisition.service_startup import launch_independent_service
+
+        server = await self.enterAsyncContext(restartable_jetstream_server())
+        root = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        client = await nats.connect(server.url)
+        self.addAsyncCleanup(client.close)
+        kv = await client.jetstream().create_key_value(KeyValueConfig(bucket="AUTHORITY", storage=StorageType.FILE))
+
+        async def capture(launcher, *, startup):
+            for boundary in launcher.boundaries:
+                self.addAsyncCleanup(boundary.close)
+            try:
+                await startup()
+            except asyncio.CancelledError:
+                pass  # Model the protected launcher's joined startup cancellation.
+            return launcher
+
+        for phase in ("streams", "subscription", "registration", "sync-subscription"):
+            with self.subTest(phase=phase):
+                kind, identity = (("synchronization_manager", "sync") if phase == "sync-subscription"
+                                  else ("controller", "control"))
+                pair_kwargs = dict(servers=(server.url,), ingestor_id="intake", storage_id="storage",
+                    storage_root=root / phase / "storage", recovery_journal_root=root / phase / "journals",
+                    framework_journal=root / phase / "framework.jsonl", preservation_window_s=2,
+                    operational_dependents={}, external_dependents=(RuntimeParticipant(kind, identity),
+                        RuntimeParticipant("acquisition_node", "unused")), result_window_s=1,
+                    controller_claim_account="$G", controller_claim_bucket="AUTHORITY", controller_claim_key="controller",
+                    report=lambda text: None)
+                with patch.object(ServiceLauncher, "run", capture):
+                    pair = await launch_storage_services(**pair_kwargs)
+                ensure, subscribe, register = (NatsCommunicationBoundary.ensure_streams,
+                    JetStreamContext.subscribe, ServiceMaintenanceInterface.register_ingestor_dependency)
+                failed = False
+
+                async def fail_streams(boundary):
+                    nonlocal failed
+                    if phase == "streams" and boundary.component_type == "controller" and not failed:
+                        failed = True
+                        raise ConnectionError("startup stream interruption")
+                    return await ensure(boundary)
+
+                async def fail_subscription(js, subject, **kwargs):
+                    nonlocal failed
+                    if phase in {"subscription", "sync-subscription"} and subject == f"messages.command.{kind}.{identity}.*" and not failed:
+                        failed = True
+                        await subscribe(js, subject, **kwargs)
+                        if phase == "sync-subscription":
+                            raise ConnectionError("partial SynchronizationManager subscription")
+                        raise asyncio.CancelledError()
+                    return await subscribe(js, subject, **kwargs)
+
+                async def fail_registration(owner):
+                    nonlocal failed
+                    if phase == "registration" and owner.participant.component_type == "controller" and not failed:
+                        failed = True
+                        raise asyncio.CancelledError()
+                    return await register(owner)
+
+                with patch.object(ServiceLauncher, "run", capture), patch.object(
+                        NatsCommunicationBoundary, "ensure_streams", fail_streams), patch.object(
+                        JetStreamContext, "subscribe", fail_subscription), patch.object(
+                        ServiceMaintenanceInterface, "register_ingestor_dependency", fail_registration):
+                    launcher = await launch_independent_service(role=kind.replace("_", "-"), servers=(server.url,),
+                        service_id=identity, ingestor_id="intake", storage_id="storage", synchronization_id="sync",
+                        known_nodes=(), preservation_window_s=2, result_window_s=1,
+                        controller_claim_account="$G", controller_claim_bucket="AUTHORITY", controller_claim_key="controller",
+                        report=lambda text: None)
+                self.assertTrue(failed)
+                if kind == "controller":
+                    self.assertEqual((await kv.get("controller")).value.decode(), launcher.maintenance[0].operational_instance_id)
+                self.assertFalse(launcher.exit_ready)
+                self.assertTrue(await launcher.stop_locally("operator"))
+                self.assertTrue(launcher.exit_ready)
+                with self.assertRaises(KeyNotFoundError):
+                    await kv.get("controller")
+                self.assertTrue(await pair.stop_locally("operator"))
+                for boundary in (*launcher.boundaries, *pair.boundaries):
+                    await boundary.close()
+
     async def test_remote_retirement_allows_ingestor_owner_readback_before_exit(self):
         await self.remote_retirement_workflow()
 
@@ -294,12 +379,149 @@ class ExternalDependentRegistrationTransportTests(unittest.IsolatedAsyncioTestCa
 
 
 class ExternalDependentMaintenanceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_unused_nodes_survive_ordinary_restart_without_becoming_blockers(self):
+        nodes = (RuntimeParticipant("acquisition_node", "unused"),)
+        await self.backend(participants=nodes)
+        message = RuntimeEvidenceMessage("normal-startup", None, "warning", "intake", {}, True)
+        self.assertTrue(self.intake.receive_runtime_evidence(message).accepted)
+        self.storage.write_framework_evidence_archive(self.intake.compile_framework_runtime_evidence())
+        for subscription in self.broker.subscriptions:
+            await subscription.unsubscribe()
+        await self.backend(participants=nodes)
+        self.assertTrue((await self.status()).payload["ready"])
+        self.assertTrue(await self.pair.stop_locally("operator"))
+
+    async def test_detected_missing_history_cannot_become_unused_node_authority(self):
+        nodes = (RuntimeParticipant("acquisition_node", "used"), RuntimeParticipant("acquisition_node", "unused"))
+        await self.backend(participants=nodes)
+        await self.producer("acquisition_node", "used")
+        for subscription in self.broker.subscriptions:
+            await subscription.unsubscribe()
+        (self.root / "framework.jsonl").unlink()
+        archived = {p: p.read_bytes() for p in (self.root / "storage/framework").rglob("*") if p.is_file()}
+        await self.backend(participants=nodes)
+        result = await self.status()
+        self.assertFalse(result.payload["ready"])
+        self.assertIn("Operational dependency: acquisition_node/unused", result.payload["blockers"])
+        self.assertEqual(archived, {p: p.read_bytes() for p in archived})
+
+    async def test_registration_and_stop_are_serialized(self):
+        nodes = (RuntimeParticipant("acquisition_node", "used"), RuntimeParticipant("acquisition_node", "unused"))
+        await self.backend(participants=nodes, result_window_s=2)
+        entered, resume = asyncio.Event(), asyncio.Event()
+        communication = self.intake_interface._dependent_communication
+        original = communication.request_maintenance_readback
+
+        async def paused(*args, **kwargs):
+            entered.set()
+            await resume.wait()
+            return await original(*args, **kwargs)
+
+        with patch.object(communication, "request_maintenance_readback", paused):
+            registration = asyncio.create_task(self.producer("acquisition_node", "used", preservation_window_s=2))
+            try:
+                await asyncio.wait_for(entered.wait(), 2)
+                survey = asyncio.create_task(self.intake_interface.execute_command(RuntimeCommandMessage(
+                    "racing-stop", None, "stop", "operator", "intake",
+                    {"stop_attempt_id": "racing-stop", "administrator_id": "operator"})))
+                await asyncio.sleep(0)
+                self.assertFalse(survey.done())
+                resume.set()
+                await registration
+                result = await survey
+                self.assertEqual(result.payload["outcome"], "blocked")
+                self.assertIn("Operational dependency: acquisition_node/used", result.payload["attempt"]["blockers"])
+                self.assertNotIn("Operational dependency: acquisition_node/unused", result.payload["attempt"]["blockers"])
+            finally:
+                resume.set()
+                await asyncio.gather(registration, return_exceptions=True)
+
+    async def test_pending_new_node_registration_cannot_restore_an_older_release(self):
+        nodes = (RuntimeParticipant("acquisition_node", "used"), RuntimeParticipant("acquisition_node", "unused"))
+        await self.backend(participants=nodes)
+        _, _, old_launcher, _ = await self.producer("acquisition_node", "used")
+        self.assertTrue(await old_launcher.stop_locally("operator"))
+        for subscription in self.broker.subscriptions:
+            if ".command.acquisition_node.used." in subscription.subject:
+                await subscription.unsubscribe()
+        with patch.object(self.intake_interface._dependent_communication, "request_maintenance_readback",
+                          AsyncMock(return_value=None)):
+            with self.assertRaisesRegex(RuntimeError, "registration is unconfirmed"):
+                await self.producer("acquisition_node", "used")
+        result = await self.status()
+        self.assertIn("Operational dependency: acquisition_node/used", result.payload["blockers"])
+        for subscription in self.broker.subscriptions:
+            await subscription.unsubscribe()
+        await self.backend(participants=nodes)
+        result = await self.status()
+        self.assertFalse(result.payload["ready"])
+        self.assertIn("Operational dependency: acquisition_node/used", result.payload["blockers"])
+
+    async def test_invalid_archives_and_journals_do_not_authorize_unused_nodes(self):
+        nodes = (RuntimeParticipant("acquisition_node", "unused"),)
+        original_root = self.root
+        for damage in ("missing_archive", "corrupt_archive", "corrupt_journal"):
+            with self.subTest(damage=damage):
+                self.root = original_root / damage
+                self.root.mkdir()
+                self.broker = _Broker()
+                await self.backend(participants=nodes)
+                message = RuntimeEvidenceMessage("startup", None, "warning", "intake", {}, True)
+                self.assertTrue(self.intake.receive_runtime_evidence(message).accepted)
+                self.storage.write_framework_evidence_archive(self.intake.compile_framework_runtime_evidence())
+                for subscription in self.broker.subscriptions:
+                    await subscription.unsubscribe()
+                archive = next((self.root / "storage/framework/evidence").glob("????-??")) / "runtime_evidence.jsonl"
+                if damage == "missing_archive":
+                    archive.unlink()
+                else:
+                    path = self.root / "framework.jsonl" if damage == "corrupt_journal" else archive
+                    path.write_text("corrupt completed record\n", encoding="utf-8")
+                files = {p: p.read_bytes() for p in self.root.rglob("*") if p.is_file()}
+                if damage == "corrupt_journal":
+                    with self.assertRaises(ValueError):
+                        await self.backend(participants=nodes)
+                else:
+                    await self.backend(participants=nodes)
+                    result = await self.status()
+                    self.assertFalse(result.payload["ready"])
+                    self.assertIn("Operational dependency: acquisition_node/unused", result.payload["blockers"])
+                    self.assertEqual(files[archive] if archive in files else None,
+                                     archive.read_bytes() if archive.exists() else None)
+
+    async def test_configured_unused_nodes_allow_paired_retirement(self):
+        nodes = tuple(RuntimeParticipant("acquisition_node", name) for name in ("unused-a", "unused-b"))
+        await self.backend(participants=nodes)
+        result = await self.status()
+        self.assertTrue(result.payload["ready"], result.payload)
+        self.assertTrue(await self.pair.stop_locally("operator"))
+        self.assertTrue(self.pair.exit_ready)
+
+    async def test_only_registered_node_blocks_until_confirmed_release_and_restart(self):
+        nodes = tuple(RuntimeParticipant("acquisition_node", name) for name in ("used", "unused"))
+        await self.backend(participants=nodes)
+        _, _, launcher, _ = await self.producer("acquisition_node", "used")
+        result = await self.status()
+        self.assertFalse(result.payload["ready"])
+        self.assertIn("Operational dependency: acquisition_node/used", result.payload["blockers"])
+        self.assertNotIn("Operational dependency: acquisition_node/unused", result.payload["blockers"])
+        self.assertTrue(await launcher.stop_locally("operator"))
+        for subscription in self.broker.subscriptions:
+            await subscription.unsubscribe()
+        await self.backend(participants=nodes)
+        result = await self.status()
+        self.assertTrue(result.payload["ready"], result.payload)
+        self.assertTrue(await self.pair.stop_locally("operator"))
+
     def setUp(self):
+        terminal = patch("lab_sync_acquisition.service_launcher._read_terminal_choice", AsyncMock(return_value=None))
+        terminal.start()
+        self.addCleanup(terminal.stop)
         self.root = Path(self.enterContext(tempfile.TemporaryDirectory()))
         self.broker = _Broker()
         self.dependent = RuntimeParticipant("controller", "control")
 
-    async def backend(self, participants=None):
+    async def backend(self, participants=None, *, result_window_s=0.02):
         self.storage = PersistentStorageManager(self.root / "storage", component_id="storage")
         self.intake = InMemoryIngestor(self.storage, component_id="intake",
             framework_recovery_journal_path=self.root / "framework.jsonl")
@@ -317,7 +539,7 @@ class ExternalDependentMaintenanceTests(unittest.IsolatedAsyncioTestCase):
             close_resources=AsyncMock(return_value=True))
         self.intake_interface.configure_external_dependents(
             (self.dependent,) if participants is None else participants,
-            NatsControllerCommunication(self.intake_boundary), 0.02)
+            NatsControllerCommunication(self.intake_boundary), result_window_s)
         await NatsIngestorCommunication(self.intake_boundary, self.intake).subscribe_evidence(None)
         await NatsIngestorCommunication(self.intake_boundary, self.intake).subscribe_commands()
         await NatsStorageManagerCommunication(self.storage_boundary, self.storage).subscribe_commands()
@@ -1388,6 +1610,9 @@ class ExternalDependentMaintenanceTests(unittest.IsolatedAsyncioTestCase):
             await subscription.unsubscribe()
         self.assertTrue(result.success, result.reason)
         self.assertTrue(interface.terminated)
+        async with asyncio.timeout(2):
+            while not launcher.exit_ready:
+                await asyncio.sleep(0.01)
         self.assertTrue(launcher.exit_ready)
         self.assertFalse(self.intake_interface.operational_dependents[node]())
 

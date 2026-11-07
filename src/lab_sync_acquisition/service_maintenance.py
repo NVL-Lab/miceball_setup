@@ -347,8 +347,18 @@ class ServiceMaintenanceInterface:
         self._dependent_instances = dict.fromkeys(participants)
         self._dependent_confirmations = dict.fromkeys(participants)
         self.operational_dependents = {
-            p: (lambda p=p: self._dependent_confirmations[p] is None) for p in participants}
+            p: (lambda p=p: self._dependent_is_operational(p)) for p in participants}
         self._restore_dependent_confirmations()
+
+    def _dependent_is_operational(self, participant):
+        """Use verified history, never configuration or an absent instance alone."""
+        histories = self._restore_dependent_confirmations()
+        if histories is None or participant in self._dependent_conflicts:
+            return True
+        if (participant.component_type == "acquisition_node"
+                and not histories[participant] and self._dependent_instances[participant] is None):
+            return False
+        return self._dependent_confirmations[participant] is None
 
     def _restore_dependent_confirmations(self):
         """Read existing owner-verified history; never repair or bless an unconfirmed archive."""
@@ -357,21 +367,27 @@ class ServiceMaintenanceInterface:
         if self._dependent_state_messages:
             # An interrupted publication cannot be replaced by an older archived release.
             return
-        archived = self.storage_manager.get_framework_preservation_confirmation()
-        if archived is None:
-            return
         try:
-            with self.ingestor.framework_preservation_guard(self.storage_manager):
-                compiled = self.ingestor.compile_framework_runtime_evidence()
-        except RuntimeError:
-            return
-        try:
-            instances, confirmations, conflicts, _ = self._dependent_history(compiled, archived)
-        except (RuntimeError, ValueError, KeyError, TypeError):
+            # A detected continuation failure is not a fresh deployment. Only the
+            # existing explicit recovery/verification path may clear that condition.
+            if self.storage_manager._framework_continuation_rejected:
+                return
+            with self.ingestor._intake_lock:
+                archived = self.ingestor.continue_framework_evidence_archive()
+                if archived is None:
+                    compiled = self.ingestor.compile_framework_runtime_evidence()
+                    if any(compiled.values()) or any(self._dependent_instances.values()):
+                        return
+                    return {p: [] for p in self._dependent_instances}
+                with self.ingestor.framework_preservation_guard(self.storage_manager, verify_journal=True):
+                    compiled = self.ingestor.compile_framework_runtime_evidence()
+                    instances, confirmations, conflicts, histories = self._dependent_history(compiled, archived)
+        except (OSError, RuntimeError, ValueError, KeyError, TypeError):
             return
         self._dependent_instances = instances
         self._dependent_confirmations = confirmations
         self._dependent_conflicts = conflicts
+        return histories
 
     def _dependent_history(self, compiled, archived):
         """Derive dependent state and ordered history from exact preserved evidence."""
@@ -794,7 +810,9 @@ class ServiceMaintenanceInterface:
         accepted = await self._framework_communication.request_maintenance_readback(
             self._framework_ingestor, "register_operational_dependent", payload, self.preservation_window_s)
         if accepted is None or not accepted.success or accepted.payload.get("registration") != payload:
-            raise RuntimeError("Ingestor dependent registration is unconfirmed")
+            reason = ("No authoritative response" if accepted is None else
+                      accepted.reason or "Registration response does not confirm the exact instance")
+            raise RuntimeError(f"Ingestor dependent registration is unconfirmed: {reason}")
         if self._dependency_registration != payload:
             self._dependency_release_delivered = False
         self._dependency_registration = payload
@@ -863,7 +881,9 @@ class ServiceMaintenanceInterface:
         result = await self._framework_communication.request_maintenance_readback(
             self._framework_ingestor, "confirm_dependent_release", payload, self.preservation_window_s)
         if result is None or not result.success or result.payload.get("confirmation") != payload:
-            raise RuntimeError("Ingestor dependency confirmation remains unconfirmed; process retained")
+            reason = ("No authoritative response" if result is None else
+                      result.reason or "Confirmation response does not match the retained release")
+            raise RuntimeError(f"Ingestor dependency confirmation remains unconfirmed; process retained: {reason}")
         self._dependency_release_delivered = True
 
     async def _receive_dependent_command(self, command):

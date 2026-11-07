@@ -143,6 +143,8 @@ class NatsCommunicationBoundary:
         self.maintenance_command_handled: Callable[[RuntimeCommandMessage, RuntimeCommandResultMessage], None] | None = None
         self._pending_dependent_deliveries = {}
         self._maintenance_delivery_tasks = {}
+        self._participant_command_subscriptions = {}
+        self._participant_command_lock = asyncio.Lock()
         self._partial_result_subscriptions: dict[Subscription, NATS] = {}
         self._partial_result_cleanup_task: asyncio.Task | None = None
         self._controller_claim_attempted = False
@@ -491,6 +493,7 @@ class NatsCommunicationBoundary:
             self._client = None
             self._jetstream = None
             self._close_task = None
+            self._participant_command_subscriptions.clear()
         if cancellation is not None:
             raise cancellation
 
@@ -499,8 +502,8 @@ class NatsCommunicationBoundary:
 
         await self._require_client().flush()
 
-    async def _subscribe_command_results(self, subject, callback, **options):
-        """Own SDK result subscriptions even when construction raises before returning a handle."""
+    async def _subscribe_jetstream(self, subject, callback, **options):
+        """Own SDK subscriptions even when construction raises before returning a handle."""
         await self._finish_partial_result_subscriptions()
         jetstream = self._require_jetstream()
         try:
@@ -1673,7 +1676,7 @@ class NatsControllerCommunication:
                 await callback(result)
             await message.ack()
 
-        return await self._boundary._subscribe_command_results(
+        return await self._boundary._subscribe_jetstream(
             subject,
             receive,
             **({"config": ConsumerConfig(deliver_policy=DeliverPolicy.NEW,
@@ -3269,17 +3272,23 @@ def _logical_command(command):
 
 
 async def _subscribe_participant_commands(boundary: NatsCommunicationBoundary, receive: Callable) -> tuple[Subscription, Subscription]:
-    async def handled(message):
-        result = await boundary._receive_authorized_command(receive, message)
-        command = _logical_command(RuntimeCommandMessage.from_dict(json.loads(message.data.decode("utf-8"))))
-        await _complete_maintenance_delivery(boundary, command, result)
+    async with boundary._participant_command_lock:
+        for subject in (f"messages.*.command.{boundary.component_type}.{boundary.component_id}.*",
+                        f"messages.command.{boundary.component_type}.{boundary.component_id}.*"):
+            existing = boundary._participant_command_subscriptions.get(subject)
+            if existing is not None and not getattr(existing, "_closed", False) and getattr(existing, "active", True):
+                continue
+            async def handled(message):
+                result = await boundary._receive_authorized_command(receive, message)
+                command = _logical_command(RuntimeCommandMessage.from_dict(json.loads(message.data.decode("utf-8"))))
+                await _complete_maintenance_delivery(boundary, command, result)
 
-    subscriptions = []
-    for subject in (f"messages.*.command.{boundary.component_type}.{boundary.component_id}.*",
-                    f"messages.command.{boundary.component_type}.{boundary.component_id}.*"):
-        options = {"config": ConsumerConfig(deliver_policy=DeliverPolicy.NEW)}
-        subscriptions.append(await boundary._require_jetstream().subscribe(subject, cb=handled, manual_ack=True, **options))
-    return tuple(subscriptions)
+            options = {"config": ConsumerConfig(deliver_policy=DeliverPolicy.NEW)}
+            # Retain each completed installation immediately. Failed SDK-local
+            # construction uses the same cleanup boundary as command results.
+            subscription = await boundary._subscribe_jetstream(subject, handled, **options)
+            boundary._participant_command_subscriptions[subject] = subscription
+        return tuple(boundary._participant_command_subscriptions.values())
 
 
 class NatsSynchronizationManagerCommunication:
