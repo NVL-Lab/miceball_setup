@@ -23,6 +23,11 @@ from lab_sync_acquisition.service_maintenance import ServiceMaintenanceInterface
 from lab_sync_acquisition.storage import PersistentStorageManager
 
 
+def _terminal_report(message):
+    """Show local launcher feedback before the next potentially slow operation."""
+    print(message, flush=True)
+
+
 async def _read_terminal_choice():
     """Read a local maintenance choice without a blocking executor/input thread."""
     if not sys.stdin.isatty():
@@ -73,7 +78,7 @@ class ServiceLauncher:
                 raise ValueError("Communication identity must match its maintenance owner")
             if boundary.maintenance_command_handled is not None:
                 raise ValueError("Communication already has a process-lifetime observer")
-        self._report = report
+        self._report = _terminal_report if report is print else report
         self._prepare_maintenance = prepare_maintenance
         self._local_stop = None
         self._local_stop_lock = asyncio.Lock()
@@ -130,8 +135,11 @@ class ServiceLauncher:
 
     def request_interrupt(self):
         """Queue local Stop, including repeated Ctrl+C, without cancelling maintenance."""
+        announce = not self._interrupt
         self._interrupt = True
         self._wake.set()
+        if announce:
+            self._report("Shutdown requested; requesting local maintenance Stop.")
 
     async def stop_locally(self, administrator_id):
         """Continue explicit local Stop/Kill/Cancel with retained paired attempt identity."""
@@ -196,10 +204,13 @@ class ServiceLauncher:
             command = RuntimeCommandMessage(uuid4().hex, None, operation, self._requester,
                 owner.participant.component_id, {**payload, "administrator_id": administrator_id})
             try:
+                self._report(f"Maintenance {operation}: {owner.participant.component_type}/"
+                             f"{owner.participant.component_id}; attempt {payload['stop_attempt_id']}.")
                 result = await owner.execute_command(command)
                 if (result.success and result.payload.get("outcome") == "completed"
                         and result.payload.get("termination_confirmed") is True and owner.terminated):
                     self._local_retirements[owner.participant] = (command, result)
+                    self._report("Operational retirement confirmed; confirming dependency release and final handling.")
                     await owner.complete_retirement(command, result)
                     self._handled_retirements.add(owner.participant)
                 self._feedback(owner, command, result)
@@ -236,6 +247,8 @@ class ServiceLauncher:
                 pending_local = self._local_retirements.get(owner.participant)
                 if pending_local is not None and owner.participant not in self._handled_retirements:
                     try:
+                        self._report(f"Retrying retained completion: {owner.participant.component_id}; "
+                                     f"attempt {pending_local[0].payload['stop_attempt_id']}.")
                         await owner.complete_retirement(*pending_local)
                         self._handled_retirements.add(owner.participant)
                     except Exception as error:
@@ -322,11 +335,13 @@ class ServiceLauncher:
                         await self.stop_locally(administrator)
                     if self.exit_ready:
                         try:
+                            self._report("Retirement and final handling confirmed; closing communication.")
                             for boundary in self.boundaries:
                                 await boundary.close()
                         except Exception as error:
                             self._report(f"Final communication cleanup unconfirmed: {error}; process retained; retry Ctrl+C.")
                             continue
+                        self._report("Shutdown complete; communication cleanup confirmed; launcher exiting.")
                         return 0
                 except asyncio.CancelledError:
                     self._report("Launcher cancellation is not confirmed retirement; process retained.")
@@ -352,6 +367,7 @@ async def launch_storage_services(*, servers, ingestor_id, storage_id, storage_r
                                   controller_claim_account=None, controller_claim_bucket=None,
                                   controller_claim_key=None):
     """Launch the existing paired owners with explicit constructor settings."""
+    report = _terminal_report if report is print else report
     servers = tuple(servers)
     if not servers or any(not isinstance(server, str) or not server.strip() for server in servers):
         raise ValueError("Explicit nonempty NATS servers are required")
@@ -361,12 +377,14 @@ async def launch_storage_services(*, servers, ingestor_id, storage_id, storage_r
     from math import isfinite
     if type(result_window_s) not in (int, float) or not isfinite(result_window_s) or result_window_s <= 0:
         raise ValueError("Services require a positive finite authority result window")
+    report("Preparing paired Ingestor/StorageManager; reconstructing retained storage and journals.")
     storage = PersistentStorageManager(storage_root, component_id=storage_id,
         global_artifact_root=global_artifact_root, retrieval_endpoints=retrieval_endpoints)
     intake = InMemoryIngestor(storage, component_id=ingestor_id,
         recovery_journal_root=recovery_journal_root,
         framework_recovery_journal_path=framework_journal)
     try:
+        report("Verifying framework archive continuation.")
         intake.continue_framework_evidence_archive()
     except (OSError, ValueError, TypeError, KeyError, RuntimeError) as error:
         report(f"Framework archive continuation unconfirmed: {error}; dependent blockers retained.")
@@ -404,18 +422,22 @@ async def launch_storage_services(*, servers, ingestor_id, storage_id, storage_r
         admission_started = False
         try:
             for boundary in boundaries:
+                report(f"Connecting NATS: {boundary.component_type}/{boundary.component_id}.")
                 await boundary.connect()
                 connected.append(boundary)
                 await boundary.ensure_streams()
             intake_handler = NatsIngestorCommunication(boundaries[0], intake)
+            report("Installing framework evidence and maintenance handlers.")
             # Even a failed subscription may have begun admitting evidence.
             admission_started = True
             await intake_handler.subscribe_evidence(None)
             for boundary, interface in zip(boundaries, interfaces):
+                report(f"Publishing startup/readiness evidence: {interface.participant.component_id}.")
                 status = await NatsServiceMaintenanceCommunication(boundary, interface).start()
                 report(json.dumps({"target": interface.participant.to_dict(), "startup": status}, sort_keys=True))
             await intake_handler.subscribe_commands()
             await NatsStorageManagerCommunication(boundaries[1], storage).subscribe_commands()
+            report("Startup sequence finished; inspect readiness and preservation results above.")
         except asyncio.CancelledError:
             # The protected launcher cancels and awaits initialization before Stop.
             # Never close participants whose admitted obligations are still unknown.
@@ -556,6 +578,7 @@ def main(argv=None):
         try:
             from lab_sync_acquisition.deployment_configuration import load_service_configuration
             settings = load_service_configuration(args.deployment_config, args.role)
+            _terminal_report(f"Starting {args.role} using {args.deployment_config}.")
             if args.role in {"ingestor", "storage-manager"}:
                 operation = launch_storage_services(**settings)
             else:
@@ -611,6 +634,7 @@ def main(argv=None):
                 ("controller_claim_account", "controller_claim_bucket", "controller_claim_key")):
             parser.error("Service startup requires explicit --controller-claim-account, --controller-claim-bucket and --controller-claim-key")
         try:
+            _terminal_report(f"Starting {args.role}.")
             return asyncio.run(launch_independent_service(role=args.role, servers=args.server,
                 service_id=args.service_id, ingestor_id=args.ingestor_id, storage_id=args.storage_id,
                 preservation_window_s=args.preservation_window_s, result_window_s=args.result_window_s,
@@ -647,6 +671,7 @@ def main(argv=None):
             or args.result_window_s is None or not isfinite(args.result_window_s) or args.result_window_s <= 0):
         parser.error("External dependents require unique identities and positive --result-window-s")
     try:
+        _terminal_report("Starting paired Ingestor/StorageManager.")
         return asyncio.run(launch_storage_services(servers=args.server, ingestor_id=args.ingestor_id,
             storage_id=args.storage_id, storage_root=args.storage_root, recovery_journal_root=args.recovery_journal_root,
             framework_journal=args.framework_journal, preservation_window_s=args.preservation_window_s,

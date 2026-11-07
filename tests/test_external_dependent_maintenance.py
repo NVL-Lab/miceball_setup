@@ -163,7 +163,7 @@ class ExternalDependentRegistrationTransportTests(unittest.IsolatedAsyncioTestCa
                 report=reports.append)
         self.assertTrue(observed)
         self.assertNotIn("Operational dependency: acquisition_node/unused", observed[0]["blockers"])
-        self.assertTrue(all(json.loads(row)["startup"]["archival_confirmed"] for row in reports))
+        self.assertTrue(all(json.loads(row)["startup"]["archival_confirmed"] for row in reports if row.startswith("{")))
         self.assertTrue(await launcher.stop_locally("operator"))
 
     async def test_queued_framework_evidence_after_retirement_has_truthful_cleanup(self):

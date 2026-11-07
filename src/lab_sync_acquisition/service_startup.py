@@ -17,7 +17,7 @@ from lab_sync_acquisition.nats_communication import (
     NatsExternalSessionLaunchReceiver,
 )
 from lab_sync_acquisition.opencv_camera import OpenCVCameraConfig, SeeedIMX219OpenCVCameraAdapter
-from lab_sync_acquisition.service_launcher import ServiceLauncher
+from lab_sync_acquisition.service_launcher import ServiceLauncher, _terminal_report
 from lab_sync_acquisition.service_maintenance import ServiceMaintenanceInterface
 from lab_sync_acquisition.synchronization import SynchronizationManager
 
@@ -85,6 +85,7 @@ async def launch_independent_service(*, role, servers, service_id, ingestor_id, 
                                      external_client_id=None, browser_control_required=False, controller_claim_account=None,
                                      controller_claim_bucket=None, controller_claim_key=None, report=print):
     """Run one explicit owner with remote preservation, readiness and existing maintenance."""
+    report = _terminal_report if report is print else report
     from math import isfinite
     servers = tuple(servers)
     if type(browser_control_required) is not bool or (browser_control_required and (role != "controller" or external_client_id is None)):
@@ -99,6 +100,7 @@ async def launch_independent_service(*, role, servers, service_id, ingestor_id, 
     if any(not isinstance(v, str) or not v.strip() for v in
            (controller_claim_account, controller_claim_bucket, controller_claim_key)):
         raise ValueError("Service requires explicit authority account, bucket and claim key")
+    report(f"Preparing {role}/{service_id or 'configured-node'}.")
     if role == "controller":
         if synchronization_id is None or known_nodes is None:
             raise ValueError("Controller requires its configured synchronization identity and explicit known-node collection")
@@ -175,26 +177,33 @@ async def launch_independent_service(*, role, servers, service_id, ingestor_id, 
     async def startup():
         nonlocal admitted
         try:
+            report(f"Connecting NATS: {kind}/{service_id}.")
             await boundary.connect()
             if role == "controller":
+                report("Acquiring Controller authority.")
                 await maintenance.acquire_controller_authority(boundary,
                     account=controller_claim_account, bucket=controller_claim_bucket,
                     key=controller_claim_key, timeout_s=result_window_s)
                 admitted = True
+            report("Installing service maintenance handlers.")
             await prepare_maintenance()
             admitted = True
             # Existing handlers remain available for maintenance/instance readback;
             # service-owned new-work admission stays closed until registration.
             if isinstance(runtime, NatsAcquisitionNodeCommunication):
                 await runtime.start_acquisition_execution()
+            report(f"Registering operational dependency with Ingestor {ingestor_id}.")
             await maintenance.register_ingestor_dependency()
+            report("Ingestor registration confirmed; publishing startup/readiness evidence.")
             status = await startup_interface.start()
             if external is not None:
                 await external.start()
             if role != "controller":
+                report("Checking configured dependency readiness.")
                 for dependency in dependencies:
                     await startup_interface.check_dependency_readiness(dependency, result_window_s)
             report(json.dumps({"target": maintenance.participant.to_dict(), "startup": status}, sort_keys=True))
+            report("Startup sequence finished; inspect readiness and preservation results above.")
         except asyncio.CancelledError:
             raise
         except Exception as error:

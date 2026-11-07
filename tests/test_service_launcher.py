@@ -15,6 +15,7 @@ from lab_sync_acquisition import (
     NatsServiceMaintenanceCommunication, PersistentStorageManager,
     RuntimeCommandMessage, RuntimeParticipant, ServiceMaintenanceInterface,
     SessionConfig, RuntimeEvidenceMessage, NatsIngestorCommunication, NatsStorageManagerCommunication,
+    SynchronizationManager,
 )
 from lab_sync_acquisition.service_launcher import ServiceLauncher, launch_storage_services, main
 from tests.test_session_launch import _Boundary, _Broker
@@ -22,6 +23,50 @@ from tests.nats_server_fixture import acquire_test_controller_authority
 
 
 class LauncherCommandTests(unittest.TestCase):
+    def test_startup_feedback_is_flushed_before_slow_owner_construction(self):
+        flushed = []
+
+        class Output(io.StringIO):
+            def flush(self):
+                flushed.append(self.getvalue())
+
+        output = Output()
+        settings = dict(servers=("nats://example:4222",), ingestor_id="intake", storage_id="storage",
+            storage_root="unused", recovery_journal_root="unused", framework_journal="unused",
+            preservation_window_s=0, result_window_s=1, operational_dependents={},
+            controller_claim_account="$G", controller_claim_bucket="AUTHORITY", controller_claim_key="controller")
+
+        def constructing(*args, **kwargs):
+            self.assertTrue(any("Starting ingestor" in text for text in flushed))
+            self.assertTrue(any("Preparing paired" in text for text in flushed))
+            raise RuntimeError("construction unavailable")
+
+        errors = io.StringIO()
+        with redirect_stdout(output), redirect_stderr(errors), patch(
+                "lab_sync_acquisition.deployment_configuration.load_service_configuration", return_value=settings), patch(
+                "lab_sync_acquisition.service_launcher.PersistentStorageManager", side_effect=constructing):
+            self.assertEqual(main(["ingestor", "--deployment-config", "unused.json"]), 1)
+        self.assertIn("Startup unconfirmed", errors.getvalue())
+        self.assertNotIn("Startup sequence finished", output.getvalue())
+
+    def test_interrupt_feedback_is_immediate_flushed_and_coalesced(self):
+        flushed = []
+
+        class Output(io.StringIO):
+            def flush(self):
+                flushed.append(self.getvalue())
+
+        participant = RuntimeParticipant("synchronization_manager", "clock")
+        owner = ServiceMaintenanceInterface(SynchronizationManager(), participant, ingestor=None,
+            storage_manager=None, preservation_window_s=0, close_resources=AsyncMock(return_value=True))
+        launcher = ServiceLauncher((owner,), (NatsCommunicationBoundary("synchronization_manager", "clock"),))
+        with redirect_stdout(Output()) as output:
+            launcher.request_interrupt()
+            self.assertIn("Shutdown requested", flushed[-1])
+            launcher.request_interrupt()
+        self.assertEqual(output.getvalue().count("Shutdown requested"), 1)
+        self.assertFalse(owner.terminated)
+
     def test_help_describes_all_logical_roles(self):
         output = io.StringIO()
         with redirect_stdout(output), self.assertRaises(SystemExit) as stopped:
@@ -114,7 +159,8 @@ class ServiceLauncherTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(self.launcher.exit_ready)
         self.close.assert_awaited_once_with(False)
         self.boundary.close.assert_awaited_once()
-        self.assertEqual(json.loads(self.reports[-1])["outcome"], "completed")
+        self.assertEqual(json.loads([r for r in self.reports if r.startswith("{")][-1])["outcome"], "completed")
+        self.assertIn("Shutdown complete", self.reports[-1])
 
     async def test_explicit_cancel_ends_same_blocked_attempt_and_keeps_running(self):
         await acquire_test_controller_authority(self, self.owner)
@@ -288,7 +334,7 @@ class ServiceLauncherTests(unittest.IsolatedAsyncioTestCase):
             for service, b in zip((self.intake, self.storage), boundaries))
         launcher = ServiceLauncher(interfaces, boundaries, report=self.reports.append)
         self.assertTrue(await launcher.stop_locally("operator"))
-        reports = [json.loads(r) for r in self.reports]
+        reports = [json.loads(r) for r in self.reports if r.startswith("{")]
         self.assertEqual([(r["target"]["component_type"], r["command"]) for r in reports],
             [("storage_manager", "prepare_stop"), ("ingestor", "stop"), ("storage_manager", "stop")])
         self.assertTrue(all(m.terminated for m in interfaces))
@@ -424,7 +470,9 @@ class ServiceLauncherTests(unittest.IsolatedAsyncioTestCase):
 
         def boundary(kind, identity, servers):
             value = _Boundary(kind, identity, broker)
-            value.connect = AsyncMock()
+            async def connect():
+                self.assertIn(f"Connecting NATS: {kind}/{identity}.", self.reports)
+            value.connect = AsyncMock(side_effect=connect)
             value.ensure_streams = AsyncMock()
             value.close = AsyncMock()
             boundaries.append(value)
@@ -446,6 +494,7 @@ class ServiceLauncherTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, 0)
         self.assertEqual(len(boundaries), 2)
         self.assertTrue(all(b.connect.await_count == 1 for b in boundaries))
+        self.assertIn("Startup sequence finished; inspect readiness and preservation results above.", self.reports)
 
     async def test_partial_command_startup_retains_owners_for_local_maintenance(self):
         broker = _Broker()

@@ -132,6 +132,72 @@ class IndependentRoleCommandTests(unittest.TestCase):
 
 
 class IndependentServiceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_role_connection_progress_precedes_failure_without_success_claim(self):
+        async def run(launcher, *, startup):
+            await startup()
+
+        for role in ("controller", "synchronization-manager", "acquisition-node"):
+            with self.subTest(role=role):
+                reports = []
+
+                def boundary(kind, identity, servers):
+                    value = _Boundary(kind, identity, self.broker)
+                    async def connect():
+                        self.assertIn(f"Connecting NATS: {kind}/{identity}.", reports)
+                        raise ConnectionError("test transport unavailable")
+                    value.connect = AsyncMock(side_effect=connect)
+                    value.close = AsyncMock()
+                    return value
+
+                node = AcquisitionNode(device_manager=DeviceManager(()), node_id="node", role="acquisition",
+                    synchronization_source_id="clock")
+                with patch("lab_sync_acquisition.service_startup.NatsCommunicationBoundary", boundary), patch.object(
+                        ServiceLauncher, "run", run), patch(
+                        "lab_sync_acquisition.service_startup.load_acquisition_node", return_value=node):
+                    with self.assertRaisesRegex(ConnectionError, "test transport unavailable"):
+                        await launch_independent_service(role=role, servers=("nats://example:4222",), service_id="node",
+                            ingestor_id="intake", storage_id="storage", preservation_window_s=1, result_window_s=1,
+                            synchronization_id="clock", known_nodes=(), node_config="unused.json",
+                            controller_claim_account="$G", controller_claim_bucket="AUTHORITY",
+                            controller_claim_key="controller", report=reports.append)
+                self.assertFalse(any("registration confirmed" in r or "Startup sequence finished" in r for r in reports))
+
+    async def test_registration_progress_and_startup_json_follow_confirmation(self):
+        await self.backend()
+        register = ServiceMaintenanceInterface.register_ingestor_dependency
+        confirmed = False
+
+        async def registration(owner):
+            nonlocal confirmed
+            self.assertIn("Registering operational dependency with Ingestor intake.", self.reports)
+            self.assertFalse(any("Ingestor registration confirmed" in r for r in self.reports))
+            await register(owner)
+            confirmed = True
+
+        def boundary(kind, identity, servers):
+            value = _Boundary(kind, identity, self.broker)
+            value.connect = AsyncMock()
+            value.ensure_streams = AsyncMock()
+            value.close = AsyncMock()
+            return value
+
+        async def run(launcher, *, startup):
+            await startup()
+            self.assertTrue(confirmed)
+            self.assertTrue(any("Ingestor registration confirmed" in r for r in self.reports))
+            status = [json.loads(r) for r in self.reports if r.startswith("{") and "startup" in json.loads(r)]
+            self.assertEqual(status[0]["target"], {"component_type": "synchronization_manager", "component_id": "sync"})
+            self.assertTrue(status[0]["startup"]["archival_confirmed"])
+            self.assertTrue(await launcher.stop_locally("operator"))
+            return 0
+
+        with patch("lab_sync_acquisition.service_startup.NatsCommunicationBoundary", boundary), patch.object(
+                ServiceLauncher, "run", run), patch.object(ServiceMaintenanceInterface, "register_ingestor_dependency", registration):
+            self.assertEqual(await launch_independent_service(role="synchronization-manager", servers=("nats://example:4222",),
+                service_id="sync", ingestor_id="intake", storage_id="storage", preservation_window_s=0.1, result_window_s=0.1,
+                controller_claim_account="$G", controller_claim_bucket="AUTHORITY", controller_claim_key="controller",
+                report=self.reports.append), 0)
+
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
