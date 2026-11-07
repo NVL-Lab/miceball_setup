@@ -1,5 +1,7 @@
 # Installation And Deployment
 
+Windows operators: [CMD deployment quick runbook](#windows-cmd-deployment-quick-runbook).
+
 ## Controller replacement authority — Package 1 implementation
 
 Decision 436 Package 1 adds manual occupied-claim recovery and service-side
@@ -775,6 +777,56 @@ The windows are illustrative inputs, not guarantees. Flag-mode node startup
 defaults to `~/.config/lab-sync-acquisition/acquisition-node.json` if `--config`
 is omitted. File mode requires `node_config`. No hidden peer owners, remote process
 supervisor, broker management or Session/Experiment operator CLI is supplied.
+
+### Windows CMD Deployment Quick Runbook
+
+Use separate **Windows CMD** terminals with the installed Python environment
+activated. These filenames match the guided installer; configuration stays outside
+Git under `%USERPROFILE%\.config\lab-sync-acquisition`. The installer's Windows
+`LAUNCH:` lines instead use **PowerShell** syntax (`&` and single-quoted arguments);
+do not paste those lines into CMD.
+
+With external NATS/JetStream already available, start the shared storage process:
+
+```bat
+python -m lab_sync_acquisition.service_launcher ingestor --deployment-config "%USERPROFILE%\.config\lab-sync-acquisition\storage-services.json"
+```
+
+This launches both Ingestor and StorageManager. Do not launch a second process
+using the `storage-manager` alias. After checking their startup output, start:
+
+```bat
+python -m lab_sync_acquisition.service_launcher synchronization-manager --deployment-config "%USERPROFILE%\.config\lab-sync-acquisition\synchronization-manager.json"
+```
+
+Bring up the required AcquisitionNodes using their own deployment files, then
+start Controller (with its existing authority bucket/settings available):
+
+```bat
+python -m lab_sync_acquisition.service_launcher controller --deployment-config "%USERPROFILE%\.config\lab-sync-acquisition\controller.json"
+```
+
+Inspect `target`/`startup` output: `publication_confirmed`, `acceptance_confirmed`
+and `archival_confirmed` are separate checks. Inspect current service/dependency
+readiness too; an initial startup snapshot can contain unknown dependencies.
+`Startup unconfirmed` or a retained process is not successful readiness. Session
+launch still requires Controller's authoritative prerequisites, not just this order.
+
+For shutdown, Ctrl+C requests local maintenance Stop. A blocked attempt offers
+explicit K (authorized maintenance Kill) or C (Cancel); neither repeated Ctrl+C
+nor EOF authorizes Kill. Cancel does not undo completed cleanup. See
+[maintenance](#maintenance-stop-cancel-and-kill) for addressed commands and paired
+preparation restrictions. Retire dependent work before expecting storage to stop.
+
+For retained startup or dependency-confirmation failures, keep the terminal and
+capture both peer logs, exact instance/attempt/command identities and result fields.
+Startup registration does not automatically retry. If local retirement completed
+but delivery remains unconfirmed, Ctrl+C retries the launcher's retained completion,
+not a fresh physical Stop. Archived evidence alone does not prove requester receipt.
+Do not use `taskkill` as framework recovery or reset journals, archives, configuration
+or NATS state. If a process was forcibly ended, assess its preserved obligations
+before explicit return under Decision 329; do not label the old exit graceful.
+See [restart and retained-result guidance](#independent-role-startup-w063-closed).
 
 <a id="remote-service-maintenance-w062-closed"></a>
 ### Maintenance Stop, Cancel And Kill
