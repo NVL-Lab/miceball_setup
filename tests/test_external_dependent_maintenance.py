@@ -69,6 +69,141 @@ class ExternalDependentConfigurationTests(unittest.TestCase):
 
 @unittest.skipUnless(NATS_SERVER, "optional isolated nats-server unavailable")
 class ExternalDependentRegistrationTransportTests(unittest.IsolatedAsyncioTestCase):
+    async def test_fresh_public_pair_preserves_empty_history_during_startup_publication(self):
+        from lab_sync_acquisition import NatsCommunicationBoundary
+        server = await self.enterAsyncContext(restartable_jetstream_server())
+        root = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        observed, reports = [], []
+        original = NatsCommunicationBoundary.publish_evidence
+
+        async def publish(boundary, evidence):
+            if boundary.component_type == "ingestor" and not observed:
+                owner = boundary._maintenance_owner
+                # The paired publisher has accepted this readiness record locally,
+                # but its first archival write has not happened yet.
+                result = await owner.execute_command(RuntimeCommandMessage("startup-survey", None,
+                    "check_stop_readiness", "observer", "intake", {}))
+                observed.append(result.payload)
+            return await original(boundary, evidence)
+
+        async def capture(launcher, *, startup):
+            for boundary in launcher.boundaries:
+                self.addAsyncCleanup(boundary.close)
+            await startup()
+            return launcher
+
+        with patch.object(ServiceLauncher, "run", capture), patch.object(NatsCommunicationBoundary, "publish_evidence", publish):
+            launcher = await launch_storage_services(servers=(server.url,), ingestor_id="intake", storage_id="storage",
+                storage_root=root / "storage", recovery_journal_root=root / "journals",
+                framework_journal=root / "framework.jsonl", preservation_window_s=2, operational_dependents={},
+                external_dependents=(RuntimeParticipant("acquisition_node", "unused"),), result_window_s=1,
+                controller_claim_account="$G", controller_claim_bucket="AUTHORITY", controller_claim_key="controller",
+                report=reports.append)
+        self.assertTrue(observed)
+        self.assertNotIn("Operational dependency: acquisition_node/unused", observed[0]["blockers"])
+        self.assertTrue(all(json.loads(row)["startup"]["archival_confirmed"] for row in reports))
+        self.assertTrue(await launcher.stop_locally("operator"))
+
+    async def test_queued_framework_evidence_after_retirement_has_truthful_cleanup(self):
+        import nats
+        from lab_sync_acquisition import NatsCommunicationBoundary
+        from lab_sync_acquisition.communication import build_runtime_subject
+
+        root = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        for case in ("duplicate", "unknown", "conflict", "damaged", "cancelled", "close-cancelled"):
+            with self.subTest(case=case):
+                server = await self.enterAsyncContext(restartable_jetstream_server())
+                entered, resume = asyncio.Event(), asyncio.Event()
+                errors, subscriptions = [], []
+                original = NatsIngestorCommunication.subscribe_evidence
+
+                async def error_cb(error):
+                    errors.append(str(error))
+
+                async def observer(evidence):
+                    if evidence.evidence_id == "queued":
+                        entered.set()
+                        await resume.wait()
+                        if case == "cancelled":
+                            raise asyncio.CancelledError()
+
+                async def subscribe(receiver, session_id, callback=None):
+                    receiver._boundary._require_client()._error_cb = error_cb
+                    subscription = await original(receiver, session_id, observer if session_id is None else callback)
+                    subscriptions.append(subscription)
+                    return subscription
+
+                async def capture(launcher, *, startup):
+                    await startup()
+                    return launcher
+
+                with patch.object(ServiceLauncher, "run", capture), patch.object(NatsIngestorCommunication, "subscribe_evidence", subscribe):
+                    launcher = await launch_storage_services(servers=(server.url,), ingestor_id="intake", storage_id="storage",
+                        storage_root=root / case / "storage", recovery_journal_root=root / case / "journals",
+                        framework_journal=root / case / "framework.jsonl", preservation_window_s=2,
+                        operational_dependents={}, external_dependents=(RuntimeParticipant("acquisition_node", "unused"),),
+                        result_window_s=1, controller_claim_account="$G", controller_claim_bucket="AUTHORITY",
+                        controller_claim_key="controller", report=lambda text: None)
+                client = await nats.connect(server.url)
+                evidence = RuntimeEvidenceMessage("queued", None, "warning", "probe", {"value": "original"}, True)
+
+                async def publish(message):
+                    subject = build_runtime_subject(None, "evidence", "synchronization_manager", message.source_id, message.evidence_type)
+                    await client.jetstream().publish(subject, json.dumps(message.to_dict()).encode())
+
+                try:
+                    await publish(evidence)
+                    await asyncio.wait_for(entered.wait(), 2)
+                    queued = (RuntimeEvidenceMessage("unknown", None, "warning", "probe", {}, True) if case == "unknown" else
+                              RuntimeEvidenceMessage("queued", None, "warning", "probe", {"value": "conflict"}, True)
+                              if case == "conflict" else evidence)
+                    await publish(queued)
+                    self.assertTrue(await launcher.stop_locally("operator"))
+                    journal = root / case / "framework.jsonl"
+                    before = journal.read_bytes()
+                    if case == "damaged":
+                        journal.write_bytes(before + b"corrupt\n")
+                        before = journal.read_bytes()
+                    if case == "close-cancelled":
+                        closing = asyncio.create_task(launcher.boundaries[0].close())
+                        await asyncio.sleep(0)
+                        closing.cancel()
+                        resume.set()
+                        with self.assertRaises(asyncio.CancelledError):
+                            await asyncio.wait_for(closing, 3)
+                        self.assertIsNone(launcher.boundaries[0]._client)
+                        await launcher.boundaries[1].close()
+                        self.assertEqual(errors, [])
+                        self.assertEqual(journal.read_bytes(), before)
+                    elif case == "duplicate":
+                        resume.set()
+                        for boundary in launcher.boundaries:
+                            await asyncio.wait_for(boundary.close(), 3)
+                        self.assertEqual(errors, [])
+                        self.assertEqual(journal.read_bytes(), before)
+                    else:
+                        resume.set()
+                        # Use the existing SDK drain bound, not a production timing setting.
+                        launcher.boundaries[0]._require_client().options["drain_timeout"] = .2
+                        with self.assertRaises((RuntimeError, TimeoutError)):
+                            await launcher.boundaries[0].close()
+                        self.assertIsNotNone(launcher.boundaries[0]._client)
+                        self.assertFalse(launcher.boundaries[0]._require_client().is_closed)
+                        info = await subscriptions[0].consumer_info()
+                        self.assertGreater(info.num_ack_pending, 0)
+                        if case in {"unknown", "conflict"}:
+                            self.assertEqual(info.num_ack_pending, 1)
+                        self.assertEqual(journal.read_bytes(), before)
+                finally:
+                    resume.set()
+                    await client.close()
+                    for boundary in launcher.boundaries:
+                        # Test teardown only: unresolved owner obligations must not
+                        # be mistaken for successful production communication close.
+                        if boundary._client is not None:
+                            await boundary._client.close()
+                    server.stop()
+
     async def test_retained_controller_startup_recovers_maintenance_before_exact_claim_release(self):
         import nats
         from nats.js.api import KeyValueConfig, StorageType
@@ -379,6 +514,42 @@ class ExternalDependentRegistrationTransportTests(unittest.IsolatedAsyncioTestCa
 
 
 class ExternalDependentMaintenanceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_verified_empty_history_survives_unarchived_unrelated_evidence(self):
+        nodes = (RuntimeParticipant("acquisition_node", "unused"),)
+        await self.backend(participants=nodes)
+        self.assertTrue((await self.status()).payload["ready"])
+        self.intake.receive_runtime_evidence(RuntimeEvidenceMessage("unrelated", None, "warning", "other", {}, True))
+        self.assertTrue((await self.status()).payload["ready"])
+        _, _, launcher, _ = await self.producer("acquisition_node", "unused")
+        self.assertFalse((await self.status()).payload["ready"])
+        self.assertTrue(await launcher.stop_locally("operator"))
+        self.assertTrue((await self.status()).payload["ready"])
+        self.assertTrue(await self.pair.stop_locally("operator"))
+
+    async def test_unarchived_restart_does_not_inherit_verified_empty_authority(self):
+        nodes = (RuntimeParticipant("acquisition_node", "unused"),)
+        await self.backend(participants=nodes)
+        self.assertTrue((await self.status()).payload["ready"])
+        self.intake.receive_runtime_evidence(RuntimeEvidenceMessage("unarchived", None, "warning", "other", {}, True))
+        for subscription in self.broker.subscriptions:
+            await subscription.unsubscribe()
+        await self.backend(participants=nodes)
+        result = await self.status()
+        self.assertFalse(result.payload["ready"])
+        self.assertIn("Operational dependency: acquisition_node/unused", result.payload["blockers"])
+
+    async def test_initial_history_damage_cannot_be_reclassified_as_fresh(self):
+        nodes = (RuntimeParticipant("acquisition_node", "unused"),)
+        await self.backend(participants=nodes)
+        self.assertTrue((await self.status()).payload["ready"])
+        journal = self.root / "framework.jsonl"
+        before = journal.read_bytes()
+        journal.unlink()
+        self.assertFalse((await self.status()).payload["ready"])
+        # Recreating an empty file is not an authorized recovery result.
+        journal.write_bytes(before)
+        self.assertFalse((await self.status()).payload["ready"])
+
     async def test_unused_nodes_survive_ordinary_restart_without_becoming_blockers(self):
         nodes = (RuntimeParticipant("acquisition_node", "unused"),)
         await self.backend(participants=nodes)

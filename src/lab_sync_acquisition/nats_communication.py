@@ -143,6 +143,7 @@ class NatsCommunicationBoundary:
         self.maintenance_command_handled: Callable[[RuntimeCommandMessage, RuntimeCommandResultMessage], None] | None = None
         self._pending_dependent_deliveries = {}
         self._maintenance_delivery_tasks = {}
+        self._framework_evidence_subscriptions = []
         self._participant_command_subscriptions = {}
         self._participant_command_lock = asyncio.Lock()
         self._partial_result_subscriptions: dict[Subscription, NATS] = {}
@@ -456,10 +457,22 @@ class NatsCommunicationBoundary:
         if client is None:
             return
         if self._close_task is None:
-            if self._jetstream is not None:
-                client.options["allow_reconnect"] = False
-
             async def finish():
+                await self._finish_partial_result_subscriptions()
+                for state in tuple(self._framework_evidence_subscriptions):
+                    subscription = state["subscription"]
+                    if subscription is not None:
+                        if subscription._closed:
+                            if subscription.pending_msgs:
+                                raise RuntimeError("Framework evidence subscription closed with unprocessed messages")
+                        else:
+                            await asyncio.wait_for(subscription.drain(), client.options["drain_timeout"])
+                    if state["pending"]:
+                        subjects = sorted({message.subject for message in state["pending"].values()})
+                        raise RuntimeError("Framework evidence handling remains unconfirmed: " + ", ".join(subjects))
+                    self._framework_evidence_subscriptions.remove(state)
+                if self._jetstream is not None:
+                    client.options["allow_reconnect"] = False
                 deliveries = tuple(self._maintenance_delivery_tasks.values())
                 for delivery in deliveries:
                     delivery.cancel()
@@ -2441,7 +2454,7 @@ class NatsIngestorCommunication:
         self._ingestor = ingestor
         boundary._runtime_service = ingestor
         self._results_by_command_id = {}
-        self._evidence_subscriptions: dict[str, Subscription] = {}
+        self._evidence_subscriptions: dict[str | None, Subscription] = {}
         self._closeout_lock = asyncio.Lock()
         self._pending_closeout_results = {}
 
@@ -2742,7 +2755,11 @@ class NatsIngestorCommunication:
                 raise RuntimeError("Session binding changed during evidence subscription")
             options = {"durable": durable, "stream": "LAB_EVIDENCE", "config": config}
 
-        async def receive(message: Any) -> None:
+        framework_state = {"subscription": None, "pending": {}} if session_id is None else None
+        if framework_state is not None:
+            self._boundary._framework_evidence_subscriptions.append(framework_state)
+
+        async def receive_evidence(message: Any) -> None:
             if session_id is not None and (
                     self._ingestor.session_id != session_id
                     or self._ingestor.recovery_journal_path != journal):
@@ -2756,7 +2773,23 @@ class NatsIngestorCommunication:
                     or message.subject != build_runtime_subject(session_id, "evidence",
                         tokens[component_index], evidence.source_id, evidence.evidence_type)):
                 raise ValueError("Runtime evidence Session/source/type identity does not match its NATS subject")
-            audit = self._ingestor.receive_runtime_evidence(evidence)
+            if session_id is None:
+                # Retirement commits under the same intake lock. Do not race a
+                # retired owner into operational intake, including from a thread.
+                with self._ingestor._intake_lock:
+                    maintenance = getattr(self._ingestor, "_maintenance", None)
+                    retired_duplicate = maintenance is not None and maintenance.terminated
+                    if retired_duplicate:
+                        with self._ingestor.framework_journal_guard():
+                            if not self._ingestor.has_durable_runtime_evidence(evidence):
+                                raise RuntimeError("Retired Ingestor cannot confirm an exact durable framework duplicate")
+                    else:
+                        audit = self._ingestor.receive_runtime_evidence(evidence)
+                if retired_duplicate:
+                    await message.ack()
+                    return
+            else:
+                audit = self._ingestor.receive_runtime_evidence(evidence)
             if audit.reason == "acquisition_intake_finalized":
                 if self._ingestor.session_id != session_id or self._ingestor.recovery_journal_path != journal:
                     raise RuntimeError("Finalized Session binding changed before discard acknowledgment")
@@ -2775,12 +2808,23 @@ class NatsIngestorCommunication:
                     raise RuntimeError("Session binding changed before evidence acknowledgment")
                 await message.ack_sync()
 
-        subscription = await jetstream.subscribe(
-            subject,
-            cb=receive,
-            manual_ack=True,
-            **options,
-        )
+        async def receive(message: Any) -> None:
+            if framework_state is None:
+                await receive_evidence(message)
+                return
+            # Keep failed/cancelled deliveries, not just active SDK queue work:
+            # nats-py considers even a failed callback finished during drain.
+            identity = id(message)
+            framework_state["pending"][identity] = message
+            await receive_evidence(message)
+            framework_state["pending"].pop(identity)
+
+        if framework_state is not None:
+            subscription = await self._boundary._subscribe_jetstream(subject, receive, **options)
+            framework_state["subscription"] = subscription
+            self._evidence_subscriptions[None] = subscription
+        else:
+            subscription = await jetstream.subscribe(subject, cb=receive, manual_ack=True, **options)
         if session_id is not None and (
                 self._ingestor.session_id != session_id
                 or self._ingestor.recovery_journal_path != journal):

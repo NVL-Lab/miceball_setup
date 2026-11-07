@@ -144,6 +144,10 @@ class ServiceLauncherTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.owner.command_results), 1)
         self.assertFalse(self.owner.terminated)
         self.assertTrue(any("EOF" in report for report in self.reports))
+        prompt = next(report for report in self.reports if report.startswith("Blocked"))
+        self.assertIn("\nAttempt: ", prompt)
+        self.assertIn("\n[K] Kill\n[C] Cancel\n", prompt)
+        self.assertIn("\nEnter K or C", prompt)
         with patch("lab_sync_acquisition.service_launcher._read_terminal_choice", AsyncMock(return_value="C")):
             self.assertFalse(await self.launcher.stop_locally("operator"))
         self.assertEqual(len(self.owner.command_results), 2)

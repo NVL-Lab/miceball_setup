@@ -2986,6 +2986,28 @@ are not additional independent evidence. Interactive Windows terminal use, Linux
 hardware, cross-machine, physical crash/power-loss and exhaustive concurrency
 validation are not established; independent manual validation and audit are next.
 
+**A/B/C developer correction (independent verification pending):** The bounded
+working-tree correction preserves a verified first-initialization empty dependency
+assessment through unrelated accepted-but-unarchived startup evidence. Registration,
+pending publication and detected integrity/restart uncertainty still override it;
+general archive-continuation requirements are unchanged. Framework callbacks retain
+subscription and failed/cancelled delivery ownership through communication cleanup.
+After retirement only complete-content duplicates verified against the physical
+framework journal may be ACKed; unknown, conflicting or unverified deliveries remain
+unacknowledged and prevent successful close. No automatic disposition or recovery
+of these obligations is introduced. The blocked-Stop K/C prompt is multiline only;
+attempt identity, authorization, EOF and paired-preparation behavior are unchanged.
+These changes are developer implementation, not independent validation, audit or
+closure. The earlier developer evidence above remains historical.
+
+Correction developer verification: 41 focused methods PASS (23 launcher methods,
+eight isolated real-NATS transport methods, ten disk-backed dependency-history
+methods). The queued-callback method includes duplicate, unknown, conflicting,
+damaged-journal, callback-cancellation and close-cancellation cases. This does not
+verify retained Windows deployment history, interactive terminal use, cross-machine
+operation, physical crashes/power loss or exhaustive concurrency. Independent
+Windows validation and a separate audit remain required.
+
 **Registration-evidence criterion resolved (Decision 442 supplement):** Existing
 applicable startup, reconstruction, integrity, historical verification and
 preservation checks establish authority of retained registration/release history.

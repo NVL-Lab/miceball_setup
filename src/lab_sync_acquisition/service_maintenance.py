@@ -144,6 +144,9 @@ class ServiceMaintenanceInterface:
         self._dependent_confirmations = {}
         self._dependent_conflicts = set()
         self._dependent_state_messages = {}
+        # None retains detected uncertainty; False has not established an initial
+        # empty boundary, and True carries that verified boundary until archival.
+        self._verified_initial_dependent_history: bool | None = False
         self._dependent_communication = None
         self._dependent_result_window_s = None
         self._dependency_registration = None
@@ -366,24 +369,46 @@ class ServiceMaintenanceInterface:
         self._dependent_confirmations = confirmations
         if self._dependent_state_messages:
             # An interrupted publication cannot be replaced by an older archived release.
+            self._verified_initial_dependent_history = None
             return
         try:
             # A detected continuation failure is not a fresh deployment. Only the
             # existing explicit recovery/verification path may clear that condition.
             if self.storage_manager._framework_continuation_rejected:
+                self._verified_initial_dependent_history = None
                 return
             with self.ingestor._intake_lock:
+                if self._verified_initial_dependent_history:
+                    with self.ingestor.framework_journal_guard():
+                        compiled = self.ingestor.compile_framework_runtime_evidence()
+                        registered = any(m.source_id == self.participant.component_id
+                            and "dependent_maintenance" in m.payload for m in compiled["runtime_evidence"])
+                        if registered or any(self._dependent_instances.values()):
+                            self._verified_initial_dependent_history = False
+                        elif not self.storage_manager._framework_evidence_write_safe():
+                            self._verified_initial_dependent_history = None
+                            return
+                        elif self.storage_manager.get_framework_preservation_confirmation() is None:
+                            # This owner already verified genuine empty initialization.
+                            # Unrelated accepted startup records need an initial write,
+                            # not historical continuation or recovery authorization.
+                            return {p: [] for p in self._dependent_instances}
                 archived = self.ingestor.continue_framework_evidence_archive()
                 if archived is None:
                     compiled = self.ingestor.compile_framework_runtime_evidence()
                     if any(compiled.values()) or any(self._dependent_instances.values()):
                         return
+                    if self._verified_initial_dependent_history is None:
+                        return
+                    self._verified_initial_dependent_history = True
                     return {p: [] for p in self._dependent_instances}
                 with self.ingestor.framework_preservation_guard(self.storage_manager, verify_journal=True):
                     compiled = self.ingestor.compile_framework_runtime_evidence()
                     instances, confirmations, conflicts, histories = self._dependent_history(compiled, archived)
         except (OSError, RuntimeError, ValueError, KeyError, TypeError):
+            self._verified_initial_dependent_history = None
             return
+        self._verified_initial_dependent_history = False
         self._dependent_instances = instances
         self._dependent_confirmations = confirmations
         self._dependent_conflicts = conflicts

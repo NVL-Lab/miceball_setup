@@ -152,11 +152,12 @@ class ServiceLauncher:
                 self._interrupt = False
 
     async def _choose_blocked_attempt(self, owner, payload, *, preparation=False):
-        self._report(f"Blocked {owner.participant.component_type}/{owner.participant.component_id} "
-                     f"attempt {payload['stop_attempt_id']}: "
-                     + ("C cancels paired preparation; Kill cannot retire StorageManager before Ingestor."
-                        if preparation else "K explicitly authorizes maintenance Kill; C cancels this attempt.")
-                     + " On line-buffered terminals press Enter after the choice.")
+        self._report(f"Blocked Stop: {owner.participant.component_type}/{owner.participant.component_id}\n"
+                     f"Attempt: {payload['stop_attempt_id']}\n\nChoose an action:\n"
+                     + ("[K] Unavailable during paired preparation: StorageManager cannot retire before Ingestor\n"
+                        "[C] Cancel paired preparation\nEnter C (press Enter on line-buffered terminals):"
+                        if preparation else
+                        "[K] Kill\n[C] Cancel\nEnter K or C (press Enter on line-buffered terminals):"))
         while True:
             reader = asyncio.create_task(_read_terminal_choice())
             try:
