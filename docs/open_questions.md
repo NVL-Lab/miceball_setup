@@ -3459,6 +3459,26 @@ is accepted in Decisions 339-348; supported cases have automated implementation
 coverage and are complete with independent manual validation and final independent
 re-audit PASS after correction, documented in W039. Q024 remains OPEN.
 
+### Verified recovery checkpoints: architecture settled, independent verification pending
+
+Decision 443 accepts Ingestor-owned operational recovery checkpoints after
+successful authoritative archival or successful Session completion with applicable
+finalization and preservation confirmed. A valid checkpoint establishes its exact
+journal prefix for ordinary startup and Decision 390 archival continuation;
+restore its complete recovery state and verify the suffix and unfinished work
+without repeating full-prefix reconstruction or physical verification. Invalid or
+untrustworthy checkpoints require existing safe recovery or fail-closed behavior.
+Deduplication, audit continuity, outstanding obligations and explicitly required
+integrity checks remain mandatory. Permanent archives remain historical evidence,
+not checkpoint state; no historical deletion or periodic checkpointing is added.
+
+The previously identified checkpoint/prefix-verification architectural question is
+RESOLVED by Decision 443. The working-tree implementation adds atomic operational
+snapshots, verified-boundary suffix recovery and ordinary archival-prefix reuse;
+independent validation and audit remain pending. No deployment result is claimed. This does not
+reopen completed Packages 1/2, close broader Q024, or resolve Q022's separate
+catastrophic-history-loss limitation.
+
 ### Package 2 CLOSED; broader Q024 remains OPEN
 
 The final independent re-audit of

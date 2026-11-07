@@ -2005,6 +2005,23 @@ the historical FAILED-only expectations in the preceding Alternative B report.
 
 ## src/lab_sync_acquisition/ingestor.py
 
+**Decision 443 implementation, independent verification pending:** Ingestor writes
+an atomic operational `.checkpoint.json` sidecar after confirmed framework archival,
+Session closeout archival or successful finalized Session completion. Normal
+recovery restores verified snapshot state and replays the suffix; ordinary
+framework continuation may reuse checkpoint-covered products. Explicit journal
+verification and archive-confirmation calls retain physical integrity checks.
+The snapshot retains operational deduplication, audit, finality and monthly-write
+proofs, not copies of archive products. No independent validation or closure is
+claimed.
+
+- InMemoryIngestor._require_checkpoint_boundary(journal, checkpoint): Checks exact journal identity, safe ancestry, complete offset and a bounded boundary-content anchor without reading the historical prefix.
+- InMemoryIngestor._load_recovery_checkpoint(): Validates snapshot integrity, scope, recovery-state coverage and qualifying durable completion, falling back to ordinary journal recovery when invalid.
+- InMemoryIngestor._validate_checkpoint_partitions(checkpoint, persistent_count): Reconciles checkpoint archival coverage and product identities with the durable qualifying write intent.
+- InMemoryIngestor._validate_recovery_finality(checkpoint, content): Shares Session finality, receipt and audit reconciliation between full journal replay and checkpoint restoration.
+- InMemoryIngestor._write_recovery_checkpoint(qualification): Atomically replaces and durably publishes the current operational recovery snapshot at an already confirmed boundary.
+- InMemoryIngestor._checkpoint_framework_recovery(partitions): Captures just-verified framework archival coverage linked to a durable monthly-write completion.
+
 - InMemoryIngestor.preserve_service_evidence(messages, source_id, acceptance_window_s): Verifies a unique producer-owned persistent boundary through journals and paired StorageManager guards, preserving current framework products without repairing corruption or rewriting Session archives.
 
 - InMemoryIngestor: Receives operational runtime evidence and manifests, journals/reconstructs the evidence view for a known Session, deduplicates evidence_id content, and compiles persistent evidence without scientific-observation intake.
@@ -2015,7 +2032,7 @@ the historical FAILED-only expectations in the preceding Alternative B report.
 - InMemoryIngestor.await_durable_runtime_evidence(evidence, timeout_s): Boundedly observes exact local journal-backed acceptance using futures, without polling, retrying, or equating JetStream publication with acceptance.
 - InMemoryIngestor.framework_preservation_guard(storage_manager, *, verify_journal=False): Holds framework intake and StorageManager preservation steady while checking current persistent-message/all-audit coverage, optionally verifying the physical framework journal before producer-copy retirement.
 - InMemoryIngestor._verify_framework_journal(): Checks physical journal acceptance, audit and typed write proofs, reusing only identical complete-envelope validation within each scan without weakening representation-sensitive conflicts.
-- InMemoryIngestor.framework_journal_guard(): Holds paired intake locks and shares unchanged nested synchronous verification only within the active scope, invalidating on appends/yields and retaining final physical verification after reuse.
+- InMemoryIngestor.framework_journal_guard(*, checkpoint_prefix=False): Holds paired intake locks and shares protected nested verification, permitting verified-prefix reuse only within ordinary continuation scopes while explicit default checks retain full physical verification.
 - InMemoryIngestor.read_framework_write_records(): Returns detached, verified typed monthly-write intent/completion records outside evidence and intake-audit compilation.
 - InMemoryIngestor.accept_framework_write_record(record): Validates and durably accepts a typed intent or exact correlated completion through the existing framework journal, with idempotent exact retries.
 - InMemoryIngestor._validate_framework_write_record(records, record): Validates typed write-proof identities, boundaries, product fingerprints and unique intent/completion relationships.
@@ -2352,7 +2369,7 @@ recovery is introduced. Phase 16 and M015 remain open.
 - PersistentStorageManager._write_record_contents(path, serialized, *, newline=None): Writes serialized owner products with flush/fsync and directory durability, supporting explicit LF monthly serialization without changing existing Session newline behavior.
 - PersistentStorageManager._read_archive_products: Reads the existing evidence/audit/summary products for exact current-write confirmation, without interpreting evidence meaning.
 - PersistentStorageManager._framework_summary(evidence, audit): Builds the existing exact framework product counts and identities for partition or cumulative coverage.
-- PersistentStorageManager._read_framework_archive_history(*, excluded_target=None): Validates retained monthly products, offsets, evidence uniqueness and audit coverage, including read-only shared-layout prefixes, returning cumulative confirmation inputs without rewriting history.
+- PersistentStorageManager._read_framework_archive_history(*, excluded_target=None, checkpoint_prefix=False): Validates monthly coverage and products, optionally reusing a verified checkpoint prefix with matching owner/product identities during ordinary continuation while explicit default calls physically read history.
 - PersistentStorageManager._framework_evidence_write_safe: Allows ordinary framework archival only for a pristine target with no rejected continuation or a currently confirmed archive, never implicit repair of unfinished or rejected history.
 - PersistentStorageManager._recover_archive_write: Uses existing journal-backed authorization/attempt admission to recover either legacy compiled archival or an identified durable Stage B outcome append without refetching scientific artifacts or requiring the old Session intake.
 - PersistentStorageManager._recover_archive_write_contents: Retains the existing repair contracts and partial Kill provenance for explicit interrupted-write recovery without refreshing a handoff or executing artifact transfer.
@@ -2360,8 +2377,8 @@ recovery is introduced. Phase 16 and M015 remain open.
 - PersistentStorageManager._recover_artifact_transfer: Makes one authorized fresh complete transfer from the original failed collection and authoritative handoff through existing destination/source/verification mechanisms, retaining normal global collection evidence.
 - PersistentStorageManager.session_preservation_guard(session_id): Synchronous context manager yielding current confirmation while holding the archive/final-record write lock through the caller's release commit; callers must not await or acquire a new Ingestor intake lock while holding it.
 - PersistentStorageManager.write_framework_evidence_archive(compiled_runtime_evidence): Enforces framework write safety for every ordinary caller before writing and flushing/fsyncing existing products, without granting repair authority.
-- PersistentStorageManager._write_framework_evidence_archive(compiled_runtime_evidence): Appends journal-confirmed suffixes to the administrative UTC write-month partition between durable typed intent and completion, with exact product fingerprints and readback.
-- PersistentStorageManager._framework_journal_guard(): Obtains the paired Ingestor journal guard before storage locking for monthly-write proof.
+- PersistentStorageManager._write_framework_evidence_archive(compiled_runtime_evidence, *, checkpoint_prefix=False): Appends journal-confirmed suffixes between durable intent/completion and exact product readback, then qualifies an Ingestor checkpoint, optionally reusing verified history for ordinary continuation.
+- PersistentStorageManager._framework_journal_guard(*, checkpoint_prefix=False): Obtains the paired Ingestor journal guard before storage locking, retaining physical default checks and permitting verified-prefix reuse for ordinary continuation.
 - PersistentStorageManager._framework_fingerprint(value): Computes a SHA-256 commitment to exact product bytes or canonical structured readback, avoiding a redundant retained full compilation cache.
 - PersistentStorageManager._framework_product_texts(products): Serializes reconstructable monthly evidence, intake audit and summary products with explicit LF line endings.
 - PersistentStorageManager._complete_framework_write(intent): Verifies exact product fingerprints and directory durability before requesting durable correlated completion.

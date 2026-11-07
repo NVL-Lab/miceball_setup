@@ -10,6 +10,7 @@ from contextlib import ExitStack, contextmanager
 from copy import deepcopy
 import json
 import os
+from math import isfinite
 from pathlib import Path
 import re
 import stat
@@ -105,6 +106,7 @@ class InMemoryIngestor:
         self._durable_evidence_waiters = {}
         self._framework_write_records = []
         self._framework_verification_scope = None
+        self._recovery_checkpoint = None
         self._accepted_runtime_evidence: tuple[RuntimeEvidenceMessage, ...] = ()
         self._runtime_evidence_audit: tuple[RuntimeEvidenceAuditRecord, ...] = ()
         if evidence_scope == "framework" and self._recovery_journal_path is not None:
@@ -140,7 +142,7 @@ class InMemoryIngestor:
         intake = self._framework_ingestor
         if intake is None or self._storage_manager is None:
             raise RuntimeError("Framework journal and paired StorageManager are required")
-        with self.framework_journal_guard(), self._storage_manager._preservation_lock:
+        with self.framework_journal_guard(checkpoint_prefix=True), self._storage_manager._preservation_lock:
             compiled = self.compile_framework_runtime_evidence()
             confirmation = self._storage_manager.continue_framework_evidence_archive(compiled)
             if confirmation is not None and any(confirmation[name] != [m.to_dict() for m in compiled[name]]
@@ -159,9 +161,16 @@ class InMemoryIngestor:
                 scope["valid"] = False
             if intake._journal_failed or intake._recovery_journal_path is None:
                 raise RuntimeError("Framework journal integrity is unconfirmed")
-            evidence, audits, writes, validated = {}, [], [], {}
+            checkpoint = intake._recovery_checkpoint if scope is not None and scope["checkpoint_prefix"] else None
+            evidence = dict(checkpoint["content"]) if checkpoint else {}
+            audits = deepcopy(checkpoint["audit"]) if checkpoint else []
+            writes = deepcopy(checkpoint["writes"]) if checkpoint else []
+            validated = {}
             with intake._recovery_journal_path.open("rb") as journal:
                 before = os.fstat(journal.fileno())
+                if checkpoint:
+                    intake._require_checkpoint_boundary(journal, checkpoint)
+                    journal.seek(checkpoint["boundary"])
                 for line in journal:
                     entry = json.loads(line)
                     if "framework_archive_write" in entry:
@@ -290,7 +299,7 @@ class InMemoryIngestor:
             raise ValueError("Completion does not match its unique write intent")
 
     @contextmanager
-    def framework_journal_guard(self):
+    def framework_journal_guard(self, *, checkpoint_prefix=False):
         """Hold the existing intake locks and verify the physical framework journal."""
         if self._framework_ingestor is None:
             raise RuntimeError("Framework journal is not configured")
@@ -303,7 +312,8 @@ class InMemoryIngestor:
                 loop = task = None
             previous = intake._framework_verification_scope
             nested = previous is not None and previous["task"] is task
-            scope = previous if nested else {"task": task, "valid": False, "reused": False}
+            scope = previous if nested else {"task": task, "valid": False, "reused": False,
+                                             "checkpoint_prefix": checkpoint_prefix}
             intake._framework_verification_scope = scope
             # An RLock does not exclude other tasks on this thread after an await.
             expiry = loop.call_soon(scope.__setitem__, "valid", False) if loop else None
@@ -756,7 +766,10 @@ class InMemoryIngestor:
                             uncertainties=uncertainties, **record)
                     storage.write_artifact_collection_handoff(session_id,
                         self.compile_artifact_collection_handoff(session_id))
-                return self.read_session_closeout(session_id)
+                result = self.read_session_closeout(session_id)
+                self._write_recovery_checkpoint({"session_id": session_id, "preservation_confirmed": True,
+                    "summary": result["compilation_summary"]})
+                return result
 
     def read_session_closeout(self, session_id: str) -> dict:
         """Reconcile exact current journal, finalized audit, archive and handoff coverage."""
@@ -981,6 +994,8 @@ class InMemoryIngestor:
             if (old.get("final_session_status") or {}).get("state") in {"completed", "failed", "aborted"}:
                 if (old["final_session_status"] != status or old["session_lifecycle_evidence"] != lifecycle):
                     raise RuntimeError("Terminal Session history cannot be replaced")
+                if status["state"] == "completed" and self._session_id == session_id and self._finalized_intake is not None:
+                    self._write_recovery_checkpoint({"session_id": session_id, "state": "completed"})
                 return before
             if not before["acquisition_preservation_eligible"]:
                 raise RuntimeError("Partial Kill terminal history is immutable")
@@ -995,7 +1010,10 @@ class InMemoryIngestor:
                 record.update(runtime_evidence=[m.to_dict() for m in compiled["runtime_evidence"]],
                               runtime_evidence_audit=[a.to_dict() for a in compiled["ingest_audit"]])
             self._storage_manager.write_final_session_record(session_id, **record)
-            return self.read_session_closeout(session_id)
+            result = self.read_session_closeout(session_id)
+            if status["state"] == "completed" and self._session_id == session_id and self._finalized_intake is not None:
+                self._write_recovery_checkpoint({"session_id": session_id, "state": "completed"})
+            return result
 
     @service_operation()
     def release_session(
@@ -1055,6 +1073,7 @@ class InMemoryIngestor:
             self._session_id = None
             self._kill_handoff_required = False
             self._finalized_intake = None
+            self._recovery_checkpoint = None
             self._recovery_journal_path = None
             self._accepted_evidence_content.clear()
             self._accepted_runtime_evidence = ()
@@ -1177,13 +1196,219 @@ class InMemoryIngestor:
             self._journal_failed = True
             raise
 
+    def _require_checkpoint_boundary(self, journal, checkpoint):
+        """Bind a recovery snapshot to this exact journal and complete boundary."""
+        info = os.fstat(journal.fileno())
+        for parent in self._recovery_journal_path.absolute().parents:
+            metadata = parent.lstat()
+            if (not stat.S_ISDIR(metadata.st_mode)
+                    or getattr(metadata, "st_file_attributes", 0) & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)):
+                raise ValueError("Aliased recovery journal ancestry")
+        if ([info.st_dev, info.st_ino] != checkpoint["journal_identity"]
+                or info.st_nlink != 1 or info.st_size < checkpoint["boundary"]
+                or str(self._recovery_journal_path.absolute()) != checkpoint["journal_path"]):
+            raise ValueError("Recovery checkpoint journal identity or boundary changed")
+        if checkpoint["boundary"]:
+            journal.seek(max(0, checkpoint["boundary"] - 4096))
+            tail = journal.read(min(4096, checkpoint["boundary"]))
+            if hashlib.sha256(tail).hexdigest() != checkpoint["boundary_sha256"]:
+                raise ValueError("Recovery checkpoint boundary content changed")
+            journal.seek(checkpoint["boundary"] - 1)
+            if journal.read(1) != b"\n":
+                raise ValueError("Recovery checkpoint does not end at a complete journal record")
+
+    def _load_recovery_checkpoint(self):
+        """Validate an optional snapshot; invalid shortcuts fall back to journal recovery."""
+        path = self._recovery_journal_path.with_suffix(self._recovery_journal_path.suffix + ".checkpoint.json")
+        if not path.exists():
+            return None
+        try:
+            for entry in (path, self._recovery_journal_path):
+                info = entry.lstat()
+                if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1
+                        or getattr(info, "st_file_attributes", 0) & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)):
+                    raise ValueError("Aliased recovery checkpoint or journal")
+            envelope = PersistentStorageManager._read_preservation_json(path.read_bytes())
+            data = envelope["state"]
+            if (set(envelope) != {"state", "sha256"}
+                    or hashlib.sha256(json.dumps(data, sort_keys=True, separators=(",", ":"),
+                        allow_nan=False).encode("utf-8")).hexdigest() != envelope["sha256"]
+                    or set(data) != {"version", "scope", "session_id", "component_id", "journal_path",
+                        "journal_identity", "boundary", "boundary_sha256", "content", "audit", "writes", "finality",
+                        "kill_required", "qualification"}
+                    or type(data["version"]) is not int or data["version"] != 1 or data["scope"] != self._evidence_scope
+                    or data["session_id"] != self._session_id or data["component_id"] != self._component_id
+                    or type(data["boundary"]) is not int or data["boundary"] <= 0
+                    or type(data["kill_required"]) is not bool):
+                raise ValueError("Invalid recovery checkpoint envelope")
+            with self._recovery_journal_path.open("rb") as journal:
+                self._require_checkpoint_boundary(journal, data)
+            content, restored = {}, {}
+            for identity, serialized in data["content"]:
+                message = RuntimeEvidenceMessage.from_dict(json.loads(serialized))
+                if (identity in content or identity != message.evidence_id
+                        or serialized != self._evidence_content(message)):
+                    raise ValueError("Checkpoint evidence identity or content is inconsistent")
+                content[identity] = serialized
+                restored[identity] = (serialized, message)
+            audits = [RuntimeEvidenceAuditRecord(**row) for row in data["audit"]]
+            if (any(type(a.ingest_order) is not int or a.ingest_order != i
+                    or type(a.accepted) is not bool or not isinstance(a.reason, str)
+                    or type(a.ingest_received_at) not in (int, float)
+                    or not isfinite(a.ingest_received_at)
+                    or (a.accepted and a.evidence_id not in content)
+                    for i, a in enumerate(audits, 1))
+                    or {a.evidence_id for a in audits if a.accepted} != set(content)):
+                raise ValueError("Checkpoint audit coverage is incomplete")
+            writes = []
+            for record in data["writes"]:
+                self._validate_framework_write_record(writes, record)
+                writes.append(record)
+            qualification = data["qualification"]
+            if self._evidence_scope == "framework":
+                if data["finality"] is not None or data["kill_required"]:
+                    raise ValueError("Framework checkpoint contains Session finality")
+                completion = qualification["completion"]
+                intent = next(r for r in writes if r["kind"] == "intent"
+                              and r["write_attempt_id"] == completion["write_attempt_id"])
+                ids = [identity for identity, (_, message) in restored.items() if message.is_persistent]
+                if (completion not in writes or completion["kind"] != "completion"
+                        or intent["evidence_ids"] != ids or intent["audit_end"] != len(audits)
+                        or intent["audit_fingerprint"] != PersistentStorageManager._framework_fingerprint(data["audit"])):
+                    raise ValueError("Checkpoint lacks qualifying durable archival completion")
+                self._validate_checkpoint_partitions(data, len(ids))
+            else:
+                if (qualification["session_id"] != self._session_id or writes
+                        or not (qualification.get("state") == "completed"
+                                or qualification.get("preservation_confirmed") is True)):
+                    raise ValueError("Checkpoint lacks confirmed Session completion or archival")
+                if data["finality"] is not None:
+                    self._validate_recovery_finality(data["finality"], content)
+                    if data["finality"]["ingest_audit"] != data["audit"] or data["kill_required"]:
+                        raise ValueError("Checkpoint finality contradicts operational state")
+                elif not data["kill_required"]:
+                    raise ValueError("Checkpoint lacks acquisition finality or partial-Kill proof")
+            self._recovery_checkpoint = data
+            return data, restored, audits
+        except (OSError, ValueError, TypeError, KeyError, IndexError, StopIteration, OverflowError):
+            self._recovery_checkpoint = None
+            return None
+
+    def _validate_checkpoint_partitions(self, checkpoint, persistent_count):
+        """Check archival coverage metadata against the normal operational snapshot."""
+        evidence_count = audit_count = 0
+        names = []
+        for partition in checkpoint["qualification"]["partitions"]:
+            name, ne, na = partition
+            if (not isinstance(name, str) or (name != "" and re.fullmatch(r"[0-9]{4}-[0-9]{2}", name) is None)
+                    or type(ne) is not int or type(na) is not int or min(ne, na) < 0):
+                raise ValueError("Invalid checkpoint partition coverage")
+            names.append(name)
+            products = checkpoint["qualification"]["products"][name]
+            if (set(products) != {"runtime_evidence.jsonl", "ingest_audit.jsonl", "compilation_summary.json"}
+                    or any(not isinstance(v, list) or len(v) != 4
+                           or any(type(n) is not int for n in v) for v in products.values())):
+                raise ValueError("Invalid checkpoint product identity")
+            evidence_count += ne
+            audit_count += na
+        if (not names or names != sorted(set(names)) or evidence_count != persistent_count
+                or audit_count != len(checkpoint["audit"])):
+            raise ValueError("Incomplete checkpoint partition coverage")
+        completion = checkpoint["qualification"]["completion"]
+        intent = next(r for r in checkpoint["writes"] if r["kind"] == "intent"
+                      and r["write_attempt_id"] == completion["write_attempt_id"])
+        last = checkpoint["qualification"]["partitions"][-1]
+        if (last[0] != intent["target_month"] or evidence_count - last[1] != intent["evidence_start"]
+                or audit_count - last[2] != intent["audit_start"]):
+            raise ValueError("Checkpoint partition boundaries contradict durable write intent")
+
+    def _validate_recovery_finality(self, checkpoint, content):
+        """Reconcile finalized intake with the accepted evidence and receipt."""
+        marker = RuntimeEvidenceMessage.from_dict(checkpoint["marker"])
+        receipt = checkpoint["receipt"]
+        audits = [RuntimeEvidenceAuditRecord(**item) for item in checkpoint["ingest_audit"]]
+        if (checkpoint["session_id"] != self._session_id or checkpoint["kind"] != "acquisition_finality"
+                or checkpoint["evidence_ids"] != list(content)
+                or content.get(marker.evidence_id) != self._evidence_content(marker)
+                or marker.evidence_type != "acquisition_evidence_completion"
+                or receipt.get("session_id") != self._session_id
+                or receipt.get("evidence_id") != marker.evidence_id
+                or receipt.get("durable_receipt_confirmed") is not True
+                or type(receipt.get("marker_stream_sequence")) is not int
+                or receipt["marker_stream_sequence"] <= 0
+                or any(a.ingest_order != i or type(a.accepted) is not bool
+                    or type(a.ingest_received_at) not in {int, float} or not isinstance(a.reason, str)
+                    or (a.accepted and a.evidence_id not in content) for i, a in enumerate(audits, 1))
+                or {a.evidence_id for a in audits if a.accepted} != set(content)):
+            raise ValueError("Finalized journal coverage or audit is inconsistent")
+
+    def _write_recovery_checkpoint(self, qualification):
+        """Atomically publish operational state only at an already confirmed boundary."""
+        if self._recovery_journal_path is None or self._journal_failed:
+            return
+        with self._intake_lock:
+            path = self._recovery_journal_path.with_suffix(self._recovery_journal_path.suffix + ".checkpoint.json")
+            info = self._recovery_journal_path.stat()
+            state = {"version": 1, "scope": self._evidence_scope, "session_id": self._session_id,
+                "component_id": self._component_id, "journal_path": str(self._recovery_journal_path.absolute()),
+                "journal_identity": [info.st_dev, info.st_ino], "boundary": info.st_size,
+                "content": list(self._accepted_evidence_content.items()),
+                "audit": [a.to_dict() for a in self._runtime_evidence_audit],
+                "writes": deepcopy(self._framework_write_records), "finality": deepcopy(self._finalized_intake),
+                "kill_required": self._kill_handoff_required, "qualification": qualification}
+            with self._recovery_journal_path.open("rb") as journal:
+                journal.seek(max(0, info.st_size - 4096))
+                state["boundary_sha256"] = hashlib.sha256(journal.read(min(4096, info.st_size))).hexdigest()
+                self._require_checkpoint_boundary(journal, state)
+            if os.path.lexists(path):
+                metadata = path.lstat()
+                if (not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1
+                        or getattr(metadata, "st_file_attributes", 0) & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)):
+                    raise ValueError("Aliased recovery checkpoint")
+            content = json.dumps(state, sort_keys=True, separators=(",", ":"), allow_nan=False)
+            envelope = {"state": state, "sha256": hashlib.sha256(content.encode("utf-8")).hexdigest()}
+            temporary = None
+            try:
+                with NamedTemporaryFile(dir=path.parent, prefix=".incomplete-checkpoint-", delete=False) as output:
+                    temporary = Path(output.name)
+                    output.write(json.dumps(envelope, separators=(",", ":"), allow_nan=False).encode("utf-8"))
+                    output.flush()
+                    os.fsync(output.fileno())
+                os.replace(temporary, path)
+                temporary = None
+                self._sync_journal_directory()
+            finally:
+                if temporary is not None:
+                    temporary.unlink(missing_ok=True)
+
+    def _checkpoint_framework_recovery(self, partitions):
+        """Capture a just-verified archival boundary using its durable write completion."""
+        intake = self._framework_ingestor
+        records = intake._framework_write_records
+        completion = next((r for r in reversed(records) if r["kind"] == "completion"), None)
+        if completion is None:
+            return
+        with self.framework_journal_guard():
+            intake._write_recovery_checkpoint({"completion": completion,
+                "partitions": [[directory.name if directory.name != "evidence" else "",
+                    len(products["runtime_evidence"]), len(products["ingest_audit"])]
+                    for directory, products in partitions],
+                "products": {directory.name if directory.name != "evidence" else "": {
+                    filename: [getattr(info, field) for field in ("st_dev", "st_ino", "st_size", "st_mtime_ns")]
+                    for filename in ("runtime_evidence.jsonl", "ingest_audit.jsonl", "compilation_summary.json")
+                    for info in [(directory / filename).stat()]} for directory, _ in partitions}})
+
     def _restore_runtime_evidence(self) -> None:
-        restored: dict[str, tuple[str, RuntimeEvidenceMessage]] = {}
-        framework_audit = []
-        writes = []
-        finality = None
-        kill_required = False
+        loaded = self._load_recovery_checkpoint()
+        recovery, restored, checkpoint_audit = loaded if loaded else (None, {}, [])
+        framework_audit = checkpoint_audit if self._evidence_scope == "framework" else []
+        writes = deepcopy(recovery["writes"]) if recovery else []
+        finality = deepcopy(recovery["finality"]) if recovery else None
+        kill_required = recovery["kill_required"] if recovery else False
         with self._recovery_journal_path.open("r+b") as journal:
+            if recovery:
+                self._require_checkpoint_boundary(journal, recovery)
+                journal.seek(recovery["boundary"])
             while True:
                 offset = journal.tell()
                 line = journal.readline()
@@ -1227,25 +1452,7 @@ class InMemoryIngestor:
                     if checkpoint.get("kind") == "kill_admission" and finality is None:
                         kill_required = True
                     elif checkpoint.get("kind") == "acquisition_finality" and finality is None and not kill_required:
-                        marker = RuntimeEvidenceMessage.from_dict(checkpoint["marker"])
-                        receipt = checkpoint["receipt"]
-                        audits = [RuntimeEvidenceAuditRecord(**item) for item in checkpoint["ingest_audit"]]
-                        if (checkpoint["evidence_ids"] != list(restored)
-                                or marker.evidence_id not in restored
-                                or restored[marker.evidence_id][0] != self._evidence_content(marker)
-                                or marker.evidence_type != "acquisition_evidence_completion"
-                                or receipt.get("session_id") != self._session_id
-                                or receipt.get("evidence_id") != marker.evidence_id
-                                or receipt.get("durable_receipt_confirmed") is not True
-                                or type(receipt.get("marker_stream_sequence")) is not int
-                                or receipt["marker_stream_sequence"] <= 0
-                                or any(a.ingest_order != i or type(a.accepted) is not bool
-                                    or type(a.ingest_received_at) not in {int, float}
-                                    or not isinstance(a.reason, str)
-                                    or (a.accepted and a.evidence_id not in restored)
-                                    for i, a in enumerate(audits, 1))
-                                or {a.evidence_id for a in audits if a.accepted} != set(restored)):
-                            raise ValueError("Finalized journal coverage or audit is inconsistent")
+                        self._validate_recovery_finality(checkpoint, {key: value[0] for key, value in restored.items()})
                         finality = checkpoint
                     else:
                         raise ValueError("Conflicting Session journal checkpoint")
@@ -1291,10 +1498,17 @@ class InMemoryIngestor:
         self._accepted_evidence_content = {key: value[0] for key, value in restored.items()}
         self._finalized_intake = finality
         self._kill_handoff_required = kill_required
-        self._runtime_evidence_audit = tuple(RuntimeEvidenceAuditRecord(**item) for item in finality["ingest_audit"]) if finality is not None else tuple(framework_audit) if self._evidence_scope == "framework" else tuple(
-            RuntimeEvidenceAuditRecord(index, time(), evidence.evidence_id, True, "recovered")
-            for index, evidence in enumerate(self._accepted_runtime_evidence, 1)
-        )
+        if finality is not None:
+            self._runtime_evidence_audit = tuple(RuntimeEvidenceAuditRecord(**item) for item in finality["ingest_audit"])
+        elif self._evidence_scope == "framework":
+            self._runtime_evidence_audit = tuple(framework_audit)
+        else:
+            prior = tuple(checkpoint_audit)
+            known = {identity for identity, _ in recovery["content"]} if recovery else set()
+            suffix = (evidence for evidence in self._accepted_runtime_evidence if evidence.evidence_id not in known)
+            self._runtime_evidence_audit = prior + tuple(
+                RuntimeEvidenceAuditRecord(index, time(), evidence.evidence_id, True, "recovered")
+                for index, evidence in enumerate(suffix, len(prior) + 1))
 
     @staticmethod
     def _is_interrupted_json(text: str, error: json.JSONDecodeError) -> bool:

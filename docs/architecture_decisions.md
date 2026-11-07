@@ -11467,6 +11467,11 @@ W001-W067 remain CLOSED. Q006/Q018, Q024, Phase 16 and M015 remain OPEN.
 
 **Status:** Accepted
 
+**Subsequent checkpoint supplement:** Decision 443 permits a valid verified
+checkpoint to establish covered historical-prefix verification for ordinary
+startup and archival continuation; the historical requirements below otherwise
+remain applicable.
+
 **Subsequent clarification:** Decision 442 permits intact, complete, authoritative
 negative registration history to establish that no AcquisitionNode dependency was
 created. Missing or unverified history retains the fail-closed requirements below.
@@ -14300,6 +14305,62 @@ claim/exit diagnostics. Developer verification does not replace pending independ
 manual validation and audit. Existing W061/W062/W068 evidence describes its
 historical scope, not these amendments. Q022 and GUI Integration Unit 2 retain their
 existing open/pending scope; no deployment-readiness or closure claim is made.
+
+---
+
+## Decision 443: Verified Ingestor checkpoints accelerate operational recovery without replacing permanent history
+
+**Status:** Accepted
+
+This records the explicitly user-accepted LLC checkpoint clarification. It
+supplements Decisions 276-280 and 390, preserving Decisions 349, 354, 393, 437 and
+438. Historical archives retain permanent evidence and intake-audit history;
+checkpoints contain only the operational state necessary for fast Ingestor
+startup, not another permanent archive or lifecycle authority.
+
+### Qualifying completion and ordinary startup
+
+Create a checkpoint automatically after successful authoritative archival or
+successful Session completion with applicable finalization and preservation
+obligations confirmed. No periodic timer, checkpoint after every operation, or
+successful service shutdown is required or authorized as the checkpoint policy.
+
+On ordinary startup, validate the latest trustworthy checkpoint, including journal
+identity, exact boundary, complete recovery state and qualifying durable
+completion. Restore operational recovery state through that boundary, then replay
+and verify subsequent journal records and unfinished obligations. Preserve
+deduplication, audit continuity, outstanding obligations and crash recovery;
+continue existing readiness, registration and operational-admission requirements.
+
+When a valid checkpoint establishes its covered prefix, do not repeat full-prefix
+historical reconstruction or physical verification on ordinary startup. Missing,
+incomplete, corrupt, stale or inconsistent checkpoints cannot authorize skipping
+history: use existing safe recovery or fail closed.
+
+### Historical integrity and preserved ownership
+
+A valid checkpoint may establish previously verified historical-prefix coverage
+for ordinary startup and archival continuation under Decision 390. It does not
+prove historical files remain physically unchanged forever or remove explicitly
+required integrity checks. This narrowly supplements the historical full-prefix
+reconstruction/verification requirement; it does not authorize ignoring detected
+damage, contradictions or unfinished write obligations.
+
+Ingestor retains operational recovery ownership; StorageManager retains archive
+ownership and its applicable verification and preservation duties. Journal-before-
+ACK, permanent evidence and audit preservation, temporary-journal retirement and
+operator-managed historical retention remain unchanged. Preserve Decision 438's
+durable intent/completion and exact-target interrupted-write recovery contracts.
+No historical deletion, additional persistence subsystem, new lifecycle authority
+or unrelated service changes are authorized. Reuse existing durable representations
+where sufficient; no general-purpose checkpoint framework is introduced.
+
+**Implementation status:** Accepted architecture synchronized before implementation.
+Following separate ICC authorization, the working tree implements atomic
+operational checkpoints, suffix recovery and ordinary archival-prefix reuse.
+Independent validation and audit remain pending; this architecture record supplies
+no validation evidence or closure. Existing completed workflow records remain
+historical evidence of their recorded scope; broader Q024 remains OPEN.
 
 ---
 

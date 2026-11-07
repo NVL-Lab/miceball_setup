@@ -2035,7 +2035,7 @@ class PersistentStorageManager:
                     or getattr(info, "st_file_attributes", 0) & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)):
                 raise ValueError("Framework archive product is unavailable or aliased")
 
-    def _read_framework_archive_history(self, *, excluded_target=None):
+    def _read_framework_archive_history(self, *, excluded_target=None, checkpoint_prefix=False):
         """Validate ordered monthly products and return their cumulative coverage."""
         root = self._storage_root / "framework" / "evidence"
         self._require_framework_product_paths(root)
@@ -2058,9 +2058,43 @@ class PersistentStorageManager:
                 if path != excluded_target:
                     self._require_framework_product_paths(path)
                     directories.append(path)
+        covered = {}
+        owner = self._framework_journal_owner
+        intake = owner._framework_ingestor if owner is not None else None
+        checkpoint = intake._recovery_checkpoint if intake is not None and checkpoint_prefix else None
+        if checkpoint is not None:
+            qualification = checkpoint["qualification"]
+            intent = next(r for r in checkpoint["writes"] if r["kind"] == "intent"
+                          and r["write_attempt_id"] == qualification["completion"]["write_attempt_id"])
+            if intent["storage_root"] != str(self._storage_root.resolve()) or intent["storage_id"] != self._component_id:
+                raise ValueError("Checkpoint archival owner differs from current StorageManager")
+            rows = [json.loads(content) for _, content in checkpoint["content"] if json.loads(content)["is_persistent"]]
+            audits = checkpoint["audit"]
+            changed = {r["target_month"] for r in intake._framework_write_records[len(checkpoint["writes"]):]
+                       if r["kind"] == "intent"}
+            e = a = 0
+            expected_paths = []
+            for name, ne, na in qualification["partitions"]:
+                directory = root / name if name else root
+                expected_paths.append(directory)
+                intact = directory in directories and all(
+                    [getattr(info, field) for field in ("st_dev", "st_ino", "st_size", "st_mtime_ns")] == identity
+                    for filename, identity in qualification["products"][name].items()
+                    for info in [(directory / filename).stat()])
+                if intact and name not in changed and directory != excluded_target:
+                    part_rows, part_audit = rows[e:e + ne], audits[a:a + na]
+                    summary = self._framework_summary(part_rows, part_audit)
+                    if name:
+                        summary.update(framework_archive_month=name, framework_evidence_start=e, framework_audit_start=a)
+                    covered[directory] = {"runtime_evidence": part_rows, "ingest_audit": part_audit,
+                                          "compilation_summary": summary}
+                e += ne
+                a += na
+            if [p for p in directories if p in expected_paths] != [p for p in expected_paths if p != excluded_target]:
+                covered = {}
         evidence, audit, partitions = [], [], []
         for directory in directories:
-            products = self._read_archive_products(directory)
+            products = deepcopy(covered[directory]) if directory in covered else self._read_archive_products(directory)
             rows, audits = products["runtime_evidence"], products["ingest_audit"]
             if not isinstance(rows, list) or not isinstance(audits, list):
                 raise ValueError("Invalid framework archive products")
@@ -2070,7 +2104,7 @@ class PersistentStorageManager:
                     framework_evidence_start=len(evidence), framework_audit_start=len(audit))
             if products["compilation_summary"] != summary:
                 raise ValueError("Framework partition summary or continuity is inconsistent")
-            for row in rows:
+            for row in (() if directory in covered else rows):
                 message = RuntimeEvidenceMessage.from_dict(row)
                 if message.session_id is not None or not message.is_persistent:
                     raise ValueError("Framework archive contains invalid evidence scope")
@@ -2090,7 +2124,7 @@ class PersistentStorageManager:
         return {"runtime_evidence": evidence, "ingest_audit": audit,
                 "compilation_summary": self._framework_summary(evidence, audit)}, partitions
 
-    def _write_framework_evidence_archive(self, compiled_runtime_evidence):
+    def _write_framework_evidence_archive(self, compiled_runtime_evidence, *, checkpoint_prefix=False):
         """Append newly archived evidence in the current administrative UTC month."""
         with self._preservation_lock:
             records = self._framework_journal_owner.read_framework_write_records()
@@ -2110,7 +2144,7 @@ class PersistentStorageManager:
                 if row.get("evidence_type") == "scientific_original_deletion":
                     validate_deletion_evidence(RuntimeEvidenceMessage.from_dict(row))
             root = self._storage_root / "framework" / "evidence"
-            historical, partitions = self._read_framework_archive_history()
+            historical, partitions = self._read_framework_archive_history(checkpoint_prefix=checkpoint_prefix)
             if (evidence[:len(historical["runtime_evidence"])] != historical["runtime_evidence"]
                     or audit[:len(historical["ingest_audit"])] != historical["ingest_audit"]):
                 raise ValueError("Framework compilation conflicts with preserved history")
@@ -2118,6 +2152,7 @@ class PersistentStorageManager:
                         "compilation_summary": self._framework_summary(evidence, audit)}
             if historical == contents and partitions:
                 self._framework_archive_confirmation = self._framework_fingerprint(contents)
+                self._framework_journal_owner._checkpoint_framework_recovery(partitions)
                 return {name: partitions[-1][0] / (name + (".json" if name == "compilation_summary" else ".jsonl"))
                         for name in contents}
             # Obtain administrative time after historical validation, immediately
@@ -2174,19 +2209,20 @@ class PersistentStorageManager:
                         os.fsync(descriptor)
                     finally:
                         os.close(descriptor)
-            actual, _ = self._read_framework_archive_history()
+            actual, partitions = self._read_framework_archive_history(checkpoint_prefix=checkpoint_prefix)
             if actual != contents:
                 raise RuntimeError("Framework archive write readback is unconfirmed")
             self._complete_framework_write(intent)
             self._framework_archive_confirmation = self._framework_fingerprint(actual)
             self._framework_continuation_rejected = False
             self._unfinished_archive_scopes.discard(None)
+            self._framework_journal_owner._checkpoint_framework_recovery(partitions)
             return paths
 
-    def _framework_journal_guard(self):
+    def _framework_journal_guard(self, *, checkpoint_prefix=False):
         if self._framework_journal_owner is None:
             raise RuntimeError("Monthly writes require a configured durable Ingestor framework journal")
-        return self._framework_journal_owner.framework_journal_guard()
+        return self._framework_journal_owner.framework_journal_guard(checkpoint_prefix=checkpoint_prefix)
 
     @staticmethod
     def _framework_fingerprint(value):
@@ -2300,7 +2336,7 @@ class PersistentStorageManager:
     @service_operation()
     def continue_framework_evidence_archive(self, compiled_runtime_evidence) -> dict[str, Any] | None:
         """Verify an intact historical prefix before normal post-restart archival."""
-        with self._framework_journal_guard(), self._preservation_lock:
+        with self._framework_journal_guard(checkpoint_prefix=True), self._preservation_lock:
             try:
                 result = self._continue_framework_evidence_archive(compiled_runtime_evidence)
             except BaseException:
@@ -2322,7 +2358,7 @@ class PersistentStorageManager:
                 self._recover_monthly_write(self._pending_framework_write(), allow_incomplete=False)
             expected = {name: [_to_plain_data(item) for item in compiled_runtime_evidence[name]]
                         for name in ("runtime_evidence", "ingest_audit")}
-            historical, partitions = self._read_framework_archive_history()
+            historical, partitions = self._read_framework_archive_history(checkpoint_prefix=True)
             if not partitions:
                 if any(expected.values()):
                     raise RuntimeError("Recovered framework history has no historical archive")
@@ -2359,13 +2395,17 @@ class PersistentStorageManager:
                         finally:
                             os.close(descriptor)
             if any(historical[name] != expected[name] for name in expected):
-                self._write_framework_evidence_archive(compiled_runtime_evidence)
+                self._write_framework_evidence_archive(compiled_runtime_evidence, checkpoint_prefix=True)
             else:
                 self._framework_archive_confirmation = self._framework_fingerprint(historical)
-            confirmation = self.get_framework_preservation_confirmation()
+            confirmation, _ = self._read_framework_archive_history(checkpoint_prefix=True)
+            if self._framework_fingerprint(confirmation) != self._framework_archive_confirmation:
+                confirmation = None
             if confirmation is None or any(confirmation[name] != expected[name] for name in expected):
                 self._framework_archive_confirmation = None
                 raise RuntimeError("Current framework archival continuation is unconfirmed")
+            if all(historical[name] == expected[name] for name in expected):
+                self._framework_journal_owner._checkpoint_framework_recovery(partitions)
             return confirmation
 
     def get_framework_preservation_confirmation(self) -> dict[str, Any] | None:
