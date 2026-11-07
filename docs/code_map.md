@@ -526,8 +526,8 @@ obligations. No runtime API changes. See W067 in validated_workflows.md.
 
 ## Shared-Storage Dependent Confirmation (Decisions 389-390; W068 Closed)
 
-- `tests/test_external_dependent_maintenance.py::ExternalDependentConfigurationTests`: Validates explicit shared-process dependent files and CLI dispatch without assuming an empty dependency set.
-- `tests/test_external_dependent_maintenance.py::ExternalDependentMaintenanceTests`: Exercises real maintenance owners and NATS adapters through a broker double for retirement delivery, restart freshness, retries, conflicts, prepared Controller release and shared lifetime.
+- `tests/test_external_dependent_maintenance.py::ExternalDependentConfigurationTests`: Validates shared-process configuration and public journal/preservation behavior for repeated envelopes, representation-sensitive damage and nested mutation verification.
+- `tests/test_external_dependent_maintenance.py::ExternalDependentMaintenanceTests`: Exercises maintenance owners through a broker double with existing real test Controller claims, including retirement, restart, cancellation, retries and verification freshness after yields.
 
 Decision 389's bounded implementation composes existing maintenance callbacks,
 NATS command/results and launcher exit gating with instance/attempt-correlated authoritative retirement
@@ -2011,11 +2011,11 @@ the historical FAILED-only expectations in the preceding Alternative B report.
 - InMemoryIngestor.__init__(storage_manager=None, *, session_id=None, recovery_journal_path=None, component_id="ingestor", recovery_journal_root=None, framework_recovery_journal_path=None, evidence_scope="session"): Checks deployment-local durable closed-Session admission before known-Session reconstruction and optionally creates a separate framework partition without a Session binding.
 - InMemoryIngestor.prepare_framework_evidence(recovery_journal_path): Configures framework journal-backed intake once, retaining accepted messages and original duplicate/rejected intake audit across recovery independently of Session release.
 - InMemoryIngestor.compile_framework_runtime_evidence(): Returns only producer-marked persistent framework messages and all framework intake audit records through the existing compilation mechanism.
-- InMemoryIngestor.continue_framework_evidence_archive(): Verifies recovered framework compilation against the current durable journal and delegates ordinary historical-prefix continuation to its paired StorageManager before release restoration.
+- InMemoryIngestor.continue_framework_evidence_archive(): Verifies recovered framework compilation and paired historical-prefix continuation under one journal/preservation boundary, reusing the returned exact archive coverage before release restoration.
 - InMemoryIngestor.await_durable_runtime_evidence(evidence, timeout_s): Boundedly observes exact local journal-backed acceptance using futures, without polling, retrying, or equating JetStream publication with acceptance.
 - InMemoryIngestor.framework_preservation_guard(storage_manager, *, verify_journal=False): Holds framework intake and StorageManager preservation steady while checking current persistent-message/all-audit coverage, optionally verifying the physical framework journal before producer-copy retirement.
-- InMemoryIngestor._verify_framework_journal(): Checks the physical framework journal against retained acceptance, audit and typed monthly-write records without rewriting journal or archive contents.
-- InMemoryIngestor.framework_journal_guard(): Holds existing paired intake locks while verifying the physical framework journal for operational write proof.
+- InMemoryIngestor._verify_framework_journal(): Checks physical journal acceptance, audit and typed write proofs, reusing only identical complete-envelope validation within each scan without weakening representation-sensitive conflicts.
+- InMemoryIngestor.framework_journal_guard(): Holds paired intake locks and shares unchanged nested synchronous verification only within the active scope, invalidating on appends/yields and retaining final physical verification after reuse.
 - InMemoryIngestor.read_framework_write_records(): Returns detached, verified typed monthly-write intent/completion records outside evidence and intake-audit compilation.
 - InMemoryIngestor.accept_framework_write_record(record): Validates and durably accepts a typed intent or exact correlated completion through the existing framework journal, with idempotent exact retries.
 - InMemoryIngestor._validate_framework_write_record(records, record): Validates typed write-proof identities, boundaries, product fingerprints and unique intent/completion relationships.
@@ -2180,7 +2180,7 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 - ServiceMaintenanceInterface._restore_dependent_confirmations(): Preserves verified fresh-owner empty dependency history across unrelated unarchived intake, supersedes it on registration, and reconstructs verified history while retaining detected failures and publication uncertainty.
 - ServiceMaintenanceInterface._dependent_is_operational(participant): Distinguishes verified unused AcquisitionNodes from registered unresolved owners and exact preserved releases without treating configuration or instance absence alone as authority.
 - ServiceMaintenanceInterface._dependent_history(compiled, archived): Reconstructs dependent instances, confirmations, conflicts and ordered history from exact accepted and archived evidence, rejecting returns to superseded instances without changing live state.
-- ServiceMaintenanceInterface._require_dependent_instance_authority(participant, instance): Uses verified historical-prefix continuation to preserve late framework intake/audit before checking exact current archival history and rejecting superseded dependent identities.
+- ServiceMaintenanceInterface._require_dependent_instance_authority(participant, instance): Shares one synchronous journal-verification scope across historical-prefix continuation and exact current-history assessment while rejecting superseded dependent identities.
 - ServiceMaintenanceInterface._validate_dependent_state(state, *, prior_registration=None): Validates dependent identities, confirmation envelopes, matching preserved Controller registration and exact preservation of release proof before recording or reconstructing authority.
 - ServiceMaintenanceInterface._validate_controller_release(registration, release, ingestor): Validates the existing coordinated-shutdown scope, final checkpoint, correlated preparation/retirement results and Controller cleanup evidence for both the producer and historical reconstruction.
 - ServiceMaintenanceInterface._validate_dependent_retirement(participant, instance, confirmation): Checks the existing correlated Stop/Kill confirmation contract for receipt and orderly-Stop history selection.

@@ -22,10 +22,72 @@ from lab_sync_acquisition.nats_communication import (
 from lab_sync_acquisition.service_launcher import ServiceLauncher, launch_storage_services, main
 from tests.test_session_launch import _Boundary, _Broker
 from tests.fakes import ReadyFakeAdapter
-from tests.nats_server_fixture import NATS_SERVER, restartable_jetstream_server
+from tests.nats_server_fixture import NATS_SERVER, restartable_jetstream_server, acquire_test_controller_authority
 
 
 class ExternalDependentConfigurationTests(unittest.TestCase):
+    def test_repeated_framework_envelopes_preserve_complete_audit_and_content(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            storage = PersistentStorageManager(root / "storage")
+            intake = InMemoryIngestor(storage, framework_recovery_journal_path=root / "framework.jsonl")
+            evidence = RuntimeEvidenceMessage("same", None, "warning", "source",
+                {"values": [True, 1, 1.0, {"text": "line\nnext"}]}, True)
+            for _ in range(30):
+                self.assertTrue(intake.receive_runtime_evidence(evidence).accepted)
+            with intake.framework_journal_guard():
+                self.assertEqual(intake.read_framework_write_records(), [])
+                storage.write_framework_evidence_archive(intake.compile_framework_runtime_evidence())
+            with intake.framework_preservation_guard(storage) as archive:
+                self.assertEqual(archive["runtime_evidence"], [evidence.to_dict()])
+                self.assertEqual(len(archive["ingest_audit"]), 30)
+
+    def test_changed_or_malformed_duplicate_cannot_authorize_preservation(self):
+        for value in (True, 1.0, None, [1], {"nested": float("nan")}):
+            with self.subTest(value=value), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                storage = PersistentStorageManager(root / "storage")
+                path = root / "framework.jsonl"
+                intake = InMemoryIngestor(storage, framework_recovery_journal_path=path)
+                message = RuntimeEvidenceMessage("same", None, "warning", "source", {"value": 1}, True)
+                intake.receive_runtime_evidence(message)
+                intake.receive_runtime_evidence(message)
+                rows = [json.loads(line) for line in path.read_text().splitlines()]
+                rows[-1]["runtime_evidence"]["payload"] = {"value": value}
+                path.write_text("".join(json.dumps(row) + "\n" for row in rows))
+                before = path.read_bytes()
+                with self.assertRaises((RuntimeError, ValueError)):
+                    storage.write_framework_evidence_archive(intake.compile_framework_runtime_evidence())
+                self.assertEqual(path.read_bytes(), before)
+                self.assertIsNone(storage.get_framework_preservation_confirmation())
+
+    def test_nested_framework_operations_revalidate_appends_and_external_damage(self):
+        import os
+        import re
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = root / "framework.jsonl"
+            storage = PersistentStorageManager(root / "storage")
+            intake = InMemoryIngestor(storage, framework_recovery_journal_path=path)
+            first = RuntimeEvidenceMessage("first", None, "warning", "source", {"value": 1}, True)
+            intake.receive_runtime_evidence(first)
+            with intake.framework_journal_guard():
+                intake.read_framework_write_records()
+                intake.receive_runtime_evidence(RuntimeEvidenceMessage("later", None, "warning", "source", {}, True))
+                storage.write_framework_evidence_archive(intake.compile_framework_runtime_evidence())
+            with intake.framework_preservation_guard(storage) as archive:
+                self.assertEqual([m["evidence_id"] for m in archive["runtime_evidence"]], ["first", "later"])
+            with self.assertRaises((RuntimeError, ValueError)):
+                with intake.framework_journal_guard():
+                    intake.read_framework_write_records()
+                    stamp = path.stat()
+                    original = path.read_bytes()
+                    damaged = re.sub(rb'("value"\s*:\s*)1', rb'\g<1>2', original, count=1)
+                    self.assertNotEqual(original, damaged)
+                    path.write_bytes(damaged)
+                    os.utime(path, ns=(stamp.st_atime_ns, stamp.st_mtime_ns))
+                    intake.read_framework_write_records()
+
     def test_initial_framework_archive_creation_remains_available(self):
         with tempfile.TemporaryDirectory() as directory:
             storage = PersistentStorageManager(Path(directory) / "storage")
@@ -514,6 +576,45 @@ class ExternalDependentRegistrationTransportTests(unittest.IsolatedAsyncioTestCa
 
 
 class ExternalDependentMaintenanceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_framework_verification_is_fresh_after_yield_and_cancellation(self):
+        import os
+        import re
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = root / "framework.jsonl"
+            intake = InMemoryIngestor(PersistentStorageManager(root / "storage"),
+                framework_recovery_journal_path=path)
+            intake.receive_runtime_evidence(RuntimeEvidenceMessage("first", None, "warning", "source",
+                {"value": 1}, True))
+            entered = asyncio.Event()
+
+            async def wait_inside_guard():
+                with intake.framework_journal_guard():
+                    intake.read_framework_write_records()
+                    entered.set()
+                    await asyncio.Event().wait()
+
+            task = asyncio.create_task(wait_inside_guard())
+            await entered.wait()
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+            self.assertEqual(intake.read_framework_write_records(), [])
+            reused_after_yield = False
+            with self.assertRaises((RuntimeError, ValueError)):
+                with intake.framework_journal_guard():
+                    intake.read_framework_write_records()
+                    await asyncio.sleep(0)
+                    stamp = path.stat()
+                    original = path.read_bytes()
+                    damaged = re.sub(rb'("value"\s*:\s*)1', rb'\g<1>2', original, count=1)
+                    self.assertNotEqual(original, damaged)
+                    path.write_bytes(damaged)
+                    os.utime(path, ns=(stamp.st_atime_ns, stamp.st_mtime_ns))
+                    intake.read_framework_write_records()
+                    reused_after_yield = True
+            self.assertFalse(reused_after_yield)
+
     async def test_verified_empty_history_survives_unarchived_unrelated_evidence(self):
         nodes = (RuntimeParticipant("acquisition_node", "unused"),)
         await self.backend(participants=nodes)
@@ -734,6 +835,7 @@ class ExternalDependentMaintenanceTests(unittest.IsolatedAsyncioTestCase):
             framework_storage=RuntimeParticipant("storage_manager", "storage"))
         launcher = ServiceLauncher((interface,), (boundary,), report=lambda text: None)
         if kind == "controller":
+            await acquire_test_controller_authority(self, interface)
             await NatsServiceMaintenanceCommunication(boundary, interface).subscribe_commands()
         elif kind == "acquisition_node":
             await NatsAcquisitionNodeCommunication(boundary, owner).subscribe_commands()

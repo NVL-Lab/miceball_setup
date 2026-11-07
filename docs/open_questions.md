@@ -3008,6 +3008,30 @@ verify retained Windows deployment history, interactive terminal use, cross-mach
 operation, physical crashes/power loss or exhaustive concurrency. Independent
 Windows validation and a separate audit remain required.
 
+**Registration-performance correction (developer verification; independent stages
+pending):** Exact-envelope validation is reused only within each physical-journal
+scan. Nested synchronous guards share unchanged verification under existing intake
+locks; appends and event-loop yields invalidate reuse, and shared scopes retain
+final physical verification. Historical authority and continuation reuse the same
+protected boundary without a persistent cache or changed public/NATS contracts.
+Before/after developer benchmarks used identical disposable copies of 622 evidence
+records and 8,575 audit records (15.86 MB journal), isolated real NATS and separate
+requester/responder event loops. Publication-to-correlated-receipt time improved
+from 18.379 s to 10.059 s (19.941 s below the unchanged 30 s deadline). Handler
+wall/CPU improved from 12.077/11.641 s to 6.849/6.516 s; full journal scans fell
+from 16 to 10. This does not reproduce or certify the running Windows deployment's
+earlier 60.250 s latency. Production state and retained SynchronizationManager
+obligations were not changed. Independent validation, audit and closure remain
+pending; Q022 remains OPEN.
+
+Focused correction verification: 45/45 developer methods PASS, including four new
+journal/guard regressions, eight real-NATS transport methods and selected history,
+restart, cancellation, monthly-write, alias and paired-retirement regressions.
+The relevant historical Controller fixture now acquires its existing required
+test authority rather than bypassing production admission. Two unrelated legacy
+configuration tests still omit mandatory authority settings; their fixture errors
+were reproduced on unchanged HEAD and are outside this correction's passing set.
+
 **Registration-evidence criterion resolved (Decision 442 supplement):** Existing
 applicable startup, reconstruction, integrity, historical verification and
 preservation checks establish authority of retained registration/release history.

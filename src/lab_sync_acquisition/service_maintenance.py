@@ -454,7 +454,7 @@ class ServiceMaintenanceInterface:
 
     def _require_dependent_instance_authority(self, participant, instance):
         """Reject superseded identities using current preserved chronological history."""
-        with self.ingestor._intake_lock:
+        with self.ingestor.framework_journal_guard():
             # Broker replay adds durable intake audit after startup confirmation.
             # Verify/continue the intact prefix before requiring current equality.
             self.ingestor.continue_framework_evidence_archive()

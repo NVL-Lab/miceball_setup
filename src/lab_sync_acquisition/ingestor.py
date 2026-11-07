@@ -104,6 +104,7 @@ class InMemoryIngestor:
         self._accepted_evidence_content: dict[str, str] = {}
         self._durable_evidence_waiters = {}
         self._framework_write_records = []
+        self._framework_verification_scope = None
         self._accepted_runtime_evidence: tuple[RuntimeEvidenceMessage, ...] = ()
         self._runtime_evidence_audit: tuple[RuntimeEvidenceAuditRecord, ...] = ()
         if evidence_scope == "framework" and self._recovery_journal_path is not None:
@@ -139,13 +140,12 @@ class InMemoryIngestor:
         intake = self._framework_ingestor
         if intake is None or self._storage_manager is None:
             raise RuntimeError("Framework journal and paired StorageManager are required")
-        with self._intake_lock, intake._intake_lock:
-            self._verify_framework_journal()
+        with self.framework_journal_guard(), self._storage_manager._preservation_lock:
             compiled = self.compile_framework_runtime_evidence()
             confirmation = self._storage_manager.continue_framework_evidence_archive(compiled)
-            if confirmation is not None:
-                with self.framework_preservation_guard(self._storage_manager):
-                    pass
+            if confirmation is not None and any(confirmation[name] != [m.to_dict() for m in compiled[name]]
+                    for name in ("runtime_evidence", "ingest_audit")):
+                raise RuntimeError("Current framework intake is not durably archived")
             return confirmation
 
     def _verify_framework_journal(self):
@@ -154,9 +154,12 @@ class InMemoryIngestor:
         if intake is None:
             raise RuntimeError("Framework recovery journal is not configured")
         with intake._intake_lock:
+            scope = intake._framework_verification_scope
+            if scope is not None:
+                scope["valid"] = False
             if intake._journal_failed or intake._recovery_journal_path is None:
                 raise RuntimeError("Framework journal integrity is unconfirmed")
-            evidence, audits, writes = {}, [], []
+            evidence, audits, writes, validated = {}, [], [], {}
             with intake._recovery_journal_path.open("rb") as journal:
                 before = os.fstat(journal.fileno())
                 for line in journal:
@@ -170,13 +173,19 @@ class InMemoryIngestor:
                         continue
                     audits.append(entry["ingest_audit"])
                     if entry["runtime_evidence"] is not None:
-                        message = RuntimeEvidenceMessage.from_dict(entry["runtime_evidence"])
-                        content = intake._evidence_content(message)
+                        envelope = json.dumps(entry["runtime_evidence"], sort_keys=True,
+                            separators=(",", ":"), allow_nan=False)
+                        previous = validated.get(envelope)
+                        if previous is None:
+                            message = RuntimeEvidenceMessage.from_dict(entry["runtime_evidence"])
+                            previous = (message.evidence_id, intake._evidence_content(message))
+                            validated[envelope] = previous
+                        identity, content = previous
                         if (not entry["ingest_audit"]["accepted"]
-                                or entry["ingest_audit"]["evidence_id"] != message.evidence_id
-                                or evidence.get(message.evidence_id, content) != content):
+                                or entry["ingest_audit"]["evidence_id"] != identity
+                                or evidence.get(identity, content) != content):
                             raise ValueError("Framework journal has inconsistent evidence or audit")
-                        evidence.setdefault(message.evidence_id, content)
+                        evidence.setdefault(identity, content)
                     elif entry["ingest_audit"]["accepted"]:
                         raise ValueError("Framework journal acceptance lacks evidence")
                 after = os.fstat(journal.fileno())
@@ -189,6 +198,9 @@ class InMemoryIngestor:
                            or getattr(before, name) != getattr(current, name)
                            for name in ("st_dev", "st_ino", "st_size", "st_mtime_ns"))):
                 raise RuntimeError("Recovered framework compilation differs from current durable journal")
+            if scope is not None:
+                scope["stamp"] = (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns)
+                scope["valid"] = True
 
     def _dispose_temporary_evidence(self, command, authorization, attempt):
         """Discard an exactly identified corrupt inactive Session journal after durable loss authorization."""
@@ -282,9 +294,36 @@ class InMemoryIngestor:
         """Hold the existing intake locks and verify the physical framework journal."""
         if self._framework_ingestor is None:
             raise RuntimeError("Framework journal is not configured")
-        with self._intake_lock, self._framework_ingestor._intake_lock:
-            self._verify_framework_journal()
-            yield
+        intake = self._framework_ingestor
+        with self._intake_lock, intake._intake_lock:
+            try:
+                loop = asyncio.get_running_loop()
+                task = asyncio.current_task()
+            except RuntimeError:
+                loop = task = None
+            previous = intake._framework_verification_scope
+            nested = previous is not None and previous["task"] is task
+            scope = previous if nested else {"task": task, "valid": False, "reused": False}
+            intake._framework_verification_scope = scope
+            # An RLock does not exclude other tasks on this thread after an await.
+            expiry = loop.call_soon(scope.__setitem__, "valid", False) if loop else None
+            try:
+                stamp = intake._recovery_journal_path.stat()
+                if (scope["valid"] and not intake._journal_failed and scope["stamp"] ==
+                        (stamp.st_dev, stamp.st_ino, stamp.st_size, stamp.st_mtime_ns)):
+                    scope["reused"] = True
+                else:
+                    self._verify_framework_journal()
+                yield
+                # Reuse is never a final physical-content proof, even when an
+                # external writer preserves file size and modification time.
+                if not nested and (scope["reused"] or not scope["valid"]):
+                    self._verify_framework_journal()
+            finally:
+                if expiry is not None:
+                    expiry.cancel()
+                if not nested:
+                    intake._framework_verification_scope = previous
 
     def read_framework_write_records(self):
         """Read verified operational write proof outside evidence/audit compilation."""
@@ -346,9 +385,9 @@ class InMemoryIngestor:
         intake = self._framework_ingestor
         if intake is None:
             raise RuntimeError("Framework recovery journal is not configured")
-        with intake._intake_lock, storage_manager.framework_preservation_guard() as confirmation:
-            if verify_journal:
-                self._verify_framework_journal()
+        with ExitStack() as guards:
+            guards.enter_context(self.framework_journal_guard() if verify_journal else intake._intake_lock)
+            confirmation = guards.enter_context(storage_manager.framework_preservation_guard())
             compiled = intake.compile_persistent_runtime_evidence()
             if (intake._journal_failed or confirmation is None
                     or any(confirmation[name] != [item.to_dict() for item in compiled[name]]
@@ -1119,6 +1158,8 @@ class InMemoryIngestor:
         return json.dumps(evidence.to_dict(), sort_keys=True, separators=(",", ":"), allow_nan=False)
 
     def _append_runtime_evidence(self, content: str) -> None:
+        if self._framework_verification_scope is not None:
+            self._framework_verification_scope["valid"] = False
         if self._journal_failed:
             raise RuntimeError("Recovery journal append previously failed; restart Ingestor before further intake")
         if self._recovery_journal_path is None:
