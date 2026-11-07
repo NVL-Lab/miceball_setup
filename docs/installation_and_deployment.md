@@ -699,6 +699,14 @@ Every service file requires `servers`, `ingestor_id`, `storage_id`,
 | `acquisition-node` | `synchronization_id`, `node_config`; optional `service_id` must match hardware `node_id` |
 | `ingestor` or `storage-manager` | `storage_root`, `global_artifact_root`, `recovery_journal_root`, `framework_journal`, `retrieval_endpoints`; dependency mode below |
 
+Independent roles additionally accept optional positive finite
+`registration_window_s` (default `180`), or `--registration-window-s` for explicit
+CLI startup. This is one overall instance-discovery/registration budget, not a
+preservation, release or result timeout. Decision 444's working-tree implementation
+retains services and readiness observation after unconfirmed registration, resuming
+on fresh Ingestor announcements or explicit checks; independent validation and
+deployment verification remain pending. Controller authority prerequisites remain.
+
 Choose exactly one shared-pair dependency mode:
 
 - Actual dependents: nonempty `external_dependents` list of objects with exactly

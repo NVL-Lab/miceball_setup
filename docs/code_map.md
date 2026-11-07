@@ -669,9 +669,15 @@ installation_and_deployment.md and Decisions 383-388.
 
 ## src/lab_sync_acquisition/service_startup.py
 
+**Decision 444 implementation, independent verification pending:** Existing NATS
+readiness observation precedes registration. Initial startup, announcements and
+explicit checks share serialized authoritative registration and guarded startup
+completion. The dedicated configurable registration budget defaults to 180 seconds;
+preservation/release/result windows and Decision 443 remain unchanged.
+
 - read_acquisition_node_configuration(path): Validates the existing hardware JSON contract without constructing an owner or adapter, for both deployment prevalidation and node construction.
 - load_acquisition_node(path, synchronization_source_id): Validates a deployment-local JSON hardware installation, constructs explicitly selected supported adapters without opening hardware, and supplies persistent identity, local paths and per-device initialization baselines to the real node.
-- launch_independent_service(*, role, servers, service_id, ingestor_id, storage_id, preservation_window_s, result_window_s, synchronization_id=None, known_nodes=None, node_config=None, external_client_id=None, controller_claim_account=None, controller_claim_bucket=None, controller_claim_key=None, report=print): Constructs one independent owner, requiring the configured Controller authority claim before operational startup while retaining protected maintenance and optional external launch.
+- launch_independent_service(*, role, servers, service_id, ingestor_id, storage_id, preservation_window_s, result_window_s, synchronization_id=None, known_nodes=None, node_config=None, external_client_id=None, browser_control_required=False, controller_claim_account=None, controller_claim_bucket=None, controller_claim_key=None, registration_window_s=180.0, report=print): Installs retained maintenance, client and readiness observation before registration, preserving Controller authority and allowing automatic startup completion when Ingestor returns.
 
 ## tests/test_independent_service_startup.py
 
@@ -2172,6 +2178,8 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 - NatsControllerCommunication.maintenance_requests: Returns detached administrative command intent (including survey and preparation), attempt identity, and authorization retained by the existing command issuer independently of received command results.
 - NatsServiceMaintenanceCommunication(boundary, maintenance, *, startup_participants=None, startup_result_window_s=None): Integrates existing startup/readiness communication, with Controller-only explicit remote observation scope (defaulting to configured dependencies) and an explicit positive result window for nonempty scopes.
 - NatsServiceMaintenanceCommunication.start(): Requires connected NATS, subscribes dependencies, announces startup/return, and automatically obtains Controller participant reconciliation through bounded readiness requests; fresh announcements still do not trigger redundant checks and no process is launched.
+- NatsServiceMaintenanceCommunication._registration_completed(): Completes readiness and Controller reconciliation once per confirmed binding, suppressing reentrant completion and rejecting superseded bindings or shutdown.
+- NatsServiceMaintenanceCommunication._resume_registration(participant, payload): Uses fresh Ingestor announcements and correlated checks to invalidate stale admission and resume the existing serialized registration path without polling.
 - NatsServiceMaintenanceCommunication.close(): Removes its subscriptions and invalidates current dependency reports while preserving last-known reports, service state, and producer evidence obligations.
 - NatsServiceMaintenanceCommunication.publish_readiness(): Publishes only meaningful readiness/obligation changes and creates no new archival work after resource closeout begins.
 - NatsServiceMaintenanceCommunication.request_dependency_command(participant, command_type, session_id, payload, result_window_s): Reuses the existing bounded correlated command issuer, invalidating current availability on unconfirmed communication without interpreting a confirmed command failure as technical unreadiness or allowing an older communication binding to alter a newer one.
@@ -2185,13 +2193,16 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 
 ## src/lab_sync_acquisition/service_maintenance.py
 
-- ServiceMaintenanceInterface(service, participant, *, ingestor, storage_manager, preservation_window_s, close_resources, operational_dependents=None, evidence_publisher=None, retire_resources=None, dependency_participants=(), framework_communication=None, framework_ingestor=None, framework_storage=None): Attaches one service-owned administrative interface with local paired persistence or explicit remote Ingestor/StorageManager-confirmed producer preservation, existing callbacks and configured dependencies.
+- ServiceMaintenanceInterface(service, participant, *, ingestor, storage_manager, preservation_window_s, close_resources, operational_dependents=None, evidence_publisher=None, retire_resources=None, dependency_participants=(), framework_communication=None, framework_ingestor=None, framework_storage=None, registration_window_s=180.0): Attaches service-owned maintenance with local or remote preservation and a separate configurable overall registration deadline.
 - ServiceMaintenanceInterface.controller_authority_confirmed: Reports whether the current unretired Controller maintenance lifetime owns its confirmed claim.
 - ServiceMaintenanceInterface.acquire_controller_authority(boundary, *, account, bucket, key, timeout_s): Serializes explicit claim acquisition and binds verified authority to the existing maintenance operational-instance identity.
 - ServiceMaintenanceInterface.complete_retirement(command, result): Requires the exact successful Stop/Kill retirement, completes dependent confirmation and conditional Controller release, and reports release-phase failures with their original exception cause.
 - ServiceMaintenanceInterface.operational_instance_id: Read-only identity for one owner lifetime, separate from persistent RuntimeParticipant identity.
 - ServiceMaintenanceInterface.configure_external_dependents(participants, communication, result_window_s): Composes explicit Ingestor callback blockers from current owner confirmations and existing verified framework history.
-- ServiceMaintenanceInterface.register_ingestor_dependency(): Registers the deployed instance through fresh scoped NATS readback before unrelated operational admission.
+- ServiceMaintenanceInterface.register_ingestor_dependency(*, retirement=False, refresh=True): Serializes current-instance discovery and exact registration under one deadline, preserving explicit refresh and the separate retirement-delivery budget.
+- ServiceMaintenanceInterface.observe_ingestor_instance(identity): Invalidates stale registration admission and supersedes pending registration waits when fresh Ingestor identity evidence changes.
+- ServiceMaintenanceInterface._registration_readback(operation, payload, window): Owns a cancellable existing correlated readback so fresh owner evidence can supersede an undeliverable wait without cancelling service lifetime.
+- ServiceMaintenanceInterface._require_registration_admission(retirement): Preserves Controller claims and maintenance/retirement restrictions before registration and before accepting its confirmation.
 - ServiceMaintenanceInterface.deliver_dependency_release(command, result): Delivers exact authoritative retirement to Ingestor before launcher exit, with explicit retry retaining original command/result identity.
 - ServiceMaintenanceInterface.release_ingestor_dependency(framework_attempt_id): Confirms only a prepared Controller's final preserved coordinated-shutdown boundary, prohibiting further Ingestor-dependent work without claiming retirement.
 - ServiceMaintenanceInterface._restore_dependent_confirmations(): Preserves verified fresh-owner empty dependency history across unrelated unarchived intake, supersedes it on registration, and reconstructs verified history while retaining detected failures and publication uncertainty.

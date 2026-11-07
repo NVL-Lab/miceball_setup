@@ -83,7 +83,8 @@ async def launch_independent_service(*, role, servers, service_id, ingestor_id, 
                                      preservation_window_s, result_window_s,
                                      synchronization_id=None, known_nodes=None, node_config=None,
                                      external_client_id=None, browser_control_required=False, controller_claim_account=None,
-                                     controller_claim_bucket=None, controller_claim_key=None, report=print):
+                                     controller_claim_bucket=None, controller_claim_key=None,
+                                     registration_window_s=180.0, report=print):
     """Run one explicit owner with remote preservation, readiness and existing maintenance."""
     report = _terminal_report if report is print else report
     from math import isfinite
@@ -92,8 +93,9 @@ async def launch_independent_service(*, role, servers, service_id, ingestor_id, 
         raise ValueError("Browser control requires the Controller's explicit external client")
     if (not servers or any(not isinstance(s, str) or not s.strip() for s in servers)
             or type(result_window_s) not in {int, float} or not isfinite(result_window_s) or result_window_s <= 0
-            or type(preservation_window_s) not in {int, float} or not isfinite(preservation_window_s) or preservation_window_s <= 0):
-        raise ValueError("Explicit servers and positive finite preservation/result windows are required")
+            or type(preservation_window_s) not in {int, float} or not isfinite(preservation_window_s) or preservation_window_s <= 0
+            or type(registration_window_s) not in {int, float} or not isfinite(registration_window_s) or registration_window_s <= 0):
+        raise ValueError("Explicit servers and positive finite preservation/result/registration windows are required")
     ingestor = RuntimeParticipant("ingestor", ingestor_id)
     storage = RuntimeParticipant("storage_manager", storage_id)
     dependencies = [ingestor, storage]
@@ -152,7 +154,7 @@ async def launch_independent_service(*, role, servers, service_id, ingestor_id, 
         ingestor=None, storage_manager=None, preservation_window_s=preservation_window_s,
         close_resources=cleaned, dependency_participants=dependencies,
         evidence_publisher=boundary.publish_evidence, framework_communication=communication,
-        framework_ingestor=ingestor, framework_storage=storage)
+        framework_ingestor=ingestor, framework_storage=storage, registration_window_s=registration_window_s)
     startup_interface = NatsServiceMaintenanceCommunication(boundary, maintenance,
         startup_participants=dependencies if role == "controller" else None,
         startup_result_window_s=result_window_s if role == "controller" else None)
@@ -192,12 +194,11 @@ async def launch_independent_service(*, role, servers, service_id, ingestor_id, 
             # service-owned new-work admission stays closed until registration.
             if isinstance(runtime, NatsAcquisitionNodeCommunication):
                 await runtime.start_acquisition_execution()
-            report(f"Registering operational dependency with Ingestor {ingestor_id}.")
-            await maintenance.register_ingestor_dependency()
-            report("Ingestor registration confirmed; publishing startup/readiness evidence.")
-            status = await startup_interface.start()
             if external is not None:
                 await external.start()
+            report(f"Registering operational dependency with Ingestor {ingestor_id}.")
+            status = await startup_interface.start()
+            report("Ingestor registration confirmed; startup/readiness evidence published.")
             if role != "controller":
                 report("Checking configured dependency readiness.")
                 for dependency in dependencies:

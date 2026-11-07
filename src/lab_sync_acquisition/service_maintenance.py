@@ -96,7 +96,7 @@ class ServiceMaintenanceInterface:
                  retire_resources: Callable[[bool], Awaitable[bool]] | None = None,
                  dependency_participants: Iterable[RuntimeParticipant] = (),
                  framework_communication=None, framework_ingestor: RuntimeParticipant | None = None,
-                 framework_storage: RuntimeParticipant | None = None):
+                 framework_storage: RuntimeParticipant | None = None, registration_window_s: float = 180.0):
         if getattr(service, "_maintenance", None) is not None:
             raise ValueError("Service already has an administrative interface")
         if participant.component_type not in {"controller", "acquisition_node", "ingestor", "storage_manager", "synchronization_manager"}:
@@ -120,6 +120,12 @@ class ServiceMaintenanceInterface:
         self.close_resources = close_resources
         self.retire_resources = retire_resources
         self.preservation_window_s = preservation_window_s
+        if type(registration_window_s) not in (int, float) or not isfinite(registration_window_s) or registration_window_s <= 0:
+            raise ValueError("Registration window must be positive and finite")
+        self.registration_window_s = registration_window_s
+        self._registration_lock = asyncio.Lock()
+        self._registration_request = None
+        self._ingestor_instance_id = None
         self.evidence_publisher = evidence_publisher
         if framework_communication is not None:
             if (ingestor is not None or storage_manager is not None
@@ -817,30 +823,94 @@ class ServiceMaintenanceInterface:
         await self._preserve_message(message, require_existing_archive=True)
         self._dependent_state_messages.pop(key, None)
 
-    async def register_ingestor_dependency(self):
-        """Register this operational instance before its deployed command admission."""
-        if (self.participant.component_type == "controller" and not self.terminated
-                and not self.controller_authority_confirmed):
+    def observe_ingestor_instance(self, identity):
+        """Invalidate admission when fresh dependency evidence changes its owner instance."""
+        with self._admission_lock:
+            if self.terminated or self._attempt is not None or self._closeout_started:
+                return False
+            identity = identity if isinstance(identity, str) and identity else None
+            if self._ingestor_instance_id != identity:
+                self._ingestor_instance_id = identity
+                self._dependency_registration = None
+                if self._registration_request is not None:
+                    self._registration_request.cancel()
+            return identity is not None
+
+    async def _registration_readback(self, operation, payload, window):
+        """Let fresh owner evidence supersede an undeliverable registration wait."""
+        request = asyncio.create_task(self._framework_communication.request_maintenance_readback(
+            self._framework_ingestor, operation, payload, window))
+        self._registration_request = request
+        try:
+            return await request
+        except asyncio.CancelledError:
+            if not asyncio.current_task().cancelling():
+                raise RuntimeError("Ingestor registration wait was superseded") from None
+            raise
+        finally:
+            if self._registration_request is request:
+                self._registration_request = None
+
+    def _require_registration_admission(self, retirement):
+        if retirement:
+            if not self.terminated:
+                raise RuntimeError("Dependency release registration requires confirmed retirement")
+        elif (self.terminated or self._attempt is not None or self._closeout_started
+                or self._controller_dependency_release is not None
+                or getattr(self.service, "_framework_shutdown_active", False)):
+            raise RuntimeError("Maintenance prevents dependency registration")
+        if self.participant.component_type == "controller" and not self.terminated and not self.controller_authority_confirmed:
             raise RuntimeError("Controller registration requires its confirmed claim")
-        result = await self._framework_communication.request_maintenance_readback(
-            self._framework_ingestor, "read_operational_instance", {}, self.preservation_window_s)
-        if result is None or not result.success:
-            raise RuntimeError("Ingestor operational instance is unconfirmed")
-        identity = result.payload.get("operational_instance_id")
-        if not isinstance(identity, str) or not identity:
-            raise RuntimeError("Ingestor operational instance is invalid")
-        payload = {"participant": self.participant.to_dict(),
-                   "operational_instance_id": self.operational_instance_id,
-                   "ingestor_instance_id": identity}
-        accepted = await self._framework_communication.request_maintenance_readback(
-            self._framework_ingestor, "register_operational_dependent", payload, self.preservation_window_s)
-        if accepted is None or not accepted.success or accepted.payload.get("registration") != payload:
-            reason = ("No authoritative response" if accepted is None else
-                      accepted.reason or "Registration response does not confirm the exact instance")
-            raise RuntimeError(f"Ingestor dependent registration is unconfirmed: {reason}")
-        if self._dependency_registration != payload:
-            self._dependency_release_delivered = False
-        self._dependency_registration = payload
+
+    async def register_ingestor_dependency(self, *, retirement=False, refresh=True):
+        """Serialize exact current-instance registration under one overall deadline."""
+        self._require_registration_admission(retirement)
+        loop = asyncio.get_running_loop()
+        window = self.preservation_window_s if retirement else self.registration_window_s
+        deadline = loop.time() + window
+        await asyncio.wait_for(self._registration_lock.acquire(), max(0, deadline - loop.time()))
+        try:
+            async with asyncio.timeout_at(None if retirement else deadline):
+                self._require_registration_admission(retirement)
+                observed = self._ingestor_instance_id
+                result = await self._registration_readback(
+                    "read_operational_instance", {}, self.preservation_window_s if retirement else max(0, deadline - loop.time()))
+                if result is None or not result.success:
+                    raise RuntimeError("Ingestor operational instance is unconfirmed")
+                identity = result.payload.get("operational_instance_id")
+                if not isinstance(identity, str) or not identity:
+                    raise RuntimeError("Ingestor operational instance is invalid")
+                with self._admission_lock:
+                    self._require_registration_admission(retirement)
+                    if not retirement and self._ingestor_instance_id not in (observed, identity):
+                        raise RuntimeError("Ingestor instance readback was superseded")
+                    self._ingestor_instance_id = identity
+                    if (self._dependency_registration is not None
+                            and self._dependency_registration["ingestor_instance_id"] != identity):
+                        self._dependency_registration = None
+                payload = {"participant": self.participant.to_dict(),
+                           "operational_instance_id": self.operational_instance_id,
+                           "ingestor_instance_id": identity}
+                if refresh or self._dependency_registration != payload:
+                    accepted = await self._registration_readback(
+                        "register_operational_dependent", payload,
+                        self.preservation_window_s if retirement else max(0, deadline - loop.time()))
+                    if accepted is None or not accepted.success or accepted.payload.get("registration") != payload:
+                        reason = "No authoritative response" if accepted is None else accepted.reason
+                        raise RuntimeError(f"Ingestor dependent registration is unconfirmed: {reason}")
+                with self._admission_lock:
+                    self._require_registration_admission(retirement)
+                    if self._ingestor_instance_id != identity:
+                        raise RuntimeError("Ingestor registration confirmation was superseded")
+                    if self._dependency_registration != payload:
+                        self._dependency_release_delivered = False
+                    self._dependency_registration = payload
+        except BaseException:
+            if not retirement:
+                self._dependency_registration = None
+            raise
+        finally:
+            self._registration_lock.release()
 
     async def deliver_dependency_release(self, command, result):
         """Deliver the exact owner-confirmed retirement before launcher exit eligibility."""
@@ -861,7 +931,7 @@ class ServiceMaintenanceInterface:
             raise RuntimeError("Current Ingestor instance is unconfirmed; process retained")
         if (self._dependency_registration is None or self._dependency_registration["ingestor_instance_id"]
                 != current.payload.get("operational_instance_id")):
-            await self.register_ingestor_dependency()
+            await self.register_ingestor_dependency(retirement=True)
         await self._deliver_dependency_confirmation({"command": command.to_dict(), "result": result.to_dict()})
 
     async def release_ingestor_dependency(self, framework_attempt_id):
@@ -1064,6 +1134,9 @@ class ServiceMaintenanceInterface:
                 report = ServiceReadiness(self.participant.component_id, self.participant.component_type,
                     local.required, local.ready, local.reason)
             payload["service_readiness"] = report.to_dict()
+            if self._dependent_delivery_required and self._dependency_registration is None:
+                payload["service_readiness"] = ServiceReadiness(self.participant.component_id,
+                    self.participant.component_type, True, False, "ingestor_registration_unconfirmed").to_dict()
         except Exception as error:
             payload["readiness_error"] = str(error)
         try:
@@ -1118,7 +1191,7 @@ class ServiceMaintenanceInterface:
             payload["recovery_authorizations"].append(message.to_dict())
         return payload
 
-    @service_operation(new_work=True)
+    @service_operation()
     async def announce_readiness(self, *, startup: bool = False) -> dict:
         """Record startup/return or a changed snapshot without retrying unchanged evidence."""
         payload = self._readiness_payload()

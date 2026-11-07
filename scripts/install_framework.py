@@ -144,6 +144,7 @@ def _configuration_plan(roles, directory, existing):
         data["preservation_window_s"] = windows["preservation_window_s"]
         data["result_window_s"] = windows["result_window_s"]
         if role in {"controller", "acquisition-node", "synchronization-manager"}:
+            data["registration_window_s"] = 180.0
             if "synchronization_id" not in values:
                 values["synchronization_id"] = _ask("Deployment SynchronizationManager ID", "synchronization-manager-1")
             if role != "synchronization-manager":

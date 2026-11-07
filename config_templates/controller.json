@@ -9,5 +9,6 @@
   "synchronization_id": "SYNCHRONIZATION_ID",
   "known_nodes": ["ACQUISITION_NODE_ID"],
   "preservation_window_s": null,
-  "result_window_s": null
+  "result_window_s": null,
+  "registration_window_s": 180
 }

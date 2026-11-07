@@ -167,11 +167,11 @@ class IndependentServiceTests(unittest.IsolatedAsyncioTestCase):
         register = ServiceMaintenanceInterface.register_ingestor_dependency
         confirmed = False
 
-        async def registration(owner):
+        async def registration(owner, **options):
             nonlocal confirmed
             self.assertIn("Registering operational dependency with Ingestor intake.", self.reports)
             self.assertFalse(any("Ingestor registration confirmed" in r for r in self.reports))
-            await register(owner)
+            await register(owner, **options)
             confirmed = True
 
         def boundary(kind, identity, servers):

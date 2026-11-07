@@ -102,6 +102,8 @@ def _validate_service_configuration(data, directory, role):
         raise ValueError("Configuration requires an explicitly selected service role")
     required = common | specific[role]
     optional = {"service_id"} if role == "acquisition-node" else set()
+    if not pair:
+        optional.add("registration_window_s")
     if role == "controller":
         optional |= {"external_client_id", "browser_control_required"}
     if pair:
@@ -112,6 +114,11 @@ def _validate_service_configuration(data, directory, role):
     if missing or unknown:
         raise ValueError(f"Missing fields: {sorted(missing)}; unsupported fields: {sorted(unknown)}")
     data = dict(data)
+    if not pair:
+        data.setdefault("registration_window_s", 180.0)
+        window = data["registration_window_s"]
+        if type(window) not in (int, float) or not isfinite(window) or window <= 0:
+            raise ValueError("registration_window_s must be positive and finite")
     servers = data["servers"]
     if not isinstance(servers, list) or not servers:
         raise ValueError("servers requires a nonempty list of NATS URLs")

@@ -3576,6 +3576,7 @@ class NatsServiceMaintenanceCommunication:
         self._request_subscription = None
         self._requests = NatsControllerCommunication(boundary)
         self._startup_status = None
+        self._completed_registration = None
         self._subscription_lock = asyncio.Lock()
         self._result_observer = None
         if maintenance.participant.component_type != "controller" and (
@@ -3590,7 +3591,59 @@ class NatsServiceMaintenanceCommunication:
     async def start(self) -> dict[str, Any]:
         """Subscribe/announce startup and reconcile Controller's known remote participants."""
         async with self._subscription_lock:
-            return await self._start()
+            status = await self._start()
+        if self._maintenance._dependent_delivery_required:
+            await self._maintenance.register_ingestor_dependency(refresh=False)
+            await self._registration_completed()
+            status = self._startup_status
+        return status
+
+    async def _registration_completed(self):
+        """Complete startup once for the confirmed binding, never during maintenance."""
+        maintenance = self._maintenance
+        maintenance._require_registration_admission(False)
+        if self._startup_status is None or self._request_subscription is None:
+            raise RuntimeError("Startup observation is not installed")
+        subscription = self._request_subscription
+        binding = dict(maintenance._dependency_registration)
+        if self._completed_registration == binding:
+            return
+        # Reconciliation itself observes readiness. Suppress reentrant completion
+        # for the same binding, but permit a later attempt if completion fails.
+        self._completed_registration = binding
+        try:
+            status = await self.publish_readiness()
+            if status is None:
+                raise RuntimeError("Startup readiness completion is unavailable")
+            if maintenance.participant.component_type == "controller":
+                status["reconciliation"] = await maintenance.service.reconcile_outcomes(
+                    participants=self._startup_participants, communication=self._requests,
+                    result_window_s=self._startup_result_window_s)
+            maintenance._require_registration_admission(False)
+            if (maintenance._dependency_registration != binding or self._completed_registration != binding
+                    or self._request_subscription is not subscription):
+                raise RuntimeError("Startup registration completion was superseded")
+            self._startup_status = status
+        except BaseException:
+            if self._completed_registration == binding:
+                self._completed_registration = None
+            raise
+
+    async def _resume_registration(self, participant, payload):
+        maintenance = self._maintenance
+        if not maintenance._dependent_delivery_required or participant != maintenance._framework_ingestor:
+            return
+        identity = payload.get("operational_instance_id") if isinstance(payload, dict) else None
+        if not maintenance.observe_ingestor_instance(identity) or self._startup_status is None:
+            return
+        if (maintenance._dependency_registration is not None
+                and self._completed_registration == maintenance._dependency_registration):
+            return
+        try:
+            await maintenance.register_ingestor_dependency(refresh=False)
+            await self._registration_completed()
+        except Exception as error:
+            logger.warning("Ingestor registration remains unconfirmed: %s", error)
 
     async def _start(self):
         if self._maintenance.participant.component_type == "controller":
@@ -3618,7 +3671,10 @@ class NatsServiceMaintenanceCommunication:
                         report = None
                     else:
                         report = self._readiness_report(participant, evidence.payload.get("service_readiness"))
-                    if self._maintenance.receive_dependency_readiness(participant, report):
+                    changed = self._maintenance.receive_dependency_readiness(participant, report)
+                    if report is not None:
+                        await self._resume_registration(participant, evidence.payload)
+                    if changed:
                         await self.publish_readiness()
                 subscriptions.append(await self._boundary.subscribe_readiness_announcements(participant, receive))
                 self._readiness_subscriptions = tuple(subscriptions)
@@ -3646,7 +3702,8 @@ class NatsServiceMaintenanceCommunication:
             self._boundary._dependency_result_observer = observer
             self._startup_status = await self._maintenance.announce_readiness(startup=True)
             await self.publish_readiness()
-            if self._maintenance.participant.component_type == "controller":
+            if (self._maintenance.participant.component_type == "controller"
+                    and not self._maintenance._dependent_delivery_required):
                 self._startup_status["reconciliation"] = await self._maintenance.service.reconcile_outcomes(
                     participants=self._startup_participants, communication=self._requests,
                     result_window_s=self._startup_result_window_s)
@@ -3673,6 +3730,7 @@ class NatsServiceMaintenanceCommunication:
                 await self._request_subscription.unsubscribe()
                 self._request_subscription = None
         finally:
+            self._completed_registration = None
             if getattr(self._boundary, "_dependency_result_observer", None) is self._result_observer:
                 self._boundary._dependency_result_observer = None
                 for participant in self._maintenance.dependency_readiness:
@@ -3699,7 +3757,7 @@ class NatsServiceMaintenanceCommunication:
             return None
         return report
 
-    @service_operation(new_work=True)
+    @service_operation()
     async def request_dependency_command(
         self, participant: RuntimeParticipant, command_type: str,
         session_id: str | None, payload: dict[str, Any], result_window_s: float,
@@ -3707,6 +3765,10 @@ class NatsServiceMaintenanceCommunication:
         """Reuse correlated requests; unconfirmed communication invalidates only current availability."""
         if participant not in self._maintenance.dependency_readiness:
             raise ValueError("Dependency is not configured for this service")
+        if command_type != "check_readiness":
+            self._maintenance._require_registration_admission(False)
+            if self._maintenance._dependent_delivery_required and self._maintenance._dependency_registration is None:
+                raise RuntimeError("Operational admission requires confirmed Ingestor dependent registration")
         if self._request_subscription is None or self._startup_status is None:
             raise RuntimeError("Startup communication subscriptions are not active")
         subscription = self._request_subscription
@@ -3734,6 +3796,8 @@ class NatsServiceMaintenanceCommunication:
                         self._maintenance._dependency_readiness_versions[participant]):
                     return
                 changed = self._maintenance.receive_dependency_readiness(participant, report)
+            if report is not None:
+                await self._resume_registration(participant, result.payload)
             if changed:
                 await self.publish_readiness()
 

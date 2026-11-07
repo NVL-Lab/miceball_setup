@@ -2963,6 +2963,23 @@ Q022 remains OPEN. Q019 and W001-W066 remain CLOSED. Existing Q006/Q018, Q024,
 Phase 16 and M015 statuses are unchanged. See installation_and_deployment.md for
 the supported entry points and validated_workflows.md for verification limitations.
 
+### Independent startup and returning registration (Decision 444; independent verification pending)
+
+Decision 444 settles automatic registration through existing readiness announcements
+and explicit dependency checks, with one serialized initial/returning registration
+path and no service restart or polling subsystem. Unconfirmed dependencies block
+affected work, not service lifetime. Current-instance confirmation, Controller
+authority and shutdown/retirement admission remain mandatory. Its dedicated
+configurable 180-second overall registration budget is separate from preservation,
+release and result deadlines.
+
+Following ICC authorization, the working-tree implementation installs readiness
+observation before registration, resumes through announcements/explicit checks,
+and enforces the dedicated overall budget and current-instance/shutdown gates.
+Independent validation and audit remain pending; Q022 remains OPEN. Decision 443 checkpoints remain
+a separate committed implementation awaiting independent verification, not a
+registration recovery mechanism or evidence of deployed startup performance.
+
 ### Accepted reliability amendments (Decision 442; independent verification pending)
 
 [Decision 442](architecture_decisions.md#decision-442-operational-dependency-evidence-and-explicit-terminal-maintenance-choices-preserve-retirement-safety)

@@ -8,5 +8,6 @@
   "synchronization_id": "SYNCHRONIZATION_ID",
   "node_config": "acquisition-node.json",
   "preservation_window_s": null,
-  "result_window_s": null
+  "result_window_s": null,
+  "registration_window_s": 180
 }

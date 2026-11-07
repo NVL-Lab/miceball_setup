@@ -67,6 +67,20 @@ class DeploymentConfigurationTests(unittest.TestCase):
         self.assertEqual(self.load("controller")["known_nodes"], ("node",))
         self.assertEqual(self.load("ingestor")["storage_root"], self.root / "records")
 
+    def test_registration_budget_is_independent_optional_and_validated(self):
+        for role in ("controller", "synchronization-manager", "acquisition-node"):
+            with self.subTest(role=role):
+                self.assertEqual(self.load(role)["registration_window_s"], 180)
+                settings = {**self.roles[role], "registration_window_s": 75}
+                loaded = self.load(role, settings)
+                self.assertEqual(loaded["registration_window_s"], 75)
+                self.assertEqual(loaded["preservation_window_s"], 1)
+                self.assertEqual(loaded["result_window_s"], 1)
+                for bad in (None, True, 0, -1, "180", float("inf")):
+                    with self.assertRaises(ValueError):
+                        self.load(role, {**settings, "registration_window_s": bad})
+        self.assertNotIn("registration_window_s", self.load("ingestor"))
+
     def test_gui_browser_control_requirement_preserves_explicit_controller_client(self):
         config = {**self.roles["controller"], "external_client_id": "gui", "browser_control_required": True}
         self.assertTrue(self.load("controller", config)["browser_control_required"])

@@ -8606,6 +8606,10 @@ Session lifecycle. Q011, Q016, and Q024 retain their separate recovery questions
 
 **Status:** Accepted
 
+**Subsequent clarification:** Decision 444 specifies automatic dependency
+registration on service return and a separate configurable registration deadline;
+the historical text and validation scope below are preserved.
+
 Each operational service supports independent startup. At startup it:
 
 1. Initializes its own components.
@@ -14361,6 +14365,64 @@ operational checkpoints, suffix recovery and ordinary archival-prefix reuse.
 Independent validation and audit remain pending; this architecture record supplies
 no validation evidence or closure. Existing completed workflow records remain
 historical evidence of their recorded scope; broader Q024 remains OPEN.
+
+---
+
+## Decision 444: Independent startup resumes authoritative dependency registration through existing readiness mechanisms
+
+**Status:** Accepted
+
+This records the explicitly user-accepted independent-startup and registration
+deadline clarification. It supplements Decisions 320-321 while preserving
+Decisions 389, 436 and 443 and existing service-owned maintenance contracts.
+
+### Independent startup and returning dependencies
+
+Services may start in any order and remain running when required dependencies are
+unavailable or registration cannot be confirmed. Dependency-requiring functionality
+remains unavailable until authoritative registration succeeds. Install existing
+dependency-readiness observation before registration can block startup completion.
+When a dependency becomes available, existing NATS readiness and registration
+mechanisms automatically establish communication and complete applicable startup
+registration/readiness without restarting either service.
+
+Initial registration, fresh dependency-readiness announcements and existing
+explicit dependency checks use one serialized registration/completion path.
+Duplicate announcements or concurrent checks must not create conflicting attempts.
+Existing explicit readiness mechanisms cover missed announcements without periodic
+polling. Registration confirms the current authoritative Ingestor operational
+instance; stale confirmation cannot authorize work after Ingestor replacement.
+
+Shutdown preparation, retirement and termination prevent reactivation by late
+announcements or registration responses. Existing Stop/Kill/Cancel, outstanding
+obligations and evidence-preservation requirements remain authoritative. Controller
+operation still requires Decision 436's exclusive confirmed authority claim;
+independent startup does not bypass that prerequisite. Ingestor must restore
+required authoritative recovery state before announcing operational readiness.
+
+### Dedicated registration deadline and preserved boundaries
+
+Use a dedicated configurable registration deadline, defaulting to 180 seconds,
+separate from preservation and result windows. It is one overall maximum budget
+across authoritative instance discovery and registration confirmation, not a fresh
+180-second budget for each stage. Return immediately on successful authoritative
+confirmation. Do not increase shared preservation or release deadlines to obtain
+this behavior; their existing contracts remain unchanged.
+
+Reuse existing configuration, launcher, installer, NATS correlation, readiness and
+registration mechanisms. No new polling subsystem, retry manager, registration
+service, lifecycle state, supervisor or independent recovery mechanism is
+authorized. Automatic dependency registration does not authorize replay of
+interrupted scientific operations or change Session lifecycle. Decision 443's
+checkpoint format, recovery, journal and historical-verification contracts remain
+unchanged.
+
+**Implementation status:** Following ICC review and authorization against the
+synchronized contract, the working tree implements retained readiness observation,
+serialized automatic registration, guarded startup completion and the dedicated
+overall budget. Independent validation and audit remain pending; no deployment-
+readiness or closure is claimed. Q022 remains OPEN; existing historical validation
+records retain their recorded scope.
 
 ---
 

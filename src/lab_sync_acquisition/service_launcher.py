@@ -468,6 +468,7 @@ def main(argv=None):
     parser.add_argument("--target-id")
     parser.add_argument("--administrator-id")
     parser.add_argument("--result-window-s", type=float)
+    parser.add_argument("--registration-window-s", type=float)
     parser.add_argument("--stop-attempt-id")
     parser.add_argument("--authorize-kill", action="store_true")
     parser.add_argument("--service-id")
@@ -494,6 +495,8 @@ def main(argv=None):
     parser.add_argument("--verify-prior-termination", action="store_true")
     parser.add_argument("--termination-evidence")
     args = parser.parse_args(argv)
+    if args.registration_window_s is not None and args.role not in {"controller", "synchronization-manager", "acquisition-node"}:
+        parser.error("--registration-window-s applies only to independent service startup")
     if args.role in {"inspect-controller-claim", "clear-controller-claim"}:
         from lab_sync_acquisition.service_maintenance_cli import recover_controller_claim
         if not args.server or args.result_window_s is None:
@@ -572,7 +575,7 @@ def main(argv=None):
                   "known_node", "no_known_nodes", "config", "storage_root", "recovery_journal_root",
                   "framework_journal", "preservation_window_s", "result_window_s", "no_operational_dependents",
                   "target_type", "target_id", "administrator_id", "stop_attempt_id", "authorize_kill", "external_dependent",
-                  "controller_claim_account", "controller_claim_bucket", "controller_claim_key")
+                  "controller_claim_account", "controller_claim_bucket", "controller_claim_key", "registration_window_s")
         if any(getattr(args, field) is not None and getattr(args, field) is not False for field in fields):
             parser.error("--deployment-config cannot be combined with explicit launch or maintenance settings; no override precedence is applied")
         try:
@@ -638,6 +641,7 @@ def main(argv=None):
             return asyncio.run(launch_independent_service(role=args.role, servers=args.server,
                 service_id=args.service_id, ingestor_id=args.ingestor_id, storage_id=args.storage_id,
                 preservation_window_s=args.preservation_window_s, result_window_s=args.result_window_s,
+                registration_window_s=180.0 if args.registration_window_s is None else args.registration_window_s,
                 synchronization_id=args.synchronization_id, known_nodes=tuple(args.known_node or ()),
                 controller_claim_account=args.controller_claim_account,
                 controller_claim_bucket=args.controller_claim_bucket, controller_claim_key=args.controller_claim_key,

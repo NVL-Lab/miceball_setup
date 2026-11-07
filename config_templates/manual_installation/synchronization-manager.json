@@ -7,5 +7,6 @@
   "ingestor_id": "INGESTOR_ID",
   "storage_id": "STORAGE_ID",
   "preservation_window_s": 30,
-  "result_window_s": 10
+  "result_window_s": 10,
+  "registration_window_s": 180
 }
