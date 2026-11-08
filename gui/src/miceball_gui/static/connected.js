@@ -27,7 +27,7 @@ const save = () => sessionStorage.setItem('miceball-pending', JSON.stringify(out
 function invalidateServiceConfirmation() {
   // Replace projections so replies admitted before this loss cannot promote them.
   liveServices = liveServices.map(service => ({...service, current: false, diagnosticsCurrent: false, pending: false, attempt: null}));
-  updateServices(liveServices);
+  updateServices(liveServices, 'Controller confirmation unavailable; current service availability is unknown.');
 }
 
 $('.topbar').insertAdjacentHTML('beforeend', '<div class="connection-tools"><span id="connection-state" role="status">Connecting</span><button id="view-only" type="button">View Only</button><button id="take-over" type="button">Take Over</button></div>');
@@ -124,6 +124,7 @@ async function refresh() {
         name: ({controller: 'Controller', acquisition_node: 'AcquisitionNode', ingestor: 'Ingestor', storage_manager: 'StorageManager', synchronization_manager: 'Synchronization Manager'})[participant.component_type],
         computer: participant.component_id, readiness: 'Unknown', current: false, confirmed: null};
     });
+    if (changedOwner) updateServices(liveServices, 'Controller changed; previous readiness feedback and confirmations are invalidated.');
     if ((!previousServices.length || changedOwner) && liveServices.length) serviceActions.refresh();
     if (snapshot.configuration && (previous?.status?.session_id !== snapshot.status.session_id || previous?.instance_id !== snapshot.instance_id)) {
       const config = snapshot.configuration, metadata = config.session_parameters || {};
@@ -288,6 +289,7 @@ serviceActions.refresh = async id => {
   if (!confirmed) return;
   const connection = socket, instance = current()?.instance_id;
   await Promise.all(liveServices.filter(s => (!id || s.id === id) && !s.pending).map(async service => {
+    let notice;
     service.pending = true; updateServices(liveServices, 'Checking readiness; confirmation pending');
     try {
       const result = requireResult(await request('read_service_status', {participant: service.participant}));
@@ -299,8 +301,14 @@ serviceActions.refresh = async id => {
       service.attempt = service.current ? result.details.maintenance_attempt : null;
       if (service.current) { service.readiness = result.report.ready ? 'Ready' : 'Not ready'; service.confirmed = new Date().toISOString(); service.information = result.report.reason; }
       else service.information = result.details?.readiness_error || result.reason;
-    } catch (error) { service.current = false; service.diagnosticsCurrent = false; service.attempt = null; service.information = `Availability unknown: ${error.message}`; }
-    finally { service.pending = false; updateServices(liveServices); }
+      notice = `${service.name}: readiness check completed; ${service.current ? service.readiness : 'availability unknown'}. ${service.information || ''}`;
+    } catch (error) {
+      if (connection !== socket || instance !== current()?.instance_id || !liveServices.includes(service)) return;
+      service.current = false; service.diagnosticsCurrent = false; service.attempt = null;
+      service.information = `Availability unknown: ${error.message}`;
+      notice = `${service.name}: readiness check unconfirmed. ${service.information}`;
+    }
+    finally { service.pending = false; updateServices(liveServices, notice); }
   }));
   const sid = current()?.status?.session_id;
   if (!id && sid && !timingPending && liveServices.some(s => s.participant.component_type === 'synchronization_manager')) {
@@ -330,7 +338,7 @@ serviceActions.maintain = async (operation, service, administrator_id, recovery 
   const entry = await command(operation, parameters, null);
   if (service) service.lastOperation = entry;
   if (service) await serviceActions.refresh(service.id);
-  updateServices(liveServices);
+  updateServices(liveServices, service ? undefined : '');
   const blocked = entry.result?.outcome?.details;
   if (operation === 'stop_service' && blocked?.outcome === 'blocked'
       && service?.attempt?.outcome === 'blocked'

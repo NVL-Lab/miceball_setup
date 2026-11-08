@@ -200,6 +200,19 @@ class GUIIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(target, snapshot["configured_services"])
         self.assertIn("node", snapshot["configured_nodes"])
 
+    async def test_owner_check_failure_reason_reaches_browser_without_confirming_readiness(self):
+        from types import SimpleNamespace
+        ws, _ = await self.browser()
+        reason = "Dependency readiness is unknown: ingestor/intake"
+        failure = SimpleNamespace(success=False, reason=reason, payload={})
+        with patch.object(self.receiver._communication, "request_runtime_command", return_value=failure):
+            reply = await self.completed(ws, "read_service_status", {
+                "participant": {"component_type": "acquisition_node", "component_id": "node"}})
+        details = reply["outcome"]["details"]
+        self.assertEqual(details["reason"], reason)
+        self.assertFalse(details["current"])
+        self.assertIsNone(details["report"])
+
     async def test_session_kill_uses_accepted_owner_contract_and_current_binding(self):
         ws, _ = await self.browser()
         await self.take(ws)

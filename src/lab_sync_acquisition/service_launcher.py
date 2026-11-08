@@ -6,6 +6,7 @@ import argparse
 import asyncio
 import getpass
 import json
+import logging
 import os
 from math import isfinite
 from pathlib import Path
@@ -19,13 +20,27 @@ from lab_sync_acquisition.nats_communication import (
     NatsCommunicationBoundary, NatsIngestorCommunication,
     NatsServiceMaintenanceCommunication, NatsStorageManagerCommunication,
 )
-from lab_sync_acquisition.service_maintenance import ServiceMaintenanceInterface
+from lab_sync_acquisition.service_maintenance import ServiceMaintenanceInterface, deployment_logger
 from lab_sync_acquisition.storage import PersistentStorageManager
 
 
 def _terminal_report(message):
     """Show local launcher feedback before the next potentially slow operation."""
     print(message, flush=True)
+
+
+def _enable_deployment_diagnostics():
+    """Enable only bounded deployment diagnostics; StreamHandler flushes each line."""
+    handler = next((h for h in deployment_logger.handlers if h.get_name() == "miceball-deployment"), None)
+    if handler is None:
+        handler = logging.StreamHandler()
+        handler.set_name("miceball-deployment")
+        handler.setFormatter(logging.Formatter("%(message)s"))
+        deployment_logger.addHandler(handler)
+    else:
+        handler.stream = sys.stderr
+    deployment_logger.setLevel(logging.INFO)
+    deployment_logger.propagate = False
 
 
 async def _read_terminal_choice():
@@ -495,6 +510,7 @@ def main(argv=None):
     parser.add_argument("--verify-prior-termination", action="store_true")
     parser.add_argument("--termination-evidence")
     args = parser.parse_args(argv)
+    _enable_deployment_diagnostics()
     if args.registration_window_s is not None and args.role not in {"controller", "synchronization-manager", "acquisition-node"}:
         parser.error("--registration-window-s applies only to independent service startup")
     if args.role in {"inspect-controller-claim", "clear-controller-claim"}:

@@ -131,6 +131,56 @@ class IndependentRoleCommandTests(unittest.TestCase):
             main(args)
 
 
+class DeploymentDiagnosticConsoleTests(unittest.TestCase):
+    def test_cli_diagnostics_flush_without_duplicate_handlers_or_global_logging(self):
+        import logging
+        from contextlib import redirect_stdout
+        from lab_sync_acquisition.service_maintenance import deployment_logger
+        from tests.test_registration_recovery import RegistrationTransport
+
+        class Output(io.StringIO):
+            flush_count = 0
+            def flush(self):
+                self.flush_count += 1
+                super().flush()
+
+        async def launch(**settings):
+            interface = ServiceMaintenanceInterface(SynchronizationManager(), RuntimeParticipant("synchronization_manager", "sync"),
+                ingestor=None, storage_manager=None, preservation_window_s=1, close_resources=AsyncMock(return_value=True),
+                evidence_publisher=AsyncMock(), framework_communication=RegistrationTransport(),
+                framework_ingestor=RuntimeParticipant("ingestor", "intake"),
+                framework_storage=RuntimeParticipant("storage_manager", "storage"))
+            await interface.register_ingestor_dependency()
+            return 0
+
+        handlers = list(deployment_logger.handlers)
+        streams = [(h, getattr(h, "stream", None)) for h in handlers]
+        level, propagate = deployment_logger.level, deployment_logger.propagate
+        nats_level = logging.getLogger("lab_sync_acquisition.nats_communication").getEffectiveLevel()
+        error_output, output = Output(), io.StringIO()
+        args = ["synchronization-manager", "--service-id", "sync", "--server", "nats://example:4222",
+            "--ingestor-id", "intake", "--storage-id", "storage", "--preservation-window-s", "1",
+            "--result-window-s", "1", "--controller-claim-account", "LAB", "--controller-claim-bucket", "AUTHORITY",
+            "--controller-claim-key", "controller"]
+        try:
+            with redirect_stdout(output), redirect_stderr(error_output), patch(
+                    "lab_sync_acquisition.service_startup.launch_independent_service", launch):
+                self.assertEqual(main(args), 0)
+                self.assertEqual(main(args), 0)
+            self.assertEqual(error_output.getvalue().count("registration.confirmed"), 2)
+            self.assertGreaterEqual(error_output.flush_count, 2)
+            self.assertNotIn("registration.confirmed", output.getvalue())
+            self.assertEqual(sum(h.get_name() == "miceball-deployment" for h in deployment_logger.handlers), 1)
+            self.assertEqual(logging.getLogger("lab_sync_acquisition.nats_communication").getEffectiveLevel(), nats_level)
+        finally:
+            deployment_logger.handlers[:] = handlers
+            deployment_logger.setLevel(level)
+            deployment_logger.propagate = propagate
+            for handler, stream in streams:
+                if stream is not None:
+                    handler.stream = stream
+
+
 class IndependentServiceTests(unittest.IsolatedAsyncioTestCase):
     async def test_role_connection_progress_precedes_failure_without_success_claim(self):
         async def run(launcher, *, startup):
@@ -191,12 +241,22 @@ class IndependentServiceTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(await launcher.stop_locally("operator"))
             return 0
 
-        with patch("lab_sync_acquisition.service_startup.NatsCommunicationBoundary", boundary), patch.object(
+        with self.assertLogs("lab_sync_acquisition.deployment", level="INFO") as diagnostics, patch(
+                "lab_sync_acquisition.service_startup.NatsCommunicationBoundary", boundary), patch.object(
                 ServiceLauncher, "run", run), patch.object(ServiceMaintenanceInterface, "register_ingestor_dependency", registration):
             self.assertEqual(await launch_independent_service(role="synchronization-manager", servers=("nats://example:4222",),
                 service_id="sync", ingestor_id="intake", storage_id="storage", preservation_window_s=0.1, result_window_s=0.1,
                 controller_claim_account="$G", controller_claim_bucket="AUTHORITY", controller_claim_key="controller",
                 report=self.reports.append), 0)
+        output = "\n".join(diagnostics.output)
+        for stage in ("command.submitted", "command.published", "command.result", "registration.received",
+                      "registration.admitted", "registration.history-verified", "registration.reverse-confirmed",
+                      "registration.preserved", "registration.confirmed"):
+            self.assertIn(stage, output)
+        admitted = next(line for line in diagnostics.output if "registration.admitted" in line)
+        correlation = next(field for field in admitted.split() if field.startswith("command_id="))
+        self.assertTrue(any(correlation in line and "command.submitted" in line for line in diagnostics.output))
+        self.assertTrue(any(correlation in line and "command.result" in line for line in diagnostics.output))
 
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()

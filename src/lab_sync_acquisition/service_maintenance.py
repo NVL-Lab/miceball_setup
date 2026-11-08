@@ -11,15 +11,35 @@ from dataclasses import replace
 from functools import wraps
 from inspect import iscoroutinefunction
 import logging
+import re
 import json
 from threading import current_thread
-from time import time
+from time import monotonic, time
 from uuid import uuid4
 
 from lab_sync_acquisition.communication import RuntimeCommandMessage, RuntimeCommandResultMessage, RuntimeEvidenceMessage, RuntimeParticipant, SERVICE_RECOVERY_COMMAND_TYPES
 from lab_sync_acquisition.service_readiness import ServiceReadiness
 
 logger = logging.getLogger(__name__)
+deployment_logger = logging.getLogger("lab_sync_acquisition.deployment")
+
+
+def _deployment_diagnostic(stage, **fields):
+    """Emit bounded deployment identifiers, never payloads or exception text."""
+    if not deployment_logger.isEnabledFor(logging.INFO):
+        return
+    allowed = {"command_id", "operation", "source", "target", "instance", "ingestor_instance",
+               "outcome", "elapsed_s", "budget_s", "unresolved_count", "error_type"}
+    values = []
+    for key, value in fields.items():
+        if key not in allowed or value is None:
+            continue
+        if type(value) in (int, float):
+            value = f"{value:.3f}"
+        elif not isinstance(value, str) or re.fullmatch(r"[A-Za-z0-9_.-]{1,160}", value) is None:
+            value = "<redacted>"
+        values.append(f"{key}={value}")
+    deployment_logger.info("%s %s", stage, " ".join(values))
 
 _service_calls = ContextVar("service_calls", default=())
 
@@ -820,7 +840,17 @@ class ServiceMaintenanceInterface:
             message = RuntimeEvidenceMessage(uuid4().hex, None, "service_maintenance_evidence",
                 self.participant.component_id, {"dependent_maintenance": state}, True)
             self._dependent_state_messages[key] = message
-        await self._preserve_message(message, require_existing_archive=True)
+        started = monotonic()
+        _deployment_diagnostic("registration.preservation", source=self.participant.component_id,
+            instance=registration["operational_instance_id"])
+        try:
+            await self._preserve_message(message, require_existing_archive=True)
+        except BaseException as error:
+            _deployment_diagnostic("registration.preservation-ended", outcome="unconfirmed",
+                error_type=type(error).__name__, elapsed_s=monotonic() - started)
+            raise
+        _deployment_diagnostic("registration.preserved", source=self.participant.component_id,
+            elapsed_s=monotonic() - started)
         self._dependent_state_messages.pop(key, None)
 
     def observe_ingestor_instance(self, identity):
@@ -838,12 +868,26 @@ class ServiceMaintenanceInterface:
 
     async def _registration_readback(self, operation, payload, window):
         """Let fresh owner evidence supersede an undeliverable registration wait."""
+        started = monotonic()
+        _deployment_diagnostic("registration.request", operation=operation,
+            source=self.participant.component_id, target=self._framework_ingestor.component_id,
+            instance=self.operational_instance_id, budget_s=window)
         request = asyncio.create_task(self._framework_communication.request_maintenance_readback(
             self._framework_ingestor, operation, payload, window))
         self._registration_request = request
         try:
-            return await request
+            result = await request
+            _deployment_diagnostic("registration.response", operation=operation,
+                source=self.participant.component_id, target=self._framework_ingestor.component_id,
+                instance=self.operational_instance_id,
+                ingestor_instance=(result.payload.get("operational_instance_id") if result and result.success else None),
+                outcome="unconfirmed" if result is None else "response_received" if result.success else "rejected",
+                elapsed_s=monotonic() - started)
+            return result
         except asyncio.CancelledError:
+            _deployment_diagnostic("registration.wait-ended", operation=operation,
+                source=self.participant.component_id, elapsed_s=monotonic() - started,
+                outcome="cancelled" if asyncio.current_task().cancelling() else "superseded")
             if not asyncio.current_task().cancelling():
                 raise RuntimeError("Ingestor registration wait was superseded") from None
             raise
@@ -864,11 +908,13 @@ class ServiceMaintenanceInterface:
 
     async def register_ingestor_dependency(self, *, retirement=False, refresh=True):
         """Serialize exact current-instance registration under one overall deadline."""
+        started = monotonic()
         self._require_registration_admission(retirement)
         loop = asyncio.get_running_loop()
         window = self.preservation_window_s if retirement else self.registration_window_s
         deadline = loop.time() + window
         await asyncio.wait_for(self._registration_lock.acquire(), max(0, deadline - loop.time()))
+        diagnostic_outcome = "unconfirmed"
         try:
             async with asyncio.timeout_at(None if retirement else deadline):
                 self._require_registration_admission(retirement)
@@ -876,6 +922,8 @@ class ServiceMaintenanceInterface:
                 result = await self._registration_readback(
                     "read_operational_instance", {}, self.preservation_window_s if retirement else max(0, deadline - loop.time()))
                 if result is None or not result.success:
+                    if result is not None:
+                        diagnostic_outcome = "rejected"
                     raise RuntimeError("Ingestor operational instance is unconfirmed")
                 identity = result.payload.get("operational_instance_id")
                 if not isinstance(identity, str) or not identity:
@@ -896,6 +944,8 @@ class ServiceMaintenanceInterface:
                         "register_operational_dependent", payload,
                         self.preservation_window_s if retirement else max(0, deadline - loop.time()))
                     if accepted is None or not accepted.success or accepted.payload.get("registration") != payload:
+                        if accepted is not None and not accepted.success:
+                            diagnostic_outcome = "rejected"
                         reason = "No authoritative response" if accepted is None else accepted.reason
                         raise RuntimeError(f"Ingestor dependent registration is unconfirmed: {reason}")
                 with self._admission_lock:
@@ -905,7 +955,13 @@ class ServiceMaintenanceInterface:
                     if self._dependency_registration != payload:
                         self._dependency_release_delivered = False
                     self._dependency_registration = payload
-        except BaseException:
+                _deployment_diagnostic("registration.confirmed", source=self.participant.component_id,
+                    instance=self.operational_instance_id, ingestor_instance=identity,
+                    elapsed_s=monotonic() - started)
+        except BaseException as error:
+            _deployment_diagnostic("registration.incomplete", source=self.participant.component_id,
+                instance=self.operational_instance_id, elapsed_s=monotonic() - started,
+                outcome=diagnostic_outcome, error_type=type(error).__name__)
             if not retirement:
                 self._dependency_registration = None
             raise
@@ -1000,7 +1056,10 @@ class ServiceMaintenanceInterface:
             # Bootstrap only a deployment without prior dependent history; the existing
             # writer still refuses missing/corrupt archives and unconfirmed preservation.
             await self._record_dependent_state(registration)
+        _deployment_diagnostic("registration.history-verification", command_id=command.command_id,
+            source=participant.component_id, instance=instance, ingestor_instance=self.operational_instance_id)
         current = self._require_dependent_instance_authority(participant, instance)
+        _deployment_diagnostic("registration.history-verified", command_id=command.command_id)
         if command.command_type != "register_operational_dependent" and current != instance:
             raise RuntimeError("Dependent confirmation is not from the current instance")
         self._dependent_instances[participant] = current
@@ -1032,11 +1091,14 @@ class ServiceMaintenanceInterface:
         readback_confirmation = (previous["confirmation"] if previous is not None
             and previous_instance == instance and command.command_type == "register_operational_dependent"
             else confirmation)
+        _deployment_diagnostic("registration.reverse-readback", command_id=command.command_id,
+            target=participant.component_id, instance=instance, budget_s=self._dependent_result_window_s)
         probe = await self._dependent_communication.request_maintenance_readback(
             participant, "read_operational_instance", {"confirmation": readback_confirmation}, self._dependent_result_window_s)
         if (probe is None or not probe.success or probe.payload.get("operational_instance_id") != instance
                 or probe.payload.get("participant") != participant.to_dict()):
             raise RuntimeError("Current dependent instance is unconfirmed")
+        _deployment_diagnostic("registration.reverse-confirmed", command_id=command.command_id, instance=instance)
         if command.command_type == "register_operational_dependent":
             if self._attempt is not None or self._closeout_started:
                 raise RuntimeError("Ingestor maintenance rejects new dependent admission")
@@ -1361,6 +1423,10 @@ class ServiceMaintenanceInterface:
 
     async def execute_command(self, command: RuntimeCommandMessage) -> RuntimeCommandResultMessage:
         """Survey or execute correlated maintenance, including coordinated preparation."""
+        started = monotonic()
+        if command.command_type in {"register_operational_dependent", "confirm_dependent_release"}:
+            _deployment_diagnostic("registration.received", command_id=command.command_id,
+                operation=command.command_type, source=command.source_id, target=self.participant.component_id)
         if command.issuer_type == "controller":
             try:
                 self.controller_command_admission.admit(command)
@@ -1375,9 +1441,24 @@ class ServiceMaintenanceInterface:
             except Exception as error:
                 return self._result(command, "failed", str(error))
         async with self._lock:
+            diagnostic_registration = command.command_type in {"register_operational_dependent", "confirm_dependent_release"}
+            if diagnostic_registration and command.command_id not in self._commands:
+                _deployment_diagnostic("registration.admitted", command_id=command.command_id,
+                    elapsed_s=monotonic() - started)
             if self._dependent_instances and command.command_type in {
                     "stop", "check_stop_readiness", "register_operational_dependent", "confirm_dependent_release"}:
-                self._restore_dependent_confirmations()
+                if diagnostic_registration:
+                    _deployment_diagnostic("registration.retained-history", command_id=command.command_id)
+                try:
+                    self._restore_dependent_confirmations()
+                except Exception as error:
+                    if diagnostic_registration:
+                        _deployment_diagnostic("registration.retained-history-refused", command_id=command.command_id,
+                            error_type=type(error).__name__, elapsed_s=monotonic() - started)
+                    raise
+                if diagnostic_registration:
+                    _deployment_diagnostic("registration.retained-history-verified", command_id=command.command_id,
+                        elapsed_s=monotonic() - started)
             previous = self._commands.get(command.command_id)
             if previous is not None:
                 if previous != command.to_dict():
@@ -1526,6 +1607,9 @@ class ServiceMaintenanceInterface:
                     self._remember(command, self._result(command, "failed", "Maintenance was cancelled", attempt))
                 raise
             except Exception as error:
+                if command.command_type in {"register_operational_dependent", "confirm_dependent_release"}:
+                    _deployment_diagnostic("registration.refused", command_id=command.command_id,
+                        error_type=type(error).__name__, elapsed_s=monotonic() - started)
                 if attempt is not None:
                     attempt["failures"].append(str(error))
                     if cleanup_started:

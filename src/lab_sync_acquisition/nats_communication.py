@@ -50,7 +50,7 @@ from lab_sync_acquisition.device import DeviceDeclaration
 from lab_sync_acquisition.synchronization import SynchronizationManager
 from lab_sync_acquisition.experiment_runtime import ActiveExperimentRuntimeContext, ExperimentRuntimeHealthMapping
 from lab_sync_acquisition.service_readiness import ServiceReadiness
-from lab_sync_acquisition.service_maintenance import service_operation
+from lab_sync_acquisition.service_maintenance import service_operation, _deployment_diagnostic
 from lab_sync_acquisition.communication import DEPENDENT_MAINTENANCE_COMMANDS
 from lab_sync_acquisition.storage import PersistentStorageManager, _to_plain_data
 
@@ -709,6 +709,10 @@ class NatsCommunicationBoundary:
             "command_result",
             message.result_id,
         )
+        if message_type in {"read_operational_instance", "register_operational_dependent", "check_readiness"}:
+            _deployment_diagnostic("response.published", operation=message_type,
+                command_id=message.command_id, source=message.source_id, target=message.target_id,
+                outcome="succeeded" if message.success else "failed")
 
     async def publish_evidence(self, message: RuntimeEvidenceMessage) -> None:
         """Publish durable evidence once through the evidence stream."""
@@ -1063,12 +1067,15 @@ class NatsExternalSessionLaunchReceiver:
                     raise ValueError("Service operation requires an exact configured participant")
                 p = request.parameters
                 if request.operation == "read_service_status":
+                    reason = "Current readiness is unconfirmed"
                     if participant == self._maintenance.participant:
                         payload = self._maintenance._readiness_payload()
                     else:
                         result = await self._communication.request_runtime_command(
                             participant, "check_readiness", None, {}, self._window)
                         payload = result.payload if result and result.success else {}
+                        if result is not None and not result.success and result.reason:
+                            reason = result.reason
                     report = NatsServiceMaintenanceCommunication._readiness_report(participant,
                         payload.get("service_readiness"))
                     node = payload.get("acquisition_node_readiness")
@@ -1079,7 +1086,7 @@ class NatsExternalSessionLaunchReceiver:
                     return ControllerCommandResult(request.operation, True, {
                         "participant": participant.to_dict(), "current": report is not None,
                         "report": report.to_dict() if report else None, "details": deepcopy(payload),
-                        "reason": None if report else "Current readiness is unconfirmed"})
+                        "reason": None if report else reason})
                 recovery = request.operation in SERVICE_RECOVERY_COMMAND_TYPES
                 operation = request.operation if recovery else request.operation.removesuffix("_service")
                 if recovery:
@@ -1388,6 +1395,7 @@ class NatsControllerCommunication:
         result = None
         command = None
         key = (session_id, participant.component_type, participant.component_id)
+        diagnostic_started = monotonic()
         try:
             command = admitted_stop or RuntimeCommandMessage(command_id, session_id, command_type,
                 self._boundary.component_id, participant.component_id, deepcopy(payload))
@@ -1402,7 +1410,12 @@ class NatsControllerCommunication:
                        for previous in self._maintenance_requests):
                     raise ValueError("Conflicting administrative command identity")
                 self._maintenance_requests.append(deepcopy(command.to_dict()))
+            if command_type in {"read_operational_instance", "register_operational_dependent", "check_readiness"}:
+                _deployment_diagnostic("command.submitted", command_id=command_id, operation=command_type,
+                    source=self._boundary.component_id, target=participant.component_id, budget_s=result_window_s)
             await self.publish_command(command, participant.component_type)
+            if command_type in {"read_operational_instance", "register_operational_dependent", "check_readiness"}:
+                _deployment_diagnostic("command.published", command_id=command_id, operation=command_type)
 
             def matches_attempt(reply):
                 return (reply.command_id == command_id and reply.session_id == session_id
@@ -1443,6 +1456,18 @@ class NatsControllerCommunication:
             return None
         finally:
             self._command_result_events.pop(command_id, None)
+            if command_type in {"read_operational_instance", "register_operational_dependent", "check_readiness"}:
+                outcome = "unconfirmed" if result is None else "rejected" if not result.success else "succeeded"
+                if command_type == "check_readiness" and result is not None and result.success:
+                    report = NatsServiceMaintenanceCommunication._readiness_report(participant,
+                        result.payload.get("service_readiness"))
+                    outcome = "unknown" if report is None else "ready" if report.ready else "not_ready"
+                    node = result.payload.get("acquisition_node_readiness")
+                    if (participant.component_type == "acquisition_node" and isinstance(node, dict)
+                            and node.get("node_id") == participant.component_id and type(node.get("ready")) is bool):
+                        outcome = "ready" if node["ready"] else "not_ready"
+                _deployment_diagnostic("command.result", command_id=command_id, operation=command_type,
+                    target=participant.component_id, outcome=outcome, elapsed_s=monotonic() - diagnostic_started)
             if command_type == "stop_runtime" and self._runtime_stop_commands.get(key) is not command:
                 result = None
             await self._notify_dependency_result(observation, command_type, result)
@@ -3612,13 +3637,26 @@ class NatsServiceMaintenanceCommunication:
         # for the same binding, but permit a later attempt if completion fails.
         self._completed_registration = binding
         try:
+            _deployment_diagnostic("startup.readiness-publication", source=maintenance.participant.component_id)
             status = await self.publish_readiness()
             if status is None:
                 raise RuntimeError("Startup readiness completion is unavailable")
             if maintenance.participant.component_type == "controller":
+                started = monotonic()
+                _deployment_diagnostic("startup.reconciliation", source=maintenance.participant.component_id)
                 status["reconciliation"] = await maintenance.service.reconcile_outcomes(
                     participants=self._startup_participants, communication=self._requests,
                     result_window_s=self._startup_result_window_s)
+                reconciliation = status["reconciliation"]
+                _deployment_diagnostic("startup.reconciliation-result", source=maintenance.participant.component_id,
+                    unresolved_count=len(reconciliation.get("findings", {}).get("unresolved", [])),
+                    outcome="findings_preserved" if reconciliation.get("archival_confirmed") else "findings_preservation_unconfirmed",
+                    elapsed_s=monotonic() - started)
+                for entry in reconciliation.get("findings", {}).get("unresolved", []):
+                    participant = entry.get("participant")
+                    if isinstance(participant, dict):
+                        _deployment_diagnostic("startup.dependency-unconfirmed", target=participant.get("component_id"),
+                            outcome="unknown")
             maintenance._require_registration_admission(False)
             if (maintenance._dependency_registration != binding or self._completed_registration != binding
                     or self._request_subscription is not subscription):
@@ -3643,7 +3681,7 @@ class NatsServiceMaintenanceCommunication:
             await maintenance.register_ingestor_dependency(refresh=False)
             await self._registration_completed()
         except Exception as error:
-            logger.warning("Ingestor registration remains unconfirmed: %s", error)
+            logger.warning("Ingestor registration remains unconfirmed (%s)", type(error).__name__)
 
     async def _start(self):
         if self._maintenance.participant.component_type == "controller":

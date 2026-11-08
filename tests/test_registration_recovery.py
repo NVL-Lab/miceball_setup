@@ -3,7 +3,7 @@
 import asyncio
 from types import SimpleNamespace
 import unittest
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 from lab_sync_acquisition import (AcquisitionNode, Controller, DeviceManager,
     RuntimeCommandMessage, RuntimeParticipant, ServiceMaintenanceInterface, SynchronizationManager)
@@ -109,10 +109,13 @@ class RegistrationRecoveryTests(unittest.IsolatedAsyncioTestCase):
         self.transport.identity = remote.operational_instance_id
         self.transport.available = True
         await returning.start()
-        await asyncio.gather(remote.announce_readiness(startup=True),
-            remote.announce_readiness(startup=True),
-            communication.check_dependency_readiness(remote.participant, .5),
-            communication.check_dependency_readiness(remote.participant, .5))
+        with self.assertLogs("lab_sync_acquisition.deployment", level="INFO") as capture:
+            await asyncio.gather(remote.announce_readiness(startup=True),
+                remote.announce_readiness(startup=True),
+                communication.check_dependency_readiness(remote.participant, .5),
+                communication.check_dependency_readiness(remote.participant, .5))
+        self.assertFalse(any("registration.request" in line for line in capture.output),
+            "Coalesced notifications do not produce duplicate registration diagnostics")
         self.assertEqual(sum(op == "register_operational_dependent" for op, _ in self.transport.calls), 1)
         self.assertTrue(self.service.prepare_session("same-binding").ready)
 
@@ -162,8 +165,10 @@ class RegistrationRecoveryTests(unittest.IsolatedAsyncioTestCase):
     async def test_overall_deadline_covers_both_requests_and_later_recovery(self):
         self.dependent(window=.4)
         self.transport.delay = .25
-        with self.assertRaises(TimeoutError):
-            await self.maintenance.register_ingestor_dependency()
+        with self.assertLogs("lab_sync_acquisition.deployment", level="INFO") as timeout:
+            with self.assertRaises(TimeoutError):
+                await self.maintenance.register_ingestor_dependency()
+        self.assertTrue(any("error_type=TimeoutError" in line for line in timeout.output))
         discovery, registration = self.transport.calls
         self.assertLess(registration[1], discovery[1])
         self.assertLessEqual(discovery[1], .4)
@@ -223,6 +228,57 @@ class RegistrationRecoveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.maintenance.registration_window_s, 180)
         self.assertTrue(all(0 < window <= 180 for _, window in self.transport.calls))
         self.assertEqual(self.maintenance.preservation_window_s, .01)
+
+    async def test_registration_diagnostics_preserve_order_budget_and_safe_fields(self):
+        self.dependent()
+        with self.assertLogs("lab_sync_acquisition.deployment", level="INFO") as capture:
+            await self.maintenance.register_ingestor_dependency()
+        lines = capture.output
+        stages = [line.split(":", 2)[-1].split()[0] for line in lines]
+        self.assertEqual(stages, ["registration.request", "registration.response",
+            "registration.request", "registration.response", "registration.confirmed"])
+        self.assertTrue(any("elapsed_s=" in line for line in lines))
+        self.assertTrue(any("budget_s=" in line for line in lines))
+        self.assertTrue(any(self.maintenance.operational_instance_id in line for line in lines))
+        self.transport.available = False
+        with self.assertLogs("lab_sync_acquisition.deployment", level="INFO") as unknown:
+            with self.assertRaises(RuntimeError):
+                await self.maintenance.register_ingestor_dependency()
+        self.assertIn("outcome=unconfirmed", "\n".join(unknown.output))
+        self.assertNotIn("TimeoutError", "\n".join(unknown.output))
+
+    async def test_rejection_diagnostics_do_not_expose_owner_exception_or_payload(self):
+        self.dependent()
+        secret = "nats://user:password@private-host/?token=private-token"
+        replies = [SimpleNamespace(success=True, payload={"operational_instance_id": "owner"}),
+                   SimpleNamespace(success=False, reason=secret, payload={"password": "private-token"})]
+        with patch.object(self.transport, "request_maintenance_readback", side_effect=replies):
+            with self.assertLogs("lab_sync_acquisition.deployment", level="INFO") as capture:
+                with self.assertRaises(RuntimeError):
+                    await self.maintenance.register_ingestor_dependency()
+        output = "\n".join(capture.output)
+        self.assertIn("outcome=rejected", output)
+        for value in ("password", "private-token", "private-host", "nats://"):
+            self.assertNotIn(value, output)
+
+    async def test_response_diagnostic_follows_durability_without_claiming_requester_receipt(self):
+        from lab_sync_acquisition import NatsCommunicationBoundary, RuntimeCommandResultMessage
+        boundary = NatsCommunicationBoundary("ingestor", "ingestor", servers=("nats://isolated.invalid:4222",))
+        response = RuntimeCommandResultMessage("result", "correlated-command", None, "ingestor", "sync",
+            "succeeded", True, None, {"private_payload": "do-not-log"})
+        async def durable(*args):
+            self.assertFalse(any("response.published" in line for line in capture.output))
+        with self.assertLogs("lab_sync_acquisition.deployment", level="INFO") as capture:
+            with patch.object(boundary, "_publish_durable", side_effect=durable):
+                await boundary.publish_command_result(response, "register_operational_dependent")
+            with patch.object(boundary, "_publish_durable", side_effect=OSError("Unconfirmed publication")):
+                with self.assertRaises(OSError):
+                    await boundary.publish_command_result(response, "register_operational_dependent")
+        self.assertEqual(len(capture.output), 1)
+        self.assertIn("response.published", capture.output[0])
+        self.assertIn("command_id=correlated-command", capture.output[0])
+        self.assertNotIn("receipt", capture.output[0])
+        self.assertNotIn("do-not-log", capture.output[0])
 
     async def test_authoritative_discovery_of_replacement_closes_admission_before_ack(self):
         self.dependent()

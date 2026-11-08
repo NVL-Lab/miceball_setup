@@ -13,7 +13,7 @@
 - `ServiceMaintenanceInterface._diagnostic_payload()`: Also detaches operational-instance identity, the active maintenance attempt, dependency-release confirmation and existing durably accepted recovery authorizations for exact continuation selection; none proves OS exit.
 - `_execute_maintenance_command(...)`: Preserves nonce and Controller-instance transport correlation for owner recovery results as well as ordinary maintenance replies.
 - `services-view.serviceActions.refresh(id?)`, `maintain(operation, service, administrator_id, recovery=null)`, `canControl()` and `frameworkOutcome()`: Bind existing Services controls to the shared connected request/outcome path without owning maintenance or control grants.
-- `services-view.updateServices(services, notice='')`: Repaints configured membership and separately labeled owner diagnostics/readiness without clearing operator feedback during routine refresh; Review obligations presents an evidence snapshot.
+- `services-view.updateServices(services, notice)`: Repaints configured membership while retaining per-service Owner report disclosure choices and existing feedback unless explicitly replaced or invalidated.
 - `services-view.startServicesRefresh()`: Enables configurable connected status refresh with the accepted 10-second default.
 - `connected.invalidateServiceConfirmation()`: Retains last-known reports while invalidating current confirmation and older in-flight projections after Controller/backend communication loss.
 - `GUIIntegrationTests`: Adds public web/NATS coverage of status, Session Kill, blocked Stop/Cancel/Kill, takeover fencing, timing readback, self-retirement, receiver quiescence and complete framework shutdown with disk-backed simulated owners.
@@ -595,6 +595,7 @@ installation_and_deployment.md and Decisions 383-388.
 
 ## src/lab_sync_acquisition/service_launcher.py
 
+- `_enable_deployment_diagnostics()`: Installs one immediately flushed stderr handler for bounded deployment diagnostics without enabling global NATS logging or changing JSON stdout.
 - service_startup.launch_independent_service.prepare_maintenance(): Reuses the retained owner command handler after stream/subscription interruption, requiring the exact Controller claim before installing Controller handlers and never rerunning scientific startup.
 - services-view.showBlockedServiceStop(service): Opens the existing connected authorization dialog only for the confirmed exact blocked Stop, without authorizing an action on presentation or dismissal.
 - services-view.authorizeMaintenance(operation, service): Shares row-button and blocked-dialog authorization, rechecking current control, owner instance and attempt identity before existing maintenance dispatch.
@@ -2193,6 +2194,7 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 
 ## src/lab_sync_acquisition/service_maintenance.py
 
+- `_deployment_diagnostic(stage, **fields)`: Emits allowlisted bounded operational identifiers, outcomes and monotonic durations without payloads, credential-bearing strings or exception text.
 - ServiceMaintenanceInterface(service, participant, *, ingestor, storage_manager, preservation_window_s, close_resources, operational_dependents=None, evidence_publisher=None, retire_resources=None, dependency_participants=(), framework_communication=None, framework_ingestor=None, framework_storage=None, registration_window_s=180.0): Attaches service-owned maintenance with local or remote preservation and a separate configurable overall registration deadline.
 - ServiceMaintenanceInterface.controller_authority_confirmed: Reports whether the current unretired Controller maintenance lifetime owns its confirmed claim.
 - ServiceMaintenanceInterface.acquire_controller_authority(boundary, *, account, bucket, key, timeout_s): Serializes explicit claim acquisition and binds verified authority to the existing maintenance operational-instance identity.

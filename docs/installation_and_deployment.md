@@ -707,6 +707,15 @@ retains services and readiness observation after unconfirmed registration, resum
 on fresh Ingestor announcements or explicit checks; independent validation and
 deployment verification remain pending. Controller authority prerequisites remain.
 
+The launcher emits bounded deployment diagnostics to stderr for registration,
+readiness and reconciliation stages, using correlation/instance identifiers and
+monotonic elapsed durations without payload or configuration dumps. A
+`response.published` line confirms publication, not receipt by the requester;
+reconciliation findings can be preserved while dependencies remain unresolved.
+Existing JSON stdout is unchanged. These developer-verified diagnostics do not
+establish the cause or resolution of the Windows unknown-readiness observations;
+independent validation and audit remain separate.
+
 Choose exactly one shared-pair dependency mode:
 
 - Actual dependents: nonempty `external_dependents` list of objects with exactly

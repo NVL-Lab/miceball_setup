@@ -98,6 +98,12 @@ remain unconfirmed and never trigger automatic retry.
 Decision 441 resolves the Q031 architecture for live Services freshness;
 see [Q031 tracking](../docs/open_questions.md#q031-how-is-gui-service-status-freshness-established).
 Unit 2 independent validation/audit remain pending; Unit 1 closure is unchanged.
+The bounded Services usability correction retains Owner report disclosure choices
+per configured service through status repaints, preserves readiness-check feedback
+through unrelated Controller refreshes, and invalidates feedback on connection or
+Controller ownership loss. Available failed-owner check reasons remain diagnostic
+text, not proof of technical unreadiness. Developer verification does not establish
+the cause or resolution of the observed Windows unknown-readiness behavior.
 Application protocol definitions not present in page memory cannot be reconstructed
 from the framework's name-only protocol association. Unverified device-to-node
 associations remain unavailable until actual inventory establishes a unique match.

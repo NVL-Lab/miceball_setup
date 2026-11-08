@@ -18,6 +18,7 @@ let connection, instance = 'feedback-instance', acceptedConfiguration = null;
 let reportedExperiments = [], activeExperiment = null, lifecycle = [];
 const experimentRequests = [];
 let serviceResponse = 'unknown';
+let serviceReason = 'Current readiness is unconfirmed';
 let controllerResponse = 'succeeded';
 const serviceRequests = [];
 const snapshot = () => ({controller_id: 'feedback', instance_id: instance,
@@ -37,9 +38,10 @@ await page.routeWebSocket('**/ws', route => {
     else if (message.operation === 'read_service_status') {
       serviceRequests.push({route, message});
       if (serviceResponse !== 'held') reply(route, message, 'succeeded', {
-        participant: message.parameters.participant, current: serviceResponse === 'ready',
-        report: serviceResponse === 'ready' ? {...message.parameters.participant, ready: true, required: true, reason: 'ready'} : null,
-        reason: serviceResponse === 'ready' ? null : 'Current readiness is unconfirmed', details: {}});
+        participant: message.parameters.participant, current: ['ready', 'not-ready'].includes(serviceResponse),
+        report: ['ready', 'not-ready'].includes(serviceResponse) ? {...message.parameters.participant,
+          ready: serviceResponse === 'ready', required: true, reason: serviceResponse === 'ready' ? 'ready' : 'Dependency not ready'} : null,
+        reason: ['ready', 'not-ready'].includes(serviceResponse) ? null : serviceReason, details: {}});
     }
     else if (message.operation === 'read_synchronization_status') reply(route, message, 'succeeded', {current: false, timing: null, reason: 'Unavailable'});
     else if (message.operation === 'get_node_inventory') inventoryRequests.push({route, message});
@@ -363,10 +365,26 @@ try {
   const services = page.locator('#panel-services');
   await services.locator('[data-expand-service]').first().click();
   assert.doesNotMatch(await services.innerText(), /simulat|fictional|fixture|transport example|preview refreshed/i);
-  assert.match(await services.locator('.services-feedback').innerText(), /current checks|Checking readiness/i);
+  assert.match(await services.locator('.services-feedback').innerText(), /current checks|Checking readiness|readiness check completed/i);
   assert.equal(await services.locator('[data-readiness]').count(), 5);
   assert.equal(await services.locator('[data-readiness]').first().isEnabled(), true);
   assert.equal(await services.locator('[data-expand-service]').first().getAttribute('aria-expanded'), 'true');
+  const ownerReport = services.locator('[data-owner-report]');
+  await ownerReport.locator('summary').click();
+  let previousReport = await ownerReport.elementHandle();
+  await page.waitForFunction(element => !element.isConnected, previousReport);
+  assert.equal(await ownerReport.evaluate(element => element.open), true, 'Automatic repaint preserves open Owner report');
+  await ownerReport.locator('summary').click();
+  previousReport = await ownerReport.elementHandle();
+  await page.waitForFunction(element => !element.isConnected, previousReport);
+  assert.equal(await ownerReport.evaluate(element => element.open), false, 'Deliberate closing survives automatic repaint');
+  await services.locator('[data-expand-service]').nth(1).click();
+  await ownerReport.locator('summary').click();
+  await services.locator('[data-expand-service]').first().click();
+  assert.equal(await ownerReport.evaluate(element => element.open), false);
+  await services.locator('[data-expand-service]').nth(1).click();
+  assert.equal(await ownerReport.evaluate(element => element.open), true, 'Services retain independent disclosure choices');
+  await services.locator('[data-expand-service]').first().click();
   await services.locator('[data-readiness]').first().evaluate(button => button.click());
   assert.equal(await services.locator('[data-expand-service]').first().getAttribute('aria-expanded'), 'true');
   await services.locator('[data-detail="History"]').click();
@@ -376,11 +394,29 @@ try {
   await services.locator('[data-detail="Status"]').click();
   assert.match(await services.locator('.services-detail-content').innerText(), /Unknown/);
   await services.locator('[data-refresh-services]').click();
-  assert.match(await services.locator('.services-feedback').innerText(), /current checks|Checking readiness/i);
+  assert.match(await services.locator('.services-feedback').innerText(), /current checks|Checking readiness|readiness check completed/i);
   assert.doesNotMatch(await services.innerText(), /preview refreshed|fixture/i);
   assert.equal(await services.locator('#services-refresh').isEnabled(), true);
   assert.equal(await services.locator('#services-refresh').inputValue(), '10');
   await services.locator('#services-refresh').selectOption('0');
+  serviceResponse = 'ready';
+  await services.locator('[data-readiness]').first().click();
+  await services.locator('.service-status').first().filter({hasText: 'Ready · current confirmation'}).waitFor();
+  const finalFeedback = await services.locator('.services-feedback').innerText();
+  assert.match(finalFeedback, /readiness check completed; Ready/);
+  previousReport = await ownerReport.elementHandle();
+  await page.waitForFunction(element => !element.isConnected, previousReport);
+  assert.equal(await services.locator('.services-feedback').innerText(), finalFeedback, 'Controller repaint retains completed feedback');
+  serviceResponse = 'not-ready';
+  await services.locator('[data-readiness]').first().click();
+  await services.locator('.services-feedback').filter({hasText: 'check completed; Not ready'}).waitFor();
+  serviceResponse = 'unknown';
+  serviceReason = '<img data-readiness-injected src=x onerror="window.__readinessInjected=1">';
+  await services.locator('[data-readiness]').first().click();
+  await services.locator('.services-feedback').filter({hasText: serviceReason}).waitFor();
+  assert.equal(await services.locator('[data-readiness-injected]').count(), 0);
+  assert.equal(await page.evaluate(() => window.__readinessInjected), undefined);
+  serviceReason = 'Current readiness is unconfirmed';
   serviceResponse = 'ready';
   await services.locator('[data-readiness]').first().click();
   await services.locator('.service-status').first().filter({hasText: 'Ready · current confirmation'}).waitFor();
@@ -396,6 +432,7 @@ try {
   const delayedService = serviceRequests.at(-1);
   reply(delayedService.route, delayedService.message, 'succeeded', {current: false, report: null, reason: 'Invalid current report', details: {}});
   await services.locator('[data-readiness]').first().filter({hasText: 'Check readiness'}).waitFor();
+  assert.match(await services.locator('.services-feedback').innerText(), /availability unknown.*Invalid current report/);
   assert.equal(await services.locator('[data-expand-service]').count(), 5, 'Unknown status does not remove configured membership');
   await services.locator('[data-readiness]').first().click();
   await services.locator('[data-readiness]').first().filter({hasText: 'Checking'}).waitFor();
@@ -417,6 +454,7 @@ try {
   controllerResponse = 'rejected';
   await page.locator('#connection-state').filter({hasText: 'Unconfirmed'}).waitFor();
   await services.locator('.service-status').first().filter({hasText: 'availability unknown'}).waitFor();
+  assert.doesNotMatch(await services.locator('.services-feedback').innerText(), /check completed; Ready/);
   controllerResponse = 'succeeded';
   await page.locator('#connection-state').filter({hasText: 'View Only'}).waitFor();
   reply(beforeLoss.route, beforeLoss.message, 'succeeded', {current: true, report: {...beforeLoss.message.parameters.participant, ready: true, required: true, reason: 'late ready'}, details: {}});
