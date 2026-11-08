@@ -1,6 +1,7 @@
-import { formatCalendarDate } from './calendar-date.mjs';
+import { formatCalendarDate, localCalendarDate } from './calendar-date.mjs';
 
 const setup = document.querySelector('#panel-setup');
+setup.querySelector('.session-identity-grid input[type="date"]').value = localCalendarDate();
 const toolbar = document.createElement('div');
 toolbar.className = 'setup-disclosures-toolbar';
 toolbar.innerHTML = '<button type="button" data-open-setup>Expand All</button><button type="button" data-close-setup>Collapse All</button>';

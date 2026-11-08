@@ -1,4 +1,7 @@
 // Calendar dates only; service events and recording/audit timestamps are untouched.
+export function localCalendarDate(now = new Date()) {
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+}
 export function formatCalendarDate(value) {
   if (typeof value !== 'string') return value;
   if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value.replaceAll('-', '');

@@ -95,7 +95,7 @@ export function experimentIssues(state, step, configuration) {
   if (!participants.some(device => deviceExamples[device.id]?.acquisition)) issues.push(state.connected ? 'Select at least one declared data-acquisition device.' : 'Select at least one demonstration data-acquisition device.');
   if (participants.some(device => !device.available)) issues.push(state.connected ? 'Participating inventory is unconfirmed.' : 'A participating demonstration device is unavailable.');
   if (state.connected) {
-    if (typeof configuration.experimentId !== 'string' || !configuration.experimentId.trim()) issues.push('Set an Experiment ID as a JSON string.');
+    if (typeof configuration.experimentId !== 'string' || !configuration.experimentId.trim()) issues.push('Set a nonblank Experiment ID.');
     if (!Number.isSafeInteger(configuration.preservationBudget) || configuration.preservationBudget <= 0) issues.push('Set an explicit preservation budget.');
     for (const node of new Set(participants.map(device => device.nodeId))) {
       if (!Number.isSafeInteger(configuration.recordingBudgets?.[node]) || configuration.recordingBudgets[node] <= 0) issues.push(`Set an explicit recording budget for ${node}.`);
@@ -104,7 +104,7 @@ export function experimentIssues(state, step, configuration) {
       if (!Object.hasOwn(configuration.values, field.id)) continue;
       const value = configuration.values[field.id];
       if (value === null && field.nullable) continue;
-      if (field.type === 'text' && typeof value !== 'string') issues.push(`Correct the invalid JSON string for ${field.label}.`);
+      if (field.type === 'text' && typeof value !== 'string') issues.push(`Correct the invalid text value for ${field.label}.`);
       if (field.type === 'number') {
         try {
           if (typeof value !== 'number') throw new Error();

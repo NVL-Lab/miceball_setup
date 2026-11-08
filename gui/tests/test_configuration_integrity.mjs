@@ -1,3 +1,17 @@
+
+async function fillString(control, value) {
+  if (/[\r\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]/.test(value)
+      || [...value].some(c => c.length === 1 && /[\ud800-\udfff]/.test(c))) {
+    if (await control.getAttribute('data-string-encoding') !== 'exact') await control.locator('xpath=following-sibling::button[1]').click();
+  }
+  const text = await control.getAttribute('data-string-encoding') === 'exact' ? JSON.stringify(value) : value;
+  if (text === '' && await control.inputValue() === '') await control.fill('temporary edit');
+  await control.fill(text);
+}
+async function readString(control) {
+  const text = await control.inputValue();
+  return await control.getAttribute('data-string-encoding') === 'exact' ? JSON.parse(text) : text;
+}
 import assert from 'node:assert/strict';
 
 export async function verifyConfigurationIntegrity(browser, origin, fixture, section) {
@@ -79,21 +93,23 @@ export async function verifyConfigurationIntegrity(browser, origin, fixture, sec
         await input.nth(index).check();
       }
     }
-    await page.locator('.session-identity-grid textarea[data-configuration-string]').fill(JSON.stringify(fixture.session.session_parameters.name));
+    await fillString(page.locator('.session-identity-grid textarea[data-configuration-string]'), fixture.session.session_parameters.name);
     await page.locator('.session-identity-grid input[type="date"]').fill(fixture.session.session_parameters.date);
     await page.locator('.session-identity-grid input[type="number"]').fill('0');
-    await page.locator('[aria-labelledby="notes-title"] textarea').fill(JSON.stringify(fixture.session.session_parameters.notes));
-    await page.locator('[aria-labelledby="storage-title"] textarea[data-configuration-string]:not(#error-evidence-location)').fill(JSON.stringify(fixture.session.storage_location));
-    await page.locator('#error-evidence-location').fill(JSON.stringify(fixture.session.error_evidence_location));
+    await fillString(page.locator('[aria-labelledby="notes-title"] textarea'), fixture.session.session_parameters.notes);
+    await fillString(page.locator('[aria-labelledby="storage-title"] textarea[data-configuration-string]:not(#error-evidence-location)'), fixture.session.storage_location);
+    await fillString(page.locator('#error-evidence-location'), fixture.session.error_evidence_location);
     await page.locator('details').filter({has: page.locator('#session-framework-fields')}).last().evaluate(element => element.open = true);
     const fields = {protocol_plan: {}, session_parameters: fixture.session.session_parameters};
     for (const invalid of ['"raw\r\nnewline"', 'true']) {
       await page.locator('#session-framework-fields').fill(JSON.stringify(fields));
-      await page.locator('.session-identity-grid textarea[data-configuration-string]').fill(invalid);
+      const name = page.locator('.session-identity-grid textarea[data-configuration-string]');
+      if (await name.getAttribute('data-string-encoding') !== 'exact') await name.locator('xpath=following-sibling::button[1]').click();
+      await name.fill(invalid);
       await page.locator('.launch-session-demo').click();
       assert.equal(sent.filter(message => message.operation === 'launch_session').length, 0);
     }
-    await page.locator('.session-identity-grid textarea[data-configuration-string]').fill(JSON.stringify(fixture.session.session_parameters.name));
+    await fillString(page.locator('.session-identity-grid textarea[data-configuration-string]'), fixture.session.session_parameters.name);
     for (const text of ['9007199254740993', '1.0000000000000001', '9007199254740991.1']) {
       await page.locator('#session-framework-fields').fill(`{"protocol_plan":{},"device_configurations":{"__proto__":{"count":${text}}}}`);
       await page.locator('.launch-session-demo').click();
@@ -108,7 +124,7 @@ export async function verifyConfigurationIntegrity(browser, origin, fixture, sec
       ['[aria-labelledby="notes-title"] textarea', fixture.session.session_parameters.notes],
       ['[aria-labelledby="storage-title"] textarea[data-configuration-string]:not(#error-evidence-location)', fixture.session.storage_location],
       ['#error-evidence-location', fixture.session.error_evidence_location]]) {
-      assert.equal(JSON.parse(await page.locator(selector).inputValue()), value);
+      assert.equal(await readString(page.locator(selector)), value);
       assert.equal(await page.locator(selector).getAttribute('readonly'), '');
     }
     await page.locator('[data-start-session]').click();
@@ -120,7 +136,7 @@ export async function verifyConfigurationIntegrity(browser, origin, fixture, sec
     }
     await page.locator('[data-session-navigate="parameters"]').click();
     await page.locator('#experiment-duration').fill('2');
-    await page.locator('[data-framework-field="experimentId"]').fill(JSON.stringify('integrity-experiment'));
+    await fillString(page.locator('[data-framework-field="experimentId"]'), 'integrity-experiment');
     await page.locator('[data-framework-field="preservationBudget"]').fill('1000000');
     for (const input of await page.locator('[data-recording-budget]').all()) await input.fill('100000');
     const count = ['__proto__', '__proto__', 'count'];
@@ -152,6 +168,7 @@ export async function verifyConfigurationIntegrity(browser, origin, fixture, sec
     console.log('PASS: all four audited integer cases, negative/non-integral tokens, valid exponent notation, zero and safe-integer boundaries through production editing/submission');
     for (const invalid of ['unquoted', '"alpha\nbeta"', '"alpha\r\nbeta"', 'null']) {
       const input = await control('data-example-value', ['__proto__', '__proto__', 'LF']);
+      if (await input.getAttribute('data-string-encoding') !== 'exact') await input.locator('xpath=following-sibling::button[1]').click();
       await input.fill(invalid);
       assert.equal(await input.evaluate(element => element.validity.customError), true);
       await page.locator('[data-return-session]').click();
@@ -165,22 +182,28 @@ export async function verifyConfigurationIntegrity(browser, origin, fixture, sec
       const input = await control('data-example-value', coordinates);
       if (row.value === null) await (await control('data-null-parameter', coordinates)).click();
       else if (typeof row.value === 'boolean') {await input.check(); if (!row.value) await input.uncheck();}
-      else await input.fill(typeof row.value === 'string' ? JSON.stringify(row.value) : String(row.value));
+      else if (typeof row.value === 'string') await fillString(input, row.value);
+      else await input.fill(String(row.value));
     }
     const unset = ['constructor', 'ordinary', 'unset'];
     const nullableString = ['__proto__', '__proto__', 'nullable_string'];
-    await (await control('data-example-value', nullableString)).fill('"null"');
-    assert.equal(JSON.parse(await (await control('data-example-value', nullableString)).inputValue()), 'null');
+    // Representation changes alone retain the explicit null in the working model.
+    const nullMode = (await control('data-example-value', nullableString)).locator('xpath=following-sibling::button[1]');
+    await nullMode.click(); await nullMode.click();
+    const nullRow = (await control('data-example-value', nullableString)).locator('xpath=ancestor::div[contains(@class,"parameter-override")][1]');
+    assert.match(await nullRow.innerText(), /Explicit null/);
+    await fillString(await control('data-example-value', nullableString), 'null');
+    assert.equal(await readString(await control('data-example-value', nullableString)), 'null');
     await (await control('data-null-parameter', nullableString)).click();
     assert.equal(await (await control('data-example-value', nullableString)).inputValue(), '');
     const emptyString = ['__proto__', '__proto__', 'empty'];
     await (await control('data-unset-parameter', emptyString)).click();
     assert.equal(await (await control('data-example-value', emptyString)).inputValue(), '');
-    await (await control('data-example-value', emptyString)).fill('""');
+    await fillString(await control('data-example-value', emptyString), '');
     await (await control('data-example-value', unset)).fill('42');
     await (await control('data-unset-parameter', unset)).click();
     await page.locator('#experiment-duration').fill('2');
-    await page.locator('[data-framework-field="experimentId"]').fill(JSON.stringify('integrity-experiment'));
+    await fillString(page.locator('[data-framework-field="experimentId"]'), 'integrity-experiment');
     await page.locator('[data-framework-field="preservationBudget"]').fill('1000000');
     for (const input of await page.locator('[data-recording-budget]').all()) await input.fill('100000');
     for (const input of await page.locator('[data-scientific-output]').all()) assert.equal(await input.isChecked(), false);
@@ -214,8 +237,9 @@ export async function verifyConfigurationIntegrity(browser, origin, fixture, sec
       assert.equal(await input.isDisabled(), true);
       if (typeof row.value === 'boolean') assert.equal(await input.isChecked(), row.value);
       else if (typeof row.value === 'string') {
-        assert.equal(await input.inputValue(), row.representation);
-        assert.equal(JSON.parse(await input.inputValue()), row.value);
+        if (await input.getAttribute('data-string-encoding') === 'exact') assert.equal(await input.inputValue(), row.representation);
+        else assert.equal(await input.inputValue(), row.value);
+        assert.equal(await readString(input), row.value);
       }
       else assert.equal(await input.inputValue(), row.value === null ? '' : String(row.value));
     }
@@ -244,7 +268,7 @@ export async function verifyConfigurationIntegrity(browser, origin, fixture, sec
     await page.locator('[data-prepare-experiment]').waitFor();
     await page.locator('[data-prepare-experiment]').click();
     await page.locator('[data-session-navigate="parameters"]').click();
-    await page.locator('[data-framework-field="experimentId"]').fill(JSON.stringify('integrity-repeat'));
+    await fillString(page.locator('[data-framework-field="experimentId"]'), 'integrity-repeat');
     for (const output of fixture.outputs) {
       const input = await outputControl(output);
       assert.equal(await input.isChecked(), true);
@@ -277,12 +301,12 @@ export async function verifyConfigurationIntegrity(browser, origin, fixture, sec
     assert.equal(await (await outputControl(fixture.additional_output)).isChecked(), false);
     const editedString = 'edited\r\nvalue\0';
     const stringInput = await control('data-example-value', ['__proto__', '__proto__', 'LF']);
-    await stringInput.fill('"edited\\r\\nvalue\\u0000"');
-    assert.equal(JSON.parse(await stringInput.inputValue()), editedString);
+    await fillString(stringInput, editedString);
+    assert.equal(await readString(stringInput), editedString);
     repeatConfiguration = structuredClone(fixture.experiment);
     repeatConfiguration.device_configurations['__proto__']['__proto__'].LF = editedString;
     await submitRepeat([fixture.outputs.at(-1), fixture.outputs[0]]);
-    assert.equal(JSON.parse(await stringInput.inputValue()), editedString);
+    assert.equal(await readString(stringInput), editedString);
     assert.equal(sent.filter(message => message.operation === 'start_launched_experiment').length, numericRequests + 5);
     console.log('PASS: public adapter string contracts; LF/CR/CRLF, controls, Unicode/surrogates and literal escapes; exact read-only representations, untouched repeats, edited requests and invalid-token submission refusal');
     console.log('PASS: canonical framework outputs render selected; repeat deselection submits []; reordered editing preserves exact empty/partial sets across nodes, delimiter identities and distinct products');

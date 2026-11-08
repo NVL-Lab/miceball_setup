@@ -1,6 +1,25 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {configurationIdentity, scientificOutputIdentity, configurationEqual, configurationNumber, parseConfigurationJSON, stringifyConfiguration, configurationStringText, parseConfigurationString} from '../src/miceball_gui/static/configuration-values.mjs';
+import {setConfigurationString, readConfigurationString} from '../src/miceball_gui/static/gui-presentation.js';
+import {localCalendarDate} from '../src/miceball_gui/static/calendar-date.mjs';
+
+test('ordinary text and exact-character projections preserve typed strings without coercion', () => {
+  for (const value of ['plain', '  "quoted"  ', 'C:\\data\\new', '\\n', 'null', '', 'Ω😀',
+    'one\ntwo', 'one\rtwo', 'one\r\ntwo', '\0\b\f\v\x1b', '\ud800']) {
+    const control = {dataset: {}, setCustomValidity() {}, nextElementSibling: null};
+    setConfigurationString(control, value);
+    assert.equal(readConfigurationString(control), value);
+    if (['plain', '  "quoted"  ', 'C:\\data\\new', '\\n', 'null', '', 'Ω😀', 'one\ntwo'].includes(value)) {
+      assert.equal(control.dataset.stringEncoding, 'text'); assert.equal(control.value, value);
+    } else assert.equal(control.dataset.stringEncoding, 'exact');
+  }
+});
+
+test('fresh date uses local calendar components and zero padding', () => {
+  assert.equal(localCalendarDate(new Date(2026, 0, 2, 23, 59)), '2026-01-02');
+  assert.equal(localCalendarDate(new Date(2026, 11, 31, 0, 1)), '2026-12-31');
+});
 
 test('string representation preserves exact control characters, escapes and Unicode code units', () => {
   const cases = [['alpha\nbeta', '"alpha\\nbeta"'], ['alpha\rbeta', '"alpha\\rbeta"'],

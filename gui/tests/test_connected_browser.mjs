@@ -49,16 +49,16 @@ if (!process.env.MICEBALL_BROWSER_ORIGIN) {
     await page.locator('#load-inventory').click();
     await page.locator('#session-device-list input').waitFor();
     await page.locator('#session-device-list input').check();
-    await page.locator('.session-identity-grid textarea[data-configuration-string]').fill(JSON.stringify('Browser Session'));
+    await page.locator('.session-identity-grid textarea[data-configuration-string]').fill('Browser Session');
     await page.locator('.session-identity-grid input[type="date"]').fill('2026-11-03');
     await page.locator('.session-identity-grid input[type="number"]').fill('1');
     for (const [kind, values] of Object.entries({experimenter: {name: 'Browser Scientist'}, project: {project_name: 'Browser Project', primary_experimenter: 'Browser Scientist'}, animal: {animal_id: 'Browser Animal', animal_name: 'Animal', species: 'Mouse', strain: 'Lab', date_of_birth: '2026-01-01'}})) {
       await page.locator(`#${kind}-select`).selectOption(`__new_${kind}`);
-      for (const [key, value] of Object.entries(values)) await page.locator(`#catalog-fields [name="${key}"]`).fill(value);
+      for (const [key, value] of Object.entries(values)) await page.locator(`#catalog-fields [name="${key}"]`)[key === 'primary_experimenter' ? 'selectOption' : 'fill'](value);
       await page.locator('#catalog-save').click();
     }
-    await page.locator('[aria-labelledby="storage-title"] textarea[data-configuration-string]:not(#error-evidence-location)').fill(JSON.stringify(config.storage));
-    await page.locator('#error-evidence-location').fill(JSON.stringify(config.errors));
+    await page.locator('[aria-labelledby="storage-title"] textarea[data-configuration-string]:not(#error-evidence-location)').fill(config.storage);
+    await page.locator('#error-evidence-location').fill(config.errors);
     await page.locator('details').filter({has: page.locator('#session-framework-fields')}).last().evaluate(element => element.open = true);
     await page.locator('#session-framework-fields').fill(JSON.stringify(config.fields));
     await page.locator('.launch-session-demo').click();
@@ -69,7 +69,7 @@ if (!process.env.MICEBALL_BROWSER_ORIGIN) {
     await page.locator('[data-session-experiment-device]').first().check();
     await page.locator('[data-session-navigate="parameters"]').click();
     await page.locator('#experiment-duration').fill('30');
-    await page.locator('[data-framework-field="experimentId"]').fill(JSON.stringify('browser-recording'));
+    await page.locator('[data-framework-field="experimentId"]').fill('browser-recording');
     await page.locator('[data-framework-field="preservationBudget"]').fill('1000000');
     await page.locator('[data-recording-budget]').fill('1000000');
     await page.locator('[data-scientific-output]').first().check();
@@ -169,7 +169,7 @@ if (!process.env.MICEBALL_BROWSER_ORIGIN) {
         await output.uncheck(); await output.check();
         // Allow pending command/readback polling to observe the running controls.
         await page.locator('#experiment-duration').fill('10');
-        await page.locator('[data-framework-field="experimentId"]').fill(JSON.stringify('browser-expiry'));
+        await page.locator('[data-framework-field="experimentId"]').fill('browser-expiry');
         await page.locator('[data-return-session]').click();
         await page.locator('[data-launch-experiment]').click();
         await page.locator('[data-reconcile-expiry]').waitFor();
@@ -182,7 +182,7 @@ if (!process.env.MICEBALL_BROWSER_ORIGIN) {
         assert.equal(await output.isChecked(), true);
         await output.uncheck(); await output.check(); await output.uncheck();
         await page.locator('#experiment-duration').fill('30');
-        await page.locator('[data-framework-field="experimentId"]').fill(JSON.stringify('browser-outputless'));
+        await page.locator('[data-framework-field="experimentId"]').fill('browser-outputless');
         await page.locator('[data-return-session]').click();
         await page.locator('[data-launch-experiment]').click();
         await page.locator('[data-stop-experiment]').waitFor();
@@ -198,6 +198,8 @@ if (!process.env.MICEBALL_BROWSER_ORIGIN) {
         await page.locator('[data-confirm-stop]').click();
         await page.waitForFunction(() => document.querySelector('.launch-session-demo')?.disabled === false);
         await section('setup');
+        const freshDate = await page.locator('.session-identity-grid input[type="date"]').inputValue();
+        assert.equal(freshDate, await page.evaluate(() => { const now = new Date(); return `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`; }));
         await page.locator('.launch-session-demo').click();
         await page.locator('[data-start-session]').waitFor();
         assert.equal(submitted.filter(operation => operation === 'launch_session').length, 2);
@@ -208,8 +210,8 @@ if (!process.env.MICEBALL_BROWSER_ORIGIN) {
         await page.locator('#connection-state').filter({hasText: 'View Only'}).waitFor();
         assert.equal(submitted.filter(operation => operation === 'launch_session').length, 2);
         assert.equal(await page.locator('.launch-session-demo').isDisabled(), true);
-        assert.equal(JSON.parse(await page.locator('.session-identity-grid textarea[data-configuration-string]').inputValue()), 'Browser Session');
-        assert.equal(await page.locator('.session-identity-grid input[type="date"]').inputValue(), '2026-11-03');
+        assert.equal(await page.locator('.session-identity-grid textarea[data-configuration-string]').inputValue(), 'Browser Session');
+        assert.equal(await page.locator('.session-identity-grid input[type="date"]').inputValue(), freshDate);
         assert.equal(await page.locator('.session-identity-grid textarea[data-configuration-string]').getAttribute('readonly'), '');
       }
     }

@@ -79,7 +79,7 @@ const catalogForms = {
     valueField: "project_name",
     fields: [
       { name: "project_name", label: "Project name", type: "text", wide: true },
-      { name: "primary_experimenter", label: "Primary experimenter", type: connected ? "text" : "select", options: ["Taylor Kim", "Morgan Lee"] },
+      { name: "primary_experimenter", label: "Primary experimenter", type: "select", options: [] },
     ],
   },
   animal: {
@@ -109,7 +109,14 @@ function buildCatalogFields(catalogType) {
     let control;
     if (field.type === "select") {
       control = document.createElement("select");
-      field.options.forEach((optionText) => control.add(new Option(optionText, optionText)));
+      if (field.name === 'primary_experimenter') {
+        control.add(new Option('Select an existing Experimenter', ''));
+        control.addEventListener('change', () => control.setCustomValidity(''));
+        for (const option of document.querySelector('#experimenter-select').options) {
+          if (option.value && !option.value.startsWith('__new_')) control.add(new Option(option.textContent, option.value));
+        }
+        const note = document.createElement('small'); note.textContent = 'Create the Experimenter first if not listed.'; label.append(note);
+      } else field.options.forEach((optionText) => control.add(new Option(optionText, optionText)));
     } else if (field.type === "textarea") {
       control = document.createElement("textarea");
       control.rows = 3;
@@ -370,10 +377,16 @@ catalogForm.addEventListener("submit", (event) => {
 
   const catalogType = catalogDialog.dataset.catalogType;
   const values = Object.fromEntries(new FormData(catalogForm));
+  if (catalogType === 'project' && ![...document.querySelector('#experimenter-select').options]
+      .some(option => option.value && !option.value.startsWith('__new_') && option.value === values.primary_experimenter)) {
+    const primary = catalogForm.elements.primary_experimenter;
+    primary.setCustomValidity('Select an existing Experimenter.'); primary.reportValidity(); return;
+  }
   const displayValue = values[catalogForms[catalogType].valueField].trim();
   // An ephemeral option key keeps same-label examples independent without catalog identity rules.
   const optionValue = catalogType === 'animal' ? saveAnimalDemo(animalCatalog, values) : displayValue;
   const newOption = new Option(displayValue, optionValue, true, true);
+  if (catalogType === 'project') newOption.dataset.primaryExperimenter = values.primary_experimenter;
   activeCatalogSelect.add(newOption, activeCatalogSelect.lastElementChild);
   activeCatalogSelect.dataset.previousValue = optionValue;
   if (catalogType === "animal") {

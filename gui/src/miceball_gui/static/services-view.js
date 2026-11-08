@@ -18,13 +18,15 @@ function authorizeMaintenance(operation, service) {
   const attemptId = continuation ? service?.attempt?.stop_attempt_id : null;
   const instanceId = service?.details?.operational_instance_id;
   if (continuation && (service?.attempt?.outcome !== 'blocked' || !attemptId)) return;
-  administrativePreview.innerHTML = `<h2 id="admin-preview-title">${operation === 'blocked_stop' ? 'Stop blocked — explicit choice required' : `Authorize ${escape(operation)}`}</h2><p>${escape(service ? `${service.name} / ${service.computer}` : 'Whole configured framework')}</p>${continuation ? `<p>Stop attempt: ${escape(attemptId)}</p><pre>${escape(JSON.stringify(service.attempt, null, 2))}</pre>` : ''}${operation === 'blocked_stop' ? '<label>Continuation<select data-live-choice><option value="cancel_service">Cancel this Stop attempt</option><option value="kill_service">Explicitly authorize maintenance Kill</option></select></label>' : ''}<p>This does not authorize other targets. Force may lose unpreserved evidence and leave cleanup obligations. Timeout is not completion or permission to Kill. Closing this dialog sends no command.</p><label>Administrator name<input data-live-administrator></label><label><input type="checkbox" data-live-authorized> I explicitly authorize this exact operation and target.</label><div class="catalog-dialog__actions"><button type="button" data-admin-close>Close without action</button><button type="button" data-live-confirm disabled>Confirm operation</button></div>`;
-  const name = administrativePreview.querySelector('[data-live-administrator]'), check = administrativePreview.querySelector('[data-live-authorized]'), submit = administrativePreview.querySelector('[data-live-confirm]');
-  administrativePreview.oninput = () => { submit.disabled = !name.value.trim() || !check.checked; };
+  const titles = {stop_service: 'Confirm Stop', kill_service: 'Confirm Kill', cancel_service: 'Confirm Cancel', shutdown_framework: 'Confirm Framework Shutdown', blocked_stop: 'Stop blocked — explicit choice required'};
+  administrativePreview.innerHTML = `<h2 id="admin-preview-title">${escape(titles[operation] + (service ? ` — ${service.name}` : ''))}</h2><p>${escape(service ? `${service.name} / ${service.computer}` : 'Whole configured framework')}</p>${continuation ? `<p>Stop attempt: ${escape(attemptId)}</p><pre>${escape(JSON.stringify(service.attempt, null, 2))}</pre>` : ''}${operation === 'blocked_stop' ? '<label>Continuation<select data-live-choice><option value="cancel_service">Cancel this Stop attempt</option><option value="kill_service">Explicitly authorize maintenance Kill</option></select></label>' : ''}<p>This does not authorize other targets. Force may lose unpreserved evidence and leave cleanup obligations. Timeout is not completion or permission to Kill. Closing this dialog sends no command.</p><label>Administrator name<input data-live-administrator></label><div class="catalog-dialog__actions"><button type="button" data-admin-close>Close without action</button><button type="button" data-live-confirm disabled>Confirm operation</button></div>`;
+  const name = administrativePreview.querySelector('[data-live-administrator]'), submit = administrativePreview.querySelector('[data-live-confirm]');
+  name.required = true;
+  administrativePreview.oninput = () => { submit.disabled = !name.value.trim(); };
   const choice = administrativePreview.querySelector('[data-live-choice]');
-  if (choice) choice.onchange = () => { check.checked = false; submit.disabled = true; };
+  if (choice) choice.onchange = () => { name.value = ''; submit.disabled = true; };
   submit.onclick = () => {
-    if (!check.checked || !name.value.trim() || !model.administrator || !serviceActions.canControl?.()) return;
+    if (!name.value.trim() || !model.administrator || !serviceActions.canControl?.()) return;
     const current = service && model.services.find(item => item.id === service.id);
     if (continuation && (current?.attempt?.outcome !== 'blocked' || current.attempt.stop_attempt_id !== attemptId
         || current.details?.operational_instance_id !== instanceId)) {
@@ -228,20 +230,20 @@ panel.addEventListener('click', event => {
         message = 'Recovery execution requires current Controller control and a confirmed operation context. No command sent.';
         renderServices(); return;
       }
-      administrativePreview.innerHTML = `<h2 id="admin-preview-title">Explicit authorized recovery</h2><p>${escape(service.name)} / ${escape(service.computer)}</p><label>Existing owner authorization<select data-recovery-choice>${authorizations.map((record, index) => `<option value="${index}">${escape(record.payload.details.operation)} · ${escape(record.payload.administrator_id)}</option>`).join('')}</select></label><pre data-recovery-scope></pre><p data-recovery-warning></p><label><input type="checkbox" data-recovery-authorized> I explicitly authorize this exact operation and scope, including the stated consequences.</label><div class="catalog-dialog__actions"><button type="button" data-admin-close>Cancel</button><button type="button" data-recovery-confirm disabled>Execute authorized recovery</button></div>`;
-      const choice = administrativePreview.querySelector('[data-recovery-choice]'), check = administrativePreview.querySelector('[data-recovery-authorized]'), submit = administrativePreview.querySelector('[data-recovery-confirm]');
+      administrativePreview.innerHTML = `<h2 id="admin-preview-title">Explicit authorized recovery</h2><p>${escape(service.name)} / ${escape(service.computer)}</p><label>Existing owner authorization<select data-recovery-choice>${authorizations.map((record, index) => `<option value="${index}">${escape(record.payload.details.operation)} · ${escape(record.payload.administrator_id)}</option>`).join('')}</select></label><pre data-recovery-scope></pre><p data-recovery-warning></p><label>Administrator name<input data-recovery-administrator required></label><div class="catalog-dialog__actions"><button type="button" data-admin-close>Cancel</button><button type="button" data-recovery-confirm disabled>Execute authorized recovery</button></div>`;
+      const choice = administrativePreview.querySelector('[data-recovery-choice]'), name = administrativePreview.querySelector('[data-recovery-administrator]'), submit = administrativePreview.querySelector('[data-recovery-confirm]');
       const selection = () => authorizations[Number(choice.value)];
       const showScope = () => {
-        check.checked = false; submit.disabled = true;
+        name.value = ''; submit.disabled = true;
         administrativePreview.querySelector('[data-recovery-scope]').textContent = JSON.stringify(selection(), null, 2);
         administrativePreview.querySelector('[data-recovery-warning]').textContent = selection().payload.details.operation === 'dispose_temporary_evidence'
           ? 'Permanent-loss acknowledgment: proven-corrupt temporary evidence in this exact scope will be permanently discarded. This is not scientific-original deletion.'
           : 'Owner safety, durable authorization and current recovery prerequisites are rechecked. This does not confirm preservation, safe reuse or service retirement.';
       };
       choice.onchange = showScope;
-      check.onchange = () => { submit.disabled = !check.checked; };
+      name.oninput = () => { submit.disabled = !name.value.trim() || name.value !== selection().payload.administrator_id; };
       submit.onclick = () => {
-        if (!check.checked || !model.administrator || !serviceActions.canControl?.()) return;
+        if (!name.value.trim() || name.value !== selection().payload.administrator_id || !model.administrator || !serviceActions.canControl?.()) return;
         const authorization = selection(), details = authorization.payload.details;
         administrativePreview.close();
         serviceActions.maintain(details.operation, service, authorization.payload.administrator_id,

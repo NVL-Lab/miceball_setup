@@ -164,20 +164,33 @@ strings and explicit null; Use default removes an override and Set null is
 available only for nullable definitions. Executed controls remain read-only and
 the drawer distinguishes explicit null from missing overrides.
 
-Connected string parameters and Experiment IDs use labelled JSON-string textareas.
-For example, `"alpha\nbeta"` represents a string containing LF, whereas
-`"alpha\\nbeta"` represents a literal backslash followed by `n`. The same codec
-is used for Session name, notes and storage/error paths. Control characters and
-non-ASCII code units are escaped explicitly, including CR, LF, CRLF, NUL and lone
-surrogates; HTML/textarea normalization cannot silently alter accepted strings.
-Session summaries and the executed-parameter drawer use the same representation.
-Empty string is `""`; Use default and Set null retain their separate meanings.
-Malformed JSON-string edits remain invalid unsent drafts and cannot pass the
+The consolidated usability batch uses ordinary text for connected Session name,
+notes, storage/error paths, Experiment ID and adapter string settings. No surrounding
+quotes are needed; quotes, whitespace, Unicode and literal backslashes are values.
+Multiline text uses a textarea. **Edit exact characters** retains the existing
+escaped-string editor for CR/CRLF, control characters and lone surrogates that a
+native textarea cannot safely represent; these loaded values select that mode
+automatically. Switching to ordinary text refuses normalization of such values.
+Normalization-sensitive paste/input is captured before native insertion and
+selects the same exact-character representation, retaining the supplied value.
+This exceptional mode still uses an escaped JSON string; ordinary fields do not.
+Empty text is an empty string; Use default and Set null remain separate actions.
+Malformed exact-character edits remain invalid unsent drafts and cannot pass the
 shared Experiment submission guard, even if disabled-button presentation is
 bypassed. Accepted Session fields remain read-only. Additional configuration JSON
 already preserves escaped strings and retains its existing numeric checks.
-Disconnected demonstration controls are unchanged. These implementation details
-are covered by the subsequent bounded closure referenced above.
+The earlier closure covers the underlying fidelity safeguards, not this new batch.
+
+The same developer batch populates Project Primary Experimenter from the existing
+Experimenter list and retains new associations locally, without assigning missing
+historical associations or adding an editing screen. Confirmed View Only has a
+subtle tint; unconfirmed connectivity and busy Controlling remain distinct. Control
+ownership outcomes appear under **Control activity**, while the original records
+remain retained for reconciliation. Administrative confirmations require a manually
+entered nonblank name; recovery also matches the existing durable authorization.
+Session preparation starts with the computer-local date, preserves edits and
+accepted dates, and resets only after confirmed release into fresh preparation.
+These changes await independent validation and audit; no new closure is claimed.
 
 Scientific-output checkboxes and edits compare the exact source node, source
 device and data-product tuple, not serialized record property order. Canonical

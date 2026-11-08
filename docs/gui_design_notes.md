@@ -7,6 +7,20 @@ proposals. Under Decision 426, GUI implementation belongs in the separately
 packaged top-level `gui/` project in this repository, outside the existing
 `lab-sync-acquisition` package and distribution.
 
+## Consolidated usability improvements 1–6 (developer implementation)
+
+The current batch retains new Project Primary Experimenter associations locally,
+uses confirmed Controller ownership for View Only tint, simplifies named
+administrative confirmations without replacing durable recovery authorization,
+and presents browser-control outcomes separately from scientific Session history.
+New Session preparation uses the local calendar date; accepted values and edits
+survive polling/navigation and failed release. Ordinary configuration strings need
+no JSON quotation marks. The shared editor retains an optional exact-character
+representation for native-normalization-sensitive values, with the existing typed
+configuration and serialization safeguards. See [input details and boundaries](../gui/README.md#connected-backend-integration-unit-1).
+This is developer implementation, pending independent validation and audit; it
+does not reopen prior closure or claim deployment validation.
+
 ## Implemented browser-demo presentation (not framework integration)
 
 **Connected-entry implementation update:** GUI Integration Unit 1 now serves this

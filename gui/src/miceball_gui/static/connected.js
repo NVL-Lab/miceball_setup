@@ -7,10 +7,11 @@ import { selectedStepContext } from './session-demo.mjs';
 import { renderSession } from './session-view.js';
 import { renderParameters } from './parameters-view.js';
 import { renderExperiment } from './scientific-views.js';
-import { navigate, configurationStringEditor } from './gui-presentation.js';
+import { navigate, configurationStringEditor, setConfigurationString, readConfigurationString } from './gui-presentation.js';
+import { localCalendarDate } from './calendar-date.mjs';
 import { confirmStop } from './stop-confirmation.mjs';
 import { serviceActions, updateServices, startServicesRefresh, showBlockedServiceStop } from './services-view.js';
-import { configurationIdentity, configurationNumber, parseConfigurationJSON, stringifyConfiguration, configurationStringText, parseConfigurationString } from './configuration-values.mjs';
+import { configurationIdentity, configurationNumber, parseConfigurationJSON, stringifyConfiguration } from './configuration-values.mjs';
 
 const $ = selector => document.querySelector(selector);
 let socket, browserId, confirmed = false, busy = false, refreshing = false, lastRender = '';
@@ -24,6 +25,7 @@ try { const stored = JSON.parse(sessionStorage.getItem('miceball-pending') || '[
 } catch (_) {}
 const current = () => state.controllerSnapshot;
 const save = () => sessionStorage.setItem('miceball-pending', JSON.stringify(outcomes));
+const ownershipOperation = entry => ['take_browser_control', 'view_only'].includes(entry.operation);
 function invalidateServiceConfirmation() {
   // Replace projections so replies admitted before this loss cannot promote them.
   liveServices = liveServices.map(service => ({...service, current: false, diagnosticsCurrent: false, pending: false, attempt: null}));
@@ -31,6 +33,7 @@ function invalidateServiceConfirmation() {
 }
 
 $('.topbar').insertAdjacentHTML('beforeend', '<div class="connection-tools"><span id="connection-state" role="status">Connecting</span><button id="view-only" type="button">View Only</button><button id="take-over" type="button">Take Over</button></div>');
+$('.connection-tools').insertAdjacentHTML('beforeend', '<details class="control-activity"><summary>Control activity</summary><div id="control-outcomes"></div></details>');
 $('.setup-demo-note').textContent = 'Controller connection unconfirmed. Local preparation is not acceptance or persistence.';
 const storageCard = $('[aria-labelledby="storage-title"]');
 const storageBody = storageCard.querySelector('.setup-disclosure-body') || storageCard;
@@ -60,9 +63,13 @@ function canControl() {
 }
 function controls() {
   const status = current()?.status;
+  document.documentElement.dataset.controlMode = !confirmed ? 'unconfirmed' : current()?.control?.controlling ? 'controlling' : 'view-only';
   $('.launch-session-demo').disabled = !canControl() || Boolean(status?.session_id);
   $('.launch-session-demo span').textContent = !confirmed ? 'Controller connection unconfirmed' : status?.session_id ? 'Session accepted' : current()?.control?.controlling ? 'Request Controller launch' : 'View Only';
-  for (const control of [sessionName, sessionDate, sessionNumber, sessionNotes, storageLocation, errorLocation, $('#session-framework-fields')]) control.readOnly = Boolean(status?.session_id);
+  for (const control of [sessionName, sessionDate, sessionNumber, sessionNotes, storageLocation, errorLocation, $('#session-framework-fields')]) {
+    control.readOnly = Boolean(status?.session_id);
+    if (control.nextElementSibling?.hasAttribute('data-string-mode')) control.nextElementSibling.disabled = control.readOnly;
+  }
   for (const button of document.querySelectorAll('[data-launch-experiment], [data-stop-experiment], [data-reconcile-expiry], [data-stop-session], [data-start-session], [data-release-session]')) {
     if (!canControl()) button.disabled = true;
     if (button.hasAttribute('data-start-session')) button.disabled = !canControl() || status?.session_state !== 'initialized';
@@ -83,12 +90,16 @@ function controls() {
   for (const input of document.querySelectorAll('#session-device-list input')) input.disabled = Boolean(status?.session_id) || !devices.find(device => device.id === input.dataset.device)?.available;
   let display = $('#operation-results');
   if (!display) { display = document.createElement('div'); display.id = 'operation-results'; display.className = 'session-feedback'; display.setAttribute('role', 'status'); $('#panel-session').append(display); }
-  display.replaceChildren(...outcomes.map(entry => {
+  const outcomeNodes = entries => entries.map(entry => {
     const details = document.createElement('details'), summary = document.createElement('summary'), text = document.createElement('p');
     summary.textContent = `${entry.operation} · ${entry.status}`;
     text.textContent = `${entry.request_id || 'Request identity unavailable'} · ${entry.result?.error || 'No automatic replay. Completion follows Controller readback.'}`;
-    details.append(summary, text); return details;
-  }));
+    details.append(summary, text);
+    if (ownershipOperation(entry)) { const raw = document.createElement('pre'); raw.textContent = JSON.stringify(entry, null, 2); details.append(raw); }
+    return details;
+  });
+  display.replaceChildren(...outcomeNodes(outcomes.filter(entry => !ownershipOperation(entry))));
+  $('#control-outcomes').replaceChildren(...outcomeNodes(outcomes.filter(ownershipOperation)));
   updateServices(liveServices);
 }
 state.actions.syncControls = controls;
@@ -128,7 +139,7 @@ async function refresh() {
     if ((!previousServices.length || changedOwner) && liveServices.length) serviceActions.refresh();
     if (snapshot.configuration && (previous?.status?.session_id !== snapshot.status.session_id || previous?.instance_id !== snapshot.instance_id)) {
       const config = snapshot.configuration, metadata = config.session_parameters || {};
-      sessionName.value = configurationStringText(metadata.name ?? '');
+      setConfigurationString(sessionName, metadata.name ?? '');
       sessionDate.value = metadata.date ?? '';
       sessionNumber.value = metadata.number ?? '';
       sessionDate.dispatchEvent(new Event('input'));
@@ -139,10 +150,14 @@ async function refresh() {
         if (!option) { option = new Option(metadata[key], metadata[key]); select.add(option, select.lastElementChild); }
         select.value = option.value; select.dataset.previousValue = option.value;
       }
-      storageLocation.value = configurationStringText(config.storage_location ?? '');
-      errorLocation.value = configurationStringText(config.error_evidence_location ?? '');
+      setConfigurationString(storageLocation, config.storage_location ?? '');
+      setConfigurationString(errorLocation, config.error_evidence_location ?? '');
       $('#session-framework-fields').value = JSON.stringify(config, null, 2);
-      sessionNotes.value = configurationStringText(metadata.notes ?? '');
+      setConfigurationString(sessionNotes, metadata.notes ?? '');
+    }
+    if (previous?.instance_id === snapshot.instance_id && previous?.status?.session_id
+        && !snapshot.status?.session_id && snapshot.configuration === null) {
+      sessionDate.value = localCalendarDate(); sessionDate.dispatchEvent(new Event('input'));
     }
     for (const operation of snapshot.pending_operations) if (!outcomes.some(o => o.request_id === operation.request_id && o.instance_id === snapshot.instance_id)) outcomes.push({operation: operation.operation, request_id: operation.request_id, instance_id: snapshot.instance_id, status: 'pending'});
     $('#connection-state').textContent = `${snapshot.controller_id} · ${snapshot.control.controlling ? 'Controlling' : 'View Only'}`;
@@ -189,8 +204,8 @@ async function command(operation, parameters = {}, session_id = current()?.statu
 const localAction = action => async () => { try { await action(); } catch (error) { $('.setup-demo-note').textContent = error.message; } };
 state.actions.launchSession = localAction(async () => {
   const config = parseConfigurationJSON($('#session-framework-fields').value);
-  config.storage_location = parseConfigurationString(storageLocation.value);
-  config.error_evidence_location = parseConfigurationString(errorLocation.value);
+  config.storage_location = readConfigurationString(storageLocation);
+  config.error_evidence_location = readConfigurationString(errorLocation);
   config.session_parameters = {...config.session_parameters};
   for (const key of ['experimenter', 'project', 'animal']) {
     const select = $(`#${key}-select`);
@@ -198,7 +213,7 @@ state.actions.launchSession = localAction(async () => {
     if (select.value) config.session_parameters[key] = select.selectedOptions[0].textContent;
   }
   if (sessionNumber.validity.badInput) throw new Error('Invalid Session number. Enter a finite value representable by this GUI.');
-  Object.assign(config.session_parameters, {name: parseConfigurationString(sessionName.value), date: sessionDate.value, number: sessionNumber.value ? configurationNumber(sessionNumber.value) : null, notes: parseConfigurationString(sessionNotes.value)});
+  Object.assign(config.session_parameters, {name: readConfigurationString(sessionName), date: sessionDate.value, number: sessionNumber.value ? configurationNumber(sessionNumber.value) : null, notes: readConfigurationString(sessionNotes)});
   state.submittedProcedure = clone(state.protocols.find(protocol => protocol.id === state.protocolId) || null);
   if (state.submittedProcedure) state.submittedProcedure.included = clone(state.included);
   config.protocol_reference = state.submittedProcedure?.name || null;

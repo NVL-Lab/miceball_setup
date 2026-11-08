@@ -60,6 +60,7 @@ The developer results below retain their original evidence classification.
 - `miceball_gui.backend.main()`: Implements the separately packaged `miceball-gui` startup command with explicit deployment connection/binding settings.
 - `miceball_gui.backend._ConnectedShell` and its HTMLParser callbacks: Preserve original presenter entry points, mark connected mode and append one connected binding entry without duplicating HTML or workspace construction.
 - `static/connected.js`: Binds original controls to the existing backend, projects Controller readback, adapts actual node inventory and explicit preparation, and reconciles pending outcomes without lifecycle replay.
+- `connected.ownershipOperation(entry)`: Classifies only take-control and View Only outcomes for separate presentation while retaining the original outcome collection.
 - `static/connected.css`: Adds narrowly scoped connection/inventory indicators and unavailable output contents without restyling the approved workspaces or controls.
 - `session-context.applyControllerSnapshot(state, snapshot)`: Detaches authoritative Session/Experiment readback, matches complete declarations only to unique reserved-node inventory, and reconciles monitoring to the active or latest canonically started Experiment independently of preparation selection and descriptor order.
 - `protocol-demo.connectedMode`: Reads the shared shell marker once to select fixture data or empty connected preparation and supported operation categories.
@@ -3150,7 +3151,10 @@ automatic. Kill integration and overall closeout validation remain deferred.
 - navigate: Uses the existing GUI section-navigation event without changing operation state.
 - sessionIdentity: Reads the existing Setup identity fields for presentation without creating a second configuration model.
 - executionIdentity: Resolves the captured active Session identity, falling back to Setup only before launch.
-- configurationStringEditor(control): Converts a connected configuration string control to an explicitly labelled JSON-string textarea while preserving its attributes and form placement.
+- configurationStringEditor(control, value=control.value): Creates ordinary text entry with an optional existing-compatible exact-character mode, retaining attributes and form placement.
+- setConfigurationString(control, value): Projects a typed string into ordinary text or a lossless escaped representation when native normalization would change code units.
+- needsExactCharacters(value): Identifies native-normalization-sensitive string values for the shared input projection and pre-insertion transfer guard.
+- readConfigurationString(control): Reads ordinary text literally or validates the explicitly selected exact-character representation without trimming or coercion.
 
 ## gui/src/miceball_gui/static/configuration-values.mjs
 
@@ -3173,7 +3177,7 @@ automatic. Kill integration and overall closeout validation remain deferred.
 
 ## gui/src/miceball_gui/static/parameters-view.js
 
-- stringField(attributes, value): Renders a labelled, escaped JSON-string editor with an explicit invalid-draft marker for the existing form validation boundary.
+- stringField(attributes, value): Stages a safely escaped typed string for the shared ordinary/exact-character editor while preserving invalid draft markers.
 - parameterField(field, value, present): Renders an escaped typed control, lossless connected string representation and override/default/null state while preserving the original demonstration controls.
 - renderParameters: Renders the single Session-selected Experiment's working or read-only configuration and optional personal-template saving.
 - updateParameterWorking: Applies typed parameter input to shared working values while leaving participation selection in Session.
@@ -3223,10 +3227,15 @@ automatic. Kill integration and overall closeout validation remain deferred.
 ## gui/src/miceball_gui/static/calendar-date.mjs
 
 - formatCalendarDate(value): Presents ISO calendar-only dates as YYYYMMDD, retaining timestamp strings and underlying model values.
+- localCalendarDate(now=new Date()): Produces an ISO calendar date from local components for fresh Session preparation without UTC day conversion.
 
 ## gui/src/miceball_gui/static/setup-usability.js
 
 - attachDateReadout(input): Adds a canonical YYYYMMDD readout beside a native calendar input without altering its ISO value or validation.
+
+## gui/tests/test_gui_usability.mjs
+
+- verifyGuiUsability(browser, origin, configuration, section, directory): Exercises Project membership, confirmed ownership presentation/history, ordinary string payloads and local-date preparation/release behavior through rendered GUI interactions with controlled transport.
 
 ## gui/src/miceball_gui/static/experiment-parameter-drawer.js
 

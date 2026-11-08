@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 import {mkdir, writeFile} from 'node:fs/promises';
 import {verifyConfigurationIntegrity, verifyExperimentReconnection} from './test_configuration_integrity.mjs';
+import {verifyGuiUsability} from './test_gui_usability.mjs';
 if (!process.env.MICEBALL_BROWSER_ORIGIN) {
   console.log('Rendered feedback checks require the disposable Python fixture.');
 } else {
@@ -125,7 +126,7 @@ async function verifyRenderingSafety() {
     await target.locator('#connection-state').filter({hasText: 'Controlling'}).waitFor();
     assert.equal(await target.locator('#connection-state').innerText(), `${text} · Controlling`);
     assert.equal(await target.locator('#inventory-node').inputValue(), node);
-    assert.equal(JSON.parse(await target.locator('.session-identity-grid textarea[data-configuration-string]').inputValue()), text);
+    assert.equal(await target.locator('.session-identity-grid textarea[data-configuration-string]').inputValue(), text);
     for (const id of ['experimenter-select', 'project-select', 'animal-select']) {
       assert.equal(await target.locator(`#${id} option:checked`).innerText(), text);
     }
@@ -162,9 +163,9 @@ async function verifyRenderingSafety() {
     assert.equal(await field('gain').evaluate(input => input.validity.rangeOverflow), true);
     await field('gain').fill('0');
     await field('gate').check(); await field('gate').uncheck();
-    await field(text).fill(JSON.stringify(text));
+    await field(text).fill(text);
     await target.locator('#experiment-duration').fill('2');
-    await target.locator('[data-framework-field="experimentId"]').fill(JSON.stringify('rendering-experiment'));
+    await target.locator('[data-framework-field="experimentId"]').fill('rendering-experiment');
     await target.locator('[data-framework-field="preservationBudget"]').fill('100000');
     await target.locator('[data-recording-budget]').fill('100000');
     assert.equal(await target.locator('[data-recording-budget]').getAttribute('data-recording-budget'), node);
@@ -191,7 +192,7 @@ async function verifyRenderingSafety() {
     await target.locator('[data-session-navigate="parameters"]').click();
     assert.equal(await field('gain').inputValue(), '0');
     assert.equal(await field('gate').isChecked(), false);
-    assert.equal(JSON.parse(await field(text).inputValue()), text);
+    assert.equal(await field(text).inputValue(), text);
     assert.equal(await field(text).isDisabled(), true);
     for (const [width, height] of [[1440, 1000], [800, 900]]) {
       await target.setViewportSize({width, height});
@@ -272,8 +273,10 @@ async function verifyMaintenanceBinding() {
       await target.locator(selector).click();
       const dialog = target.locator('.services-danger[open]');
       assert.equal(await dialog.locator('[data-live-confirm]').isDisabled(), true);
+      await dialog.locator('[data-live-administrator]').fill('   ');
+      assert.equal(await dialog.locator('[data-live-confirm]').isDisabled(), true);
       await dialog.locator('[data-live-administrator]').fill('Lab Operator');
-      await dialog.locator('[data-live-authorized]').check();
+      assert.equal(await dialog.locator('[data-live-authorized]').count(), 0);
       await dialog.locator('[data-live-confirm]').click();
     };
     await authorize('[data-stop-service]');
@@ -297,7 +300,7 @@ async function verifyMaintenanceBinding() {
     await cancelDialog.locator('[data-live-choice]').waitFor();
     await cancelDialog.locator('[data-live-choice]').selectOption('cancel_service');
     await cancelDialog.locator('[data-live-administrator]').fill('Lab Operator');
-    await cancelDialog.locator('[data-live-authorized]').check();
+    assert.equal(await cancelDialog.locator('[data-live-authorized]').count(), 0);
     await cancelDialog.locator('[data-live-confirm]').click();
     await target.locator('.services-callout').filter({hasText: 'cancel_service'}).waitFor();
     assert.equal(submitted[3].parameters.stop_attempt_id, 'attempt-2');
@@ -305,7 +308,9 @@ async function verifyMaintenanceBinding() {
     await target.locator('[data-administrative="Supported recovery attempts"]').click();
     const recoveryDialog = target.locator('.services-danger[open]');
     assert.equal(await recoveryDialog.locator('[data-recovery-confirm]').isDisabled(), true);
-    await recoveryDialog.locator('[data-recovery-authorized]').check();
+    await recoveryDialog.locator('[data-recovery-administrator]').fill('operator');
+    assert.equal(await recoveryDialog.locator('[data-recovery-confirm]').isDisabled(), true);
+    await recoveryDialog.locator('[data-recovery-administrator]').fill('Lab Operator');
     await recoveryDialog.locator('[data-recovery-confirm]').click();
     await target.locator('.services-callout').filter({hasText: 'cleanup_device_resources'}).waitFor();
     assert.deepEqual(submitted[4].parameters, {participant, administrator_id: 'Lab Operator', authorized: true,
@@ -356,6 +361,7 @@ async function verifyMaintenanceBinding() {
 }
 try {
   await verifyMaintenanceBinding();
+  await verifyGuiUsability(browser, process.env.MICEBALL_BROWSER_ORIGIN, JSON.parse(process.env.MICEBALL_INTEGRITY).session, section, directory);
   await verifyExperimentReconnection(browser, process.env.MICEBALL_BROWSER_ORIGIN, JSON.parse(process.env.MICEBALL_MONITORING), section);
   await verifyConfigurationIntegrity(browser, process.env.MICEBALL_BROWSER_ORIGIN, JSON.parse(process.env.MICEBALL_INTEGRITY), section);
   await verifyRenderingSafety();
@@ -604,9 +610,9 @@ try {
   await page.locator('[data-example-value]').nth(0).fill('3.5');
   await page.locator('[data-example-value]').nth(1).check();
   await page.locator('[data-example-value]').nth(1).uncheck();
-  await page.locator('[data-example-value]').nth(2).fill(JSON.stringify(labelValue));
+  await page.locator('[data-example-value]').nth(2).fill(labelValue);
   await page.locator('#experiment-duration').fill('2');
-  await page.locator('[data-framework-field="experimentId"]').fill(JSON.stringify('identity-regression'));
+  await page.locator('[data-framework-field="experimentId"]').fill('identity-regression');
   await page.locator('[data-framework-field="preservationBudget"]').fill('100000');
   await page.locator('[data-recording-budget]').fill('100000');
   await page.locator('[data-return-session]').click();

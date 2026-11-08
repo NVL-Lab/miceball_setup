@@ -2,14 +2,14 @@ import { state } from './protocol-setup.js';
 import { devices, operations } from './protocol-demo.mjs';
 import { selectedStepContext } from './session-demo.mjs';
 import { deviceExamples, experimentView, updateExperiment, saveExperimentTemplate } from './experiment-demo.mjs';
-import { escapeText as escape, executionIdentity, navigate } from './gui-presentation.js';
+import { escapeText as escape, executionIdentity, navigate, configurationStringEditor, readConfigurationString } from './gui-presentation.js';
 import { configurationNumber, scientificOutputIdentity, configurationStringText, parseConfigurationString } from './configuration-values.mjs';
 
 const panel = document.querySelector('#panel-parameters');
 let message = '';
 
 function stringField(attributes, value) {
-  return `<small>JSON string</small><textarea ${attributes} data-configuration-string ${value?.invalidString !== undefined ? 'data-invalid-string' : ''} rows="1">${escape(configurationStringText(value))}</textarea>`;
+  return `<textarea ${attributes} data-string-value ${value?.invalidString !== undefined ? 'data-invalid-string' : ''} rows="1">${escape(configurationStringText(value))}</textarea>`;
 }
 
 function parameterField(field, value, present) {
@@ -42,7 +42,10 @@ export function renderParameters() {
     </fieldset>
     <section class="personal-template-area"><h3>Save as personal template <small>Optional</small></h3><p>A new name creates an independent Experiment template for ${escape(executionIdentity(state).experimenter)}. Laboratory templates are never overwritten.</p><form id="personal-experiment-template"><label>New personal template name<input name="templateName" required ${readOnly ? 'disabled' : ''} placeholder="My baseline configuration"></label><button type="submit" ${readOnly ? 'disabled' : ''}>Save as personal template</button></form></section>
     <p id="parameter-feedback" role="status">${escape(message)}</p>`;
-  for (const control of panel.querySelectorAll('[data-invalid-string]')) control.setCustomValidity('Invalid JSON string.');
+  for (const control of panel.querySelectorAll('[data-string-value]')) {
+    configurationStringEditor(control, control.hasAttribute('data-invalid-string')
+      ? {invalidString: control.value} : control.value ? parseConfigurationString(control.value) : '');
+  }
 }
 
 panel.addEventListener('click', event => {
@@ -70,9 +73,9 @@ function updateParameterWorking(event) {
       ? Object.values(deviceExamples).flatMap(device => device.fields).find(field => field.id === control.dataset.exampleValue) : null;
     let numeric = null, inputError = null, stringValue;
     if (control.hasAttribute('data-configuration-string')) {
-      try { stringValue = parseConfigurationString(control.value); }
+      try { stringValue = readConfigurationString(control); }
       catch (error) { stringValue = {invalidString: control.value}; inputError = error; }
-      control.setCustomValidity(inputError ? 'Invalid JSON string.' : '');
+      control.setCustomValidity(inputError ? 'Invalid exact-character representation.' : '');
     }
     if (control.type === 'number' && control.validity.badInput) {
       numeric = 'Invalid numeric input';
