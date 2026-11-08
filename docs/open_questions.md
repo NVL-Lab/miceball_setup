@@ -3686,6 +3686,24 @@ preservation requires retention. Reuse existing synchronization/serialization an
 authoritative mechanisms without selecting a new store or concrete implementation.
 This bounded retirement remains unimplemented and unvalidated. Broader
 accepted-evidence/deduplication retirement and operational limits remain separate.
+
+**Decision 435 investigation and deferral:** Controller, AcquisitionNode, Ingestor,
+StorageManager and SynchronizationManager share maintenance-command, result and
+attempt-history retention through `ServiceMaintenanceInterface`. The principal
+`_commands`, `_results` and authorization evidence collections remain necessary for
+exact duplicate replay, conflict rejection, authorization and recovery obligations.
+Controlled Windows CPython 3.12.13 object-graph measurements estimated only 728
+bytes saved per eligible Controller cancelled pre-cleanup attempt by compacting its
+redundant `_attempts` detail while retaining those other collections. This is not
+a deployment or process-RSS measurement. The candidate was deferred because its
+benefit does not justify additional preservation and concurrency machinery.
+No general maintenance-history retirement or bounded-memory guarantee has been
+implemented. Decision 435 remains accepted and Q024 remains OPEN. Substantial
+command/result eviction must first establish a safe operational duplicate/recovery
+boundary; historical archival availability alone is insufficient. Decision 437's
+historical-file retention policy remains separate. See the
+[maintenance implementation map](code_map.md#srclab_sync_acquisitionservice_maintenancepy).
+
 Q019 is CLOSED in W050; Q022, Phase 16, and M015 remain OPEN. No new validation was executed during
 this documentation closure.
 

@@ -2195,6 +2195,16 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 
 ## src/lab_sync_acquisition/service_maintenance.py
 
+**Decision 435 retention assessment:** All five principal services share this
+interface's `_commands`, `_results`, `_attempts` and authorization evidence.
+Operational duplicate/conflict, authorization and recovery guarantees still need
+the principal command/result/evidence collections. Controller-only cancelled-attempt
+compaction was investigated and deferred for insufficient benefit relative to its
+preservation/concurrency complexity; no general retirement or bounded-memory
+guarantee is implemented. The controlled measurement and future duplicate/recovery
+boundary requirement are recorded in [Q024](open_questions.md#q024-what-is-the-application-restart-and-recovery-journal-lifecycle).
+Decision 435 remains accepted; Q024 remains OPEN.
+
 **Implemented scope; independent validation and audit pending:** Reuses the
 private diagnostic helper and launcher logger configuration for default operational
 outcomes versus opt-in DEBUG detail (`LAB_SYNC_DEPLOYMENT_DEBUG=1`). Classifies
