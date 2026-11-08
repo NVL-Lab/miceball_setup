@@ -132,6 +132,44 @@ class IndependentRoleCommandTests(unittest.TestCase):
 
 
 class DeploymentDiagnosticConsoleTests(unittest.TestCase):
+    def test_default_and_opt_in_diagnostic_levels_preserve_failures_and_safe_detail(self):
+        import logging
+        from lab_sync_acquisition.service_launcher import _enable_deployment_diagnostics
+        from lab_sync_acquisition.service_maintenance import deployment_logger, _deployment_diagnostic
+        handlers = list(deployment_logger.handlers)
+        streams = [(h, getattr(h, "stream", None)) for h in handlers]
+        level, propagate = deployment_logger.level, deployment_logger.propagate
+        try:
+            for debug in ("0", "1"):
+                output = io.StringIO()
+                with patch.dict("os.environ", {"LAB_SYNC_DEPLOYMENT_DEBUG": debug}), redirect_stderr(output):
+                    _enable_deployment_diagnostics()
+                    _enable_deployment_diagnostics()
+                    for _ in range(3):
+                        _deployment_diagnostic("command.submitted", command_id="correlation", operation="check_readiness")
+                        _deployment_diagnostic("command.result", outcome="ready", elapsed_s=1)
+                    for outcome in ("unconfirmed", "rejected", "not_ready", "unknown"):
+                        _deployment_diagnostic("command.result", outcome=outcome, command_id="correlation", elapsed_s=2,
+                            target="nats://user:password@host", payload="secret")
+                    _deployment_diagnostic("registration.confirmed", instance="owner")
+                text = output.getvalue()
+                self.assertEqual(text.count("outcome=ready"), 3 if debug == "1" else 0)
+                self.assertEqual(text.count("command.submitted"), 3 if debug == "1" else 0)
+                for outcome in ("unconfirmed", "rejected", "not_ready", "unknown"):
+                    self.assertIn(f"outcome={outcome}", text)
+                self.assertIn("registration.confirmed", text)
+                self.assertIn("command_id=correlation", text)
+                self.assertIn("elapsed_s=2.000", text)
+                self.assertNotIn("password", text)
+                self.assertNotIn("secret", text)
+        finally:
+            deployment_logger.handlers[:] = handlers
+            deployment_logger.setLevel(level)
+            deployment_logger.propagate = propagate
+            for handler, stream in streams:
+                if stream is not None:
+                    handler.stream = stream
+
     def test_cli_diagnostics_flush_without_duplicate_handlers_or_global_logging(self):
         import logging
         from contextlib import redirect_stdout
@@ -241,7 +279,7 @@ class IndependentServiceTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(await launcher.stop_locally("operator"))
             return 0
 
-        with self.assertLogs("lab_sync_acquisition.deployment", level="INFO") as diagnostics, patch(
+        with self.assertLogs("lab_sync_acquisition.deployment", level="DEBUG") as diagnostics, patch(
                 "lab_sync_acquisition.service_startup.NatsCommunicationBoundary", boundary), patch.object(
                 ServiceLauncher, "run", run), patch.object(ServiceMaintenanceInterface, "register_ingestor_dependency", registration):
             self.assertEqual(await launch_independent_service(role="synchronization-manager", servers=("nats://example:4222",),

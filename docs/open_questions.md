@@ -2965,6 +2965,16 @@ the supported entry points and validated_workflows.md for verification limitatio
 
 ### Independent startup and returning registration (Decision 444; independent verification pending)
 
+ICC-approved follow-up corrections are implemented, pending independent validation and audit:
+default terminal diagnostic filtering with opt-in DEBUG detail, and Controller-only
+operational dependency classification so unused configured AcquisitionNodes do not
+automatically block global readiness. Individual node observations, reconciliation,
+selected Session participant admission, authority and outstanding obligations remain
+unchanged. These corrections implement existing contracts, do not amend Decision
+444 and do not close Q022. See the correction note in
+[deployment guidance](installation_and_deployment.md) and `service_maintenance.py`
+in [the code map](code_map.md).
+
 Decision 444 settles automatic registration through existing readiness announcements
 and explicit dependency checks, with one serialized initial/returning registration
 path and no service restart or polling subsystem. Unconfirmed dependencies block

@@ -49,6 +49,71 @@ class AnnouncementBroker(_Broker):
 
 
 class ServiceStartupTests(unittest.IsolatedAsyncioTestCase):
+    async def test_controller_infrastructure_readiness_is_independent_of_unused_nodes(self):
+        from tests.nats_server_fixture import acquire_test_controller_authority
+        infrastructure = RuntimeParticipant("storage_manager", "disk")
+        nodes = tuple(RuntimeParticipant("acquisition_node", f"node-{i}") for i in range(3))
+        controller = Controller(component_id="control")
+        owner = self.interface(controller, RuntimeParticipant("controller", "control"),
+                               (infrastructure, *nodes))
+        self.assertFalse(controller.check_ready().ready)
+        await acquire_test_controller_authority(self, owner)
+        with self.assertRaisesRegex(RuntimeError, "storage_manager/disk"):
+            controller.check_ready()
+        owner.receive_dependency_readiness(infrastructure,
+            ServiceReadiness("disk", "storage_manager", True, True, "ready"))
+        self.assertTrue(controller.check_ready().ready)
+        for node in nodes:
+            owner.receive_dependency_readiness(node,
+                ServiceReadiness(node.component_id, node.component_type, True, True, "ready"))
+            self.assertTrue(controller.check_ready().ready)
+        owner.receive_dependency_readiness(nodes[0],
+            ServiceReadiness(nodes[0].component_id, "acquisition_node", True, False, "offline"))
+        owner.receive_dependency_readiness(nodes[1], None)
+        self.assertTrue(controller.check_ready().ready)
+        communication = self.communication(owner)
+        await communication.subscribe_commands()
+        observer = self.interface(SynchronizationManager(), self.source, (owner.participant,))
+        observing = self.communication(observer)
+        await observing.start()
+        report = await observing.check_dependency_readiness(owner.participant, .5)
+        self.assertTrue(report.ready)
+        self.assertFalse(owner.dependency_readiness[nodes[0]].ready)
+        self.assertIsNone(owner.dependency_readiness[nodes[1]])
+        self.assertEqual(set(owner.dependency_readiness), {infrastructure, *nodes})
+        owner.receive_dependency_readiness(infrastructure,
+            ServiceReadiness("disk", "storage_manager", True, False, "maintenance"))
+        self.assertFalse(controller.check_ready().ready)
+
+    async def test_noncontroller_still_requires_configured_node_readiness(self):
+        node = RuntimeParticipant("acquisition_node", "node")
+        service = SynchronizationManager()
+        owner = self.interface(service, self.source, (node,))
+        with self.assertRaisesRegex(RuntimeError, "acquisition_node/node"):
+            service.check_ready()
+        owner.receive_dependency_readiness(node,
+            ServiceReadiness("node", "acquisition_node", True, False, "offline"))
+        self.assertFalse(service.check_ready().ready)
+        owner.receive_dependency_readiness(node,
+            ServiceReadiness("node", "acquisition_node", True, True, "ready"))
+        self.assertTrue(service.check_ready().ready)
+
+    async def test_claimed_controller_retains_required_participant_admission(self):
+        from tests.nats_server_fixture import acquire_test_controller_authority
+        from tests.test_session_launch import SessionLaunchTests
+        for scenario in ("test_required_unavailable_device_blocks_launch",
+                         "test_unknown_mandatory_readiness_blocks_launch"):
+            with self.subTest(scenario=scenario):
+                workflow = SessionLaunchTests(scenario)
+                workflow.setUp()
+                self.addCleanup(workflow.doCleanups)
+                owner = ServiceMaintenanceInterface(workflow.controller,
+                    RuntimeParticipant("controller", "controller"), ingestor=None,
+                    storage_manager=None, preservation_window_s=0,
+                    close_resources=AsyncMock(return_value=True))
+                await acquire_test_controller_authority(self, owner)
+                await getattr(workflow, scenario)()
+
     async def test_partial_command_subscriptions_resume_without_duplicate_handlers(self):
         source = self.interface(SynchronizationManager(), self.source)
         communication = self.communication(source)

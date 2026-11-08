@@ -109,7 +109,7 @@ class RegistrationRecoveryTests(unittest.IsolatedAsyncioTestCase):
         self.transport.identity = remote.operational_instance_id
         self.transport.available = True
         await returning.start()
-        with self.assertLogs("lab_sync_acquisition.deployment", level="INFO") as capture:
+        with self.assertLogs("lab_sync_acquisition.deployment", level="DEBUG") as capture:
             await asyncio.gather(remote.announce_readiness(startup=True),
                 remote.announce_readiness(startup=True),
                 communication.check_dependency_readiness(remote.participant, .5),
@@ -231,7 +231,7 @@ class RegistrationRecoveryTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_registration_diagnostics_preserve_order_budget_and_safe_fields(self):
         self.dependent()
-        with self.assertLogs("lab_sync_acquisition.deployment", level="INFO") as capture:
+        with self.assertLogs("lab_sync_acquisition.deployment", level="DEBUG") as capture:
             await self.maintenance.register_ingestor_dependency()
         lines = capture.output
         stages = [line.split(":", 2)[-1].split()[0] for line in lines]
@@ -268,7 +268,7 @@ class RegistrationRecoveryTests(unittest.IsolatedAsyncioTestCase):
             "succeeded", True, None, {"private_payload": "do-not-log"})
         async def durable(*args):
             self.assertFalse(any("response.published" in line for line in capture.output))
-        with self.assertLogs("lab_sync_acquisition.deployment", level="INFO") as capture:
+        with self.assertLogs("lab_sync_acquisition.deployment", level="DEBUG") as capture:
             with patch.object(boundary, "_publish_durable", side_effect=durable):
                 await boundary.publish_command_result(response, "register_operational_dependent")
             with patch.object(boundary, "_publish_durable", side_effect=OSError("Unconfirmed publication")):

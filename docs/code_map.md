@@ -2194,6 +2194,14 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 
 ## src/lab_sync_acquisition/service_maintenance.py
 
+**Implemented scope; independent validation and audit pending:** Reuses the
+private diagnostic helper and launcher logger configuration for default operational
+outcomes versus opt-in DEBUG detail (`LAB_SYNC_DEPLOYMENT_DEBUG=1`). Classifies
+Controller operational dependencies in `dependency_reports()` before aggregating
+unknown reports, excluding AcquisitionNodes only from Controller-wide readiness.
+Keeps the full configured observation map, reconciliation, selected-participant
+admission and other service roles unchanged.
+
 - `_deployment_diagnostic(stage, **fields)`: Emits allowlisted bounded operational identifiers, outcomes and monotonic durations without payloads, credential-bearing strings or exception text.
 - ServiceMaintenanceInterface(service, participant, *, ingestor, storage_manager, preservation_window_s, close_resources, operational_dependents=None, evidence_publisher=None, retire_resources=None, dependency_participants=(), framework_communication=None, framework_ingestor=None, framework_storage=None, registration_window_s=180.0): Attaches service-owned maintenance with local or remote preservation and a separate configurable overall registration deadline.
 - ServiceMaintenanceInterface.controller_authority_confirmed: Reports whether the current unretired Controller maintenance lifetime owns its confirmed claim.
@@ -2231,7 +2239,7 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 - ServiceMaintenanceInterface.dependency_readiness: Returns a detached mapping of configured RuntimeParticipants to current ServiceReadiness or None for unknown.
 - ServiceMaintenanceInterface.last_known_dependency_readiness: Returns historical confirmed reports, never substituted for missing current operational readiness.
 - ServiceMaintenanceInterface.receive_dependency_readiness(participant, readiness): Updates or invalidates only a configured dependency's current report and advances private ordering counters so earlier checks cannot overwrite subsequent observations, without changing Session lifecycle, reservations, or cleanup obligations.
-- ServiceMaintenanceInterface.dependency_reports(): Returns current dependency records or raises RuntimeError for missing current evidence, retaining the existing boolean readiness schema.
+- ServiceMaintenanceInterface.dependency_reports(): Returns current operational dependency records or raises RuntimeError for missing current evidence, excluding AcquisitionNodes only from Controller-wide aggregation while retaining full configured observation.
 - ServiceMaintenanceInterface.announce_readiness(*, startup=False): Creates persistent startup/return or changed-readiness evidence with journal acceptance and guarded archival that never repairs unconfirmed existing products, while suppressing unchanged snapshots.
 - ServiceMaintenanceInterface.record_administrator_decision(administrator_id, decision, details): Records persistent resume/drop choices with a separate unresolved/abandoned obligation outcome, returning guarded temporary-producer-copy release and its preservation observations without executing recovery, deleting durable data, or clearing safety obligations.
 - ServiceMaintenanceInterface.terminated: Reports confirmed operational-service retirement rather than OS process death.

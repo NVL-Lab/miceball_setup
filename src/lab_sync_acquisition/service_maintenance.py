@@ -26,7 +26,17 @@ deployment_logger = logging.getLogger("lab_sync_acquisition.deployment")
 
 def _deployment_diagnostic(stage, **fields):
     """Emit bounded deployment identifiers, never payloads or exception text."""
-    if not deployment_logger.isEnabledFor(logging.INFO):
+    detail = stage in {
+        "command.submitted", "command.published", "response.published",
+        "registration.request", "registration.history-verification",
+        "registration.history-verified", "registration.reverse-readback",
+        "registration.reverse-confirmed", "registration.preservation",
+        "registration.preserved", "registration.retained-history",
+        "registration.retained-history-verified",
+    } or (stage in {"command.result", "registration.response"}
+          and fields.get("outcome") in {"ready", "succeeded", "response_received"})
+    level = logging.DEBUG if detail else logging.INFO
+    if not deployment_logger.isEnabledFor(level):
         return
     allowed = {"command_id", "operation", "source", "target", "instance", "ingestor_instance",
                "outcome", "elapsed_s", "budget_s", "unresolved_count", "error_type"}
@@ -39,7 +49,7 @@ def _deployment_diagnostic(stage, **fields):
         elif not isinstance(value, str) or re.fullmatch(r"[A-Za-z0-9_.-]{1,160}", value) is None:
             value = "<redacted>"
         values.append(f"{key}={value}")
-    deployment_logger.info("%s %s", stage, " ".join(values))
+    deployment_logger.log(level, "%s %s", stage, " ".join(values))
 
 _service_calls = ContextVar("service_calls", default=())
 
@@ -339,11 +349,14 @@ class ServiceMaintenanceInterface:
     def dependency_reports(self) -> tuple[ServiceReadiness, ...]:
         """Return current reports, refusing to fabricate a report for an unknown dependency."""
         with self._admission_lock:
-            unknown = [p for p, report in self._dependency_readiness.items() if report is None]
+            reports = {p: report for p, report in self._dependency_readiness.items()
+                       if not (self.participant.component_type == "controller"
+                               and p.component_type == "acquisition_node")}
+            unknown = [p for p, report in reports.items() if report is None]
             if unknown:
                 raise RuntimeError("Dependency readiness is unknown: " + ", ".join(
                     f"{p.component_type}/{p.component_id}" for p in unknown))
-            return tuple(self._dependency_readiness.values())
+            return tuple(reports.values())
 
     def _administrative_outcome(self, reference: dict) -> str | None:
         with self._admission_lock:

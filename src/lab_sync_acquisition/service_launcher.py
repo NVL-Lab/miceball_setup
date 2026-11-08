@@ -39,7 +39,7 @@ def _enable_deployment_diagnostics():
         deployment_logger.addHandler(handler)
     else:
         handler.stream = sys.stderr
-    deployment_logger.setLevel(logging.INFO)
+    deployment_logger.setLevel(logging.DEBUG if os.environ.get("LAB_SYNC_DEPLOYMENT_DEBUG") == "1" else logging.INFO)
     deployment_logger.propagate = False
 
 

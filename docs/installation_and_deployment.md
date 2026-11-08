@@ -716,6 +716,21 @@ Existing JSON stdout is unchanged. These developer-verified diagnostics do not
 establish the cause or resolution of the Windows unknown-readiness observations;
 independent validation and audit remain separate.
 
+**Implemented correction; independent validation and audit pending:** Default terminal
+diagnostics retain meaningful startup/registration outcomes, actionable
+readiness failures, timeouts and blocked operations. Routine successful readiness
+traffic, command correlation/transport traces and detailed successful historical
+verification/preservation stages use DEBUG, enabled by
+`LAB_SYNC_DEPLOYMENT_DEBUG=1`. Bounded field filtering, flushed stderr and JSON
+stdout stay unchanged.
+
+The same correction distinguishes Controller-wide infrastructure
+readiness from operation-specific AcquisitionNode admission. Configured unused
+nodes remain individually observable (including Unknown) and in reconciliation,
+but do not automatically block Controller-wide readiness. Selected Session
+participants, Controller authority and outstanding safety obligations retain their
+existing checks. No service readiness or deployment validation is claimed here.
+
 Choose exactly one shared-pair dependency mode:
 
 - Actual dependents: nonempty `external_dependents` list of objects with exactly
