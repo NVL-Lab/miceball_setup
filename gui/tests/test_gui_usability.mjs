@@ -1,5 +1,58 @@
 import assert from 'node:assert/strict';
 
+export async function verifyDemoAdministrator(browser, origin, section, directory) {
+  const page = await browser.newPage();
+  try {
+    await page.goto(origin); await section(page, 'services');
+    const history = page.locator('#control-activity-history');
+    assert.equal(await history.evaluate(node => node.open), false);
+    await history.locator(':scope > summary').click();
+    assert.match(await history.innerText(), /No retained browser-control activity/);
+    await history.locator(':scope > summary').click();
+    await page.locator('[data-mode="administrator"]').click();
+    await page.locator('[data-danger-enter]').click();
+    for (const theme of ['light', 'dark']) {
+      if (await page.locator('html').getAttribute('data-theme') !== theme) await page.locator('#theme-toggle').click();
+      await page.locator('[data-shutdown-framework]').click();
+      const name = page.locator('dialog[open] input[data-administrator-name]');
+      assert.equal(await name.count(), 1, 'Demo shutdown must require a manually entered Administrator name');
+      assert.equal(await name.inputValue(), '');
+      const confirm = page.locator('[data-confirm-shutdown]');
+      assert.equal(await confirm.isDisabled(), true);
+      await name.fill('   '); assert.equal(await confirm.isDisabled(), true);
+      await name.fill('Lab Operator'); assert.equal(await confirm.isEnabled(), true);
+      await page.keyboard.press('Escape');
+      await page.locator('[data-shutdown-framework]').click();
+      assert.equal(await name.inputValue(), '');
+      await name.fill('Lab Operator'); await confirm.click();
+      await page.locator('[data-finish-shutdown]').click();
+      await page.locator('[data-kill-service]').first().click();
+      assert.equal(await name.inputValue(), '');
+      assert.equal(await page.locator('[data-confirm-kill]').isDisabled(), true);
+      assert.equal(await page.locator('dialog[open] input[type="checkbox"]').count(), 0);
+      await name.fill('  '); assert.equal(await page.locator('[data-confirm-kill]').isDisabled(), true);
+      await name.fill('Lab Operator'); await page.locator('[data-confirm-kill]').click();
+      await page.locator('[data-admin-close]').click();
+      await page.screenshot({path: `${directory}/administrator-demo-${theme}.png`, fullPage: true});
+    }
+    await page.locator('[data-expand-service]').first().click();
+    await page.locator('button[data-stop-service]').click();
+    assert.equal(await page.locator('[data-administrator-name]').inputValue(), '');
+    assert.equal(await page.locator('[data-confirm-shutdown]').isDisabled(), true);
+    await page.locator('[data-admin-close]').click();
+    await page.locator('[data-administrative="Abandon outstanding obligations"]').click();
+    assert.equal(await page.locator('[data-administrator-name]').inputValue(), '');
+    assert.equal(await page.locator('[data-admin-review]').isDisabled(), true);
+    await page.locator('[data-administrator-name]').fill('  ');
+    assert.equal(await page.locator('[data-admin-review]').isDisabled(), true);
+    await page.locator('[data-administrator-name]').fill('Lab Operator');
+    await page.locator('[data-admin-review]').click();
+    assert.match(await page.locator('[data-admin-outcome]').innerText(), /local preview only/);
+    await page.locator('[data-admin-close]').click();
+    console.log('PASS: demo Shutdown/Kill names, empty/whitespace rejection, fresh entry, Escape and both themes');
+  } finally { await page.close(); }
+}
+
 // Developer rendering checks with controlled transport; not independent validation.
 export async function verifyGuiUsability(browser, origin, configuration, section, directory) {
   const context = await browser.newContext({timezoneId: 'Pacific/Honolulu', viewport: {width: 1440, height: 1000}});
@@ -9,6 +62,11 @@ export async function verifyGuiUsability(browser, origin, configuration, section
       constructor(...args) { super(...(args.length ? args : [instant])); }
       static now() { return instant; }
     };
+    sessionStorage.setItem('miceball-pending', JSON.stringify([
+      {operation: 'view_only', request_id: 'retained-control', instance_id: 'usability-instance', status: 'succeeded',
+        result: {status: 'succeeded', timestamp: '2026-11-06T12:34:56Z'}},
+      {operation: 'take_browser_control', request_id: 'pending-control', instance_id: 'usability-instance', status: 'uncertain'},
+    ]));
   });
   const page = await context.newPage(), submitted = [], errors = [];
   page.on('pageerror', error => errors.push(error.message));
@@ -23,6 +81,8 @@ export async function verifyGuiUsability(browser, origin, configuration, section
     route.onMessage(raw => {
       const message = JSON.parse(raw);
       if (message.operation === 'read_controller_state') return reply(route, message, 'succeeded', snapshot());
+      if (message.operation === 'read_operation_outcome') return reply(route, message, 'succeeded',
+        {status: 'succeeded', result: {status: 'succeeded', request_id: 'pending-control'}});
       submitted.push(message);
       if (message.operation === 'take_browser_control') controlling = true;
       else if (message.operation === 'view_only') controlling = false;
@@ -62,8 +122,11 @@ export async function verifyGuiUsability(browser, origin, configuration, section
     for (const theme of ['light', 'dark']) {
       if (await page.locator('html').getAttribute('data-theme') !== theme) await page.locator('#theme-toggle').click();
       const observing = await page.locator('html').evaluate(html => getComputedStyle(html).getPropertyValue('--workspace'));
+      const observingHeader = await page.locator('.topbar').evaluate(node => getComputedStyle(node).backgroundColor);
       await page.locator('#take-over').click(); await page.locator('html[data-control-mode="controlling"]').waitFor();
       assert.notEqual(await page.locator('html').evaluate(html => getComputedStyle(html).getPropertyValue('--workspace')), observing);
+      assert.notEqual(await page.locator('.topbar').evaluate(node => getComputedStyle(node).backgroundColor), observingHeader);
+      await page.screenshot({path: `${directory}/usability-controlling-${theme}.png`});
       await page.locator('#view-only').click(); await page.locator('html[data-control-mode="view-only"]').waitFor();
       await page.setViewportSize({width: 800, height: 900});
       await page.screenshot({path: `${directory}/usability-view-only-${theme}.png`});
@@ -72,9 +135,25 @@ export async function verifyGuiUsability(browser, origin, configuration, section
     await page.locator('#take-over').click(); await page.locator('html[data-control-mode="controlling"]').waitFor();
     await section(page, 'session');
     assert.doesNotMatch(await page.locator('#operation-results').innerText(), /take_browser_control|view_only/);
-    await page.locator('.control-activity > summary').click();
-    assert.match(await page.locator('#control-outcomes').innerText(), /take_browser_control/);
-    await page.locator('.control-activity > summary').click(); await section(page, 'setup');
+    assert.equal(await page.locator('.topbar .control-activity').count(), 0);
+    await section(page, 'services');
+    const history = page.locator('#control-activity-history');
+    assert.equal(await history.evaluate(node => node.open), false);
+    assert.equal(await history.evaluate(node => node === node.parentElement.lastElementChild), true);
+    await history.locator(':scope > summary').click();
+    await history.locator('details summary').filter({hasText: 'Take browser control'}).first().click();
+    assert.match(await history.innerText(), /Take browser control/);
+    assert.match(await history.innerText(), /take_browser_control/);
+    await history.locator('details summary').filter({hasText: 'View Only'}).first().click();
+    assert.match(await history.innerText(), /2026-11-06T12:34:56Z/);
+    const retained = await page.evaluate(() => JSON.parse(sessionStorage.getItem('miceball-pending')));
+    assert.deepEqual(retained[0], {operation: 'view_only', request_id: 'retained-control', instance_id: 'usability-instance', status: 'succeeded', result: {status: 'succeeded', timestamp: '2026-11-06T12:34:56Z'}});
+    assert.equal(retained.find(entry => entry.request_id === 'pending-control').status, 'succeeded');
+    await page.locator('[data-refresh-services]').click();
+    assert.equal(await history.evaluate(node => node.open), true);
+    assert.match(await history.innerText(), /2026-11-06T12:34:56Z/);
+    await page.screenshot({path: `${directory}/services-control-history.png`, fullPage: true});
+    await history.locator(':scope > summary').click(); await section(page, 'setup');
 
     const name = page.locator('.session-identity-grid textarea[data-configuration-string]');
     assert.equal(await name.getAttribute('data-string-encoding'), 'text');

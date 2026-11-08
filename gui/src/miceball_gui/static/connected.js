@@ -26,6 +26,7 @@ try { const stored = JSON.parse(sessionStorage.getItem('miceball-pending') || '[
 const current = () => state.controllerSnapshot;
 const save = () => sessionStorage.setItem('miceball-pending', JSON.stringify(outcomes));
 const ownershipOperation = entry => ['take_browser_control', 'view_only'].includes(entry.operation);
+serviceActions.controlHistory = () => outcomes.filter(ownershipOperation);
 function invalidateServiceConfirmation() {
   // Replace projections so replies admitted before this loss cannot promote them.
   liveServices = liveServices.map(service => ({...service, current: false, diagnosticsCurrent: false, pending: false, attempt: null}));
@@ -33,7 +34,6 @@ function invalidateServiceConfirmation() {
 }
 
 $('.topbar').insertAdjacentHTML('beforeend', '<div class="connection-tools"><span id="connection-state" role="status">Connecting</span><button id="view-only" type="button">View Only</button><button id="take-over" type="button">Take Over</button></div>');
-$('.connection-tools').insertAdjacentHTML('beforeend', '<details class="control-activity"><summary>Control activity</summary><div id="control-outcomes"></div></details>');
 $('.setup-demo-note').textContent = 'Controller connection unconfirmed. Local preparation is not acceptance or persistence.';
 const storageCard = $('[aria-labelledby="storage-title"]');
 const storageBody = storageCard.querySelector('.setup-disclosure-body') || storageCard;
@@ -95,11 +95,9 @@ function controls() {
     summary.textContent = `${entry.operation} · ${entry.status}`;
     text.textContent = `${entry.request_id || 'Request identity unavailable'} · ${entry.result?.error || 'No automatic replay. Completion follows Controller readback.'}`;
     details.append(summary, text);
-    if (ownershipOperation(entry)) { const raw = document.createElement('pre'); raw.textContent = JSON.stringify(entry, null, 2); details.append(raw); }
     return details;
   });
   display.replaceChildren(...outcomeNodes(outcomes.filter(entry => !ownershipOperation(entry))));
-  $('#control-outcomes').replaceChildren(...outcomeNodes(outcomes.filter(ownershipOperation)));
   updateServices(liveServices);
 }
 state.actions.syncControls = controls;

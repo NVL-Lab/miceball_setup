@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 import {mkdir, writeFile} from 'node:fs/promises';
 import {verifyConfigurationIntegrity, verifyExperimentReconnection} from './test_configuration_integrity.mjs';
-import {verifyGuiUsability} from './test_gui_usability.mjs';
+import {verifyGuiUsability, verifyDemoAdministrator} from './test_gui_usability.mjs';
 if (!process.env.MICEBALL_BROWSER_ORIGIN) {
   console.log('Rendered feedback checks require the disposable Python fixture.');
 } else {
@@ -266,12 +266,14 @@ async function verifyMaintenanceBinding() {
     await target.goto(process.env.MICEBALL_BROWSER_ORIGIN);
     await target.locator('#connection-state').filter({hasText: 'Controlling'}).waitFor();
     await section(target, 'services');
+    await target.locator('#services-refresh').selectOption('0');
     await target.locator('[data-expand-service]').click();
     await target.locator('[data-mode="administrator"]').click();
     await target.locator('[data-danger-enter]').click();
     const authorize = async selector => {
       await target.locator(selector).click();
       const dialog = target.locator('.services-danger[open]');
+      assert.equal(await dialog.locator('[data-live-administrator]').inputValue(), '');
       assert.equal(await dialog.locator('[data-live-confirm]').isDisabled(), true);
       await dialog.locator('[data-live-administrator]').fill('   ');
       assert.equal(await dialog.locator('[data-live-confirm]').isDisabled(), true);
@@ -307,6 +309,7 @@ async function verifyMaintenanceBinding() {
     assert.equal(await target.locator('[data-live-kill]').count(), 0);
     await target.locator('[data-administrative="Supported recovery attempts"]').click();
     const recoveryDialog = target.locator('.services-danger[open]');
+    assert.equal(await recoveryDialog.locator('[data-recovery-administrator]').inputValue(), '');
     assert.equal(await recoveryDialog.locator('[data-recovery-confirm]').isDisabled(), true);
     await recoveryDialog.locator('[data-recovery-administrator]').fill('operator');
     assert.equal(await recoveryDialog.locator('[data-recovery-confirm]').isDisabled(), true);
@@ -361,6 +364,7 @@ async function verifyMaintenanceBinding() {
 }
 try {
   await verifyMaintenanceBinding();
+  await verifyDemoAdministrator(browser, process.env.MICEBALL_DEMO_CURRENT_ORIGIN, section, directory);
   await verifyGuiUsability(browser, process.env.MICEBALL_BROWSER_ORIGIN, JSON.parse(process.env.MICEBALL_INTEGRITY).session, section, directory);
   await verifyExperimentReconnection(browser, process.env.MICEBALL_BROWSER_ORIGIN, JSON.parse(process.env.MICEBALL_MONITORING), section);
   await verifyConfigurationIntegrity(browser, process.env.MICEBALL_BROWSER_ORIGIN, JSON.parse(process.env.MICEBALL_INTEGRITY), section);
@@ -675,9 +679,12 @@ try {
     await section(target, 'services');
     await target.locator('[data-expand-service]').first().click();
   }
+  // Compare existing cards independently of the newly requested bottom disclosure.
+  await demo.locator('#control-activity-history').evaluate(node => node.hidden = true);
   assert.equal(await demo.locator('#panel-services').innerText(), await baseline.locator('#panel-services').innerText());
   const demoBefore = await baseline.locator('#panel-services').screenshot();
   assert.deepEqual(await demo.locator('#panel-services').screenshot(), demoBefore);
+  await demo.locator('#control-activity-history').evaluate(node => node.hidden = false);
   for (const theme of ['light', 'dark']) {
     for (const target of [baseline, demo]) if (await target.locator('html').getAttribute('data-theme') !== theme) await target.locator('#theme-toggle').click();
     // Ordinary enabled buttons retain exactly their previous computed appearance.

@@ -12,6 +12,28 @@ export function showBlockedServiceStop(service) {
   authorizeMaintenance('blocked_stop', service);
 }
 
+// Each operation starts with a fresh name; mode selection is not authorization.
+function bindAdministratorName(submitSelector, nameSelector = '[data-administrator-name]', matches = () => true) {
+  const name = administrativePreview.querySelector(nameSelector);
+  const submit = administrativePreview.querySelector(submitSelector);
+  const valid = () => Boolean(name.value.trim()) && matches(name.value);
+  const reset = () => { name.value = ''; submit.disabled = true; };
+  name.required = true;
+  name.autocomplete = 'off';
+  administrativePreview.oninput = () => { submit.disabled = !valid(); };
+  reset();
+  return {name, valid, reset};
+}
+
+function renderControlHistory() {
+  const records = serviceActions.controlHistory?.() || [];
+  const names = {take_browser_control: 'Take browser control', view_only: 'View Only'};
+  const expanded = new Set([...controlHistory.querySelectorAll('details[open]')].map(node => node.dataset.request));
+  controlHistory.querySelector('[data-control-records]').innerHTML = records.length
+    ? records.map(entry => `<details data-request="${escape(entry.request_id)}" ${expanded.has(entry.request_id) ? 'open' : ''}><summary>${escape(names[entry.operation] || entry.operation)} · ${escape(entry.status)}</summary><p class="services-muted">Retained command and outcome, including available timestamps:</p><pre>${escape(JSON.stringify(entry, null, 2))}</pre></details>`).join('')
+    : '<p class="services-muted">No retained browser-control activity.</p>';
+}
+
 function authorizeMaintenance(operation, service) {
   if (!connected || !model.administrator || !serviceActions.canControl?.()) return;
   const continuation = ['blocked_stop', 'kill_service', 'cancel_service'].includes(operation);
@@ -20,13 +42,12 @@ function authorizeMaintenance(operation, service) {
   if (continuation && (service?.attempt?.outcome !== 'blocked' || !attemptId)) return;
   const titles = {stop_service: 'Confirm Stop', kill_service: 'Confirm Kill', cancel_service: 'Confirm Cancel', shutdown_framework: 'Confirm Framework Shutdown', blocked_stop: 'Stop blocked — explicit choice required'};
   administrativePreview.innerHTML = `<h2 id="admin-preview-title">${escape(titles[operation] + (service ? ` — ${service.name}` : ''))}</h2><p>${escape(service ? `${service.name} / ${service.computer}` : 'Whole configured framework')}</p>${continuation ? `<p>Stop attempt: ${escape(attemptId)}</p><pre>${escape(JSON.stringify(service.attempt, null, 2))}</pre>` : ''}${operation === 'blocked_stop' ? '<label>Continuation<select data-live-choice><option value="cancel_service">Cancel this Stop attempt</option><option value="kill_service">Explicitly authorize maintenance Kill</option></select></label>' : ''}<p>This does not authorize other targets. Force may lose unpreserved evidence and leave cleanup obligations. Timeout is not completion or permission to Kill. Closing this dialog sends no command.</p><label>Administrator name<input data-live-administrator></label><div class="catalog-dialog__actions"><button type="button" data-admin-close>Close without action</button><button type="button" data-live-confirm disabled>Confirm operation</button></div>`;
-  const name = administrativePreview.querySelector('[data-live-administrator]'), submit = administrativePreview.querySelector('[data-live-confirm]');
-  name.required = true;
-  administrativePreview.oninput = () => { submit.disabled = !name.value.trim(); };
+  const {name, valid, reset} = bindAdministratorName('[data-live-confirm]', '[data-live-administrator]');
+  const submit = administrativePreview.querySelector('[data-live-confirm]');
   const choice = administrativePreview.querySelector('[data-live-choice]');
-  if (choice) choice.onchange = () => { name.value = ''; submit.disabled = true; };
+  if (choice) choice.onchange = reset;
   submit.onclick = () => {
-    if (!name.value.trim() || !model.administrator || !serviceActions.canControl?.()) return;
+    if (!valid() || !model.administrator || !serviceActions.canControl?.()) return;
     const current = service && model.services.find(item => item.id === service.id);
     if (continuation && (current?.attempt?.outcome !== 'blocked' || current.attempt.stop_attempt_id !== attemptId
         || current.details?.operational_instance_id !== instanceId)) {
@@ -60,6 +81,10 @@ let refreshNotice = '';
 let expandedService = null, shutdownAttempt = null, killTarget = null;
 let historyExpanded = false;
 const ownerReportOpen = new Map();
+const controlHistory = document.createElement('details');
+controlHistory.id = 'control-activity-history';
+controlHistory.className = 'services-card control-history';
+controlHistory.innerHTML = '<summary>Control activity history</summary><div data-control-records></div>';
 const danger = document.createElement('dialog');
 danger.className = 'catalog-dialog services-danger';
 danger.setAttribute('aria-labelledby', 'services-danger-title');
@@ -77,25 +102,23 @@ administrativePreview.setAttribute('aria-labelledby', 'admin-preview-title');
 document.body.append(administrativePreview);
 administrativePreview.addEventListener('click', event => {
   if (connected && !event.target.closest('[data-admin-close]')) return;
-  if (event.target.closest('[data-confirm-shutdown]')) { shutdownAttempt = beginShutdownPreview(model, administrativePreview.dataset.stopService || null); renderShutdownPreview(); return; }
+  if (event.target.closest('[data-confirm-shutdown]') && administrativePreview.querySelector('[data-administrator-name]')?.value.trim()) { shutdownAttempt = beginShutdownPreview(model, administrativePreview.dataset.stopService || null); renderShutdownPreview(); return; }
   if (event.target.closest('[data-finish-shutdown]')) { finishShutdownPreview(shutdownAttempt); renderShutdownPreview(); return; }
   if (event.target.closest('[data-kill-service]')) {
     killTarget = event.target.closest('[data-kill-service]').dataset.killService;
     const row = shutdownAttempt.participants.find(r=>r.id === killTarget);
-    administrativePreview.innerHTML = `<h2 id="admin-preview-title">Kill Service — explicit authorization</h2><p>Target: ${escape(row.name)} · ${escape(row.computer)}</p><p>Force may lose unpreserved scientific data or operational evidence and leave cleanup or preservation unresolved. This authorizes no other service, Session Kill or Experiment Stop.</p><label><input type="checkbox" data-kill-authorization> Authorize only this service's forced continuation in the local demonstration.</label><div class="catalog-dialog__actions"><button type="button" data-cancel-kill>Cancel</button><button type="button" data-confirm-kill disabled>Confirm Kill Service preview</button></div>`;
+    administrativePreview.innerHTML = `<h2 id="admin-preview-title">Kill Service — explicit authorization</h2><p>Target: ${escape(row.name)} · ${escape(row.computer)}</p><p>Force may lose unpreserved scientific data or operational evidence and leave cleanup or preservation unresolved. This authorizes no other service, Session Kill or Experiment Stop.</p><label>Administrator name<input data-administrator-name autocomplete="off"></label><div class="catalog-dialog__actions"><button type="button" data-cancel-kill>Cancel</button><button type="button" data-confirm-kill disabled>Confirm Kill Service preview</button></div>`;
+    bindAdministratorName('[data-confirm-kill]');
     administrativePreview.querySelector('[data-cancel-kill]').focus(); return;
   }
   if (event.target.closest('[data-cancel-kill]')) { killTarget = null; renderShutdownPreview(); return; }
-  if (event.target.closest('[data-confirm-kill]') && administrativePreview.querySelector('[data-kill-authorization]')?.checked) { authorizeKillPreview(shutdownAttempt, killTarget, true); killTarget = null; renderShutdownPreview(); return; }
+  if (event.target.closest('[data-confirm-kill]') && administrativePreview.querySelector('[data-administrator-name]')?.value.trim()) { authorizeKillPreview(shutdownAttempt, killTarget, true); killTarget = null; renderShutdownPreview(); return; }
   if (event.target.closest('[data-admin-close]')) administrativePreview.close();
-  if (event.target.closest('[data-admin-review]') && administrativePreview.querySelector('[name="confirm-scope"]')?.checked) {
+  if (event.target.closest('[data-admin-review]') && administrativePreview.querySelector('[data-administrator-name]')?.value.trim()) {
     administrativePreview.querySelector('[data-admin-outcome]').textContent = 'Scope/risk review recorded in this local preview only. No command sent. Service-owned authorization and current safety prerequisites are unavailable; execution and its outcome remain unconfirmed. Existing reports, obligations and scientific results are unchanged.';
   }
 });
-administrativePreview.addEventListener('change', event => {
-  if (event.target.hasAttribute('data-kill-authorization')) administrativePreview.querySelector('[data-confirm-kill]').disabled = !event.target.checked;
-  if (event.target.name === 'confirm-scope') administrativePreview.querySelector('[data-admin-review]').disabled = !event.target.checked;
-});
+
 
 function serviceRows() {
   return model.services.map(service => `<li><div class="service-row ${expandedService === service.id ? 'is-selected' : ''}" data-expand-service="${escape(service.id)}" role="button" tabindex="0" aria-expanded="${expandedService === service.id}" aria-controls="detail-${escape(service.id)}" aria-label="${escape(service.name)} · ${escape(service.computer)}"><div class="service-identity"><strong>${escape(service.name)}</strong><small>${escape(service.computer)}</small></div><div class="service-report"><span class="service-status ${service.current && service.readiness === 'Ready' ? 'service-good' : 'service-caution'}">${escape(serviceReadinessLabel(service))}</span><small>${escape(service.connectivity)}${connected ? '' : ' · simulated'}</small><small>Last confirmed: ${service.confirmed ? (connected ? escape(service.confirmed) : `Oct 24, ${service.confirmed} (fixture)`) : 'Never confirmed'}</small></div><div class="service-row-actions"><button type="button" data-readiness="${escape(service.id)}" ${service.pending ? 'disabled' : ''}>${service.pending ? 'Checking…' : 'Check readiness'}</button><span aria-hidden="true">${expandedService === service.id ? '▴' : '▾'}</span></div></div><section id="detail-${escape(service.id)}" class="inline-service-details" ${expandedService === service.id ? '' : 'hidden'} aria-label="${escape(service.name)} details">${expandedService === service.id ? serviceDetails(service) : ''}</section></li>`).join('');
@@ -129,6 +152,8 @@ function administrativeOperations() {
 }
 
 function renderServices() {
+  const focusedControlHistory = controlHistory.contains(document.activeElement)
+    ? document.activeElement.closest('details')?.dataset.request || null : undefined;
   let focusedOwner;
   if (connected) {
     for (const disclosure of panel.querySelectorAll('[data-owner-report]')) {
@@ -142,6 +167,13 @@ function renderServices() {
     <p class="services-feedback" ${connected ? 'id="services-readiness-unavailable"' : ''} role="status">${escape(message || refreshNotice || (model.lastPreviewRefresh ? `Preview refreshed locally at ${model.lastPreviewRefresh}; fixture confirmations are unchanged.` : (connected ? 'Only valid current checks confirm availability; communication loss alone is not failure.' : 'Automatic refresh repaints fictional information only; it does not confirm availability.')))}</p>
     <section class="services-card"><h3>Configured services (${model.services.length})</h3><ul class="services-list" aria-label="Configured services">${serviceRows()}</ul></section>
     <section class="services-card services-warning-card"><h3>Warnings and errors <small>${connected ? 'Unavailable' : `${unacknowledged} unacknowledged`}</small></h3><p class="services-muted">${connected ? 'Authoritative warning and error history is unavailable.' : 'Latest three entries by default. Acknowledgment is not resolution or deletion.'}</p><div id="services-history" class="services-history" role="region" aria-label="Warning and error history" tabindex="0">${notificationRows()}</div>${notificationHistory().length > 3 ? `<button type="button" data-toggle-history aria-controls="services-history" aria-expanded="${historyExpanded}">${historyExpanded ? 'Show less' : 'Show more'}</button>` : ''}</section>${administrativeOperations()}`;
+  renderControlHistory();
+  panel.append(controlHistory);
+  if (focusedControlHistory !== undefined) {
+    const disclosure = focusedControlHistory === null ? controlHistory
+      : [...controlHistory.querySelectorAll('details')].find(node => node.dataset.request === focusedControlHistory);
+    disclosure?.querySelector('summary').focus({preventScroll: true});
+  }
   if (connected) {
     const disclosure = panel.querySelector('.inline-service-details:not([hidden]) > details');
     if (disclosure) {
@@ -186,7 +218,8 @@ function renderShutdownPreview() {
 function openShutdownConfirmation(serviceId) {
   administrativePreview.dataset.stopService = serviceId || '';
   const targets = serviceId ? model.services.filter(s=>s.id === serviceId) : model.services;
-  administrativePreview.innerHTML = `<h2 id="admin-preview-title">Confirm ${serviceId ? 'Stop Service' : 'Shutdown Framework'} preview</h2><p>${serviceId ? 'Only the selected service is targeted. Other service reports stay unchanged.' : 'Controller-coordinated whole-framework scope. This fixture is not an implementation of dependency ordering or real surveys.'}</p><ul>${targets.map(s=>`<li>${escape(s.name)} · ${escape(s.computer)}</li>`).join('')}</ul><p>Separate operation authorization and service-owned safety/preservation checks remain necessary. This starts a browser-local progress example only; no command will be sent.</p><div class="catalog-dialog__actions"><button type="button" data-admin-close>Cancel</button><button type="button" data-confirm-shutdown>Start orderly-stop simulation</button></div>`;
+  administrativePreview.innerHTML = `<h2 id="admin-preview-title">Confirm ${serviceId ? 'Stop Service' : 'Shutdown Framework'} preview</h2><p>${serviceId ? 'Only the selected service is targeted. Other service reports stay unchanged.' : 'Controller-coordinated whole-framework scope. This fixture is not an implementation of dependency ordering or real surveys.'}</p><ul>${targets.map(s=>`<li>${escape(s.name)} · ${escape(s.computer)}</li>`).join('')}</ul><p>Separate operation authorization and service-owned safety/preservation checks remain necessary. This starts a browser-local progress example only; no command will be sent.</p><label>Administrator name<input data-administrator-name autocomplete="off"></label><div class="catalog-dialog__actions"><button type="button" data-admin-close>Cancel</button><button type="button" data-confirm-shutdown disabled>Start orderly-stop simulation</button></div>`;
+  bindAdministratorName('[data-confirm-shutdown]');
   administrativePreview.showModal();
 }
 
@@ -231,19 +264,19 @@ panel.addEventListener('click', event => {
         renderServices(); return;
       }
       administrativePreview.innerHTML = `<h2 id="admin-preview-title">Explicit authorized recovery</h2><p>${escape(service.name)} / ${escape(service.computer)}</p><label>Existing owner authorization<select data-recovery-choice>${authorizations.map((record, index) => `<option value="${index}">${escape(record.payload.details.operation)} · ${escape(record.payload.administrator_id)}</option>`).join('')}</select></label><pre data-recovery-scope></pre><p data-recovery-warning></p><label>Administrator name<input data-recovery-administrator required></label><div class="catalog-dialog__actions"><button type="button" data-admin-close>Cancel</button><button type="button" data-recovery-confirm disabled>Execute authorized recovery</button></div>`;
-      const choice = administrativePreview.querySelector('[data-recovery-choice]'), name = administrativePreview.querySelector('[data-recovery-administrator]'), submit = administrativePreview.querySelector('[data-recovery-confirm]');
+      const choice = administrativePreview.querySelector('[data-recovery-choice]'), submit = administrativePreview.querySelector('[data-recovery-confirm]');
       const selection = () => authorizations[Number(choice.value)];
+      const {valid, reset} = bindAdministratorName('[data-recovery-confirm]', '[data-recovery-administrator]', value => value === selection().payload.administrator_id);
       const showScope = () => {
-        name.value = ''; submit.disabled = true;
+        reset();
         administrativePreview.querySelector('[data-recovery-scope]').textContent = JSON.stringify(selection(), null, 2);
         administrativePreview.querySelector('[data-recovery-warning]').textContent = selection().payload.details.operation === 'dispose_temporary_evidence'
           ? 'Permanent-loss acknowledgment: proven-corrupt temporary evidence in this exact scope will be permanently discarded. This is not scientific-original deletion.'
           : 'Owner safety, durable authorization and current recovery prerequisites are rechecked. This does not confirm preservation, safe reuse or service retirement.';
       };
       choice.onchange = showScope;
-      name.oninput = () => { submit.disabled = !name.value.trim() || name.value !== selection().payload.administrator_id; };
       submit.onclick = () => {
-        if (!name.value.trim() || name.value !== selection().payload.administrator_id || !model.administrator || !serviceActions.canControl?.()) return;
+        if (!valid() || !model.administrator || !serviceActions.canControl?.()) return;
         const authorization = selection(), details = authorization.payload.details;
         administrativePreview.close();
         serviceActions.maintain(details.operation, service, authorization.payload.administrator_id,
@@ -293,7 +326,8 @@ panel.addEventListener('click', event => {
       'Supported recovery attempts': 'No supported recovery procedure or current prerequisites are established for this selected-service fixture. Recovery execution is unavailable; no repair or safe-reuse outcome will be invented.',
       'Abandon outstanding obligations': 'Abandonment is an explicit administrative choice, not recovery, cleanup, safe reuse or deletion. No obligation can be discharged in this disconnected demo.',
     }[action];
-    administrativePreview.innerHTML = `<h2 id="admin-preview-title">${escape(action)} — preview only</h2><p><strong>Scope:</strong> ${escape(scope)}</p><p>${escape(explanation)}</p>${action === 'Abandon outstanding obligations' ? `<ul>${obligations.map(item=>`<li>${escape(item.type)}: ${escape(item.description)} — ${escape(item.outcome)}</li>`).join('') || '<li>No obligations are represented for this service; absence of fixtures does not prove safe closeout.</li>'}</ul>` : ''}<p>No live command or execution authorization is available. Reviewing a warning cannot satisfy service-owned prerequisites.</p>${action === 'Supported recovery attempts' ? '' : '<label><input type="checkbox" name="confirm-scope"> I have reviewed this specific scope and its risks (local preview only).</label>'}<p data-admin-outcome role="status"></p><div class="catalog-dialog__actions"><button type="button" data-admin-close>Cancel / Close preview</button>${action === 'Supported recovery attempts' ? '' : '<button type="button" data-admin-review disabled>Record local scope review</button>'}</div>`;
+    administrativePreview.innerHTML = `<h2 id="admin-preview-title">${escape(action)} — preview only</h2><p><strong>Scope:</strong> ${escape(scope)}</p><p>${escape(explanation)}</p>${action === 'Abandon outstanding obligations' ? `<ul>${obligations.map(item=>`<li>${escape(item.type)}: ${escape(item.description)} — ${escape(item.outcome)}</li>`).join('') || '<li>No obligations are represented for this service; absence of fixtures does not prove safe closeout.</li>'}</ul>` : ''}<p>No live command or execution authorization is available. Reviewing a warning cannot satisfy service-owned prerequisites.</p>${action === 'Supported recovery attempts' ? '' : '<label>Administrator name<input data-administrator-name autocomplete="off"></label>'}<p data-admin-outcome role="status"></p><div class="catalog-dialog__actions"><button type="button" data-admin-close>Cancel / Close preview</button>${action === 'Supported recovery attempts' ? '' : '<button type="button" data-admin-review disabled>Record local scope review</button>'}</div>`;
+    if (action !== 'Supported recovery attempts') bindAdministratorName('[data-admin-review]');
     administrativePreview.showModal(); return;
   }
   renderServices();

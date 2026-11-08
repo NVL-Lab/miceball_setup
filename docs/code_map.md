@@ -3093,6 +3093,9 @@ automatic. Kill integration and overall closeout validation remain deferred.
 - serviceDetails(service): Renders inline service status, dependencies, history, obligations and mode-gated orderly Stop previews.
 - notificationRows(): Renders the latest three or expanded retained history in page flow with individual acknowledgment controls.
 - administrativeOperations(): Renders the separate whole-framework shutdown control only in Administrator mode.
+- bindAdministratorName(submitSelector, nameSelector, matches): Requires fresh nonblank name entry for each administrative confirmation, with exact durable-authorization matching for recovery.
+- renderControlHistory(): Projects retained browser-control outcomes into the bottom Services disclosure without changing the records, timestamps or reconciliation.
+- serviceActions.controlHistory(): Supplies a filtered read-only presentation of the existing connected outcome collection.
 - selectService(id): Selects/toggles one expanded service from whole-row pointer or keyboard interaction.
 - openShutdownConfirmation(serviceId): Shows scoped single-service or whole-framework confirmation before a local orderly-stop preview.
 - renderShutdownPreview(): Shows participant-level local progress/outcomes and offers only scoped blocked-service Kill escalation.

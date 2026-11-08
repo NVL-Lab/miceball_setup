@@ -62,3 +62,7 @@ html[data-theme="dark"] .service-good { color: #98cdb0; background: #223b31; }
 html[data-theme="dark"] .service-caution { color: #d8bf89; background: #3a3326; }
 @media (max-width: 760px) { .service-row, .service-notification { grid-template-columns: minmax(0,1fr); } .service-notification { min-height: 140px; } }
 @media (prefers-reduced-motion: reduce) { #panel-services * { scroll-behavior: auto; } }
+
+.control-history pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.control-history > summary { font-weight: 600; cursor: pointer; }
+.control-history [data-control-records] { margin-top: 12px; }

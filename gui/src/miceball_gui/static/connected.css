@@ -6,10 +6,10 @@ html[data-runtime="connected"] .inventory-controls label { flex: 1; }
 html[data-runtime="connected"] #accepted-configuration { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 240px; overflow-y: auto; font-size: 12px; }
 html[data-runtime="connected"] #session-framework-fields { width: 100%; box-sizing: border-box; }
 html[data-runtime="connected"] textarea.configuration-string { min-height: 36px; width: 100%; resize: vertical; }
-html[data-runtime="connected"][data-control-mode="view-only"] { --workspace: #eef2f8; }
-html[data-runtime="connected"][data-theme="dark"][data-control-mode="view-only"] { --workspace: #19212b; }
-.control-activity { position: relative; font-size: 11px; }
-.control-activity > div { position: absolute; right: 0; z-index: 30; width: min(400px, 70vw); max-height: 45vh; overflow: auto; padding: 12px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); }
-.control-activity pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+html[data-runtime="connected"][data-control-mode="view-only"] { --workspace: #dce8f7; }
+html[data-runtime="connected"][data-theme="dark"][data-control-mode="view-only"] { --workspace: #20334a; }
 .string-mode-button { justify-self: start; padding: 3px 6px; border: 1px solid var(--line); border-radius: 4px; background: var(--surface); color: var(--ink-600); font: inherit; font-size: 10px; cursor: pointer; }
 html[data-runtime="connected"] .output-unavailable { display: grid; place-items: center; min-height: 180px; padding: 20px; color: var(--ink-600); }
+
+html[data-runtime="connected"][data-control-mode="view-only"] .topbar { background: #e2edfc; border-color: #91b1d9; }
+html[data-runtime="connected"][data-theme="dark"][data-control-mode="view-only"] .topbar { background: #21374f; border-color: #4d7195; }

@@ -204,7 +204,7 @@ class GuiShellTests(unittest.TestCase):
         for expected in ('Danger Zone — Administrator Mode', 'data-danger-cancel',
                          'Enter Administrator Mode', 'if (!model.administrator) return',
                          'aria-label="Administrative operations"',
-                         'Selected-service administration', 'name="confirm-scope"',
+                         'Selected-service administration', 'data-administrator-name',
                          'data-admin-review disabled', 'Record local scope review',
                          'Recovery execution is unavailable'):
             self.assertIn(expected, view)

@@ -21,6 +21,14 @@ configuration and serialization safeguards. See [input details and boundaries](.
 This is developer implementation, pending independent validation and audit; it
 does not reopen prior closure or claim deployment validation.
 
+The bounded validation corrections strengthen confirmed View Only workspace/header
+tint in both themes, require fresh Administrator name entry in connected and demo
+confirmations, and place retained Control activity history in a collapsed-by-default
+disclosure at the bottom of Services. Recovery still requires an exact name match
+to existing durable authorization. History uses the existing outcomes and available
+timestamps; no additional records or persistence are introduced. These corrections
+remain subject to independent validation and audit.
+
 ## Implemented browser-demo presentation (not framework integration)
 
 **Connected-entry implementation update:** GUI Integration Unit 1 now serves this

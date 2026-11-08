@@ -22,6 +22,15 @@ not change command admission or close Integration Unit 1. The rendered feedback
 regression below covers both themes, pending inventory, unavailable readiness,
 View Only Session controls and restoration when controls become enabled.
 
+Confirmed View Only uses a distinct workspace/header tint in both themes; busy
+Controlling and unconfirmed connections do not receive that tint. Services contains
+a collapsed-by-default **Control activity history** disclosure at the bottom,
+projecting retained browser-control records and any available timestamps from the
+existing outcome collection. These records remain outside scientific Session
+history. Administrative confirmations require a freshly typed nonblank name,
+including disconnected previews; recovery additionally matches the selected durable
+authorization. These bounded corrections await independent validation and audit.
+
 The Python backend serves the approved shared Setup, Session, Parameters, Experiment,
 Analysis, Storage and Services presenters. A single connected-mode marker selects
 Controller readback and operation bindings instead of fixture initialization or
@@ -185,7 +194,7 @@ The same developer batch populates Project Primary Experimenter from the existin
 Experimenter list and retains new associations locally, without assigning missing
 historical associations or adding an editing screen. Confirmed View Only has a
 subtle tint; unconfirmed connectivity and busy Controlling remain distinct. Control
-ownership outcomes appear under **Control activity**, while the original records
+ownership outcomes appear under Services → **Control activity history**, while the original records
 remain retained for reconciliation. Administrative confirmations require a manually
 entered nonblank name; recovery also matches the existing durable authorization.
 Session preparation starts with the computer-local date, preserves edits and
