@@ -14467,6 +14467,63 @@ remains OPEN; historical implementation and validation evidence retains its scop
 
 ---
 
+## Decision 446: Guided installation discovers configuration before requesting operator choices
+
+**Status:** Accepted
+
+This records the explicitly user-accepted LLC guided-installer usability and
+automatic configuration-discovery contract for Q022. It supplements Decisions
+368, 421 and 439 while preserving Decisions 436, 440 and 445. Historical decisions
+and their validation records remain unchanged.
+
+### Installer-wide discovery-first flow
+
+**Discover -> Present findings -> Confirm or choose -> Validate -> Configure**
+
+For every configuration input, first consider trustworthy existing information
+before asking the operator. Discover and reuse valid local or existing deployment
+configuration where possible. This principle applies to every guided-installer
+prompt, not only NATS and Controller authority.
+
+Discover available NATS server candidates through appropriate existing mechanisms.
+Present one discovered server for confirmation, multiple candidates for selection,
+and missing server information in ordinary language. Reachability alone does not
+prove deployment membership; never silently choose an unrelated server.
+
+Offer understandable choices between setting up a new laboratory system and
+adding a computer to an existing system. Support importing appropriate shared
+deployment configuration without copying unrelated computer-specific settings or
+credentials. No new deployment-management subsystem, configuration store or service
+is introduced by this clarification.
+
+### Authority selection and preserved prerequisites
+
+For a new deployment, discover the actual authenticated NATS account when possible
+and propose conventional shared Controller authority bucket/key identifiers,
+subject to operator confirmation and existing broker prerequisites. Never invent
+the actual account or create/modify broker resources. This narrowly qualifies
+Decision 439's prohibition on inventing authority values: confirmed conventional
+bucket/key proposals for a new deployment are permitted, not silent allocation,
+per-computer authority scopes or replacement of existing deployment settings.
+This decision does not select concrete conventional identifier strings.
+
+Preserve Decision 440's offline installation and PENDING / NOT VERIFIED reporting;
+unavailable discovery must not be misreported as verification or require an online
+broker for software installation. Preserve Decision 445's exact authentication
+and credential confidentiality. Existing configuration, service architecture,
+Controller exclusivity, local prerequisites, cancellation and preservation
+behavior remain authoritative. Broker provisioning remains external.
+
+**Implementation status:** The existing guided installer now implements bounded
+local/selected-file discovery, explicit new/join choices, selective shared import,
+endpoint confirmation/selection and new-system authenticated account readback with
+confirmed bucket/key proposals. Existing role validation, offline behavior,
+credential handling, preservation and installation confirmations are retained.
+Independent validation, audit and actual Ubuntu deployment verification remain
+pending. Q022 remains OPEN; historical validation evidence retains its scope.
+
+---
+
 # Accepted Architectural Principles
 
 The following principles summarize the accepted decisions so far.

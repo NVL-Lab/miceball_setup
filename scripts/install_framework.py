@@ -15,6 +15,7 @@ import sys
 import tempfile
 import runpy
 import warnings
+from urllib.parse import urlsplit, urlunsplit
 
 
 _NATS_HELPER_PATH = Path(__file__).resolve().parents[1] / "src" / "lab_sync_acquisition" / "nats_configuration.py"
@@ -28,6 +29,8 @@ FILES = {
     "ingestor": "storage-services.json",
 }
 AUTHORITY_FIELDS = ("controller_claim_account", "controller_claim_bucket", "controller_claim_key")
+SHARED_FIELDS = ("ingestor_id", "storage_id", "synchronization_id", "controller_id", *AUTHORITY_FIELDS,
+                 "preservation_window_s", "result_window_s", "registration_window_s", "known_nodes", "external_dependents")
 ENVIRONMENT_REPORT = (
     "import importlib.metadata as m,json,sys; "
     "v=next((d.version for d in m.distributions() if d.metadata.get('Name')=='lab-sync-acquisition'),None); "
@@ -62,9 +65,19 @@ async def check():
         k: settings[k] for k in helpers['AUTH_FIELDS'] if k in settings})
     client = Client()
     failure = None
+    account = None
     try:
         await asyncio.wait_for(client.connect(**options, allow_reconnect=False,
             error_cb=helpers['report_nats_error']), window)
+        if settings.get('discover_account'):
+            try:
+                reply = await client.request('$SYS.REQ.USER.INFO', b'', timeout=window)
+                identity = json.loads(reply.data)
+                observed = identity.get('data', {}).get('account')
+                if not identity.get('error') and isinstance(observed, str) and observed.strip():
+                    account = observed
+            except Exception:
+                pass
     except Exception:
         failure = RuntimeError('NATS connection unconfirmed')
     finally:
@@ -80,6 +93,7 @@ async def check():
                 failure = RuntimeError('NATS cleanup unconfirmed')
     if failure is not None:
         raise failure
+    print(json.dumps({'account': account}))
 asyncio.run(check())
 """
 
@@ -131,7 +145,79 @@ def _inspect_environment(python, environment):
     return report
 
 
-def _configuration_plan(roles, directory, existing):
+def _endpoint(server, *, include_route=False):
+    """Remove userinfo; omit path/query details from operator-visible endpoint labels."""
+    url = urlsplit(server)
+    return urlunsplit((url.scheme, url.netloc.rsplit('@', 1)[-1],
+                      url.path if include_route else '', url.query if include_route else '',
+                      url.fragment if include_route else ''))
+
+
+def _read_shared_configuration(path, *, contents=None):
+    """Extract shared declarations from an explicitly selected file, excluding foreign credentials and paths."""
+    failed = False
+    try:
+        data = json.loads(path.read_bytes() if contents is None else contents,
+                          object_pairs_hook=_NATS_HELPERS['_unique_fields'])
+        if not isinstance(data, dict):
+            raise ValueError()
+        _NATS_HELPERS['nats_connect_options'](data['servers'], **{
+            k: data[k] for k in _NATS_HELPERS['AUTH_FIELDS'] if k in data})
+        shared = {k: data[k] for k in SHARED_FIELDS if k in data}
+        for field in ('ingestor_id', 'storage_id', *AUTHORITY_FIELDS):
+            if not isinstance(shared.get(field), str) or not shared[field].strip():
+                raise ValueError()
+        if 'known_nodes' in data and 'service_id' in data:
+            if 'controller_id' in shared and shared['controller_id'] != data['service_id']:
+                raise ValueError()
+            shared['controller_id'] = data['service_id']
+        elif 'service_id' in data and not any(k in data for k in ('storage_root', 'node_config')):
+            if 'synchronization_id' in shared and shared['synchronization_id'] != data['service_id']:
+                raise ValueError()
+            shared['synchronization_id'] = data['service_id']
+        for field in ('controller_id', 'synchronization_id'):
+            if field in shared and (not isinstance(shared[field], str) or not shared[field].strip()):
+                raise ValueError()
+        if 'known_nodes' in shared and (not isinstance(shared['known_nodes'], list) or
+                any(not isinstance(n, str) or not n.strip() for n in shared['known_nodes'])):
+            raise ValueError()
+        for field in ('preservation_window_s', 'result_window_s', 'registration_window_s'):
+            if field in shared and (type(shared[field]) not in (int, float) or not math.isfinite(shared[field])
+                                    or shared[field] < 0 or field != 'preservation_window_s' and shared[field] == 0):
+                raise ValueError()
+        if 'external_dependents' in shared:
+            if not isinstance(shared['external_dependents'], list):
+                raise ValueError()
+            for participant in shared['external_dependents']:
+                if (not isinstance(participant, dict) or set(participant) != {'component_type', 'component_id'}
+                        or participant['component_type'] not in {'controller', 'acquisition_node', 'synchronization_manager'}
+                        or not isinstance(participant['component_id'], str) or not participant['component_id'].strip()):
+                    raise ValueError()
+        shared['servers'] = [_endpoint(s, include_route=True) for s in data['servers']]
+    except (OSError, ValueError, TypeError, KeyError, OverflowError):
+        failed = True
+    if failed:
+        raise ValueError('Selected deployment configuration is unreadable or lacks valid shared settings')
+    return shared
+
+
+def _choose_discovered(label, candidates):
+    """Confirm one bounded candidate or explicitly select among several; empty declines discovery."""
+    if not candidates:
+        return None
+    for i, (description, _) in enumerate(candidates, 1):
+        print(f'  {i}. {json.dumps(description)}')
+    if len(candidates) == 1:
+        return candidates[0][1] if _confirm('Use discovered ' + label) else None
+    choice = _ask('Choose ' + label + ' number; empty to enter another value', allow_empty=True)
+    if not choice:
+        return None
+    if not choice.isdigit() or not 1 <= int(choice) <= len(candidates):
+        raise ValueError('Choose one of the displayed candidates')
+    return candidates[int(choice) - 1][1]
+
+
+def _configuration_plan(roles, directory, existing, preflight_python):
     """Collect only installation values; existing configurations are never edited."""
     values = {}
     for role, (_, data) in existing.items():
@@ -145,34 +231,79 @@ def _configuration_plan(roles, directory, existing):
                 if key in values and values[key] != fields[key]:
                     raise ValueError(f"Existing configurations disagree on {key}; resolve explicitly")
                 values[key] = fields[key]
+        for key in ('known_nodes', 'external_dependents'):
+            if key in fields:
+                values[key] = fields[key]
     pending = [role for role in roles if role not in existing]
-    print("External NATS is required for service operation, not software installation. "
-          "Supply the deployment URL and runtime-compatible URL authentication; connectivity is verified separately.")
+    print('Laboratory setup: new = set up a new laboratory system; existing = add/update a computer in an existing system.')
+    setup = _ask('Laboratory setup (new/existing)', 'existing' if existing else None)
+    if setup not in {'new', 'existing'} or (setup == 'new' and existing):
+        raise ValueError('Choose existing for an installation with retained configuration, or new for a new system')
+    imported = {}
+    if setup == 'existing' and pending:
+        source = _ask('Existing laboratory service configuration; empty to enter shared settings manually', allow_empty=True)
+        if source:
+            imported = _read_shared_configuration(Path(source).expanduser())
+            print('Shared settings discovered in ' + str(Path(source).expanduser()) + '; credentials and foreign computer paths are not imported.')
+            for key in ('ingestor_id', 'storage_id', 'synchronization_id', 'controller_id', *AUTHORITY_FIELDS):
+                if key in values and key in imported and values[key] != imported[key]:
+                    raise ValueError(f'Existing configurations disagree on {key}; imported values cannot override them')
+            if 'servers' in values and [_endpoint(s, include_route=True) for s in values['servers']] != imported['servers']:
+                raise ValueError('Imported NATS endpoints conflict with local deployment configuration')
+            for key, value in imported.items():
+                values.setdefault(key, value)
+    for key in ('ingestor_id', 'storage_id', 'synchronization_id', 'controller_id', *AUTHORITY_FIELDS):
+        if key in values:
+            print('Discovered ' + key + ': ' + json.dumps(values[key]))
+    if existing:
+        print('Discovered local configuration: ' + ', '.join(FILES[role] for role in existing) + '; existing files remain unchanged.')
+    if 'known_nodes' not in values:
+        nodes = list(dict.fromkeys(p['component_id'] for p in values.get('external_dependents', [])
+                                   if p['component_type'] == 'acquisition_node'))
+        if nodes:
+            values['known_nodes'] = nodes
+    print('NATS connects the laboratory computers. Reachability does not establish laboratory membership; no network search is performed.')
+    if 'servers' in values:
+        if existing:
+            print('Configured local NATS endpoints: ' + ', '.join(json.dumps(_endpoint(s)) for s in values['servers']))
+            if not _confirm('Use discovered local NATS settings without changing existing files'):
+                raise ValueError('Existing connection settings must be resolved explicitly; no override was applied')
+        elif len(values['servers']) == 1:
+            if not _choose_discovered('NATS server', [(_endpoint(values['servers'][0]), values['servers'])]):
+                values.pop('servers')
+        else:
+            candidates = values.pop('servers')
+            for i, server in enumerate(candidates, 1):
+                print(f'  {i}. {json.dumps(_endpoint(server))}')
+            choice = _ask('Choose NATS server numbers, comma-separated in chosen order; empty to enter addresses', allow_empty=True)
+            if choice:
+                selected = _comma(choice)
+                if (len(set(selected)) != len(selected) or
+                        any(not n.isdigit() or not 1 <= int(n) <= len(candidates) for n in selected)):
+                    raise ValueError('Choose distinct displayed NATS server numbers')
+                values['servers'] = [candidates[int(n)-1] for n in selected]
+    if 'servers' not in values:
+        print('No laboratory server has been selected. Ask the laboratory administrator for its NATS address; entering an address does not verify it.')
+    print('Service names identify the shared data intake, storage and timing owners; proposed names are editable, not discovered services.')
     for key, label, default in (("servers", "NATS URLs, comma-separated (external broker)", None),
                                ("ingestor_id", "Deployment Ingestor ID", "ingestor-1"),
                                ("storage_id", "Deployment StorageManager ID", "storage-manager-1")):
         if key not in values:
             answer = _hidden_input(label) if key == "servers" else _ask(label, default)
             values[key] = _comma(answer) if key == "servers" else answer
-    if any(key not in values for key in AUTHORITY_FIELDS):
-        print("Ask the NATS administrator for the actual account ID reported by $SYS.REQ.USER.INFO, "
-              "the existing persistent non-expiring KV bucket name (not its KV_ stream prefix), "
-              "and the shared installation claim key. These are not credentials or per-computer values. "
-              "The installer will not create or change them; the minimal connection check does not verify them.")
-    for key, label in (("controller_claim_account", "Controller authority account (actual NATS account ID)"),
-                       ("controller_claim_bucket", "Controller authority bucket (existing persistent KV bucket)"),
-                       ("controller_claim_key", "Controller authority key (shared installation claim)")):
-        if key not in values:
-            values[key] = _ask(label)
     windows = {}
     if pending:
+        print('Confirmation windows are maximum waits, not recording duration. Reuse laboratory settings or obtain suitable values from its administrator.')
         for key, label in (("preservation_window_s", "Preservation window, seconds"),
                            ("result_window_s", "Request/check window, seconds")):
             previous = {data[key] for _, data in existing.values() if key in data}
-            windows[key] = (previous.pop() if len(previous) == 1 else float(_ask(label)))
+            if len(previous) > 1:
+                print(label + ': local roles use ' + json.dumps(sorted(previous)) + '; choose the value for new roles, without changing existing files.')
+            default = values.get(key)
+            windows[key] = (previous.pop() if len(previous) == 1 else float(default) if default is not None else float(_ask(label)))
     generated, deferred = {}, []
     for role in pending:
-        data = {key: values[key] for key in ("servers", "ingestor_id", "storage_id", *AUTHORITY_FIELDS)}
+        data = {key: values[key] for key in ("servers", "ingestor_id", "storage_id")}
         if _confirm(f"Use explicit NATS username/password for {role}"):
             for field in _NATS_HELPERS['AUTH_FIELDS']:
                 data[field] = _hidden_input(f"{role} {field} (hidden)")
@@ -181,19 +312,29 @@ def _configuration_plan(roles, directory, existing):
         data["preservation_window_s"] = windows["preservation_window_s"]
         data["result_window_s"] = windows["result_window_s"]
         if role in {"controller", "acquisition-node", "synchronization-manager"}:
-            data["registration_window_s"] = 180.0
+            data["registration_window_s"] = values.get('registration_window_s', 180.0)
             if "synchronization_id" not in values:
-                values["synchronization_id"] = _ask("Deployment SynchronizationManager ID", "synchronization-manager-1")
+                names = list(dict.fromkeys(p['component_id'] for p in values.get('external_dependents', [])
+                                          if p['component_type'] == 'synchronization_manager'))
+                values["synchronization_id"] = _choose_discovered('declared timing-service name', [(n, n) for n in names]) or _ask(
+                    "Deployment SynchronizationManager ID", "synchronization-manager-1")
             if role != "synchronization-manager":
                 data["synchronization_id"] = values["synchronization_id"]
         if role == "controller":
-            data["service_id"] = values.get("controller_id") or _ask("Controller ID", "controller-1")
-            data["known_nodes"] = _comma(_ask("Known AcquisitionNode IDs, comma-separated; empty for none",
-                                              allow_empty=True))
+            names = list(dict.fromkeys(p['component_id'] for p in values.get('external_dependents', [])
+                                      if p['component_type'] == 'controller'))
+            data["service_id"] = values.get("controller_id") or _choose_discovered(
+                'declared Controller name', [(n, n) for n in names]) or _ask("Controller ID", "controller-1")
+            nodes = (_choose_discovered('declared node inventory', [(json.dumps(values['known_nodes']), values['known_nodes'])])
+                     if 'known_nodes' in values else None)
+            data["known_nodes"] = nodes if nodes is not None else _comma(_ask(
+                "Known AcquisitionNode IDs, comma-separated; empty for none", allow_empty=True))
         elif role == "synchronization-manager":
             data["service_id"] = values["synchronization_id"]
         elif role == "acquisition-node":
-            hardware = _ask("Existing node hardware JSON path; empty to defer node setup", allow_empty=True)
+            hardware_candidates = [(str(p), str(p)) for p in (directory / 'acquisition-node.json',) if p.is_file()]
+            hardware = _choose_discovered('local hardware configuration', hardware_candidates) or _ask(
+                "Existing node hardware JSON path; empty to defer node setup", allow_empty=True)
             if not hardware or not Path(hardware).expanduser().is_file():
                 deferred.append("AcquisitionNode incomplete: provide an existing valid hardware JSON; no declarations invented")
                 continue
@@ -202,28 +343,83 @@ def _configuration_plan(roles, directory, existing):
             base = Path(_ask("Storage data directory", directory / "data")).expanduser().resolve()
             data.update(storage_root=str(base / "records"), global_artifact_root=str(base / "artifacts"),
                         recovery_journal_root=str(base / "journals"), framework_journal=str(base / "framework.jsonl"))
-            dependents = _ask("Actual external dependents TYPE/ID, comma-separated; type none only if isolated")
-            if dependents == "none":
-                data["no_operational_dependents"] = True
-            else:
-                data["external_dependents"] = [dict(zip(("component_type", "component_id"), item.split("/", 1), strict=True))
-                                                for item in _comma(dependents)]
             endpoints = {}
-            for identity in _comma(_ask("Retrieval node IDs, comma-separated; empty for none", allow_empty=True)):
+            print('Scientific retrieval uses SSH access prepared by the administrator; no keys, trust or remote devices are created.')
+            retrieval = _ask("Retrieval node IDs, comma-separated; empty or none to skip",
+                             ','.join(values.get('known_nodes', [])) or None, allow_empty=True)
+            for identity in ([] if retrieval == 'none' else _comma(retrieval)):
                 if identity in endpoints:
                     raise ValueError("Duplicate retrieval node")
                 endpoints[identity] = {
                     "host": _ask(f"{identity} SSH host"), "username": _ask(f"{identity} SSH username"),
-                    "key_filename": str(Path(_ask(f"{identity} existing SSH private-key path")).expanduser().resolve()),
                     "port": int(_ask(f"{identity} SSH port", 22)),
                 }
-                hosts = _ask(f"{identity} existing known-hosts path; empty for system host keys", allow_empty=True)
+                keys = [(str(p), str(p)) for p in (Path.home() / '.ssh' / 'id_ed25519', Path.home() / '.ssh' / 'id_rsa') if p.is_file()]
+                key = _choose_discovered(f'{identity} local SSH key path', keys) or _ask(f"{identity} existing SSH private-key path")
+                endpoints[identity]['key_filename'] = str(Path(key).expanduser().resolve())
+                host_files = [(str(p), str(p)) for p in (Path.home() / '.ssh' / 'known_hosts',) if p.is_file()]
+                hosts = _choose_discovered(f'{identity} local host-key file', host_files) or _ask(
+                    f"{identity} existing known-hosts path; empty for system host keys", allow_empty=True)
                 if hosts:
                     endpoints[identity]["known_hosts_path"] = str(Path(hosts).expanduser().resolve())
             data["retrieval_endpoints"] = endpoints
         generated[role] = data
+    if generated:
+        if setup == 'new' and 'controller_claim_account' not in values:
+            settings = next(iter(generated.values()))
+            try:
+                result = _run([preflight_python, '-I', '-B', '-c', CONNECT], timeout=3 * settings['result_window_s'] + 5,
+                    input=json.dumps({'servers': settings['servers'], 'timeout_s': settings['result_window_s'],
+                        'discover_account': True, **{k: settings[k] for k in _NATS_HELPERS['AUTH_FIELDS'] if k in settings}}))
+                observed = json.loads(result)
+                account = observed.get('account') if isinstance(observed, dict) else None
+            except (RuntimeError, OSError, subprocess.TimeoutExpired, ValueError, TypeError):
+                account = None
+            if isinstance(account, str) and account.strip():
+                values['controller_claim_account'] = _ask('Controller authority account (authenticated observation; confirm exact value)', account)
+            else:
+                print('Account discovery PENDING / NOT VERIFIED. The server may be offline or deny account readback; ask its administrator for the actual account. Software installation can proceed with supplied valid settings.')
+        print('Controller exclusivity uses one shared account/bucket/key for the laboratory. This installer does not create a bucket or claim; the administrator must provision the persistent bucket.')
+        for key, label, proposal in (
+                ('controller_claim_account', 'Controller authority account (actual NATS account ID)', None),
+                ('controller_claim_bucket', 'Controller authority bucket (shared persistent bucket)', 'controller_authority'),
+                ('controller_claim_key', 'Controller authority key (shared installation claim)', 'controller')):
+            if key not in values:
+                values[key] = _ask(label, proposal if setup == 'new' else None)
+        for data in generated.values():
+            data.update({k: values[k] for k in AUTHORITY_FIELDS})
     combined = {role: data for role, (_, data) in existing.items()} | generated
     storage = combined.get("ingestor")
+    if 'ingestor' in generated:
+        local = []
+        for role, data in combined.items():
+            if role in {'controller', 'synchronization-manager'}:
+                local.append(role.replace('-', '_') + '/' + data['service_id'])
+            elif role == 'acquisition-node':
+                hardware = Path(data['node_config'])
+                if not hardware.is_absolute():
+                    hardware = directory / hardware
+                local.append('acquisition_node/' + json.loads(hardware.read_text(encoding='utf-8'))['node_id'])
+        declared = [p['component_type'] + '/' + p['component_id'] for p in values.get('external_dependents', [])]
+        configured = [kind + '/' + values[field] for field, kind in (
+            ('controller_id', 'controller'), ('synchronization_id', 'synchronization_manager')) if field in values]
+        configured.extend('acquisition_node/' + node for node in values.get('known_nodes', []))
+        proposed = list(dict.fromkeys([*declared, *local, *configured]))
+        print('These declared services may have retirement obligations, including while offline. Confirm the actual list; use none only for a genuinely isolated pair.')
+        for i, participant in enumerate(proposed, 1):
+            kind, identity = participant.split('/', 1)
+            print(f'  {i}. {kind.replace("_", " ")} named {json.dumps(identity)}')
+        dependents = _ask('Actual external dependents TYPE/ID, comma-separated; type none only if isolated', ','.join(proposed) or None)
+        if dependents == 'none':
+            storage['no_operational_dependents'] = True
+        else:
+            selected = _comma(dependents)
+            if selected and all(n.isdigit() for n in selected):
+                if any(not 1 <= int(n) <= len(proposed) for n in selected):
+                    raise ValueError('Choose displayed service numbers or explicit TYPE/ID identities')
+                selected = [proposed[int(n)-1] for n in selected]
+            storage['external_dependents'] = [dict(zip(('component_type', 'component_id'), item.split('/', 1), strict=True))
+                                               for item in selected]
     if storage:
         required = set()
         for role, data in combined.items():
@@ -318,12 +514,20 @@ def main(argv=None):
                 if not isinstance(data, dict):
                     raise ValueError(f"Existing {filename} is not a configuration object")
                 existing[role] = (contents, data)
+                _read_shared_configuration(path, contents=contents)
+                validated = _validate(preflight_python, checkout, path, role, allow_unavailable=True)
+                print(('Discovered validated local configuration: ' if validated else
+                       'Discovered local candidate; full validation pending dependencies: ') + str(path))
+        print('Choose this computer\'s jobs: 1 controller (coordinate experiments), 2 acquisition-node (attached equipment), '
+              '3 synchronization-manager (laboratory time), 4 ingestor (paired data intake and storage). Multiple jobs are allowed; storage-manager selects the same pair.')
         choices = _ask("Local roles: controller acquisition-node synchronization-manager ingestor storage-manager",
                        " ".join(existing) or None).replace(",", " ").split()
+        names = {'1': 'controller', '2': 'acquisition-node', '3': 'synchronization-manager', '4': 'ingestor'}
+        choices = [names.get(role, role) for role in choices]
         if not choices or set(choices) - (set(FILES) | {"storage-manager"}):
             raise ValueError("Select existing framework role names")
         roles = tuple(dict.fromkeys("ingestor" if r == "storage-manager" else r for r in choices))
-        generated, deferred = _configuration_plan(roles, directory, existing)
+        generated, deferred = _configuration_plan(roles, directory, existing, preflight_python)
         configured = {role: (existing[role][1] if role in existing else generated[role])
                       for role in roles if role in existing or role in generated}
         if not configured:
@@ -372,6 +576,13 @@ def main(argv=None):
             print(f"Environment: {'reuse/update' if environment.exists() else 'create'} {environment}")
             print(f"Configuration: {directory}; preserve {len(existing)} existing files; create {list(generated)}")
             print("Local roles: " + ", ".join(roles) + "; Ingestor/StorageManager share one process")
+            for role, settings in configured.items():
+                summary = {k: settings[k] for k in (*SHARED_FIELDS, 'service_id', 'storage_root', 'global_artifact_root',
+                           'recovery_journal_root', 'framework_journal', 'node_config') if k in settings}
+                summary['servers'] = [_endpoint(s) for s in settings['servers']]
+                summary['authentication'] = ('explicit credentials retained/entered; values hidden' if any(
+                    k in settings for k in _NATS_HELPERS['AUTH_FIELDS']) else 'URL-only settings; credentials hidden')
+                print('Configuration findings for ' + role + ': ' + json.dumps(summary, sort_keys=True))
             if dirty:
                 print("WARNING: checkout has local changes; installation includes those changes, without resetting Git")
             print("No services, Controller, cameras or broker will be started. NATS remains external.")

@@ -2707,6 +2707,24 @@ Q022 as a whole is not closed. Q019 remains CLOSED in W050.
 **Generic installer (Decision 421): bounded implementation; independent validation
 and audit pending.**
 
+**Discovery-first guided installation (Decision 446): implemented; independent
+validation and audit pending.** The existing planner follows Discover -> Present findings ->
+Confirm or choose -> Validate -> Configure, considering trustworthy existing
+information first. The accepted scope includes NATS candidate confirmation or
+selection, understandable new-system/join-existing choices and appropriate shared
+configuration import without unrelated computer-specific settings or credentials.
+For a new deployment, actual authenticated account discovery when possible and
+operator-confirmed conventional bucket/key proposals are accepted; fabricated
+accounts, silent server selection and broker provisioning are not. Offline
+installation, exact authentication, confidentiality and existing safety contracts
+remain unchanged. See [Decision 446](architecture_decisions.md#decision-446-guided-installation-discovers-configuration-before-requesting-operator-choices).
+Discovery is bounded to recognized local configuration, explicitly selected
+deployment files and fixed local hardware/SSH file candidates. New-system account
+readback uses only selected endpoints and credentials; denied/offline discovery
+remains unverified and requires supplied valid settings. No broker resources are
+created. Developer software verification is distinct from pending independent
+validation/audit and actual Ubuntu deployment testing. Q022 remains OPEN.
+
 **NATS authentication compatibility (Decision 445): implemented; independent
 validation and audit pending.** Optional `nats_username` and `nats_password` provide
 exact explicit credentials through the SDK's existing authentication arguments.

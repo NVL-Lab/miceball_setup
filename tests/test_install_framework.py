@@ -1,6 +1,7 @@
 """Interactive setup workflows with real configuration validation and isolated I/O."""
 
 import contextlib
+import asyncio
 import io
 import json
 from pathlib import Path
@@ -14,9 +15,241 @@ from unittest.mock import AsyncMock, patch
 
 from scripts import install_framework as installer
 from lab_sync_acquisition.deployment_configuration import load_service_configuration
+from tests.nats_server_fixture import NATS_SERVER, restartable_jetstream_server
 
 
 class FrameworkInstallerTests(unittest.TestCase):
+    def shared_source(self, *, servers=None):
+        path = self.root / "existing laboratory.json"
+        path.write_text(json.dumps({"servers": servers or ["nats://lab-broker:4222"],
+            "ingestor_id": "lab-intake", "storage_id": "lab-storage", "service_id": "lab-control",
+            "synchronization_id": "lab-clock", "known_nodes": ["lab-node"],
+            "controller_claim_account": "actual-lab", "controller_claim_bucket": "lab-authority",
+            "controller_claim_key": "shared-control", "preservation_window_s": 4, "result_window_s": 2,
+            "nats_username": "not-to-import", "nats_password": "not-to-import-secret",
+            "storage_root": "Z:/foreign/scientific", "node_config": "Z:/foreign/hardware.json"}), encoding="utf-8")
+        self.answers["Existing laboratory service configuration"] = str(path)
+        return path
+
+    def test_join_imports_shared_settings_without_foreign_credentials_or_paths(self):
+        source = self.shared_source()
+        before = source.read_bytes()
+        code, output, errors = self.run_setup()
+        self.assertEqual(code, 0, errors)
+        data = load_service_configuration(self.config / "controller.json", "controller")
+        self.assertEqual(data["servers"], ("nats://lab-broker:4222",))
+        self.assertEqual(data["controller_claim_key"], "shared-control")
+        self.assertEqual(data["service_id"], "lab-control")
+        self.assertEqual(data["known_nodes"], ("lab-node",))
+        self.assertEqual(data["result_window_s"], 2)
+        for value in ("not-to-import", "not-to-import-secret", "Z:/foreign"):
+            self.assertNotIn(value, json.dumps(data) + output + errors + '\n'.join(self.prompts))
+        self.assertEqual(source.read_bytes(), before)
+        self.assertFalse(any(p.startswith("Controller authority key") for p in self.prompts))
+
+    def test_multiple_candidates_require_selection_and_preserve_selected_order(self):
+        self.shared_source(servers=["nats://first:4222", "nats://second:4222"])
+        self.answers["Choose NATS server"] = "2,1"
+        code, output, errors = self.run_setup()
+        self.assertEqual(code, 0, errors)
+        self.assertEqual(load_service_configuration(self.config / "controller.json", "controller")["servers"],
+                         ("nats://second:4222", "nats://first:4222"))
+        self.assertIn("does not establish laboratory membership", output)
+        self.assertTrue(all(c['servers'] == ['nats://second:4222', 'nats://first:4222'] for c in self.connections))
+
+    def test_new_system_uses_observed_account_and_confirmed_authority_proposals(self):
+        self.answers["Laboratory setup"] = "new"
+        self.discovered_account = "observed-account"
+        for key in ("Controller authority account", "Controller authority bucket", "Controller authority key"):
+            self.answers[key] = ""
+        code, output, errors = self.run_setup()
+        self.assertEqual(code, 0, errors)
+        settings = load_service_configuration(self.config / "controller.json", "controller")
+        self.assertEqual(settings["controller_claim_account"], "observed-account")
+        self.assertEqual(settings["controller_claim_bucket"], "controller_authority")
+        self.assertEqual(settings["controller_claim_key"], "controller")
+        self.assertTrue(any(c.get("discover_account") for c in self.connections))
+        self.assertIn("does not create a bucket or claim", output)
+
+    def test_denied_account_discovery_keeps_manual_account_and_reports_unverified(self):
+        self.answers["Laboratory setup"] = "new"
+        code, output, errors = self.run_setup()
+        self.assertEqual(code, 0, errors)
+        self.assertEqual(load_service_configuration(self.config / "controller.json", "controller")["controller_claim_account"],
+                         "lab-account")
+        self.assertIn("Account discovery PENDING / NOT VERIFIED", output)
+
+    def test_import_conflict_or_damage_blocks_without_changing_existing_installation(self):
+        self.assertEqual(self.run_setup()[0], 0)
+        target = self.config / "controller.json"
+        before = target.read_bytes()
+        source = self.shared_source()
+        self.answers["Local roles"] = "controller synchronization-manager"
+        self.calls.clear()
+        self.assertEqual(self.run_setup()[0], 1)
+        self.assertEqual(target.read_bytes(), before)
+        self.assertFalse(any("pip" in c for c in self.calls))
+        source.write_text('[]', encoding="utf-8")
+        self.assertEqual(self.run_setup()[0], 1)
+        self.assertEqual(target.read_bytes(), before)
+
+    def test_imported_url_credentials_are_excluded_and_source_is_unchanged(self):
+        from uuid import uuid4
+        secret = uuid4().hex
+        source = self.shared_source(servers=['nats://source-user:' + secret + '@lab-broker:4222'])
+        data = json.loads(source.read_text())
+        data.pop('nats_username')
+        data.pop('nats_password')
+        source.write_text(json.dumps(data), encoding='utf-8')
+        before = source.read_bytes()
+        code, output, errors = self.run_setup()
+        self.assertEqual(code, 0, errors)
+        target = (self.config / 'controller.json').read_text()
+        self.assertNotIn(secret, output + errors + target + str(self.prompts))
+        self.assertNotIn('source-user', output + errors + target)
+        self.assertEqual(json.loads(target)['servers'], ['nats://lab-broker:4222'])
+        self.assertEqual(source.read_bytes(), before)
+
+    def test_malformed_imports_fail_before_presenting_values_or_modifying_environment(self):
+        from uuid import uuid4
+        secret = uuid4().hex
+        source = self.shared_source()
+        original = json.loads(source.read_text())
+        for mutation in ({'controller_id': {'nats_password': secret}, 'service_id': {'nats_password': secret}},
+                         {'known_nodes': [None]}, {'external_dependents': [{'private': secret}]},
+                         {'result_window_s': float('nan')}, {'controller_claim_key': ''}):
+            with self.subTest(fields=list(mutation)):
+                source.write_text(json.dumps({**original, **mutation}), encoding='utf-8')
+                self.calls.clear()
+                code, output, errors = self.run_setup()
+                self.assertEqual(code, 1)
+                self.assertNotIn(secret, output + errors + str(self.prompts))
+                self.assertFalse(any('pip' in c or 'venv' in c for c in self.calls))
+        source.write_text('{"servers": [], "servers": []}', encoding='utf-8')
+        self.assertEqual(self.run_setup()[0], 1)
+
+    def test_offline_new_system_accepts_supplied_account_without_claiming_readiness(self):
+        self.answers['Laboratory setup'] = 'new'
+        self.failure = 'nats'
+        code, output, errors = self.run_setup()
+        self.assertEqual(code, 2, errors)
+        self.assertIn('Account discovery PENDING / NOT VERIFIED', output)
+        self.assertIn('NATS connectivity PENDING / NOT VERIFIED', output)
+        self.assertNotIn('NATS connection and cleanup confirmed', output)
+        data = load_service_configuration(self.config / 'controller.json', 'controller')
+        self.assertEqual(data['controller_claim_account'], 'lab-account')
+
+    def test_declined_candidate_uses_manual_address_without_probing_candidate(self):
+        self.shared_source()
+        self.answers['Use discovered'] = 'no'
+        code, output, errors = self.run_setup()
+        self.assertEqual(code, 0, errors)
+        self.assertEqual(json.loads((self.config / 'controller.json').read_text())['servers'], ['nats://broker:4222'])
+        self.assertTrue(all(c['servers'] == ['nats://broker:4222'] for c in self.connections))
+
+    def test_ambiguous_candidate_selection_cannot_silently_choose_or_probe(self):
+        self.shared_source(servers=['nats://first:4222', 'nats://second:4222'])
+        self.answers['Choose NATS server'] = '2,2'
+        code, _, errors = self.run_setup()
+        self.assertEqual(code, 1)
+        self.assertFalse(self.connections)
+        self.assertFalse(self.environment.exists())
+
+    def test_rerun_reuses_local_settings_without_reasking_internal_details(self):
+        self.assertEqual(self.run_setup()[0], 0)
+        path = self.config / 'controller.json'
+        before = path.read_bytes()
+        self.assertEqual(self.run_setup()[0], 0)
+        for prefix in ('Controller authority', 'Deployment Ingestor', 'Deployment StorageManager',
+                       'Preservation window', 'Request/check window', 'Use explicit NATS',
+                       'Known AcquisitionNode', 'Existing laboratory service configuration'):
+            self.assertFalse(any(p.startswith(prefix) for p in self.prompts), prefix)
+        self.assertTrue(any(p.startswith('All services') for p in self.prompts))
+        self.assertEqual(path.read_bytes(), before)
+
+    def test_numeric_role_dependency_choices_and_local_hardware_ssh_candidates(self):
+        self.answers['Local roles'] = '4 2 3 1'
+        hardware = self.hardware()
+        self.config.mkdir()
+        local_hardware = self.config / 'acquisition-node.json'
+        local_hardware.write_bytes(hardware.read_bytes())
+        key = self.root / 'operator-home' / '.ssh' / 'id_ed25519'
+        key.parent.mkdir(parents=True)
+        key.write_text('disposable key-path fixture', encoding='utf-8')
+        hosts = key.parent / 'known_hosts'
+        hosts.write_text('disposable existing host-file fixture', encoding='utf-8')
+        self.answers.update({'Retrieval node IDs': 'node', 'node SSH host': 'node.example',
+                             'node SSH username': 'operator', 'node SSH port': '22',
+                             'Actual external dependents': '1,2,3'})
+        before = local_hardware.read_bytes(), key.read_bytes(), hosts.read_bytes()
+        code, output, errors = self.run_setup()
+        self.assertEqual(code, 0, errors)
+        node = load_service_configuration(self.config / 'acquisition-node-service.json', 'acquisition-node')
+        self.assertEqual(node['node_config'], local_hardware)
+        storage = load_service_configuration(self.config / 'storage-services.json', 'ingestor')
+        self.assertEqual(storage['retrieval_endpoints']['node'].key_filename, str(key))
+        self.assertEqual(storage['retrieval_endpoints']['node'].known_hosts_path, str(hosts))
+        self.assertEqual(len(storage['external_dependents']), 3)
+        self.assertEqual((local_hardware.read_bytes(), key.read_bytes(), hosts.read_bytes()), before)
+        self.assertFalse(any(p.startswith('Existing node hardware JSON path') for p in self.prompts))
+
+    def test_cancel_during_discovery_does_not_publish_or_prepare_environment(self):
+        source = self.shared_source()
+        before = source.read_bytes()
+        self.interrupt_at = 'Use discovered NATS server'
+        code, _, errors = self.run_setup()
+        self.assertEqual(code, 130)
+        self.assertIn('No installation changes', errors)
+        self.assertFalse(self.config.exists())
+        self.assertFalse(self.environment.exists())
+        self.assertEqual(source.read_bytes(), before)
+
+    def test_import_cannot_hide_a_conflicting_websocket_route(self):
+        self.assertEqual(self.run_setup()[0], 0)
+        target = self.config / 'controller.json'
+        data = json.loads(target.read_text())
+        data['servers'] = ['wss://broker:4222/first-route']
+        target.write_text(json.dumps(data), encoding='utf-8')
+        before = target.read_bytes()
+        source = self.shared_source()
+        source.write_text(json.dumps({**data, 'servers': ['wss://broker:4222/second-route']}), encoding='utf-8')
+        self.answers['Local roles'] = 'controller synchronization-manager'
+        self.calls.clear()
+        code, _, errors = self.run_setup()
+        self.assertEqual(code, 1)
+        self.assertIn('Imported NATS endpoints conflict', errors)
+        self.assertEqual(target.read_bytes(), before)
+        self.assertFalse(any('pip' in c for c in self.calls))
+
+    def test_new_system_choice_cannot_replace_existing_local_scope(self):
+        self.assertEqual(self.run_setup()[0], 0)
+        path = self.config / 'controller.json'
+        before = path.read_bytes()
+        self.answers['Laboratory setup'] = 'new'
+        self.calls.clear()
+        self.assertEqual(self.run_setup()[0], 1)
+        self.assertEqual(path.read_bytes(), before)
+        self.assertFalse(any('pip' in c for c in self.calls))
+
+    def test_join_reuses_declared_service_and_node_names_from_a_storage_configuration(self):
+        source = self.shared_source()
+        data = json.loads(source.read_text())
+        for field in ('known_nodes', 'synchronization_id', 'service_id', 'node_config'):
+            data.pop(field)
+        data['external_dependents'] = [
+            {'component_type': 'controller', 'component_id': 'declared-control'},
+            {'component_type': 'synchronization_manager', 'component_id': 'declared-clock'},
+            {'component_type': 'acquisition_node', 'component_id': 'declared-node'}]
+        source.write_text(json.dumps(data), encoding='utf-8')
+        code, _, errors = self.run_setup()
+        self.assertEqual(code, 0, errors)
+        result = load_service_configuration(self.config / 'controller.json', 'controller')
+        self.assertEqual(result['service_id'], 'declared-control')
+        self.assertEqual(result['synchronization_id'], 'declared-clock')
+        self.assertEqual(result['known_nodes'], ('declared-node',))
+        self.assertFalse(any(p.startswith('Controller ID') or p.startswith('Deployment SynchronizationManager ID')
+                             for p in self.prompts))
+
     def test_hidden_explicit_credentials_reach_verification_and_config_but_not_output(self):
         from uuid import uuid4
         auth = {"nats_username": uuid4().hex, "nats_password": uuid4().hex + " @:/?#%40\r\n\t\u03bb "}
@@ -65,6 +298,8 @@ class FrameworkInstallerTests(unittest.TestCase):
         self.prompts = []
         self.connections = []
         self.answers = {
+            "Laboratory setup": "existing",
+            "Use discovered": "yes",
             "Local roles": "controller",
             "NATS URLs": "nats://broker:4222",
             "Deployment Ingestor ID": "intake",
@@ -82,7 +317,9 @@ class FrameworkInstallerTests(unittest.TestCase):
             "All services": "yes",
             "Install the displayed": "yes",
             "NATS connectivity timeout": "1",
+            "Retrieval node IDs": "none",
         }
+        self.discovered_account = None
         self.platform = sys.platform
         self.failure = None
         self.version = [3, 12]
@@ -120,7 +357,8 @@ class FrameworkInstallerTests(unittest.TestCase):
             self.prompts.append(prompt)
             if self.failure == "prompt-interrupt" or (self.interrupt_at and prompt.startswith(self.interrupt_at)):
                 raise KeyboardInterrupt()
-            return next((value for prefix, value in self.answers.items() if prompt.startswith(prefix)), "")
+            return next((value for prefix, value in sorted(self.answers.items(), key=lambda item: -len(item[0]))
+                         if prompt.startswith(prefix)), "")
 
         def run(arguments, *, timeout=60, input=None):
             args = [str(a) for a in arguments]
@@ -167,6 +405,8 @@ class FrameworkInstallerTests(unittest.TestCase):
                     raise RuntimeError("Injected connection failure; secret must not be echoed")
                 if self.failure == "connection-interrupt":
                     raise KeyboardInterrupt()
+                if json.loads(input).get("discover_account"):
+                    return json.dumps({"account": self.discovered_account})
             else:
                 raise AssertionError(f"Unexpected external operation: {args}")
             return ""
@@ -174,6 +414,7 @@ class FrameworkInstallerTests(unittest.TestCase):
         installer_run = installer._run
         with patch.object(installer, "_run", side_effect=run), patch("builtins.input", side_effect=answer), \
                 patch.object(installer.getpass, "getpass", side_effect=answer), \
+                patch.object(installer.Path, "home", return_value=self.root / 'operator-home'), \
                 patch.object(installer.sys, "platform", self.platform), \
                 contextlib.redirect_stdout(output), contextlib.redirect_stderr(errors):
             code = installer.main(["--checkout", str(self.checkout), "--config-dir", str(self.config)])
@@ -455,6 +696,7 @@ class FrameworkInstallerTests(unittest.TestCase):
         self.calls.clear()
         self.answers["Local roles"] = "controller storage-manager"
         self.answers["Known AcquisitionNode IDs"] = "bad.*"
+        self.answers["Use discovered declared node inventory"] = "no"
         code, _, errors = self.run_setup()
         self.assertEqual(code, 1)
         self.assertIn("Configuration validation failed", errors)
@@ -756,6 +998,38 @@ class FrameworkInstallerTests(unittest.TestCase):
                 self.assertIn("--deployment-config", command)
                 self.assertIn("'", command)
                 self.assertEqual(command.startswith("LAUNCH: & "), operating_system == "win32")
+
+
+@unittest.skipUnless(NATS_SERVER, 'isolated nats-server unavailable')
+class InstallerAccountDiscoveryTests(unittest.IsolatedAsyncioTestCase):
+    async def test_authenticated_account_readback_or_denial_never_creates_broker_resources(self):
+        from uuid import uuid4
+        import nats
+        for account_available in (True, False):
+            with self.subTest(account_available=account_available):
+                user, password = uuid4().hex, uuid4().hex + '@:/?#%40 \u03bb'
+                declaration = {'user': user, 'password': password}
+                if not account_available:
+                    declaration['permissions'] = {'publish': {'allow': ['>'], 'deny': ['$SYS.REQ.USER.INFO']}}
+                users = json.dumps([declaration], ensure_ascii=False)
+                options = ({'server_configuration': 'system_account: SYS\naccounts {\nSYS {}\nLAB {\njetstream: enabled\nusers: ' + users + '\n}\n}\n'}
+                           if account_available else {'authorization': 'users: ' + users})
+                async with restartable_jetstream_server(**options) as server:
+                    payload = json.dumps({'servers': [server.url], 'nats_username': user,
+                        'nats_password': password, 'timeout_s': 1, 'discover_account': True}).encode()
+                    arguments = [sys.executable, '-I', '-B', '-c', installer.CONNECT]
+                    child = await asyncio.create_subprocess_exec(*arguments, stdin=asyncio.subprocess.PIPE,
+                        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+                    stdout, stderr = await asyncio.wait_for(child.communicate(payload), 10)
+                    self.assertEqual(child.returncode, 0, 'Isolated account discovery child failed')
+                    self.assertEqual(json.loads(stdout)['account'], 'LAB' if account_available else None)
+                    for value in (user, password):
+                        self.assertNotIn(value, stdout.decode() + stderr.decode() + str(arguments))
+                    client = await nats.connect(server.url, user=user, password=password, allow_reconnect=False)
+                    try:
+                        self.assertEqual(await client.jetstream().streams_info(), [])
+                    finally:
+                        await client.close()
 
 
 if __name__ == "__main__":

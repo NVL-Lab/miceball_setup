@@ -2689,6 +2689,10 @@ Storage GUI integration and remaining deployment validation.
 
 ## scripts/install_framework.py
 
+- Decision 446: The existing planner implements bounded discovery and new/join choices; independent validation/audit and Ubuntu deployment verification remain pending, with no network scanning or broker provisioning.
+- `_endpoint(server, *, include_route=False)`: Removes URL userinfo for imported addresses/comparison and hides routing details in operator-visible endpoint labels.
+- `_read_shared_configuration(path, *, contents=None)`: Validates and selects shared declarations from an explicitly selected file or retained local snapshot, excluding credentials and foreign computer paths.
+- `_choose_discovered(label, candidates)`: Confirms a single local candidate or requires explicit selection among several without silently adopting discoveries.
 - `_hidden_input(label)`: Reads connection URLs and explicit credentials without echo or normalization, refusing insecure terminal fallback.
 - Decision 445: `_configuration_plan()` optionally collects per-role credentials without rewriting existing files; `CONNECT` loads the shared standard-library validator and consumes credentials only through stdin.
 
@@ -2698,13 +2702,15 @@ Storage GUI integration and remaining deployment validation.
 - _confirm(label): Requires an explicit affirmative response before maintenance-sensitive installation changes.
 - _comma(value): Splits explicitly supplied deployment lists for existing configuration fields.
 - _inspect_environment(python, environment): Confirms the selected interpreter is an isolated Python 3.12 environment and reports installed package metadata before reuse.
-- _configuration_plan(roles, directory, existing): Collects missing deployment configuration with editable identifier defaults, explicit authority guidance and windows, preserves existing identity/authority/dependency consistency, and defers node setup when hardware declarations are unavailable.
+- _configuration_plan(roles, directory, existing, preflight_python): Reuses local/shared declarations, confirms endpoint and hardware/SSH candidates, obtains new-system account readback and confirmed authority proposals, and builds existing role configurations while preserving conflicts, offline handling and hardware deferral.
 - _validate(python, checkout, path, role, allow_unavailable=False): Uses the selected checkout's authoritative loader in an isolated child, allowing only missing import dependencies to defer pre-install validation and blocking unresolved validation after installation.
 - _publish(path, contents): Exclusively creates a validated new configuration and removes its own incomplete write after a handled failure or interruption without replacing existing files.
 
 ## tests/test_install_framework.py
 
 - FrameworkInstallerTests: Exercises local-prerequisite gating, pending versus verified broker outcomes, installation without connectivity, interpreter selection, defaults, SDK-mocked cleanup, cancellation, preservation and real child-process import/loader validation with simulated package, Git and broker operations.
+- FrameworkInstallerTests.shared_source: Builds a disposable shared deployment source for public installer import, conflict and confidentiality workflows.
+- InstallerAccountDiscoveryTests: Exercises the production connectivity child against isolated authenticated brokers with successful/denied account readback and confirms that no JetStream resources are created.
 
 ## scripts/manual_opencv_camera_smoke.py
 

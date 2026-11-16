@@ -176,6 +176,42 @@ volume. Existing-identical-handoff fixtures do not prove first publication.
 
 ### Guided Setup From An Existing Checkout (Decision 421)
 
+**Implemented software; independent validation/audit and Ubuntu deployment
+verification pending (Decision 446):** The existing planner follows Discover ->
+Present findings -> Confirm or choose -> Validate -> Configure. It inspects local
+role files first and offers new-laboratory versus add/update-computer choices.
+An explicitly selected existing service JSON can supply shared identities, timing
+settings, declared participants, authority scope and endpoint candidates, not
+foreign credentials or computer-specific paths. Conflicting local/imported scope
+is rejected; existing local files are never overwritten. Imported shared fields
+are checked before presentation; full authoritative role validation still applies
+to the resulting local configurations.
+
+One NATS candidate requires confirmation; multiple candidates require explicit
+selection, preserving the chosen URL order and existing SDK selection behavior.
+No network scanning, speculative endpoint probing or broker provisioning occurs.
+When no endpoint is known, supply the administrator's address through hidden input.
+Reachability never establishes laboratory membership. For new systems, the
+installer attempts `$SYS.REQ.USER.INFO` using a selected connection after credential
+entry. Successful authenticated readback can supply the account for confirmation;
+denied/offline/unverified readback cannot invent it. Supply a known administrator-
+provided account to continue offline with valid configuration. Conventional
+`controller_authority` / `controller` bucket/key names are proposals for explicit
+confirmation, not newly created resources or defaults for joining an existing lab.
+Offline installation and Decisions 440/445 remain unchanged.
+See [Decision 446](architecture_decisions.md#decision-446-guided-installation-discovers-configuration-before-requesting-operator-choices).
+The procedure below describes software behavior, not independent or deployment closure.
+
+Role selection accepts existing role names or displayed numbers: Controller,
+attached-equipment AcquisitionNode, SynchronizationManager, and paired data intake/
+storage. Existing settings are reused; missing local hardware leaves that role
+deferred. Bounded local hardware/key/host-file candidates require confirmation;
+file existence does not prove device availability or SSH trust. Declared dependency
+candidates are shown with readable roles and can be selected by number; `none`
+still requires a genuinely isolated pair. Final findings hide credentials and
+show selected scope, paths, timing windows and pending prerequisites. Existing
+retirement attestation and final installation consent remain mandatory.
+
 The existing `scripts/install_framework.py` prepares one local installation; it
 does not start or supervise services. Use Python 3.12 on Windows or Linux, from
 the reviewed checkout. It reuses a compatible checkout-local `.venv` or creates
@@ -580,6 +616,13 @@ authority. Broker authentication is distinct from cooperative human GUI ownershi
 The installer neither proves this full permission set nor changes it.
 
 ### Obtain And Verify The Three Authority Values
+
+This administrator-assisted procedure remains the fallback when shared values
+cannot be discovered. Decision 446's guided software now supports selected-file
+reuse, authenticated account readback and confirmed conventional bucket/key
+proposals for new systems. It does not invent accounts, change existing shared
+authority settings or provision broker resources. Independent validation/audit and
+real Ubuntu deployment verification remain pending.
 
 Use the **same account and credentials as the framework**, via an administrator-
 prepared nats CLI context (`FRAMEWORK_CONTEXT` below is a placeholder):
