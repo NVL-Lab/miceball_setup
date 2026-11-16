@@ -23,6 +23,7 @@ def controller_configuration(directory, **changes):
     path.write_text(json.dumps({"servers": ["nats://example:4222"], "service_id": "controller",
         "ingestor_id": "intake", "storage_id": "storage", "synchronization_id": "clock",
         "preservation_window_s": 1, "result_window_s": 0.03, "known_nodes": ["node", "offline"],
+        "controller_claim_account": "LAB", "controller_claim_bucket": "AUTHORITY", "controller_claim_key": "controller",
         **changes}), encoding="utf-8")
     return path
 

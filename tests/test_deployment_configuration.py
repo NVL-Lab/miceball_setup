@@ -16,6 +16,36 @@ from lab_sync_acquisition.service_startup import load_acquisition_node
 
 
 class DeploymentConfigurationTests(unittest.TestCase):
+    def test_explicit_authentication_round_trips_for_all_service_roles(self):
+        from uuid import uuid4
+        auth = {"nats_username": uuid4().hex, "nats_password": uuid4().hex + " @:/?#%40\r\n\t\u03bb "}
+        for role, settings in self.roles.items():
+            with self.subTest(role=role):
+                loaded = self.load(role, {**settings, **auth})
+                for key, value in auth.items():
+                    self.assertEqual(loaded[key], value)
+                for fields in ({"nats_username": auth["nats_username"]},
+                               {**auth, "nats_password": None}, {**auth, "nats_password": ""},
+                               {**auth, "servers": ["nats://token@offline.invalid:4222"]}):
+                    with self.assertRaises(ValueError):
+                        self.load(role, {**settings, **fields})
+
+    def test_configured_launchers_forward_explicit_credentials_without_printing_them(self):
+        from contextlib import redirect_stdout
+        from uuid import uuid4
+        auth = {"nats_username": uuid4().hex, "nats_password": uuid4().hex + " @%40\u03bb "}
+        for role, settings in self.roles.items():
+            with self.subTest(role=role):
+                self.load(role, {**settings, **auth})
+                method = ('lab_sync_acquisition.service_launcher.launch_storage_services' if role in {'ingestor', 'storage-manager'}
+                          else 'lab_sync_acquisition.service_startup.launch_independent_service')
+                output = io.StringIO()
+                with patch(method, new_callable=AsyncMock, return_value=0) as launch, redirect_stdout(output):
+                    self.assertEqual(main([role, '--deployment-config', str(self.path)]), 0)
+                    for key, value in auth.items():
+                        self.assertEqual(launch.call_args.kwargs[key], value)
+                        self.assertNotIn(value, output.getvalue())
+
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)

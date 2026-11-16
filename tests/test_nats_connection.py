@@ -255,7 +255,9 @@ class NatsConnectionTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(boundary.check_ready().ready)
         await boundary.flush()
         await boundary.close()
-        client.connect.assert_awaited_once_with(servers=["nats://configured:4222"], allow_reconnect=False)
+        from lab_sync_acquisition.nats_configuration import report_nats_error
+        client.connect.assert_awaited_once_with(servers=["nats://configured:4222"], allow_reconnect=False,
+                                              error_cb=report_nats_error)
         client.flush.assert_awaited_once()
         client.drain.assert_awaited_once()
         client.close.assert_not_awaited()

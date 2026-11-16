@@ -51,6 +51,7 @@ from lab_sync_acquisition.synchronization import SynchronizationManager
 from lab_sync_acquisition.experiment_runtime import ActiveExperimentRuntimeContext, ExperimentRuntimeHealthMapping
 from lab_sync_acquisition.service_readiness import ServiceReadiness
 from lab_sync_acquisition.service_maintenance import service_operation, _deployment_diagnostic
+from lab_sync_acquisition.nats_configuration import UNSET, nats_connect_options, report_nats_error
 from lab_sync_acquisition.communication import DEPENDENT_MAINTENANCE_COMMANDS
 from lab_sync_acquisition.storage import PersistentStorageManager, _to_plain_data
 
@@ -132,10 +133,13 @@ class NatsCommunicationBoundary:
         component_type: str,
         component_id: str,
         servers: tuple[str, ...] = ("nats://127.0.0.1:4222",),
+        *, nats_username=UNSET, nats_password=UNSET,
     ) -> None:
         self.component_type = component_type
         self.component_id = component_id
         self.servers = servers
+        self._connect_options = nats_connect_options(servers, nats_username=nats_username, nats_password=nats_password)
+        self._authenticated = "user" in self._connect_options or any("@" in server for server in servers)
         self._client: NATS | None = None
         self._jetstream: JetStreamContext | None = None
         self._close_task: asyncio.Task[None] | None = None
@@ -438,17 +442,24 @@ class NatsCommunicationBoundary:
         # Own the client before its handshake can open a transport or be cancelled.
         self._client = NATS()
         self._jetstream = None
+        failure = None
         try:
-            await self._client.connect(servers=list(self.servers), allow_reconnect=False)
+            await self._client.connect(**self._connect_options, allow_reconnect=False, error_cb=report_nats_error)
             # Arm runtime recovery only after the initial handshake. Passing these
             # options into connect() would also change initial failure behavior.
             self._client.options.update(allow_reconnect=True, max_reconnect_attempts=-1)
             self._jetstream = self._client.jetstream()
-        except BaseException as error:
+        except Exception as error:
+            failure = ConnectionError(f"NATS startup connection failed ({type(error).__name__})")
+            try:
+                await self.close()
+            except Exception:
+                failure = ConnectionError("NATS startup connection and cleanup unconfirmed")
+        except BaseException:
             await self.close()
-            if isinstance(error, Exception):
-                raise ConnectionError(f"NATS startup connection failed: {error}") from error
             raise
+        if failure is not None:
+            raise failure
 
     async def close(self) -> None:
         """Finish owned cleanup before releasing references or propagating cancellation."""
@@ -491,6 +502,7 @@ class NatsCommunicationBoundary:
             self._close_task = asyncio.create_task(finish())
         task = self._close_task
         cancellation = None
+        failure = None
         # nats-py sets is_closed before closing its transport. Join the original
         # operation, including after repeated caller cancellation, rather than
         # starting a second close that would return early on that flag.
@@ -502,6 +514,13 @@ class NatsCommunicationBoundary:
                 if task.cancelled():
                     raise
                 cancellation = error
+            except Exception as error:
+                if not self._authenticated:
+                    raise
+                failure = ConnectionError(f"NATS cleanup unconfirmed ({type(error).__name__})")
+                break
+        if failure is not None:
+            raise failure
         if self._close_task is task and self._client is client:
             self._client = None
             self._jetstream = None

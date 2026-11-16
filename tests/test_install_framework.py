@@ -17,6 +17,40 @@ from lab_sync_acquisition.deployment_configuration import load_service_configura
 
 
 class FrameworkInstallerTests(unittest.TestCase):
+    def test_hidden_explicit_credentials_reach_verification_and_config_but_not_output(self):
+        from uuid import uuid4
+        auth = {"nats_username": uuid4().hex, "nats_password": uuid4().hex + " @:/?#%40\r\n\t\u03bb "}
+        self.answers["Use explicit NATS"] = "yes"
+        for key, value in auth.items():
+            self.answers["controller " + key] = value
+        client = SimpleNamespace(is_connected=True, connect=AsyncMock(), drain=AsyncMock(), close=AsyncMock())
+        self.connection_client = client
+        self.execute_connection_check = True
+        code, output, errors = self.run_setup()
+        self.assertEqual(code, 0, errors)
+        data = load_service_configuration(self.config / "controller.json", "controller")
+        for key, value in auth.items():
+            self.assertEqual(data[key], value)
+            self.assertEqual(self.connections[0][key], value)
+            self.assertNotIn(value, output + errors + '\n'.join(self.prompts) + repr(self.calls))
+        self.assertEqual(client.connect.call_args.kwargs["user"], auth["nats_username"])
+        self.assertEqual(client.connect.call_args.kwargs["password"], auth["nats_password"])
+        before = (self.config / "controller.json").read_bytes()
+        self.calls.clear()
+        self.answers["Use explicit NATS"] = "no"
+        code, output, errors = self.run_setup()
+        self.assertEqual(code, 0, errors)
+        self.assertEqual((self.config / "controller.json").read_bytes(), before)
+
+    def test_hidden_input_refuses_echo_fallback_without_exposing_input(self):
+        import warnings
+        def insecure(prompt):
+            warnings.warn("No terminal", installer.getpass.GetPassWarning)
+            self.fail("Must refuse before echo fallback")
+        with patch.object(installer.getpass, "getpass", side_effect=insecure):
+            with self.assertRaisesRegex(ValueError, "Non-echoing"):
+                installer._hidden_input("NATS credential")
+
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
@@ -139,6 +173,7 @@ class FrameworkInstallerTests(unittest.TestCase):
 
         installer_run = installer._run
         with patch.object(installer, "_run", side_effect=run), patch("builtins.input", side_effect=answer), \
+                patch.object(installer.getpass, "getpass", side_effect=answer), \
                 patch.object(installer.sys, "platform", self.platform), \
                 contextlib.redirect_stdout(output), contextlib.redirect_stderr(errors):
             code = installer.main(["--checkout", str(self.checkout), "--config-dir", str(self.config)])
@@ -249,7 +284,9 @@ class FrameworkInstallerTests(unittest.TestCase):
         async def connect(**settings):
             self.assertFalse(self.config.exists())
             self.assertFalse(self.environment.exists())
-            self.assertEqual(settings, {"servers": ["nats://operator:secret@broker:4222"], "allow_reconnect": False})
+            self.assertEqual(settings["servers"], ["nats://operator:secret@broker:4222"])
+            self.assertFalse(settings["allow_reconnect"])
+            self.assertTrue(callable(settings["error_cb"]))
             client.is_connected = True
 
         async def drain():
@@ -473,7 +510,7 @@ class FrameworkInstallerTests(unittest.TestCase):
         self.assertTrue((self.config / "data/journals").is_dir())
         pip = next(c for c in self.calls if "install" in c)
         self.assertEqual(pip[-1], str(self.checkout) + "[artifact-retrieval]")
-        self.assertEqual(len(self.connections), 1)
+        self.assertEqual(len(self.connections), 4)
 
     def test_each_individual_role_including_storage_alias_can_be_prepared(self):
         for role in (*installer.FILES, "storage-manager"):

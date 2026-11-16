@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import getpass
 import json
 import math
 import os
@@ -12,6 +13,12 @@ import shlex
 import subprocess
 import sys
 import tempfile
+import runpy
+import warnings
+
+
+_NATS_HELPER_PATH = Path(__file__).resolve().parents[1] / "src" / "lab_sync_acquisition" / "nats_configuration.py"
+_NATS_HELPERS = runpy.run_path(str(_NATS_HELPER_PATH))
 
 
 FILES = {
@@ -45,23 +52,34 @@ else:
         raise RuntimeError('Configuration loader does not belong to the selected checkout')
     deployment_configuration.load_service_configuration(sys.argv[2], sys.argv[3])
 """
-CONNECT = """
+CONNECT = "import runpy\nhelpers = runpy.run_path(" + repr(str(_NATS_HELPER_PATH)) + ")\n" + """
 import asyncio,json,sys
 from nats.aio.client import Client
 async def check():
     settings = json.load(sys.stdin)
-    servers, window = settings['servers'], settings['timeout_s']
-    if not isinstance(servers, list) or not servers or any(not isinstance(s, str) or not s.strip() for s in servers):
-        raise ValueError('Explicit nonempty NATS server URLs are required')
+    window = settings['timeout_s']
+    options = helpers['nats_connect_options'](settings['servers'], **{
+        k: settings[k] for k in helpers['AUTH_FIELDS'] if k in settings})
     client = Client()
+    failure = None
     try:
-        await asyncio.wait_for(client.connect(servers=servers, allow_reconnect=False), window)
+        await asyncio.wait_for(client.connect(**options, allow_reconnect=False,
+            error_cb=helpers['report_nats_error']), window)
+    except Exception:
+        failure = RuntimeError('NATS connection unconfirmed')
     finally:
         try:
             if client.is_connected:
                 await asyncio.wait_for(client.drain(), window)
+        except Exception:
+            failure = RuntimeError('NATS drain unconfirmed')
         finally:
-            await asyncio.wait_for(client.close(), window)
+            try:
+                await asyncio.wait_for(client.close(), window)
+            except Exception:
+                failure = RuntimeError('NATS cleanup unconfirmed')
+    if failure is not None:
+        raise failure
 asyncio.run(check())
 """
 
@@ -80,6 +98,20 @@ def _ask(label, default=None, *, allow_empty=False):
     value = value or (str(default) if default is not None else "")
     if not value and not allow_empty:
         raise ValueError(f"{label} is required")
+    return value
+
+
+def _hidden_input(label):
+    """Read connection inputs without echo or value transformation; never fall back to echo."""
+    failed = False
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", getpass.GetPassWarning)
+            value = getpass.getpass(label + ": ")
+    except getpass.GetPassWarning:
+        failed = True
+    if failed:
+        raise ValueError("Non-echoing NATS input is unavailable")
     return value
 
 
@@ -120,7 +152,7 @@ def _configuration_plan(roles, directory, existing):
                                ("ingestor_id", "Deployment Ingestor ID", "ingestor-1"),
                                ("storage_id", "Deployment StorageManager ID", "storage-manager-1")):
         if key not in values:
-            answer = _ask(label, default)
+            answer = _hidden_input(label) if key == "servers" else _ask(label, default)
             values[key] = _comma(answer) if key == "servers" else answer
     if any(key not in values for key in AUTHORITY_FIELDS):
         print("Ask the NATS administrator for the actual account ID reported by $SYS.REQ.USER.INFO, "
@@ -141,6 +173,11 @@ def _configuration_plan(roles, directory, existing):
     generated, deferred = {}, []
     for role in pending:
         data = {key: values[key] for key in ("servers", "ingestor_id", "storage_id", *AUTHORITY_FIELDS)}
+        if _confirm(f"Use explicit NATS username/password for {role}"):
+            for field in _NATS_HELPERS['AUTH_FIELDS']:
+                data[field] = _hidden_input(f"{role} {field} (hidden)")
+        _NATS_HELPERS['nats_connect_options'](data['servers'], **{
+            k: data[k] for k in _NATS_HELPERS['AUTH_FIELDS'] if k in data})
         data["preservation_window_s"] = windows["preservation_window_s"]
         data["result_window_s"] = windows["result_window_s"]
         if role in {"controller", "acquisition-node", "synchronization-manager"}:
@@ -316,8 +353,13 @@ def main(argv=None):
             if type(window) not in (int, float) or not math.isfinite(window) or window <= 0:
                 raise ValueError("NATS connectivity timeout must be positive and finite")
             try:
-                _run([preflight_python, "-I", "-B", "-c", CONNECT], timeout=3 * window + 5,
-                     input=json.dumps({"servers": settings["servers"], "timeout_s": window}))
+                for settings in configured.values():
+                    _NATS_HELPERS['nats_connect_options'](settings['servers'], **{
+                        k: settings[k] for k in _NATS_HELPERS['AUTH_FIELDS'] if k in settings})
+                    window = settings['result_window_s']
+                    _run([preflight_python, "-I", "-B", "-c", CONNECT], timeout=3 * window + 5,
+                         input=json.dumps({"servers": settings["servers"], "timeout_s": window,
+                             **{k: settings[k] for k in _NATS_HELPERS['AUTH_FIELDS'] if k in settings}}))
             except (RuntimeError, OSError, subprocess.TimeoutExpired):
                 message = ("NATS connectivity PENDING / NOT VERIFIED: connection/cleanup unconfirmed. "
                            "Installation may proceed; verify the external broker, URLs, firewall, authentication "

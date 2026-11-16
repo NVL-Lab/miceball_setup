@@ -58,7 +58,7 @@ class _ConnectedShell(HTMLParser):
         self.parts.append(f"<!--{data}-->")
 
 
-def create_gui_app(*, servers, controller_id, client_id, origin, timeout_s, max_request_bytes=1048576):
+def create_gui_app(*, servers, controller_id, client_id, origin, timeout_s, max_request_bytes=1048576, **nats_auth):
     """Serve the existing shell and connection-bound commands via one NATS client."""
     if (not servers or not controller_id or not client_id or type(timeout_s) not in (float, int)
             or not math.isfinite(timeout_s) or timeout_s <= 0
@@ -67,7 +67,7 @@ def create_gui_app(*, servers, controller_id, client_id, origin, timeout_s, max_
     url = urlsplit(origin)
     if url.scheme not in {"http", "https"} or not url.netloc or url.path or url.query or url.fragment:
         raise ValueError("An exact public HTTP(S) origin without path is required")
-    boundary = NatsCommunicationBoundary("client", client_id, tuple(servers))
+    boundary = NatsCommunicationBoundary("client", client_id, tuple(servers), **nats_auth)
     client = NatsExternalSessionLaunchClient(boundary)
     sockets = set()
     connection = None
@@ -197,7 +197,9 @@ def create_gui_app(*, servers, controller_id, client_id, origin, timeout_s, max_
 def main():
     """Start only the separately packaged web client, never framework services."""
     parser = argparse.ArgumentParser()
-    parser.add_argument("--server", action="append", required=True)
+    connection = parser.add_mutually_exclusive_group(required=True)
+    connection.add_argument("--server", action="append")
+    connection.add_argument("--deployment-config")
     parser.add_argument("--controller", required=True)
     parser.add_argument("--client", required=True)
     parser.add_argument("--origin", required=True)
@@ -205,7 +207,14 @@ def main():
     parser.add_argument("--port", type=int, required=True)
     parser.add_argument("--timeout", type=float, required=True)
     args = parser.parse_args()
-    web.run_app(create_gui_app(servers=args.server, controller_id=args.controller, client_id=args.client,
+    settings = {"servers": args.server}
+    if args.deployment_config:
+        from lab_sync_acquisition.nats_configuration import load_nats_configuration
+        try:
+            settings = load_nats_configuration(args.deployment_config)
+        except ValueError:
+            parser.error("Invalid NATS connection configuration")
+    web.run_app(create_gui_app(**settings, controller_id=args.controller, client_id=args.client,
         origin=args.origin, timeout_s=args.timeout), host=args.host, port=args.port)
 
 

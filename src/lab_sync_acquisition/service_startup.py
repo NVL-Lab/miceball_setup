@@ -84,11 +84,13 @@ async def launch_independent_service(*, role, servers, service_id, ingestor_id, 
                                      synchronization_id=None, known_nodes=None, node_config=None,
                                      external_client_id=None, browser_control_required=False, controller_claim_account=None,
                                      controller_claim_bucket=None, controller_claim_key=None,
-                                     registration_window_s=180.0, report=print):
+                                     registration_window_s=180.0, report=print, **nats_auth):
     """Run one explicit owner with remote preservation, readiness and existing maintenance."""
     report = _terminal_report if report is print else report
     from math import isfinite
     servers = tuple(servers)
+    from lab_sync_acquisition.nats_configuration import nats_connect_options
+    nats_connect_options(servers, **nats_auth)
     if type(browser_control_required) is not bool or (browser_control_required and (role != "controller" or external_client_id is None)):
         raise ValueError("Browser control requires the Controller's explicit external client")
     if (not servers or any(not isinstance(s, str) or not s.strip() for s in servers)
@@ -125,7 +127,7 @@ async def launch_independent_service(*, role, servers, service_id, ingestor_id, 
     kind = role.replace("-", "_")
     for participant in [RuntimeParticipant(kind, service_id), *dependencies]:
         build_runtime_subject(None, "command", participant.component_type, participant.component_id, "stop")
-    boundary = NatsCommunicationBoundary(kind, service_id, servers)
+    boundary = NatsCommunicationBoundary(kind, service_id, servers, **nats_auth)
     boundary.configure_controller_authority(account=controller_claim_account, bucket=controller_claim_bucket,
         key=controller_claim_key, timeout_s=result_window_s)
     communication = NatsControllerCommunication(boundary)

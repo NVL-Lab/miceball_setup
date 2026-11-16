@@ -543,6 +543,25 @@ to require those options and assume the framework will supply them. If local
 security requirements cannot be met by current runtime inputs, stop for an
 explicit interface decision rather than disabling security.
 
+[Decision 445](architecture_decisions.md#decision-445-explicit-nats-username-and-password-preserve-authentication-compatibility)
+is implemented with optional explicit `nats_username`/`nats_password` configuration and
+exact SDK argument forwarding, rejection of partial/empty or mixed URL/explicit
+credentials, and credential-safe output. Add both nonempty string fields to the
+existing deployment JSON, with no userinfo in any `servers` URL, or omit both to
+retain legacy URL-only behavior. Passwords are not trimmed, encoded or decoded.
+The installer reads connection inputs without echo and preserves existing files;
+verification receives credentials through stdin, never subprocess arguments.
+Independent validation and audit are pending; the reported Ubuntu deployment
+failure is not claimed resolved.
+
+GUI and addressed maintenance/claim commands can read connection fields from an
+existing deployment file using `--deployment-config PATH` instead of `--server`.
+GUI identities/origin and maintenance target/authority/authorization flags remain
+explicit and unchanged. These paths read only connection fields from that file;
+they do not launch its service role or grant Controller authority. There are no
+password command-line flags; keep credential files outside Git with appropriate
+OS access restrictions.
+
 Restrict broker configuration, client configuration and private keys to appropriate
 OS users; keep secrets out of Git, shared logs and shell history. nats CLI contexts
 are external administration settings, not automatically consumed by framework

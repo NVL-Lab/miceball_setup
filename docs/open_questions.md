@@ -2707,6 +2707,18 @@ Q022 as a whole is not closed. Q019 remains CLOSED in W050.
 **Generic installer (Decision 421): bounded implementation; independent validation
 and audit pending.**
 
+**NATS authentication compatibility (Decision 445): implemented; independent
+validation and audit pending.** Optional `nats_username` and `nats_password` provide
+exact explicit credentials through the SDK's existing authentication arguments.
+Omitting both preserves legacy URL-only behavior. Partial/empty explicit pairs or
+explicit pairs combined with embedded URL credentials are rejected before
+connection; no implicit precedence, fallback or explicit-password transformation
+is authorized. The same contract and credential-confidentiality requirements apply
+across installer, service, GUI backend and relevant launcher/maintenance paths.
+See [Decision 445](architecture_decisions.md#decision-445-explicit-nats-username-and-password-preserve-authentication-compatibility)
+for the authoritative contract. No resolution of the reported Ubuntu failure,
+independent validation, audit or deployment readiness is claimed. Q022 remains OPEN.
+
 **Current accepted clarification (Decision 440): bounded implementation complete;
 independent validation and audit pending.**
 Framework software installation must not require an operational NATS broker.

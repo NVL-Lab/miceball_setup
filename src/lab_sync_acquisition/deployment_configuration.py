@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from math import isfinite
 from pathlib import Path
-from urllib.parse import urlsplit
+from lab_sync_acquisition.nats_configuration import AUTH_FIELDS, nats_connect_options
 
 from lab_sync_acquisition.communication import RuntimeParticipant, build_runtime_subject
 from lab_sync_acquisition.storage import SshRetrievalEndpoint
@@ -101,7 +101,7 @@ def _validate_service_configuration(data, directory, role):
     if role not in specific:
         raise ValueError("Configuration requires an explicitly selected service role")
     required = common | specific[role]
-    optional = {"service_id"} if role == "acquisition-node" else set()
+    optional = set(AUTH_FIELDS) | ({"service_id"} if role == "acquisition-node" else set())
     if not pair:
         optional.add("registration_window_s")
     if role == "controller":
@@ -120,18 +120,7 @@ def _validate_service_configuration(data, directory, role):
         if type(window) not in (int, float) or not isfinite(window) or window <= 0:
             raise ValueError("registration_window_s must be positive and finite")
     servers = data["servers"]
-    if not isinstance(servers, list) or not servers:
-        raise ValueError("servers requires a nonempty list of NATS URLs")
-    for server in servers:
-        try:
-            url = urlsplit(server)
-            valid = (isinstance(server, str) and not any(c.isspace() for c in server)
-                     and url.scheme in {"nats", "tls", "ws", "wss"} and url.hostname
-                     and (url.port is None or 1 <= url.port <= 65535))
-        except (ValueError, TypeError, AttributeError):
-            valid = False
-        if not valid:
-            raise ValueError("servers contains an invalid NATS URL")
+    nats_connect_options(servers, **{k: data[k] for k in AUTH_FIELDS if k in data})
     data["servers"] = tuple(servers)
     for field in ("preservation_window_s", "result_window_s"):
         value = data[field]

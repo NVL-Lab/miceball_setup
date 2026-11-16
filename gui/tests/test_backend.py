@@ -20,6 +20,55 @@ from tests.nats_server_fixture import acquire_test_controller_authority, NATS_SE
 
 
 class BackendOfflineTests(unittest.IsolatedAsyncioTestCase):
+    def test_backend_cli_uses_file_credentials_without_secret_arguments(self):
+        import json
+        import tempfile
+        from miceball_gui.backend import main
+        auth = {"nats_username": uuid4().hex, "nats_password": uuid4().hex + "@%40\u03bb "}
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'controller.json'
+            path.write_text(json.dumps({"servers": ["nats://example.invalid:4222"], **auth}), encoding='utf-8')
+            argv = ['miceball-gui', '--deployment-config', str(path), '--controller', 'control', '--client', 'gui',
+                    '--origin', 'http://127.0.0.1:8043', '--host', '127.0.0.1', '--port', '8043', '--timeout', '1']
+            with patch.object(sys, 'argv', argv), patch('miceball_gui.backend.web.run_app'), patch(
+                    'miceball_gui.backend.create_gui_app') as create:
+                main()
+                for key, value in auth.items():
+                    self.assertEqual(create.call_args.kwargs[key], value)
+                    self.assertNotIn(value, str(argv))
+
+    async def test_explicit_credentials_are_forwarded_and_never_returned_in_transport_errors(self):
+        password, username = uuid4().hex + " @%40\r\n\t\u03bb ", uuid4().hex
+        with socket.socket() as candidate:
+            candidate.bind(("127.0.0.1", 0))
+            port = candidate.getsockname()[1]
+        origin = f"http://127.0.0.1:{port}"
+        actual_boundary = NatsCommunicationBoundary
+        boundaries = []
+        def boundary(*args, **settings):
+            self.assertEqual(settings, {"nats_username": username, "nats_password": password})
+            value = actual_boundary(*args, **settings)
+            boundaries.append(value)
+            return value
+        with patch("miceball_gui.backend.NatsCommunicationBoundary", side_effect=boundary):
+            app = create_gui_app(servers=["nats://example.invalid:4222"], controller_id="control", client_id="gui",
+                origin=origin, timeout_s=1, nats_username=username, nats_password=password)
+        from types import SimpleNamespace
+        client = SimpleNamespace(connect=AsyncMock(side_effect=OSError(password)), options={},
+            is_connected=False, is_closed=False, close=AsyncMock())
+        web = TestClient(TestServer(app, port=port))
+        await web.start_server()
+        self.addAsyncCleanup(web.close)
+        with patch("lab_sync_acquisition.nats_communication.NATS", return_value=client):
+            ws = await web.ws_connect("/ws", headers={"Origin": origin})
+            greeting = await ws.receive_json()
+            await ws.send_json({"id": "read", "operation": "read_controller_state", "session_id": None, "parameters": {}})
+            reply = await asyncio.wait_for(ws.receive_json(), 3)
+            self.assertEqual(reply["status"], "uncertain")
+            for value in (username, password):
+                self.assertNotIn(value, str(reply) + str(greeting))
+            await ws.close()
+
     async def test_page_and_bounded_uncertainty_without_operational_broker(self):
         with socket.socket() as candidate:
             candidate.bind(("127.0.0.1", 0))

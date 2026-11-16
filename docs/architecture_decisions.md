@@ -14426,6 +14426,47 @@ records retain their recorded scope.
 
 ---
 
+## Decision 445: Explicit NATS username and password preserve authentication compatibility
+
+**Status:** Accepted
+
+This records the explicitly user-accepted LLC NATS authentication compatibility
+contract. It supplements existing deployment and installation contracts, including
+Decisions 421, 439-440, without changing Decisions 423, 436 or 444.
+
+### Configuration and exact credential handling
+
+Add optional `nats_username` and `nats_password` configuration fields:
+
+- Neither field provided: preserve existing URL-only behavior, including legacy
+  embedded URL credentials.
+- Both fields provided and nonempty, with no embedded URL credentials: pass their
+  exact values through nats-py's `user` and `password` arguments.
+- Only one field provided, or either empty: reject before connection.
+- Both fields provided alongside embedded URL credentials: reject before connection.
+
+There is no implicit precedence or credential fallback, and no encoding, decoding
+or normalization of explicit passwords. Apply the same contract to installer
+verification, Controller, AcquisitionNode, Ingestor, StorageManager,
+SynchronizationManager, GUI backend and relevant launcher/maintenance paths.
+
+### Confidentiality and preserved boundaries
+
+Credentials must not appear in logs, exceptions, diagnostics, readiness reports,
+installer output, generated launch commands or subprocess command-line arguments.
+Preserve existing broker configuration, Controller authority, service topology,
+Session lifecycle and communication architecture. No new authentication mechanism
+or secrets-management subsystem is authorized.
+
+**Implementation status:** The bounded implementation now shares exact connection
+validation across installer/runtime paths, forwards explicit credentials through
+the existing SDK arguments and supports file-based GUI/maintenance connections.
+Independent validation and audit remain pending. The reported Ubuntu deployment
+compatibility failure is not claimed resolved or independently validated. Q022
+remains OPEN; historical implementation and validation evidence retains its scope.
+
+---
+
 # Accepted Architectural Principles
 
 The following principles summarize the accepted decisions so far.

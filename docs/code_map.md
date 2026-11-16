@@ -56,7 +56,7 @@ The developer results below retain their original evidence classification.
 - `Controller.read_controller_state(*, instance_id, control)`: Projects detached accepted configuration, Session/Experiment state and lifecycle evidence without reconstructing live ownership from stored records.
 - `NatsExternalSessionLaunchReceiver(..., browser_control_required=False)`: Reuses lifetime request/task/result ownership while enforcing configured GUI context, delegating grants to Controller and exposing non-executing outcome reads.
 - `launch_independent_service(..., browser_control_required=False)`: Passes explicit GUI enforcement configuration to the original Controller receiver; the authoritative deployment loader validates the optional boolean and required external client.
-- `miceball_gui.backend.create_gui_app(*, servers, controller_id, client_id, origin, timeout_s, max_request_bytes=1048576)`: Serves the existing shell through an origin-checked aiohttp backend, binds one identity per WebSocket and uses a shared external NATS client without forwarding browser-supplied identities.
+- `miceball_gui.backend.create_gui_app(*, servers, controller_id, client_id, origin, timeout_s, max_request_bytes=1048576, **nats_auth)`: Serves the origin-checked shell through a shared external NATS client with optional explicit credentials, without forwarding browser-supplied identities or credentials.
 - `miceball_gui.backend.main()`: Implements the separately packaged `miceball-gui` startup command with explicit deployment connection/binding settings.
 - `miceball_gui.backend._ConnectedShell` and its HTMLParser callbacks: Preserve original presenter entry points, mark connected mode and append one connected binding entry without duplicating HTML or workspace construction.
 - `static/connected.js`: Binds original controls to the existing backend, projects Controller readback, adapts actual node inventory and explicit preparation, and reconciles pending outcomes without lifecycle replay.
@@ -596,6 +596,12 @@ installation_and_deployment.md and Decisions 383-388.
 
 ## src/lab_sync_acquisition/service_launcher.py
 
+Decision 445 adds validated `**nats_auth` (`nats_username`, `nats_password`) to
+`launch_storage_services()` and forwards them to both existing owner boundaries.
+`main()` accepts `--deployment-config` as the connection source for addressed
+Stop/Kill/Cancel and claim commands while retaining their explicit authority and
+target arguments; no password flags or credential-bearing commands are generated.
+
 - `_enable_deployment_diagnostics()`: Installs one immediately flushed stderr handler for bounded deployment diagnostics without enabling global NATS logging or changing JSON stdout.
 - service_startup.launch_independent_service.prepare_maintenance(): Reuses the retained owner command handler after stream/subscription interruption, requiring the exact Controller claim before installing Controller handlers and never rerunning scientific startup.
 - services-view.showBlockedServiceStop(service): Opens the existing connected authorization dialog only for the confirmed exact blocked Stop, without authorizing an action on presentation or dismissal.
@@ -618,7 +624,7 @@ installation_and_deployment.md and Decisions 383-388.
 - ServiceLauncher._feedback: Reports existing maintenance outcomes, identities, blockers and outstanding obligations without creating lifecycle evidence or outcome states.
 - ServiceLauncher._remote_handled: Validates request/result correlation using the exact published-and-acknowledged result and counts only confirmed retirement toward exit, never a cached success substituted by command ID.
 - ServiceLauncher._local_retirements: Retains local completed command/results for explicit dependent-delivery retry without repeating cleanup or substituting an unpublished remote result.
-- launch_storage_services(*, servers, ingestor_id, storage_id, storage_root, recovery_journal_root, framework_journal, preservation_window_s, operational_dependents, report=print, global_artifact_root=None, retrieval_endpoints=None, external_dependents=(), result_window_s=None): Constructs only the paired owners, composing either existing local callbacks or explicit remote dependent confirmations through existing NATS handlers and shared process lifetime.
+- launch_storage_services(*, servers, ingestor_id, storage_id, storage_root, recovery_journal_root, framework_journal, preservation_window_s, operational_dependents, report=print, global_artifact_root=None, retrieval_endpoints=None, external_dependents=(), result_window_s=None, controller_claim_account=None, controller_claim_bucket=None, controller_claim_key=None, **nats_auth): Constructs the paired owners with optional exact NATS credentials and existing local callbacks or remote dependent confirmations through their shared process lifetime.
 - main(argv=None): Parses explicit-role startup, addressed remote maintenance or installation-only verify-retrieval/verify-node actions, returning nonzero for unconfirmed or unsuccessful commands without merging configuration inputs.
 
 ## src/lab_sync_acquisition/installation_communication.py
@@ -647,9 +653,19 @@ installation_and_deployment.md and Decisions 383-388.
 - NatsConnectionTests.open_stream(**settings): Supplies a fresh simulated reader/writer pair for each real TCP transport connection attempt.
 - NatsConnectionTests.assert_interrupted_verification(mode): Coordinates real verification and cleanup through explicit checkpoints, repeatedly cancels the caller and verifies underlying transport closure before a failed result is returned.
 
+## src/lab_sync_acquisition/nats_configuration.py
+
+Decision 445 is implemented; independent validation/audit and Ubuntu deployment
+confirmation remain pending. No authentication mechanism or credential store is added.
+
+- `nats_connect_options(servers, *, nats_username=UNSET, nats_password=UNSET)`: Validates all URLs and the exact optional credential pair before returning SDK options, preserving legacy URL-only inputs without transformation.
+- `load_nats_configuration(path)`: Reads only connection fields from existing deployment JSON for GUI and maintenance clients, rejecting malformed/duplicate input without exposing values.
+- `_unique_fields(pairs)`: Rejects duplicate connection-file keys without echoing configuration content.
+- `report_nats_error(error)`: Reports SDK asynchronous error categories without credential-bearing exception text or tracebacks.
+
 ## src/lab_sync_acquisition/deployment_configuration.py
 
-- load_service_configuration(path, role): Reads and validates deployment-local JSON for an explicitly selected service role, returning existing launcher arguments without connecting, constructing owners or opening hardware.
+- load_service_configuration(path, role): Reads and validates deployment-local JSON including the optional exact NATS credential pair for an explicitly selected role without connecting, constructing owners or opening hardware.
 - load_retrieval_configuration(path): Reads StorageManager identity/root and the existing endpoint mapping from the same deployment file for installation verification without launching services or making a no-dependents declaration.
 - _parse_retrieval_endpoints(directory, endpoints): Shares strict endpoint/port/key-reference validation between service startup and installation retrieval, returning existing SshRetrievalEndpoint objects.
 - _unique_object(pairs): Rejects duplicate JSON fields instead of silently selecting a value.
@@ -671,6 +687,10 @@ installation_and_deployment.md and Decisions 383-388.
 
 ## src/lab_sync_acquisition/service_startup.py
 
+`launch_independent_service(..., **nats_auth)` validates and forwards the optional
+Decision 445 credential pair before owner initialization without changing startup,
+registration, authority or lifecycle contracts.
+
 **Decision 444 implementation, independent verification pending:** Existing NATS
 readiness observation precedes registration. Initial startup, announcements and
 explicit checks share serialized authoritative registration and guarded startup
@@ -679,7 +699,7 @@ preservation/release/result windows and Decision 443 remain unchanged.
 
 - read_acquisition_node_configuration(path): Validates the existing hardware JSON contract without constructing an owner or adapter, for both deployment prevalidation and node construction.
 - load_acquisition_node(path, synchronization_source_id): Validates a deployment-local JSON hardware installation, constructs explicitly selected supported adapters without opening hardware, and supplies persistent identity, local paths and per-device initialization baselines to the real node.
-- launch_independent_service(*, role, servers, service_id, ingestor_id, storage_id, preservation_window_s, result_window_s, synchronization_id=None, known_nodes=None, node_config=None, external_client_id=None, browser_control_required=False, controller_claim_account=None, controller_claim_bucket=None, controller_claim_key=None, registration_window_s=180.0, report=print): Installs retained maintenance, client and readiness observation before registration, preserving Controller authority and allowing automatic startup completion when Ingestor returns.
+- launch_independent_service(*, role, servers, service_id, ingestor_id, storage_id, preservation_window_s, result_window_s, synchronization_id=None, known_nodes=None, node_config=None, external_client_id=None, browser_control_required=False, controller_claim_account=None, controller_claim_bucket=None, controller_claim_key=None, registration_window_s=180.0, report=print, **nats_auth): Installs retained maintenance, client and readiness observation before registration with optional exact credentials, preserving Controller authority and automatic startup completion when Ingestor returns.
 
 ## tests/test_independent_service_startup.py
 
@@ -692,7 +712,12 @@ preservation/release/result windows and Decision 443 remain unchanged.
 
 ## src/lab_sync_acquisition/service_maintenance_cli.py
 
-- request_service_maintenance(*, servers, participant, operation, administrator_id, result_window_s, stop_attempt_id=None, authorized=False, report=print): Uses a temporary NATS issuer and fresh exact-owner/operation result subscription to request one existing maintenance operation within an explicit deadline, report correlated outcomes and return zero only for confirmed success without claiming OS process exit.
+`request_service_maintenance(..., **nats_auth)` and
+`recover_controller_claim(..., **nats_auth)` forward the exact optional credential
+pair through the existing boundary without changing targets or authorization.
+
+- request_service_maintenance(*, servers, participant, operation, administrator_id, result_window_s, stop_attempt_id=None, authorized=False, report=print, **nats_auth): Uses a temporary authenticated NATS issuer and fresh exact-owner/operation subscription for one maintenance operation, returning zero only for confirmed success without claiming OS process exit.
+- recover_controller_claim(*, servers, account, bucket, key, timeout_s, clear=False, expected_owner=None, expected_revision=None, administrator_id=None, authorized=False, termination_verified=False, termination_evidence=None, report=print, **nats_auth): Inspects or conditionally clears the existing claim with optional exact transport credentials while retaining all independent termination and authorization prerequisites.
 
 ## tests/test_service_maintenance_cli.py
 
@@ -2103,7 +2128,7 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 ## src/lab_sync_acquisition/nats_communication.py
 
 - DurablePublicationError: Reports failed JetStream publication with message class, message identity, subject, intended stream, and reason while leaving the original message caller-owned.
-- NatsCommunicationBoundary: Owns a real nats-py connection, reports NATS availability through ServiceReadiness, creates accepted JetStream streams, and handles JSON serialization, durable publication acknowledgement, and Core NATS telemetry mechanics without domain semantics.
+- NatsCommunicationBoundary(component_type, component_id, servers=("nats://127.0.0.1:4222",), *, nats_username=UNSET, nats_password=UNSET): Owns a validated real nats-py connection with optional exact credentials, credential-safe connection/cleanup errors and existing readiness, JetStream, serialization and acknowledgement mechanics.
 - NatsCommunicationBoundary.controller_claim_owner: Reports the confirmed unreleased claim's operational-instance identity independently of transport connectivity.
 - NatsCommunicationBoundary.acquire_controller_claim(*, operational_instance_id, account, bucket, key, timeout_s): Verifies the connected account and existing persistent non-expiring KV bucket before one atomic claim attempt, retaining the positive revision only after confirmed acquisition.
 - NatsCommunicationBoundary.release_controller_claim(*, operational_instance_id): Requires the matching retired owner, reconciles exact retained conditional-deletion evidence or publishes an owner-bearing KV DEL conditional on the acquired revision, and fails closed if proof is insufficient.
@@ -2663,6 +2688,9 @@ Storage GUI integration and remaining deployment validation.
 - LocalStorageManager._jsonl_completion_details: Reports JSONL row accounting and write status for failure evidence, manifests, and summaries, leaving `row_count` unknown when a write or file flush leaves an uncertain tail.
 
 ## scripts/install_framework.py
+
+- `_hidden_input(label)`: Reads connection URLs and explicit credentials without echo or normalization, refusing insecure terminal fallback.
+- Decision 445: `_configuration_plan()` optionally collects per-role credentials without rewriting existing files; `CONNECT` loads the shared standard-library validator and consumes credentials only through stdin.
 
 - main(argv=None): Requires local nats-py, collects and validates configuration, reports minimal broker verification failures as pending without blocking confirmed installation, and prints existing launch commands without claiming operational readiness or replacing existing configuration/data.
 - _run(arguments, timeout=60, input=None): Runs a bounded accountable setup child without shell interpretation, optionally passing private connection inputs through stdin rather than command arguments.

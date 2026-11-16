@@ -380,10 +380,12 @@ async def launch_storage_services(*, servers, ingestor_id, storage_id, storage_r
                                   global_artifact_root=None, retrieval_endpoints=None,
                                   external_dependents=(), result_window_s=None,
                                   controller_claim_account=None, controller_claim_bucket=None,
-                                  controller_claim_key=None):
+                                  controller_claim_key=None, **nats_auth):
     """Launch the existing paired owners with explicit constructor settings."""
     report = _terminal_report if report is print else report
     servers = tuple(servers)
+    from lab_sync_acquisition.nats_configuration import nats_connect_options
+    nats_connect_options(servers, **nats_auth)
     if not servers or any(not isinstance(server, str) or not server.strip() for server in servers):
         raise ValueError("Explicit nonempty NATS servers are required")
     if any(not isinstance(v, str) or not v.strip() for v in
@@ -403,7 +405,7 @@ async def launch_storage_services(*, servers, ingestor_id, storage_id, storage_r
         intake.continue_framework_evidence_archive()
     except (OSError, ValueError, TypeError, KeyError, RuntimeError) as error:
         report(f"Framework archive continuation unconfirmed: {error}; dependent blockers retained.")
-    boundaries = tuple(NatsCommunicationBoundary(kind, identity, tuple(servers)) for kind, identity in (
+    boundaries = tuple(NatsCommunicationBoundary(kind, identity, tuple(servers), **nats_auth) for kind, identity in (
         ("ingestor", ingestor_id), ("storage_manager", storage_id)))
 
     for boundary in boundaries:
@@ -510,6 +512,17 @@ def main(argv=None):
     parser.add_argument("--verify-prior-termination", action="store_true")
     parser.add_argument("--termination-evidence")
     args = parser.parse_args(argv)
+    connection_settings = {}
+    if args.deployment_config is not None and args.role in {"stop", "kill", "cancel", "inspect-controller-claim", "clear-controller-claim"}:
+        if args.server:
+            parser.error("Connection configuration cannot be combined with --server")
+        from lab_sync_acquisition.nats_configuration import load_nats_configuration
+        try:
+            connection_settings = load_nats_configuration(args.deployment_config)
+        except ValueError:
+            parser.error("Invalid NATS connection configuration")
+        args.server = connection_settings.pop("servers")
+        args.deployment_config = None
     _enable_deployment_diagnostics()
     if args.registration_window_s is not None and args.role not in {"controller", "synchronization-manager", "acquisition-node"}:
         parser.error("--registration-window-s applies only to independent service startup")
@@ -524,7 +537,7 @@ def main(argv=None):
                 expected_owner=args.claim_owner, expected_revision=args.claim_revision,
                 administrator_id=args.administrator_id, authorized=args.authorize_claim_clear,
                 termination_verified=args.verify_prior_termination, termination_evidence=args.termination_evidence,
-                clear=args.role == "clear-controller-claim"))
+                clear=args.role == "clear-controller-claim", **connection_settings))
         except Exception as error:
             print(f"Claim recovery unconfirmed: {type(error).__name__}: {error}", file=sys.stderr)
             return 1
@@ -630,7 +643,7 @@ def main(argv=None):
             return asyncio.run(request_service_maintenance(servers=args.server,
                 participant=RuntimeParticipant(args.target_type, args.target_id), operation=args.role,
                 administrator_id=args.administrator_id, result_window_s=args.result_window_s,
-                stop_attempt_id=args.stop_attempt_id, authorized=args.authorize_kill))
+                stop_attempt_id=args.stop_attempt_id, authorized=args.authorize_kill, **connection_settings))
         except KeyboardInterrupt:
             print("Remote outcome unconfirmed after interruption; no Kill was authorized implicitly.", file=sys.stderr)
             return 1

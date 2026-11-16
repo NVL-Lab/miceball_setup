@@ -53,7 +53,9 @@ async def verify_node_communication(deployment_config, node_id, *, report=print)
         return 1
 
     requester, command_id, nonce = uuid4().hex, uuid4().hex, uuid4().hex
-    boundary = NatsCommunicationBoundary("terminal", requester, settings["servers"])
+    from lab_sync_acquisition.nats_configuration import AUTH_FIELDS
+    boundary = NatsCommunicationBoundary("terminal", requester, settings["servers"],
+        **{k: settings[k] for k in AUTH_FIELDS if k in settings})
     requests = NatsControllerCommunication(boundary)
     participant = RuntimeParticipant("acquisition_node", node_id)
     window = settings["result_window_s"]

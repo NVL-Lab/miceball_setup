@@ -40,13 +40,22 @@ and this separate package in a compatible Python 3.12 environment:
 
 ```text
 python -m pip install -e . -e ./gui
-miceball-gui --server nats://GUI_USER:GUI_PASSWORD@BROKER:4222 --controller CONTROLLER_ID --client GUI_CLIENT_ID --origin http://GUI_HOST:8043 --host 0.0.0.0 --port 8043 --timeout 10
+miceball-gui --deployment-config CONNECTION_CONFIG_PATH --controller CONTROLLER_ID --client GUI_CLIENT_ID --origin http://GUI_HOST:8043 --host 0.0.0.0 --port 8043 --timeout 10
 ```
 
 Replace every deployment value; no framework services or broker are started by this
 command. `--origin` is the exact browser origin (no trailing slash); Host and WebSocket
 Origin checks reject other origins. Use HTTPS termination on untrusted networks;
 this is not a human authentication system. Never expose broker credentials to browsers.
+
+Decision 445 connection fields are read from the deployment JSON: `servers`, and
+optionally both `nats_username` and `nats_password`. Explicit credentials must be
+nonempty strings and cannot be combined with userinfo in any server URL. Values
+are forwarded exactly to the SDK, not encoded/decoded/trimmed. The GUI reads only
+connection fields, not the service role or authority in that file. Legacy
+`--server` remains available; do not put secrets in shell commands/history.
+There are no password flags. Independent validation/audit and real Ubuntu
+deployment confirmation of this compatibility correction remain pending.
 
 In the existing Controller deployment JSON, set `external_client_id` to the backend's
 client ID and `browser_control_required` to `true`. Broker permissions must authorize
@@ -308,7 +317,7 @@ ExternalControllerResult(controller_id, client_id, request_id, operation, sessio
 NatsExternalSessionLaunchReceiver(boundary, controller, *, communication, maintenance, client_id, participants, result_window_s, browser_control_required=False)
   start()
   close(*, retiring_command_id=None)
-create_gui_app(*, servers, controller_id, client_id, origin, timeout_s, max_request_bytes=1048576)
+create_gui_app(*, servers, controller_id, client_id, origin, timeout_s, max_request_bytes=1048576, **nats_auth)
 main()
 confirmStop(kind, initiateStop, description="Confirm to initiate the existing browser-local Stop workflow. Keeping it running or dismissing this dialog does not initiate a Stop.", labels={})
 ```

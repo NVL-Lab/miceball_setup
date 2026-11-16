@@ -14,7 +14,7 @@ from lab_sync_acquisition.nats_communication import NatsCommunicationBoundary, N
 async def recover_controller_claim(*, servers, account, bucket, key, timeout_s,
                                    clear=False, expected_owner=None, expected_revision=None,
                                    administrator_id=None, authorized=False, termination_verified=False,
-                                   termination_evidence=None, report=print):
+                                   termination_evidence=None, report=print, **nats_auth):
     """Inspect, or clear an exact inspected claim after independent operator termination verification."""
     from dataclasses import asdict
     from lab_sync_acquisition.controller_authority import ControllerClaimSnapshot
@@ -28,7 +28,7 @@ async def recover_controller_claim(*, servers, account, bucket, key, timeout_s,
     elif any(v not in (None, False) for v in (expected_owner, expected_revision, authorized,
                                              termination_verified, termination_evidence, administrator_id)):
         raise ValueError("Inspection does not authorize clearing")
-    boundary = NatsCommunicationBoundary("terminal", uuid4().hex, tuple(servers))
+    boundary = NatsCommunicationBoundary("terminal", uuid4().hex, tuple(servers), **nats_auth)
     boundary.configure_controller_authority(account=account, bucket=bucket, key=key, timeout_s=timeout_s)
     try:
         async with asyncio.timeout(timeout_s):
@@ -50,7 +50,7 @@ async def recover_controller_claim(*, servers, account, bucket, key, timeout_s,
 
 async def request_service_maintenance(*, servers, participant, operation, administrator_id,
                                       result_window_s, stop_attempt_id=None, authorized=False,
-                                      report=print):
+                                      report=print, **nats_auth):
     """Request one owner operation; report existing outcomes, never infer process exit."""
     servers = tuple(servers)
     if (not servers or any(not isinstance(s, str) or not s.strip() for s in servers)
@@ -76,7 +76,7 @@ async def request_service_maintenance(*, servers, participant, operation, admini
 
     requester, command_id = uuid4().hex, uuid4().hex
     # This is an issuer transport, not a Controller or a new service owner.
-    boundary = NatsCommunicationBoundary("terminal", requester, servers)
+    boundary = NatsCommunicationBoundary("terminal", requester, servers, **nats_auth)
     requests = NatsControllerCommunication(boundary)
     payload = {"stop_attempt_id": stop_attempt_id, "administrator_id": administrator_id}
     if operation == "kill":
