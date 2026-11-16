@@ -587,8 +587,11 @@ existing deployment JSON, with no userinfo in any `servers` URL, or omit both to
 retain legacy URL-only behavior. Passwords are not trimmed, encoded or decoded.
 The installer reads connection inputs without echo and preserves existing files;
 verification receives credentials through stdin, never subprocess arguments.
-Independent validation and audit are pending; the reported Ubuntu deployment
-failure is not claimed resolved.
+The bounded authentication scope is CLOSED after independent Ubuntu manual
+validation and Windows audit PASS; see the [closure evidence and limitations](validated_workflows.md#decision-445---nats-authentication-compatibility).
+Successful authentication does not establish complete end-to-end deployment or
+completion of Decision 446's guided-installer usability. Decision 446 remains
+pending independent Ubuntu validation and audit; Q022 remains OPEN.
 
 GUI and addressed maintenance/claim commands can read connection fields from an
 existing deployment file using `--deployment-config PATH` instead of `--server`.

@@ -2725,8 +2725,8 @@ remains unverified and requires supplied valid settings. No broker resources are
 created. Developer software verification is distinct from pending independent
 validation/audit and actual Ubuntu deployment testing. Q022 remains OPEN.
 
-**NATS authentication compatibility (Decision 445): implemented; independent
-validation and audit pending.** Optional `nats_username` and `nats_password` provide
+**NATS authentication compatibility (Decision 445): CLOSED within validated
+authentication scope.** Optional `nats_username` and `nats_password` provide
 exact explicit credentials through the SDK's existing authentication arguments.
 Omitting both preserves legacy URL-only behavior. Partial/empty explicit pairs or
 explicit pairs combined with embedded URL credentials are rejected before
@@ -2734,8 +2734,10 @@ connection; no implicit precedence, fallback or explicit-password transformation
 is authorized. The same contract and credential-confidentiality requirements apply
 across installer, service, GUI backend and relevant launcher/maintenance paths.
 See [Decision 445](architecture_decisions.md#decision-445-explicit-nats-username-and-password-preserve-authentication-compatibility)
-for the authoritative contract. No resolution of the reported Ubuntu failure,
-independent validation, audit or deployment readiness is claimed. Q022 remains OPEN.
+for the authoritative contract and the [closure evidence](validated_workflows.md#decision-445---nats-authentication-compatibility)
+for independent Ubuntu manual validation, Windows audit PASS and limitations.
+Complete end-to-end deployment is not certified. Decision 446 still requires
+independent Ubuntu validation and audit; Q022 remains OPEN.
 
 **Current accepted clarification (Decision 440): bounded implementation complete;
 independent validation and audit pending.**

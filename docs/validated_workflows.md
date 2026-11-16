@@ -6648,6 +6648,56 @@ This documentation closure reran no implementation tests, manual validation or a
 
 ---
 
+# Decision 445 - NATS Authentication Compatibility
+
+**Status:** CLOSED within the bounded authentication implementation and validated
+scope under [Decision 445](architecture_decisions.md#decision-445-explicit-nats-username-and-password-preserve-authentication-compatibility).
+
+Optional explicit credentials are validated before connection and forwarded
+unchanged through SDK `user`/`password` arguments. Omitting both retains legacy
+URL-only authentication. Incomplete, empty, null, wrong-type and conflicting
+URL/explicit settings are rejected, including conflicts in secondary URLs.
+Shared validation covers installer verification, configuration loading, independent
+and paired service startup, maintenance/Controller-claim CLI, GUI backend and the
+runtime connection boundary. Existing authority and lifecycle contracts remain.
+
+## Completed verification evidence
+
+- Independent Ubuntu manual validation, reported through ICC: successful explicit
+  authentication against the live broker, incorrect-credential rejection, exact
+  special-character/Unicode credential preservation, confidentiality in captured
+  failure logs and exceptions, and exact maintenance CLI/runtime forwarding.
+- Independent Codex audit: PASS, no confirmed P0-P3 defects or architectural
+  violations. Target HEAD was `8ed4b3cc06a7fbb9af0ba08aab56386df9d065a7`.
+  The audit executed 136 selected automated tests with no skips (133 framework/
+  installer tests and three GUI backend tests), plus 82 independently constructed
+  checks (64 rejection/loading/confidentiality and 18 wire/installer-child checks).
+  Automated authentication/reconnection used a disposable real NATS broker;
+  wire probes used a simulated endpoint and are not proof of broker authentication.
+
+These are separately attributed manual and independent-audit results, not a
+relabeling of earlier developer verification. No validation or audit was repeated
+during documentation closure.
+
+## Audit qualification and remaining limits
+
+Six preexisting modifications were present during the audit: four documentation
+files (`architecture_decisions.md`, `code_map.md`, `installation_and_deployment.md`,
+`open_questions.md`), `scripts/install_framework.py` and
+`tests/test_install_framework.py`. The audited installer included the Decision 446
+overlay; this was not a clean committed-tree-only certification.
+
+The independent audit ran on Windows with Python 3.12.13, nats-py 2.15.0 and
+isolated NATS 2.14.3; it did not contact the live deployment. The complete supported
+SDK range, TLS/WebSocket authentication and complete end-to-end deployment of
+every service role were not established. Ubuntu authentication evidence does not
+certify all installation/deployment functionality. Decision 446's guided-installer
+discovery/usability remains pending independent Ubuntu validation and audit.
+Q022 remains OPEN. No broker policy, Controller authority or Session lifecycle
+change is implied by this closure.
+
+---
+
 # Future Workflows
 
 The following workflows are expected to be added as the framework evolves.

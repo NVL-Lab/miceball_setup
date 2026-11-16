@@ -2069,6 +2069,16 @@ Jetson/hardware, cross-machine, physical crash/power-loss and exhaustive concurr
 validation remain outstanding; later-unit functionality remains deferred.
 No new validation or audit was performed during documentation closure.
 
+## Decision 445 - Completed Authentication Scope
+
+The bounded authentication implementation is CLOSED after independent Ubuntu
+manual validation and independent Windows Codex audit PASS, with no confirmed
+P0-P3 defects or architectural violations. See the [closure evidence](validated_workflows.md#decision-445---nats-authentication-compatibility)
+for the exact audited target, working-tree qualification, checks and limitations.
+This is not a new milestone or complete end-to-end deployment certification.
+Decision 446 remains pending independent Ubuntu validation and audit; Q022 and
+M015 remain OPEN. No new validation was performed during this closure.
+
 Planned future milestones include:
 
 - First Jetson CSI camera

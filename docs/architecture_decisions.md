@@ -14458,12 +14458,17 @@ Preserve existing broker configuration, Controller authority, service topology,
 Session lifecycle and communication architecture. No new authentication mechanism
 or secrets-management subsystem is authorized.
 
-**Implementation status:** The bounded implementation now shares exact connection
+**Implementation status:** CLOSED within Decision 445's validated authentication
+scope. The bounded implementation shares exact connection
 validation across installer/runtime paths, forwards explicit credentials through
 the existing SDK arguments and supports file-based GUI/maintenance connections.
-Independent validation and audit remain pending. The reported Ubuntu deployment
-compatibility failure is not claimed resolved or independently validated. Q022
-remains OPEN; historical implementation and validation evidence retains its scope.
+Independent Ubuntu manual validation and independent Codex audit PASS are recorded
+in the [closure evidence](validated_workflows.md#decision-445---nats-authentication-compatibility).
+The audit targeted HEAD `8ed4b3cc06a7fbb9af0ba08aab56386df9d065a7` with six
+preexisting working-tree modifications, not a committed-tree-only certification.
+Complete deployment coverage is not established. Decision 446 remains pending
+independent Ubuntu validation and audit; Q022 remains OPEN. Historical evidence
+retains its scope.
 
 ---
 

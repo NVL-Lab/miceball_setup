@@ -655,8 +655,10 @@ target arguments; no password flags or credential-bearing commands are generated
 
 ## src/lab_sync_acquisition/nats_configuration.py
 
-Decision 445 is implemented; independent validation/audit and Ubuntu deployment
-confirmation remain pending. No authentication mechanism or credential store is added.
+Decision 445's bounded authentication scope is CLOSED after independent Ubuntu
+manual validation and Windows audit PASS; see the [closure evidence and limits](validated_workflows.md#decision-445---nats-authentication-compatibility).
+This does not certify complete deployment or close Decision 446/Q022.
+No authentication mechanism or credential store is added.
 
 - `nats_connect_options(servers, *, nats_username=UNSET, nats_password=UNSET)`: Validates all URLs and the exact optional credential pair before returning SDK options, preserving legacy URL-only inputs without transformation.
 - `load_nats_configuration(path)`: Reads only connection fields from existing deployment JSON for GUI and maintenance clients, rejecting malformed/duplicate input without exposing values.
