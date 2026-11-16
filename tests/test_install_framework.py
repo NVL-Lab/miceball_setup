@@ -19,6 +19,144 @@ from tests.nats_server_fixture import NATS_SERVER, restartable_jetstream_server
 
 
 class FrameworkInstallerTests(unittest.TestCase):
+    def test_local_authentication_and_equivalent_endpoints_are_not_server_conflicts(self):
+        self.answers['Local roles'] = 'controller ingestor'
+        self.assertEqual(self.run_setup()[0], 0)
+        paths = [self.config / 'controller.json', self.config / 'storage-services.json']
+        variants = [
+            {'servers': ['nats://control-user:control-secret@BROKER:4222']},
+            {'servers': ['NATS://broker/'], 'nats_username': 'storage-user',
+             'nats_password': 'storage-secret @%40\u03bb '},
+        ]
+        for path, fields in zip(paths, variants):
+            data = json.loads(path.read_text())
+            path.write_text(json.dumps({**data, **fields}), encoding='utf-8')
+        before = {path: path.read_bytes() for path in paths}
+        self.answers['Local roles'] = 'controller ingestor synchronization-manager'
+        self.answers['Use explicit NATS username/password for synchronization-manager'] = 'yes'
+        self.answers['synchronization-manager nats_username'] = 'new-timing-user'
+        self.answers['synchronization-manager nats_password'] = 'new-timing-secret @%40\u03bb '
+        code, output, errors = self.run_setup()
+        self.assertEqual(code, 0, errors)
+        timing = load_service_configuration(self.config / 'synchronization-manager.json', 'synchronization-manager')
+        self.assertEqual(timing['servers'], ('nats://broker:4222',))
+        self.assertEqual(timing['nats_username'], 'new-timing-user')
+        self.assertEqual(timing['nats_password'], 'new-timing-secret @%40\u03bb ')
+        for path, contents in before.items():
+            self.assertEqual(path.read_bytes(), contents)
+        visible = output + errors + str(self.prompts)
+        for secret in ('control-user', 'control-secret', 'storage-user', 'storage-secret', 'new-timing-secret'):
+            self.assertNotIn(secret, visible)
+        self.assertTrue(any(c['servers'] == variants[0]['servers'] for c in self.connections))
+        self.assertTrue(any(c.get('nats_password') == variants[1]['nats_password'] for c in self.connections))
+
+    def test_distinct_local_server_lists_require_selection_and_preserve_files(self):
+        self.answers['Local roles'] = 'controller ingestor'
+        self.assertEqual(self.run_setup()[0], 0)
+        control = self.config / 'controller.json'
+        storage = self.config / 'storage-services.json'
+        initial = json.loads(storage.read_text())
+        for servers in (['nats://other:4222'], ['nats://second:4222', 'nats://broker:4222'],
+                        ['nats://broker:4222', 'nats://second:4222']):
+            with self.subTest(servers=servers):
+                storage.write_text(json.dumps({**initial, 'servers': servers}), encoding='utf-8')
+                before = {p: p.read_bytes() for p in (control, storage)}
+                self.answers['Local roles'] = 'controller ingestor synchronization-manager'
+                self.answers['Choose local NATS'] = '2'
+                code, output, errors = self.run_setup()
+                self.assertEqual(code, 0, errors)
+                path = self.config / 'synchronization-manager.json'
+                self.assertEqual(load_service_configuration(path, 'synchronization-manager')['servers'], tuple(servers))
+                for p, contents in before.items():
+                    self.assertEqual(p.read_bytes(), contents)
+                path.unlink()
+
+    def test_declining_or_invalid_local_endpoint_selection_does_not_modify_files(self):
+        self.answers['Local roles'] = 'controller ingestor'
+        self.assertEqual(self.run_setup()[0], 0)
+        path = self.config / 'storage-services.json'
+        data = json.loads(path.read_text())
+        path.write_text(json.dumps({**data, 'servers': ['nats://other:4222']}), encoding='utf-8')
+        before = {p: p.read_bytes() for p in self.config.glob('*.json')}
+        self.answers['Local roles'] = 'controller ingestor synchronization-manager'
+        for choice in ('', '3', '1,2'):
+            with self.subTest(choice=choice):
+                self.answers['Choose local NATS'] = choice
+                self.calls.clear()
+                code, output, errors = self.run_setup()
+                self.assertEqual(code, 1)
+                self.assertEqual({p: p.read_bytes() for p in self.config.glob('*.json')}, before)
+                self.assertFalse(any('pip' in c for c in self.calls))
+
+    def test_paired_role_is_visible_and_included_in_default_selection(self):
+        self.answers['Local roles'] = ''
+        code, output, errors = self.run_setup()
+        self.assertEqual(code, 0, errors)
+        prompt = next(p for p in self.prompts if p.startswith('Local roles'))
+        self.assertIn('ingestor-storage', prompt)
+        self.assertNotIn(' storage-manager', prompt)
+        self.assertIn('default: ingestor-storage', prompt)
+        self.assertIn('both logical services', output)
+        load_service_configuration(self.config / 'storage-services.json', 'ingestor')
+        self.assertEqual(output.count('LAUNCH:'), 1)
+        launch = next(line for line in output.splitlines() if line.startswith('LAUNCH:'))
+        self.assertIn('service_launcher ingestor ', launch.replace("'", ''))
+        self.assertIn('storage-services.json', launch)
+
+    def test_local_url_list_order_requires_a_choice_without_reordering_existing_files(self):
+        self.answers['Local roles'] = 'controller ingestor'
+        self.assertEqual(self.run_setup()[0], 0)
+        paths = [self.config / 'controller.json', self.config / 'storage-services.json']
+        lists = [['nats://first:4222', 'nats://second:4222'],
+                 ['nats://second:4222', 'nats://first:4222']]
+        for path, servers in zip(paths, lists):
+            path.write_text(json.dumps({**json.loads(path.read_text()), 'servers': servers}), encoding='utf-8')
+        before = {path: path.read_bytes() for path in paths}
+        self.answers['Local roles'] = 'controller ingestor synchronization-manager'
+        self.answers['Choose local NATS'] = '2'
+        code, output, errors = self.run_setup()
+        self.assertEqual(code, 0, errors)
+        timing = load_service_configuration(self.config / 'synchronization-manager.json', 'synchronization-manager')
+        self.assertEqual(timing['servers'], tuple(lists[1]))
+        for path, contents in before.items():
+            self.assertEqual(path.read_bytes(), contents)
+
+    def test_invalid_existing_authentication_blocks_before_any_update_without_disclosure(self):
+        self.assertEqual(self.run_setup()[0], 0)
+        path = self.config / 'controller.json'
+        original = json.loads(path.read_text())
+        for fields in ({'nats_username': 'private-user'},
+                       {'nats_username': 'private-user', 'nats_password': ''},
+                       {'nats_username': 'private-user', 'nats_password': None},
+                       {'nats_username': 'private-user', 'nats_password': 7},
+                       {'nats_username': 'private-user', 'nats_password': 'private-secret',
+                        'servers': ['nats://embedded:another-secret@broker:4222']}):
+            with self.subTest(fields=list(fields)):
+                path.write_text(json.dumps({**original, **fields}), encoding='utf-8')
+                before = path.read_bytes()
+                self.calls.clear()
+                code, output, errors = self.run_setup()
+                self.assertEqual(code, 1)
+                self.assertEqual(path.read_bytes(), before)
+                self.assertFalse(any('pip' in c for c in self.calls))
+                for secret in ('private-user', 'private-secret', 'another-secret'):
+                    self.assertNotIn(secret, output + errors + str(self.prompts))
+
+    def test_embedded_credentials_remain_service_specific_on_rerun(self):
+        self.answers['Local roles'] = 'controller synchronization-manager ingestor'
+        self.assertEqual(self.run_setup()[0], 0)
+        before = {}
+        for index, path in enumerate(sorted(self.config.glob('*.json'))):
+            data = json.loads(path.read_text())
+            data['servers'] = [f'nats://service-{index}:secret-{index}@broker:4222']
+            path.write_text(json.dumps(data), encoding='utf-8')
+            before[path] = path.read_bytes()
+        code, output, errors = self.run_setup()
+        self.assertEqual(code, 0, errors)
+        self.assertEqual({p: p.read_bytes() for p in before}, before)
+        for index in range(3):
+            self.assertNotIn(f'secret-{index}', output + errors + str(self.prompts))
+
     def shared_source(self, *, servers=None):
         path = self.root / "existing laboratory.json"
         path.write_text(json.dumps({"servers": servers or ["nats://lab-broker:4222"],
@@ -217,7 +355,7 @@ class FrameworkInstallerTests(unittest.TestCase):
         self.calls.clear()
         code, _, errors = self.run_setup()
         self.assertEqual(code, 1)
-        self.assertIn('Imported NATS endpoints conflict', errors)
+        self.assertIn('different NATS addresses or ordering', errors)
         self.assertEqual(target.read_bytes(), before)
         self.assertFalse(any('pip' in c for c in self.calls))
 
@@ -755,7 +893,7 @@ class FrameworkInstallerTests(unittest.TestCase):
         self.assertEqual(len(self.connections), 4)
 
     def test_each_individual_role_including_storage_alias_can_be_prepared(self):
-        for role in (*installer.FILES, "storage-manager"):
+        for role in (*installer.FILES, "storage-manager", "ingestor-storage"):
             with self.subTest(role=role), tempfile.TemporaryDirectory() as directory:
                 self.config = Path(directory) / "config"
                 self.answers["Local roles"] = role

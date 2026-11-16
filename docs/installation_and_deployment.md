@@ -200,6 +200,17 @@ provided account to continue offline with valid configuration. Conventional
 confirmation, not newly created resources or defaults for joining an existing lab.
 Offline installation and Decisions 440/445 remain unchanged.
 See [Decision 446](architecture_decisions.md#decision-446-guided-installation-discovers-configuration-before-requesting-operator-choices).
+
+The role menu offers `ingestor-storage` as one default-selected job: both logical
+services use the existing `storage-services.json` and single `ingestor` launcher.
+Legacy `ingestor`/`storage-manager` inputs still select that same pair, not separate
+deployments. Local endpoint discovery excludes credentials and treats hostname
+case, default ports and root-path spelling consistently. Existing service files,
+URL order and service-specific authentication remain unchanged. Distinct local
+address lists require explicit selection for new roles; credentials are entered
+separately for each new role and are never inherited from another service.
+These Ubuntu-finding corrections have developer regression coverage; independent
+Ubuntu validation and audit remain pending and Q022 remains OPEN.
 The procedure below describes software behavior, not independent or deployment closure.
 
 Role selection accepts existing role names or displayed numbers: Controller,

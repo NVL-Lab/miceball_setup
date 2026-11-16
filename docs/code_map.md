@@ -2692,7 +2692,7 @@ Storage GUI integration and remaining deployment validation.
 ## scripts/install_framework.py
 
 - Decision 446: The existing planner implements bounded discovery and new/join choices; independent validation/audit and Ubuntu deployment verification remain pending, with no network scanning or broker provisioning.
-- `_endpoint(server, *, include_route=False)`: Removes URL userinfo for imported addresses/comparison and hides routing details in operator-visible endpoint labels.
+- `_endpoint(server, *, include_route=False)`: Removes URL userinfo, canonicalizes hostname/default-port/root-path representations for endpoint discovery, and hides routing details in operator-visible labels without modifying retained connection settings.
 - `_read_shared_configuration(path, *, contents=None)`: Validates and selects shared declarations from an explicitly selected file or retained local snapshot, excluding credentials and foreign computer paths.
 - `_choose_discovered(label, candidates)`: Confirms a single local candidate or requires explicit selection among several without silently adopting discoveries.
 - `_hidden_input(label)`: Reads connection URLs and explicit credentials without echo or normalization, refusing insecure terminal fallback.
@@ -2704,7 +2704,7 @@ Storage GUI integration and remaining deployment validation.
 - _confirm(label): Requires an explicit affirmative response before maintenance-sensitive installation changes.
 - _comma(value): Splits explicitly supplied deployment lists for existing configuration fields.
 - _inspect_environment(python, environment): Confirms the selected interpreter is an isolated Python 3.12 environment and reports installed package metadata before reuse.
-- _configuration_plan(roles, directory, existing, preflight_python): Reuses local/shared declarations, confirms endpoint and hardware/SSH candidates, obtains new-system account readback and confirmed authority proposals, and builds existing role configurations while preserving conflicts, offline handling and hardware deferral.
+- _configuration_plan(roles, directory, existing, preflight_python): Reuses local/shared declarations, confirms or selects credential-free endpoint lists for new roles without copying existing authentication, confirms hardware/SSH candidates and new-system authority proposals, and preserves existing configurations, offline handling and hardware deferral.
 - _validate(python, checkout, path, role, allow_unavailable=False): Uses the selected checkout's authoritative loader in an isolated child, allowing only missing import dependencies to defer pre-install validation and blocking unresolved validation after installation.
 - _publish(path, contents): Exclusively creates a validated new configuration and removes its own incomplete write after a handled failure or interruption without replacing existing files.
 

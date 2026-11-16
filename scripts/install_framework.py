@@ -146,10 +146,14 @@ def _inspect_environment(python, environment):
 
 
 def _endpoint(server, *, include_route=False):
-    """Remove userinfo; omit path/query details from operator-visible endpoint labels."""
+    """Identify credential-free endpoints; hide routing details in visible labels."""
     url = urlsplit(server)
-    return urlunsplit((url.scheme, url.netloc.rsplit('@', 1)[-1],
-                      url.path if include_route else '', url.query if include_route else '',
+    host = url.hostname
+    if ':' in host:
+        host = '[' + host + ']'
+    port = url.port or {'nats': 4222, 'tls': 4222, 'ws': 80, 'wss': 443}[url.scheme]
+    return urlunsplit((url.scheme, f'{host}:{port}',
+                      url.path if include_route and url.path != '/' else '', url.query if include_route else '',
                       url.fragment if include_route else ''))
 
 
@@ -220,13 +224,17 @@ def _choose_discovered(label, candidates):
 def _configuration_plan(roles, directory, existing, preflight_python):
     """Collect only installation values; existing configurations are never edited."""
     values = {}
+    local_servers = []
     for role, (_, data) in existing.items():
+        servers = [_endpoint(s, include_route=True) for s in data['servers']]
+        if not any(servers == candidate for _, candidate in local_servers):
+            local_servers.append((FILES[role] + ': ' + ', '.join(_endpoint(s) for s in servers), servers))
         fields = dict(data)
         if role == "controller":
             fields["controller_id"] = data.get("service_id")
         if role == "synchronization-manager":
             fields["synchronization_id"] = data.get("service_id")
-        for key in ("servers", "ingestor_id", "storage_id", "synchronization_id", "controller_id", *AUTHORITY_FIELDS):
+        for key in ("ingestor_id", "storage_id", "synchronization_id", "controller_id", *AUTHORITY_FIELDS):
             if key in fields:
                 if key in values and values[key] != fields[key]:
                     raise ValueError(f"Existing configurations disagree on {key}; resolve explicitly")
@@ -248,10 +256,12 @@ def _configuration_plan(roles, directory, existing, preflight_python):
             for key in ('ingestor_id', 'storage_id', 'synchronization_id', 'controller_id', *AUTHORITY_FIELDS):
                 if key in values and key in imported and values[key] != imported[key]:
                     raise ValueError(f'Existing configurations disagree on {key}; imported values cannot override them')
-            if 'servers' in values and [_endpoint(s, include_route=True) for s in values['servers']] != imported['servers']:
-                raise ValueError('Imported NATS endpoints conflict with local deployment configuration')
+            if local_servers and not any(imported['servers'] == servers for _, servers in local_servers):
+                raise ValueError('The selected file has different NATS addresses or ordering from the local files; '
+                                 'confirm the laboratory configuration before retrying. Existing files were not changed')
             for key, value in imported.items():
-                values.setdefault(key, value)
+                if key != 'servers' or not local_servers:
+                    values.setdefault(key, value)
     for key in ('ingestor_id', 'storage_id', 'synchronization_id', 'controller_id', *AUTHORITY_FIELDS):
         if key in values:
             print('Discovered ' + key + ': ' + json.dumps(values[key]))
@@ -263,12 +273,17 @@ def _configuration_plan(roles, directory, existing, preflight_python):
         if nodes:
             values['known_nodes'] = nodes
     print('NATS connects the laboratory computers. Reachability does not establish laboratory membership; no network search is performed.')
-    if 'servers' in values:
-        if existing:
-            print('Configured local NATS endpoints: ' + ', '.join(json.dumps(_endpoint(s)) for s in values['servers']))
-            if not _confirm('Use discovered local NATS settings without changing existing files'):
-                raise ValueError('Existing connection settings must be resolved explicitly; no override was applied')
-        elif len(values['servers']) == 1:
+    if local_servers:
+        print('Existing service addresses and credentials remain unchanged. Discovered addresses for new roles '
+              'do not include another service\'s credentials.')
+        if len(local_servers) > 1:
+            print('Local files declare different NATS address lists or ordering. Select the list for new roles; '
+                  'this does not merge lists or replace any existing setting.')
+        values['servers'] = _choose_discovered('local NATS settings for new roles without changing existing files', local_servers)
+        if values['servers'] is None:
+            raise ValueError('Choose a discovered address list explicitly or resolve the local files before retrying; no override was applied')
+    elif 'servers' in values:
+        if len(values['servers']) == 1:
             if not _choose_discovered('NATS server', [(_endpoint(values['servers'][0]), values['servers'])]):
                 values.pop('servers')
         else:
@@ -519,14 +534,16 @@ def main(argv=None):
                 print(('Discovered validated local configuration: ' if validated else
                        'Discovered local candidate; full validation pending dependencies: ') + str(path))
         print('Choose this computer\'s jobs: 1 controller (coordinate experiments), 2 acquisition-node (attached equipment), '
-              '3 synchronization-manager (laboratory time), 4 ingestor (paired data intake and storage). Multiple jobs are allowed; storage-manager selects the same pair.')
-        choices = _ask("Local roles: controller acquisition-node synchronization-manager ingestor storage-manager",
-                       " ".join(existing) or None).replace(",", " ").split()
-        names = {'1': 'controller', '2': 'acquisition-node', '3': 'synchronization-manager', '4': 'ingestor'}
+              '3 synchronization-manager (laboratory time), 4 ingestor-storage (both logical services together in the existing shared process). Multiple jobs are allowed.')
+        defaults = list(dict.fromkeys((*existing, 'ingestor')))
+        choices = _ask("Local roles: controller acquisition-node synchronization-manager ingestor-storage",
+                       " ".join('ingestor-storage' if role == 'ingestor' else role for role in defaults)).replace(",", " ").split()
+        names = {'1': 'controller', '2': 'acquisition-node', '3': 'synchronization-manager', '4': 'ingestor',
+                 'ingestor-storage': 'ingestor', 'storage-manager': 'ingestor'}
         choices = [names.get(role, role) for role in choices]
-        if not choices or set(choices) - (set(FILES) | {"storage-manager"}):
+        if not choices or set(choices) - set(FILES):
             raise ValueError("Select existing framework role names")
-        roles = tuple(dict.fromkeys("ingestor" if r == "storage-manager" else r for r in choices))
+        roles = tuple(dict.fromkeys(choices))
         generated, deferred = _configuration_plan(roles, directory, existing, preflight_python)
         configured = {role: (existing[role][1] if role in existing else generated[role])
                       for role in roles if role in existing or role in generated}
@@ -551,7 +568,7 @@ def main(argv=None):
                 if not validated:
                     print("DEFERRED: Pre-install configuration validation deferred: loader dependencies unavailable; "
                           "full validation is required after dependency installation")
-            # The configuration plan already requires identical server lists across local roles.
+            # Each selected role retains its own connection and authentication settings.
             settings = next(iter(configured.values()))
             window = settings["result_window_s"]
             if type(window) not in (int, float) or not math.isfinite(window) or window <= 0:
