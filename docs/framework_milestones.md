@@ -2076,8 +2076,22 @@ manual validation and independent Windows Codex audit PASS, with no confirmed
 P0-P3 defects or architectural violations. See the [closure evidence](validated_workflows.md#decision-445---nats-authentication-compatibility)
 for the exact audited target, working-tree qualification, checks and limitations.
 This is not a new milestone or complete end-to-end deployment certification.
-Decision 446 remains pending independent Ubuntu validation and audit; Q022 and
-M015 remain OPEN. No new validation was performed during this closure.
+Decision 446 has its separate bounded closure below; Q022 and M015 remain OPEN.
+No new validation was performed during this closure.
+
+## Decision 446 - Completed Guided-Installer Software Scope
+
+**Status:** CLOSED within validated and independently audited software scope.
+Ubuntu existing-laboratory installation at `e6d59bf5d8a28268f0a5c97ba27e31552cdaee4c`
+and independent Windows re-audit PASS of that HEAD plus four uncommitted files
+support this closure. The cross-role preservation-window P2 is corrected; the
+re-audit passed 73 focused tests and 109 independent checks across 13 workflows.
+See the [authoritative evidence and limitations](validated_workflows.md#decision-446---guided-installer-software-scope).
+Live Ubuntu validation of the corrected scenario is deferred, not passed;
+authenticated connectivity in the earlier installer run remains unverified.
+This is not a new milestone or complete deployment certification. Decision 445
+retains its separate CLOSED scope; Q022 and M015 remain OPEN. No validation or
+audit was repeated during documentation closure.
 
 Planned future milestones include:
 

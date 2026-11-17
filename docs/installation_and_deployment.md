@@ -176,8 +176,8 @@ volume. Existing-identical-handoff fixtures do not prove first publication.
 
 ### Guided Setup From An Existing Checkout (Decision 421)
 
-**Implemented software; independent validation/audit and Ubuntu deployment
-verification pending (Decision 446):** The existing planner follows Discover ->
+**CLOSED within validated and independently audited software scope (Decision 446):**
+The existing planner follows Discover ->
 Present findings -> Confirm or choose -> Validate -> Configure. It inspects local
 role files first and offers new-laboratory versus add/update-computer choices.
 An explicitly selected existing service JSON can supply shared identities, timing
@@ -209,9 +209,17 @@ case, default ports and root-path spelling consistently. Existing service files,
 URL order and service-specific authentication remain unchanged. Distinct local
 address lists require explicit selection for new roles; credentials are entered
 separately for each new role and are never inherited from another service.
-These Ubuntu-finding corrections have developer regression coverage; independent
-Ubuntu validation and audit remain pending and Q022 remains OPEN.
-The procedure below describes software behavior, not independent or deployment closure.
+An existing paired service may retain a zero preservation window. Adding an
+independent service then requests a positive window for that new role only;
+applicable positive values are reused and authoritative validation still applies.
+Independent Ubuntu existing-laboratory installation and Windows re-audit PASS are
+recorded in the [closure evidence](validated_workflows.md#decision-446---guided-installer-software-scope),
+including the preservation-window P2 correction and four-file audit overlay.
+Live Ubuntu validation of the corrected scenario is DEFERRED, not passed.
+The earlier connection/cleanup warning has no established cause; TCP reachability
+did not establish authenticated connectivity for that installer run.
+Software installation remains distinct from operational readiness and broader
+deployment validation; Q022 remains OPEN.
 
 Role selection accepts existing role names or displayed numbers: Controller,
 attached-equipment AcquisitionNode, SynchronizationManager, and paired data intake/
@@ -601,8 +609,9 @@ verification receives credentials through stdin, never subprocess arguments.
 The bounded authentication scope is CLOSED after independent Ubuntu manual
 validation and Windows audit PASS; see the [closure evidence and limitations](validated_workflows.md#decision-445---nats-authentication-compatibility).
 Successful authentication does not establish complete end-to-end deployment or
-completion of Decision 446's guided-installer usability. Decision 446 remains
-pending independent Ubuntu validation and audit; Q022 remains OPEN.
+completion of all deployment work. Decision 446 has its own
+[bounded software closure and deferred live-validation exception](validated_workflows.md#decision-446---guided-installer-software-scope);
+Q022 remains OPEN.
 
 GUI and addressed maintenance/claim commands can read connection fields from an
 existing deployment file using `--deployment-config PATH` instead of `--server`.

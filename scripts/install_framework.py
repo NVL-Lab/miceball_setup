@@ -306,11 +306,12 @@ def _configuration_plan(roles, directory, existing, preflight_python):
         if key not in values:
             answer = _hidden_input(label) if key == "servers" else _ask(label, default)
             values[key] = _comma(answer) if key == "servers" else answer
+    window_fields = (("preservation_window_s", "Preservation window, seconds"),
+                     ("result_window_s", "Request/check window, seconds"))
     windows = {}
     if pending:
         print('Confirmation windows are maximum waits, not recording duration. Reuse laboratory settings or obtain suitable values from its administrator.')
-        for key, label in (("preservation_window_s", "Preservation window, seconds"),
-                           ("result_window_s", "Request/check window, seconds")):
+        for key, label in window_fields:
             previous = {data[key] for _, data in existing.values() if key in data}
             if len(previous) > 1:
                 print(label + ': local roles use ' + json.dumps(sorted(previous)) + '; choose the value for new roles, without changing existing files.')
@@ -324,8 +325,13 @@ def _configuration_plan(roles, directory, existing, preflight_python):
                 data[field] = _hidden_input(f"{role} {field} (hidden)")
         _NATS_HELPERS['nats_connect_options'](data['servers'], **{
             k: data[k] for k in _NATS_HELPERS['AUTH_FIELDS'] if k in data})
-        data["preservation_window_s"] = windows["preservation_window_s"]
-        data["result_window_s"] = windows["result_window_s"]
+        for key, label in window_fields:
+            value = windows[key]
+            if value == 0 and (key == 'result_window_s' or role != 'ingestor'):
+                print(f'Proposed {label.lower()} is zero; new {role} requires a positive value. '
+                      'Choose a value for this new role only; existing configuration stays unchanged.')
+                value = float(_ask(f'{label} for new {role}'))
+            data[key] = value
         if role in {"controller", "acquisition-node", "synchronization-manager"}:
             data["registration_window_s"] = values.get('registration_window_s', 180.0)
             if "synchronization_id" not in values:

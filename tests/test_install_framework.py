@@ -19,6 +19,83 @@ from tests.nats_server_fixture import NATS_SERVER, restartable_jetstream_server
 
 
 class FrameworkInstallerTests(unittest.TestCase):
+    def test_zero_pair_preservation_window_prompts_for_each_new_independent_role(self):
+        self.answers['Local roles'] = 'ingestor-storage'
+        self.answers['Preservation window'] = '0'
+        self.assertEqual(self.run_setup()[0], 0)
+        storage = self.config / 'storage-services.json'
+        before = storage.read_bytes()
+        original = load_service_configuration(storage, 'ingestor')
+        scientific = Path(original['storage_root']) / 'original.bin'
+        scientific.write_bytes(b'preserved scientific data')
+        self.hardware()
+        for index, role in enumerate(('controller', 'synchronization-manager', 'acquisition-node')):
+            with self.subTest(role=role):
+                self.answers['Local roles'] = 'ingestor-storage ' + role
+                label = 'Preservation window, seconds for new ' + role
+                self.answers[label] = str(3.5 + index)
+                code, output, errors = self.run_setup()
+                self.assertEqual(code, 0, errors)
+                path = self.config / installer.FILES[role]
+                data = load_service_configuration(path, role)
+                self.assertEqual(data['preservation_window_s'], 3.5 + index)
+                self.assertEqual(data['result_window_s'], original['result_window_s'])
+                self.assertEqual(data['controller_claim_key'], original['controller_claim_key'])
+                self.assertTrue(any(p.startswith(label) for p in self.prompts))
+                self.assertIn('requires a positive', output)
+                self.assertEqual(storage.read_bytes(), before)
+                self.assertEqual(scientific.read_bytes(), b'preserved scientific data')
+                path.unlink()
+
+    def test_positive_pair_timing_is_reused_without_prompting_or_changing_existing_config(self):
+        self.answers['Local roles'] = 'ingestor-storage'
+        self.assertEqual(self.run_setup()[0], 0)
+        storage = self.config / 'storage-services.json'
+        before = storage.read_bytes()
+        original = load_service_configuration(storage, 'ingestor')
+        self.answers['Local roles'] = 'ingestor-storage controller synchronization-manager'
+        self.answers['Preservation window'] = 'must not be requested'
+        code, output, errors = self.run_setup()
+        self.assertEqual(code, 0, errors)
+        for role in ('controller', 'synchronization-manager'):
+            data = load_service_configuration(self.config / installer.FILES[role], role)
+            self.assertEqual(data['preservation_window_s'], original['preservation_window_s'])
+            self.assertEqual(data['result_window_s'], original['result_window_s'])
+        self.assertFalse(any(p.startswith(('Preservation window', 'Request/check window')) for p in self.prompts))
+        self.assertEqual(storage.read_bytes(), before)
+
+    def test_invalid_replacement_window_blocks_before_update_and_preserves_zero_pair(self):
+        self.answers['Local roles'] = 'ingestor-storage'
+        self.answers['Preservation window'] = '0'
+        self.assertEqual(self.run_setup()[0], 0)
+        storage = self.config / 'storage-services.json'
+        before = storage.read_bytes()
+        self.answers['Local roles'] = 'ingestor-storage controller'
+        for value in ('0', '-1', 'nan', 'inf', 'not a number'):
+            with self.subTest(value=value):
+                self.answers['Preservation window, seconds for new controller'] = value
+                self.calls.clear()
+                code, output, errors = self.run_setup()
+                self.assertEqual(code, 1)
+                self.assertEqual(storage.read_bytes(), before)
+                self.assertFalse((self.config / 'controller.json').exists())
+                self.assertFalse(any('pip' in c for c in self.calls))
+
+    def test_cancellation_at_inapplicable_window_prompt_preserves_existing_config(self):
+        self.answers['Local roles'] = 'ingestor-storage'
+        self.answers['Preservation window'] = '0'
+        self.assertEqual(self.run_setup()[0], 0)
+        storage = self.config / 'storage-services.json'
+        before = storage.read_bytes()
+        self.answers['Local roles'] = 'ingestor-storage controller'
+        self.interrupt_at = 'Preservation window, seconds for new controller'
+        self.calls.clear()
+        code, output, errors = self.run_setup()
+        self.assertEqual(code, 130)
+        self.assertEqual(storage.read_bytes(), before)
+        self.assertFalse((self.config / 'controller.json').exists())
+        self.assertFalse(any('pip' in c for c in self.calls))
+
     def test_local_authentication_and_equivalent_endpoints_are_not_server_conflicts(self):
         self.answers['Local roles'] = 'controller ingestor'
         self.assertEqual(self.run_setup()[0], 0)

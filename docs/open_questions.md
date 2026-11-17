@@ -2704,11 +2704,11 @@ verification without another independent re-audit for this test-only cleanup.
 Remaining deployment work is pending.
 Q022 as a whole is not closed. Q019 remains CLOSED in W050.
 
-**Generic installer (Decision 421): bounded implementation; independent validation
-and audit pending.**
+**Generic installer (Decision 421): implemented; Decision 446 closes only the
+bounded guided-installer software scope below, not broader deployment work.**
 
-**Discovery-first guided installation (Decision 446): implemented; independent
-validation and audit pending.** The existing planner follows Discover -> Present findings ->
+**Discovery-first guided installation (Decision 446): CLOSED within validated
+and independently audited software scope.** The existing planner follows Discover -> Present findings ->
 Confirm or choose -> Validate -> Configure, considering trustworthy existing
 information first. The accepted scope includes NATS candidate confirmation or
 selection, understandable new-system/join-existing choices and appropriate shared
@@ -2722,8 +2722,19 @@ Discovery is bounded to recognized local configuration, explicitly selected
 deployment files and fixed local hardware/SSH file candidates. New-system account
 readback uses only selected endpoints and credentials; denied/offline discovery
 remains unverified and requires supplied valid settings. No broker resources are
-created. Developer software verification is distinct from pending independent
-validation/audit and actual Ubuntu deployment testing. Q022 remains OPEN.
+created. Independent Ubuntu existing-laboratory installation and Windows re-audit
+PASS after the preservation-window P2 correction are separately attributed in the
+[closure evidence](validated_workflows.md#decision-446---guided-installer-software-scope).
+The audit included four uncommitted files; live Ubuntu validation of the corrected
+scenario is explicitly deferred, not passed. The earlier NATS warning remains
+unexplained and authenticated connectivity for that installer run is unverified.
+
+Q022 remains OPEN beyond Decision 446: applicable real deployment/startup,
+SSH/retrieval and Controller-node installation checks remain separate; the
+Decision 442/444 reliability/startup and related verification entries below are
+not closed here. Undetectable catastrophic registration-history loss and the
+retained retirement-delivery interface remain explicitly unresolved below.
+This closure neither invents their solutions nor certifies operational readiness.
 
 **NATS authentication compatibility (Decision 445): CLOSED within validated
 authentication scope.** Optional `nats_username` and `nats_password` provide
@@ -2736,8 +2747,9 @@ across installer, service, GUI backend and relevant launcher/maintenance paths.
 See [Decision 445](architecture_decisions.md#decision-445-explicit-nats-username-and-password-preserve-authentication-compatibility)
 for the authoritative contract and the [closure evidence](validated_workflows.md#decision-445---nats-authentication-compatibility)
 for independent Ubuntu manual validation, Windows audit PASS and limitations.
-Complete end-to-end deployment is not certified. Decision 446 still requires
-independent Ubuntu validation and audit; Q022 remains OPEN.
+Complete end-to-end deployment is not certified. Decision 446's separate
+[bounded closure](validated_workflows.md#decision-446---guided-installer-software-scope)
+retains its deferred live-validation exception; Q022 remains OPEN.
 
 **Current accepted clarification (Decision 440): bounded implementation complete;
 independent validation and audit pending.**
@@ -3312,8 +3324,8 @@ not evidence acceptance. Capability-appropriate device acquisition tests are
 strongly recommended but are not certification fields or runtime gates. The initial
 installation workflow was manual; Decision 421 subsequently accepts a generic
 interactive command-line bootstrap using the same files and loaders, now
-implemented within the bounded scope above with compatibility-repair developer
-verification; independent validation and audit remain pending. No GUI installer
+implemented and closed within Decision 446's bounded software scope above, with
+the explicit live-validation exception and separate deployment obligations. No GUI installer
 or runtime service manager is introduced. See
 [installation_and_deployment.md](installation_and_deployment.md) for the accepted
 procedure, current reuse/gaps, and validation boundaries. W051 closes only the

@@ -657,7 +657,8 @@ target arguments; no password flags or credential-bearing commands are generated
 
 Decision 445's bounded authentication scope is CLOSED after independent Ubuntu
 manual validation and Windows audit PASS; see the [closure evidence and limits](validated_workflows.md#decision-445---nats-authentication-compatibility).
-This does not certify complete deployment or close Decision 446/Q022.
+This does not certify complete deployment or close Q022; Decision 446 has its
+own [bounded closure](validated_workflows.md#decision-446---guided-installer-software-scope).
 No authentication mechanism or credential store is added.
 
 - `nats_connect_options(servers, *, nats_username=UNSET, nats_password=UNSET)`: Validates all URLs and the exact optional credential pair before returning SDK options, preserving legacy URL-only inputs without transformation.
@@ -2691,7 +2692,7 @@ Storage GUI integration and remaining deployment validation.
 
 ## scripts/install_framework.py
 
-- Decision 446: The existing planner implements bounded discovery and new/join choices; independent validation/audit and Ubuntu deployment verification remain pending, with no network scanning or broker provisioning.
+- Decision 446: Bounded guided-installer software scope is CLOSED after Ubuntu existing-laboratory validation and Windows re-audit PASS of HEAD plus the four-file correction overlay; corrected-scenario live Ubuntu validation is deferred, not passed. See the [closure evidence and limitations](validated_workflows.md#decision-446---guided-installer-software-scope); Q022 remains OPEN, with no network scanning or broker provisioning.
 - `_endpoint(server, *, include_route=False)`: Removes URL userinfo, canonicalizes hostname/default-port/root-path representations for endpoint discovery, and hides routing details in operator-visible labels without modifying retained connection settings.
 - `_read_shared_configuration(path, *, contents=None)`: Validates and selects shared declarations from an explicitly selected file or retained local snapshot, excluding credentials and foreign computer paths.
 - `_choose_discovered(label, candidates)`: Confirms a single local candidate or requires explicit selection among several without silently adopting discoveries.
@@ -2704,7 +2705,7 @@ Storage GUI integration and remaining deployment validation.
 - _confirm(label): Requires an explicit affirmative response before maintenance-sensitive installation changes.
 - _comma(value): Splits explicitly supplied deployment lists for existing configuration fields.
 - _inspect_environment(python, environment): Confirms the selected interpreter is an isolated Python 3.12 environment and reports installed package metadata before reuse.
-- _configuration_plan(roles, directory, existing, preflight_python): Reuses local/shared declarations, confirms or selects credential-free endpoint lists for new roles without copying existing authentication, confirms hardware/SSH candidates and new-system authority proposals, and preserves existing configurations, offline handling and hardware deferral.
+- _configuration_plan(roles, directory, existing, preflight_python): Reuses applicable local/shared declarations and timing values, requests role-specific replacements for inapplicable zero windows, confirms credential-free endpoints and hardware/SSH/authority candidates, and preserves existing configurations, authentication isolation, offline handling and hardware deferral.
 - _validate(python, checkout, path, role, allow_unavailable=False): Uses the selected checkout's authoritative loader in an isolated child, allowing only missing import dependencies to defer pre-install validation and blocking unresolved validation after installation.
 - _publish(path, contents): Exclusively creates a validated new configuration and removes its own incomplete write after a handled failure or interruption without replacing existing files.
 

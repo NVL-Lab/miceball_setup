@@ -6691,10 +6691,72 @@ The independent audit ran on Windows with Python 3.12.13, nats-py 2.15.0 and
 isolated NATS 2.14.3; it did not contact the live deployment. The complete supported
 SDK range, TLS/WebSocket authentication and complete end-to-end deployment of
 every service role were not established. Ubuntu authentication evidence does not
-certify all installation/deployment functionality. Decision 446's guided-installer
-discovery/usability remains pending independent Ubuntu validation and audit.
+certify all installation/deployment functionality. At Decision 445 closure,
+Decision 446 remained pending independent validation/audit; its subsequent
+[bounded closure](#decision-446---guided-installer-software-scope) is recorded below.
 Q022 remains OPEN. No broker policy, Controller authority or Session lifecycle
 change is implied by this closure.
+
+---
+
+# Decision 446 - Guided Installer Software Scope
+
+**Status:** CLOSED within validated and independently audited software scope under
+[Decision 446](architecture_decisions.md#decision-446-guided-installation-discovers-configuration-before-requesting-operator-choices).
+The existing installer follows Discover -> Present findings -> Confirm or choose
+-> Validate -> Configure using local or explicitly selected configuration, with no
+network scanning or broker provisioning. It preserves per-service credentials,
+Controller authority and existing files/data; presents the paired Ingestor/
+StorageManager job; validates through existing loaders; and prints existing launch
+commands without starting services. Installation does not establish readiness.
+
+## Completed evidence and correction history
+
+- Independent Ubuntu x86_64 validation on `nvlsetuppc` at
+  `e6d59bf5d8a28268f0a5c97ba27e31552cdaee4c`: the existing-laboratory workflow
+  completed, exercising configuration discovery, paired selection, NATS candidate
+  discovery/confirmation, Controller authority reuse, configuration/scientific-data
+  preservation, explicit retirement/installation confirmations, package installation,
+  validation and launch-command generation, without automatic service startup.
+- The first independent audit returned FAIL: a valid paired-service preservation
+  window of zero was reused for a new Controller without an opportunity to replace
+  it, then rejected by the authoritative loader. Its 75 passing focused tests and
+  33 passing independent checks did not invalidate that P2 finding.
+- The bounded correction checks timing applicability per new role, explains
+  incompatible zero values and requests replacements only for those new roles.
+  Existing values and authoritative/runtime timing rules remain unchanged.
+  Developer verification: 73 focused tests passed, zero failures or skips.
+- Separate independent Windows re-audit: PASS, no remaining confirmed P0-P3
+  findings; 73 focused automated tests passed with zero failures or skips, plus
+  109 independently constructed checks across 13 workflows. Checks exercised
+  Controller, SynchronizationManager and AcquisitionNode additions, positive reuse,
+  invalid replacements, cancellation, imported-zero mixed-role setup, preservation
+  and confidentiality. No unintended regression was identified in discovery,
+  authentication, Controller authority, paired deployment or offline behavior.
+
+The re-audit target was `e6d59bf5d8a28268f0a5c97ba27e31552cdaee4c` plus four
+uncommitted modifications: `scripts/install_framework.py`,
+`tests/test_install_framework.py`, `docs/code_map.md` and
+`docs/installation_and_deployment.md`. This was not a committed-tree-only audit.
+Developer, Ubuntu manual and independent-audit evidence are separate and their
+overlapping counts are not additive. No validation or audit was repeated here.
+
+## Explicit validation exception and operational limits
+
+Live Ubuntu validation of the corrected P2 scenario was explicitly DEFERRED
+because another deployment computer was unavailable; it was not passed. The
+Windows software checks used disposable configurations and simulated Git, package
+installation and connectivity operations, with production installer entry points
+and authoritative loaders. They do not establish a fresh Ubuntu deployment of the
+corrected scenario, hardware operation, physical crash recovery or exhaustive
+concurrency behavior. Earlier Ubuntu evidence retains only its exercised scope.
+
+The Ubuntu installer reported NATS connectivity PENDING / NOT VERIFIED. Subsequent
+TCP reachability did not establish authenticated connectivity during that run.
+Its warning's cause remains unknown, not a confirmed authentication defect;
+Decision 440's nonblocking behavior remains applicable. Decision 445 retains its
+separate CLOSED authentication scope. Q022 remains OPEN for the remaining
+deployment/verification and unresolved-history/interface work tracked there.
 
 ---
 

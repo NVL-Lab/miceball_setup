@@ -14466,9 +14466,9 @@ Independent Ubuntu manual validation and independent Codex audit PASS are record
 in the [closure evidence](validated_workflows.md#decision-445---nats-authentication-compatibility).
 The audit targeted HEAD `8ed4b3cc06a7fbb9af0ba08aab56386df9d065a7` with six
 preexisting working-tree modifications, not a committed-tree-only certification.
-Complete deployment coverage is not established. Decision 446 remains pending
-independent Ubuntu validation and audit; Q022 remains OPEN. Historical evidence
-retains its scope.
+Complete deployment coverage is not established. Decision 446 has a separate
+[bounded closure and validation exception](validated_workflows.md#decision-446---guided-installer-software-scope).
+Q022 remains OPEN. Historical evidence retains its scope.
 
 ---
 
@@ -14519,13 +14519,21 @@ and credential confidentiality. Existing configuration, service architecture,
 Controller exclusivity, local prerequisites, cancellation and preservation
 behavior remain authoritative. Broker provisioning remains external.
 
-**Implementation status:** The existing guided installer now implements bounded
+**Implementation status:** CLOSED within validated and independently audited
+software scope. The existing guided installer implements bounded
 local/selected-file discovery, explicit new/join choices, selective shared import,
 endpoint confirmation/selection and new-system authenticated account readback with
 confirmed bucket/key proposals. Existing role validation, offline behavior,
 credential handling, preservation and installation confirmations are retained.
-Independent validation, audit and actual Ubuntu deployment verification remain
-pending. Q022 remains OPEN; historical validation evidence retains its scope.
+Independent Ubuntu existing-laboratory installation at
+`e6d59bf5d8a28268f0a5c97ba27e31552cdaee4c` and independent Windows re-audit PASS
+of that HEAD plus four uncommitted correction files are recorded in the
+[closure evidence](validated_workflows.md#decision-446---guided-installer-software-scope).
+The invalid cross-role preservation-window reuse P2 is corrected within that
+software scope. Live Ubuntu validation of the corrected scenario is explicitly
+DEFERRED, not passed. This is not a committed-tree-only audit or operational
+readiness certification; the earlier connectivity warning remains unexplained.
+Decision 445 retains its separate CLOSED scope; broader Q022 remains OPEN.
 
 ---
 
