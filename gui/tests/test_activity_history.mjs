@@ -1,3 +1,4 @@
+import {replyArtifactDestinations} from './artifact_destination_fixture.mjs';
 import assert from 'node:assert/strict';
 
 // Developer browser checks of public controls with controlled transport outcomes.
@@ -18,7 +19,7 @@ export async function verifyActivityHistory(browser, origin, fixture, section, d
     instance_id: 'activity-owner', result: {request_id: `activity-browser-${message.id}`, status, error, outcome: {details}}}));
   await page.routeWebSocket('**/ws', route => {
     route.onMessage(raw => {
-      const message = JSON.parse(raw);
+      const message = JSON.parse(raw); if (replyArtifactDestinations(route, message)) return;
       if (message.operation === 'read_controller_state') return result(route, message, 'succeeded', snapshot());
       if (message.operation === 'read_operation_outcome') {
         if (pendingLaunch && resolveLaunch) {

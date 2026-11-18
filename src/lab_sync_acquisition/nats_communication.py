@@ -984,7 +984,7 @@ class NatsExternalSessionLaunchReceiver:
             if self._browser_control_required and request.browser_context is None:
                 raise ValueError("This external client requires browser connection context")
             record = self._requests.get(request.request_id)
-            if operation in {"read_controller_state", "read_operation_outcome", "get_node_inventory", "read_service_status", "read_synchronization_status"}:
+            if operation in {"read_controller_state", "read_operation_outcome", "get_node_inventory", "read_service_status", "read_synchronization_status", "list_artifact_destinations"}:
                 if record is not None:
                     raise ValueError("Read request identity conflicts with a retained operation")
                 if request.browser_context is not None:
@@ -1154,6 +1154,10 @@ class NatsExternalSessionLaunchReceiver:
                     tuple(dict.fromkeys((*self._participants, self._maintenance.participant))),
                     communication=self._communication, stop_attempt_id=request.request_id,
                     administrator_id=request.parameters["administrator_id"], result_window_s=self._window)
+            if request.operation in {"list_artifact_destinations", "register_artifact_destination", "update_artifact_destination"}:
+                return await getattr(self._controller, request.operation)(
+                    communication=self._communication, storage_participant=self._storage_participant(),
+                    result_window_s=self._window, **deepcopy(request.parameters))
             # Trust-boundary check; Controller also rechecks after lifecycle lock waits.
             if (request.operation not in {"collect_saved_session_artifacts_remote", "read_storage_sessions",
                                           "read_storage_session", "delete_original_artifacts"}
@@ -1298,7 +1302,10 @@ class NatsControllerCommunication:
         supported = {"storage_manager": {"read_session_preservation",
                                         "get_saved_session_collection_status", "collect_saved_artifacts",
                                         "close_session_evidence_archive", "list_storage_sessions",
-                                        "read_storage_session", "confirm_collected_originals"},
+                                        "read_storage_session", "confirm_collected_originals",
+                                        "list_artifact_destinations", "register_artifact_destination",
+                                        "update_artifact_destination", "admit_session_artifact_destination",
+                                        "read_session_artifact_destination"},
                      "ingestor": {"compile_session_evidence", "verify_acquisition_receipt",
                                   "read_runtime_evidence_acceptance", "admit_session_kill",
                                   "preserve_session_acquisition", "read_session_closeout",
@@ -1308,8 +1315,8 @@ class NatsControllerCommunication:
                 or command_type not in supported.get(participant.component_type, set())
                 or "request_nonce" in payload
                 or (command_type == "preserve_service_evidence" and session_id is not None)
-                or (command_type == "list_storage_sessions" and session_id is not None)
-                or (command_type not in {"preserve_service_evidence", "list_storage_sessions"}
+                or (command_type in {"list_storage_sessions", "list_artifact_destinations", "register_artifact_destination", "update_artifact_destination"} and session_id is not None)
+                or (command_type not in {"preserve_service_evidence", "list_storage_sessions", "list_artifact_destinations", "register_artifact_destination", "update_artifact_destination"}
                     and (not isinstance(session_id, str) or not session_id))):
             raise ValueError("Unsupported scoped persistence request")
         nonce = uuid4().hex
@@ -3189,6 +3196,20 @@ class NatsStorageManagerCommunication:
             command = _logical_command(command)
             if command.command_type == "check_readiness":
                 return _execute_service_command(self._boundary, self._storage_manager, command, {})
+            if command.command_type in {"list_artifact_destinations", "register_artifact_destination", "update_artifact_destination"}:
+                if (command.session_id is not None or command.target_id != self._boundary.component_id
+                        or not command.command_id or not command.source_id or not isinstance(nonce, str)
+                        or not nonce or not self._boundary.check_ready().ready):
+                    raise ValueError("Destination management requires framework-scoped correlation")
+                arguments = {k: v for k, v in command.payload.items() if k != "request_nonce"}
+                schemas = {"list_artifact_destinations": (set(), set()),
+                    "register_artifact_destination": ({"destination_id", "name", "root", "experimenter_name", "administrator_mode"}, set()),
+                    "update_artifact_destination": ({"destination_id", "enabled", "experimenter_name", "administrator_mode"}, {"remove"})}
+                required, optional = schemas[command.command_type]
+                if not required <= arguments.keys() or arguments.keys() - required - optional:
+                    raise ValueError("Invalid destination operation parameters")
+                payload = getattr(self._storage_manager, command.command_type)(**arguments)
+                return _participant_result(self._boundary, command, True, None, {**payload, "request_nonce": nonce})
             if command.command_type == "list_storage_sessions":
                 if (command.session_id is not None or command.target_id != self._boundary.component_id
                         or not command.command_id or not command.source_id or not isinstance(nonce, str) or not nonce
@@ -3197,7 +3218,16 @@ class NatsStorageManagerCommunication:
                 return _participant_result(self._boundary, command, True, None,
                     {**self._storage_manager.list_storage_sessions(), "request_nonce": nonce})
             _validate_owner_request(self._boundary, command)
-            if command.command_type == "read_storage_session":
+            if command.command_type == "admit_session_artifact_destination":
+                if set(command.payload) != {"request_nonce", "destination_id"}:
+                    raise ValueError("Destination admission requires an approved identity")
+                payload = self._storage_manager.admit_session_artifact_destination(
+                    command.session_id, command.payload["destination_id"])
+            elif command.command_type == "read_session_artifact_destination":
+                if set(command.payload) != {"request_nonce"}:
+                    raise ValueError("Destination readback requires only Session identity")
+                payload = self._storage_manager.read_session_artifact_destination(command.session_id)
+            elif command.command_type == "read_storage_session":
                 if set(command.payload) != {"request_nonce"}:
                     raise ValueError("Historical readback accepts only a Session identity")
                 payload = self._storage_manager.read_storage_session(command.session_id)
@@ -3206,7 +3236,8 @@ class NatsStorageManagerCommunication:
                     raise ValueError("Preservation proof requires exact manifests")
                 payload = self._storage_manager.confirm_collected_originals(command.session_id, command.payload["manifests"])
             elif command.command_type == "check_experiment_capacity":
-                payload = {"capacity": self._storage_manager.check_experiment_capacity(command.payload.get("required_bytes"))}
+                payload = {"capacity": self._storage_manager.check_experiment_capacity(
+                    command.payload.get("required_bytes"), session_id=command.session_id)}
             elif command.command_type in {"get_saved_session_collection_status", "collect_saved_artifacts"}:
                 collecting = command.command_type == "collect_saved_artifacts"
                 expected = {"request_nonce", "evidence_id"} if collecting else {"request_nonce"}

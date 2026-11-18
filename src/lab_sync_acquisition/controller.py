@@ -1139,9 +1139,33 @@ class Controller:
             parameters.pop("session_id", None)
             parameters.pop("selected_devices", None)
             parameters.pop("expected_runtime_participants", None)
+            if parameters.get("storage_location") is None:
+                parameters["storage_location"] = "default"
+            parameters["storage_configuration"] = {**(parameters.get("storage_configuration") or {}),
+                "artifact_destination_binding_required": True}
             config = SessionConfig(**parameters, session_id=session_id,
                 selected_devices=[d for devices in resolved.values() for d in devices],
                 expected_runtime_participants=tuple((*mandatory, *acquired)))
+            storage_owners = [p for p in participants if p.component_type == "storage_manager"]
+            if not storage_owners:
+                owner = getattr(getattr(self, "_maintenance", None), "_framework_storage", None)
+                storage_owners = [owner] if owner is not None else []
+            if len(storage_owners) != 1:
+                raise ValueError("Session destination admission requires one configured StorageManager")
+            admission = await communication.request_persistence_command(storage_owners[0],
+                "admit_session_artifact_destination", session_id,
+                {"destination_id": config.storage_location}, result_window_s,
+                command_id=json.dumps([session_id, "admit_session_artifact_destination"], separators=(",", ":")))
+            binding = admission.payload.get("binding") if confirmed(admission) else None
+            if (not isinstance(binding, dict) or admission.payload.get("admitted") is not True
+                    or admission.payload.get("session_id") != session_id
+                    or admission.payload.get("storage_id") != storage_owners[0].component_id
+                    or binding.get("session_id") != session_id
+                    or binding.get("storage_id") != storage_owners[0].component_id
+                    or binding.get("destination_id") != config.storage_location
+                    or not isinstance(binding.get("root"), str) or not binding["root"]
+                    or binding.get("legacy") is not False):
+                raise RuntimeError("Session scientific destination admission is unconfirmed")
             self._session = Session(session_id, config)
             preparation_reports = []
             for participant in (*mandatory, *acquired):
@@ -2443,7 +2467,8 @@ class Controller:
                 if self._storage_manager is None:
                     raise RuntimeError("Authoritative preservation StorageManager is required")
                 validate_storage_capacity((self._acquisition_node.check_experiment_capacity(outputs, accepted_configuration),
-                    self._storage_manager.check_experiment_capacity(accepted_configuration.preservation_budget_bytes)))
+                    self._storage_manager.check_experiment_capacity(accepted_configuration.preservation_budget_bytes,
+                        session_id=self._session.session_id)))
                 preparation = self._acquisition_node.prepare_experiment_scientific_outputs(
                     experiment_id, outputs, configuration=accepted_configuration)
                 records.append(preparation)
@@ -2860,6 +2885,63 @@ class Controller:
         if not administrator_mode and (not experimenter_name or owner != experimenter_name):
             raise PermissionError("Session ownership is missing, ambiguous or does not match the experimenter")
 
+    async def _artifact_destination_request(self, operation, parameters, *, communication,
+                                            storage_participant, result_window_s):
+        if storage_participant.component_type != "storage_manager":
+            raise ValueError("Artifact destinations require StorageManager")
+        result = await communication.request_persistence_command(storage_participant, operation,
+            None, parameters, result_window_s, command_id=uuid4().hex)
+        if (result is None or result.success is not True or result.status != "succeeded"
+                or result.payload.get("storage_id") != storage_participant.component_id):
+            raise RuntimeError("StorageManager destination operation is unconfirmed")
+        return deepcopy(result.payload)
+
+    @service_operation()
+    @_session_command
+    async def list_artifact_destinations(self, *, communication, storage_participant,
+                                         result_window_s) -> ControllerCommandResult:
+        """Read StorageManager-approved choices without granting filesystem authority."""
+        try:
+            payload = await self._artifact_destination_request("list_artifact_destinations", {},
+                communication=communication, storage_participant=storage_participant,
+                result_window_s=result_window_s)
+            return ControllerCommandResult("list_artifact_destinations", True, payload)
+        except Exception as error:
+            return ControllerCommandResult("list_artifact_destinations", False, error=str(error))
+
+    @service_operation(new_work=True)
+    @_session_command
+    async def register_artifact_destination(self, destination_id, name, root, *, experimenter_name,
+            administrator_mode, communication, storage_participant, result_window_s) -> ControllerCommandResult:
+        """Forward explicitly authorized destination registration to its filesystem owner."""
+        try:
+            if administrator_mode is not True or not isinstance(experimenter_name, str) or not experimenter_name.strip():
+                raise PermissionError("Destination management requires an administrator")
+            payload = await self._artifact_destination_request("register_artifact_destination",
+                {"destination_id": destination_id, "name": name, "root": root,
+                 "experimenter_name": experimenter_name, "administrator_mode": administrator_mode},
+                communication=communication, storage_participant=storage_participant, result_window_s=result_window_s)
+            return ControllerCommandResult("register_artifact_destination", True, payload)
+        except Exception as error:
+            return ControllerCommandResult("register_artifact_destination", False, error=str(error))
+
+    @service_operation(new_work=True)
+    @_session_command
+    async def update_artifact_destination(self, destination_id, *, enabled, remove=False,
+            experimenter_name, administrator_mode, communication, storage_participant,
+            result_window_s) -> ControllerCommandResult:
+        """Forward explicit administrative enable/disable/removal without changing Sessions."""
+        try:
+            if administrator_mode is not True or not isinstance(experimenter_name, str) or not experimenter_name.strip():
+                raise PermissionError("Destination management requires an administrator")
+            payload = await self._artifact_destination_request("update_artifact_destination",
+                {"destination_id": destination_id, "enabled": enabled, "remove": remove,
+                 "experimenter_name": experimenter_name, "administrator_mode": administrator_mode},
+                communication=communication, storage_participant=storage_participant, result_window_s=result_window_s)
+            return ControllerCommandResult("update_artifact_destination", True, payload)
+        except Exception as error:
+            return ControllerCommandResult("update_artifact_destination", False, error=str(error))
+
     async def _read_storage_session_owner(self, session_id, communication, storage, window, name, admin):
         if storage.component_type != "storage_manager":
             raise ValueError("Storage readback requires its authoritative owner")
@@ -3078,7 +3160,7 @@ class Controller:
                 self._browser_generation = 0
             identity = (client_id, context["browser_id"])
             read_only = operation in {"read_controller_state", "read_operation_outcome",
-                "read_session_configuration", "get_node_inventory", "read_storage_sessions", "read_storage_session", "read_service_status", "read_synchronization_status"}
+                "read_session_configuration", "get_node_inventory", "read_storage_sessions", "read_storage_session", "read_service_status", "read_synchronization_status", "list_artifact_destinations"}
             if operation in {"take_browser_control", "view_only"}:
                 if context["instance_id"] != instance_id:
                     raise ValueError("Read current Controller identity before selecting control")

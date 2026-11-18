@@ -395,10 +395,10 @@ class ReconstructionManager:
                         and r["collection_status"] == "success"
                         and r["verification_status"] in {"verified", "copied_unverified"}]
             destinations = {r.get("global_artifact_locator") for r in outcomes}
-            if len(destinations) != 1 or None in destinations or self._storage._global_artifact_root is None:
+            if len(destinations) != 1 or None in destinations:
                 raise ValueError("No unique preserved collection destination; supply accessible original node storage")
             path, metadata = Path(destinations.pop()), None
-            root = self._storage._global_artifact_root
+            root = self._storage.resolve_session_artifact_root(manifest["session_id"])
             relative = path.absolute().relative_to(root.absolute())
             scope = (manifest["session_id"], manifest["experiment_id"], node, manifest["artifact_manifest_id"])
             if len(relative.parts) != 5 or relative.parts[:4] != scope:

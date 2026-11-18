@@ -2,6 +2,7 @@ import { formatCalendarDate } from './calendar-date.mjs';
 import { createStorageDemo, visibleStorageSessions, selectCollection, selectDeletion, storageSelection, storageHistory, deletionReview } from './storage-demo.mjs';
 import { escapeText as esc } from './gui-presentation.js';
 import { servicesAdministrator } from './services-view.js';
+import { destinationManagementMarkup } from './artifact-destinations.js';
 
 const panel = document.querySelector('#panel-storage');
 const connected = document.documentElement?.dataset?.runtime === 'connected';
@@ -45,6 +46,7 @@ function history() {
 
 function renderStorage() {
   panel.innerHTML = `<header><h2 id="heading-storage">Storage</h2><p>${connected ? 'Storage integration unavailable. No historical records have been queried.' : 'Browser-local demonstration · fictional Session fixtures, no collection or deletion requests.'}</p><p>Viewing: ${servicesAdministrator() ? 'Administrator — all fixture Sessions' : `Experimenter — ${esc(document.querySelector('#experimenter-select').selectedOptions[0]?.textContent || 'Not selected')}`}. Change identity in Setup; administrator mode in Services. Visibility is not backend authorization.</p></header><div class="storage-tabs" role="group" aria-label="Storage workspace">${[['collection','Collection'],['deletion','Delete originals'],['history','History']].map(([key,label]) => button(`data-storage-workspace="${key}" aria-pressed="${workspace === key}"`, label)).join('')}</div><p class="storage-feedback" role="status">${esc(message)}</p>${workspace === 'collection' ? collection() : workspace === 'deletion' ? deletion() : history()}`;
+  if (connected) panel.insertAdjacentHTML('beforeend', destinationManagementMarkup());
   if (connected) for (const button of panel.querySelectorAll('[data-add-pending], [data-store-review], [data-delete-review]')) { button.disabled = true; button.title = 'Operational Storage integration unavailable'; }
   panel.querySelectorAll('[data-delete-session]').forEach(input => {
     const session = sessions().find(item => item.id === input.dataset.deleteSession);
@@ -127,6 +129,7 @@ dialog.addEventListener('click', event => {
   }
 });
 document.addEventListener('gui-section-changed', event => { if (event.detail === 'storage') renderStorage(); });
+document.addEventListener('gui-destinations-changed', renderStorage);
 document.addEventListener('gui-administrator-changed', () => { dialog.close(); reviewSelection = []; renderStorage(); });
 document.querySelector('#experimenter-select').addEventListener('change', () => { dialog.close(); reviewSelection = []; renderStorage(); });
 renderStorage();

@@ -250,7 +250,7 @@ class RuntimeCommandMessage:
     receiver_instance_id: str | None = None
 
     def __post_init__(self) -> None:
-        if self.session_id is None and self.command_type not in ({"register_controller", "read_controller_admission", "check_readiness", "get_inventory", "list_storage_sessions", "stop", "kill", "cancel", "check_stop_readiness", "prepare_stop", "preserve_service_evidence"} | SERVICE_RECOVERY_COMMAND_TYPES | DEPENDENT_MAINTENANCE_COMMANDS):
+        if self.session_id is None and self.command_type not in ({"register_controller", "read_controller_admission", "check_readiness", "get_inventory", "list_storage_sessions", "list_artifact_destinations", "register_artifact_destination", "update_artifact_destination", "stop", "kill", "cancel", "check_stop_readiness", "prepare_stop", "preserve_service_evidence"} | SERVICE_RECOVERY_COMMAND_TYPES | DEPENDENT_MAINTENANCE_COMMANDS):
             raise ValueError("Session-specific command requires session_id")
         if self.session_id is not None:
             _validate_subject_token("session_id", self.session_id)
@@ -635,9 +635,13 @@ EXTERNAL_CONTROLLER_OPERATIONS = {
     "read_storage_sessions": "read_storage_sessions",
     "read_storage_session": "read_storage_session",
     "delete_original_artifacts": "delete_original_artifacts",
+    "list_artifact_destinations": "list_artifact_destinations",
+    "register_artifact_destination": "register_artifact_destination",
+    "update_artifact_destination": "update_artifact_destination",
 }
 
 EXTERNAL_CONTROLLER_SESSIONLESS_OPERATIONS = frozenset({
+    "list_artifact_destinations", "register_artifact_destination", "update_artifact_destination",
     *SERVICE_RECOVERY_COMMAND_TYPES,
     "read_storage_sessions", "read_controller_state", "read_operation_outcome",
     "take_browser_control", "view_only", "get_node_inventory", "read_service_status",
@@ -673,6 +677,9 @@ class ExternalControllerRequest:
                             "authorization_evidence_id", "obligation"}, set())
                for operation in SERVICE_RECOVERY_COMMAND_TYPES},
             "read_controller_state": (set(), set()),
+            "list_artifact_destinations": (set(), set()),
+            "register_artifact_destination": ({"destination_id", "name", "root", "experimenter_name", "administrator_mode"}, set()),
+            "update_artifact_destination": ({"destination_id", "enabled", "experimenter_name", "administrator_mode"}, {"remove"}),
             "read_operation_outcome": ({"target_request_id", "instance_id"}, set()),
             "take_browser_control": (set(), set()),
             "view_only": (set(), set()),

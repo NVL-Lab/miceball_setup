@@ -231,6 +231,24 @@ still requires a genuinely isolated pair. Final findings hide credentials and
 show selected scope, paths, timing windows and pending prerequisites. Existing
 retirement attestation and final installation consent remain mandatory.
 
+**Session artifact destinations (Decision 450 Package A): framework implemented;
+independent validation/audit and GUI integration pending.** The configured
+`global_artifact_root` remains the default. StorageManager owns approved additional
+directories and immutable Session bindings; new distributed Sessions submit an
+approved identity in `SessionConfig.storage_location`, not a path. Controller
+requires correlated StorageManager admission before launch success, in addition
+to exact initial Session Record preservation. Administrator registration/update
+and destination listing use existing Controller/NATS interfaces. Additional
+directories must already exist and be suitable; no mounting, disk provisioning
+or migration is performed. Disabling a destination prevents new admissions, not
+existing collection/recovery; removal is refused for retained bindings. An
+unavailable bound directory never falls back. Legacy Sessions retain the existing
+installation-root interpretation rather than reinterpreting historical free text.
+The owner registry and binding records remain under `storage_root`, separate from
+scientific artifacts, node-local recording and Ingestor journals. New accepted
+Session configuration records mark that a binding is required; missing bindings
+fail closed. This does not authorize GUI Package B or certify operational disks.
+
 **Scientific storage selection (Decision 447-A): implemented; independent validation
 and audit pending.** Guided setup presents retained storage paths and read-only
 local volume candidates, with filesystem free bytes when available. Ubuntu uses

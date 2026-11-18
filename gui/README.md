@@ -5,6 +5,27 @@ Setup information, a Protocol Editor, and seven permanent sections including Par
 in the browser. Launch Session and other operational-looking controls do not
 start or contact scientific framework services or execute scientific algorithms.
 
+## Scientific artifact destinations (Decision 450-B)
+
+Connected Setup uses StorageManager-approved destination identities, initially
+selecting the installation default. Refresh obtains current names and reported
+capacity; unverified availability remains explicit and launch requires framework
+admission. Disabled, missing or rejected selections never fall back silently.
+The Controller-confirmed accepted destination is read-only for the Session.
+
+Storage's Administrator mode provides registration, enable/disable and removal
+requests through the existing Controller/NATS path. Enter an administrator name
+and confirm each change; StorageManager enforces suitability and retained-binding
+restrictions. These controls do not mount disks, move data or delete recordings.
+Consequential outcomes appear in Services Activity History. Static demonstration
+mode does not acquire a registry or submit these operations.
+
+Developer checks: `python -B -m unittest gui.tests.test_artifact_destinations -v`.
+The rendered check requires Node, installed Playwright (optionally selected with
+`LAB_SYNC_PLAYWRIGHT_MODULE`) and Edge, or `LAB_SYNC_BROWSER_CHANNEL`. It uses
+controlled Controller replies; independent validation/audit and live deployment
+verification remain pending for both Decision 450 packages.
+
 ## Unified Parameters (Decision 449-B)
 
 Developer implementation; independent validation, audit and closure remain pending.

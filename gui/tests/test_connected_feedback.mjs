@@ -1,3 +1,4 @@
+import {replyArtifactDestinations} from './artifact_destination_fixture.mjs';
 // Real shared presenters; transport responses are controlled, not live readiness.
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
@@ -34,7 +35,7 @@ const reply = (route, message, status, details, error) => route.send(JSON.string
 await page.routeWebSocket('**/ws', route => {
   connection = route;
   route.onMessage(raw => {
-    const message = JSON.parse(raw); requests.push(message.operation);
+    const message = JSON.parse(raw); if (replyArtifactDestinations(route, message)) return; requests.push(message.operation);
     if (message.operation === 'read_controller_state') reply(route, message, controllerResponse,
       controllerResponse === 'succeeded' ? snapshot() : null, controllerResponse === 'succeeded' ? null : 'Controller unavailable');
     else if (message.operation === 'read_service_status') {
@@ -105,7 +106,7 @@ async function verifyRenderingSafety() {
   await target.addInitScript(() => {window.__renderingInjected = 0;});
   await target.routeWebSocket('**/ws', route => {
     route.onMessage(raw => {
-      const message = JSON.parse(raw);
+      const message = JSON.parse(raw); if (replyArtifactDestinations(route, message)) return;
       let details, status = 'succeeded';
       if (message.operation === 'read_controller_state') details = state();
       else if (message.operation === 'get_node_inventory') {
@@ -234,7 +235,7 @@ async function verifyMaintenanceBinding() {
     configuration: null, experiments: [], configured_nodes: [], configured_services: [participant], pending_operations: []});
   await target.routeWebSocket('**/ws', route => {
     route.onMessage(raw => {
-      const request = JSON.parse(raw);
+      const request = JSON.parse(raw); if (replyArtifactDestinations(route, request)) return;
       if (request.operation === 'read_controller_state') { reply(route, request, 'succeeded', state()); return; }
       if (request.operation === 'read_service_status') {
         const response = {current: !unknown, report: unknown ? null : {...participant, ready: true, required: true, reason: 'ready'},

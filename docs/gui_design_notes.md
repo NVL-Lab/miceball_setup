@@ -594,6 +594,24 @@ No GUI functionality is implemented or validated by this documentation.
 
 ## Storage Tab
 
+### Accepted Session destination selection (Decision 450; independent verification pending)
+
+[Decision 450](architecture_decisions.md#decision-450-storagemanager-owns-approved-session-scientific-artifact-destinations)
+adds StorageManager-owned approved scientific-artifact destinations, separately
+from Decision 449's GUI catalogs and Decision 447's installation choices.
+Storage Administrator mode displays the installation default and approved
+alternatives with understandable names, owner-resolved paths and validation/
+availability; it permits registration and safe disablement/removal subject to
+historical bindings and outstanding obligations. Setup replaces arbitrary path
+entry with approved selection, preselects the default and shows relevant
+availability/capacity. After launch the accepted destination is read-only and
+applies to all Experiments. Controller/NATS and StorageManager retain admission
+authority; the GUI does not validate remote filesystems or redirect unavailable
+destinations. Package B implements the connected selector and Administrator
+management through Package A's existing Controller/NATS operations, with unified
+Activity History and no browser-owned registry. Developer checks do not establish
+independent validation, audit, operational deployment or closure for either package.
+
 **Slice 7 browser-local presentation:** Storage now provides Collection, Delete
 originals and History between Analysis and Services. Labeled fictional fixtures
 exercise whole-Session bucket Add/Remove/drop and pending selection, separate

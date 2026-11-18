@@ -14,6 +14,7 @@ import { serviceActions, updateServices, startServicesRefresh, showBlockedServic
 import { configurationIdentity, configurationNumber, parseConfigurationJSON, stringifyConfiguration } from './configuration-values.mjs';
 import { activityPresentation } from './activity-presentation.mjs';
 import { deviceParameterFields } from './parameter-constraints.mjs';
+import { installArtifactDestinations, refreshArtifactDestinations, syncArtifactDestinations, invalidateArtifactDestinations, selectedArtifactDestination } from './artifact-destinations.js';
 
 const $ = selector => document.querySelector(selector);
 let socket, browserId, confirmed = false, busy = false, refreshing = false, lastRender = '';
@@ -46,6 +47,7 @@ state.actions.recordActivity = (operation, error = '', status = error ? 'failed'
 serviceActions.recordActivity = state.actions.recordActivity;
 document.addEventListener('gui-catalog-activity', event => state.actions.recordActivity('save_catalog', event.detail.error || '', event.detail.status));
 function invalidateServiceConfirmation() {
+  invalidateArtifactDestinations();
   // Replace projections so replies admitted before this loss cannot promote them.
   liveServices = liveServices.map(service => ({...service, current: false, diagnosticsCurrent: false, pending: false, attempt: null}));
   updateServices(liveServices, 'Controller confirmation unavailable; current service availability is unknown.');
@@ -67,8 +69,17 @@ const sessionName = configurationStringEditor($('.session-identity-grid input[ty
 const sessionDate = $('.session-identity-grid input[type="date"]');
 const sessionNumber = $('.session-identity-grid input[type="number"]');
 const sessionNotes = configurationStringEditor($('[aria-labelledby="notes-title"] textarea'));
-const storageLocation = configurationStringEditor(storageCard.querySelector('input'));
 const errorLocation = configurationStringEditor($('#error-evidence-location'));
+installArtifactDestinations({snapshot: current, canControl,
+  command: (operation, parameters) => command(operation, parameters, null),
+  read: async () => {
+    if (!confirmed) throw new Error('Controller connection is unconfirmed.');
+    const connection = socket, instance = current()?.instance_id;
+    const result = requireResult(await request('list_artifact_destinations'));
+    if (!confirmed || connection !== socket || socket.readyState !== WebSocket.OPEN || instance !== current()?.instance_id)
+      throw new Error('Destination information belongs to an unconfirmed connection.');
+    return result;
+  }});
 ($('.device-card .setup-disclosure-body') || $('.device-card')).insertAdjacentHTML('afterbegin', '<div class="inventory-controls"><label>Configured AcquisitionNode<select id="inventory-node"></select></label><button id="load-inventory" type="button">Refresh inventory</button><span id="inventory-status" role="status">Inventory unconfirmed</span></div>');
 $('.readiness-card').insertAdjacentHTML('beforeend', '<details><summary>Accepted Session configuration</summary><pre id="accepted-configuration">No accepted configuration confirmed</pre></details>');
 $('#load-inventory').className = 'dialog-button';
@@ -86,7 +97,7 @@ function controls() {
   document.documentElement.dataset.controlMode = !confirmed ? 'unconfirmed' : current()?.control?.controlling ? 'controlling' : 'view-only';
   $('.launch-session-demo').disabled = !canControl() || Boolean(status?.session_id);
   $('.launch-session-demo span').textContent = !confirmed ? 'Controller connection unconfirmed' : status?.session_id ? 'Session accepted' : current()?.control?.controlling ? 'Request Controller launch' : 'View Only';
-  for (const control of [sessionName, sessionDate, sessionNumber, sessionNotes, storageLocation, errorLocation, $('#session-framework-fields')]) {
+  for (const control of [sessionName, sessionDate, sessionNumber, sessionNotes, errorLocation, $('#session-framework-fields')]) {
     control.readOnly = Boolean(status?.session_id);
     if (control.nextElementSibling?.hasAttribute('data-string-mode')) control.nextElementSibling.disabled = control.readOnly;
   }
@@ -109,6 +120,7 @@ function controls() {
   $('#inventory-node').disabled = Boolean(inventoryRequest);
   for (const input of document.querySelectorAll('#session-device-list input')) input.disabled = Boolean(status?.session_id) || !devices.find(device => device.id === input.dataset.device)?.available;
   updateServices(liveServices);
+  syncArtifactDestinations();
 }
 state.actions.syncControls = controls;
 function request(operation, parameters = {}, session_id = null, entry = null) {
@@ -135,9 +147,12 @@ async function refresh() {
   try {
     const snapshot = requireResult(await request('read_controller_state'));
     const previous = current();
+    const wasConfirmed = confirmed;
     applyControllerSnapshot(state, snapshot); confirmed = true;
     const previousServices = liveServices;
     const changedOwner = previous?.instance_id !== snapshot.instance_id;
+    if (changedOwner) invalidateArtifactDestinations();
+    if (changedOwner || !wasConfirmed) refreshArtifactDestinations();
     liveServices = (snapshot.configured_services || []).map(participant => {
       const id = configurationIdentity(participant.component_type, participant.component_id);
       const prior = previousServices.find(s => s.id === id);
@@ -161,7 +176,6 @@ async function refresh() {
         if (!option) { option = new Option(metadata[key], metadata[key]); select.add(option, select.lastElementChild); }
         select.value = option.value; select.dataset.previousValue = option.value;
       }
-      setConfigurationString(storageLocation, config.storage_location ?? '');
       setConfigurationString(errorLocation, config.error_evidence_location ?? '');
       $('#session-framework-fields').value = JSON.stringify(config, null, 2);
       setConfigurationString(sessionNotes, metadata.notes ?? '');
@@ -247,7 +261,7 @@ state.actions.launchSession = localAction('launch_session', async entry => {
   try { config = parseConfigurationJSON($('#session-framework-fields').value); }
   catch (error) { throw new Error(error instanceof SyntaxError ? 'Additional Session configuration: enter valid JSON framework configuration.' : `Additional Session configuration: ${error.message}`); }
   if (!config || typeof config !== 'object' || Array.isArray(config)) throw new Error('Additional Session configuration must be an object.');
-  config.storage_location = readConfigurationString(storageLocation);
+  config.storage_location = selectedArtifactDestination();
   config.error_evidence_location = readConfigurationString(errorLocation);
   config.session_parameters = {...config.session_parameters};
   for (const key of ['experimenter', 'project', 'animal']) {

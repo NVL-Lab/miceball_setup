@@ -1,3 +1,4 @@
+import {replyArtifactDestinations} from './artifact_destination_fixture.mjs';
 import assert from 'node:assert/strict';
 
 export async function verifyDemoAdministrator(browser, origin, section, directory) {
@@ -75,7 +76,7 @@ export async function verifyGuiUsability(browser, origin, configuration, section
   await page.routeWebSocket('**/ws', route => {
     connection = route;
     route.onMessage(raw => {
-      const message = JSON.parse(raw);
+      const message = JSON.parse(raw); if (replyArtifactDestinations(route, message)) return;
       if (message.operation === 'read_controller_state') return reply(route, message, 'succeeded', snapshot());
       if (message.operation === 'read_operation_outcome') return reply(route, message, 'succeeded',
         {status: 'succeeded', result: {status: 'succeeded', request_id: 'pending-control'}});

@@ -2738,6 +2738,20 @@ Q022 as a whole is not closed. Q019 remains CLOSED in W050.
 **Generic installer (Decision 421): implemented; Decision 446 closes only the
 bounded guided-installer software scope below, not broader deployment work.**
 
+**Session scientific artifact destinations (Decision 450): Package A framework
+implementation present; independent validation/audit and Package B GUI integration
+pending.** StorageManager owns
+the persistent approved-destination registry, validation and durable immutable
+Session binding. The installation artifact root remains the default; administrators
+may add destinations after installation. Controller/NATS admission must confirm
+the approved `SessionConfig.storage_location` identity before launch success.
+Collection, recovery, verification, capacity and authorized original deletion must
+honor that binding, including historical Sessions and disabled destinations.
+Setup selection and Storage Administrator management are pending, not functionality
+established by Decision 447's installer work or Decision 449's GUI catalogs.
+See [Decision 450](architecture_decisions.md#decision-450-storagemanager-owns-approved-session-scientific-artifact-destinations)
+for the authoritative contract and exclusions. Q022 remains OPEN.
+
 **Scientific storage and optional GUI setup (Decision 447): accepted; Slice 447-A
 storage implemented with developer verification, independent validation/audit
 pending; Slice 447-B GUI implemented with developer verification, independent

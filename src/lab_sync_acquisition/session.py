@@ -37,7 +37,7 @@ class SessionConfig:
     """Accepted configuration for one Session run."""
 
     selected_devices: list[DeviceDeclaration] | None
-    storage_location: str | None
+    storage_location: str | None  # Approved final scientific-artifact destination identity.
     protocol_plan: Any | None
     error_evidence_location: str
     session_id: str | None = None

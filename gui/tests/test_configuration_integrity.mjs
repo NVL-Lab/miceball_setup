@@ -1,3 +1,4 @@
+import {replyArtifactDestinations} from './artifact_destination_fixture.mjs';
 
 async function fillString(control, value) {
   if (/[\r\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]/.test(value)
@@ -15,6 +16,7 @@ async function readString(control) {
 import assert from 'node:assert/strict';
 
 export async function verifyConfigurationIntegrity(browser, origin, fixture, section) {
+  fixture = {...fixture, session: {...fixture.session, storage_location: 'default'}};
   const page = await browser.newPage();
   const sent = [], errors = [];
   let configuration = null, phase = null, executed = false, unsafeReadback = false;
@@ -25,7 +27,7 @@ export async function verifyConfigurationIntegrity(browser, origin, fixture, sec
   page.on('pageerror', error => errors.push(error.message));
   await page.routeWebSocket('**/ws', route => {
     route.onMessage(raw => {
-      const message = JSON.parse(raw); sent.push(message);
+      const message = JSON.parse(raw); if (replyArtifactDestinations(route, message)) return; sent.push(message);
       let details, status = 'succeeded';
       if (message.operation === 'read_controller_state') {
         details = {controller_id: 'integrity', instance_id: 'integrity-instance', control: {controlling: true, generation: 1},
@@ -97,7 +99,7 @@ export async function verifyConfigurationIntegrity(browser, origin, fixture, sec
     await page.locator('.session-identity-grid input[type="date"]').fill(fixture.session.session_parameters.date);
     await page.locator('.session-identity-grid input[type="number"]').fill('0');
     await fillString(page.locator('[aria-labelledby="notes-title"] textarea'), fixture.session.session_parameters.notes);
-    await fillString(page.locator('[aria-labelledby="storage-title"] textarea[data-configuration-string]:not(#error-evidence-location)'), fixture.session.storage_location);
+    await page.locator('#artifact-destination').selectOption('default');
     await fillString(page.locator('#error-evidence-location'), fixture.session.error_evidence_location);
     await page.locator('details').filter({has: page.locator('#session-framework-fields')}).last().evaluate(element => element.open = true);
     const fields = {protocol_plan: {}, session_parameters: fixture.session.session_parameters};
@@ -122,7 +124,7 @@ export async function verifyConfigurationIntegrity(browser, origin, fixture, sec
     for (const [selector, value] of [
       ['.session-identity-grid textarea[data-configuration-string]', fixture.session.session_parameters.name],
       ['[aria-labelledby="notes-title"] textarea', fixture.session.session_parameters.notes],
-      ['[aria-labelledby="storage-title"] textarea[data-configuration-string]:not(#error-evidence-location)', fixture.session.storage_location],
+
       ['#error-evidence-location', fixture.session.error_evidence_location]]) {
       assert.equal(await readString(page.locator(selector)), value);
       assert.equal(await page.locator(selector).getAttribute('readonly'), '');
@@ -329,7 +331,7 @@ export async function verifyExperimentReconnection(browser, origin, fixture, sec
   await page.routeWebSocket('**/ws', route => {
     connection = route;
     route.onMessage(raw => {
-      const message = JSON.parse(raw); requests.push(message.operation);
+      const message = JSON.parse(raw); if (replyArtifactDestinations(route, message)) return; requests.push(message.operation);
       assert.ok(['read_controller_state', 'get_node_inventory'].includes(message.operation));
       route.send(JSON.stringify({type: 'result', id: message.id, instance_id: 'monitor-instance',
         result: {status: 'succeeded', outcome: {details: message.operation === 'get_node_inventory' ? fixture.inventory : snapshot}}}));

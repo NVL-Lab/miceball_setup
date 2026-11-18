@@ -169,6 +169,327 @@ class PersistentStorageManager:
             Path(global_artifact_root) if global_artifact_root is not None else None
         )
         self._retrieval_endpoints = dict(retrieval_endpoints or {})
+        self._destination_lock_depth = 0
+        if ((self._storage_root / "artifact_destinations").exists()
+                or any(self._storage_root.glob("session_*/artifact_destination.json"))):
+            with self._destination_guard():
+                self._destination_registry()
+
+    @contextmanager
+    def _destination_guard(self):
+        """Serialize registry replacement and binding admission across owner instances."""
+        with self._preservation_lock:
+            if self._destination_lock_depth:
+                yield
+                return
+            self._storage_root.mkdir(parents=True, exist_ok=True)
+            path = self._storage_root / ".artifact_destinations.lock"
+            if path.resolve() != path.absolute():
+                raise ValueError("Destination lock aliases are not permitted")
+            with path.open("a+b") as lock:
+                if os.name == "nt":
+                    import msvcrt
+                    if lock.seek(0, os.SEEK_END) == 0:
+                        lock.write(b"\0")
+                        lock.flush()
+                    lock.seek(0)
+                    msvcrt.locking(lock.fileno(), msvcrt.LK_LOCK, 1)
+                else:
+                    import fcntl
+                    fcntl.flock(lock, fcntl.LOCK_EX)
+                self._destination_lock_depth += 1
+                try:
+                    yield
+                finally:
+                    self._destination_lock_depth -= 1
+                    if os.name == "nt":
+                        lock.seek(0)
+                        msvcrt.locking(lock.fileno(), msvcrt.LK_UNLCK, 1)
+                    else:
+                        fcntl.flock(lock, fcntl.LOCK_UN)
+
+    def _destination_registry(self) -> dict:
+        """Read strict owner configuration; a retained empty directory is not first use."""
+        directory = self._storage_root / "artifact_destinations"
+        path = directory / "registry.json"
+        if path in self._unfinished_record_paths:
+            raise RuntimeError("Destination registry durability is unconfirmed")
+        if not directory.exists():
+            if any(self._storage_root.glob("session_*/artifact_destination.json")):
+                raise RuntimeError("Destination registry is missing despite retained Session bindings")
+            directory.mkdir(parents=True)
+            entries = [] if self._global_artifact_root is None else [{
+                "destination_id": "default", "name": "Installation default",
+                "root": str(self._global_artifact_root.absolute()), "enabled": True}]
+            self._write_destination_record(path, {"version": 1, "destinations": entries}, replace=False)
+        if path.resolve() != path.absolute():
+            raise ValueError("Destination registry aliases are not permitted")
+        raw = path.read_bytes()
+        data = self._read_preservation_json(raw)
+        if (not isinstance(data, dict) or set(data) != {"version", "destinations"}
+                or type(data["version"]) is not int or data["version"] != 1
+                or not isinstance(data["destinations"], list)):
+            raise ValueError("Invalid destination registry")
+        identities, roots = set(), set()
+        for entry in data["destinations"]:
+            self._validate_destination(entry)
+            if entry["destination_id"] in identities or entry["root"] in roots:
+                raise ValueError("Conflicting destination registry entries")
+            identities.add(entry["destination_id"])
+            roots.add(entry["root"])
+        default = next((e for e in data["destinations"] if e["destination_id"] == "default"), None)
+        if self._global_artifact_root is not None and (default is None
+                or default["root"] != str(self._global_artifact_root.absolute()) or not default["enabled"]):
+            raise ValueError("Installation default contradicts retained destination configuration")
+        with path.open("r+b") as source:
+            os.fsync(source.fileno())
+        self._sync_artifact_handoff_directory(path)
+        if path.read_bytes() != raw:
+            raise RuntimeError("Destination configuration changed during durable readback")
+        return data
+
+    @staticmethod
+    def _validate_destination(entry: dict) -> None:
+        if (not isinstance(entry, dict) or set(entry) != {"destination_id", "name", "root", "enabled"}
+                or any(not isinstance(entry[k], str) or not entry[k].strip()
+                       or "\x00" in entry[k] for k in ("destination_id", "name", "root"))
+                or type(entry["enabled"]) is not bool
+                or not Path(entry["root"]).is_absolute()
+                or entry["destination_id"] in {".", ".."}
+                or any(c in entry["destination_id"] for c in '/\\:')):
+            raise ValueError("Invalid artifact destination")
+
+    def _write_destination_record(self, path: Path, data: dict, *, replace: bool) -> None:
+        """Publish owner configuration/bindings with closed-file promotion and readback."""
+        if path.resolve() != path.absolute():
+            raise ValueError("Destination persistence aliases are not permitted")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        serialized = json.dumps(data, sort_keys=True, allow_nan=False)
+        temporary = None
+        # Mutable configuration has atomic old/new recovery; only immutable
+        # Session admissions carry an outstanding exact-publication obligation.
+        if not replace:
+            self._unfinished_record_paths.add(path)
+            self._unfinished_record_contents[path] = serialized
+        try:
+            if not replace and os.path.lexists(path):
+                if path.read_bytes() != serialized.encode("utf-8"):
+                    raise ValueError("Immutable destination record conflicts with retained intent")
+                with path.open("r+b") as source:
+                    os.fsync(source.fileno())
+                self._sync_artifact_handoff_directory(path)
+                if path.read_bytes() != serialized.encode("utf-8"):
+                    raise RuntimeError("Destination record changed during confirmation")
+                self._unfinished_record_paths.discard(path)
+                self._unfinished_record_contents.pop(path, None)
+                return
+            with NamedTemporaryFile(dir=path.parent, prefix=".destination-", delete=False) as output:
+                temporary = Path(output.name)
+                output.write(serialized.encode("utf-8"))
+                output.flush()
+                os.fsync(output.fileno())
+            if replace:
+                os.replace(temporary, path)
+            else:
+                os.link(temporary, path)
+            self._sync_artifact_handoff_directory(path)
+            if path.read_bytes() != serialized.encode("utf-8"):
+                raise RuntimeError("Destination persistence readback mismatch")
+            self._unfinished_record_paths.discard(path)
+            self._unfinished_record_contents.pop(path, None)
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
+
+    @staticmethod
+    def _destination_validation(root: Path) -> dict:
+        if root.resolve() != root.absolute():
+            return {"status": "invalid", "reason": "Filesystem aliases are not permitted"}
+        if not root.is_dir():
+            return {"status": "invalid", "reason": "Destination directory does not exist"}
+        report = inspect_storage_capacity(root, 0)
+        return {"status": "verified" if report["ready"] else "unverified", **report}
+
+    @service_operation()
+    def list_artifact_destinations(self) -> dict:
+        """List approved configuration without probing or creating scientific directories."""
+        with self._destination_guard():
+            registry = self._destination_registry()
+            destinations = []
+            for entry in registry["destinations"]:
+                observation = {"status": "unverified", "available_bytes": None,
+                    "reason": "Current validation required at admission"}
+                try:
+                    root = Path(entry["root"])
+                    if not root.is_dir() or root.resolve() != root.absolute():
+                        observation.update(status="invalid", reason="Directory is absent or aliased")
+                    else:
+                        observation["available_bytes"] = shutil.disk_usage(root).free
+                except OSError:
+                    observation["reason"] = "Filesystem observation is unavailable"
+                destinations.append({**entry, "validation": observation})
+            return {"storage_id": self._component_id, "default_destination_id": "default"
+                    if self._global_artifact_root is not None else None,
+                    "destinations": destinations}
+
+    @staticmethod
+    def _require_destination_administrator(experimenter_name, administrator_mode) -> None:
+        if (administrator_mode is not True or not isinstance(experimenter_name, str)
+                or not experimenter_name.strip()):
+            raise PermissionError("Destination management requires explicit administrator context")
+
+    @service_operation(new_work=True)
+    def register_artifact_destination(self, destination_id: str, name: str, root: str, *,
+                                      experimenter_name: str, administrator_mode: bool) -> dict:
+        """Register an existing suitable directory; identical identity retries are harmless."""
+        self._require_destination_administrator(experimenter_name, administrator_mode)
+        if not isinstance(root, str) or not root or "\x00" in root:
+            raise ValueError("A filesystem directory is required")
+        entry = {"destination_id": destination_id, "name": name,
+                 "root": str(Path(root).absolute()), "enabled": True}
+        self._validate_destination(entry)
+        if destination_id == "default":
+            raise ValueError("Installation default cannot be replaced")
+        with self._destination_guard():
+            registry = self._destination_registry()
+            existing = next((e for e in registry["destinations"] if e["destination_id"] == destination_id), None)
+            if existing is not None and existing != entry:
+                raise ValueError("Destination identity is already registered differently")
+            if any(e["root"] == entry["root"] and e["destination_id"] != destination_id
+                   for e in registry["destinations"]):
+                raise ValueError("Directory is already registered")
+            path = Path(entry["root"])
+            operational = self._storage_root.resolve()
+            if path.resolve().is_relative_to(operational) or operational.is_relative_to(path.resolve()):
+                raise ValueError("Scientific destination must be separate from framework records")
+            validation = self._destination_validation(path)
+            if validation["status"] != "verified":
+                raise ValueError(f"Destination is not verified usable: {validation['reason']}")
+            if existing is None:
+                registry["destinations"].append(entry)
+                self._write_destination_record(self._storage_root / "artifact_destinations" / "registry.json",
+                                               registry, replace=True)
+            return {"storage_id": self._component_id, "destination": entry, "validation": validation}
+
+    @service_operation(new_work=True)
+    def update_artifact_destination(self, destination_id: str, *, enabled: bool, remove: bool = False,
+                                    experimenter_name: str, administrator_mode: bool) -> dict:
+        """Disable/enable approved choices; removal never discards referenced identities."""
+        self._require_destination_administrator(experimenter_name, administrator_mode)
+        if type(enabled) is not bool or type(remove) is not bool or destination_id == "default":
+            raise ValueError("Explicit alternative destination update required")
+        with self._destination_guard():
+            registry = self._destination_registry()
+            entry = next((e for e in registry["destinations"] if e["destination_id"] == destination_id), None)
+            if entry is None:
+                raise ValueError("Unknown destination")
+            if remove:
+                for path in self._storage_root.glob("session_*/artifact_destination.json"):
+                    binding = self.read_session_artifact_destination(path.parent.name[len("session_"):])
+                    if binding["destination_id"] == destination_id:
+                        raise RuntimeError("Destination has retained Session bindings; disable it instead")
+                registry["destinations"].remove(entry)
+            else:
+                entry["enabled"] = enabled
+            self._write_destination_record(self._storage_root / "artifact_destinations" / "registry.json",
+                                           registry, replace=True)
+            return {"storage_id": self._component_id, "destination_id": destination_id,
+                    "removed": remove, "enabled": False if remove else enabled}
+
+    def _session_destination_path(self, session_id: str) -> Path:
+        # Reuse the existing Session path-identity validation, not free-text paths.
+        return self._artifact_collection_handoff_path(session_id).with_name("artifact_destination.json")
+
+    @service_operation()
+    def read_session_artifact_destination(self, session_id: str) -> dict:
+        """Resolve immutable bindings; legacy Sessions retain installation-root semantics."""
+        with self._preservation_lock:
+            path = self._session_destination_path(session_id)
+            if path in self._unfinished_record_paths:
+                raise RuntimeError("Destination binding durability is unconfirmed")
+            if os.path.lexists(path):
+                if path.resolve() != path.absolute():
+                    raise ValueError("Session destination binding alias")
+                data = self._read_preservation_json(path.read_bytes())
+                if (not isinstance(data, dict) or set(data) != {"session_id", "storage_id", "destination"}
+                        or data["session_id"] != session_id or data["storage_id"] != self._component_id):
+                    raise ValueError("Invalid Session destination binding")
+                self._validate_destination(data["destination"])
+                with self._destination_guard():
+                    registry = self._destination_registry()
+                    registered = next((e for e in registry["destinations"]
+                        if e["destination_id"] == data["destination"]["destination_id"]), None)
+                    if registered is not None and registered["root"] != data["destination"]["root"]:
+                        raise ValueError("Session binding contradicts its registered root")
+                return {"session_id": session_id, "storage_id": self._component_id,
+                        **deepcopy(data["destination"]), "legacy": False}
+            # New records carry a marker so lost bindings cannot become legacy fallback.
+            for kind in ("initial", "final"):
+                record = self._session_directory(session_id) / f"session_record_{kind}.json"
+                if record.exists():
+                    config = self.read_session_record(record).get("accepted_session_config")
+                    if not isinstance(config, dict):
+                        raise ValueError("Invalid accepted Session configuration")
+                    settings = config.get("storage_configuration")
+                    if settings is not None and not isinstance(settings, dict):
+                        raise ValueError("Invalid accepted Session storage configuration")
+                    if (settings or {}).get("artifact_destination_binding_required") is True:
+                        raise RuntimeError("Required Session destination binding is missing")
+            if self._global_artifact_root is None:
+                raise ValueError("Historical artifact root is not configured")
+            return {"session_id": session_id, "storage_id": self._component_id,
+                    "destination_id": "default", "name": "Installation default",
+                    "root": str(self._global_artifact_root.absolute()), "enabled": True, "legacy": True}
+
+    @service_operation(new_work=True)
+    def admit_session_artifact_destination(self, session_id: str, destination_id: str) -> dict:
+        """Validate and durably bind one approved destination before launch success."""
+        with self._destination_guard():
+            path = self._session_destination_path(session_id)
+            if path in self._unfinished_record_paths:
+                retained = self._read_preservation_json(self._unfinished_record_contents[path].encode("utf-8"))
+                if (retained.get("session_id") != session_id
+                        or retained.get("destination", {}).get("destination_id") != destination_id):
+                    raise ValueError("Retry contradicts retained destination admission")
+                if not os.path.lexists(path):
+                    entries = self._destination_registry()["destinations"]
+                    if not any(e["destination_id"] == destination_id and e["enabled"]
+                               and e["root"] == retained["destination"]["root"] for e in entries):
+                        raise ValueError("Unpublished admission no longer has approved storage")
+                validation = self._destination_validation(Path(retained["destination"]["root"]))
+                if validation["status"] != "verified":
+                    raise RuntimeError("Session destination availability is unconfirmed")
+                self._write_destination_record(path, retained, replace=False)
+            if os.path.lexists(path):
+                binding = self.read_session_artifact_destination(session_id)
+                if binding["destination_id"] != destination_id:
+                    raise ValueError("Session destination is immutable")
+                validation = self._destination_validation(Path(binding["root"]))
+            else:
+                if any(self._session_directory(session_id).glob("session_record_*.json")):
+                    raise ValueError("An existing Session cannot acquire a new destination binding")
+                registry = self._destination_registry()
+                entry = next((e for e in registry["destinations"] if e["destination_id"] == destination_id), None)
+                if entry is None or not entry["enabled"]:
+                    raise ValueError("Destination is not approved for new Sessions")
+                validation = self._destination_validation(Path(entry["root"]))
+                if validation["status"] != "verified":
+                    raise RuntimeError("Session destination availability is unconfirmed")
+                self._write_destination_record(path, {"session_id": session_id,
+                    "storage_id": self._component_id, "destination": entry}, replace=False)
+                binding = self.read_session_artifact_destination(session_id)
+            if validation["status"] != "verified":
+                raise RuntimeError("Session destination availability is unconfirmed")
+            return {"admitted": True, "binding": binding, "validation": validation,
+                    "session_id": session_id, "storage_id": self._component_id}
+
+    def resolve_session_artifact_root(self, session_id: str) -> Path:
+        """Resolve the bound scientific root without substituting for unavailable storage."""
+        binding = self.read_session_artifact_destination(session_id)
+        root = Path(binding["root"])
+        if (not binding["legacy"] and not root.is_dir()) or root.resolve() != root.absolute():
+            raise RuntimeError("Session scientific destination is unavailable or aliased")
+        return root
 
     @service_operation(new_work=True)
     def verify_installation_retrieval(self, node_id, source_path, expected_content, *, max_bytes):
@@ -807,8 +1128,14 @@ class PersistentStorageManager:
                 deletion_history_confirmed = True
             except (OSError, ValueError, TypeError, KeyError) as error:
                 issues.append(f"Framework deletion history: {error}")
+            destination = None
+            try:
+                destination = self.read_session_artifact_destination(session_id)
+            except (OSError, ValueError, RuntimeError) as error:
+                issues.append(f"Scientific destination: {error}")
             return {"session_id": session_id, "experimenter_name": owner,
                     "accepted_session_config": deepcopy(configuration),
+                    "artifact_destination": destination,
                     "experiments": deepcopy(records[-1].get("experiment_descriptors", [])) if records else [],
                     "experiment_lifecycle_evidence": deepcopy(records[-1].get("experiment_lifecycle_evidence", [])) if records else [],
                     "collection_status": self.get_saved_session_collection_status(session_id),
@@ -1077,7 +1404,12 @@ class PersistentStorageManager:
                 if not results:
                     raise RuntimeError("Original lacks verified durable collection evidence")
                 destination = Path(results[-1]["global_artifact_locator"])
-                if (self._global_artifact_root is None or not destination.resolve().is_relative_to(self._global_artifact_root.resolve())
+                root = self.resolve_session_artifact_root(session_id)
+                source = manifest.external_artifact_path or manifest.local_storage_path
+                filename = (PureWindowsPath(source) if "\\" in source else PurePosixPath(source)).name
+                expected = root.joinpath(session_id, manifest.experiment_id,
+                    manifest.acquisition_node_id, manifest.artifact_manifest_id, filename)
+                if (destination.absolute() != expected.absolute()
                         or destination.resolve() != destination.absolute()
                         or self._verify_artifact(manifest, destination)[0] != "verified"):
                     raise RuntimeError("Collected original verification is no longer confirmed")
@@ -1270,8 +1602,10 @@ class PersistentStorageManager:
         return "verified", None
 
     def _retrieve_artifact(self, manifest: ArtifactManifest) -> tuple[Path, int | None]:
-        if self._global_artifact_root is None:
-            raise ValueError("global_artifact_root is not configured")
+        root = self.resolve_session_artifact_root(manifest.session_id)
+        legacy = self.read_session_artifact_destination(manifest.session_id)["legacy"]
+        if not legacy and not self._destination_validation(root).get("ready"):
+            raise RuntimeError("Session scientific destination is not verified usable")
         parts = (manifest.session_id, manifest.experiment_id,
                  manifest.acquisition_node_id, manifest.artifact_manifest_id)
         for part in parts:
@@ -1290,10 +1624,14 @@ class PersistentStorageManager:
         endpoint = self._retrieval_endpoints.get(manifest.acquisition_node_id)
         if not isinstance(endpoint, SshRetrievalEndpoint):
             raise ValueError("AcquisitionNode retrieval endpoint is not configured")
-        destination = self._global_artifact_root.joinpath(*parts, filename)
+        destination = root.joinpath(*parts, filename)
+        if destination.resolve() != destination.absolute():
+            raise ValueError("Artifact destination aliases are not permitted")
         if os.path.lexists(destination):
             raise FileExistsError("Deterministic artifact destination already exists")
         destination.parent.mkdir(parents=True, exist_ok=True)
+        if destination.parent.resolve() != destination.parent.absolute():
+            raise ValueError("Artifact destination parent changed identity")
         temporary = None
         try:
             with NamedTemporaryFile(dir=destination.parent, prefix=".incomplete-", delete=False) as output:
@@ -1348,14 +1686,19 @@ class PersistentStorageManager:
 
 
     @service_operation()
-    def check_experiment_capacity(self, required_bytes: int) -> dict[str, Any]:
+    def check_experiment_capacity(self, required_bytes: int, *, session_id: str | None = None) -> dict[str, Any]:
         """Check each configured preservation destination, not archival success."""
         readiness = self.check_ready()
         if not readiness.ready:
             return {"ready": False, "reason": readiness.reason}
         roots = {self._storage_root}
-        if self._global_artifact_root is not None:
-            roots.add(self._global_artifact_root)
+        try:
+            if session_id is not None:
+                roots.add(self.resolve_session_artifact_root(session_id))
+            elif self._global_artifact_root is not None:
+                roots.add(self._global_artifact_root)
+        except (ValueError, RuntimeError, OSError) as error:
+            return {"ready": False, "reason": str(error)}
         destinations = [inspect_storage_capacity(root, required_bytes) for root in sorted(roots)]
         return {"ready": all(report["ready"] for report in destinations),
                 "destinations": destinations}
@@ -1447,6 +1790,10 @@ class PersistentStorageManager:
         config = expected.get("accepted_session_config")
         if not isinstance(config, dict) or config.get("session_id") != session_id:
             raise ValueError("Initial Session Record identity mismatch")
+        if (config.get("storage_configuration") or {}).get("artifact_destination_binding_required") is True:
+            binding = self.read_session_artifact_destination(session_id)
+            if binding["legacy"] or binding["destination_id"] != config.get("storage_location"):
+                raise ValueError("Accepted Session configuration contradicts destination admission")
         serialized = json.dumps(expected, sort_keys=True, allow_nan=False)
         path = self._session_directory(session_id) / "session_record_initial.json"
         with self._preservation_lock:

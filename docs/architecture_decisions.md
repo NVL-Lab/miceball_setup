@@ -14762,6 +14762,83 @@ or closure is established by this documentation synchronization.
 
 ---
 
+## Decision 450: StorageManager owns approved Session scientific artifact destinations
+
+**Status:** Accepted; Package A framework implementation present, independent
+validation/audit and Package B GUI implementation pending.
+
+This records the explicitly user-accepted LLC Session Scientific Storage
+Destinations handoff. It supplements Decisions 250, 298, 376-377, 394, 424,
+431-433 and 447 without rewriting their historical meaning. Decision 449's GUI
+catalogs do not own this registry or authorize destination selection.
+
+### Ownership, discovery and administration
+
+The installation-configured StorageManager scientific-artifact root remains the
+default. Laboratory administrators may register additional approved destinations
+after installation without reinstalling. StorageManager owns the registry,
+persistent destination configuration, filesystem validation, admission and durable
+Session bindings. Controller remains the sole Session launcher and uses existing
+NATS communication for destination discovery, management and admission.
+
+StorageManager verifies applicable existence, accessibility, writability,
+filesystem/path safety, capacity and compatibility with collection and recovery.
+Verified usable, invalid and presently unverified destinations remain distinct.
+Approval is not permanent proof of availability: recheck at relevant admission
+and execution boundaries, preserving Decision 394's Experiment capacity checks.
+
+### Session selection and durable admission
+
+`SessionConfig.storage_location` identifies an approved final scientific-artifact
+destination, not an arbitrary filesystem path. StorageManager must confirm
+destination admission before Controller reports successful Session launch.
+The accepted Session-to-destination binding is immutable, durably recoverable
+after StorageManager restart, and applies to every Experiment in that Session.
+Preserve Decision 424's accepted configuration and launch-preservation guarantees.
+
+Decision 250's deterministic hierarchy is unchanged beneath the accepted root:
+
+```text
+<selected_artifact_root>/<session_id>/<experiment_id>/<acquisition_node_id>/<artifact_manifest_id>/<original_filename>
+```
+
+Collection, verification, retry/recovery, capacity assessment, preservation,
+scientific readback and authorized source-original deletion must resolve the
+correct Session destination. Preserve existing collision, incomplete-transfer,
+verification and deletion safeguards, including Decisions 255-257. Unavailability
+must never silently redirect artifacts to the default or another destination.
+
+Historical Sessions and outstanding preservation/recovery obligations must remain
+resolvable when a destination is disabled or removed. Disablement/removal is
+permitted only consistently with those obligations; it must not repoint bindings
+or invalidate retained evidence. Preserve historical record interpretation rather
+than reinterpret old free-text declarations as newly approved identities or paths.
+
+### GUI and scope boundaries
+
+The existing Storage tab in Administrator mode displays the installation default,
+approved alternatives, understandable names, StorageManager-resolved paths and
+validation/availability. It supports registration and safe disablement/removal
+when obligations permit. Setup provides a structured approved-destination
+selector, preselects the installation default, presents relevant availability and
+capacity, submits the choice before launch and displays the accepted destination
+read-only afterward. The GUI is not filesystem or admission authority.
+
+AcquisitionNode-local recording roots, StorageManager framework evidence,
+Ingestor journals and other operational/recovery paths remain separate. No new
+service, external database server, automatic disk provisioning, data migration,
+StorageManager redesign or replacement communication/lifecycle authority is
+authorized. Existing Controller exclusivity, cooperative administrator access,
+preservation and source-deletion requirements remain unchanged.
+
+**Implementation status:** Package A implements the framework registry, durable
+Session admission and destination-aware artifact consumers. Independent validation
+and audit remain pending; no operational multi-disk or hardware validation is
+claimed. Package B GUI integration remains pending. Decision 447's installer work
+and Decision 449's catalog work retain their separate statuses; Q022 remains OPEN.
+
+---
+
 # Accepted Architectural Principles
 
 The following principles summarize the accepted decisions so far.

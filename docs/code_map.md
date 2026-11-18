@@ -191,6 +191,15 @@ general maintenance-history/memory retirement is not implemented by this closure
 - `renderStorage`: Repaints the Storage workspace using current cooperative visibility and page-local selections.
 - `openReview`: Opens selection confirmation without submitting collection or deletion requests.
 
+## gui/src/miceball_gui/static/artifact-destinations.js
+
+- `destinationManagementMarkup`: Presents StorageManager-provided destinations and Administrator management controls without owning their configuration.
+- `installArtifactDestinations`: Replaces connected Setup's text declaration with an approved selector and binds management forms to existing Controller operations.
+- `refreshArtifactDestinations`: Obtains current approved choices through the configured Controller readback and retains preparation selections.
+- `syncArtifactDestinations`: Synchronizes selection immutability and management availability with confirmed Controller context.
+- `invalidateArtifactDestinations`: Marks retained destination information unconfirmed when Controller confirmation is lost.
+- `selectedArtifactDestination`: Returns the selected approved identity for launch or reports missing, disabled or invalid selection without fallback.
+
 ## gui/src/miceball_gui/static/services-view.js — Storage visibility reuse
 
 - `servicesAdministrator`: Reports the existing page-local Services administrator presentation mode for Storage filtering.
@@ -435,7 +444,7 @@ Runtime duration extension remains deferred; broader milestones stay open.
 - local_storage.inspect_storage_capacity(root_path, required_bytes): Checks writable destination/free bytes and returns unconfirmed capacity on failure.
 - local_storage.validate_storage_capacity(reports): Validates reports and sums distinct required writes against one shared filesystem's conservative free-space observation.
 - LocalStorageManager.check_capacity(required_bytes): Adds capacity reporting while retaining local writability readiness; constructor unchanged.
-- PersistentStorageManager.check_experiment_capacity(required_bytes): Returns readiness and concrete destination reports for its evidence root and configured scientific-artifact root without asserting archival completion; constructor unchanged.
+- PersistentStorageManager.check_experiment_capacity(required_bytes, *, session_id=None): Returns capacity reports for the evidence root and the Session-bound scientific root (installation default for unscoped legacy checks), without asserting archival completion.
 - local_storage._accumulate_storage_capacity(report, groups): Adds one concrete destination's required write budget to shared-filesystem accounting.
 - AcquisitionNode.check_experiment_capacity(scientific_outputs, configuration): Resolves selected operating settings and checks declared estimates or an explicit node budget; constructor unchanged.
 - AcquisitionNode.prepare_experiment_scientific_outputs(experiment_id, scientific_outputs, *, configuration=None): Requires capacity and ready/running devices, using explicit re-preparation to recover partial lifecycle transitions without replacing the Session baseline.
@@ -1606,6 +1615,11 @@ scientific/runtime timing is rejected rather than silently rewritten.
 
 ## src/lab_sync_acquisition/controller.py
 
+- Controller.list_artifact_destinations(*, communication, storage_participant, result_window_s): Reads approved destination choices from StorageManager through existing correlated NATS requests.
+- Controller.register_artifact_destination(destination_id, name, root, *, experimenter_name, administrator_mode, communication, storage_participant, result_window_s): Requires explicit administrator context and forwards registration to StorageManager.
+- Controller.update_artifact_destination(destination_id, *, enabled, remove=False, experimenter_name, administrator_mode, communication, storage_participant, result_window_s): Requests authorized destination enablement, disablement or safe removal without changing Session bindings.
+- Controller._artifact_destination_request(operation, parameters, *, communication, storage_participant, result_window_s): Confirms correlated destination results from the configured StorageManager.
+
 **Architecture/implementation distinction:** Decision 407 partially supersedes
 Decision 406's mandatory FAILED outcome during already-admitted Normal Stop and
 clarifies independent fatal accounting and originating-Session outcome isolation.
@@ -2373,6 +2387,52 @@ recovery is introduced. Phase 16 and M015 remain open.
 - SeeedIMX219OpenCVCameraAdapter.collect_products(products, *, session_id, experiment_id, acquisition_node_id): Reads selected camera products only, retaining ordered NumPy frames with their available per-frame metadata and completed partial rows without repeated reads or fabricated timestamps.
 
 ## src/lab_sync_acquisition/storage.py
+
+**Decision 450 Package A:** Framework implementation is present; independent
+validation and audit remain pending. The registry lives beneath the operational
+storage root, while immutable Session bindings route only scientific artifacts.
+GUI integration is not part of Package A.
+
+- PersistentStorageManager.list_artifact_destinations(): Lists approved configuration and read-only filesystem observations, never claiming current writability from cached approval.
+- PersistentStorageManager.register_artifact_destination(destination_id, name, root, *, experimenter_name, administrator_mode): Validates an existing separate directory and durably registers a stable administrator-approved identity.
+- PersistentStorageManager.update_artifact_destination(destination_id, *, enabled, remove=False, experimenter_name, administrator_mode): Updates alternatives, refusing removal of identities with retained Session bindings.
+- PersistentStorageManager.admit_session_artifact_destination(session_id, destination_id): Revalidates suitability and exclusively publishes an immutable durable Session binding, accepting only matching retries.
+- PersistentStorageManager.read_session_artifact_destination(session_id): Reads a strict binding or historical installation-default semantics, refusing missing bindings required by new Session records.
+- PersistentStorageManager.resolve_session_artifact_root(session_id): Resolves scientific storage without redirecting an unavailable bound destination.
+- PersistentStorageManager._destination_guard(): Serializes registry updates and binding admissions using the preservation lock and an owner-local cross-process file lock.
+- PersistentStorageManager._destination_registry(): Strictly loads persistent approved destinations and refuses detected retained configuration loss or inconsistency.
+- PersistentStorageManager._validate_destination(entry): Checks destination identity, path representation and registry-entry structure.
+- PersistentStorageManager._write_destination_record(path, data, *, replace): Publishes registry replacements or exclusive binding records with file sync, directory sync and exact readback.
+- PersistentStorageManager._destination_validation(root): Reuses filesystem capacity/writability inspection at explicit validation boundaries.
+- PersistentStorageManager._require_destination_administrator(experimenter_name, administrator_mode): Requires explicit cooperative administrator identity for registry changes.
+- PersistentStorageManager._session_destination_path(session_id): Reuses existing safe Session identity rules for the binding record location.
+
+## tests/test_session_artifact_destinations.py
+
+- SessionArtifactDestinationTests: Exercises approved registry persistence, filesystem admission, immutable bindings, compatibility and disk-backed artifact consumers through public owners.
+- SessionArtifactDestinationTests.test_default_listing_does_not_probe_scientific_directory(): Confirms listing never performs a writable scientific-storage probe.
+- SessionArtifactDestinationTests.test_registration_persistence_idempotence_and_conflicts(): Confirms restart persistence and exact registration identity reuse.
+- SessionArtifactDestinationTests.test_administrator_and_directory_validation(): Refuses unauthorized administration and missing directories without provisioning them.
+- SessionArtifactDestinationTests.test_binding_restart_immutability_and_disabled_obligations(): Preserves bound destinations across restart and disablement while refusing conflicting admissions and referenced removal.
+- SessionArtifactDestinationTests.test_unused_destination_removal(): Removes only an unreferenced alternative.
+- SessionArtifactDestinationTests.test_interrupted_registry_replace_preserves_complete_configuration_and_allows_retry(): Retains complete previous configuration after interrupted replacement and supports explicit registration retry.
+- SessionArtifactDestinationTests.test_corrupt_or_missing_retained_registry_refuses_restart(): Refuses malformed, duplicate-field or missing retained registry contents.
+- SessionArtifactDestinationTests.test_unavailable_bound_directory_never_falls_back(): Keeps missing bound scientific storage unavailable without default redirection.
+- SessionArtifactDestinationTests.test_transfer_all_experiments_and_sessions_resolve_their_binding(): Confirms deterministic routing across Experiments and differently bound Sessions.
+- SessionArtifactDestinationTests.test_legacy_free_text_is_not_reinterpreted_as_a_destination(): Keeps unbound historical Session resolution on the installation default.
+- SessionArtifactDestinationTests.test_capacity_uses_bound_root_and_preserves_shared_filesystem_accounting(): Checks evidence and bound-artifact capacity through existing aggregate validation.
+- SessionArtifactDestinationTests.test_interrupted_binding_publication_is_not_confirmed(): Retains uncertainty until explicit identical admission retry confirms durable publication.
+- SessionArtifactDestinationTests.test_separate_owners_serialize_registry_updates_and_binding_conflicts(): Serializes separate owner instances without permitting conflicting Session bindings.
+- SessionArtifactDestinationTests.test_lost_or_contradictory_binding_does_not_reinterpret_new_session_as_legacy(): Refuses contradictory roots and missing bindings required by accepted configuration.
+- SessionArtifactDestinationTests.test_bound_saved_collection_restart_verification_and_deletion_proof(): Exercises failed transfer, explicit retry, restart and exact original-deletion proof without mutating originals.
+- SessionArtifactDestinationTests.test_bound_jsonl_hdf5_reconstruction_uses_preserved_destination(): Reconstructs both scientific formats from a disabled but retained bound root without original-node access.
+- DestinationLaunchTests: Uses isolated real JetStream authority and service command handlers to verify destination operations and launch admission.
+- DestinationLaunchTests.test_controller_launch_admission_and_exact_initial_record(): Requires durable matching admission and exact accepted configuration preservation.
+- DestinationLaunchTests.test_missing_or_conflicting_admission_confirmation_refuses_launch(): Refuses altered confirmation while retaining the actual owner binding.
+- DestinationLaunchTests.test_controller_administrator_management_through_nats(): Enforces administrator context and discovers owner-approved choices through NATS.
+- DestinationLaunchTests.test_failure_after_admission_retains_binding(): Preserves recoverable destination evidence after later initialization failure.
+
+## src/lab_sync_acquisition/storage.py (continued)
 
 - PersistentStorageManager.read_timing_reconstruction_inputs(session_id): Returns a detached, validated historical Stage A/B snapshot, origin-filtered collection evidence and archive-product digests without attaching a Session.
 - PersistentStorageManager.write_timing_reconstruction(result): Fsyncs, non-overwritingly publishes and reads back one immutable derived version, accepting identical retries and refusing conflicts or aliases without changing raw/archival products.

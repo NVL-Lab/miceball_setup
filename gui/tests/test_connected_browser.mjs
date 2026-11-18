@@ -62,7 +62,7 @@ if (!process.env.MICEBALL_BROWSER_ORIGIN) {
       await page.locator('#catalog-save').click();
       await page.locator('#catalog-dialog').waitFor({state: 'hidden'});
     }
-    await page.locator('[aria-labelledby="storage-title"] textarea[data-configuration-string]:not(#error-evidence-location)').fill(config.storage);
+    await page.locator('#artifact-destination').selectOption('default');
     await page.locator('#error-evidence-location').fill(config.errors);
     await page.locator('details').filter({has: page.locator('#session-framework-fields')}).last().evaluate(element => element.open = true);
     await page.locator('#session-framework-fields').fill(JSON.stringify(config.fields));

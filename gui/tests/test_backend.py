@@ -103,6 +103,7 @@ class GUIIntegrationTests(unittest.IsolatedAsyncioTestCase):
 
     async def asyncSetUp(self):
         await lifecycle.ExternalLifecycleTests.asyncSetUp(self)
+        (self.root / "global").mkdir(exist_ok=True)
         authority = await acquire_test_controller_authority(self, self.maintenance)
         await authority.ensure_streams()
         await self.handler.stop_acquisition_execution()
@@ -185,7 +186,7 @@ class GUIIntegrationTests(unittest.IsolatedAsyncioTestCase):
 
     def launch_parameters(self):
         return {"selections": {"node": [self.declaration.to_dict()]},
-            "config_parameters": {"storage_location": str(self.root / "records"), "protocol_plan": {},
+            "config_parameters": {"storage_location": "default", "protocol_plan": {},
                 "error_evidence_location": str(self.root / "errors"), "synchronization_configuration": lifecycle.configuration()},
             "scientific_outputs": []}
 
