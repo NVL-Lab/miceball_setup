@@ -1,5 +1,6 @@
 // Informative presentation only; the existing connected outcome collection owns data.
 const operations = {
+  save_catalog: ['Catalog save', 'Catalog saved.'],
   take_browser_control: ['Control request', 'Control acquired.'],
   view_only: ['View Only request', 'View Only selected.'],
   launch_session: ['Session launch', 'Session launched successfully.'],

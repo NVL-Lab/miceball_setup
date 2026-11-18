@@ -13447,6 +13447,12 @@ questions remain OPEN for their outstanding scope; no milestone is closed here.
 
 **Status:** Accepted
 
+**Navigation-only supersession:** Decision 449 changes the permanent order to
+Setup, Session, Experiment, Analysis, Storage, Parameters, Services, with one
+permanently accessible Parameters workspace. The historical order below is
+preserved; Storage ownership, collection, deletion, authorization and evidence
+requirements are unchanged.
+
 **Deletion-granularity supersession:** Decision 434 replaces the recording-level
 selection requirements below with selection of one or more Experiments or an
 entire Session. In particular, deleting all Session originals no longer requires
@@ -14655,6 +14661,104 @@ service, persistence infrastructure or parallel authoritative outcome system is
 authorized. Persistent catalogs, storage selection, Parameters and Session
 Templates remain separate work. This acceptance does not establish the cause of
 the observed distributed Jetson launch failure or claim implementation validation.
+
+---
+
+## Decision 449: GUI backend installations own durable catalogs and expose one contextual Parameters workspace
+
+**Status:** Accepted
+
+This records the explicitly user-accepted LLC handoff for GUI Parameters,
+Persistent Catalogs and GUI Service Integration. It supplements Decisions 409-412,
+424-431 and 433. Historical decisions remain preserved; only the conflicting
+navigation requirement in Decision 431 is superseded. This is architectural
+synchronization, not functionality implementation, validation, audit or closure.
+
+### Durable application catalogs and deployment
+
+Each GUI backend installation maintains its own durable scientific application
+catalogs: experimenters, project-local animals, projects, protocols, project-scoped
+Session Templates, saved reusable Steps and other applicable existing reusable
+application configurations. Projects own protocols and Session Templates; the
+project itself is not part of a Session Template. Catalog data survives browser
+closure, backend restart and ordinary software updates and resides outside
+replaceable installed package files, not solely in browser memory.
+
+Multiple browsers, including browsers on different laboratory computers, share
+the catalogs of the backend they connect to. Separate backend installations have
+independent catalogs; automatic synchronization is not required. One GUI backend
+per laboratory deployment is recommended, not mandatory. It may run on the
+Controller computer or another accessible computer without acquiring Controller
+authority.
+
+Use a simple, durable, application-owned persistence mechanism. Preserve existing
+stable identities, project/protocol/template ownership and applicable uniqueness
+requirements, including Decision 429's collection-wide saved-Step name uniqueness.
+This settles the relevant catalog-persistence deferral in Decision 409 without
+authorizing separate project-sharing or permissions infrastructure.
+Lab reference templates remain immutable; personal templates retain their existing
+editing rules. Saved reusable Steps remain immutable and are customized through
+copies. Catalog edits cannot rewrite historical Session metadata, accepted
+execution configurations or scientific evidence. Controller and existing evidence
+owners retain their authority. No separate catalog service, database server,
+distributed synchronization system or new authentication infrastructure is
+authorized.
+
+Normal framework deployment/user guidance must identify the catalog storage
+location and how it is configured or determined, browser sharing versus independent
+installations, restart/update survival and safe backup/restoration expectations.
+Concrete path, persistence format and configuration interfaces are implementation
+details, not selected by this decision. See the
+[catalog deployment contract](installation_and_deployment.md#gui-catalogs-and-backend-services-presentation-decision-449).
+Do not substitute an additional GUI locality warning for that documentation.
+
+### GUI backend in Services
+
+Present the GUI backend in Services using the existing visual style, meaningful
+backend-sourced status, actual host, relevant configuration and catalog storage
+location where available. Preserve Decision 448's unified Activity History.
+
+The GUI backend is not a Controller-managed scientific service. Its status comes
+from the backend itself, not a fabricated Controller participant registration.
+Do not provide unsupported self-Stop, self-Kill, self-Restart or recovery controls
+to imitate framework services. Controller-to-service communication, lifecycle
+ownership and Decision 426's independent GUI startup remain unchanged.
+
+### One permanently accessible Parameters workspace
+
+The permanent navigation order is **Setup, Session, Experiment, Analysis, Storage,
+Parameters, Services**. Setup, Step creation and Experiment provide contextual
+**Edit Parameters** navigation to the same Parameters workspace, focusing the
+relevant configuration. Remove the duplicate Experiment parameter drawer. When
+configuring a Step, its selected-device parameters are immediately visible or
+expanded; unrelated device sections may remain collapsed or disabled.
+
+Keep all supported parameters, including advanced settings, accessible without
+requiring internal framework JSON editing. Use authoritative supported parameter
+definitions, validation and defaults where available. Do not present fictional
+demonstration parameters as actual capabilities, invent resolved defaults or add
+unsupported generic configuration interfaces. An essential missing discovery
+contract must be reported through the established workflow, not invented in GUI
+code.
+
+Session Template selection before launch is optional. The selected Session
+Template and active protocol structure are fixed after launch; defined Steps
+cannot be added, removed, replaced or reordered in that launched Session. Existing
+permitted skipping and repetition remain supported. Saved reusable definitions
+remain immutable while permitted working configuration changes do not alter them.
+Accepted Session-level configuration remains fixed at launch. Supported
+Experiment/device parameters may be adjusted between operations only within
+existing lifecycle and validation constraints. Preserve actual accepted execution
+configurations and scientific evidence independently of later working edits.
+
+No new template type, parameter lifecycle distinction, protocol engine or
+configuration authority is introduced. Session storage-destination selection is
+outside this decision. Decisions 447 and 448 retain their separate scopes and
+statuses; durable catalogs do not make informative Activity History persistent.
+
+**Implementation status:** These additions remain pending implementation,
+independent validation and independent audit. No deployment/configuration change
+or closure is established by this documentation synchronization.
 
 ---
 

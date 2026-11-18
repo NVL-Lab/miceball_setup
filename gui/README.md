@@ -1,9 +1,47 @@
 # Miceball GUI
 
 The static preview of this separately packaged browser interface is a demonstration with fictional
-Setup information, a Protocol Editor, and six primary sections and contextual Parameters. It runs entirely
+Setup information, a Protocol Editor, and seven permanent sections including Parameters. It runs entirely
 in the browser. Launch Session and other operational-looking controls do not
 start or contact scientific framework services or execute scientific algorithms.
+
+## Unified Parameters (Decision 449-B)
+
+Developer implementation; independent validation, audit and closure remain pending.
+Permanent navigation is **Setup | Session | Experiment | Analysis | Storage |
+Parameters | Services**. Setup, Protocol Editor Step configuration and Experiment
+provide **Edit Parameters** links to the same workspace; Return goes to the
+originating workspace. Direct navigation retains the current context, or selects
+the available Setup/Session context. No new scientific-operation definition is
+inferred when no supported configuration is available.
+
+Setup edits future working values in the existing preparation records. Step
+editing reuses the existing Experiment working-configuration shape in an optional
+`parameters` field, persisted by the same 449-A catalog interfaces; the legacy
+freeform field remains operation notes. Saved Steps and laboratory references
+remain read-only and require Copy to Edit. Session working edits keep their
+existing lifecycle guards. Experiment navigation reads `activeParameterSnapshot()`
+and is strictly read-only, following the actual executing/executed attempt rather
+than mutable Setup or a different selected Step. The former Experiment drawer and
+its styles/handlers are removed; older drawer descriptions below are historical.
+
+Selected-device settings open immediately; unrelated sections are collapsed and
+disabled. All supplied supported adapter fields are rendered, including advanced
+fields, allowed values and inclusive/exclusive bounds. Strings retain the existing
+lossless ordinary/exact-character controls; absent overrides and explicit null
+remain distinct. Inventory does not expose resolved installation defaults, so
+the interface says **Use configured default**. Unsupported definitions and opaque
+internal dictionaries do not become fabricated parameter controls.
+
+Preparation is detached when launching a Session, and existing accepted Session
+configuration, selected template, application-fixed protocol structure and actual
+execution configurations remain separate. Catalog edits and subsequent Setup
+edits cannot rewrite those accepted values. Controller remains authoritative.
+449-A persistence and Decision 448 page-local Activity History are unchanged.
+
+Focused developer checks: `node --test gui/tests/test_unified_parameters.mjs` and
+`python -B -m unittest gui.tests.test_parameters_browser -v` (Node/Playwright/browser
+settings as documented below). These do not replace ICC validation or audit.
 
 ## Connected backend (Integration Unit 1)
 
@@ -52,7 +90,7 @@ and this separate package in a compatible Python 3.12 environment:
 
 ```text
 python -m pip install -e . -e ./gui
-miceball-gui --deployment-config CONNECTION_CONFIG_PATH --controller CONTROLLER_ID --client GUI_CLIENT_ID --origin http://GUI_HOST:8043 --host 0.0.0.0 --port 8043 --timeout 10
+miceball-gui --deployment-config CONNECTION_CONFIG_PATH --controller CONTROLLER_ID --client GUI_CLIENT_ID --origin http://GUI_HOST:8043 --host 0.0.0.0 --port 8043 --timeout 10 --catalog-path CATALOG_SQLITE_PATH
 ```
 
 The existing guided installer also offers optional separate GUI package setup
@@ -63,6 +101,51 @@ the selected-environment launch command and browser address. Local Controller
 GUI-access changes require explicit approval and manual restart; remote owner
 setup remains pending. It never starts the GUI, creates Controller authority or
 acquires browser control. See the [installation guide](../docs/installation_and_deployment.md#guided-setup-from-an-existing-checkout-decision-421).
+
+### Durable application catalogs (Decision 449-A)
+
+Developer implementation; independent validation and audit remain pending.
+`--catalog-path` is required by the CLI and selects one local SQLite file outside
+the installed GUI package (for example, `/var/lib/miceball-gui/catalog.sqlite3`
+with operator-managed permissions). The installer prints a path beside its local
+configuration files, `gui-catalog.sqlite3`; operators may explicitly change it.
+The GUI creates a new empty catalog at a new path and refuses corrupt, incomplete
+or unsupported existing databases. It never imports browser demonstration fixtures.
+
+Browsers connected to one backend share experimenters, projects, project-local
+animals, project-owned protocols and Session Templates, immutable saved Steps and
+existing reusable Experiment configurations. Saves check the catalog revision;
+conflicts retain the unsaved draft. Use **Reload catalogs**, review the retained
+draft, and save explicitly. No automatic merging or retries occur. Separate
+backend installations use separate files and do not synchronize. Reuse the same
+configured file after backend restart or software update. Active Sessions,
+execution results, inventory and scientific evidence are not catalog contents.
+
+Services displays the backend's own host/configuration and catalog availability;
+it is not a Controller participant and has no self-maintenance controls.
+`GET /api/catalog`, revision-checked `POST /api/catalog`, and `GET /api/backend`
+use the existing web server. Mutations require the exact browser Origin and Host;
+catalog ownership is cooperative Experimenter identity, not authentication.
+Programmatic `create_gui_app(..., catalog_path=None)` remains compatible but
+reports catalogs unavailable; it does not fall back to browser-only saving.
+
+For backup/restore, stop all GUI backends using the file. Open the existing file
+with the backend once after an interrupted process so SQLite can recover any hot
+journal; then stop it cleanly and copy the catalog file. Keep the original file
+and any SQLite journal sidecar together until recovery completes; do not delete
+sidecars or copy a live database. Restore the stopped backend's configured file
+from a verified backup, retaining IDs and relationships, then restart and read
+the catalogs. Close or reload browser pages after restoration before editing;
+pre-restoration drafts/revisions are not a merge against the restored backup.
+Missing recent edits are not reconstructed from scientific records.
+Catalog backup does not replace scientific-evidence backup.
+
+Focused developer checks:
+`python -B -m unittest gui.tests.test_catalog gui.tests.test_catalog_browser -v`.
+The browser test requires Node/Playwright; select the module through
+`LAB_SYNC_PLAYWRIGHT_MODULE` and an installed browser through
+`LAB_SYNC_BROWSER_CHANNEL` when needed. Package B Parameters changes are not
+implemented by this package.
 
 Replace every deployment value; no framework services or broker are started by this
 command. `--origin` is the exact browser origin (no trailing slash); Host and WebSocket

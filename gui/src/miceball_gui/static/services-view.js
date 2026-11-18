@@ -8,6 +8,34 @@ const connected = document.documentElement?.dataset?.runtime === 'connected';
 const model = createServicesDemo(connected);
 export const servicesAdministrator = () => model.administrator;
 export const serviceActions = {};
+let guiBackend = null, guiBackendError = '', guiBackendPending = false;
+const backendPanel = document.createElement('section');
+backendPanel.className = 'services-card';
+backendPanel.dataset.guiBackend = '';
+let backendMarkup = '';
+
+async function refreshGuiBackend() {
+  if (!connected || guiBackendPending) return;
+  guiBackendPending = true;
+  try {
+    const response = await fetch('api/backend', {cache: 'no-store'});
+    if (!response.ok) throw new Error('Backend status unavailable');
+    guiBackend = await response.json(); guiBackendError = '';
+  } catch (_) { guiBackendError = 'GUI backend response is unconfirmed. Displayed configuration is last known.'; }
+  finally { guiBackendPending = false; renderServices(); }
+}
+
+function guiBackendCard() {
+  if (!connected) return null;
+  const markup = `<h3>GUI backend</h3><div class="service-row"><div class="service-identity"><strong>GUI backend</strong><small>${escape(guiBackend?.host || 'Host unconfirmed')}</small></div><div class="service-report"><span class="service-status ${guiBackend && !guiBackendError ? 'service-good' : 'service-caution'}">${escape(guiBackendError ? 'Unconfirmed' : guiBackend?.status || 'Awaiting backend report')}</span><small>${escape(guiBackendError || (guiBackend?.catalog_available ? 'Catalog available' : 'Catalog unavailable'))}</small></div></div><details><summary>Backend configuration</summary><dl><dt>Browser address</dt><dd>${escape(guiBackend?.origin || 'Unconfirmed')}</dd><dt>Catalog location</dt><dd>${escape(guiBackend?.catalog_path || 'Not configured / unavailable')}</dd><dt>Controller</dt><dd>${escape(guiBackend?.controller_id || 'Unconfirmed')}</dd><dt>Connection identity</dt><dd>${escape(guiBackend?.client_id || 'Unconfirmed')}</dd></dl></details><p class="services-muted">Independent GUI client; not a Controller-managed scientific participant.</p>`;
+  if (markup !== backendMarkup) {
+    const open = backendPanel.querySelector('details')?.open || false;
+    backendPanel.innerHTML = markup;
+    backendPanel.querySelector('details').open = open;
+    backendMarkup = markup;
+  }
+  return backendPanel;
+}
 export function showBlockedServiceStop(service) {
   if (administrativePreview.open) return;
   authorizeMaintenance('blocked_stop', service);
@@ -157,6 +185,7 @@ function administrativeOperations() {
 }
 
 function renderServices() {
+  const focusedBackend = backendPanel.contains(document.activeElement);
   const focusedActivityHistory = activityHistory.contains(document.activeElement);
   let focusedOwner;
   if (connected) {
@@ -171,6 +200,9 @@ function renderServices() {
     <p class="services-feedback" ${connected ? 'id="services-readiness-unavailable"' : ''} role="status">${escape(message || refreshNotice || (model.lastPreviewRefresh ? `Preview refreshed locally at ${model.lastPreviewRefresh}; fixture confirmations are unchanged.` : (connected ? 'Only valid current checks confirm availability; communication loss alone is not failure.' : 'Automatic refresh repaints fictional information only; it does not confirm availability.')))}</p>
     <section class="services-card"><h3>Configured services (${model.services.length})</h3><ul class="services-list" aria-label="Configured services">${serviceRows()}</ul></section>
     <section class="services-card services-warning-card"><h3>Warnings and errors <small>${connected ? 'Unavailable' : `${unacknowledged} unacknowledged`}</small></h3><p class="services-muted">${connected ? 'Authoritative warning and error history is unavailable.' : 'Latest three entries by default. Acknowledgment is not resolution or deletion.'}</p><div id="services-history" class="services-history" role="region" aria-label="Warning and error history" tabindex="0">${notificationRows()}</div>${notificationHistory().length > 3 ? `<button type="button" data-toggle-history aria-controls="services-history" aria-expanded="${historyExpanded}">${historyExpanded ? 'Show less' : 'Show more'}</button>` : ''}</section>${administrativeOperations()}`;
+  const backend = guiBackendCard();
+  if (backend) panel.querySelector('.services-card').before(backend);
+  if (focusedBackend) backendPanel.querySelector('summary').focus({preventScroll: true});
   renderActivityHistory();
   panel.append(activityHistory);
   if (focusedActivityHistory) activityHistory.querySelector('summary').focus({preventScroll: true});
@@ -198,7 +230,7 @@ function renderServices() {
 function scheduleServicesRefresh() {
   clearInterval(refreshTimer);
   if (connected && serviceActions.refresh) {
-    if (model.refreshSeconds) refreshTimer = setInterval(() => serviceActions.refresh(), model.refreshSeconds * 1000);
+    if (model.refreshSeconds) refreshTimer = setInterval(() => { serviceActions.refresh(); refreshGuiBackend(); }, model.refreshSeconds * 1000);
     return;
   }
   if (!connected && model.refreshSeconds) refreshTimer = setInterval(() => {
@@ -241,7 +273,7 @@ panel.addEventListener('click', event => {
     if (!button || button.disabled) return;
     if (button.dataset.mode === 'administrator' && !model.administrator) { danger.showModal(); return; }
     if (button.dataset.mode === 'experimenter') { setServicesAdministrator(model, false); renderServices(); return; }
-    if (button.hasAttribute('data-refresh-services')) { serviceActions.refresh(undefined, true); return; }
+    if (button.hasAttribute('data-refresh-services')) { serviceActions.refresh(undefined, true); refreshGuiBackend(); return; }
     if (button.dataset.readiness) { serviceActions.refresh(button.dataset.readiness, true); return; }
     if (button.dataset.detail) { model.detail = button.dataset.detail; renderServices(); return; }
     if (button.dataset.administrative) {
@@ -346,6 +378,9 @@ export function startServicesRefresh() {
   model.refreshSeconds = 10;
   scheduleServicesRefresh();
   renderServices();
+  refreshGuiBackend();
 }
+
+document.addEventListener('gui-section-changed', event => { if (event.detail === 'services') refreshGuiBackend(); });
 document.addEventListener('gui-notifications-changed', () => renderServices());
 renderServices(); scheduleServicesRefresh();

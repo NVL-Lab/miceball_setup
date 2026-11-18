@@ -17,7 +17,8 @@ export function prepareFreeOperation(state, operationId) {
   const choice = freeOperationChoices(context).find(item => item.operation.id === operationId);
   if (!choice?.compatible) throw new Error('Operation requirements are not compatible with this Session device pool.');
   const occurrence = Object.freeze({ ...clone(choice.operation), id: `free-${context.freeOperations.length + 1}`, operation: operationId, mandatory: true,
-    required: Object.freeze([...choice.operation.required]), optional: Object.freeze([...choice.operation.optional]), configuration: '' });
+    required: Object.freeze([...choice.operation.required]), optional: Object.freeze([...choice.operation.optional]), configuration: '',
+    ...(context.preparedOperation?.operation === operationId && context.preparedOperation.parameters ? {parameters: clone(context.preparedOperation.parameters)} : {}) });
   context.freeOperations.push(occurrence);
   sessionProgress(context).selectedId = occurrence.id;
   return occurrence;

@@ -1,6 +1,6 @@
 // Shared presenters own markup; this entry binds them to the existing backend.
 import { state, renderSetup } from './protocol-setup.js';
-import { devices, clone } from './protocol-demo.mjs';
+import { devices, clone, preparedProtocol, preparedFreeOperation } from './protocol-demo.mjs';
 import { deviceExamples, experimentView, experimentIssues } from './experiment-demo.mjs';
 import { applyControllerSnapshot } from './session-context.mjs';
 import { selectedStepContext } from './session-demo.mjs';
@@ -13,6 +13,7 @@ import { confirmStop } from './stop-confirmation.mjs';
 import { serviceActions, updateServices, startServicesRefresh, showBlockedServiceStop } from './services-view.js';
 import { configurationIdentity, configurationNumber, parseConfigurationJSON, stringifyConfiguration } from './configuration-values.mjs';
 import { activityPresentation } from './activity-presentation.mjs';
+import { deviceParameterFields } from './parameter-constraints.mjs';
 
 const $ = selector => document.querySelector(selector);
 let socket, browserId, confirmed = false, busy = false, refreshing = false, lastRender = '';
@@ -41,8 +42,9 @@ function actionRefusal(entry, reason) {
 function noteConnectionLoss(reason) {
   if (confirmed) recordActivity('connection_status', 'local', 'unknown', reason);
 }
-state.actions.recordActivity = (operation, error = '') => recordActivity(operation, 'local', error ? 'failed' : 'succeeded', error);
+state.actions.recordActivity = (operation, error = '', status = error ? 'failed' : 'succeeded') => recordActivity(operation, 'local', status, error);
 serviceActions.recordActivity = state.actions.recordActivity;
+document.addEventListener('gui-catalog-activity', event => state.actions.recordActivity('save_catalog', event.detail.error || '', event.detail.status));
 function invalidateServiceConfirmation() {
   // Replace projections so replies admitted before this loss cannot promote them.
   liveServices = liveServices.map(service => ({...service, current: false, diagnosticsCurrent: false, pending: false, attempt: null}));
@@ -251,12 +253,19 @@ state.actions.launchSession = localAction('launch_session', async entry => {
   for (const key of ['experimenter', 'project', 'animal']) {
     const select = $(`#${key}-select`);
     if (select.value.startsWith('__new_')) throw new Error(`Finish the local ${key} entry.`);
-    if (select.value) config.session_parameters[key] = select.selectedOptions[0].textContent;
+    if (select.value) {
+      config.session_parameters[key] = select.selectedOptions[0].textContent;
+      config.session_parameters[`catalog_${key}_id`] = select.value;
+    }
   }
   if (sessionNumber.validity.badInput) throw new Error('Invalid Session number. Enter a finite value representable by this GUI.');
   Object.assign(config.session_parameters, {name: readConfigurationString(sessionName), date: sessionDate.value, number: sessionNumber.value ? configurationNumber(sessionNumber.value) : null, notes: readConfigurationString(sessionNotes)});
-  state.submittedProcedure = clone(state.protocols.find(protocol => protocol.id === state.protocolId) || null);
-  if (state.submittedProcedure) state.submittedProcedure.included = clone(state.included);
+  state.submittedProcedure = preparedProtocol(state);
+  state.submittedOperation = preparedFreeOperation(state);
+  if (state.submittedProcedure) {
+    state.submittedProcedure.included = clone(state.included);
+    state.submittedProcedure.templateId = state.templateId;
+  }
   config.protocol_reference = state.submittedProcedure?.name || null;
   const selections = Object.create(null);
   for (const id of state.selectedDevices) {
@@ -313,7 +322,7 @@ $('#load-inventory').onclick = async () => {
     if (connection !== socket || socket.readyState !== WebSocket.OPEN || instance !== current()?.instance_id) throw new Error('Inventory belongs to an unconfirmed connection or Controller instance');
     state.inventory[node] = clone(inventory);
     devices.splice(0, devices.length, ...devices.filter(device => device.nodeId !== node), ...inventory.devices.map(declaration => ({id: configurationIdentity(node, declaration.device_id), nodeId: node, deviceId: declaration.device_id, declaration: clone(declaration), name: declaration.device_id, detail: node, capabilities: declaration.declared_capabilities || [], available: declaration.enabled === true})));
-    for (const device of devices.filter(item => item.nodeId === node)) deviceExamples[device.id] = {acquisition: Boolean(device.declaration.scientific_products?.length), fields: Object.entries(inventory.session_parameter_definitions?.[device.deviceId] || {}).map(([name, definition]) => ({id: configurationIdentity(node, device.deviceId, name), name, label: name, type: definition.type === 'boolean' ? 'checkbox' : ['integer', 'number'].includes(definition.type) ? 'number' : 'text', integer: definition.type === 'integer', min: definition.minimum ?? definition.exclusive_minimum, max: definition.maximum, nullable: definition.nullable}))};
+    for (const device of devices.filter(item => item.nodeId === node)) deviceExamples[device.id] = {acquisition: Boolean(device.declaration.scientific_products?.length), fields: deviceParameterFields(node, device.deviceId, inventory.session_parameter_definitions?.[device.deviceId] || {})};
     if (current()) applyControllerSnapshot(state, current());
     $('#inventory-status').textContent = `${node}: inventory confirmed; readiness remains Controller-owned`;
     updateActivity(entry, {status: 'succeeded'});

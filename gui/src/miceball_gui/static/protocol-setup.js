@@ -2,6 +2,8 @@ import { createDemo, operations, devices, clone, selectProtocol, selectTemplate,
 
 import { launchSessionDemo, executionProtocol } from './session-context.mjs';
 import { escapeText as escape, sessionIdentity, navigate } from './gui-presentation.js';
+import { catalogClient, catalogId, putCatalog } from './catalog-client.mjs';
+import { selectParameterContext } from './parameter-context.mjs';
 
 const validationLimit = document.createElement('label');
 validationLimit.className = 'validation-duration-field';
@@ -26,10 +28,16 @@ oldTemplate.after(stepsCard);
 const deviceCard = $('.device-card');
 deviceCard.innerHTML = `<h3>▣ &nbsp; Session devices &amp; capabilities</h3><p class="prototype-caption">Demonstration declarations only. Coverage means a selected device declares the identifier; it does not establish hardware readiness.</p><h4>Required capabilities <small>(based on included steps)</small></h4><div class="prototype-table-wrap"><table class="prototype-table"><thead><tr><th>Capability</th><th>Status</th><th>Provided by selected device(s)</th></tr></thead><tbody id="capability-rows"></tbody></table></div><details class="optional-capabilities"><summary>Optional capabilities</summary><p id="optional-capabilities"></p></details><h4>Select Session devices</h4><p class="prototype-caption">Select independently, including extra devices and multiple providers.</p><div id="session-device-list"></div>`;
 const readiness = $('.readiness-card ul');
+const setupParameters = document.createElement('div');
+setupParameters.className = 'protocol-toolbar';
+setupParameters.innerHTML = '<label>Parameters for<select id="setup-parameter-step"></select></label><button type="button" data-setup-parameters>Edit Parameters</button>';
+protocolCard.append(setupParameters);
+const stepParameters = document.createElement('button');
+stepParameters.type = 'button'; stepParameters.dataset.stepParameters = ''; stepParameters.textContent = 'Edit Parameters';
 let draft = null;
 let originalDraft = '';
+let draftRevision = null;
 let selectedStep = 0;
-let sequence = 0;
 const editorTab = document.createElement('button');
 editorTab.type = 'button';
 editorTab.className = 'nav-item editor-tab';
@@ -45,8 +53,9 @@ editor.id = 'panel-protocol-editor';
 editor.dataset.panel = 'protocol-editor';
 editor.setAttribute('aria-label', 'Protocol Editor');
 editor.hidden = true;
-editor.innerHTML = `<div class="editor-heading"><div><label>Protocol name<input id="protocol-name" required></label><p class="prototype-caption">Personal demonstration protocol · browser memory only</p></div><div class="editor-actions"><button id="cancel-protocol" type="button">Cancel</button><button id="save-protocol" type="button" class="proto-primary">Save Protocol</button></div></div><label class="protocol-description-field">Protocol description<textarea id="protocol-summary" rows="2"></textarea></label><div class="editor-layout"><section class="setup-card"><div class="editor-step-heading"><h3>Protocol steps</h3><div class="add-step"><label class="visually-hidden" for="add-operation">Application-supported operation</label><select id="add-operation">${operations.map(op => option(op.id, op.name)).join('')}</select><button id="add-step" type="button">+ Add step</button></div></div><ol id="editor-steps"></ol></section><section class="setup-card"><h3>Step configuration</h3><form id="step-form"><label>Step name<input name="name" required></label><div class="step-fields-row"><label>Application-supplied operation<select name="operation">${operations.map(op => option(op.id, `${op.name} (${op.type})`)).join('')}</select></label><label>Required / optional<select name="mandatory"><option value="true">Required</option><option value="false">Optional</option></select></label></div><label>Description<textarea name="description" rows="3"></textarea></label><label>Required capabilities<input name="required" placeholder="imaging_camera, visual_stimulation"></label><label>Optional capabilities<input name="optional" placeholder="behavior_video"></label><p class="prototype-caption">Illustrative exact identifiers, separated by commas. Optional capabilities do not block coverage.</p><label>Demonstration configuration / notes<textarea name="configuration" rows="3" placeholder="Example settings for this operation"></textarea></label></form><p id="no-step" hidden>Add an application-supported operation to begin.</p></section></div><p id="editor-message" role="status"></p>`;
+editor.innerHTML = `<div class="editor-heading"><div><label>Protocol name<input id="protocol-name" required></label><p class="prototype-caption">Personal demonstration protocol · browser memory only</p></div><div class="editor-actions"><button id="cancel-protocol" type="button">Cancel</button><button id="save-protocol" type="button" class="proto-primary">Save Protocol</button></div></div><label class="protocol-description-field">Protocol description<textarea id="protocol-summary" rows="2"></textarea></label><div class="editor-layout"><section class="setup-card"><div class="editor-step-heading"><h3>Protocol steps</h3><div class="add-step"><label class="visually-hidden" for="add-operation">Application-supported operation</label><select id="add-operation">${operations.map(op => option(op.id, op.name)).join('')}</select><button id="add-step" type="button">+ Add step</button></div></div><ol id="editor-steps"></ol></section><section class="setup-card"><h3>Step configuration</h3><form id="step-form"><label>Step name<input name="name" required></label><div class="step-fields-row"><label>Application-supplied operation<select name="operation">${operations.map(op => option(op.id, `${op.name} (${op.type})`)).join('')}</select></label><label>Required / optional<select name="mandatory"><option value="true">Required</option><option value="false">Optional</option></select></label></div><label>Description<textarea name="description" rows="3"></textarea></label><label>Required capabilities<input name="required" placeholder="imaging_camera, visual_stimulation"></label><label>Optional capabilities<input name="optional" placeholder="behavior_video"></label><p class="prototype-caption">Illustrative exact identifiers, separated by commas. Optional capabilities do not block coverage.</p><label>Operation notes<textarea name="configuration" rows="3" placeholder="Optional notes for this operation"></textarea></label></form><p id="no-step" hidden>Add an application-supported operation to begin.</p></section></div><p id="editor-message" role="status"></p>`;
 $('#workspace-content').append(editor);
+$('#step-form').after(stepParameters);
 // Reuse the existing controls and selector; no separate step library.
 const footer = document.createElement('footer');
 footer.className = 'editor-footer';
@@ -112,16 +121,28 @@ function coverageRows(rows, empty) {
 }
 export function renderSetup() {
   const protocol = state.connected && state.activeSession ? executionProtocol(state) : currentProtocol();
-  $('#protocol-select').innerHTML = option('', 'None — Free Mode') + state.protocols.map(p => option(p.id, p.name + (p.protected ? ' · Lab reference' : ''))).join('');
+  const futureProtocol = currentProtocol();
+  const parameterSteps = futureProtocol ? futureProtocol.steps.filter(step => operations.find(op => op.id === step.operation)?.type === 'Experiment')
+    : operations.filter(op => op.type === 'Experiment' && !op.unavailable).map(op => ({...op, operation: op.id}));
+  if (!parameterSteps.some(step => step.id === state.setupParameterStepId)) state.setupParameterStepId = parameterSteps[0]?.id;
+  $('#setup-parameter-step').innerHTML = parameterSteps.map(step => option(step.id, step.name)).join('');
+  $('#setup-parameter-step').value = state.setupParameterStepId || '';
+  setupParameters.querySelector('button').disabled = !parameterSteps.length;
+  if (!futureProtocol && state.setupOperation?.operation !== state.setupParameterStepId) {
+    const operation = operations.find(op => op.id === state.setupParameterStepId);
+    state.setupOperation = operation ? {...clone(operation), id: `setup-${operation.id}`, operation: operation.id, mandatory: true, configuration: ''} : null;
+  }
+  $('#protocol-select').innerHTML = option('', 'None — Free Mode') + state.protocols.filter(p => !state.connected || p.projectId === $('#project-select').value).map(p => option(p.id, p.name + (p.protected ? ' · Lab reference' : ''))).join('');
   $('#protocol-select').value = protocol?.id || '';
   $('#protocol-description').textContent = protocol?.description || 'Free Mode: launch without a predefined protocol, then choose supported scientific operations in Session.';
   $('#edit-protocol').disabled = !protocol || protocol.protected;
   $('#copy-protocol').disabled = !protocol;
   $('#edit-protocol').title = protocol?.protected ? 'Protected reference: use Copy Protocol to create a personal copy.' : 'Edit personal protocol';
   $('#session-template').disabled = !protocol;
-  $('#session-template').innerHTML = option('', 'None / Custom') + state.templates.filter(t => t.protocol === protocol?.id).map(t => option(t.id, t.name)).join('');
-  $('#session-template').value = state.templateId;
-  $('#template-description').textContent = state.templates.find(t => t.id === state.templateId)?.description || 'Configure this Session manually. No template selected.';
+  $('#session-template').innerHTML = option('', 'None / Custom') + state.templates.filter(t => t.protocol === protocol?.id && (!state.connected || t.projectId === $('#project-select').value) && (t.owner == null || t.owner === currentExperimenter())).map(t => option(t.id, t.name)).join('');
+  const selectedTemplate = state.connected && state.activeSession ? state.activeSession.templateId : state.templateId;
+  $('#session-template').value = selectedTemplate;
+  $('#template-description').textContent = state.templates.find(t => t.id === selectedTemplate)?.description || 'Configure this Session manually. No template selected.';
   $('#session-steps').closest('section').hidden = !protocol;
   $('#session-steps').innerHTML = (protocol?.steps || []).map((s, i) => `<tr><td>${i + 1}</td><td>${escape(s.name)}</td><td><input type="checkbox" data-step="${escape(s.id)}" aria-label="Include ${escape(s.name)}" ${s.mandatory || state.included.includes(s.id) ? 'checked' : ''} ${s.mandatory ? 'disabled' : ''}></td><td>${s.mandatory ? 'Yes' : 'No'}</td><td class="step-description-cell">${escape(s.description)}</td></tr>`).join('');
   const result = coverage(state.connected && state.activeSession ? state.activeSession : state);
@@ -150,6 +171,7 @@ function renderEditor() {
   $('#protocol-summary').value = draft.description;
   $('#editor-steps').innerHTML = draft.steps.map((s, i) => `<li data-step-id="${escape(s.id)}" class="${i === selectedStep ? 'selected' : ''}"><button type="button" class="step-drag-handle" data-drag-step="${escape(s.id)}" aria-label="Drag ${escape(s.name)} to reorder" title="Drag to reorder; or use Move Up / Move Down"><svg viewBox="0 0 12 18" aria-hidden="true"><circle cx="3" cy="3" r="1.3"/><circle cx="9" cy="3" r="1.3"/><circle cx="3" cy="9" r="1.3"/><circle cx="9" cy="9" r="1.3"/><circle cx="3" cy="15" r="1.3"/><circle cx="9" cy="15" r="1.3"/></svg></button><button type="button" data-select-step="${i}" aria-pressed="${i === selectedStep}"><span>${i + 1}</span><strong>${escape(s.name)}</strong><small>${escape(operations.find(o => o.id === s.operation)?.type || 'Operation')}</small><em>${s.mandatory ? 'Required' : 'Optional'}</em></button><div class="step-reorder"><button type="button" data-move="${i}" data-delta="-1" aria-label="Move ${escape(s.name)} up" ${i === 0 ? 'disabled' : ''}>↑</button><button type="button" data-move="${i}" data-delta="1" aria-label="Move ${escape(s.name)} down" ${i === draft.steps.length - 1 ? 'disabled' : ''}>↓</button><button type="button" data-remove="${i}" aria-label="Remove ${escape(s.name)}">×</button></div></li>`).join('');
   const step = draft.steps[selectedStep];
+  stepParameters.disabled = !step || operations.find(op => op.id === step.operation)?.type !== 'Experiment';
   stepActions.hidden = !step;
   $('#step-form').hidden = !step;
   $('#no-step').hidden = !!step;
@@ -166,13 +188,18 @@ function renderEditor() {
 }
 function openEditor(mode) {
   if (draft) { showSection('protocol-editor'); return; }
+  if (state.connected && (!catalogClient.snapshot || !$('#project-select').value || !currentExperimenter())) {
+    $('.setup-demo-note').textContent = 'Load catalogs and select a project and Experimenter before authoring protocols.'; return;
+  }
   const source = currentProtocol();
   if (!source && mode !== 'new') return;
   if (mode === 'edit' && source.protected) return;
-  draft = mode === 'new' ? { id: `personal-${++sequence}`, name: 'New personal protocol', description: '', protected: false, steps: [] } : clone(source);
-  if (mode === 'copy') { draft.id = `personal-${++sequence}`; draft.name += ' (copy)'; draft.protected = false; }
+  draft = mode === 'new' ? { id: catalogId(), ...(state.connected ? {projectId: $('#project-select').value} : {}), name: 'New personal protocol', description: '', protected: false, steps: [] } : clone(source);
+  if (mode === 'copy') { draft.id = catalogId(); draft.name += ' (copy)'; draft.protected = false; }
+  if (state.connected) editor.querySelector('.editor-heading .prototype-caption').textContent = 'Reusable protocol · saved in this backend catalog';
   selectedStep = 0;
   originalDraft = JSON.stringify(draft);
+  draftRevision = catalogClient.snapshot?.revision ?? null;
   $('#editor-message').textContent = '';
   editorTab.hidden = false;
   renderPreparedSteps();
@@ -180,6 +207,7 @@ function openEditor(mode) {
   showSection('protocol-editor');
 }
 function closeEditor() {
+  if (state.parameterContext?.kind === 'step') delete state.parameterContext;
   draft = null;
   editorTab.hidden = true;
   showSection('setup');
@@ -247,7 +275,7 @@ $('#step-form').addEventListener('input', event => {
 });
 $('#add-step').addEventListener('click', () => {
   const definitionId = $('#add-operation').value;
-  const id = `added-${++sequence}`;
+  const id = catalogId();
   draft.steps.push(definitionId === 'blank' ? { id, name: '', operation: operations[0].id, description: '', mandatory: true, required: [], optional: [], configuration: '' } : savedOccurrence(state, definitionId, id));
   selectedStep = draft.steps.length - 1;
   renderEditor();
@@ -257,13 +285,25 @@ $('#copy-step').addEventListener('click', () => {
   $('#editor-message').textContent = 'Editable copy created. The saved definition is unchanged.';
   renderEditor();
 });
-$('#save-reusable-step').addEventListener('click', () => {
+$('#save-reusable-step').addEventListener('click', async () => {
+  const button = $('#save-reusable-step');
+  button.disabled = true;
   try {
-    draft.steps[selectedStep] = saveReusableStep(state, draft.steps[selectedStep], currentExperimenter());
+    const targetDraft = draft, index = selectedStep;
+    const sourceStep = JSON.stringify(draft.steps[index]);
+    if (state.connected) {
+      const working = {definitions: clone(state.definitions)};
+      const occurrence = saveReusableStep(working, draft.steps[index], currentExperimenter());
+      await putCatalog('definitions', working.definitions.at(-1), currentExperimenter(), draftRevision);
+      draftRevision = catalogClient.snapshot.revision;
+      if (draft === targetDraft && JSON.stringify(draft.steps[index]) === sourceStep) draft.steps[index] = occurrence;
+      state.actions.recordActivity?.('save_catalog');
+    } else draft.steps[selectedStep] = saveReusableStep(state, draft.steps[selectedStep], currentExperimenter());
     renderPreparedSteps();
-    renderEditor();
-    $('#editor-message').textContent = 'Reusable step saved for the current demonstration experimenter. Protocol changes are not yet saved.';
-  } catch (error) { $('#editor-message').textContent = error.message; }
+    if (draft) renderEditor();
+    $('#editor-message').textContent = 'Reusable Step saved. Protocol changes are not yet saved.';
+  } catch (error) { $('#editor-message').textContent = error.message; state.actions.recordActivity?.('save_catalog', error.message, error.catalogStatus); }
+  finally { button.disabled = false; }
 });
 $('#editor-steps').addEventListener('click', event => {
   if (event.target.closest('[data-drag-step]')) return;
@@ -321,11 +361,25 @@ function finishStepDrag(event) {
 }
 document.addEventListener('pointerup', finishStepDrag);
 document.addEventListener('pointercancel', finishStepDrag);
-$('#save-protocol').addEventListener('click', () => {
+$('#save-protocol').addEventListener('click', async () => {
   if (!draft.name.trim() || draft.steps.some(s => !s.name.trim())) { $('#editor-message').textContent = 'Provide a protocol name and a name for every step.'; return; }
-  saveProtocol(state, draft);
-  renderSetup();
-  closeEditor();
+  const button = $('#save-protocol');
+  const submittedDraft = clone(draft), sourceDraft = JSON.stringify(draft);
+  button.disabled = true;
+  try {
+    if (state.connected) {
+      const working = {definitions: state.definitions, protocols: clone(state.protocols)};
+      saveProtocol(working, submittedDraft);
+      await putCatalog('protocols', working.protocols.find(item => item.id === submittedDraft.id), currentExperimenter(), draftRevision);
+      draftRevision = catalogClient.snapshot.revision;
+      state.actions.recordActivity?.('save_catalog');
+      selectProtocol(state, submittedDraft.id);
+    } else saveProtocol(state, draft);
+    renderSetup();
+    if (JSON.stringify(draft) === sourceDraft) closeEditor();
+    else if (draft) $('#editor-message').textContent = 'Protocol snapshot saved; subsequent working edits remain unsaved.';
+  } catch (error) { $('#editor-message').textContent = error.message; state.actions.recordActivity?.('save_catalog', error.message, error.catalogStatus); }
+  finally { button.disabled = false; }
 });
 $('#cancel-protocol').addEventListener('click', () => {
   if (JSON.stringify(draft) === originalDraft) closeEditor();
@@ -352,3 +406,32 @@ $('.launch-session-demo').addEventListener('click', () => {
   }
 });
 renderSetup();
+
+$('#setup-parameter-step').addEventListener('change', event => {
+  state.setupParameterStepId = event.target.value; renderSetup();
+});
+setupParameters.querySelector('button').addEventListener('click', () => {
+  selectParameterContext(state, {kind: 'setup', origin: 'setup', protected: currentProtocol()?.protected});
+  navigate('parameters');
+});
+stepParameters.addEventListener('click', () => {
+  selectParameterContext(state, {kind: 'step', origin: 'protocol-editor', getStep: () => draft?.steps[selectedStep], protected: draft.protected, changed: updateDirty});
+  navigate('parameters');
+});
+
+if (state.connected) {
+  const applyCatalog = () => {
+    // Replacing reusable arrays cannot touch activeSession's captured procedure.
+    const catalog = catalogClient.snapshot.catalog;
+    for (const key of ['definitions', 'protocols', 'templates', 'experimentTemplates']) state[key] = clone(catalog[key]);
+    if (!state.protocols.some(item => item.id === state.protocolId && item.projectId === $('#project-select').value)) selectProtocol(state, null);
+    if (!state.templates.some(item => item.id === state.templateId && item.projectId === $('#project-select').value)) state.templateId = '';
+    renderPreparedSteps(); renderSetup();
+  };
+  document.addEventListener('gui-catalog-changed', applyCatalog);
+  document.addEventListener('gui-catalog-review', () => { draftRevision = catalogClient.snapshot.revision; });
+  $('#project-select').addEventListener('change', () => {
+    selectProtocol(state, null); renderSetup();
+  });
+  if (catalogClient.snapshot) applyCatalog();
+}

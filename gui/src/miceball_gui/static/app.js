@@ -1,6 +1,7 @@
 import { formatCalendarDate } from './calendar-date.mjs';
 import { createAnimalCatalog, saveAnimalDemo } from './animal-demo.mjs';
 import { createNavigationMenu } from './navigation-menu.mjs';
+import { catalogClient, catalogId, loadCatalog, putCatalog } from './catalog-client.mjs';
 
 const animalCatalog = createAnimalCatalog();
 const connected = document.documentElement.dataset.runtime === 'connected';
@@ -13,7 +14,9 @@ if (connected) {
   }
   for (const input of document.querySelectorAll('.session-identity-grid input')) input.value = '';
   document.querySelector('[aria-labelledby="notes-title"] textarea').value = '';
-  document.querySelector('#catalog-save').textContent = 'Use local entry';
+  document.querySelector('#catalog-save').textContent = 'Save';
+  document.querySelector('.catalog-dialog__header p').textContent = 'Catalog entry';
+  document.querySelector('.catalog-dialog__note').textContent = 'Save to the shared catalog of this GUI backend.';
   updateAnimalSummary({});
   for (const small of document.querySelectorAll('.session-identity-grid small')) small.textContent = 'Unsent local preparation';
 }
@@ -133,9 +136,15 @@ function buildCatalogFields(catalogType) {
 
 function openCatalogDialog(select) {
   const catalogType = select.dataset.catalogSelect;
+  if (connected && catalogType === 'animal' && !document.querySelector('#project-select').value) {
+    catalogFeedback.textContent = 'Select a project before creating its animal.';
+    select.value = select.dataset.previousValue; return;
+  }
   activeCatalogSelect = select;
   catalogDialog.dataset.catalogType = catalogType;
+  if (connected) catalogDialog.dataset.catalogRevision = String(catalogClient.snapshot?.revision);
   catalogDialogTitle.textContent = catalogForms[catalogType].title;
+  catalogForm.querySelector('[data-catalog-error]')?.remove();
   buildCatalogFields(catalogType);
   catalogDialog.returnValue = "";
   catalogDialog.showModal();
@@ -255,7 +264,6 @@ function setAlertsPanelOpen(open, returnFocus = false) {
 
 function setSection(sectionId) {
   if (!sectionNames[sectionId]) return;
-  document.querySelector('.nav-item[data-section="parameters"]').hidden = sectionId !== 'parameters';
   if (!sidebar.classList.contains('is-pinned')) {
     navigationMenu.close();
   }
@@ -370,7 +378,7 @@ catalogDismissButtons.forEach((button) => {
   button.addEventListener("click", () => catalogDialog.close("cancel"));
 });
 
-catalogForm.addEventListener("submit", (event) => {
+catalogForm.addEventListener("submit", async (event) => {
   if (event.submitter?.value !== "save") return;
   event.preventDefault();
   if (!catalogForm.reportValidity()) return;
@@ -383,6 +391,32 @@ catalogForm.addEventListener("submit", (event) => {
     primary.setCustomValidity('Select an existing Experimenter.'); primary.reportValidity(); return;
   }
   const displayValue = values[catalogForms[catalogType].valueField].trim();
+  if (connected) {
+    const record = {id: catalogId(), ...values};
+    if (catalogType === 'experimenter') record.name = displayValue;
+    if (catalogType === 'project') { record.name = displayValue; delete record.project_name; }
+    if (catalogType === 'animal') record.projectId = document.querySelector('#project-select').value;
+    const controls = [...catalogForm.elements].map(control => [control, control.disabled]);
+    for (const [control] of controls) control.disabled = true;
+    try {
+      await putCatalog({experimenter: 'experimenters', project: 'projects', animal: 'animals'}[catalogType], record,
+        document.querySelector('#experimenter-select').value || record.id, Number(catalogDialog.dataset.catalogRevision));
+      activeCatalogSelect.value = record.id;
+      activeCatalogSelect.dataset.previousValue = record.id;
+      if (catalogType === 'animal') updateAnimalSummary(record);
+      activeCatalogSelect.dispatchEvent(new Event('change', {bubbles: true}));
+      catalogFeedback.textContent = 'Catalog entry saved.';
+      document.dispatchEvent(new CustomEvent('gui-catalog-activity', {detail: {}}));
+      catalogDialog.close('save');
+    } catch (error) {
+      catalogFeedback.textContent = error.message;
+      let feedback = catalogForm.querySelector('[data-catalog-error]');
+      if (!feedback) { feedback = document.createElement('p'); feedback.dataset.catalogError = ''; feedback.setAttribute('role', 'status'); catalogFields.after(feedback); }
+      feedback.textContent = error.message;
+      document.dispatchEvent(new CustomEvent('gui-catalog-activity', {detail: {error: error.message, status: error.catalogStatus}}));
+    } finally { for (const [control, disabled] of controls) control.disabled = disabled; }
+    return;
+  }
   // An ephemeral option key keeps same-label examples independent without catalog identity rules.
   const optionValue = catalogType === 'animal' ? saveAnimalDemo(animalCatalog, values) : displayValue;
   const newOption = new Option(displayValue, optionValue, true, true);
@@ -405,9 +439,56 @@ catalogDialog.addEventListener("close", () => {
   activeCatalogSelect?.focus();
   activeCatalogSelect = null;
 });
+catalogDialog.addEventListener('cancel', event => {
+  if (connected && document.querySelector('#catalog-save').disabled) event.preventDefault();
+});
 
 setTheme(document.documentElement.dataset.theme, false);
 document.addEventListener("gui-section", event => setSection(event.detail));
 setPinned(false);
 setSection("setup");
 renderNotifications();
+
+const catalogFeedback = document.createElement('p');
+catalogFeedback.className = 'prototype-caption';
+catalogFeedback.setAttribute('role', 'status');
+if (connected) {
+  const reload = document.createElement('button');
+  reload.type = 'button'; reload.className = 'dialog-button'; reload.textContent = 'Reload catalogs';
+  document.querySelector('.identity-card').append(reload, catalogFeedback);
+  const refresh = async () => {
+    reload.disabled = true;
+    try { await loadCatalog(); catalogFeedback.textContent = 'Catalogs loaded.'; }
+    catch (error) { catalogFeedback.textContent = error.message; }
+    finally { reload.disabled = false; }
+  };
+  const renderCatalogSelects = () => {
+    const catalog = catalogClient.snapshot.catalog;
+    animalCatalog.clear();
+    const projectId = document.querySelector('#project-select').value;
+    for (const record of catalog.animals) if (record.projectId === projectId) animalCatalog.set(record.id, record);
+    for (const select of catalogSelects) {
+      const previous = select.value.startsWith('__new_') ? select.dataset.previousValue : select.value;
+      const kind = select.dataset.catalogSelect;
+      const records = kind === 'experimenter' ? catalog.experimenters : kind === 'project' ? catalog.projects : catalog.animals.filter(item => item.projectId === document.querySelector('#project-select').value);
+      for (const option of [...select.options]) if (!option.value.startsWith('__new_')) option.remove();
+      select.add(new Option('Not selected', ''), select.firstElementChild);
+      for (const record of records) {
+        const option = new Option(kind === 'animal' ? record.animal_id : record.name, record.id);
+        if (kind === 'project') option.dataset.primaryExperimenter = record.primary_experimenter;
+        select.add(option, select.lastElementChild);
+      }
+      select.value = records.some(item => item.id === previous) ? previous : '';
+      select.dataset.previousValue = select.value;
+    }
+    updateAnimalSummary(animalCatalog.get(document.querySelector('#animal-select').value) || {});
+  };
+  document.addEventListener('gui-catalog-changed', renderCatalogSelects);
+  document.querySelector('#project-select').addEventListener('change', () => { if (catalogClient.snapshot) renderCatalogSelects(); });
+  document.addEventListener('gui-section-changed', event => { if (['setup', 'session', 'parameters'].includes(event.detail) && !catalogDialog.open) refresh(); });
+  reload.addEventListener('click', async () => {
+    await refresh();
+    if (catalogClient.snapshot) document.dispatchEvent(new CustomEvent('gui-catalog-review'));
+  });
+  refresh();
+}

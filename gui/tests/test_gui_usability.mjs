@@ -106,14 +106,17 @@ export async function verifyGuiUsability(browser, origin, configuration, section
     await page.locator('[data-dialog-dismiss]').first().click();
     await page.locator('#experimenter-select').selectOption('__new_experimenter');
     await page.locator('#catalog-fields [name="name"]').fill('New Scientist'); await page.locator('#catalog-save').click();
+    await page.locator('#catalog-dialog').waitFor({state: 'hidden'});
+    const scientistId = await page.locator('#experimenter-select').inputValue();
     await page.locator('#project-select').selectOption('__new_project');
     await page.locator('#catalog-fields [name="project_name"]').fill('New Project');
     await primary.evaluate(control => control.add(new Option('Missing Experimenter', 'missing-experimenter')));
     await primary.selectOption('missing-experimenter'); await page.locator('#catalog-save').click();
     assert.equal(await page.locator('#catalog-dialog').isVisible(), true);
     assert.equal(await primary.evaluate(control => control.validity.customError), true);
-    await primary.selectOption('New Scientist'); await page.locator('#catalog-save').click();
-    assert.equal(await page.locator('#project-select option:checked').getAttribute('data-primary-experimenter'), 'New Scientist');
+    await primary.selectOption({label: 'New Scientist'}); await page.locator('#catalog-save').click();
+    await page.locator('#catalog-dialog').waitFor({state: 'hidden'});
+    assert.equal(await page.locator('#project-select option:checked').getAttribute('data-primary-experimenter'), scientistId);
 
     for (const theme of ['light', 'dark']) {
       if (await page.locator('html').getAttribute('data-theme') !== theme) await page.locator('#theme-toggle').click();

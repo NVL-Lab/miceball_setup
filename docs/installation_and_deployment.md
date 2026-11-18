@@ -1451,6 +1451,67 @@ new launch allocates a new Session identity. Successfully launched Sessions reta
 their distinct failure/preservation/release obligations. Repeated physical Sessions
 after terminal release remain a G5 validation target.
 
+### GUI Catalogs And Backend Services Presentation (Decision 449)
+
+**Package A developer implementation; independent validation and audit pending.**
+[Decision 449](architecture_decisions.md#decision-449-gui-backend-installations-own-durable-catalogs-and-expose-one-contextual-parameters-workspace)
+does not close the separate Decision 447 installer or Decision 448 Activity History
+scopes. Package B Parameters navigation remains pending.
+
+One GUI backend per laboratory deployment is recommended, not mandatory. Browsers
+on the same or different computers share the catalogs of the backend they connect
+to. A separate backend installation maintains independent catalogs; installations
+do not automatically share or synchronize them. Hosting the GUI on the Controller
+computer is optional and does not change Controller authority.
+
+Each backend installation owns durable application catalogs for experimenters,
+animals, projects, protocols, project-scoped Session Templates, saved reusable
+Steps and other applicable existing reusable configurations. Projects own protocols
+and Session Templates; selecting a Session Template before launch is optional.
+Catalogs survive browser closure, backend restart and ordinary software updates.
+They must live outside replaceable installed package files and cannot reside solely
+in browser memory.
+
+**Catalog location/configuration:** Supply `--catalog-path ABSOLUTE_SQLITE_PATH`
+to `miceball-gui` / `python -m miceball_gui.backend`. Choose a writable local path
+outside installed package files, such as `/var/lib/miceball-gui/catalog.sqlite3`;
+create/permission its parent for the backend's operating-system user. The installer
+prints `gui-catalog.sqlite3` beside deployment configuration, without starting the
+backend or creating a catalog. Keep the same path during ordinary software updates.
+No database server or ORM is needed: Python SQLite stores one versioned catalog
+document/revision transactionally. Origin/Host checks protect writes; cooperative
+catalog owner identities are not human authentication. Revision conflicts refuse
+overwrites and retain the browser draft for explicit review/retry. Corrupt or
+unsupported existing files are refused rather than recreated.
+
+**Backup and restoration:** Preserve a consistent backup of the application-owned
+catalog storage, including the information needed to retain identities, project
+relationships and applicable uniqueness/editing rules. Restoration must not race
+catalog writes or silently replace established identities and relationships.
+Stop every backend using the file before backup or restoration. After a crash,
+allow SQLite recovery by reopening the existing file through the backend, then
+stop cleanly before copying. Retain any hot journal with the original database
+until recovery; do not discard sidecars or copy a live database. Copy the cleanly
+closed SQLite file to a separate backup, and restore a verified backup to the
+configured path only while stopped. Restart and check catalog readback and IDs;
+close or reload browser pages before editing rather than submitting pre-restore
+drafts/revisions against the restored backup.
+Do not reset IDs or infer missing associations from historical Session names.
+Catalog backup is separate
+from scientific Session/Experiment records and evidence preservation, and restoring
+catalogs does not authorize rewriting historical records or recovering scientific
+execution. Package updates must preserve catalog data rather than reset it.
+
+Use a simple durable application-owned mechanism, without a separate catalog
+service, database server, cross-installation synchronization or new authentication.
+The GUI backend will appear in Services using the existing style, its own status,
+actual host, relevant configuration and catalog location where available. It is
+not a Controller-managed scientific participant and has no unsupported self-Stop,
+self-Kill, self-Restart or recovery controls. The unified Activity History remains
+informative and page-local under Decision 448; catalog durability does not extend
+its retention. These operator-facing facts belong in framework documentation,
+not an additional GUI catalog-locality warning.
+
 <a id="manual-installation-runbook-w067-closed"></a>
 ## 12. Incremental Validation And Troubleshooting
 

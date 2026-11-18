@@ -1,4 +1,5 @@
 import { parseConfigurationJSON, stringifyConfiguration } from './configuration-values.mjs';
+import { catalogId } from './catalog-client.mjs';
 
 // Fictional application data and browser-memory preparation state.
 export const operationCategories = Object.freeze(['Experiment', 'Analysis', 'Scientific Validation', 'Operator interaction']);
@@ -55,7 +56,7 @@ export function saveReusableStep(state, step, owner) {
   const name = step.name.trim();
   if (!name || !operations.some(op => op.id === step.operation)) throw new Error('Provide a step name and scientific operation.');
   if (state.definitions.some(item => item.name.toLowerCase() === name.toLowerCase())) throw new Error('A saved step with this name already exists. Choose a unique name.');
-  const id = `personal-step-${state.definitions.length}`;
+  const id = catalogId();
   const definition = freezeDefinition({ ...clone(step), id, name, owner });
   state.definitions.push(definition);
   return savedOccurrence(state, id, step.id);
@@ -131,4 +132,21 @@ export function saveProtocol(state, draft) {
   if (existing) state.protocols[state.protocols.indexOf(existing)] = saved;
   else state.protocols.push(saved);
   selectProtocol(state, draft.id);
+}
+
+export function preparedProtocol(state) {
+  const protocol = state.protocols.find(item => item.id === state.protocolId);
+  if (!protocol) return null;
+  const copy = clone(protocol);
+  for (const step of copy.steps) {
+    const working = state.sessionDemo?.[state.protocolId]?.steps[step.id]?.experiment?.working;
+    if (working && !step.definitionId) step.parameters = clone(working);
+  }
+  return copy;
+}
+
+export function preparedFreeOperation(state) {
+  if (!state.setupOperation) return null;
+  const working = state.sessionDemo?.[null]?.steps[state.setupOperation.id]?.experiment?.working;
+  return {...clone(state.setupOperation), ...(working ? {parameters: clone(working)} : {})};
 }

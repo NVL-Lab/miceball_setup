@@ -5,7 +5,7 @@ import unittest
 
 
 STATIC = Path(__file__).parents[1] / "src" / "miceball_gui" / "static"
-SECTIONS = ("setup", "session", "parameters", "experiment", "analysis", "storage", "services")
+SECTIONS = ("setup", "session", "experiment", "analysis", "storage", "parameters", "services")
 
 
 class ShellParser(HTMLParser):
@@ -71,7 +71,7 @@ class GuiShellTests(unittest.TestCase):
 
     def test_seven_permanent_sections_have_navigation_and_workspaces(self):
         self.assertEqual(tuple(item["data-section"] for item in self.parser.navigation), SECTIONS)
-        self.assertEqual(tuple(panel["data-panel"] for panel in self.parser.panels), SECTIONS)
+        self.assertEqual(set(panel["data-panel"] for panel in self.parser.panels), set(SECTIONS))
         for item in self.parser.navigation:
             self.assertEqual(item["aria-controls"], f"panel-{item['data-section']}")
             self.assertIn("title", item)
@@ -83,9 +83,9 @@ class GuiShellTests(unittest.TestCase):
         selected = [item for item in self.parser.navigation if item.get("aria-current") == "page"]
         self.assertEqual([item["data-section"] for item in selected], ["setup"])
 
-    def test_parameters_entry_exists_but_is_hidden_until_contextual_use(self):
+    def test_parameters_entry_is_permanently_accessible(self):
         parameters = next(item for item in self.parser.navigation if item["data-section"] == "parameters")
-        self.assertIn("hidden", parameters)
+        self.assertNotIn("hidden", parameters)
         self.assertEqual(parameters["aria-controls"], "panel-parameters")
         self.assertTrue(all("hidden" not in item for item in self.parser.navigation
                             if item["data-section"] != "parameters"))

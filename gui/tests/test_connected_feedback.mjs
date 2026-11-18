@@ -152,7 +152,7 @@ async function verifyRenderingSafety() {
       const control = target.locator('[data-example-value]').nth(index), definition = definitions[name];
       assert.equal(await control.getAttribute('data-example-value'), JSON.stringify([node, device.device_id, name]));
       assert.ok((await control.locator('..').innerText()).includes(name));
-      for (const [attribute, value] of [['min', definition.minimum ?? definition.exclusive_minimum], ['max', definition.maximum]]) {
+      for (const [attribute, value] of [['min', definition.minimum], ['max', definition.maximum]]) {
         assert.equal(await control.getAttribute(attribute), value === undefined ? null : String(value));
       }
       await control.hover(); await inert();
@@ -205,8 +205,9 @@ async function verifyRenderingSafety() {
       }
     }
     await section(target, 'experiment');
-    await target.locator('[data-show-experiment-parameters]').click();
-    assert.ok((await target.locator('#experiment-parameters-drawer').innerText()).includes(text));
+    await target.locator('[data-experiment-parameters]').click();
+    assert.equal(await field(text).inputValue(), text);
+    assert.equal(await field(text).isDisabled(), true);
     await inert();
     controlling = false;
     await target.locator('#connection-state').filter({hasText: 'View Only'}).waitFor();
@@ -355,7 +356,7 @@ async function verifyMaintenanceBinding() {
     await target.locator('[data-readiness]').click();
     await target.getByText('Dependency readiness is unknown: acquisition_node/offline-node', {exact: true}).waitFor();
     assert.match(await target.locator('.services-detail-content').innerText(), /Current owner diagnostics/);
-    assert.match(await target.locator('.service-status').innerText(), /availability unknown/);
+    assert.match(await target.locator('.services-list .service-status').innerText(), /availability unknown/);
     assert.match(await target.locator('section.inline-service-details').innerText(), /offline-node/);
     assert.equal(await target.locator('[data-live-kill]').count(), 0);
     assert.equal(submitted.length, 5); // Inspection never sends a maintenance mutation.
@@ -368,7 +369,7 @@ async function verifyMaintenanceBinding() {
     await target.waitForTimeout(4300);
     staleReply();
     await target.waitForTimeout(200);
-    assert.match(await target.locator('.service-status').innerText(), /availability unknown/);
+    assert.match(await target.locator('.services-list .service-status').innerText(), /availability unknown/);
     assert.match(await target.locator('section.inline-service-details').innerText(), /offline-node/);
     console.log('PASS: production Services confirmation, exact Stop/Kill/Cancel target and attempt, blocked/completed feedback, View Only and inert service identity; controlled transport only');
   } finally { await target.close(); }
@@ -425,7 +426,7 @@ try {
   await services.locator('#services-refresh').selectOption('0');
   serviceResponse = 'ready';
   await services.locator('[data-readiness]').first().click();
-  await services.locator('.service-status').first().filter({hasText: 'Ready · current confirmation'}).waitFor();
+  await services.locator('.services-list .service-status').first().filter({hasText: 'Ready · current confirmation'}).waitFor();
   const finalFeedback = await services.locator('.services-feedback').innerText();
   assert.match(finalFeedback, /readiness check completed; Ready/);
   previousReport = await ownerReport.elementHandle();
@@ -443,10 +444,10 @@ try {
   serviceReason = 'Current readiness is unconfirmed';
   serviceResponse = 'ready';
   await services.locator('[data-readiness]').first().click();
-  await services.locator('.service-status').first().filter({hasText: 'Ready · current confirmation'}).waitFor();
+  await services.locator('.services-list .service-status').first().filter({hasText: 'Ready · current confirmation'}).waitFor();
   serviceResponse = 'unknown';
   await services.locator('[data-readiness]').first().click();
-  await services.locator('.service-status').first().filter({hasText: 'Last known: Ready · availability unknown'}).waitFor();
+  await services.locator('.services-list .service-status').first().filter({hasText: 'Last known: Ready · availability unknown'}).waitFor();
   serviceResponse = 'held';
   const beforeHeld = serviceRequests.length;
   await services.locator('[data-readiness]').first().click();
@@ -467,23 +468,23 @@ try {
   reply(obsolete.route, obsolete.message, 'succeeded', {current: true, report: {...obsolete.message.parameters.participant, ready: true, required: true, reason: 'obsolete ready'}, details: {}});
   for (const pending of serviceRequests.slice(afterObsolete)) reply(pending.route, pending.message, 'succeeded', {current: false, report: null, reason: 'New owner unconfirmed', details: {}});
   await services.locator('[data-readiness]').first().filter({hasText: 'Check readiness'}).waitFor();
-  assert.equal(await services.locator('.service-status').first().innerText(), 'Last known: Ready · availability unknown', 'An old owner response cannot promote current availability or erase historical confirmation');
+  assert.equal(await services.locator('.services-list .service-status').first().innerText(), 'Last known: Ready · availability unknown', 'An old owner response cannot promote current availability or erase historical confirmation');
   serviceResponse = 'ready';
   await services.locator('[data-readiness]').first().click();
-  await services.locator('.service-status').first().filter({hasText: 'current confirmation'}).waitFor();
+  await services.locator('.services-list .service-status').first().filter({hasText: 'current confirmation'}).waitFor();
   serviceResponse = 'held';
   await services.locator('[data-readiness]').first().click();
   await services.locator('[data-readiness]').first().filter({hasText: 'Checking'}).waitFor();
   const beforeLoss = serviceRequests.at(-1);
   controllerResponse = 'rejected';
   await page.locator('#connection-state').filter({hasText: 'Unconfirmed'}).waitFor();
-  await services.locator('.service-status').first().filter({hasText: 'availability unknown'}).waitFor();
+  await services.locator('.services-list .service-status').first().filter({hasText: 'availability unknown'}).waitFor();
   assert.doesNotMatch(await services.locator('.services-feedback').innerText(), /check completed; Ready/);
   controllerResponse = 'succeeded';
   await page.locator('#connection-state').filter({hasText: 'View Only'}).waitFor();
   reply(beforeLoss.route, beforeLoss.message, 'succeeded', {current: true, report: {...beforeLoss.message.parameters.participant, ready: true, required: true, reason: 'late ready'}, details: {}});
   await page.waitForTimeout(50);
-  assert.equal(await services.locator('.service-status').first().innerText(), 'Last known: Ready · availability unknown', 'An earlier check cannot re-confirm availability after a newer communication loss');
+  assert.equal(await services.locator('.services-list .service-status').first().innerText(), 'Last known: Ready · availability unknown', 'An earlier check cannot re-confirm availability after a newer communication loss');
   serviceResponse = 'unknown';
   await services.locator('[data-expand-service]').first().focus();
   await page.keyboard.press('Enter');
@@ -694,7 +695,9 @@ try {
     await target.locator('[data-expand-service]').first().click();
   }
   // Compare unchanged cards independently of the authorized history replacement.
-  await baseline.locator('#control-activity-history').evaluate(node => node.hidden = true);
+  // HEAD may already include Decision 448; compare the same unaffected cards
+  // whether its history has the old or unified disclosure identity.
+  await baseline.locator('#control-activity-history, #activity-history').evaluate(node => node.hidden = true);
   await demo.locator('#activity-history').evaluate(node => node.hidden = true);
   assert.equal(await demo.locator('#panel-services').innerText(), await baseline.locator('#panel-services').innerText());
   const demoBefore = await baseline.locator('#panel-services').screenshot();

@@ -56,7 +56,7 @@ The developer results below retain their original evidence classification.
 - `Controller.read_controller_state(*, instance_id, control)`: Projects detached accepted configuration, Session/Experiment state and lifecycle evidence without reconstructing live ownership from stored records.
 - `NatsExternalSessionLaunchReceiver(..., browser_control_required=False)`: Reuses lifetime request/task/result ownership while enforcing configured GUI context, delegating grants to Controller and exposing non-executing outcome reads.
 - `launch_independent_service(..., browser_control_required=False)`: Passes explicit GUI enforcement configuration to the original Controller receiver; the authoritative deployment loader validates the optional boolean and required external client.
-- `miceball_gui.backend.create_gui_app(*, servers, controller_id, client_id, origin, timeout_s, max_request_bytes=1048576, **nats_auth)`: Serves the origin-checked shell through a shared external NATS client with optional explicit credentials, without forwarding browser-supplied identities or credentials.
+- `miceball_gui.backend.create_gui_app(*, servers, controller_id, client_id, origin, timeout_s, catalog_path=None, max_request_bytes=1048576, **nats_auth)`: Serves the origin-checked shell, optional explicit durable GUI catalog and backend status separately from the shared external NATS command client.
 - `miceball_gui.backend.main()`: Implements the separately packaged `miceball-gui` startup command with explicit deployment connection/binding settings.
 - `miceball_gui.backend._ConnectedShell` and its HTMLParser callbacks: Preserve original presenter entry points, mark connected mode and append one connected binding entry without duplicating HTML or workspace construction.
 - `static/connected.js`: Binds original controls to the existing backend, projects Controller readback, adapts actual node inventory and explicit preparation, and reconciles pending outcomes without lifecycle replay.
@@ -3119,7 +3119,7 @@ automatic. Kill integration and overall closeout validation remain deferred.
 - preparedSteps: Lists shared and current-experimenter saved demonstration definitions for the existing step selector.
 - savedOccurrence: Creates an independently identified occurrence referencing an immutable saved demonstration definition.
 - copyStepToEdit: Copies a step into an editable working occurrence with a suggested unique name.
-- saveReusableStep: Explicitly saves a globally uniquely named immutable personal demonstration definition without saving a protocol.
+- saveReusableStep: Prepares a globally uniquely named immutable personal Step with a stable UUID independently of protocol saving.
 - declaredCoverage: Matches exact capability identifiers to selected demonstration device declarations for both Setup and Session.
 
 ## gui/src/miceball_gui/static/protocol-setup.js
@@ -3188,11 +3188,11 @@ automatic. Kill integration and overall closeout validation remain deferred.
 
 - exampleConfiguration: Builds visible fictional starting values for the supported example Experiment operations.
 - freezeConfiguration: Copies and freezes the primitive-valued mock configuration and its participant/value containers.
-- experimentTemplates: Lists shared and current-owner personal fictional Experiment templates separately from Session templates and step definitions.
+- experimentTemplates: Lists laboratory and current-owner reusable Experiment configurations from the application catalog without changing execution snapshots.
 - experimentView: Resolves editable working or immutable executed demonstration configuration for a protocol occurrence.
 - updateExperiment: Updates working demonstration values while rejecting edits to executed configurations.
 - loadExperimentTemplate: Copies an available Experiment template into editable working values, requiring confirmation before replacing modified values.
-- saveExperimentTemplate: Creates a new named personal Experiment template without overwriting existing references.
+- saveExperimentTemplate: Prepares an independent personal Experiment template or connected owner overwrite while preserving immutable laboratory references.
 - prepareExperimentRepeat: Makes editable values for another demonstration attempt without modifying historical snapshots.
 - experimentIssues: Reports explicitly simulated duration, participation, availability, parameter and capability checks.
 - captureExperiment: Freezes a separate mock attempt configuration and identifies the latest simulated Experiment for monitoring.
@@ -3307,10 +3307,55 @@ automatic. Kill integration and overall closeout validation remain deferred.
 
 - verifyGuiUsability(browser, origin, configuration, section, directory): Exercises Project membership, confirmed ownership presentation/history, ordinary string payloads and local-date preparation/release behavior through rendered GUI interactions with controlled transport.
 
-## gui/src/miceball_gui/static/experiment-parameter-drawer.js
-
-- createExperimentParameterDrawer(experiment, state): Creates the read-only drawer renderer used by Experiment lifecycle updates, retaining the user's visibility choice and grouping existing participating-device values below Back to Session.
-
 ## gui/tests/test_parameter_context.mjs
 
-- Parameter-context regressions: Exercise existing Session working values, immutable executing snapshots, drawer read purity and calendar-date presentation without new parameter stores.
+- Parameter-context regressions: Exercise existing Session working values, immutable executing snapshots, Experiment source read purity and calendar-date presentation without new parameter stores.
+
+## gui/src/miceball_gui/static/parameter-context.mjs
+
+- selectParameterContext(state, context): Locates the existing Setup, Step-editor, Session or Experiment target and its return workspace without owning configuration.
+- resolveParameterContext(state): Resolves existing working records or immutable snapshots and supplies guarded editing, source labels and the permitted device pool to the one Parameters renderer.
+
+## gui/src/miceball_gui/static/parameter-constraints.mjs
+
+- deviceParameterFields(node, device, definitions): Projects the adapter's supported primitive definitions, exact identities, typed allowed values and inclusive/exclusive constraints into existing controls without manufacturing defaults.
+- parameterIssue(field, value): Reuses typed numeric validation and declared adapter constraints for working-field feedback and Experiment submission checks.
+
+## Protocol preparation additions in gui/src/miceball_gui/static/protocol-demo.mjs
+
+- preparedProtocol(state): Detaches the selected application procedure and its existing Setup working configurations for a future Session without editing catalog definitions.
+- preparedFreeOperation(state): Captures the selected Free Mode preparation and existing working values independently of later Setup edits.
+
+## gui/tests/test_unified_parameters.mjs and test_parameters_browser.py
+
+- Unified-parameter workflows: Exercise Setup/Step/Session/Experiment context isolation, immutable Step copies, declared typed constraints, permanent navigation, return navigation and responsive themed rendering through the existing working model and real GUI/catalog interfaces.
+- ParametersBrowserTests: Runs the unified browser workflow with real catalog HTTP persistence and public adapter inventory, using controlled Controller replies rather than claiming live transport.
+
+## gui/src/miceball_gui/catalog_store.py
+
+- CatalogConflict: Reports a stale catalog revision without changing the committed document.
+- CatalogStore(path): Owns one explicitly located versioned GUI catalog document in SQLite, refusing invalid existing stores.
+- CatalogStore.read(): Returns a detached validated committed catalog and revision.
+- CatalogStore.put(collection, record, *, expected_revision, actor): Commits one validated reusable record with transactional revision, project, cooperative ownership and immutability checks.
+
+## gui/src/miceball_gui/static/catalog-client.mjs
+
+- catalogClient: Holds only the current reusable catalog snapshot and request-pending flag, separate from execution state.
+- catalogId(): Allocates a stable UUID for a new independent reusable record or occurrence.
+- loadCatalog(): Refreshes shared catalog readback without overwriting working drafts.
+- putCatalog(collection, record, actor, expectedRevision): Sends one revision-checked mutation, retaining an editor's captured revision across background refresh and updating readback only after success.
+- responseSnapshot(response): Parses typed configuration JSON and distributes accepted catalog readback through existing DOM notification conventions.
+
+## GUI catalog integration in existing presenters
+
+- backend.read_catalog / write_catalog: Serve bounded HTTP catalog readback and same-origin revision-checked mutations independently of Controller transport.
+- backend.backend_info: Reports the actual backend host, public configuration, catalog location and current catalog readability without exposing NATS credentials.
+- app.renderCatalogSelects: Populates existing identity controls from durable records and filters project-local animals without changing captured Session identity.
+- services-view.refreshGuiBackend: Reads backend-owned status without inventing Controller service membership or lifecycle operations.
+- services-view.guiBackendCard: Reuses Services styling for an independently sourced backend entry while retaining its configuration disclosure.
+
+## gui/tests/test_catalog.py and test_catalog_browser.py
+
+- CatalogTests: Exercise durable catalog restart, sharing, revision races, relationships, immutable definitions, owner edits, interrupted updates, corruption refusal and stopped-store backup/restoration.
+- CatalogHttpTests: Exercise bounded origin-protected mutations, shared readback and backend information without a broker.
+- CatalogBrowserTests: Exercise existing catalog forms and protocol authoring across two browser pages, stale-draft retention, project filtering, backend Services rendering, themes and narrow layout against real local persistence.

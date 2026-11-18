@@ -7,10 +7,9 @@ import { escapeText as escape, executionIdentity, navigate } from './gui-present
 import { confirmStop } from './stop-confirmation.mjs';
 import { executionContext } from './session-context.mjs';
 import { tickDeviceValidation, stopDeviceValidation } from './device-validation-demo.mjs';
-import { createExperimentParameterDrawer } from './experiment-parameter-drawer.js';
+import { selectParameterContext } from './parameter-context.mjs';
 
 const experimentPanel = document.querySelector('#panel-experiment');
-const renderParameters = createExperimentParameterDrawer(experimentPanel, state);
 const analysisPanel = document.querySelector('#panel-analysis');
 let validationTimer = null;
 
@@ -55,9 +54,14 @@ export function renderExperiment() {
   const lastValidation = executionContext(state).lastDeviceValidation;
   if (lastValidation) experimentPanel.querySelector('#experiment-monitor-progress').insertAdjacentHTML('beforeend', `<p class="validation-ended" role="status">Device Validation for ${escape(lastValidation.deviceName)} ended: ${lastValidation.endedBy === 'maximum-duration' ? 'configured maximum duration reached' : 'manual Stop Validation'}. Browser-local only; physical cleanup remains unverified.</p>`);
   renderDeviceValidation();
-  // Restore the user's visibility choice after the validation visibility sweep,
-  // and refresh the read-only snapshot on every Experiment lifecycle render.
-  if (!executionContext(state).deviceValidation) renderParameters();
+  if (!executionContext(state).deviceValidation) {
+    const heading = experimentPanel.querySelector('.view-heading');
+    if (!heading.querySelector('[data-experiment-parameters]')) {
+      const button = document.createElement('button'); button.type = 'button';
+      button.dataset.experimentParameters = ''; button.textContent = 'Edit Parameters';
+      heading.append(button);
+    }
+  }
   if (state.connected) state.actions.syncControls?.();
 }
 
@@ -105,6 +109,9 @@ function renderAnalysis() {
 
 for (const panel of [experimentPanel, analysisPanel]) {
   panel.addEventListener('click', event => {
+    if (event.target.closest('[data-experiment-parameters]')) {
+      selectParameterContext(state, {kind: 'experiment', origin: 'experiment'}); navigate('parameters'); return;
+    }
     if (state.connected && event.target.closest('[data-stop-experiment], [data-finish-experiment-stop], [data-stop-validation], [data-close-validation], [data-reconcile-expiry]')) {
       if (event.target.closest('[data-stop-experiment]')) state.actions.stopExperiment?.();
       if (event.target.closest('[data-reconcile-expiry]')) state.actions.reconcileExpiry?.();

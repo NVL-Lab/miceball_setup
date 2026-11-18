@@ -29,7 +29,8 @@ class BackendOfflineTests(unittest.IsolatedAsyncioTestCase):
             path = Path(directory) / 'controller.json'
             path.write_text(json.dumps({"servers": ["nats://example.invalid:4222"], **auth}), encoding='utf-8')
             argv = ['miceball-gui', '--deployment-config', str(path), '--controller', 'control', '--client', 'gui',
-                    '--origin', 'http://127.0.0.1:8043', '--host', '127.0.0.1', '--port', '8043', '--timeout', '1']
+                    '--origin', 'http://127.0.0.1:8043', '--host', '127.0.0.1', '--port', '8043', '--timeout', '1',
+                    '--catalog-path', str(Path(directory) / 'catalog.sqlite3')]
             with patch.object(sys, 'argv', argv), patch('miceball_gui.backend.web.run_app'), patch(
                     'miceball_gui.backend.create_gui_app') as create:
                 main()
@@ -141,7 +142,8 @@ class GUIIntegrationTests(unittest.IsolatedAsyncioTestCase):
             port = candidate.getsockname()[1]
         origin = f"http://127.0.0.1:{port}"
         client = TestClient(TestServer(create_gui_app(servers=self.client_boundary.servers,
-            controller_id="controller", client_id="tester", origin=origin, timeout_s=2), port=port))
+            controller_id="controller", client_id="tester", origin=origin, timeout_s=2,
+            catalog_path=self.root / 'gui-catalog.sqlite3'), port=port))
         await client.start_server()
         self.addAsyncCleanup(client.close)
         return client, origin

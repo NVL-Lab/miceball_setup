@@ -1,4 +1,4 @@
-import { clone, devices } from './protocol-demo.mjs';
+import { clone, devices, preparedProtocol, preparedFreeOperation } from './protocol-demo.mjs';
 import { configurationIdentity, configurationEqual } from './configuration-values.mjs';
 
 export function applyControllerSnapshot(state, snapshot) {
@@ -10,11 +10,12 @@ export function applyControllerSnapshot(state, snapshot) {
     const parameters = config.session_parameters || {};
     state.activeSession = { connected: true, sessionId: snapshot.status.session_id,
       protocolId: procedure?.id ?? (config.protocol_reference == null ? null : 'unavailable-protocol'), protocols: procedure ? [clone(procedure)] : [],
-      included: procedure?.included || procedure?.steps.filter(step => step.mandatory).map(step => step.id) || [], selectedDevices: [], freeOperations: [], sessionDemo: {},
+      included: procedure?.included || procedure?.steps.filter(step => step.mandatory).map(step => step.id) || [], templateId: procedure?.templateId || '', selectedDevices: [], freeOperations: [], sessionDemo: {},
       identity: { name: parameters.name || snapshot.status.session_id, date: parameters.date || '',
-        experimenter: parameters.experimenter || 'Not recorded', owner: parameters.experimenter || '',
+        experimenter: parameters.experimenter || 'Not recorded', owner: parameters.catalog_experimenter_id || parameters.experimenter || '',
         project: parameters.project || 'Not recorded', animal: parameters.animal || 'Not recorded' },
-      sessionValues: clone(parameters), experimentTemplates: [], actions: state.actions };
+      sessionValues: clone(parameters), experimentTemplates: [], actions: state.actions,
+      preparedOperation: procedure ? null : clone(state.submittedOperation || null) };
   }
   const context = state.activeSession;
   const reserved = new Set((config.expected_runtime_participants || []).filter(p => p.component_type === 'acquisition_node').map(p => p.component_id));
@@ -94,7 +95,7 @@ export function executionSteps(state) {
 export function launchSessionDemo(state, identity, sessionValues = {}) {
   if (state.connected) throw new Error('Connected launch requires Controller admission.');
   if (state.activeSession) throw new Error('A demonstration Session is already active. Reload to start another.');
-  const protocol = state.protocols.find(item => item.id === state.protocolId);
+  const protocol = preparedProtocol(state);
   if (!protocol && state.protocolId !== null) throw new Error('Select a protocol or None before launching the demonstration Session.');
   const protocolId = protocol?.id ?? null;
   const progress = protocol ? state.sessionDemo?.[protocolId] : null;
@@ -102,8 +103,8 @@ export function launchSessionDemo(state, identity, sessionValues = {}) {
     throw new Error('Finish the running preview simulation before launching a demonstration Session.');
   }
   const context = { sessionDemo: progress ? { [protocolId]: clone(progress) } : {} };
-  if (!protocol) context.freeOperations = [];
-  const fixed = clone({ protocols: protocol ? [protocol] : [], protocolId, included: state.included,
+  if (!protocol) { context.freeOperations = []; context.preparedOperation = preparedFreeOperation(state); }
+  const fixed = clone({ protocols: protocol ? [protocol] : [], protocolId, included: state.included, templateId: state.templateId,
     selectedDevices: state.selectedDevices, identity, sessionValues });
   for (const [key, value] of Object.entries(fixed)) {
     Object.defineProperty(context, key, { value: freezeSnapshot(value), enumerable: true });

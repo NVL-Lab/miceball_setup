@@ -1020,7 +1020,7 @@ def main(argv=None):
             command = [str(python), '-m', 'miceball_gui.backend', '--deployment-config', str(gui['connection_path']),
                        '--controller=' + settings['controller_id'], '--client=' + settings['client_id'],
                        '--origin', settings['origin'], '--host', gui['host'], '--port', str(gui['port']),
-                       '--timeout', str(settings['timeout_s'])]
+                       '--timeout', str(settings['timeout_s']), '--catalog-path', str(directory / 'gui-catalog.sqlite3')]
             print('GUI package installed/reused and configuration prepared; GUI process NOT STARTED; browser control NOT ACQUIRED.')
             if gui['update'] is not None:
                 print('Controller GUI-access configuration prepared. Restart Controller manually when safe; no restart was performed.')

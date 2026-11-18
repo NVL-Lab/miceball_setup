@@ -54,8 +54,13 @@ if (!process.env.MICEBALL_BROWSER_ORIGIN) {
     await page.locator('.session-identity-grid input[type="number"]').fill('1');
     for (const [kind, values] of Object.entries({experimenter: {name: 'Browser Scientist'}, project: {project_name: 'Browser Project', primary_experimenter: 'Browser Scientist'}, animal: {animal_id: 'Browser Animal', animal_name: 'Animal', species: 'Mouse', strain: 'Lab', date_of_birth: '2026-01-01'}})) {
       await page.locator(`#${kind}-select`).selectOption(`__new_${kind}`);
-      for (const [key, value] of Object.entries(values)) await page.locator(`#catalog-fields [name="${key}"]`)[key === 'primary_experimenter' ? 'selectOption' : 'fill'](value);
+      for (const [key, value] of Object.entries(values)) {
+        const field = page.locator(`#catalog-fields [name="${key}"]`);
+        if (key === 'primary_experimenter') await field.selectOption({label: value});
+        else await field.fill(value);
+      }
       await page.locator('#catalog-save').click();
+      await page.locator('#catalog-dialog').waitFor({state: 'hidden'});
     }
     await page.locator('[aria-labelledby="storage-title"] textarea[data-configuration-string]:not(#error-evidence-location)').fill(config.storage);
     await page.locator('#error-evidence-location').fill(config.errors);
@@ -76,6 +81,23 @@ if (!process.env.MICEBALL_BROWSER_ORIGIN) {
     await page.locator('[data-example-value]').nth(0).fill('1');
     await page.locator('[data-example-value]').nth(3).fill('1');
     await page.locator('[data-example-value]').nth(3).fill('');
+    const acceptedBeforeCatalogSave = JSON.stringify(lastState.configuration);
+    await page.locator('#personal-experiment-template [name="templateName"]').fill('My acquisition');
+    await page.locator('#personal-experiment-template button[type="submit"]').click();
+    await page.locator('#parameter-feedback').filter({hasText: 'Saved personal Experiment template'}).waitFor();
+    let catalog = await (await page.request.get(`${process.env.MICEBALL_BROWSER_ORIGIN}/api/catalog`)).json();
+    assert.equal(catalog.catalog.experimentTemplates.length, 1);
+    const templateId = catalog.catalog.experimentTemplates[0].id;
+    assert.equal(catalog.catalog.experimentTemplates[0].owner, await page.locator('#experimenter-select').inputValue());
+    await page.locator('#experiment-duration').fill('31');
+    await page.locator('#personal-experiment-template button[type="submit"]').click();
+    await page.locator('#parameter-feedback').filter({hasText: 'Saved personal Experiment template'}).waitFor();
+    catalog = await (await page.request.get(`${process.env.MICEBALL_BROWSER_ORIGIN}/api/catalog`)).json();
+    assert.equal(catalog.catalog.experimentTemplates.length, 1);
+    assert.equal(catalog.catalog.experimentTemplates[0].id, templateId);
+    assert.equal(catalog.catalog.experimentTemplates[0].configuration.durationSeconds, 31);
+    assert.equal(JSON.stringify(lastState.configuration), acceptedBeforeCatalogSave);
+    await page.locator('#experiment-duration').fill('30');
     await shot('connected-parameters');
     await page.locator('[data-return-session]').click();
     await shot('connected-session');
@@ -98,19 +120,21 @@ if (!process.env.MICEBALL_BROWSER_ORIGIN) {
     await page.locator('#take-over').click();
     await page.locator('#connection-state').filter({hasText: 'Controlling'}).waitFor();
     await observer.close();
-    await page.locator('[data-show-experiment-parameters]').click();
-    assert.match(await page.locator('#experiment-parameters-drawer').innerText(), /fps: null/);
-    await shot('connected-experiment-drawer');
-    await page.locator('[data-show-experiment-parameters]').click();
+    await page.locator('[data-experiment-parameters]').click();
+    assert.equal(await page.locator('#experiment-duration').isDisabled(), true);
+    assert.match(await page.locator('#panel-parameters').innerText(), /Fixed executing-attempt configuration/);
+    await shot('connected-experiment-parameters');
+    await page.locator('[data-return-session]').click();
     await page.locator('[data-stop-experiment]').click();
     await shot('connected-stop-dialog');
     await page.getByRole('button', {name: 'Confirm Stop', exact: true}).click();
     await page.waitForFunction(() => document.querySelector('#experiment-monitor-fields')?.textContent.includes('completed'));
-    assert.equal(await page.locator('#experiment-parameters-drawer').isVisible(), false);
-    await page.locator('[data-show-experiment-parameters]').click();
-    await page.locator('#experiment-parameters-drawer').filter({hasText: 'Fixed executed-attempt configuration'}).waitFor();
+    await page.locator('[data-experiment-parameters]').click();
+    await page.locator('#panel-parameters').filter({hasText: 'Fixed executed-attempt configuration'}).waitFor();
+    assert.equal(await page.locator('#experiment-duration').isDisabled(), true);
+    await page.locator('[data-return-session]').click();
     for (const mode of ['connected', 'demo']) {
-      if (mode === 'demo') await page.goto(process.env.MICEBALL_DEMO_ORIGIN);
+      if (mode === 'demo') await page.goto(process.env.MICEBALL_DEMO_CURRENT_ORIGIN);
       for (const [width, height, size] of [[1440,1000,'desktop'], [800,900,'narrow']]) {
         await page.setViewportSize({width,height});
         for (const theme of ['light','dark']) {
@@ -125,10 +149,9 @@ if (!process.env.MICEBALL_BROWSER_ORIGIN) {
               await shot(`${mode}-${size}-${theme}-parameters`);
             }
             if (name === 'experiment') {
-              const drawer = page.locator('#experiment-parameters-drawer');
-              if (!await drawer.isVisible()) await page.locator('[data-show-experiment-parameters]').click();
-              await shot(`${mode}-${size}-${theme}-drawer`);
-              await page.locator('[data-show-experiment-parameters]').click();
+              await page.locator('[data-experiment-parameters]').click();
+              await shot(`${mode}-${size}-${theme}-executed-parameters`);
+              await page.locator('[data-return-session]').click();
             }
             if (name === 'storage') {
               for (const workspace of ['deletion', 'history']) {

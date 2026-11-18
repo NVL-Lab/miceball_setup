@@ -187,6 +187,18 @@ General acceptance requirements for new devices are not yet defined.
 
 ## Q008: What is the Configuration Model?
 
+Decision 449 settles durable GUI application catalogs per backend installation,
+shared browser access, independent installations and project ownership of protocols
+and Session Templates. It preserves stable identities, immutable saved Steps,
+lab/personal template editing rules and accepted execution/history isolation.
+Catalog path, persistence format and configuration interfaces remain implementation
+choices; the accepted durability requirement is no longer an unresolved design
+question. The unified contextual Parameters workspace must reuse supported
+definitions/validation/defaults without inventing unavailable interfaces. These
+additions remain pending implementation, independent validation and audit; Q008
+remains OPEN. See the
+[deployment contract](installation_and_deployment.md#gui-catalogs-and-backend-services-presentation-decision-449).
+
 **Accepted GUI/application direction:** Decisions 397-399 require per-animal
 Session identity, reusable editable templates, and preservation of actual executed
 configuration independently of its template. Decisions 409-411 additionally
@@ -633,10 +645,21 @@ GUI implementation resides in this repository's separately packaged top-level
 Q008 tracks configuration, Q029 communication/control; web frameworks/libraries
 remain implementation choices.
 
-Seven permanent tabs are Setup, Session, Parameters, Experiment, Analysis, Storage
-and Services, in that order. Decision 431 accepts whole-Session collection,
+Decision 449 sets the permanent order to Setup, Session, Experiment, Analysis,
+Storage, Parameters and Services, superseding only Decision 431's conflicting
+navigation order. Parameters remains permanently accessible through one workspace
+with contextual Edit Parameters access from Setup, Step creation and Experiment;
+the duplicate Experiment drawer is removed. Selected-device settings are visible
+when configuring a Step, including supported advanced parameters. Decision 431
+continues to govern whole-Session collection,
 recording management and history in Storage, distinct from Services operations;
 Q034 tracks remaining readback, authorization, deletion and evidence contracts.
+Decision 449 also requires backend-sourced GUI service status/host/configuration
+and available catalog location in Services, without Controller participant
+registration or unsupported GUI lifecycle controls. Backend-local durable catalogs
+and normal framework backup/deployment guidance remain implementation work; they
+do not extend Decision 448's page-local Activity History retention. Implementation,
+independent validation and audit of Decision 449 remain pending; Q030 stays OPEN.
 Accepted interactions include application protocol checklist/selected-step
 controls, read-only accepted Setup after launch, participant-specific Parameters
 read-only during execution, navigation without interruption, and final Experiment

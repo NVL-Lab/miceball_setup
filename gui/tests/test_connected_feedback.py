@@ -34,11 +34,12 @@ class ConnectedFeedbackTests(unittest.IsolatedAsyncioTestCase):
             candidate.bind(("127.0.0.1", 0))
             port = candidate.getsockname()[1]
         origin = f"http://127.0.0.1:{port}"
+        directory = self.enterContext(tempfile.TemporaryDirectory())
         connected = TestClient(TestServer(create_gui_app(servers=["nats://127.0.0.1:1"],
-            controller_id="feedback", client_id="gui", origin=origin, timeout_s=.1), port=port))
+            controller_id="feedback", client_id="gui", origin=origin, timeout_s=.1,
+            catalog_path=Path(directory) / 'catalog.sqlite3'), port=port))
         await connected.start_server()
         self.addAsyncCleanup(connected.close)
-        directory = self.enterContext(tempfile.TemporaryDirectory())
         static = Path(__file__).parents[1] / "src/miceball_gui/static"
         baseline = Path(directory) / "baseline"
         baseline.mkdir()

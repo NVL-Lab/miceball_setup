@@ -1,4 +1,5 @@
 // Fictional page-memory examples, not an authoritative animal catalog schema.
+import { catalogId } from './catalog-client.mjs';
 export function createAnimalCatalog() {
   return new Map([
     ['M1023', { animal_id: 'M1023', animal_name: 'Pip', species: 'Mus musculus', strain: 'C57BL/6J', sex: 'Male', date_of_birth: 'Sep 16, 2026', notes: '' }],
@@ -7,7 +8,7 @@ export function createAnimalCatalog() {
 }
 
 export function saveAnimalDemo(catalog, values) {
-  const key = `demo-animal-${catalog.size}`;
+  const key = catalogId();
   catalog.set(key, { ...values });
   return key;
 }

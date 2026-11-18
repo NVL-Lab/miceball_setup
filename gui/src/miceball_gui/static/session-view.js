@@ -1,5 +1,6 @@
 import { formatCalendarDate } from './calendar-date.mjs';
 import { state } from './protocol-setup.js';
+import { selectParameterContext } from './parameter-context.mjs';
 import { sessionProgress, sessionStepView, actOnSessionStep } from './session-demo.mjs';
 import { experimentTemplates, loadExperimentTemplate, prepareExperimentRepeat, updateExperiment, experimentDeviceGroups, deviceExamples } from './experiment-demo.mjs';
 import { devices, operationCategoryAvailability } from './protocol-demo.mjs';
@@ -271,6 +272,7 @@ panel.addEventListener('click', event => {
   const action = event.target.closest('[data-session-action]');
   const navigation = event.target.closest('[data-session-navigate]');
   if (navigation) {
+    if (navigation.dataset.sessionNavigate === 'parameters') selectParameterContext(state, {kind: 'session', origin: 'session'});
     navigate(navigation.dataset.sessionNavigate);
     return;
   }

@@ -1,5 +1,42 @@
 # Future GUI Design Notes
 
+## Accepted catalog, backend service and Parameters integration (Decision 449)
+
+**Architecture accepted; implementation, independent validation and audit pending.**
+[Decision 449](architecture_decisions.md#decision-449-gui-backend-installations-own-durable-catalogs-and-expose-one-contextual-parameters-workspace)
+sets the permanent order to **Setup, Session, Experiment, Analysis, Storage,
+Parameters, Services**. Parameters is always accessible; Setup, Step creation and
+Experiment provide contextual **Edit Parameters** navigation to that one workspace.
+The duplicate Experiment drawer is removed. Step-selected device settings are
+immediately visible/expanded, with supported advanced settings accessible through
+authoritative definitions, validation and available defaults, not fictional
+capabilities, guessed resolved defaults or unsupported generic interfaces.
+
+Each backend installation owns durable application catalogs outside replaceable
+package files; browsers on that backend share them, while separate installations
+remain independent without automatic synchronization. One backend per laboratory
+deployment is recommended, not required. Projects own protocols and Session
+Templates; the project is not a Session Template field. Preserve stable identities,
+existing uniqueness and template editing rules, immutable saved Steps with
+copy-based customization, optional pre-launch Session Template selection, and
+fixed launched template/protocol structure and accepted Session configuration.
+Permitted skipping, repetition and between-operation parameter edits remain within
+existing constraints; historical accepted configuration and evidence are unchanged.
+
+Services shows the GUI backend in the existing style with backend-sourced status,
+actual host, relevant configuration and available catalog location. It is not a
+Controller-managed scientific participant and gains no unsupported lifecycle
+controls. Decision 448's unified page-local Activity History remains separate.
+Catalog location/configuration and safe backup/restoration belong in the
+[framework deployment guide](installation_and_deployment.md#gui-catalogs-and-backend-services-presentation-decision-449),
+not an additional GUI locality warning. Decisions 447 and 448 retain their separate
+scope/status; Session storage-destination selection is excluded.
+
+Earlier implementation/closure descriptions below retain their historical scope.
+In particular, contextual-only sidebar visibility and the Experiment drawer are
+not the accepted target layout after Decision 449; this synchronization does not
+claim that their replacement has been implemented.
+
 ## Unified Activity History (Decision 448; implementation pending independent validation)
 
 Services consolidates consequential connected GUI actions into one informative
@@ -209,9 +246,9 @@ with deployment validation and Q008 closure still pending.
   web GUI without cloud dependence. A separate Python backend process runs by
   default, not obligatorily, on the Controller computer; it uses external NATS,
   never Controller-internal shortcuts. Web frameworks/libraries remain unselected.
-- Decision 431 adds Storage to Decision 425's historical six-tab layout. The seven
-  permanent tabs are **Setup, Session, Parameters, Experiment, Analysis, Storage,
-  Services**. Navigation never
+- Decision 431 adds Storage to Decision 425's historical six-tab layout; Decision
+  449 supersedes only its order. The seven permanent tabs are **Setup, Session,
+  Experiment, Analysis, Storage, Parameters, Services**. Navigation never
   interrupts operations. These are presentation boundaries, not lifecycle owners.
 - One Session corresponds to one animal and may contain Experiments, Analyses,
   Validation and interactions. Successive animals must not require restarting
@@ -576,8 +613,9 @@ close framework Storage functionality.
 by this synchronization. The browser-demo implementation descriptions above
 retain their historical six-tab scope and do not establish Storage functionality.
 
-Storage is the seventh permanent tab, placed between Analysis and Services:
-**Setup, Session, Parameters, Experiment, Analysis, Storage, Services**. It handles
+Decision 431 added Storage as the seventh permanent tab. Decision 449 now orders
+the tabs **Setup, Session, Experiment, Analysis, Storage, Parameters, Services**,
+superseding only the earlier navigation placement. Storage handles
 scientific-data collection, recording management and collection history. Services
 continues to own the presentation of service health, readiness, dependencies and
 administrative operational controls, not scientific-recording management.
@@ -1008,6 +1046,10 @@ automatically terminates the operational framework. Its presentation remains
 part of the proposed GUI design, not an implemented feature.
 
 ## Contextual Parameters and mouse-date correction
+
+**Historical implemented presentation:** Decision 449 supersedes the contextual-
+only sidebar and duplicate Experiment drawer described below. Its replacement is
+pending implementation; prior correction and closure evidence remains unchanged.
 
 Parameters is hidden in the sidebar by default. The existing Session View / Edit
 Parameters action reveals it and opens the selected Session operation. Return to

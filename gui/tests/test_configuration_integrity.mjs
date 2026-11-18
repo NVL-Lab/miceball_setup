@@ -250,12 +250,19 @@ export async function verifyConfigurationIntegrity(browser, origin, fixture, sec
     }
     assert.equal(await (await outputControl(fixture.additional_output)).isChecked(), false);
     await section(page, 'experiment');
-    await page.locator('[data-show-experiment-parameters]').click();
-    const drawer = await page.locator('#experiment-parameters-drawer').innerText();
-    assert.match(drawer, /nullable: null/);
-    assert.match(drawer, /unset: No explicit override/);
-    assert.doesNotMatch(drawer, /nullable: Unavailable/);
-    for (const representation of ['LF: "alpha\\nbeta"', 'CR: "alpha\\rbeta"', 'CRLF: "alpha\\r\\nbeta"']) assert.ok(drawer.includes(representation));
+    await page.locator('[data-experiment-parameters]').click();
+    const readOnlyNull = fixture.rows.find(row => row.name === 'nullable');
+    const explicitNull = await control('data-example-value', [readOnlyNull.node, readOnlyNull.device, readOnlyNull.name]);
+    assert.equal(await explicitNull.inputValue(), '');
+    assert.match(await explicitNull.evaluate(input => input.closest('.parameter-override').textContent), /Explicit null/);
+    const unsetReadOnly = await control('data-example-value', [readOnlyNull.node, readOnlyNull.device, 'unset']);
+    assert.match(await unsetReadOnly.evaluate(input => input.closest('.parameter-override').textContent), /Use configured default/);
+    for (const row of fixture.rows.filter(row => ['LF', 'CR', 'CRLF'].includes(row.name))) {
+      const input = await control('data-example-value', [row.node, row.device, row.name]);
+      assert.equal(await input.isDisabled(), true);
+      assert.equal(await readString(input), row.value);
+    }
+    assert.match(await page.locator('#panel-parameters').innerText(), /Fixed executing-attempt configuration/);
     unsafeReadback = true;
     await page.locator('#connection-state').filter({hasText: 'Unconfirmed'}).waitFor();
     await section(page, 'session');
@@ -335,11 +342,15 @@ export async function verifyExperimentReconnection(browser, origin, fixture, sec
     await page.locator('#inventory-status').filter({hasText: 'inventory confirmed'}).waitFor();
   };
   const monitor = async (identity, duration, gain, source) => {
+    await section(page, 'experiment');
     await page.locator('#experiment-monitor-fields').filter({hasText: identity}).waitFor();
     const information = await page.locator('#experiment-monitor-fields').innerText();
     assert.ok(information.includes(`${duration} s`));
-    await page.locator('#experiment-parameters-drawer').filter({hasText: `gain: ${gain}`}).waitFor();
-    assert.match(await page.locator('#experiment-parameters-drawer').innerText(), new RegExp(source));
+    await page.locator('[data-experiment-parameters]').click();
+    assert.equal(await page.getByLabel('gain', {exact: true}).inputValue(), String(gain));
+    assert.equal(await page.locator('#experiment-duration').inputValue(), String(duration));
+    assert.equal(await page.locator('#experiment-duration').isDisabled(), true);
+    assert.match(await page.locator('#panel-parameters').innerText(), new RegExp(source));
   };
   const reconnect = async () => {
     connection.close();
@@ -355,7 +366,6 @@ export async function verifyExperimentReconnection(browser, origin, fixture, sec
     await page.locator('[data-session-navigate="parameters"]').click();
     await page.locator('#experiment-duration').fill('99');
     await section(page, 'experiment');
-    await page.locator('[data-show-experiment-parameters]').click();
     await monitor('first', 11, 1.25, 'Fixed executed-attempt configuration');
     snapshot = fixture.snapshots[1];
     await reconnect();
@@ -375,7 +385,6 @@ export async function verifyExperimentReconnection(browser, origin, fixture, sec
     await page.locator('#connection-state').filter({hasText: 'View Only'}).waitFor();
     await inventory();
     await section(page, 'experiment');
-    await page.locator('[data-show-experiment-parameters]').click();
     await monitor('latest', 22, 8.5, 'Fixed executed-attempt configuration');
     assert.deepEqual(errors, []);
     assert.ok(requests.includes('read_controller_state'));

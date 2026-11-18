@@ -5,6 +5,8 @@ import asyncio
 import json
 import math
 import re
+import socket
+import sqlite3
 from html import escape
 from html.parser import HTMLParser
 from pathlib import Path
@@ -15,6 +17,7 @@ from aiohttp import web, WSMsgType
 from lab_sync_acquisition import (ExternalControllerRequest, ExternalSessionLaunchRequest,
     NatsCommunicationBoundary, NatsExternalSessionLaunchClient)
 from lab_sync_acquisition.communication import SERVICE_RECOVERY_COMMAND_TYPES
+from .catalog_store import CatalogStore, CatalogConflict
 
 READS = {"read_controller_state", "read_operation_outcome", "read_session_configuration", "get_node_inventory", "read_service_status", "read_synchronization_status"}
 OPERATIONS = READS | {"take_browser_control", "view_only", "launch_session", "start_launched_session",
@@ -58,7 +61,7 @@ class _ConnectedShell(HTMLParser):
         self.parts.append(f"<!--{data}-->")
 
 
-def create_gui_app(*, servers, controller_id, client_id, origin, timeout_s, max_request_bytes=1048576, **nats_auth):
+def create_gui_app(*, servers, controller_id, client_id, origin, timeout_s, catalog_path=None, max_request_bytes=1048576, **nats_auth):
     """Serve the existing shell and connection-bound commands via one NATS client."""
     if (not servers or not controller_id or not client_id or type(timeout_s) not in (float, int)
             or not math.isfinite(timeout_s) or timeout_s <= 0
@@ -71,6 +74,9 @@ def create_gui_app(*, servers, controller_id, client_id, origin, timeout_s, max_
     client = NatsExternalSessionLaunchClient(boundary)
     sockets = set()
     connection = None
+    # Legacy programmatic callers can serve without catalogs; the operator CLI
+    # requires an explicit durable location. Never fall back to browser persistence.
+    catalog = CatalogStore(catalog_path) if catalog_path is not None else None
 
     async def transport():
         nonlocal connection
@@ -88,7 +94,7 @@ def create_gui_app(*, servers, controller_id, client_id, origin, timeout_s, max_
     async def same_origin(request, handler):
         if request.host != url.netloc:
             raise web.HTTPForbidden(text="Unexpected Host")
-        if request.path == "/ws" and request.headers.get("Origin") != origin:
+        if (request.path == "/ws" or request.method not in {"GET", "HEAD", "OPTIONS"}) and request.headers.get("Origin") != origin:
             raise web.HTTPForbidden(text="Same-origin browser connection required")
         response = await handler(request)
         if request.path != "/ws":
@@ -185,11 +191,50 @@ def create_gui_app(*, servers, controller_id, client_id, origin, timeout_s, max_
         shell.close()
         return web.Response(text="".join(shell.parts), content_type="text/html")
 
+    async def read_catalog(request):
+        if catalog is None:
+            return web.json_response({"error": "Durable catalog is not configured"}, status=503)
+        try:
+            return web.json_response(catalog.read())
+        except (ValueError, sqlite3.Error, OSError):
+            return web.json_response({"error": "Catalog cannot be read; retained data was not replaced"}, status=503)
+
+    async def write_catalog(request):
+        if catalog is None:
+            return web.json_response({"error": "Durable catalog is not configured"}, status=503)
+        try:
+            data = await request.json()
+            if not isinstance(data, dict) or set(data) != {"collection", "record", "expected_revision", "actor"}:
+                raise ValueError("Invalid bounded catalog mutation")
+            return web.json_response(catalog.put(data["collection"], data["record"],
+                expected_revision=data["expected_revision"], actor=data["actor"]))
+        except CatalogConflict as error:
+            return web.json_response({"error": str(error)}, status=409)
+        except (ValueError, TypeError, KeyError) as error:
+            return web.json_response({"error": str(error)}, status=400)
+        except (sqlite3.Error, OSError):
+            return web.json_response({"error": "Catalog save could not be confirmed. Your draft is retained; reload before retrying."}, status=503)
+
+    async def backend_info(request):
+        available = False
+        if catalog is not None:
+            try:
+                catalog.read()
+                available = True
+            except (ValueError, sqlite3.Error, OSError):
+                pass
+        return web.json_response({"name": "GUI backend", "host": socket.gethostname(), "origin": origin,
+            "controller_id": controller_id, "client_id": client_id, "status": "Responding",
+            "catalog_path": str(catalog.path) if catalog else None, "catalog_available": available})
+
     app.on_startup.append(startup)
     app.on_cleanup.append(cleanup)
     app.router.add_get("/", index)
     app.router.add_get("/index.html", index)
     app.router.add_get("/ws", connect)
+    app.router.add_get("/api/catalog", read_catalog)
+    app.router.add_post("/api/catalog", write_catalog)
+    app.router.add_get("/api/backend", backend_info)
     app.router.add_static("/", static, show_index=False, follow_symlinks=False)
     return app
 
@@ -206,6 +251,7 @@ def main():
     parser.add_argument("--host", required=True)
     parser.add_argument("--port", type=int, required=True)
     parser.add_argument("--timeout", type=float, required=True)
+    parser.add_argument("--catalog-path", required=True, help="Durable SQLite catalog outside the installed package")
     args = parser.parse_args()
     settings = {"servers": args.server}
     if args.deployment_config:
@@ -215,7 +261,7 @@ def main():
         except ValueError:
             parser.error("Invalid NATS connection configuration")
     web.run_app(create_gui_app(**settings, controller_id=args.controller, client_id=args.client,
-        origin=args.origin, timeout_s=args.timeout), host=args.host, port=args.port)
+        origin=args.origin, timeout_s=args.timeout, catalog_path=args.catalog_path), host=args.host, port=args.port)
 
 
 if __name__ == "__main__":

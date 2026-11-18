@@ -14,7 +14,7 @@ export function activeParameterSnapshot(state) {
   if (!step || operations.find(item => item.id === step.operation)?.type !== 'Experiment') return null;
   const record = progress.steps[step.id];
   const bundle = record?.experiment;
-  if (!bundle) return null; // Reading the drawer must not create default configuration.
+  if (!bundle) return null; // Reading Experiment parameters must not create default configuration.
   const readOnly = record.status === 'running' || (!bundle.editing && bundle.attempts.length > 0);
   const configuration = readOnly ? bundle.attempts.at(-1) : bundle.working;
   return configuration ? { name: step.name, source: readOnly ? 'Fixed executed-attempt configuration' : 'Prepared configuration in the active Session', configuration: clone(configuration) } : null;
