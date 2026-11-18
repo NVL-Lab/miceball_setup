@@ -61,7 +61,7 @@ templateConfirmation.querySelector('[data-confirm-template-load]').addEventListe
   try {
     loadExperimentTemplate(state, pending.step, pending.record, pending.id, pending.owner, true);
     feedback = 'Template loaded into working values only.';
-  } catch (error) { feedback = error.message; }
+  } catch (error) { feedback = error.message; state.actions.recordActivity?.('prepare_experiment', error.message); }
   templateConfirmation.close();
   renderSession();
 });
@@ -92,7 +92,7 @@ export function renderSession() {
   ];
   panel.innerHTML = `<h2 id="heading-session" class="visually-hidden">Session</h2>
     <dl class="session-information">${header.map(([label, value]) => `<div><dt>${label}</dt><dd>${escape(value)}</dd></div>`).join('')}</dl>
-    <p class="session-demo-notice">${state.connected ? state.activeSession ? 'Controller-confirmed Session context. Scientific visualization, Analysis and Validation are not connected in this unit.' : 'Local preparation only — no Session acceptance is confirmed. See Activity History in Services for request outcomes.' : 'Browser-local demonstration · all results are illustrative. No framework Session is launched, no data are acquired, and no framework readiness is checked.'}</p>
+    <p class="session-demo-notice">${state.connected ? state.activeSession ? 'Accepted Session · visualization, Analysis and Validation integration unavailable.' : 'Local preparation · no accepted Session. See Activity History in Services.' : 'Browser-local demonstration · no acquisition or framework readiness checks.'}</p>
     <p class="session-demo-notice operation-category-availability">Application operation definitions: ${operationCategoryAvailability().map(({ category, count }) => `${escape(category)} — ${count ? `${count} available` : 'none supplied (deferred)'}`).join('; ')}. Device Validation is a separate device-function check, not a scientific Validation operation.</p>
     <div class="session-columns">
       <section class="session-card session-protocol-card" aria-labelledby="session-protocol-title">
@@ -229,7 +229,8 @@ panel.addEventListener('click', event => {
     if (event.target.closest('[data-stop-session]')) { state.actions.stopSession?.(); return; }
     if (event.target.closest('[data-launch-experiment]')) { state.actions.startExperiment?.(); return; }
     if (event.target.closest('[data-validate-device], [data-session-action], [data-session-kill], [data-kill-preview-confirm]')) {
-      feedback = 'This scientific operation is not connected. No request was sent.'; renderSession(); return;
+      feedback = 'Operation unavailable. See Activity History in Services.';
+      state.actions.recordActivity?.('unavailable_operation', 'This scientific operation is not connected. No request was sent.'); renderSession(); return;
     }
   }
   const validationButton = event.target.closest('[data-validate-device]');
@@ -344,7 +345,7 @@ panel.addEventListener('change', event => {
   const scroll = panel.scrollTop;
   const additionalOpen = panel.querySelector('.experiment-additional-devices')?.open;
   try { updateExperiment(state, step, progress.steps[step.id], { participants }); feedback = 'Experiment participation updated; Session inclusion is unchanged.'; }
-  catch (error) { feedback = error.message; }
+  catch (error) { feedback = error.message; state.actions.recordActivity?.('prepare_experiment', error.message); }
   renderSession();
   panel.scrollTop = scroll;
   if (panel.querySelector('.experiment-additional-devices')) panel.querySelector('.experiment-additional-devices').open = additionalOpen;

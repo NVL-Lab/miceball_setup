@@ -2,6 +2,7 @@ import { parseConfigurationJSON, stringifyConfiguration } from './configuration-
 
 // Reusable application data only. Execution state never enters this interface.
 export const catalogClient = { snapshot: null, pending: false };
+let pendingCompletion = Promise.resolve();
 export function catalogId() {
   // getRandomValues also works on HTTP laboratory origins where randomUUID is
   // unavailable. Never substitute array lengths or weak random identifiers.
@@ -27,16 +28,20 @@ async function responseSnapshot(response) {
 
 export async function loadCatalog() {
   // Never replace the revision beneath an in-flight mutation.
-  if (catalogClient.pending) return catalogClient.snapshot;
+  if (catalogClient.pending) { await pendingCompletion; return loadCatalog(); }
   catalogClient.pending = true;
+  let finished;
+  pendingCompletion = new Promise(resolve => { finished = resolve; });
   try { return await responseSnapshot(await fetch('api/catalog', {cache: 'no-store'})); }
-  finally { catalogClient.pending = false; }
+  finally { catalogClient.pending = false; finished(); }
 }
 
 export async function putCatalog(collection, record, actor, expectedRevision = catalogClient.snapshot?.revision) {
   if (catalogClient.pending) throw new Error('Another catalog request is pending. Your draft is retained.');
   if (!catalogClient.snapshot) throw new Error('Load the durable catalog before saving. Your draft is retained.');
   catalogClient.pending = true;
+  let finished;
+  pendingCompletion = new Promise(resolve => { finished = resolve; });
   try {
     let response;
     try {
@@ -49,5 +54,5 @@ export async function putCatalog(collection, record, actor, expectedRevision = c
       error.catalogStatus = 'uncertain'; throw error;
     }
     return await responseSnapshot(response);
-  } finally { catalogClient.pending = false; }
+  } finally { catalogClient.pending = false; finished(); }
 }

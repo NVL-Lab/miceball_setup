@@ -1,5 +1,10 @@
 // Informative presentation only; the existing connected outcome collection owns data.
 const operations = {
+  load_catalog: ['Catalog refresh', 'Catalog available.'],
+  destination_discovery: ['Destination discovery', 'Destination information received.'],
+  validate_parameters: ['Parameter validation', 'Parameters validated locally.'],
+  prepare_session: ['Session preparation', 'Session prepared locally.'],
+  unavailable_operation: ['Operation request', 'Operation available.'],
   register_artifact_destination: ['Destination registration', 'Scientific destination registered.'],
   update_artifact_destination: ['Destination update', 'Scientific destination updated.'],
   save_catalog: ['Catalog save', 'Catalog saved.'],
@@ -37,7 +42,7 @@ export function activityPresentation(entry) {
   if (/timeout|timed out/i.test(reason)) reason = 'The response timed out; execution may still be in progress.';
   else if (/NATS|WebSocket|_INBOX|ECONN|Transport/i.test(reason)) reason = 'Communication is unavailable or could not be verified.';
   let message;
-  if (entry.operation === 'connection_status') message = `Controller connection is unconfirmed. Current state may be last known. ${reason}`;
+  if (entry.operation === 'connection_status') message = entry.status === 'succeeded' ? success : `Controller connection is unconfirmed. Current state may be last known. ${reason}`;
   else if (entry.status === 'succeeded') message = success;
   else if (entry.status === 'pending') message = entry.source === 'local'
     ? `${label} is being prepared locally.` : `${label} requested; pending confirmation.`;

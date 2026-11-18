@@ -117,7 +117,7 @@ try {
   await page.locator('#session-framework-fields').evaluate(input => { for (let parent = input.parentElement; parent; parent = parent.parentElement) if (parent.tagName === 'DETAILS') parent.open = true; });
   await page.locator('#session-framework-fields').fill('{"protocol_plan":{},"session_parameters":{"extra":"preserved"}}');
   await page.locator('.launch-session-demo').click();
-  await page.locator('.setup-demo-note').filter({hasText: 'could not be confirmed'}).waitFor();
+  await page.locator('#activity-history').filter({hasText: 'could not be confirmed'}).waitFor({state: 'attached'});
   assert.equal(configuration, null);
   assert.equal(await page.locator('#artifact-destination').inputValue(), 'default');
   rejectLaunch = false;

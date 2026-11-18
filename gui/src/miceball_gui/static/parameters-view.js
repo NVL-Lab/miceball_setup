@@ -7,8 +7,13 @@ import { clone } from './protocol-demo.mjs';
 import { catalogClient, putCatalog } from './catalog-client.mjs';
 import { resolveParameterContext } from './parameter-context.mjs';
 import { parameterIssue } from './parameter-constraints.mjs';
+import { recordInvalidControl } from './activity-history.mjs';
 
 const panel = document.querySelector('#panel-parameters');
+panel.addEventListener('invalid', event => recordInvalidControl(event.target.closest('#personal-experiment-template') ? 'save_catalog' : 'validate_parameters', event.target), true);
+panel.addEventListener('focusout', event => {
+  if (event.target.matches('#parameter-fields input, #parameter-fields select, #parameter-fields textarea')) recordInvalidControl('validate_parameters', event.target);
+});
 let message = '';
 
 function stringField(attributes, value) {
@@ -31,15 +36,15 @@ function parameterField(field, value, present) {
 export function renderParameters() {
   const context = resolveParameterContext(state);
   if (!context) {
-    panel.innerHTML = '<div class="context-empty"><h2 id="heading-parameters">Parameters</h2><p>No supported parameter configuration is available in this context. Select an Experiment operation in Setup or Session. Saved Steps without explicit settings must be copied in Protocol Editor before editing.</p><button type="button" data-return-session>Return</button></div>';
+    panel.innerHTML = '<div class="context-empty"><h2 class="visually-hidden" id="heading-parameters">Parameters</h2><p>No supported parameter configuration is available in this context. Select an Experiment operation in Setup or Session. Saved Steps without explicit settings must be copied in Protocol Editor before editing.</p><button type="button" data-return-session>Return</button></div>';
     return;
   }
   const {step, record} = context;
   const view = context;
   const { configuration, readOnly } = view;
   const participants = devices.filter(device => configuration.participants.includes(device.id));
-  panel.innerHTML = `<div class="view-heading"><div><p class="prototype-caption">${escape(context.source)}</p><h2 id="heading-parameters">${escape(step.name)} · Parameters</h2><p>${readOnly ? 'Read-only configuration' : 'Working configuration · not Controller acceptance'}</p></div><button type="button" data-return-session>Return to ${escape(context.origin === 'protocol-editor' ? 'Protocol Editor' : context.origin)}</button></div>
-    <p class="view-notice">${state.connected ? 'Supported adapter settings; unsent values remain local until Controller admission. Reusable templates are stored in the GUI backend catalog.' : 'Illustrative controls only — these are not authoritative SDK parameter definitions. Choose participating devices in Session; configure them here. No device communication or persistence. Template saving is optional.'}</p>
+  panel.innerHTML = `<div class="view-heading"><div><p class="prototype-caption">${escape(context.source)}</p><h2 class="visually-hidden" id="heading-parameters">Parameters</h2><h3>${escape(step.name)}</h3><p>${readOnly ? 'Read-only configuration' : 'Working configuration · not Controller acceptance'}</p></div><button type="button" data-return-session>Return to ${escape(context.origin === 'protocol-editor' ? 'Protocol Editor' : context.origin)}</button></div>
+    <p class="view-notice">${state.connected ? 'Unsent working values; Controller confirms execution.' : 'Illustrative controls only — these are not authoritative SDK parameter definitions. Choose participating devices in Session; configure them here. No device communication or persistence. Template saving is optional.'}</p>
     <div class="parameter-toolbar"><button type="button" data-parameter-expand>Expand all</button><button type="button" data-parameter-collapse>Collapse all</button></div>
     ${!['session', 'experiment'].includes(context.kind) ? `<div class="parameter-toolbar">${[...new Set([...context.devices, ...configuration.participants])].map(id => ({id, name: devices.find(device => device.id === id)?.name || id})).map(device => `<label><input type="checkbox" data-parameter-participant="${escape(device.id)}" ${configuration.participants.includes(device.id) ? 'checked' : ''} ${readOnly ? 'disabled' : ''}>${escape(device.name)}${context.devices.includes(device.id) ? '' : ' · outside selected pool'}</label>`).join('') || '<p>Select Session devices in Setup to configure their supported parameters.</p>'}</div>` : ''}
     <fieldset class="parameter-fields" id="parameter-fields" ${readOnly ? 'disabled' : ''}>
@@ -135,7 +140,7 @@ function updateParameterWorking(event) {
     }
     message = inputError ? `Invalid configuration value: ${inputError.message}` : (state.connected ? 'Unsent working values updated. Controller validates the submitted configuration.' : 'Working values updated. Return to Session to inspect the summary or launch the simulation; no template save is required.');
     state.actions.syncControls?.();
-  } catch (error) { message = error.message; }
+  } catch (error) { message = error.message; state.actions.recordActivity?.('validate_parameters', error.message); }
   panel.querySelector('#parameter-feedback').textContent = message;
 }
 panel.addEventListener('input', updateParameterWorking);
@@ -173,8 +178,4 @@ panel.addEventListener('submit', async event => {
   panel.querySelector('#parameter-feedback').textContent = message;
 });
 document.addEventListener('gui-section-changed', event => { if (event.detail === 'parameters') renderParameters(); });
-document.addEventListener('gui-catalog-review', () => {
-  const {record} = resolveParameterContext(state) || {};
-  if (record?.experiment) record.experiment.catalogRevision = catalogClient.snapshot.revision;
-});
 renderParameters();

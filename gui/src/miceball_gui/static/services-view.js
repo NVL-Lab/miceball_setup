@@ -2,12 +2,13 @@ import { createServicesDemo, setServicesAdministrator, refreshServicesPreview, s
 import { notificationHistory, acknowledgeNotification } from './app.js';
 import { escapeText as escape } from './gui-presentation.js';
 import { activityPresentation } from './activity-presentation.mjs';
+import { activities, recordLocalActivity } from './activity-history.mjs';
 
 const panel = document.querySelector('#panel-services');
 const connected = document.documentElement?.dataset?.runtime === 'connected';
 const model = createServicesDemo(connected);
 export const servicesAdministrator = () => model.administrator;
-export const serviceActions = {};
+export const serviceActions = {activityHistory: () => activities, recordActivity: recordLocalActivity};
 let guiBackend = null, guiBackendError = '', guiBackendPending = false;
 const backendPanel = document.createElement('section');
 backendPanel.className = 'services-card';
@@ -94,8 +95,9 @@ function authorizeMaintenance(operation, service) {
   };
   administrativePreview.showModal();
 }
-export function updateServices(services, notice) {
+export function updateServices(services, notice, membershipKnown = services.length > 0) {
   model.services = services;
+  model.membershipKnown ||= membershipKnown;
   if (notice !== undefined || !connected) refreshNotice = notice || '';
   if (connected && notice !== undefined) message = '';
   for (const service of services) {
@@ -118,6 +120,14 @@ const activityHistory = document.createElement('details');
 activityHistory.id = 'activity-history';
 activityHistory.className = 'services-card activity-history';
 activityHistory.innerHTML = '<summary>Activity History</summary><p class="services-muted">Browser-local observation time · informative only · cleared when this page is reloaded.</p><ol data-activity-records></ol>';
+document.addEventListener('gui-activity-changed', event => {
+  try { renderActivityHistory(); }
+  catch (error) {
+    // A failed projection cannot contradict or discard a received outcome.
+    const entry = event.detail;
+    if (entry) entry.feedback_error = error.message;
+  }
+});
 const danger = document.createElement('dialog');
 danger.className = 'catalog-dialog services-danger';
 danger.setAttribute('aria-labelledby', 'services-danger-title');
@@ -196,12 +206,12 @@ function renderServices() {
     for (const id of ownerReportOpen.keys()) if (!model.services.some(service => service.id === id)) ownerReportOpen.delete(id);
   }
   const unacknowledged = notificationHistory().filter(item => !item.acknowledged).length;
-  panel.innerHTML = `<header class="services-header"><div><h2 id="heading-services">Services</h2><p>Framework status, notifications and administrative operations</p><small>${connected ? 'Configured membership · service-owned readiness · Controller admission remains authoritative' : 'Browser-local demonstration · fictional reports, no live services or commands'}</small></div><div class="services-refresh"><label>Auto refresh (s)<select id="services-refresh"><option value="0">Off</option>${[5,10,30,60].map(n=>`<option value="${n}" ${model.refreshSeconds === n ? 'selected' : ''}>${n}</option>`).join('')}</select></label><button type="button" data-refresh-services>Refresh now</button></div><div class="services-mode" role="group" aria-label="Services mode"><span>Mode:</span><button type="button" data-mode="experimenter" aria-pressed="${!model.administrator}">Experimenter</button><button type="button" data-mode="administrator" aria-pressed="${model.administrator}">Administrator</button></div></header>
+  panel.innerHTML = `<header class="services-header"><div><h2 class="visually-hidden" id="heading-services">Services</h2><p>Framework status, notifications and administrative operations</p><small>${connected ? 'Configured membership · service-owned readiness · Controller admission remains authoritative' : 'Browser-local demonstration · fictional reports, no live services or commands'}</small></div><div class="services-refresh"><label>Auto refresh (s)<select id="services-refresh"><option value="0">Off</option>${[5,10,30,60].map(n=>`<option value="${n}" ${model.refreshSeconds === n ? 'selected' : ''}>${n}</option>`).join('')}</select></label><button type="button" data-refresh-services>Refresh now</button></div><div class="services-mode" role="group" aria-label="Services mode"><span>Mode:</span><button type="button" data-mode="experimenter" aria-pressed="${!model.administrator}">Experimenter</button><button type="button" data-mode="administrator" aria-pressed="${model.administrator}">Administrator</button></div></header>
     <p class="services-feedback" ${connected ? 'id="services-readiness-unavailable"' : ''} role="status">${escape(message || refreshNotice || (model.lastPreviewRefresh ? `Preview refreshed locally at ${model.lastPreviewRefresh}; fixture confirmations are unchanged.` : (connected ? 'Only valid current checks confirm availability; communication loss alone is not failure.' : 'Automatic refresh repaints fictional information only; it does not confirm availability.')))}</p>
-    <section class="services-card"><h3>Configured services (${model.services.length})</h3><ul class="services-list" aria-label="Configured services">${serviceRows()}</ul></section>
+    <section class="services-card"><h3>Configured services${connected && !model.membershipKnown ? ' · unavailable' : ` (${model.services.length})`}</h3><ul class="services-list" aria-label="Configured services">${connected && !model.membershipKnown ? '<li>Configured membership unavailable until Controller readback.</li>' : serviceRows()}</ul></section>
     <section class="services-card services-warning-card"><h3>Warnings and errors <small>${connected ? 'Unavailable' : `${unacknowledged} unacknowledged`}</small></h3><p class="services-muted">${connected ? 'Authoritative warning and error history is unavailable.' : 'Latest three entries by default. Acknowledgment is not resolution or deletion.'}</p><div id="services-history" class="services-history" role="region" aria-label="Warning and error history" tabindex="0">${notificationRows()}</div>${notificationHistory().length > 3 ? `<button type="button" data-toggle-history aria-controls="services-history" aria-expanded="${historyExpanded}">${historyExpanded ? 'Show less' : 'Show more'}</button>` : ''}</section>${administrativeOperations()}`;
   const backend = guiBackendCard();
-  if (backend) panel.querySelector('.services-card').before(backend);
+  if (backend) panel.querySelector('.services-card').after(backend);
   if (focusedBackend) backendPanel.querySelector('summary').focus({preventScroll: true});
   renderActivityHistory();
   panel.append(activityHistory);

@@ -116,7 +116,7 @@ export async function verifyConfigurationIntegrity(browser, origin, fixture, sec
       await page.locator('#session-framework-fields').fill(`{"protocol_plan":{},"device_configurations":{"__proto__":{"count":${text}}}}`);
       await page.locator('.launch-session-demo').click();
       assert.equal(sent.filter(message => message.operation === 'launch_session').length, 0);
-      assert.match(await page.locator('.setup-demo-note').innerText(), /cannot be represented faithfully/);
+      assert.match(await page.locator('#activity-history').textContent(), /cannot be represented faithfully/);
     }
     await page.locator('#session-framework-fields').fill(JSON.stringify(fields));
     await page.locator('.launch-session-demo').click();

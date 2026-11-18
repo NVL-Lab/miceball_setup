@@ -12,7 +12,7 @@ import { localCalendarDate } from './calendar-date.mjs';
 import { confirmStop } from './stop-confirmation.mjs';
 import { serviceActions, updateServices, startServicesRefresh, showBlockedServiceStop } from './services-view.js';
 import { configurationIdentity, configurationNumber, parseConfigurationJSON, stringifyConfiguration } from './configuration-values.mjs';
-import { activityPresentation } from './activity-presentation.mjs';
+import { activities as outcomes, recordActivity, updateActivity, recordLocalActivity, recordActivityTransition } from './activity-history.mjs';
 import { deviceParameterFields } from './parameter-constraints.mjs';
 import { installArtifactDestinations, refreshArtifactDestinations, syncArtifactDestinations, invalidateArtifactDestinations, selectedArtifactDestination } from './artifact-destinations.js';
 
@@ -22,30 +22,18 @@ let inventoryRequest = null;
 let liveServices = [];
 let timingPending = false;
 const waiting = new Map();
-const outcomes = [];
 const current = () => state.controllerSnapshot;
 serviceActions.activityHistory = () => outcomes;
-function recordActivity(operation, source = 'local', status = 'pending', error = '') {
-  const entry = {activity_id: String(outcomes.length + 1), operation, source, status, error, observed_at: new Date().toISOString()};
-  outcomes.push(entry);
-  updateServices(liveServices);
-  return entry;
-}
-function updateActivity(entry, changes) {
-  Object.assign(entry, changes, {observed_at: new Date().toISOString()});
-  updateServices(liveServices);
-}
 function actionRefusal(entry, reason) {
   updateActivity(entry, {source: 'local', status: 'rejected', error: reason, controllerCommand: false});
   $('.setup-demo-note').textContent = 'Action not sent. See Activity History in Services.';
   return entry;
 }
 function noteConnectionLoss(reason) {
-  if (confirmed) recordActivity('connection_status', 'local', 'unknown', reason);
+  recordActivityTransition('connection_status', 'unknown', reason);
 }
-state.actions.recordActivity = (operation, error = '', status = error ? 'failed' : 'succeeded') => recordActivity(operation, 'local', status, error);
+state.actions.recordActivity = recordLocalActivity;
 serviceActions.recordActivity = state.actions.recordActivity;
-document.addEventListener('gui-catalog-activity', event => state.actions.recordActivity('save_catalog', event.detail.error || '', event.detail.status));
 function invalidateServiceConfirmation() {
   invalidateArtifactDestinations();
   // Replace projections so replies admitted before this loss cannot promote them.
@@ -93,7 +81,7 @@ function canControl(except = null) {
 function controls() {
   const status = current()?.status;
   const launch = outcomes.findLast(entry => entry.operation === 'launch_session');
-  if (!status?.session_id && launch) $('.setup-demo-note').textContent = `${activityPresentation(launch).message} See Activity History in Services. Local values do not establish Session acceptance.`;
+  if (!status?.session_id && launch) $('.setup-demo-note').textContent = 'Session launch not confirmed. See Activity History in Services.';
   document.documentElement.dataset.controlMode = !confirmed ? 'unconfirmed' : current()?.control?.controlling ? 'controlling' : 'view-only';
   $('.launch-session-demo').disabled = !canControl() || Boolean(status?.session_id);
   $('.launch-session-demo span').textContent = !confirmed ? 'Controller connection unconfirmed' : status?.session_id ? 'Session accepted' : current()?.control?.controlling ? 'Request Controller launch' : 'View Only';
@@ -149,6 +137,9 @@ async function refresh() {
     const previous = current();
     const wasConfirmed = confirmed;
     applyControllerSnapshot(state, snapshot); confirmed = true;
+    recordActivityTransition('connection_status', 'succeeded');
+    if (snapshot.control?.controlling && (!previous?.control?.controlling || previous.instance_id !== snapshot.instance_id))
+      document.dispatchEvent(new Event('gui-control-acquired'));
     const previousServices = liveServices;
     const changedOwner = previous?.instance_id !== snapshot.instance_id;
     if (changedOwner) invalidateArtifactDestinations();
@@ -161,6 +152,7 @@ async function refresh() {
         name: ({controller: 'Controller', acquisition_node: 'AcquisitionNode', ingestor: 'Ingestor', storage_manager: 'StorageManager', synchronization_manager: 'Synchronization Manager'})[participant.component_type],
         computer: participant.component_id, readiness: 'Unknown', current: false, confirmed: null};
     });
+    updateServices(liveServices, undefined, Array.isArray(snapshot.configured_services));
     if (changedOwner) updateServices(liveServices, 'Controller changed; previous readiness feedback and confirmations are invalidated.');
     if ((!previousServices.length || changedOwner) && liveServices.length) serviceActions.refresh();
     if (snapshot.configuration && (previous?.status?.session_id !== snapshot.status.session_id || previous?.instance_id !== snapshot.instance_id)) {
@@ -189,7 +181,7 @@ async function refresh() {
       Object.assign(entry, {request_id: operation.request_id, instance_id: snapshot.instance_id, controllerCommand: true});
     }
     $('#connection-state').textContent = `${snapshot.controller_id} · ${snapshot.control.controlling ? 'Controlling' : 'View Only'}`;
-    $('.setup-demo-note').textContent = snapshot.status.session_id ? 'Accepted Session configuration is fixed. Catalog and unsent application edits cannot alter it.' : 'Unsent local preparation · Controller validates launch and preservation.';
+    $('.setup-demo-note').textContent = snapshot.status.session_id ? 'Accepted Session · configuration fixed.' : 'Unsent local preparation.';
     $('#accepted-configuration').textContent = JSON.stringify(snapshot.configuration, null, 2);
     const choice = $('#inventory-node');
     if (JSON.stringify([...choice.options].map(o => o.value)) !== JSON.stringify(snapshot.configured_nodes)) choice.replaceChildren(...snapshot.configured_nodes.map(id => new Option(id, id)));
@@ -253,7 +245,7 @@ const localAction = (operation, action) => async () => {
       return;
     }
     updateActivity(entry, {source: 'local', status: 'failed', error: error.message, controllerCommand: false});
-    $('.setup-demo-note').textContent = `${activityPresentation(entry).message} See Activity History in Services.`;
+    $('.setup-demo-note').textContent = 'Preparation failed. See Activity History in Services.';
   }
 };
 state.actions.launchSession = localAction('launch_session', async entry => {

@@ -2,6 +2,31 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {catalogClient, loadCatalog, putCatalog, catalogId} from '../src/miceball_gui/static/catalog-client.mjs';
 
+test('automatic refresh waits for an in-flight catalog save without changing its revision baseline', async () => {
+  const oldFetch = globalThis.fetch, oldDocument = globalThis.document;
+  globalThis.document = new EventTarget();
+  let release, reads = 0, revision = 4;
+  globalThis.fetch = async (_url, options) => {
+    if (options?.method === 'POST') {
+      assert.equal(JSON.parse(options.body).expected_revision, 4);
+      await new Promise(resolve => { release = resolve; }); revision = 5;
+    } else reads++;
+    return new Response(JSON.stringify({version: 1, revision, catalog: {experimenters: []}}), {status: 200});
+  };
+  try {
+    await loadCatalog();
+    const draft = {id: 'alice', name: 'Alice'}, before = structuredClone(draft);
+    const saving = putCatalog('experimenters', draft, 'alice');
+    const refreshing = loadCatalog();
+    await Promise.resolve();
+    assert.equal(reads, 1);
+    release(); await Promise.all([saving, refreshing]);
+    assert.equal(reads, 2);
+    assert.equal(catalogClient.snapshot.revision, 5);
+    assert.deepEqual(draft, before);
+  } finally { globalThis.fetch = oldFetch; globalThis.document = oldDocument; }
+});
+
 test('stable catalog identities remain available on HTTP origins without randomUUID', () => {
   const original = crypto.randomUUID;
   try {

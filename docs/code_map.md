@@ -200,6 +200,15 @@ general maintenance-history/memory retirement is not implemented by this closure
 - `invalidateArtifactDestinations`: Marks retained destination information unconfirmed when Controller confirmation is lost.
 - `selectedArtifactDestination`: Returns the selected approved identity for launch or reports missing, disabled or invalid selection without fallback.
 
+## gui/src/miceball_gui/static/activity-history.mjs
+
+- `activities`: The existing informative page-local outcome collection, shared by early catalog loading, local actions and connected commands.
+- `recordActivity`: Retains a consequential attempt with its browser-local observation time and notifies the existing Services presentation.
+- `updateActivity`: Updates the same retained outcome during submission and reconciliation without creating a second attempt.
+- `recordLocalActivity`: Records local action success, failure or uncertainty using the existing GUI action signature.
+- `recordActivityTransition`: Records readback loss/recovery transitions without repeated polling failures or routine successful-read noise.
+- `recordInvalidControl`: Records a committed native form-validation failure without logging each keystroke or repeatedly reporting the same invalid value.
+
 ## gui/src/miceball_gui/static/services-view.js — Storage visibility reuse
 
 - `servicesAdministrator`: Reports the existing page-local Services administrator presentation mode for Storage filtering.

@@ -3,6 +3,7 @@ import { escapeText as esc } from './gui-presentation.js';
 import { servicesAdministrator } from './services-view.js';
 import { activityPresentation } from './activity-presentation.mjs';
 import { catalogId } from './catalog-client.mjs';
+import { recordActivityTransition } from './activity-history.mjs';
 
 let adapter, catalog = null, current = false, loading = false, selection = '', initialized = false;
 let feedback = 'Destination information is unconfirmed.';
@@ -73,9 +74,12 @@ export async function refreshArtifactDestinations() {
     const result = await adapter.read();
     if (!result || !Array.isArray(result.destinations)) throw new Error('Destination information could not be confirmed.');
     catalog = result; current = true;
+    const unavailable = choices().filter(entry => entry.enabled && entry.validation?.status === 'invalid');
+    recordActivityTransition('destination_discovery', unavailable.length ? 'unknown' : 'succeeded',
+      unavailable.map(entry => `${entry.name}: ${entry.validation.reason || 'unavailable'}`).join('; '));
     if (!initialized) { selection ||= result.default_destination_id || ''; initialized = true; }
     feedback = 'Approved destinations received. Availability is rechecked by StorageManager at launch.';
-  } catch (error) { current = false; feedback = error.message; }
+  } catch (error) { current = false; feedback = 'Destination information unavailable. See Activity History in Services.'; recordActivityTransition('destination_discovery', 'unknown', error.message); }
   finally { loading = false; syncArtifactDestinations(); }
 }
 

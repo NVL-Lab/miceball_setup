@@ -4,6 +4,7 @@ import { launchSessionDemo, executionProtocol } from './session-context.mjs';
 import { escapeText as escape, sessionIdentity, navigate } from './gui-presentation.js';
 import { catalogClient, catalogId, putCatalog } from './catalog-client.mjs';
 import { selectParameterContext } from './parameter-context.mjs';
+import { recordLocalActivity } from './activity-history.mjs';
 
 const validationLimit = document.createElement('label');
 validationLimit.className = 'validation-duration-field';
@@ -11,6 +12,7 @@ validationLimit.innerHTML = 'Device Validation maximum (seconds)<input id="devic
 document.querySelector('.launch-session-demo').before(validationLimit);
 
 export const state = createDemo();
+state.actions.recordActivity = recordLocalActivity;
 const $ = selector => document.querySelector(selector);
 const option = (value, text) => `<option value="${escape(value)}">${escape(text)}</option>`;
 const identity = $('[aria-labelledby="session-identity-title"]');
@@ -362,7 +364,10 @@ function finishStepDrag(event) {
 document.addEventListener('pointerup', finishStepDrag);
 document.addEventListener('pointercancel', finishStepDrag);
 $('#save-protocol').addEventListener('click', async () => {
-  if (!draft.name.trim() || draft.steps.some(s => !s.name.trim())) { $('#editor-message').textContent = 'Provide a protocol name and a name for every step.'; return; }
+  if (!draft.name.trim() || draft.steps.some(s => !s.name.trim())) {
+    const reason = 'Provide a protocol name and a name for every step.';
+    $('#editor-message').textContent = reason; recordLocalActivity('save_catalog', reason); return;
+  }
   const button = $('#save-protocol');
   const submittedDraft = clone(draft), sourceDraft = JSON.stringify(draft);
   button.disabled = true;
@@ -403,6 +408,7 @@ $('.launch-session-demo').addEventListener('click', () => {
     navigate('session');
   } catch (error) {
     $('.setup-demo-note').textContent = error.message;
+    state.actions.recordActivity?.('prepare_session', error.message);
   }
 });
 renderSetup();
@@ -429,7 +435,6 @@ if (state.connected) {
     renderPreparedSteps(); renderSetup();
   };
   document.addEventListener('gui-catalog-changed', applyCatalog);
-  document.addEventListener('gui-catalog-review', () => { draftRevision = catalogClient.snapshot.revision; });
   $('#project-select').addEventListener('change', () => {
     selectProtocol(state, null); renderSetup();
   });

@@ -68,10 +68,17 @@ try {
   await waitFor(() => page.locator('#editor-message').innerText().then(text => text.includes('another browser')));
   assert.equal(await page.locator('#protocol-name').inputValue(), 'Retained working draft');
   await section(page, 'setup');
-  await page.getByRole('button', {name: 'Reload catalogs', exact: true}).click();
-  await waitFor(() => page.getByRole('button', {name: 'Reload catalogs', exact: true}).isEnabled());
+  assert.equal(await page.getByRole('button', {name: 'Reload catalogs', exact: true}).count(), 0);
+  await page.evaluate(() => document.dispatchEvent(new Event('gui-control-acquired')));
   await page.locator('#edit-protocol').click();
   assert.equal(await page.locator('#protocol-name').inputValue(), 'Retained working draft');
+  await page.locator('#save-protocol').click();
+  await waitFor(() => page.locator('#editor-message').innerText().then(text => text.includes('another browser')));
+  // A refresh never blesses the stale draft. Start a fresh edit explicitly.
+  await page.locator('#cancel-protocol').click();
+  await page.locator('button[value="discard"]').click();
+  await page.locator('#edit-protocol').click();
+  await page.locator('#protocol-name').fill('Retained working draft');
   await page.locator('#save-protocol').click();
   await waitFor(() => page.locator('#panel-setup').isVisible());
 

@@ -2752,6 +2752,12 @@ established by Decision 447's installer work or Decision 449's GUI catalogs.
 See [Decision 450](architecture_decisions.md#decision-450-storagemanager-owns-approved-session-scientific-artifact-destinations)
 for the authoritative contract and exclusions. Q022 remains OPEN.
 
+Outstanding framework feedback issue: `Controller._artifact_destination_request()`
+can replace a specific StorageManager rejection reason with a generic unconfirmed
+operation message. GUI feedback must preserve that uncertainty rather than invent
+a cause. Correction is deferred outside the current GUI usability batch; no
+Decision 450 framework or validation change is established here.
+
 **Scientific storage and optional GUI setup (Decision 447): accepted; Slice 447-A
 storage implemented with developer verification, independent validation/audit
 pending; Slice 447-B GUI implemented with developer verification, independent

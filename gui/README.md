@@ -5,6 +5,30 @@ Setup information, a Protocol Editor, and seven permanent sections including Par
 in the browser. Launch Session and other operational-looking controls do not
 start or contact scientific framework services or execute scientific algorithms.
 
+## Windows validation corrections — developer implementation
+
+Services Activity History now receives early connection/catalog failures, local
+validation failures and destination readback transitions through the same
+page-local outcome collection as connected commands. Routine successful reads and
+repeated unavailable polling do not create entries. Local panels retain current
+status and actionable validation; scientific evidence and safety confirmations
+remain separate. Configured membership is unavailable until Controller readback,
+then retained as last known after disconnection; the independent GUI backend card
+appears after configured services.
+
+Catalogs load on startup and refresh on confirmed control acquisition and existing
+navigation/mutation events. There is no manual reload button. Automatic refresh
+waits for an in-flight catalog operation and never advances an open draft's
+revision baseline; stale saves still fail and preserve the draft. A fresh edit can
+be started after explicitly discarding stale changes.
+
+Focused developer checks: `node --test gui/tests/test_activity_history_store.mjs
+gui/tests/test_catalog_client.mjs` and `python -B -m unittest
+gui.tests.test_gui_corrections gui.tests.test_catalog_browser
+gui.tests.test_parameters_browser gui.tests.test_artifact_destinations -v`.
+Browser checks require the installed Playwright/browser configuration described
+below. Independent validation, audit and closure remain separate and pending.
+
 ## Scientific artifact destinations (Decision 450-B)
 
 Connected Setup uses StorageManager-approved destination identities, initially

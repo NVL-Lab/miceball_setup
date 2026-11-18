@@ -26,6 +26,8 @@ try {
   await rate.fill('0'); assert.equal(await rate.evaluate(input => input.checkValidity()), false);
   await rate.fill('3'); assert.equal(await rate.evaluate(input => input.checkValidity()), true);
   await rate.fill('3.1'); assert.equal(await rate.evaluate(input => input.checkValidity()), false);
+  await rate.blur();
+  assert.match(await page.locator('#activity-history').textContent(), /Parameter validation.*rate/);
   await rate.fill('.5');
   await page.getByLabel('count', {exact: true}).selectOption('0');
   assert.equal(await page.getByLabel('advanced_text', {exact: true}).isVisible(), true);
@@ -52,6 +54,8 @@ try {
   await page.getByLabel('count', {exact: true}).selectOption('0');
   await rate.fill('.5');
   const text = '  "quoted" \\ Ω\nline'; await page.getByLabel('advanced_text', {exact: true}).fill(text);
+  await page.locator('#personal-experiment-template button').click();
+  assert.match(await page.locator('#activity-history').textContent(), /Catalog save.*Personal template name/);
   await page.locator('[data-return-session]').click();
   await page.locator('#save-reusable-step').click();
   await page.locator('#step-definition-status').filter({hasText: 'read-only'}).waitFor();

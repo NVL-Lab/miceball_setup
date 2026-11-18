@@ -1,9 +1,7 @@
 // Fictional, page-memory presentation fixtures. No discovery, polling or commands.
 export function createServicesDemo(connected = false) {
   if (connected) return { connected: true, administrator: false, selectedId: null, detail: 'Status', refreshSeconds: 0,
-    lastPreviewRefresh: null, services: ['Controller', 'AcquisitionNode', 'Ingestor', 'StorageManager', 'Synchronization Manager'].map((name, index) => ({
-      id: `unconfirmed-${index}`, name, computer: 'Deployment location unconfirmed', readiness: 'Unknown', connectivity: 'Unknown',
-      confirmed: null, current: false, dependencies: 'Service-specific readback is not connected.', information: 'No authoritative service report retrieved.' })), obligations: [] };
+    lastPreviewRefresh: null, membershipKnown: false, services: [], obligations: [] };
   return {
     administrator: false, selectedId: 'controller', detail: 'Status', refreshSeconds: 10,
     lastPreviewRefresh: null,

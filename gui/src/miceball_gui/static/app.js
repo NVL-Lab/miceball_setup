@@ -2,6 +2,7 @@ import { formatCalendarDate } from './calendar-date.mjs';
 import { createAnimalCatalog, saveAnimalDemo } from './animal-demo.mjs';
 import { createNavigationMenu } from './navigation-menu.mjs';
 import { catalogClient, catalogId, loadCatalog, putCatalog } from './catalog-client.mjs';
+import { recordLocalActivity, recordActivityTransition, recordInvalidControl } from './activity-history.mjs';
 
 const animalCatalog = createAnimalCatalog();
 const connected = document.documentElement.dataset.runtime === 'connected';
@@ -378,6 +379,7 @@ catalogDismissButtons.forEach((button) => {
   button.addEventListener("click", () => catalogDialog.close("cancel"));
 });
 
+catalogForm.addEventListener('invalid', event => recordInvalidControl('save_catalog', event.target), true);
 catalogForm.addEventListener("submit", async (event) => {
   if (event.submitter?.value !== "save") return;
   event.preventDefault();
@@ -406,14 +408,14 @@ catalogForm.addEventListener("submit", async (event) => {
       if (catalogType === 'animal') updateAnimalSummary(record);
       activeCatalogSelect.dispatchEvent(new Event('change', {bubbles: true}));
       catalogFeedback.textContent = 'Catalog entry saved.';
-      document.dispatchEvent(new CustomEvent('gui-catalog-activity', {detail: {}}));
+      recordLocalActivity('save_catalog');
       catalogDialog.close('save');
     } catch (error) {
       catalogFeedback.textContent = error.message;
       let feedback = catalogForm.querySelector('[data-catalog-error]');
       if (!feedback) { feedback = document.createElement('p'); feedback.dataset.catalogError = ''; feedback.setAttribute('role', 'status'); catalogFields.after(feedback); }
       feedback.textContent = error.message;
-      document.dispatchEvent(new CustomEvent('gui-catalog-activity', {detail: {error: error.message, status: error.catalogStatus}}));
+      recordLocalActivity('save_catalog', error.message, error.catalogStatus);
     } finally { for (const [control, disabled] of controls) control.disabled = disabled; }
     return;
   }
@@ -453,14 +455,15 @@ const catalogFeedback = document.createElement('p');
 catalogFeedback.className = 'prototype-caption';
 catalogFeedback.setAttribute('role', 'status');
 if (connected) {
-  const reload = document.createElement('button');
-  reload.type = 'button'; reload.className = 'dialog-button'; reload.textContent = 'Reload catalogs';
-  document.querySelector('.identity-card').append(reload, catalogFeedback);
+  document.querySelector('.identity-card').append(catalogFeedback);
   const refresh = async () => {
-    reload.disabled = true;
-    try { await loadCatalog(); catalogFeedback.textContent = 'Catalogs loaded.'; }
-    catch (error) { catalogFeedback.textContent = error.message; }
-    finally { reload.disabled = false; }
+    try {
+      await loadCatalog(); catalogFeedback.textContent = 'Catalogs loaded.';
+      recordActivityTransition('load_catalog', 'succeeded');
+    } catch (error) {
+      catalogFeedback.textContent = 'Catalog unavailable. See Activity History in Services.';
+      recordActivityTransition('load_catalog', 'failed', error.message);
+    }
   };
   const renderCatalogSelects = () => {
     const catalog = catalogClient.snapshot.catalog;
@@ -486,9 +489,6 @@ if (connected) {
   document.addEventListener('gui-catalog-changed', renderCatalogSelects);
   document.querySelector('#project-select').addEventListener('change', () => { if (catalogClient.snapshot) renderCatalogSelects(); });
   document.addEventListener('gui-section-changed', event => { if (['setup', 'session', 'parameters'].includes(event.detail) && !catalogDialog.open) refresh(); });
-  reload.addEventListener('click', async () => {
-    await refresh();
-    if (catalogClient.snapshot) document.dispatchEvent(new CustomEvent('gui-catalog-review'));
-  });
+  document.addEventListener('gui-control-acquired', refresh);
   refresh();
 }
