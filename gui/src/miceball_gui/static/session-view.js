@@ -85,13 +85,13 @@ export function renderSession() {
   const step = steps.find(item => item.id === progress.selectedId);
   const identity = executionIdentity(state);
   const header = [
-    ['Session', identity.name], ['Date', formatCalendarDate(identity.date)],
+    [state.connected && !state.activeSession ? 'Local preparation (not accepted)' : state.connected ? 'Controller-confirmed Session' : 'Session', identity.name], ['Date', formatCalendarDate(identity.date)],
     ['Experimenter', identity.experimenter], ['Project', identity.project],
     ['Animal', identity.animal], ['Protocol', protocol?.name || state.controllerSnapshot?.configuration?.protocol_reference || 'None · Free Mode'], ['Session status', state.connected ? state.controllerSnapshot?.status?.session_state || 'No confirmed Session' : state.activeSession ? 'Active · browser simulation' : 'Preview · not launched'],
   ];
   panel.innerHTML = `<h2 id="heading-session" class="visually-hidden">Session</h2>
     <dl class="session-information">${header.map(([label, value]) => `<div><dt>${label}</dt><dd>${escape(value)}</dd></div>`).join('')}</dl>
-    <p class="session-demo-notice">${state.connected ? 'Controller state readback. Scientific visualization, Analysis and Validation are not connected in this unit.' : 'Browser-local demonstration · all results are illustrative. No framework Session is launched, no data are acquired, and no framework readiness is checked.'}</p>
+    <p class="session-demo-notice">${state.connected ? state.activeSession ? 'Controller-confirmed Session context. Scientific visualization, Analysis and Validation are not connected in this unit.' : 'Local preparation only — no Session acceptance is confirmed. See Activity History in Services for request outcomes.' : 'Browser-local demonstration · all results are illustrative. No framework Session is launched, no data are acquired, and no framework readiness is checked.'}</p>
     <p class="session-demo-notice operation-category-availability">Application operation definitions: ${operationCategoryAvailability().map(({ category, count }) => `${escape(category)} — ${count ? `${count} available` : 'none supplied (deferred)'}`).join('; ')}. Device Validation is a separate device-function check, not a scientific Validation operation.</p>
     <div class="session-columns">
       <section class="session-card session-protocol-card" aria-labelledby="session-protocol-title">
@@ -247,7 +247,8 @@ panel.addEventListener('click', event => {
   }
   if (event.target.closest('[data-prepare-free-operation]')) {
     try { freeOperationChoice = panel.querySelector('#free-operation-choice').value; prepareFreeOperation(state, freeOperationChoice); feedback = ''; }
-    catch (error) { feedback = error.message; }
+    catch (error) { feedback = error.message; if (state.connected) state.actions.recordActivity?.('prepare_experiment', error.message); renderSession(); return; }
+    if (state.connected) state.actions.recordActivity?.('prepare_experiment');
     renderSession(); return;
   }
   if (event.target.closest('[data-remove-outside-devices]')) {
@@ -317,7 +318,7 @@ panel.addEventListener('click', event => {
         }
         loadExperimentTemplate(state, step, record, id, owner);
       }
-      else if (event.target.closest('[data-prepare-experiment]')) prepareExperimentRepeat(state, step, progress.steps[step.id]);
+      else if (event.target.closest('[data-prepare-experiment]')) { prepareExperimentRepeat(state, step, progress.steps[step.id]); if (state.connected) state.actions.recordActivity?.('prepare_experiment'); }
       else {
         const view = sessionStepView(state, step);
         actOnSessionStep(state, step.id, view.actions.includes('repeat') ? 'repeat' : 'run');
@@ -325,7 +326,7 @@ panel.addEventListener('click', event => {
         navigate('experiment');
       }
       feedback = 'Demonstration configuration updated in page memory only.';
-    } catch (error) { feedback = error.message; }
+    } catch (error) { feedback = error.message; if (state.connected) state.actions.recordActivity?.('prepare_experiment', error.message); }
     renderSession();
   }
 });

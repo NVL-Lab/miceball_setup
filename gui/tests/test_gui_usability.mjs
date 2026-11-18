@@ -4,10 +4,10 @@ export async function verifyDemoAdministrator(browser, origin, section, director
   const page = await browser.newPage();
   try {
     await page.goto(origin); await section(page, 'services');
-    const history = page.locator('#control-activity-history');
+    const history = page.locator('#activity-history');
     assert.equal(await history.evaluate(node => node.open), false);
     await history.locator(':scope > summary').click();
-    assert.match(await history.innerText(), /No retained browser-control activity/);
+    assert.match(await history.innerText(), /No activity recorded on this page./);
     await history.locator(':scope > summary').click();
     await page.locator('[data-mode="administrator"]').click();
     await page.locator('[data-danger-enter]').click();
@@ -62,11 +62,7 @@ export async function verifyGuiUsability(browser, origin, configuration, section
       constructor(...args) { super(...(args.length ? args : [instant])); }
       static now() { return instant; }
     };
-    sessionStorage.setItem('miceball-pending', JSON.stringify([
-      {operation: 'view_only', request_id: 'retained-control', instance_id: 'usability-instance', status: 'succeeded',
-        result: {status: 'succeeded', timestamp: '2026-11-06T12:34:56Z'}},
-      {operation: 'take_browser_control', request_id: 'pending-control', instance_id: 'usability-instance', status: 'uncertain'},
-    ]));
+
   });
   const page = await context.newPage(), submitted = [], errors = [];
   page.on('pageerror', error => errors.push(error.message));
@@ -134,24 +130,17 @@ export async function verifyGuiUsability(browser, origin, configuration, section
     }
     await page.locator('#take-over').click(); await page.locator('html[data-control-mode="controlling"]').waitFor();
     await section(page, 'session');
-    assert.doesNotMatch(await page.locator('#operation-results').innerText(), /take_browser_control|view_only/);
+    assert.equal(await page.locator('#operation-results').count(), 0);
     assert.equal(await page.locator('.topbar .control-activity').count(), 0);
     await section(page, 'services');
-    const history = page.locator('#control-activity-history');
+    const history = page.locator('#activity-history');
     assert.equal(await history.evaluate(node => node.open), false);
     assert.equal(await history.evaluate(node => node === node.parentElement.lastElementChild), true);
     await history.locator(':scope > summary').click();
-    await history.locator('details summary').filter({hasText: 'Take browser control'}).first().click();
-    assert.match(await history.innerText(), /Take browser control/);
-    assert.match(await history.innerText(), /take_browser_control/);
-    await history.locator('details summary').filter({hasText: 'View Only'}).first().click();
-    assert.match(await history.innerText(), /2026-11-06T12:34:56Z/);
-    const retained = await page.evaluate(() => JSON.parse(sessionStorage.getItem('miceball-pending')));
-    assert.deepEqual(retained[0], {operation: 'view_only', request_id: 'retained-control', instance_id: 'usability-instance', status: 'succeeded', result: {status: 'succeeded', timestamp: '2026-11-06T12:34:56Z'}});
-    assert.equal(retained.find(entry => entry.request_id === 'pending-control').status, 'succeeded');
+    assert.match(await history.innerText(), /Control acquired/);
+    assert.doesNotMatch(await history.innerText(), /take_browser_control|request_id/);
     await page.locator('[data-refresh-services]').click();
     assert.equal(await history.evaluate(node => node.open), true);
-    assert.match(await history.innerText(), /2026-11-06T12:34:56Z/);
     await page.screenshot({path: `${directory}/services-control-history.png`, fullPage: true});
     await history.locator(':scope > summary').click(); await section(page, 'setup');
 
@@ -182,7 +171,7 @@ export async function verifyGuiUsability(browser, origin, configuration, section
     assert.equal(sent.session_parameters.name, text); assert.equal(sent.storage_location, storage);
     assert.equal(sent.session_parameters.notes, notes); assert.equal(sent.session_parameters.date, '2026-11-15');
     await section(page, 'session');
-    assert.match(await page.locator('#operation-results').innerText(), /launch_session/);
+    assert.match(await page.locator('#activity-history').innerText(), /Session launched successfully/);
     await page.locator('[data-release-session]').click(); await page.locator('[data-confirm-stop]').click();
     await page.waitForFunction(() => document.querySelector('.launch-session-demo').disabled);
     assert.equal(await page.locator('html').getAttribute('data-control-mode'), 'controlling'); // Busy is not View Only.

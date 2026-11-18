@@ -12,7 +12,7 @@
 - `NatsSynchronizationManagerCommunication`'s `read_session_time` response: Includes Session/source identity and retained `session_timing_evidence` for bounded external read-only projection.
 - `ServiceMaintenanceInterface._diagnostic_payload()`: Also detaches operational-instance identity, the active maintenance attempt, dependency-release confirmation and existing durably accepted recovery authorizations for exact continuation selection; none proves OS exit.
 - `_execute_maintenance_command(...)`: Preserves nonce and Controller-instance transport correlation for owner recovery results as well as ordinary maintenance replies.
-- `services-view.serviceActions.refresh(id?)`, `maintain(operation, service, administrator_id, recovery=null)`, `canControl()` and `frameworkOutcome()`: Bind existing Services controls to the shared connected request/outcome path without owning maintenance or control grants.
+- `services-view.serviceActions.refresh(id?, explicit=false)`, `maintain(operation, service, administrator_id, recovery=null)`, `canControl()` and `activityHistory()`: Bind existing Services controls and informative activity presentation to the shared connected request/outcome path without owning maintenance or control grants.
 - `services-view.updateServices(services, notice)`: Repaints configured membership while retaining per-service Owner report disclosure choices and existing feedback unless explicitly replaced or invalidated.
 - `services-view.startServicesRefresh()`: Enables configurable connected status refresh with the accepted 10-second default.
 - `connected.invalidateServiceConfirmation()`: Retains last-known reports while invalidating current confirmation and older in-flight projections after Controller/backend communication loss.
@@ -60,7 +60,12 @@ The developer results below retain their original evidence classification.
 - `miceball_gui.backend.main()`: Implements the separately packaged `miceball-gui` startup command with explicit deployment connection/binding settings.
 - `miceball_gui.backend._ConnectedShell` and its HTMLParser callbacks: Preserve original presenter entry points, mark connected mode and append one connected binding entry without duplicating HTML or workspace construction.
 - `static/connected.js`: Binds original controls to the existing backend, projects Controller readback, adapts actual node inventory and explicit preparation, and reconciles pending outcomes without lifecycle replay.
-- `connected.ownershipOperation(entry)`: Classifies only take-control and View Only outcomes for separate presentation while retaining the original outcome collection.
+- `connected.recordActivity(operation, source, status, error)`: Adds one page-local informative action to the existing outcomes collection, without persistence or scientific authority.
+- `connected.updateActivity(entry, changes)`: Updates that same action and browser-local observation time through submission and existing non-executing reconciliation.
+- `connected.actionRefusal(entry, reason)`: Records an actual local admission refusal without sending a command or altering framework state.
+- `connected.noteConnectionLoss(reason)`: Records a confirmed-to-unconfirmed connection transition once, without logging routine polls or changing reconnect policy.
+- `connected.localAction(operation, action)`: Records preparation failures and passes the same activity entry to command submission.
+- `activity-presentation.activityPresentation(entry)`: Produces concise readable feedback and local observation time without exposing correlation data or changing the retained result.
 - `static/connected.css`: Adds narrowly scoped connection/inventory indicators and unavailable output contents without restyling the approved workspaces or controls.
 - `session-context.applyControllerSnapshot(state, snapshot)`: Detaches authoritative Session/Experiment readback, matches complete declarations only to unique reserved-node inventory, and reconciles monitoring to the active or latest canonically started Experiment independently of preparation selection and descriptor order.
 - `protocol-demo.connectedMode`: Reads the shared shell marker once to select fixture data or empty connected preparation and supported operation categories.
@@ -70,10 +75,13 @@ The developer results below retain their original evidence classification.
 - `ConnectedPresentationTests.test_shared_presentation_and_controller_actions_in_browser()`: Exercises original controls for acquisition, canonical output readback, an outputless repeat, control takeover, Stop, expiry, release/reuse and reconnect, retaining optional screenshot/manifest evidence outside source files.
 - `ConnectedFeedbackTests`: Renders the existing backend shell and disconnected demo on disposable web servers with controlled WebSocket outcomes, without contacting deployment services.
 - `ConnectedFeedbackTests.test_services_and_inventory_feedback_in_browser()`: Checks Services/inventory feedback and request guards plus shared disabled-button appearance, readable contrast, fieldset inheritance, View Only controls and enabled-state restoration across themes.
+- `ConnectedFeedbackTests.test_activity_history_in_browser()`: Runs the focused page-local activity workflow separately using the same disposable browser/backend fixture.
+- `ConnectedFeedbackTests._check_feedback(activity_only)`: Reuses disposable public configuration/inventory inputs and server/browser setup for either bounded rendered workflow.
   It also checks framework-produced quoted/metacharacter device identities remain inert and unchanged through participant selection and outgoing Experiment configuration.
   Session summary checks cover populated/empty fallbacks in both modes, working/executed values and escaped parameter text without changing outgoing overrides.
   Its rendered `verifyRenderingSafety()` workflow checks all three external bound sources, hostile inventory/readback/error text, exact outgoing values, executed read-only controls and View Only across both themes and representative viewport sizes.
 - `verifyConfigurationIntegrity(browser, origin, fixture, section)`: Exercises production Session/Experiment presenters against independently specified Python configuration models, checking exact key/value handoff, canonical scientific-output readback and repeat deselection, explicit defaults/nulls and refusal without replay of unsupported numbers.
+- `verifyActivityHistory(browser, origin, fixture, section, directory)`: Exercises public GUI controls for readable page-local activity, local/backend/Controller failures, pending/uncertain reconciliation without replay, Session/Experiment authority, navigation, reload and theme rendering using controlled transport.
 - `verifyExperimentReconnection(browser, origin, fixture, section)`: Checks framework-produced completed/running readback across disconnection and fresh observation, exact monitored duration/overrides and independent unsent preparation without lifecycle requests.
 - `test_connected_state.mjs`: Exercises connected preparation, detached accepted/executed readback, unavailable associations and refusal of demonstration execution in connected context.
 - `GUIIntegrationTests`: Uses actual web/WebSocket requests, restricted external NATS, authority-registered participant NATS, disk-backed owners and a simulated camera to exercise Unit 1 without production deployments.
@@ -2692,6 +2700,16 @@ Storage GUI integration and remaining deployment validation.
 
 ## scripts/install_framework.py
 
+- Decision 447: Scientific-storage selection (447-A) and optional separate GUI setup (447-B) are implemented with developer verification; independent validation/audit remain pending.
+- `_gui_plan(checkout, directory, existing, configured, installed, preflight_python)`: Discovers optional GUI package/configuration, confirms credential-isolated settings and exact local Controller field changes, and reports remote/declined setup as pending.
+- `_validate_gui(python, checkout, settings, *, source, allow_unavailable=False)`: Uses production GUI app construction and routing validation in a private-input child without starting the GUI or contacting Controller, with mandatory installed-package validation before publication.
+- `_publish_controller_gui_update(path, expected, contents)`: Stages only an approved local Controller update, rechecks complete contents/identity, and delegates replacement without weakening exclusive creation of ordinary configuration files.
+- `_replace_controller_file(path, temporary)`: Replaces a staged Controller configuration with native Windows access-control preservation/temporary recovery backup or POSIX owner/mode/security-metadata preservation before atomic replacement.
+- `_render_command(arguments)`: Quotes nonsecret service and GUI launch arguments for PowerShell on Windows or the native POSIX shell.
+- `_local_storage_destinations()`: Uses native Windows drive metadata or Ubuntu local mount metadata to list visible candidate volumes without mounting, creating directories or probing writes.
+- `_inspect_storage_destination(path)`: Reads accessibility, backing identity and available filesystem bytes while keeping missing-target capacity and operational suitability unverified.
+- `_scientific_storage(directory, existing, *, select)`: Presents protected existing paths and explicitly selects a new pair's primary data location, with a labelled configuration-filesystem fallback and no automatic largest-disk choice.
+- `_require_storage_destination(facts)`: Revalidates the selected destination and backing identity after operator selection and across installation boundaries without persistent state or runtime admission changes.
 - Decision 446: Bounded guided-installer software scope is CLOSED after Ubuntu existing-laboratory validation and Windows re-audit PASS of HEAD plus the four-file correction overlay; corrected-scenario live Ubuntu validation is deferred, not passed. See the [closure evidence and limitations](validated_workflows.md#decision-446---guided-installer-software-scope); Q022 remains OPEN, with no network scanning or broker provisioning.
 - `_endpoint(server, *, include_route=False)`: Removes URL userinfo, canonicalizes hostname/default-port/root-path representations for endpoint discovery, and hides routing details in operator-visible labels without modifying retained connection settings.
 - `_read_shared_configuration(path, *, contents=None)`: Validates and selects shared declarations from an explicitly selected file or retained local snapshot, excluding credentials and foreign computer paths.
@@ -2704,8 +2722,8 @@ Storage GUI integration and remaining deployment validation.
 - _ask(label, default=None, allow_empty=False): Collects a required or explicitly optional installation value with an operator-visible proposed value.
 - _confirm(label): Requires an explicit affirmative response before maintenance-sensitive installation changes.
 - _comma(value): Splits explicitly supplied deployment lists for existing configuration fields.
-- _inspect_environment(python, environment): Confirms the selected interpreter is an isolated Python 3.12 environment and reports installed package metadata before reuse.
-- _configuration_plan(roles, directory, existing, preflight_python): Reuses applicable local/shared declarations and timing values, requests role-specific replacements for inapplicable zero windows, confirms credential-free endpoints and hardware/SSH/authority candidates, and preserves existing configurations, authentication isolation, offline handling and hardware deferral.
+- _inspect_environment(python, environment): Confirms the selected interpreter is an isolated Python 3.12 environment and reports core/GUI package versions before reuse.
+- _configuration_plan(roles, directory, existing, preflight_python): Reuses applicable declarations/timing, confirms storage/endpoints/hardware/SSH/authority candidates, returns generated configuration plus deferred items and an ephemeral storage snapshot, and preserves existing paths, authentication isolation and offline handling.
 - _validate(python, checkout, path, role, allow_unavailable=False): Uses the selected checkout's authoritative loader in an isolated child, allowing only missing import dependencies to defer pre-install validation and blocking unresolved validation after installation.
 - _publish(path, contents): Exclusively creates a validated new configuration and removes its own incomplete write after a handled failure or interruption without replacing existing files.
 
@@ -2713,6 +2731,7 @@ Storage GUI integration and remaining deployment validation.
 
 - FrameworkInstallerTests: Exercises local-prerequisite gating, pending versus verified broker outcomes, installation without connectivity, interpreter selection, defaults, SDK-mocked cleanup, cancellation, preservation and real child-process import/loader validation with simulated package, Git and broker operations.
 - FrameworkInstallerTests.shared_source: Builds a disposable shared deployment source for public installer import, conflict and confidentiality workflows.
+- FrameworkInstallerTests.gui_package: Supplies optional GUI package metadata and explicit choices for public installer/package/configuration workflows without starting an app.
 - InstallerAccountDiscoveryTests: Exercises the production connectivity child against isolated authenticated brokers with successful/denied account readback and confirms that no JetStream resources are created.
 
 ## scripts/manual_opencv_camera_smoke.py
@@ -3141,8 +3160,9 @@ automatic. Kill integration and overall closeout validation remain deferred.
 - notificationRows(): Renders the latest three or expanded retained history in page flow with individual acknowledgment controls.
 - administrativeOperations(): Renders the separate whole-framework shutdown control only in Administrator mode.
 - bindAdministratorName(submitSelector, nameSelector, matches): Requires fresh nonblank name entry for each administrative confirmation, with exact durable-authorization matching for recovery.
-- renderControlHistory(): Projects retained browser-control outcomes into the bottom Services disclosure without changing the records, timestamps or reconciliation.
-- serviceActions.controlHistory(): Supplies a filtered read-only presentation of the existing connected outcome collection.
+- renderActivityHistory(): Projects consequential GUI outcomes into the single informative Services disclosure, retaining normal-page scrolling and navigation state.
+- serviceActions.activityHistory(): Supplies the existing in-memory outcome collection to Services without a parallel history store.
+- serviceActions.recordActivity(operation, error): Reuses local activity recording for an explicitly confirmed administrative action refused before command dispatch.
 - selectService(id): Selects/toggles one expanded service from whole-row pointer or keyboard interaction.
 - openShutdownConfirmation(serviceId): Shows scoped single-service or whole-framework confirmation before a local orderly-stop preview.
 - renderShutdownPreview(): Shows participant-level local progress/outcomes and offers only scoped blocked-service Kill escalation.

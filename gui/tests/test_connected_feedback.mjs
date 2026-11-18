@@ -4,6 +4,7 @@ import {createRequire} from 'node:module';
 import {mkdir, writeFile} from 'node:fs/promises';
 import {verifyConfigurationIntegrity, verifyExperimentReconnection} from './test_configuration_integrity.mjs';
 import {verifyGuiUsability, verifyDemoAdministrator} from './test_gui_usability.mjs';
+import {verifyActivityHistory} from './test_activity_history.mjs';
 if (!process.env.MICEBALL_BROWSER_ORIGIN) {
   console.log('Rendered feedback checks require the disposable Python fixture.');
 } else {
@@ -176,14 +177,14 @@ async function verifyRenderingSafety() {
     const summary = `gain: 0 · gate: No · ${text}: ${JSON.stringify(text).replaceAll('\u03a9', '\\u03a9')}`;
     assert.equal(await target.locator('.experiment-parameter-summary').innerText(), summary);
     await target.locator('[data-launch-experiment]').click();
-    await target.locator('#operation-results').filter({hasText: 'rejected'}).waitFor();
+    await target.locator('#activity-history [data-status="rejected"]').last().waitFor({state: 'attached'});
     assert.equal(submitted.length, 1);
     assert.deepEqual(submitted[0].parameters.configuration.participating_devices, {[node]: [device.device_id]});
     assert.deepEqual(submitted[0].parameters.configuration.device_configurations,
       {[node]: {[device.device_id]: {gain: 0, gate: false, [text]: text}}});
     assert.deepEqual(submitted[0].parameters.scientific_outputs, [output]);
-    await target.locator('#operation-results summary').last().click();
-    assert.ok((await target.locator('#operation-results').innerText()).includes(text));
+    // Failure text is readable without expanding raw diagnostic JSON.
+    assert.ok((await target.locator('#activity-history').innerText()).includes(text));
     await inert();
     executed = {experiment_id: 'rendering-experiment', configuration: submitted[0].parameters.configuration,
       scientific_outputs: submitted[0].parameters.scientific_outputs};
@@ -291,9 +292,9 @@ async function verifyMaintenanceBinding() {
     assert.equal(submitted.length, 1); // Closing the choice never authorizes Cancel or Kill.
     await target.locator('[data-live-kill]').waitFor();
     assert.deepEqual(submitted[0].parameters, {participant, administrator_id: 'Lab Operator', authorized: true});
-    await target.locator('.services-callout').filter({hasText: 'blocked'}).waitFor();
+    await target.locator('[data-owner-report] pre').filter({hasText: 'blocked'}).waitFor({state: 'attached'});
     await authorize('[data-live-kill]');
-    await target.locator('.services-callout').filter({hasText: 'completed'}).waitFor();
+    await target.locator('[data-owner-report] pre').filter({hasText: 'completed'}).waitFor({state: 'attached'});
     assert.deepEqual(submitted[1].parameters, {participant, administrator_id: 'Lab Operator', authorized: true, stop_attempt_id: 'attempt-1'});
     assert.equal(await target.locator('[data-live-kill]').count(), 0);
     await authorize('[data-stop-service]');
@@ -304,7 +305,7 @@ async function verifyMaintenanceBinding() {
     await cancelDialog.locator('[data-live-administrator]').fill('Lab Operator');
     assert.equal(await cancelDialog.locator('[data-live-authorized]').count(), 0);
     await cancelDialog.locator('[data-live-confirm]').click();
-    await target.locator('.services-callout').filter({hasText: 'cancel_service'}).waitFor();
+    await target.locator('[data-owner-report] pre').filter({hasText: 'cancel_service'}).waitFor({state: 'attached'});
     assert.equal(submitted[3].parameters.stop_attempt_id, 'attempt-2');
     assert.equal(await target.locator('[data-live-kill]').count(), 0);
     await target.locator('[data-administrative="Supported recovery attempts"]').click();
@@ -315,12 +316,22 @@ async function verifyMaintenanceBinding() {
     assert.equal(await recoveryDialog.locator('[data-recovery-confirm]').isDisabled(), true);
     await recoveryDialog.locator('[data-recovery-administrator]').fill('Lab Operator');
     await recoveryDialog.locator('[data-recovery-confirm]').click();
-    await target.locator('.services-callout').filter({hasText: 'cleanup_device_resources'}).waitFor();
+    await target.locator('[data-owner-report] pre').filter({hasText: 'cleanup_device_resources'}).waitFor({state: 'attached'});
     assert.deepEqual(submitted[4].parameters, {participant, administrator_id: 'Lab Operator', authorized: true,
       authorization_evidence_id: 'cleanup-authorization', recovery_command_id: 'cleanup-command',
       obligation: {session_id: 'historical-session', device_ids: ['camera']}});
+    const activityText = await target.locator('#activity-history').textContent();
+    assert.match(activityText, /Service Kill completed/);
+    assert.match(activityText, /Device resource cleanup completed/);
+    assert.doesNotMatch(activityText, /kill_service|cleanup_device_resources|request_id/);
+    await target.locator('[data-stop-service]').click();
+    await target.locator('[data-live-administrator]').fill('Lab Operator');
     controlling = false;
     await target.locator('#connection-state').filter({hasText: 'View Only'}).waitFor();
+    await target.locator('[data-live-confirm]').click();
+    assert.equal(submitted.length, 5);
+    assert.match(await target.locator('#activity-history').textContent(), /Current control.*No request was sent/);
+    await target.locator('[data-admin-close]').click();
     assert.equal(await target.locator('[data-stop-service]').isDisabled(), true);
     await target.locator('[data-stop-service]').evaluate(button => button.dispatchEvent(new MouseEvent('click', {bubbles:true})));
     assert.equal(submitted.length, 5);
@@ -363,6 +374,9 @@ async function verifyMaintenanceBinding() {
   } finally { await target.close(); }
 }
 try {
+  if (process.env.LAB_SYNC_GUI_ACTIVITY_ONLY === '1') {
+  await verifyActivityHistory(browser, process.env.MICEBALL_BROWSER_ORIGIN, JSON.parse(process.env.MICEBALL_MONITORING), section, directory);
+  } else {
   await verifyMaintenanceBinding();
   await verifyDemoAdministrator(browser, process.env.MICEBALL_DEMO_CURRENT_ORIGIN, section, directory);
   await verifyGuiUsability(browser, process.env.MICEBALL_BROWSER_ORIGIN, JSON.parse(process.env.MICEBALL_INTEGRITY).session, section, directory);
@@ -626,7 +640,7 @@ try {
   assert.equal(await page.evaluate(() => window.__summaryInjected), 0);
   await shot('connected-working-summary');
   await page.locator('[data-launch-experiment]').click();
-  await page.locator('#operation-results').filter({hasText: 'rejected'}).waitFor();
+  await page.locator('#activity-history [data-status="rejected"]').last().waitFor({state: 'attached'});
   assert.equal(experimentRequests.length, 1);
   assert.deepEqual(experimentRequests[0].parameters.configuration.participating_devices.node,
     identityInventory.devices.map(device => device.device_id));
@@ -679,12 +693,13 @@ try {
     await section(target, 'services');
     await target.locator('[data-expand-service]').first().click();
   }
-  // Compare existing cards independently of the newly requested bottom disclosure.
-  await demo.locator('#control-activity-history').evaluate(node => node.hidden = true);
+  // Compare unchanged cards independently of the authorized history replacement.
+  await baseline.locator('#control-activity-history').evaluate(node => node.hidden = true);
+  await demo.locator('#activity-history').evaluate(node => node.hidden = true);
   assert.equal(await demo.locator('#panel-services').innerText(), await baseline.locator('#panel-services').innerText());
   const demoBefore = await baseline.locator('#panel-services').screenshot();
   assert.deepEqual(await demo.locator('#panel-services').screenshot(), demoBefore);
-  await demo.locator('#control-activity-history').evaluate(node => node.hidden = false);
+  await demo.locator('#activity-history').evaluate(node => node.hidden = false);
   for (const theme of ['light', 'dark']) {
     for (const target of [baseline, demo]) if (await target.locator('html').getAttribute('data-theme') !== theme) await target.locator('#theme-toggle').click();
     // Ordinary enabled buttons retain exactly their previous computed appearance.
@@ -751,6 +766,7 @@ try {
   assert.deepEqual(errors, []);
   await writeFile(`${directory}/feedback.json`, JSON.stringify({result: 'PASS', transport: 'controlled WebSocket replies; real GUI/backend shell', inventoryRequests: inventoryRequests.length, screenshots}, null, 2));
   console.log('PASS: working/executed and empty/populated summaries in both modes, escaped parameter text, unchanged outgoing overrides, and device-selection injection regression');
+  }
 } catch (error) {
   await shot('feedback-failure'); console.error(errors); throw error;
 } finally {await browser.close();}

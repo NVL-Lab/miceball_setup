@@ -231,6 +231,59 @@ still requires a genuinely isolated pair. Final findings hide credentials and
 show selected scope, paths, timing windows and pending prerequisites. Existing
 retirement attestation and final installation consent remain mandatory.
 
+**Scientific storage selection (Decision 447-A): implemented; independent validation
+and audit pending.** Guided setup presents retained storage paths and read-only
+local volume candidates, with filesystem free bytes when available. Ubuntu uses
+recognized local mounted filesystems; Windows uses native local drive metadata.
+An explicitly confirmed primary destination supplies separate `records`,
+`artifacts`, `journals` and `framework.jsonl` paths for a new paired configuration.
+The labelled fallback is `CONFIG_DIR/data` on the configuration filesystem, not
+an automatically selected largest/dedicated disk. Manual paths are supported.
+
+Discovery creates no directories or probe files. Missing targets, inaccessible
+paths and unknown capacity are reported without treating parent free space as
+proof of an intended mount or writable scientific destination. Backing identity
+is rechecked after selection, after installation consent and before storage
+directory creation. Existing paired and AcquisitionNode paths remain unchanged;
+node hardware configuration retains its separate contract. Directory creation is
+post-confirmation only, and failure does not relocate or overwrite existing data.
+Access metadata and directory creation do not establish persistence, future
+Experiment capacity or operational readiness. Quotas, physical disk failures and
+all filesystem races are not certified by installation. Unlisted destinations may
+be entered explicitly; no disk formatting, partitioning, mounting or migration occurs.
+
+**Optional GUI setup (Decision 447-B): implemented; independent validation and
+audit pending.** The installer discovers checkout availability and installed
+`miceball-gui` metadata, offers separate package installation or explicit reuse,
+and leaves core-only installation supported. GUI validation constructs the existing
+app without starting it, with mandatory installed-package/dependency validation
+before configuration publication.
+
+Connection settings use the existing connection-file contract (default
+`CONFIG_DIR/gui-connection.json`). Existing files are preserved; new GUI credentials
+are entered separately, never copied silently from service configurations. Confirm
+Controller/client identity, bind host/port, exact browser origin and request timeout.
+The installer prints a native-shell `python -m miceball_gui.backend` command with
+`--deployment-config`, not passwords, and the confirmed browser address.
+
+Already suitable local Controller files are not rewritten. Otherwise the exact
+`external_client_id` / `browser_control_required` changes require explicit approval,
+complete staged validation, retained unrelated values and unchanged-file checks
+before a narrow replacement. Normal new-file publication remains exclusive.
+Windows replacement preserves native access controls; POSIX replacement retains
+owner/mode and checks security metadata. On an unconfirmed Windows replacement,
+a protected `.gui-controller-backup-*` file may remain for operator recovery;
+inspect retained files before restarting. This is not a general replacement API.
+Declined changes or a remote Controller remain explicitly pending on the owning
+computer; imported files are not edited remotely. Restart instructions are manual.
+No automatic disk provisioning, data relocation, service restart, Controller claim
+or scientific operation is authorized. GUI-free service installation remains
+supported. See [Decision 447](architecture_decisions.md#decision-447-guided-installation-selects-scientific-storage-and-optionally-prepares-the-separate-gui-package).
+Independent validation/audit of both additions remain pending. Developer checks
+do not extend Decision 446's closed evidence or
+certify Ubuntu deployment. The current Ubuntu/Jetson deployment is unchanged;
+Q022 remains OPEN.
+
 The existing `scripts/install_framework.py` prepares one local installation; it
 does not start or supervise services. Use Python 3.12 on Windows or Linux, from
 the reviewed checkout. It reuses a compatible checkout-local `.venv` or creates

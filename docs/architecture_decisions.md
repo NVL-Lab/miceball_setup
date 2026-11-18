@@ -14537,6 +14537,127 @@ Decision 445 retains its separate CLOSED scope; broader Q022 remains OPEN.
 
 ---
 
+## Decision 447: Guided installation selects scientific storage and optionally prepares the separate GUI package
+
+**Status:** Accepted
+
+This records the explicitly user-accepted LLC additions to future Q022 guided
+installations. It extends Decisions 421 and 446 while preserving Decisions 426,
+436, 439, 440 and 445. Decision 446's previously validated and CLOSED software
+scope and its historical evidence are not reopened or extended by this acceptance.
+Retain Discover -> Present findings -> Confirm or choose -> Validate -> Configure.
+These additions do not change the current Ubuntu or Jetson deployment.
+
+### Scientific-data storage selection
+
+The guided installer must discover existing configured scientific storage roots
+and available local storage destinations, present understandable candidates and
+reliable capacity information where available, and distinguish framework
+configuration storage from scientific-data storage. Offer one primary
+operator-selected scientific-data destination; do not automatically select the
+largest disk.
+
+Derive appropriate subordinate directories using existing service ownership and
+configuration contracts. Preserve separate service-owned directories wherever
+required, and retain any distinct destination or additional operator choice
+required by those contracts. Decisions 298, 368-369 and 376-377 continue to govern
+node-local preparation, deployment configuration, paired lifetime and scientific/
+operational evidence ownership. A primary destination does not merge owners.
+
+Preserve existing valid storage paths on reinstall. Explain unavailable,
+unsuitable or unverified destinations; do not silently change roots or relocate
+scientific evidence. Never automatically format, partition, mount or provision
+disks. No new storage abstraction or data migration is authorized.
+
+### Optional, separately packaged GUI installation
+
+The existing guided installer must offer GUI access as an optional component,
+discover GUI package availability and existing installation state, ask whether
+the operator wants GUI access on this computer, and install or reuse the separate
+package when selected. Framework-service installation without the GUI remains
+supported. Under Decision 426, the GUI remains in `gui/` with its own Python
+package and dependencies, outside the core framework distribution. This extends
+the existing CLI bootstrap, not a GUI-based or second installer, and grants no
+installation authority to the GUI itself.
+
+Discover and reuse appropriate deployment and NATS settings through existing
+secure configuration mechanisms, and guide confirmation of GUI client identity
+and connection settings. Preserve Decision 445's exact authentication and
+credential confidentiality. Identify whether Controller GUI access is already
+configured. Explain proposed Controller configuration changes and obtain explicit
+approval before changing existing configuration; this is a narrow permission,
+not general authorization to replace retained configuration. Explain any required
+Controller restart without automatically restarting it. Provide correct GUI
+launch instructions and browser address.
+
+GUI installation must not create another Controller, acquire operational authority,
+bypass browser-control admission, start scientific activity or silently alter an
+operational Controller. Preserve Decisions 425-426 and 436's authority boundaries,
+and existing preservation, retirement, confirmation and cancellation requirements.
+Installation, configuration, startup and operational connectivity remain separate
+states; Decision 440's offline/PENDING behavior remains applicable.
+
+No new framework services, deployment databases, Controller authority mechanisms,
+automatic service supervision/restarts, GUI scientific functionality, or Session/
+Experiment lifecycle changes are authorized. Existing storage ownership and
+evidence-preservation contracts remain unchanged.
+
+**Implementation status:** Slice 447-A scientific-storage selection is implemented
+with developer verification: bounded read-only volume/path discovery, explicit
+primary/fallback choice, existing paired-service directory derivation, protected
+existing/node paths and backing-identity rechecks. Independent validation and audit
+remain pending; no Ubuntu deployment validation or software closure is claimed.
+Slice 447-B optional separate-package GUI installation/setup is implemented with
+developer verification: package detection/reuse, credential-isolated connection
+configuration, non-starting GUI validation, explicitly approved local Controller
+updates and native launch instructions. Remote Controller setup remains an
+owner-side prerequisite; no remote update or automatic startup is performed.
+Independent validation and audit remain pending for both slices.
+Q022 remains OPEN for these additions and its other outstanding obligations;
+Decisions 445 and 446 retain their separate CLOSED software scopes and limitations.
+
+---
+
+## Decision 448: GUI Activity History is unified, informative and page-local
+
+**Status:** Accepted
+
+This records the explicitly user-accepted LLC Activity History clarification.
+It supplements Decisions 412, 422 and 424-426 without changing Controller/service
+authority, lifecycle, correlation, reconciliation or scientific evidence contracts.
+
+Services presents one Activity History for consequential GUI actions, including
+local preparation/validation failures, control requests, Session and Experiment
+operations and applicable administration. Consolidate competing GUI action-history
+displays; retain useful contextual status and separate authoritative scientific
+lifecycle and service evidence. Routine polling is not an activity attempt, and
+dismissing a confirmation is not a Stop attempt.
+
+History is informative, not an authoritative scientific record, permanent audit
+trail or debugging interface. Reuse existing in-memory outcomes and supported
+non-executing reconciliation. It survives navigation within the current open page;
+reload or closure may clear it. No browser-storage persistence, shared history
+database, Controller-wide retrieval or cross-restart history recovery is required.
+
+Use browser-local observation/recording time, explicitly distinguished from
+authoritative execution time. Present concise understandable successes, actual
+failure reasons when known, local validation/preparation failures, submission and
+communication problems, pending actions and explicitly uncertain outcomes. Do not
+expose raw JSON, request IDs, internal operation names or transport implementation
+details in normal entries; existing diagnostics may remain separately accessible.
+
+Create/update the existing action outcome so consequential attempts cannot silently
+disappear. Distinguish local preparation, submitted configuration and Controller-
+confirmed acceptance; an activity entry cannot establish Session/Experiment
+acceptance. Preserve fixed active-Session isolation and existing admission,
+scientific evidence and non-replay guarantees. No automatic retry, new lifecycle,
+service, persistence infrastructure or parallel authoritative outcome system is
+authorized. Persistent catalogs, storage selection, Parameters and Session
+Templates remain separate work. This acceptance does not establish the cause of
+the observed distributed Jetson launch failure or claim implementation validation.
+
+---
+
 # Accepted Architectural Principles
 
 The following principles summarize the accepted decisions so far.

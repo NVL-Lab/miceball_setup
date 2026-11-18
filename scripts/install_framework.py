@@ -10,11 +10,13 @@ import os
 from pathlib import Path
 import platform
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
 import runpy
 import warnings
+from uuid import uuid4
 from urllib.parse import urlsplit, urlunsplit
 
 
@@ -34,8 +36,9 @@ SHARED_FIELDS = ("ingestor_id", "storage_id", "synchronization_id", "controller_
 ENVIRONMENT_REPORT = (
     "import importlib.metadata as m,json,sys; "
     "v=next((d.version for d in m.distributions() if d.metadata.get('Name')=='lab-sync-acquisition'),None); "
+    "g=next((d.version for d in m.distributions() if d.metadata.get('Name')=='miceball-gui'),None); "
     "print(json.dumps({'version':list(sys.version_info[:2]),"
-    "'prefix':sys.prefix,'base_prefix':sys.base_prefix,'package_version':v}))"
+    "'prefix':sys.prefix,'base_prefix':sys.base_prefix,'package_version':v,'gui_version':g}))"
 )
 VALIDATE = """
 import sys
@@ -98,6 +101,137 @@ asyncio.run(check())
 """
 
 
+VALIDATE_GUI = """
+import json,sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+if sys.argv[2]:
+    sys.path.insert(0, sys.argv[2])
+    source = Path(sys.argv[2]) / 'miceball_gui' / 'backend.py'
+    if not source.is_file():
+        raise RuntimeError('Selected checkout GUI backend is missing')
+try:
+    from miceball_gui import backend
+    from lab_sync_acquisition.communication import build_runtime_subject
+except ModuleNotFoundError as error:
+    if sys.argv[2] and (error.name == 'miceball_gui' or error.name.startswith('miceball_gui.')):
+        raise
+    print('DEPENDENCIES_UNAVAILABLE')
+else:
+    if sys.argv[2] and Path(backend.__file__).resolve() != source.resolve():
+        raise RuntimeError('GUI validation imported a different checkout')
+    settings = json.load(sys.stdin)
+    for field, kind in (('controller_id', 'controller'), ('client_id', 'client')):
+        build_runtime_subject(None, 'command', kind, settings[field], 'stop')
+    backend.create_gui_app(**settings)
+"""
+
+
+def _validate_gui(python, checkout, settings, *, source, allow_unavailable=False):
+    """Validate through the existing GUI without running an app or connecting NATS."""
+    result = _run([python, '-I', '-B', '-c', VALIDATE_GUI, checkout / 'src',
+                   checkout / 'gui' / 'src' if source else ''], input=json.dumps(settings))
+    if result.strip() == 'DEPENDENCIES_UNAVAILABLE':
+        if allow_unavailable:
+            return False
+        raise RuntimeError('GUI dependencies or import unavailable; GUI configuration was not published')
+    return True
+
+
+def _gui_plan(checkout, directory, existing, configured, installed, preflight_python):
+    """Plan optional separate-package GUI access without copying service credentials."""
+    import tomllib
+    package = checkout / 'gui'
+    available = False
+    if (package / 'pyproject.toml').is_file() and (package / 'src' / 'miceball_gui' / 'backend.py').is_file():
+        try:
+            available = tomllib.loads((package / 'pyproject.toml').read_text(encoding='utf-8'))['project']['name'] == 'miceball-gui'
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
+    version = (installed or {}).get('gui_version')
+    print('Optional GUI: separate package ' + ('available in checkout' if available else 'unavailable in checkout') +
+          '; installed version ' + str(version or 'not detected') + '. Services can be installed without it.')
+    if not _confirm('Install or reuse optional GUI on this computer'):
+        return None, []
+    reuse = bool(version) and _confirm('Reuse the installed GUI without reinstalling it; validate its dependencies and configuration')
+    if not available and not reuse:
+        return None, ['GUI package unavailable; provide a checkout containing gui/ or explicitly reuse a compatible installed GUI']
+    local = configured.get('controller') or (existing.get('controller', (None, None))[1])
+    reference = local
+    if reference is None:
+        source = _ask('Existing laboratory Controller configuration for GUI; empty for manual settings', allow_empty=True)
+        if source:
+            path = Path(source).expanduser()
+            _read_shared_configuration(path)
+            _validate(preflight_python, checkout, path, 'controller', allow_unavailable=True)
+            reference = json.loads(path.read_bytes(), object_pairs_hook=_NATS_HELPERS['_unique_fields'])
+    controller_id = _ask('GUI Controller name', reference.get('service_id') if reference else None)
+    client_id = _ask('GUI connection name (external client identity)',
+                     reference.get('external_client_id', 'gui-' + controller_id) if reference else 'gui-' + controller_id)
+    connection_path = Path(_ask('GUI connection configuration file', directory / 'gui-connection.json')).expanduser().resolve()
+    if connection_path.is_relative_to(checkout):
+        raise ValueError('GUI connection configuration must stay outside the repository')
+    connection_bytes = None
+    if connection_path.exists():
+        connection_bytes = connection_path.read_bytes()
+        connection = _NATS_HELPERS['load_nats_configuration'](connection_path)
+        print('Existing connection file remains unchanged; confirm these credentials are appropriate for GUI backend permissions.')
+        if not _confirm('Use this existing connection file for the GUI backend'):
+            return None, ['GUI setup declined; existing connection configuration preserved']
+    else:
+        if connection_path in {directory / name for name in FILES.values()}:
+            raise ValueError('A new GUI connection file must not occupy a service configuration path')
+        candidates = []
+        sources = list(configured.items()) + ([('selected Controller configuration', reference)] if reference else [])
+        for role, data in sources:
+            servers = [_endpoint(s, include_route=True) for s in data['servers']]
+            if not any(servers == value for _, value in candidates):
+                candidates.append((role + ': ' + ', '.join(_endpoint(s) for s in servers), servers))
+        servers = _choose_discovered('GUI NATS endpoints (no service credentials copied)', candidates)
+        connection = {'servers': servers or _comma(_hidden_input('GUI NATS URLs, comma-separated'))}
+        print('GUI credentials are separate from service credentials; broker users and permissions remain administrator-owned.')
+        if _confirm('Use explicit NATS username/password for GUI'):
+            for field in _NATS_HELPERS['AUTH_FIELDS']:
+                connection[field] = _hidden_input('GUI ' + field + ' (hidden)')
+    _NATS_HELPERS['nats_connect_options'](connection['servers'], **{
+        k: connection[k] for k in _NATS_HELPERS['AUTH_FIELDS'] if k in connection})
+    host = _ask('GUI bind host (127.0.0.1 for this computer only)', '127.0.0.1')
+    if any(c.isspace() or c in '/@?#' for c in host):
+        raise ValueError('GUI bind host requires a hostname or IP address, not a URL or credentials')
+    port = int(_ask('GUI bind port', 8043))
+    if not 1 <= port <= 65535:
+        raise ValueError('GUI bind port must be between 1 and 65535')
+    origin = _ask('GUI browser address (exact HTTP(S) origin; no trailing slash)', f'http://127.0.0.1:{port}')
+    address = urlsplit(origin)
+    if (address.username is not None or not address.hostname or address.hostname in {'0.0.0.0', '::'}
+            or address.port is not None and not 1 <= address.port <= 65535):
+        raise ValueError('GUI browser address requires a real browser hostname and no URL credentials')
+    timeout = float(_ask('GUI connection/request timeout, seconds', reference.get('result_window_s', 10) if reference else 10))
+    settings = dict(connection, controller_id=controller_id, client_id=client_id, origin=origin, timeout_s=timeout)
+    if not _validate_gui(preflight_python, checkout, settings, source=not reuse, allow_unavailable=not reuse):
+        print('GUI configuration validation deferred until dependencies are installed; required before publication.')
+    pending, update = [], None
+    if local is not None and local['service_id'] == controller_id:
+        changes = {k: v for k, v in {'external_client_id': client_id, 'browser_control_required': True}.items() if local.get(k) != v}
+        if not changes:
+            print('Local Controller GUI access is already configured; its file will not be rewritten.')
+        else:
+            print('Proposed Controller GUI-access changes: ' + json.dumps({k: {'old': local.get(k), 'new': v} for k, v in changes.items()}))
+            print('Changing the external client identity replaces access for the old identity after a manual Controller restart. No running Controller is changed or restarted here.')
+            if _confirm('Approve these exact local Controller GUI-access configuration changes'):
+                update = dict(local, **changes)
+            else:
+                pending.append('Controller GUI access PENDING: approved configuration must match the GUI connection name and require browser control')
+    else:
+        if (reference is not None and reference.get('service_id') == controller_id
+                and reference.get('external_client_id') == client_id and reference.get('browser_control_required') is True):
+            print('Imported Controller file declares matching GUI access; verify the actual configuration on its owning computer. No rewrite is needed there if it already matches.')
+        pending.append('Controller GUI access PENDING on its owning computer: set external_client_id=' + json.dumps(client_id) +
+                       ' and browser_control_required=true with explicit owner approval, then restart Controller manually when safe. Imported files are not modified remotely')
+    return dict(package=None if reuse else package, connection=connection, connection_path=connection_path,
+                connection_bytes=connection_bytes, settings=settings, host=host, port=port, update=update), pending
+
+
 def _run(arguments, *, timeout=60, input=None):
     """Run an accountable child without a shell or leaking private connection inputs."""
     result = subprocess.run([str(a) for a in arguments], capture_output=True,
@@ -155,6 +289,136 @@ def _endpoint(server, *, include_route=False):
     return urlunsplit((url.scheme, f'{host}:{port}',
                       url.path if include_route and url.path != '/' else '', url.query if include_route else '',
                       url.fragment if include_route else ''))
+
+
+def _local_storage_destinations():
+    """List currently visible local volumes without mounting or probing them."""
+    if sys.platform == 'win32':
+        import ctypes
+        kernel = ctypes.windll.kernel32
+        drives = kernel.GetLogicalDrives()
+        return [(Path(f'{chr(65 + i)}:/'), 'local Windows drive') for i in range(26)
+                if drives & (1 << i) and kernel.GetDriveTypeW(f'{chr(65 + i)}:\\') in (2, 3)
+                and Path(f'{chr(65 + i)}:/').anchor != Path.home().anchor]
+    destinations = []
+    for line in Path('/proc/self/mountinfo').read_text().splitlines():
+        fields, separator, backing = line.partition(' - ')
+        if not separator or len(fields.split()) < 5 or not backing.split():
+            continue
+        mount = fields.split()[4]
+        for escaped, value in (('\\040', ' '), ('\\011', '\t'), ('\\012', '\n'), ('\\134', '\\')):
+            mount = mount.replace(escaped, value)
+        path = Path(mount)
+        if (backing.split()[0] in {'ext2', 'ext3', 'ext4', 'xfs', 'btrfs', 'f2fs', 'zfs'}
+                and path not in (Path('/'), Path('/boot'), Path('/boot/efi'))
+                and path.is_dir() and path.is_mount()):
+            destinations.append((path, 'mounted local filesystem'))
+    return list(dict.fromkeys(destinations))
+
+
+def _inspect_storage_destination(path):
+    """Read destination facts; a parent's free bytes never certify a missing target."""
+    path = Path(path).expanduser().absolute()
+    resolved = path.resolve()
+    anchor = resolved
+    while not anchor.exists() and anchor != anchor.parent:
+        anchor = anchor.parent
+    if not anchor.is_dir() or (path.exists() and not path.is_dir()):
+        raise ValueError('Scientific-data destination is not an accessible directory')
+    if not os.access(anchor, os.W_OK | os.X_OK):
+        raise ValueError('Scientific-data destination is not writable according to local access checks')
+    backing_free = None
+    try:
+        observed = shutil.disk_usage(anchor).free
+        if type(observed) is int and observed >= 0:
+            backing_free = observed
+    except OSError:
+        pass
+    return dict(path=path, resolved=resolved, anchor=anchor, device=anchor.stat().st_dev,
+                mounted=anchor.is_mount(), free=backing_free if path.is_dir() else None,
+                backing_free=backing_free)
+
+
+def _scientific_storage(directory, existing, *, select):
+    """Present protected roots and explicitly select a new pair's primary destination."""
+    print('Framework configuration directory: ' + str(directory) + '; scientific data uses separate service-owned paths.')
+    protected = []
+    for role, (_, data) in existing.items():
+        for key in ('storage_root', 'global_artifact_root', 'recovery_journal_root', 'framework_journal'):
+            if key in data:
+                path = directory / data[key]
+                protected.append((role + ' ' + key, path, path.parent if key == 'framework_journal' else path))
+        if role == 'acquisition-node':
+            hardware = directory / data['node_config']
+            settings = json.loads(hardware.read_text(encoding='utf-8'))
+            for key in ('local_storage_root', 'error_evidence_location'):
+                path = hardware.parent / settings[key]
+                protected.append(('AcquisitionNode ' + key, path, path))
+    for label, path, destination in protected:
+        print('Preserved ' + label + ': ' + str(path))
+        try:
+            facts = _inspect_storage_destination(destination)
+            capacity = str(facts['free']) if facts['free'] is not None else 'unverified'
+            print('  Free bytes at existing directory: ' + capacity + '; storage readiness remains unverified.')
+        except (OSError, ValueError):
+            print('  Destination unavailable or unsuitable; existing path is retained, not relocated.')
+    if not select:
+        return None
+    fallback = directory / 'data'
+    candidates = []
+    try:
+        volumes = _local_storage_destinations()
+    except (OSError, UnicodeError, AttributeError):
+        volumes = []
+        print('Local volume discovery unavailable; choose a known path explicitly or the displayed fallback.')
+    for volume, label in volumes:
+        try:
+            facts = _inspect_storage_destination(volume)
+        except (OSError, ValueError):
+            print('Unavailable or unsuitable storage candidate: ' + str(volume))
+            continue
+        capacity = ('free bytes: ' + str(facts['free'])) if facts['free'] is not None else 'capacity unverified'
+        candidates.append((f'{label} {volume} ({capacity}); writes and persistence unverified',
+                           (volume / 'lab-sync-data', facts)))
+    print('No dedicated volume is assumed. Fallback: ' + str(fallback) +
+          ' on the configuration filesystem; not a dedicated data disk. No largest-disk selection is made.')
+    try:
+        fallback_facts = _inspect_storage_destination(fallback)
+        candidates.append(('Fallback scientific-data directory ' + str(fallback), (fallback, fallback_facts)))
+    except (OSError, ValueError):
+        print('Fallback is unavailable or unsuitable; enter a different known destination.')
+    chosen = _choose_discovered('primary scientific-data location', candidates)
+    if chosen is not None:
+        base, observed = chosen
+        _require_storage_destination(observed)
+    else:
+        base = _ask('Storage data directory', fallback if candidates else None)
+    facts = _inspect_storage_destination(base)
+    if chosen is not None and (facts['device'] != observed['device'] or
+                              not facts['resolved'].is_relative_to(observed['resolved'])):
+        raise RuntimeError('Scientific-data location no longer belongs to the selected destination; choose it again explicitly')
+    print('Primary scientific-data destination: ' + str(facts['path']))
+    print('Free bytes: ' + str(facts['free']) if facts['free'] is not None else
+          'Destination capacity unverified: the directory is missing or capacity cannot be read; parent free space is not destination verification.')
+    print('Existing backing directory: ' + str(facts['anchor']) +
+          '; access checks do not prove writability, persistence or adequate capacity for future experiments. No disks are provisioned.')
+    capacity = str(facts['backing_free']) if facts['backing_free'] is not None else 'unverified'
+    print('Backing filesystem free bytes: ' + capacity +
+          '; this does not verify a missing destination or an intended unmounted disk.')
+    return facts
+
+
+def _require_storage_destination(facts):
+    """Reject a changed/disappeared backing filesystem before installation writes."""
+    try:
+        current = _inspect_storage_destination(facts['path'])
+        unchanged = (current['resolved'] == facts['resolved'] and current['device'] == facts['device']
+                     and facts['anchor'].stat().st_dev == facts['device']
+                     and facts['anchor'].is_mount() == facts['mounted'])
+    except (OSError, ValueError):
+        unchanged = False
+    if not unchanged:
+        raise RuntimeError('Scientific-data destination changed or became unavailable; select it again explicitly')
 
 
 def _read_shared_configuration(path, *, contents=None):
@@ -306,6 +570,7 @@ def _configuration_plan(roles, directory, existing, preflight_python):
         if key not in values:
             answer = _hidden_input(label) if key == "servers" else _ask(label, default)
             values[key] = _comma(answer) if key == "servers" else answer
+    storage_destination = _scientific_storage(directory, existing, select='ingestor' in pending)
     window_fields = (("preservation_window_s", "Preservation window, seconds"),
                      ("result_window_s", "Request/check window, seconds"))
     windows = {}
@@ -360,8 +625,11 @@ def _configuration_plan(roles, directory, existing, preflight_python):
                 deferred.append("AcquisitionNode incomplete: provide an existing valid hardware JSON; no declarations invented")
                 continue
             data["node_config"] = str(Path(hardware).expanduser().resolve())
+            hardware_settings = json.loads(Path(data['node_config']).read_text(encoding='utf-8'))
+            for key in ('local_storage_root', 'error_evidence_location'):
+                print('Preserved AcquisitionNode ' + key + ': ' + str(Path(data['node_config']).parent / hardware_settings[key]))
         else:
-            base = Path(_ask("Storage data directory", directory / "data")).expanduser().resolve()
+            base = storage_destination['resolved']
             data.update(storage_root=str(base / "records"), global_artifact_root=str(base / "artifacts"),
                         recovery_journal_root=str(base / "journals"), framework_journal=str(base / "framework.jsonl"))
             endpoints = {}
@@ -457,7 +725,7 @@ def _configuration_plan(roles, directory, existing, preflight_python):
         declared = {(p["component_type"], p["component_id"]) for p in storage.get("external_dependents", [])}
         if not required <= declared:
             raise ValueError("Storage dependency declaration omits local owners; resolve actual identities before setup")
-    return generated, deferred
+    return generated, deferred, storage_destination
 
 
 def _validate(python, checkout, path, role, *, allow_unavailable=False):
@@ -488,6 +756,59 @@ def _publish(path, contents):
             path.unlink()
 
 
+def _publish_controller_gui_update(path, expected, contents):
+    """Atomically replace only the explicitly approved, unchanged local Controller file."""
+    identity = path.stat()
+    if path.is_symlink() or identity.st_nlink != 1 or path.read_bytes() != expected:
+        raise RuntimeError('Controller configuration changed or is aliased; approved GUI update was not applied')
+    temporary = path.with_name('.gui-controller-' + uuid4().hex + '.json')
+    published = False
+    try:
+        _publish(temporary, contents)
+        published = True
+        current = path.stat()
+        if ((current.st_dev, current.st_ino) != (identity.st_dev, identity.st_ino)
+                or path.is_symlink() or current.st_nlink != 1 or path.read_bytes() != expected):
+            raise RuntimeError('Controller configuration changed during setup; approve a new plan explicitly')
+        _replace_controller_file(path, temporary)
+    finally:
+        if published:
+            temporary.unlink(missing_ok=True)
+
+
+def _replace_controller_file(path, temporary):
+    """Replace an approved Controller configuration while retaining its access controls."""
+    if sys.platform != 'win32':
+        identity = path.stat()
+        replacement = temporary.stat()
+        if (replacement.st_uid, replacement.st_gid) != (identity.st_uid, identity.st_gid):
+            os.chown(temporary, identity.st_uid, identity.st_gid)
+        shutil.copystat(path, temporary)
+        if hasattr(os, 'listxattr'):
+            for name in os.listxattr(path):
+                if name.startswith(('security.', 'system.posix_acl')) and os.getxattr(temporary, name) != os.getxattr(path, name):
+                    raise RuntimeError('Controller access-control metadata could not be preserved; update was not applied')
+        os.replace(temporary, path)
+        return
+    import ctypes
+    replace = ctypes.WinDLL('kernel32', use_last_error=True).ReplaceFileW
+    replace.argtypes = [ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_wchar_p,
+                        ctypes.c_ulong, ctypes.c_void_p, ctypes.c_void_p]
+    replace.restype = ctypes.c_int
+    backup = path.with_name('.gui-controller-backup-' + uuid4().hex + '.json')
+    if not replace(str(path), str(temporary), str(backup), 0, None, None):
+        if backup.exists() and not path.exists():
+            os.replace(backup, path)
+        raise RuntimeError('Controller replacement unconfirmed; inspect the retained configuration/backup before restarting')
+    backup.unlink()
+
+
+def _render_command(arguments):
+    """Quote nonsecret launch arguments for the existing native shell conventions."""
+    return ('& ' + ' '.join("'" + str(part).replace("'", "''") + "'" for part in arguments)
+            if sys.platform == 'win32' else shlex.join(map(str, arguments)))
+
+
 def main(argv=None):
     """Interactively prepare one checkout/environment and print existing launch commands."""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -509,6 +830,7 @@ def main(argv=None):
         dirty = bool(_run(["git", "-C", checkout, "status", "--porcelain"]).strip())
         environment = checkout / ".venv"
         python = environment / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
+        installed = None
         if environment.exists():
             if environment.is_symlink() or not python.is_file():
                 raise RuntimeError("Existing .venv is incomplete or linked; resolve manually, it will not be replaced")
@@ -550,7 +872,7 @@ def main(argv=None):
         if not choices or set(choices) - set(FILES):
             raise ValueError("Select existing framework role names")
         roles = tuple(dict.fromkeys(choices))
-        generated, deferred = _configuration_plan(roles, directory, existing, preflight_python)
+        generated, deferred, storage_destination = _configuration_plan(roles, directory, existing, preflight_python)
         configured = {role: (existing[role][1] if role in existing else generated[role])
                       for role in roles if role in existing or role in generated}
         if not configured:
@@ -558,8 +880,19 @@ def main(argv=None):
                 print("DEFERRED: " + message)
             print("DEFERRED: no complete selected role configuration; no installation changes made")
             return 2
+        gui, gui_pending = _gui_plan(checkout, directory, existing, configured, installed, preflight_python)
+        deferred.extend(gui_pending)
+        if gui is not None and gui['update'] is not None and 'controller' in generated:
+            generated['controller'] = gui['update']
+            if 'controller' in configured:
+                configured['controller'] = gui['update']
         staged = []
         with tempfile.TemporaryDirectory(prefix="lab-sync-setup-") as staging:
+            controller_update = None
+            if gui is not None and gui['update'] is not None and 'controller' in existing:
+                controller_update = Path(staging) / 'approved-controller.json'
+                controller_update.write_text(json.dumps(gui['update'], indent=2) + '\n', encoding='utf-8')
+                _validate(preflight_python, checkout, controller_update, 'controller', allow_unavailable=True)
             for role, data in generated.items():
                 contents = json.dumps(data, indent=2) + "\n"
                 # Generated references are absolute; existing files retain their original base directory.
@@ -595,6 +928,16 @@ def main(argv=None):
                 print(message)
             else:
                 print("COMPLETED: NATS connection and cleanup confirmed; not JetStream/authority/permission/service/scientific readiness")
+            if gui is not None:
+                try:
+                    _run([preflight_python, '-I', '-B', '-c', CONNECT], timeout=3 * gui['settings']['timeout_s'] + 5,
+                         input=json.dumps(dict(gui['connection'], timeout_s=gui['settings']['timeout_s'])))
+                except (RuntimeError, OSError, subprocess.TimeoutExpired):
+                    message = 'GUI NATS connectivity PENDING / NOT VERIFIED: connection/cleanup unconfirmed'
+                    deferred.append(message)
+                    print(message)
+                else:
+                    print('GUI NATS connection/cleanup verified; broker permissions and Controller/browser readiness are not verified.')
             print(f"Plan: {sys.platform}/{platform.machine()}, checkout {checkout}, revision {revision}")
             print(f"Environment: {'reuse/update' if environment.exists() else 'create'} {environment}")
             print(f"Configuration: {directory}; preserve {len(existing)} existing files; create {list(generated)}")
@@ -616,6 +959,8 @@ def main(argv=None):
                 print("DEFERRED: setup declined; no changes made")
                 return 2
             installation_started = True
+            if storage_destination is not None:
+                _require_storage_destination(storage_destination)
             directory.mkdir(parents=True, exist_ok=True)
             if not environment.exists():
                 _run([sys.executable, "-I", "-m", "venv", environment], timeout=120)
@@ -624,7 +969,16 @@ def main(argv=None):
             package = str(checkout) + ("[artifact-retrieval]" if "ingestor" in roles or "ingestor" in existing else "")
             print("Installing selected checkout in .venv, then checking declared dependencies...")
             _run([python, "-I", "-m", "pip", "install", package], timeout=900)
+            if gui is not None and gui['package'] is not None:
+                print('Installing separate GUI package and its declared dependencies; no GUI process will be started.')
+                _run([python, '-I', '-m', 'pip', 'install', gui['package']], timeout=900)
             _run([python, "-I", "-m", "pip", "check"])
+            if gui is not None:
+                _validate_gui(python, checkout, gui['settings'], source=False)
+                if gui['connection_bytes'] is not None and gui['connection_path'].read_bytes() != gui['connection_bytes']:
+                    raise RuntimeError('GUI connection configuration changed during setup; rerun explicitly')
+            if controller_update is not None:
+                _validate(python, checkout, controller_update, 'controller')
             for role, path, _ in staged:
                 _validate(python, checkout, path, role)
             for role, (contents, _) in existing.items():
@@ -632,6 +986,8 @@ def main(argv=None):
                 if path.read_bytes() != contents:
                     raise RuntimeError("Existing configuration changed during setup; rerun explicitly")
                 _validate(python, checkout, path, role)
+            if storage_destination is not None:
+                _require_storage_destination(storage_destination)
             for role, data in generated.items():
                 if role == "ingestor":
                     for key in ("storage_root", "global_artifact_root", "recovery_journal_root"):
@@ -644,6 +1000,12 @@ def main(argv=None):
                         (hardware.parent / settings[key]).mkdir(parents=True, exist_ok=True)
             for role, _, contents in staged:
                 _publish(directory / FILES[role], contents)
+            if gui is not None and gui['connection_bytes'] is None:
+                gui['connection_path'].parent.mkdir(parents=True, exist_ok=True)
+                _publish(gui['connection_path'], json.dumps(gui['connection'], indent=2) + '\n')
+            if controller_update is not None:
+                _publish_controller_gui_update(directory / FILES['controller'], existing['controller'][0],
+                                               controller_update.read_text(encoding='utf-8'))
         print("COMPLETED: isolated package installation, dependency check and configuration validation")
         print("Software installation is not operational readiness; resolve pending connectivity and "
               "existing service-readiness/Controller-authority requirements before operation.")
@@ -652,9 +1014,18 @@ def main(argv=None):
         for role in configured:
             command = [str(python), "-m", "lab_sync_acquisition.service_launcher", role,
                        "--deployment-config", str(directory / FILES[role])]
-            rendered = ("& " + " ".join("'" + part.replace("'", "''") + "'" for part in command)
-                        if sys.platform == "win32" else shlex.join(command))
-            print("LAUNCH: " + rendered)
+            print("LAUNCH: " + _render_command(command))
+        if gui is not None:
+            settings = gui['settings']
+            command = [str(python), '-m', 'miceball_gui.backend', '--deployment-config', str(gui['connection_path']),
+                       '--controller=' + settings['controller_id'], '--client=' + settings['client_id'],
+                       '--origin', settings['origin'], '--host', gui['host'], '--port', str(gui['port']),
+                       '--timeout', str(settings['timeout_s'])]
+            print('GUI package installed/reused and configuration prepared; GUI process NOT STARTED; browser control NOT ACQUIRED.')
+            if gui['update'] is not None:
+                print('Controller GUI-access configuration prepared. Restart Controller manually when safe; no restart was performed.')
+            print('GUI LAUNCH: ' + _render_command(command))
+            print('GUI browser address: ' + settings['origin'])
         print("Setup exits without launching services; run the printed commands only after resolving reported prerequisites")
         return 2 if deferred else 0
     except (Exception, KeyboardInterrupt) as error:

@@ -1,6 +1,7 @@
 import { createServicesDemo, setServicesAdministrator, refreshServicesPreview, serviceReadinessLabel, beginShutdownPreview, finishShutdownPreview, authorizeKillPreview, notificationHistoryView } from './services-demo.mjs';
 import { notificationHistory, acknowledgeNotification } from './app.js';
 import { escapeText as escape } from './gui-presentation.js';
+import { activityPresentation } from './activity-presentation.mjs';
 
 const panel = document.querySelector('#panel-services');
 const connected = document.documentElement?.dataset?.runtime === 'connected';
@@ -25,13 +26,13 @@ function bindAdministratorName(submitSelector, nameSelector = '[data-administrat
   return {name, valid, reset};
 }
 
-function renderControlHistory() {
-  const records = serviceActions.controlHistory?.() || [];
-  const names = {take_browser_control: 'Take browser control', view_only: 'View Only'};
-  const expanded = new Set([...controlHistory.querySelectorAll('details[open]')].map(node => node.dataset.request));
-  controlHistory.querySelector('[data-control-records]').innerHTML = records.length
-    ? records.map(entry => `<details data-request="${escape(entry.request_id)}" ${expanded.has(entry.request_id) ? 'open' : ''}><summary>${escape(names[entry.operation] || entry.operation)} · ${escape(entry.status)}</summary><p class="services-muted">Retained command and outcome, including available timestamps:</p><pre>${escape(JSON.stringify(entry, null, 2))}</pre></details>`).join('')
-    : '<p class="services-muted">No retained browser-control activity.</p>';
+function renderActivityHistory() {
+  const records = serviceActions.activityHistory?.() || [];
+  activityHistory.querySelector('[data-activity-records]').innerHTML = records.length
+    ? records.map(entry => {
+      const view = activityPresentation(entry);
+      return `<li data-activity="${escape(entry.activity_id)}" data-status="${escape(view.status)}"><time datetime="${escape(entry.observed_at)}">${escape(view.time)}</time><span>${escape(view.message)}</span></li>`;
+    }).join('') : '<li class="services-muted">No activity recorded on this page.</li>';
 }
 
 function authorizeMaintenance(operation, service) {
@@ -47,15 +48,19 @@ function authorizeMaintenance(operation, service) {
   const choice = administrativePreview.querySelector('[data-live-choice]');
   if (choice) choice.onchange = reset;
   submit.onclick = () => {
-    if (!valid() || !model.administrator || !serviceActions.canControl?.()) return;
+    if (!valid()) return;
+    const selected = choice ? choice.value : operation;
+    if (!model.administrator || !serviceActions.canControl?.()) {
+      serviceActions.recordActivity?.(selected, 'Current control and confirmed operation context are required. No request was sent.'); return;
+    }
     const current = service && model.services.find(item => item.id === service.id);
     if (continuation && (current?.attempt?.outcome !== 'blocked' || current.attempt.stop_attempt_id !== attemptId
         || current.details?.operational_instance_id !== instanceId)) {
       administrativePreview.close();
       message = 'Stop attempt changed; no continuation sent. Refresh the owner report.';
+      serviceActions.recordActivity?.(selected, message);
       renderServices(); return;
     }
-    const selected = choice ? choice.value : operation;
     administrativePreview.close();
     serviceActions.maintain(selected, current || service, name.value);
   };
@@ -81,10 +86,10 @@ let refreshNotice = '';
 let expandedService = null, shutdownAttempt = null, killTarget = null;
 let historyExpanded = false;
 const ownerReportOpen = new Map();
-const controlHistory = document.createElement('details');
-controlHistory.id = 'control-activity-history';
-controlHistory.className = 'services-card control-history';
-controlHistory.innerHTML = '<summary>Control activity history</summary><div data-control-records></div>';
+const activityHistory = document.createElement('details');
+activityHistory.id = 'activity-history';
+activityHistory.className = 'services-card activity-history';
+activityHistory.innerHTML = '<summary>Activity History</summary><p class="services-muted">Browser-local observation time · informative only · cleared when this page is reloaded.</p><ol data-activity-records></ol>';
 const danger = document.createElement('dialog');
 danger.className = 'catalog-dialog services-danger';
 danger.setAttribute('aria-labelledby', 'services-danger-title');
@@ -139,7 +144,7 @@ function serviceDetails(service) {
       ? `<p>Operational retirement confirmed. ${delivery?.required && !delivery.dependency_release_confirmed ? 'Dependency-release confirmation remains outstanding; the process must be retained.' : 'OS process exit is not established by this report.'} Kill is unavailable because there is no current blocked Stop attempt. This GUI cannot retry retained retirement delivery.</p>`
       : '<p>Last-known owner reported operational retirement. Current retirement, dependency confirmation and OS process exit are unconfirmed.</p>';
   }
-  return `<div class="services-detail-tabs" role="group" aria-label="Service detail views">${Object.keys(content).map(name => `<button type="button" data-detail="${name}" aria-pressed="${model.detail === name}">${name}</button>`).join('')}</div><div class="services-detail-content">${content[model.detail]}</div>${obligations.length ? `<h4>Represented obligations / blockers</h4><ul>${obligations.map(item=>`<li>${escape(item.description)} — ${escape(item.outcome)}</li>`).join('')}</ul>` : ''}${connected ? `${service.lastOperation ? `<p class="services-callout">${escape(service.lastOperation.operation)} · ${escape(service.lastOperation.result?.outcome?.details?.outcome || service.lastOperation.status)} ${escape(service.lastOperation.result?.error || '')}</p>` : ''}<p>${escape(service.information || 'No confirmed report')}</p><details><summary>Owner report and remaining obligations</summary><pre>${escape(JSON.stringify({readiness: service.details || null, operation: service.lastOperation || null}, null, 2))}</pre></details>` : ''}${service.readiness === 'Unhealthy' ? `<p>${escape(service.information)}</p>` : ''}${model.administrator ? `<div class="service-specific-administration"><h4>Selected-service administration</h4><button type="button" data-stop-service="${escape(service.id)}">Stop Service</button>${connected && service.attempt?.outcome === 'blocked' ? `<button type="button" data-live-kill="${escape(service.id)}">Kill Service…</button><button type="button" data-live-cancel="${escape(service.id)}">Cancel Stop attempt</button>` : ''}<button type="button" data-administrative="Supported recovery attempts">Recovery availability…</button><button type="button" data-administrative="Abandon outstanding obligations">Review obligations…</button></div>` : ''}`;
+  return `<div class="services-detail-tabs" role="group" aria-label="Service detail views">${Object.keys(content).map(name => `<button type="button" data-detail="${name}" aria-pressed="${model.detail === name}">${name}</button>`).join('')}</div><div class="services-detail-content">${content[model.detail]}</div>${obligations.length ? `<h4>Represented obligations / blockers</h4><ul>${obligations.map(item=>`<li>${escape(item.description)} — ${escape(item.outcome)}</li>`).join('')}</ul>` : ''}${connected ? `<p>${escape(service.information || 'No confirmed report')}</p><details><summary>Owner report and remaining obligations</summary><pre>${escape(JSON.stringify({readiness: service.details || null, operation: service.lastOperation || null}, null, 2))}</pre></details>` : ''}${service.readiness === 'Unhealthy' ? `<p>${escape(service.information)}</p>` : ''}${model.administrator ? `<div class="service-specific-administration"><h4>Selected-service administration</h4><button type="button" data-stop-service="${escape(service.id)}">Stop Service</button>${connected && service.attempt?.outcome === 'blocked' ? `<button type="button" data-live-kill="${escape(service.id)}">Kill Service…</button><button type="button" data-live-cancel="${escape(service.id)}">Cancel Stop attempt</button>` : ''}<button type="button" data-administrative="Supported recovery attempts">Recovery availability…</button><button type="button" data-administrative="Abandon outstanding obligations">Review obligations…</button></div>` : ''}`;
 }
 
 function notificationRows() {
@@ -148,12 +153,11 @@ function notificationRows() {
 
 function administrativeOperations() {
   if (!model.administrator) return '';
-  return `<section id="services-administration" class="services-card services-danger" aria-label="Administrative operations"><h3>Whole-framework shutdown</h3><button type="button" class="shutdown-framework-demo" data-shutdown-framework>Shutdown Framework</button><p>Whole-framework scope, distinct from Stop Service, Session Stop and Experiment Stop. ${connected ? 'Controller coordinates configured owners. No automatic Kill escalation.' : 'Separate confirmation required. Browser-local demonstration only.'}</p>${connected ? `<pre>${escape(JSON.stringify(serviceActions.frameworkOutcome?.() || 'No framework shutdown request recorded', null, 2))}</pre>` : ''}</section>`;
+  return `<section id="services-administration" class="services-card services-danger" aria-label="Administrative operations"><h3>Whole-framework shutdown</h3><button type="button" class="shutdown-framework-demo" data-shutdown-framework>Shutdown Framework</button><p>Whole-framework scope, distinct from Stop Service, Session Stop and Experiment Stop. ${connected ? 'Controller coordinates configured owners. No automatic Kill escalation.' : 'Separate confirmation required. Browser-local demonstration only.'}</p></section>`;
 }
 
 function renderServices() {
-  const focusedControlHistory = controlHistory.contains(document.activeElement)
-    ? document.activeElement.closest('details')?.dataset.request || null : undefined;
+  const focusedActivityHistory = activityHistory.contains(document.activeElement);
   let focusedOwner;
   if (connected) {
     for (const disclosure of panel.querySelectorAll('[data-owner-report]')) {
@@ -167,13 +171,9 @@ function renderServices() {
     <p class="services-feedback" ${connected ? 'id="services-readiness-unavailable"' : ''} role="status">${escape(message || refreshNotice || (model.lastPreviewRefresh ? `Preview refreshed locally at ${model.lastPreviewRefresh}; fixture confirmations are unchanged.` : (connected ? 'Only valid current checks confirm availability; communication loss alone is not failure.' : 'Automatic refresh repaints fictional information only; it does not confirm availability.')))}</p>
     <section class="services-card"><h3>Configured services (${model.services.length})</h3><ul class="services-list" aria-label="Configured services">${serviceRows()}</ul></section>
     <section class="services-card services-warning-card"><h3>Warnings and errors <small>${connected ? 'Unavailable' : `${unacknowledged} unacknowledged`}</small></h3><p class="services-muted">${connected ? 'Authoritative warning and error history is unavailable.' : 'Latest three entries by default. Acknowledgment is not resolution or deletion.'}</p><div id="services-history" class="services-history" role="region" aria-label="Warning and error history" tabindex="0">${notificationRows()}</div>${notificationHistory().length > 3 ? `<button type="button" data-toggle-history aria-controls="services-history" aria-expanded="${historyExpanded}">${historyExpanded ? 'Show less' : 'Show more'}</button>` : ''}</section>${administrativeOperations()}`;
-  renderControlHistory();
-  panel.append(controlHistory);
-  if (focusedControlHistory !== undefined) {
-    const disclosure = focusedControlHistory === null ? controlHistory
-      : [...controlHistory.querySelectorAll('details')].find(node => node.dataset.request === focusedControlHistory);
-    disclosure?.querySelector('summary').focus({preventScroll: true});
-  }
+  renderActivityHistory();
+  panel.append(activityHistory);
+  if (focusedActivityHistory) activityHistory.querySelector('summary').focus({preventScroll: true});
   if (connected) {
     const disclosure = panel.querySelector('.inline-service-details:not([hidden]) > details');
     if (disclosure) {
@@ -241,8 +241,8 @@ panel.addEventListener('click', event => {
     if (!button || button.disabled) return;
     if (button.dataset.mode === 'administrator' && !model.administrator) { danger.showModal(); return; }
     if (button.dataset.mode === 'experimenter') { setServicesAdministrator(model, false); renderServices(); return; }
-    if (button.hasAttribute('data-refresh-services')) { serviceActions.refresh(); return; }
-    if (button.dataset.readiness) { serviceActions.refresh(button.dataset.readiness); return; }
+    if (button.hasAttribute('data-refresh-services')) { serviceActions.refresh(undefined, true); return; }
+    if (button.dataset.readiness) { serviceActions.refresh(button.dataset.readiness, true); return; }
     if (button.dataset.detail) { model.detail = button.dataset.detail; renderServices(); return; }
     if (button.dataset.administrative) {
       const service = model.services.find(s => s.id === model.selectedId);
@@ -276,7 +276,10 @@ panel.addEventListener('click', event => {
       };
       choice.onchange = showScope;
       submit.onclick = () => {
-        if (!valid() || !model.administrator || !serviceActions.canControl?.()) return;
+        if (!valid()) return;
+        if (!model.administrator || !serviceActions.canControl?.()) {
+          serviceActions.recordActivity?.(selection().payload.details.operation, 'Current control and confirmed recovery context are required. No request was sent.'); return;
+        }
         const authorization = selection(), details = authorization.payload.details;
         administrativePreview.close();
         serviceActions.maintain(details.operation, service, authorization.payload.administrator_id,

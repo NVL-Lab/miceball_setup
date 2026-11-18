@@ -1,5 +1,18 @@
 # Future GUI Design Notes
 
+## Unified Activity History (Decision 448; implementation pending independent validation)
+
+Services consolidates consequential connected GUI actions into one informative
+Activity History. Browser-local observation times are not execution timestamps;
+local preparation, submission, pending/uncertain results and confirmed Controller
+outcomes remain distinct. History survives tab navigation only; page reload may
+clear it. Existing scientific lifecycle history, owner diagnostics and evidence
+remain separate. No persistence or historical-retrieval subsystem is introduced.
+The earlier browser-control-only presentation below is superseded by Decision 448,
+not a requirement to retain competing action-history panels. The original Jetson
+launch failure has not been diagnosed by this correction. Independent validation,
+audit and documentation closure remain separate pending stages.
+
 This document preserves ideas for future GUI discussions. It is not an
 implementation roadmap or architecture decision record. Explicitly identified
 accepted requirements are referenced below; other presentation ideas remain

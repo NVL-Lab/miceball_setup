@@ -24,12 +24,24 @@ View Only Session controls and restoration when controls become enabled.
 
 Confirmed View Only uses a distinct workspace/header tint in both themes; busy
 Controlling and unconfirmed connections do not receive that tint. Services contains
-a collapsed-by-default **Control activity history** disclosure at the bottom,
-projecting retained browser-control records and any available timestamps from the
-existing outcome collection. These records remain outside scientific Session
-history. Administrative confirmations require a freshly typed nonblank name,
+a collapsed-by-default **Activity History** disclosure at the bottom (Decision
+448), projecting consequential actions from the existing in-memory outcomes.
+Concise readable messages distinguish local preparation, submitted/pending work,
+confirmed outcomes and uncertainty; raw JSON and request IDs are not normal history
+content. Times are browser-local observations, not authoritative execution times.
+Navigation retains history; reload/closure may clear it. Scientific lifecycle
+evidence and existing owner diagnostics remain separate. Administrative
+confirmations require a freshly typed nonblank name,
 including disconnected previews; recovery additionally matches the selected durable
 authorization. These bounded corrections await independent validation and audit.
+
+Activity History developer checks run with
+`node --test gui/tests/test_activity_presentation.mjs` and the existing rendered
+fixture `python -B -m pytest gui/tests/test_connected_feedback.py -q -p no:cacheprovider`
+(with the Playwright module/browser settings described below). The latter covers
+local/backend/Controller failures, pending and uncertain launch reconciliation,
+Session/Experiment controls, navigation, page reload, authority-loss refusal and
+both themes. These are developer checks, not independent validation or audit.
 
 The Python backend serves the approved shared Setup, Session, Parameters, Experiment,
 Analysis, Storage and Services presenters. A single connected-mode marker selects
@@ -43,6 +55,15 @@ python -m pip install -e . -e ./gui
 miceball-gui --deployment-config CONNECTION_CONFIG_PATH --controller CONTROLLER_ID --client GUI_CLIENT_ID --origin http://GUI_HOST:8043 --host 0.0.0.0 --port 8043 --timeout 10
 ```
 
+The existing guided installer also offers optional separate GUI package setup
+under Decision 447-B (developer implementation; independent validation/audit
+pending). It discovers package/connection candidates, requests separate GUI
+credentials or confirmation of an appropriate existing connection file, and prints
+the selected-environment launch command and browser address. Local Controller
+GUI-access changes require explicit approval and manual restart; remote owner
+setup remains pending. It never starts the GUI, creates Controller authority or
+acquires browser control. See the [installation guide](../docs/installation_and_deployment.md#guided-setup-from-an-existing-checkout-decision-421).
+
 Replace every deployment value; no framework services or broker are started by this
 command. `--origin` is the exact browser origin (no trailing slash); Host and WebSocket
 Origin checks reject other origins. Use HTTPS termination on untrusted networks;
@@ -54,8 +75,9 @@ nonempty strings and cannot be combined with userinfo in any server URL. Values
 are forwarded exactly to the SDK, not encoded/decoded/trimmed. The GUI reads only
 connection fields, not the service role or authority in that file. Legacy
 `--server` remains available; do not put secrets in shell commands/history.
-There are no password flags. Independent validation/audit and real Ubuntu
-deployment confirmation of this compatibility correction remain pending.
+There are no password flags. Decision 445's bounded authentication scope is
+[separately closed](../docs/validated_workflows.md#decision-445---nats-authentication-compatibility);
+that evidence does not validate the new Decision 447-B setup flow or full deployment.
 
 In the existing Controller deployment JSON, set `external_client_id` to the backend's
 client ID and `browser_control_required` to `true`. Broker permissions must authorize
@@ -90,7 +112,7 @@ launch without restarting the GUI.
 
 Readback uses `read_controller_state`, existing `read_session_configuration`,
 `get_node_inventory` and non-executing `read_operation_outcome`. Pending/uncertain
-request identities are retained in browser session storage only for readback, never
+request identities are retained in page memory only for readback, never
 automatic lifecycle replay. Controller restart changes the operational-instance
 identity; lost outcomes remain unknown, and no running Session is reconstructed
 from historical metadata. Initial NATS connection availability is reported without
@@ -203,8 +225,9 @@ The same developer batch populates Project Primary Experimenter from the existin
 Experimenter list and retains new associations locally, without assigning missing
 historical associations or adding an editing screen. Confirmed View Only has a
 subtle tint; unconfirmed connectivity and busy Controlling remain distinct. Control
-ownership outcomes appear under Services → **Control activity history**, while the original records
-remain retained for reconciliation. Administrative confirmations require a manually
+and other consequential outcomes appear under Services → **Activity History**,
+while original correlation and results remain in memory for reconciliation.
+Administrative confirmations require a manually
 entered nonblank name; recovery also matches the existing durable authorization.
 Session preparation starts with the computer-local date, preserves edits and
 accepted dates, and resets only after confirmed release into fresh preparation.

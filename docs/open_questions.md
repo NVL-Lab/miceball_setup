@@ -607,6 +607,14 @@ interfaces remain implementation work; large artifact transfer is not visualizat
 
 ## Q030: What GUI presentation and deployment design implements the accepted functional areas?
 
+Decision 448 resolves the Activity History boundary: one informative Services
+history uses existing in-memory outcomes, browser-local observation time and
+non-executing reconciliation; navigation retains it, while reload/closure may
+clear it. No persistent history or Controller-wide historical retrieval is
+required. Local preparation and submitted requests remain distinct from confirmed
+accepted Session state. Bounded implementation, independent validation and audit
+are separate from this architectural acceptance; Q030 remains OPEN.
+
 **Status:** OPEN - Decision 425 settles web/Python deployment; Decision 431 adds
 Storage as the seventh permanent tab, qualifying the historical six-tab layout
 and supplementing Decisions 396-405 and 409-418. Decision 426 settles repository
@@ -2706,6 +2714,30 @@ Q022 as a whole is not closed. Q019 remains CLOSED in W050.
 
 **Generic installer (Decision 421): implemented; Decision 446 closes only the
 bounded guided-installer software scope below, not broader deployment work.**
+
+**Scientific storage and optional GUI setup (Decision 447): accepted; Slice 447-A
+storage implemented with developer verification, independent validation/audit
+pending; Slice 447-B GUI implemented with developer verification, independent
+validation/audit pending.** Future guided installations must discover
+configured roots and local storage candidates/capacity, distinguish configuration
+from scientific storage, and offer a primary operator-selected destination with
+owner-appropriate subordinate paths. Existing valid paths and required separate
+destinations remain protected; no disk provisioning or evidence migration is allowed.
+The same installer must offer the separately packaged GUI, discover its availability/
+installation state, reuse appropriate connection settings, confirm client identity,
+and explain explicitly approved Controller GUI-access changes, any required restart,
+launch commands and browser address. GUI-free service installation remains supported;
+no automatic service restart, Controller authority or scientific operation is granted.
+See [Decision 447](architecture_decisions.md#decision-447-guided-installation-selects-scientific-storage-and-optionally-prepares-the-separate-gui-package)
+for the complete accepted contract. These additions do not change the current Ubuntu/
+Jetson deployment or reopen Decision 446's closed scope. Q022 remains OPEN.
+The storage implementation uses read-only local volume metadata and explicit
+primary/fallback choices, preserves existing roots and checks backing identity
+before installation writes. Capacity is not future Experiment admission. Optional
+GUI setup now detects and installs/reuses the separate package, validates confirmed
+connection settings and publishes only explicitly approved local Controller access
+changes. Remote access setup remains pending on its owner; no independent/deployment
+completion is claimed.
 
 **Discovery-first guided installation (Decision 446): CLOSED within validated
 and independently audited software scope.** The existing planner follows Discover -> Present findings ->

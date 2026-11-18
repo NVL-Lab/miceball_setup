@@ -19,6 +19,512 @@ from tests.nats_server_fixture import NATS_SERVER, restartable_jetstream_server
 
 
 class FrameworkInstallerTests(unittest.TestCase):
+    def gui_package(self):
+        package = self.checkout / 'gui'
+        package.mkdir(exist_ok=True)
+        (package / 'pyproject.toml').write_text('[project]\nname="miceball-gui"\nversion="0.1.0"\n')
+        source = Path(__file__).resolve().parents[1] / 'gui' / 'src' / 'miceball_gui'
+        target = package / 'src' / 'miceball_gui'
+        target.mkdir(parents=True, exist_ok=True)
+        for module in source.glob('*.py'):
+            shutil.copyfile(module, target / module.name)
+        (target / 'static').mkdir(exist_ok=True)
+        self.answers['Install or reuse optional GUI'] = 'yes'
+        self.answers['Approve these exact local Controller'] = 'yes'
+        return package
+
+    def test_optional_gui_installs_separately_and_configures_new_controller_without_startup(self):
+        package = self.gui_package()
+        code, output, errors = self.run_setup()
+        self.assertEqual(code, 0, errors)
+        self.assertTrue(any('pip' in a and a[-1] == str(package) for a in self.calls))
+        controller = load_service_configuration(self.config / 'controller.json', 'controller')
+        self.assertEqual(controller['external_client_id'], 'gui-control')
+        self.assertTrue(controller['browser_control_required'])
+        self.assertEqual(json.loads((self.config / 'gui-connection.json').read_text()), {'servers': ['nats://broker:4222']})
+        self.assertIn('GUI LAUNCH:', output)
+        self.assertIn('GUI browser address: http://127.0.0.1:8043', output)
+        self.assertIn('GUI process NOT STARTED; browser control NOT ACQUIRED', output)
+        self.assertFalse(any('miceball_gui.backend' in a for a in self.calls))
+
+    def test_gui_declined_never_installs_or_creates_gui_configuration(self):
+        package = self.gui_package()
+        self.answers['Install or reuse optional GUI'] = 'no'
+        code, output, errors = self.run_setup()
+        self.assertEqual(code, 0, errors)
+        self.assertFalse(any('pip' in a and a[-1] == str(package) for a in self.calls))
+        self.assertFalse((self.config / 'gui-connection.json').exists())
+        self.assertNotIn('GUI LAUNCH:', output)
+
+    def test_requested_unavailable_gui_keeps_core_installation_and_reports_pending(self):
+        self.answers['Install or reuse optional GUI'] = 'yes'
+        code, output, errors = self.run_setup()
+        self.assertEqual(code, 2, errors)
+        self.assertIn('GUI package unavailable', output)
+        self.assertTrue((self.config / 'controller.json').exists())
+        self.assertFalse((self.config / 'gui-connection.json').exists())
+
+    def test_incomplete_gui_checkout_cannot_claim_package_availability(self):
+        package = self.gui_package()
+        (package / 'src' / 'miceball_gui' / 'backend.py').unlink()
+        code, output, errors = self.run_setup()
+        self.assertEqual(code, 2, errors)
+        self.assertIn('GUI package unavailable', output)
+        self.assertFalse(any('pip' in a and a[-1] == str(package) for a in self.calls))
+        self.assertFalse((self.config / 'gui-connection.json').exists())
+
+    def test_compatible_installed_gui_can_be_explicitly_reused_without_reinstallation(self):
+        self.create_environment()
+        self.gui_version = '0.1.0'
+        self.answers.update({'Install or reuse optional GUI': 'yes', 'Reuse the installed GUI': 'yes',
+                             'Approve these exact local Controller': 'yes'})
+        code, output, errors = self.run_setup()
+        self.assertEqual(code, 0, errors)
+        self.assertFalse(any('pip' in a and a[-1] == str(self.checkout / 'gui') for a in self.calls))
+        self.assertTrue((self.config / 'gui-connection.json').exists())
+
+    def test_failed_gui_install_does_not_publish_configuration(self):
+        self.gui_package()
+        self.failure = 'gui-pip'
+        code, output, errors = self.run_setup()
+        self.assertEqual(code, 1)
+        self.assertFalse((self.config / 'controller.json').exists())
+        self.assertFalse((self.config / 'gui-connection.json').exists())
+        self.assertNotIn('GUI LAUNCH:', output)
+
+    def test_gui_dependency_validation_failure_preserves_existing_controller(self):
+        self.assertEqual(self.run_setup()[0], 0)
+        path = self.config / 'controller.json'
+        before = path.read_bytes()
+        self.gui_package()
+        self.failure = 'gui-dependencies'
+        code, output, errors = self.run_setup()
+        self.assertEqual(code, 1)
+        self.assertEqual(path.read_bytes(), before)
+        self.assertFalse((self.config / 'gui-connection.json').exists())
+        self.assertIn('GUI dependencies or import unavailable', errors)
+        self.assertNotIn('GUI LAUNCH:', output)
+
+    def test_matching_existing_controller_and_gui_connection_files_are_not_rewritten(self):
+        self.assertEqual(self.run_setup()[0], 0)
+        controller = self.config / 'controller.json'
+        data = json.loads(controller.read_text())
+        data.update(external_client_id='existing-gui', browser_control_required=True,
+                    nats_username='service-user', nats_password='service-secret')
+        controller.write_text(json.dumps(data))
+        connection = self.config / 'gui-connection.json'
+        connection.write_text(json.dumps({'servers': ['nats://broker:4222'], 'nats_username': 'gui-user',
+                                          'nats_password': 'gui-secret @%40\u03bb '}))
+        before = {p: p.read_bytes() for p in (controller, connection)}
+        metadata = {p: (p.stat().st_ino, p.stat().st_mtime_ns) for p in before}
+        self.gui_package()
+        self.answers['Use this existing connection file'] = 'yes'
+        code, output, errors = self.run_setup()
+        self.assertEqual(code, 0, errors)
+        for path, contents in before.items():
+            self.assertEqual(path.read_bytes(), contents)
+            self.assertEqual((path.stat().st_ino, path.stat().st_mtime_ns), metadata[path])
+        self.assertIn('already configured', output)
+        visible = output + errors + str(self.calls) + str(self.prompts)
+        for value in ('service-user', 'service-secret', 'gui-user', 'gui-secret'):
+            self.assertNotIn(value, visible)
+        self.assertTrue(any(p.get('nats_password') == 'gui-secret @%40\u03bb ' for p in self.connections))
+
+    def test_existing_controller_update_requires_approval_and_preserves_unrelated_values(self):
+        self.assertEqual(self.run_setup()[0], 0)
+        path = self.config / 'controller.json'
+        old = json.loads(path.read_text())
+        old.update(external_client_id='old-gui', nats_username='private-user', nats_password='private-secret')
+        path.write_text(json.dumps(old))
+        self.gui_package()
+        self.answers['GUI connection name'] = 'new-gui'
+        code, output, errors = self.run_setup()
+        self.assertEqual(code, 0, errors)
+        new = json.loads(path.read_text())
+        self.assertEqual(new, dict(old, external_client_id='new-gui', browser_control_required=True))
+        self.assertIn('"old": "old-gui", "new": "new-gui"', output)
+        self.assertIn('Restart Controller manually', output)
+        self.assertNotIn('private-secret', output + errors + str(self.calls))
+        self.assertNotIn('nats_password', json.loads((self.config / 'gui-connection.json').read_text()))
+
+    def test_declined_controller_update_preserves_file_and_reports_pending(self):
+        self.assertEqual(self.run_setup()[0], 0)
+        path = self.config / 'controller.json'
+        before = path.read_bytes()
+        self.gui_package()
+        self.answers['Approve these exact local Controller'] = 'no'
+        code, output, errors = self.run_setup()
+        self.assertEqual(code, 2, errors)
+        self.assertEqual(path.read_bytes(), before)
+        self.assertIn('Controller GUI access PENDING', output)
+        self.assertTrue((self.config / 'gui-connection.json').exists())
+
+    def test_changed_controller_cannot_receive_a_stale_approved_gui_update(self):
+        self.assertEqual(self.run_setup()[0], 0)
+        path = self.config / 'controller.json'
+        changed = dict(json.loads(path.read_text()), result_window_s=7)
+        changed_bytes = json.dumps(changed).encode()
+        self.gui_package()
+        original = installer._publish_controller_gui_update
+        def changed_before_publish(target, expected, contents):
+            path.write_bytes(changed_bytes)
+            return original(target, expected, contents)
+        with patch.object(installer, '_publish_controller_gui_update', side_effect=changed_before_publish):
+            code, output, errors = self.run_setup()
+        self.assertEqual(code, 1)
+        self.assertEqual(path.read_bytes(), changed_bytes)
+        self.assertIn('approved GUI update was not applied', errors)
+
+    def test_failed_or_interrupted_controller_publication_preserves_original(self):
+        self.assertEqual(self.run_setup()[0], 0)
+        path = self.config / 'controller.json'
+        before = path.read_bytes()
+        self.gui_package()
+        for failure, expected in ((OSError('replace failed'), 1), (KeyboardInterrupt(), 130)):
+            with self.subTest(failure=type(failure).__name__), patch.object(installer, '_replace_controller_file', side_effect=failure):
+                code, output, errors = self.run_setup()
+            self.assertEqual(code, expected)
+            self.assertEqual(path.read_bytes(), before)
+            self.assertEqual(list(self.config.glob('.gui-controller-*')), [])
+            (self.config / 'gui-connection.json').unlink(missing_ok=True)
+
+    def test_remote_controller_import_is_read_only_and_requires_owner_side_action(self):
+        self.gui_package()
+        self.answers['Local roles'] = 'ingestor-storage'
+        source = self.shared_source()
+        data = json.loads(source.read_text())
+        data.pop('storage_root')
+        data.pop('node_config')
+        data.update(external_client_id='existing-remote-gui', browser_control_required=True)
+        source.write_text(json.dumps(data))
+        self.answers['Existing laboratory Controller configuration for GUI'] = str(source)
+        before = source.read_bytes()
+        code, output, errors = self.run_setup()
+        self.assertEqual(code, 2, errors)
+        self.assertEqual(source.read_bytes(), before)
+        self.assertFalse((self.config / 'controller.json').exists())
+        self.assertIn('Controller GUI access PENDING on its owning computer', output)
+        self.assertIn('declares matching GUI access', output)
+        self.assertNotIn('not-to-import-secret', output + errors + str(self.calls))
+
+    def test_gui_credentials_and_offline_connection_remain_private_and_nonblocking(self):
+        self.gui_package()
+        self.answers.update({'Use explicit NATS username/password for GUI': 'yes',
+                             'GUI nats_username': 'independent-gui-user', 'GUI nats_password': ' exact \r\n\t%40\u03bb '})
+        self.failure = 'nats'
+        code, output, errors = self.run_setup()
+        self.assertEqual(code, 2, errors)
+        settings = json.loads((self.config / 'gui-connection.json').read_text())
+        self.assertEqual(settings['nats_password'], ' exact \r\n\t%40\u03bb ')
+        self.assertIn('GUI NATS connectivity PENDING / NOT VERIFIED', output)
+        self.assertIn('GUI LAUNCH:', output)
+        self.assertNotIn('independent-gui-user', output + errors + str(self.calls) + str(self.prompts))
+        self.assertNotIn(' exact \r\n\t%40\u03bb ', output + errors + str(self.calls))
+
+    def test_gui_origin_and_identity_are_validated_before_installation_changes(self):
+        self.gui_package()
+        for field, value in (('GUI browser address', 'http://host/path'), ('GUI connection name', 'bad.*'),
+                             ('GUI browser address', 'http://user:private-secret@host'), ('GUI bind port', '0'),
+                             ('GUI bind host', 'http://invalid-host'),
+                             ('GUI connection configuration file', str(self.config / 'controller.json'))):
+            with self.subTest(field=field, value=value):
+                self.answers[field] = value
+                code, output, errors = self.run_setup()
+                self.assertEqual(code, 1)
+                self.assertFalse(self.environment.exists())
+                self.assertFalse((self.config / 'gui-connection.json').exists())
+                self.assertNotIn('private-secret', output + errors)
+                del self.answers[field]
+
+    def test_invalid_existing_gui_authentication_is_refused_without_rewriting_it(self):
+        self.gui_package()
+        self.config.mkdir()
+        path = self.config / 'gui-connection.json'
+        for fields in ({'nats_username': 'private-user'}, {'nats_username': 'private-user', 'nats_password': ''},
+                       {'nats_username': 'private-user', 'nats_password': None},
+                       {'servers': ['nats://embedded:private-secret@broker:4222'],
+                        'nats_username': 'private-user', 'nats_password': 'other-secret'}):
+            with self.subTest(fields=list(fields)):
+                path.write_text(json.dumps({'servers': ['nats://broker:4222'], **fields}))
+                before = path.read_bytes()
+                code, output, errors = self.run_setup()
+                self.assertEqual(code, 1)
+                self.assertEqual(path.read_bytes(), before)
+                self.assertFalse(self.environment.exists())
+                for value in ('private-user', 'private-secret', 'other-secret'):
+                    self.assertNotIn(value, output + errors + str(self.calls))
+
+    def test_gui_launch_commands_use_native_shell_and_confirmed_browser_origin(self):
+        for platform in ('win32', 'linux'):
+            with self.subTest(platform=platform), tempfile.TemporaryDirectory() as directory:
+                self.platform = platform
+                self.checkout = Path(directory) / 'checkout with spaces'
+                self.checkout.mkdir()
+                (self.checkout / 'pyproject.toml').write_text('[project]\nname="lab-sync-acquisition"\n')
+                self.environment = self.checkout / '.venv'
+                self.config = Path(directory) / 'configuration'
+                self.gui_package()
+                self.answers['GUI browser address'] = 'http://gui-lab:8043'
+                self.answers['GUI bind host'] = '0.0.0.0'
+                self.answers['GUI connection name'] = 'first-gui'
+                code, output, errors = self.run_setup()
+                self.assertEqual(code, 0, errors)
+                command = next(l for l in output.splitlines() if l.startswith('GUI LAUNCH:'))
+                self.assertIn('miceball_gui.backend', command)
+                self.assertIn('gui-connection.json', command)
+                self.assertEqual(command.startswith('GUI LAUNCH: & '), platform == 'win32')
+                self.assertIn('GUI browser address: http://gui-lab:8043', output)
+                self.answers['Use this existing connection file'] = 'yes'
+                self.answers['GUI connection name'] = 'second-gui'
+                code, output, errors = self.run_setup()
+                self.assertEqual(code, 0, errors)
+                self.assertEqual(load_service_configuration(self.config / 'controller.json', 'controller')['external_client_id'], 'second-gui')
+
+    def test_gui_launch_preserves_valid_client_identity_beginning_with_a_hyphen(self):
+        self.gui_package()
+        self.platform = 'linux'
+        self.answers['GUI connection name'] = '-gui-client'
+        code, output, errors = self.run_setup()
+        self.assertEqual(code, 0, errors)
+        command = next(line.removeprefix('GUI LAUNCH: ') for line in output.splitlines() if line.startswith('GUI LAUNCH:'))
+        arguments = installer.shlex.split(command)[3:]
+        with patch.object(sys, 'path', [str(Path(__file__).resolve().parents[1] / 'gui' / 'src'), *sys.path]):
+            from miceball_gui import backend
+        with patch.object(sys, 'argv', ['miceball-gui', *arguments]), patch.object(backend.web, 'run_app'), \
+                patch.object(backend, 'create_gui_app') as create:
+            backend.main()
+        self.assertEqual(create.call_args.kwargs['client_id'], '-gui-client')
+
+    def test_gui_validation_child_uses_production_gui_without_starting_it(self):
+        self.gui_package()
+        shutil.copytree(Path(__file__).resolve().parents[1] / 'src', self.checkout / 'src',
+                        ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
+        self.real_validation = True
+        code, output, errors = self.run_setup()
+        self.assertEqual(code, 0, errors)
+        self.assertTrue(any(installer.VALIDATE_GUI in a for a in self.calls))
+
+    def test_scientific_storage_selects_a_volume_without_largest_disk_or_early_writes(self):
+        small, large = self.root / 'selected volume', self.root / 'larger volume'
+        small.mkdir()
+        large.mkdir()
+        self.storage_volumes = [(small, 'mounted local filesystem'), (large, 'mounted local filesystem')]
+        self.answers['Local roles'] = 'ingestor-storage'
+        self.answers['Choose primary scientific-data location'] = '1'
+        original_mkdir = Path.mkdir
+        def mkdir(path, *args, **kwargs):
+            if path.is_relative_to(small):
+                self.assertTrue(any(p.startswith('Install the displayed') for p in self.prompts))
+            return original_mkdir(path, *args, **kwargs)
+        with patch.object(installer.shutil, 'disk_usage', side_effect=lambda p: SimpleNamespace(free=100 if Path(p) == small else 100000)), \
+                patch.object(Path, 'mkdir', mkdir):
+            code, output, errors = self.run_setup()
+        self.assertEqual(code, 0, errors)
+        data = load_service_configuration(self.config / 'storage-services.json', 'ingestor')
+        base = small / 'lab-sync-data'
+        for key, suffix in (('storage_root', 'records'), ('global_artifact_root', 'artifacts'),
+                            ('recovery_journal_root', 'journals'), ('framework_journal', 'framework.jsonl')):
+            self.assertEqual(data[key], base / suffix)
+        self.assertEqual(list(large.iterdir()), [])
+        self.assertIn('free bytes: 100', output)
+        self.assertIn('No largest-disk selection', output)
+        self.assertIn('Framework configuration directory', output)
+        self.assertIn('future experiments', output)
+
+    def test_no_dedicated_storage_offers_explicit_configuration_filesystem_fallback(self):
+        self.answers['Local roles'] = 'ingestor-storage'
+        code, output, errors = self.run_setup()
+        self.assertEqual(code, 0, errors)
+        data = load_service_configuration(self.config / 'storage-services.json', 'ingestor')
+        self.assertEqual(data['storage_root'], self.config / 'data' / 'records')
+        self.assertIn('not a dedicated data disk', output)
+        self.assertTrue(any(p.startswith('Use discovered primary scientific-data location') for p in self.prompts))
+
+    def test_unavailable_volume_metadata_keeps_the_explicit_fallback_available(self):
+        self.answers['Local roles'] = 'ingestor-storage'
+        self.storage_discovery = True
+        for failure in (OSError('metadata unavailable'), UnicodeError('metadata encoding unavailable')):
+            with self.subTest(failure=type(failure).__name__), tempfile.TemporaryDirectory() as directory:
+                self.config = Path(directory) / 'configuration'
+                with patch.object(installer, '_local_storage_destinations', side_effect=failure):
+                    code, output, errors = self.run_setup()
+                self.assertEqual(code, 0, errors)
+                self.assertIn('Local volume discovery unavailable', output)
+                self.assertIn('not a dedicated data disk', output)
+
+    def test_missing_manual_storage_does_not_inherit_parent_capacity_verification(self):
+        base = self.root / 'not mounted or created' / 'science'
+        self.answers.update({'Local roles': 'ingestor-storage', 'Use discovered primary scientific-data location': 'no',
+                             'Storage data directory': str(base)})
+        code, output, errors = self.run_setup()
+        self.assertEqual(code, 0, errors)
+        self.assertIn('Destination capacity unverified', output)
+        self.assertIn('does not verify a missing destination', output)
+        self.assertEqual(load_service_configuration(self.config / 'storage-services.json', 'ingestor')['storage_root'], base / 'records')
+
+    def test_unreliable_storage_capacity_is_reported_without_fabricated_readiness(self):
+        self.answers['Local roles'] = 'ingestor-storage'
+        for failure in (OSError('capacity unavailable'), SimpleNamespace(free=-1)):
+            with self.subTest(failure=type(failure).__name__), tempfile.TemporaryDirectory() as directory:
+                self.config = Path(directory) / 'configuration'
+                settings = {'side_effect': failure} if isinstance(failure, Exception) else {'return_value': failure}
+                with patch.object(installer.shutil, 'disk_usage', **settings):
+                    code, output, errors = self.run_setup()
+                self.assertEqual(code, 0, errors)
+                self.assertIn('capacity unverified', output)
+                self.assertIn('future experiments', output)
+
+    def test_unsuitable_and_inaccessible_storage_stop_without_modifying_data(self):
+        target = self.root / 'existing scientific file'
+        target.write_bytes(b'original')
+        self.answers.update({'Local roles': 'ingestor-storage', 'Use discovered primary scientific-data location': 'no',
+                             'Storage data directory': str(target)})
+        self.assertEqual(self.run_setup()[0], 1)
+        self.assertEqual(target.read_bytes(), b'original')
+        self.assertFalse(self.environment.exists())
+        self.answers['Storage data directory'] = str(self.root / 'inaccessible')
+        with patch.object(installer.os, 'access', return_value=False):
+            code, output, errors = self.run_setup()
+        self.assertEqual(code, 1)
+        self.assertIn('not writable', errors)
+        self.assertFalse(self.environment.exists())
+
+    def test_disappearing_storage_volume_is_not_recreated_on_the_parent_filesystem(self):
+        volume = self.root / 'disappearing volume'
+        volume.mkdir()
+        self.storage_volumes = [(volume, 'mounted local filesystem')]
+        self.answers.update({'Local roles': 'ingestor-storage', 'Choose primary scientific-data location': '1'})
+        original = installer._require_storage_destination
+        calls = []
+        def revalidate(facts):
+            calls.append(facts)
+            if len(calls) == 3:
+                volume.rmdir()
+            return original(facts)
+        with patch.object(installer, '_require_storage_destination', side_effect=revalidate):
+            code, output, errors = self.run_setup()
+        self.assertEqual(code, 1)
+        self.assertFalse(volume.exists())
+        self.assertFalse((self.config / 'storage-services.json').exists())
+        self.assertIn('no package rollback is claimed', errors)
+        self.assertIn('select it again explicitly', errors)
+
+    def test_volume_disappearing_during_selection_blocks_before_package_changes(self):
+        volume = self.root / 'listed volume'
+        volume.mkdir()
+        self.storage_volumes = [(volume, 'mounted local filesystem')]
+        self.answers.update({'Local roles': 'ingestor-storage', 'Choose primary scientific-data location': '1'})
+        original = installer._choose_discovered
+        def choose(label, candidates):
+            result = original(label, candidates)
+            if label == 'primary scientific-data location':
+                volume.rmdir()
+            return result
+        with patch.object(installer, '_choose_discovered', side_effect=choose):
+            code, output, errors = self.run_setup()
+        self.assertEqual(code, 1)
+        self.assertFalse(volume.exists())
+        self.assertFalse(self.environment.exists())
+        self.assertFalse(self.config.exists())
+        self.assertIn('select it again explicitly', errors)
+
+    def test_declined_installation_makes_no_writes_to_the_selected_volume(self):
+        volume = self.root / 'read only discovery'
+        volume.mkdir()
+        self.storage_volumes = [(volume, 'mounted local filesystem')]
+        self.answers.update({'Local roles': 'ingestor-storage', 'Choose primary scientific-data location': '1',
+                             'Install the displayed': 'no'})
+        original_open, original_mkdir = Path.open, Path.mkdir
+        def open_path(path, mode='r', *args, **kwargs):
+            if path.is_relative_to(volume):
+                self.assertFalse(any(flag in mode for flag in 'wax+'))
+            return original_open(path, mode, *args, **kwargs)
+        def mkdir(path, *args, **kwargs):
+            self.assertFalse(path.is_relative_to(volume))
+            return original_mkdir(path, *args, **kwargs)
+        with patch.object(Path, 'open', open_path), patch.object(Path, 'mkdir', mkdir):
+            code, output, errors = self.run_setup()
+        self.assertEqual(code, 2, errors)
+        self.assertEqual(list(volume.iterdir()), [])
+        self.assertFalse(self.environment.exists())
+        self.assertFalse(self.config.exists())
+
+    def test_storage_selection_cancellation_leaves_no_destination_or_probe_files(self):
+        self.answers['Local roles'] = 'ingestor-storage'
+        self.interrupt_at = 'Use discovered primary scientific-data location'
+        code, output, errors = self.run_setup()
+        self.assertEqual(code, 130)
+        self.assertFalse(self.config.exists())
+        self.assertFalse(self.environment.exists())
+        self.assertEqual(list(self.root.rglob('.capacity-*')), [])
+
+    def test_reinstall_preserves_all_configured_storage_paths_and_scientific_bytes(self):
+        self.answers['Local roles'] = 'ingestor-storage'
+        self.assertEqual(self.run_setup()[0], 0)
+        path = self.config / 'storage-services.json'
+        data = json.loads(path.read_text())
+        for key in ('storage_root', 'global_artifact_root', 'recovery_journal_root'):
+            directory = self.root / ('custom ' + key)
+            directory.mkdir()
+            (directory / 'original.bin').write_bytes(b'preserved')
+            data[key] = str(directory)
+        journal = self.root / 'custom framework.jsonl'
+        journal.write_bytes(b'preserved journal')
+        data['framework_journal'] = str(journal)
+        path.write_text(json.dumps(data))
+        before = path.read_bytes()
+        code, output, errors = self.run_setup()
+        self.assertEqual(code, 0, errors)
+        self.assertEqual(path.read_bytes(), before)
+        self.assertEqual(journal.read_bytes(), b'preserved journal')
+        for key in ('storage_root', 'global_artifact_root', 'recovery_journal_root'):
+            self.assertEqual((Path(data[key]) / 'original.bin').read_bytes(), b'preserved')
+        self.assertFalse(any('primary scientific-data location' in p for p in self.prompts))
+
+    def test_ubuntu_mount_discovery_decodes_spaces_and_excludes_network_filesystems(self):
+        volume, remote = self.root / 'local volume', self.root / 'network volume'
+        volume.mkdir()
+        remote.mkdir()
+        mount = str(volume).replace(' ', '\\040')
+        network = str(remote).replace(' ', '\\040')
+        contents = f'1 0 8:1 / {mount} rw - ext4 /dev/test rw\n2 0 0:2 / {network} rw - nfs host:/data rw\n'
+        self.storage_discovery = True
+        self.platform = 'linux'
+        self.answers.update({'Local roles': 'ingestor-storage', 'Choose primary scientific-data location': '1'})
+        original = Path.read_text
+        def read(path, *args, **kwargs):
+            return contents if path == Path('/proc/self/mountinfo') else original(path, *args, **kwargs)
+        original_mount = Path.is_mount
+        with patch.object(Path, 'read_text', read), patch.object(
+                Path, 'is_mount', lambda path: path == volume or original_mount(path)):
+            code, output, errors = self.run_setup()
+        self.assertEqual(code, 0, errors)
+        self.assertEqual(load_service_configuration(self.config / 'storage-services.json', 'ingestor')['storage_root'], volume / 'lab-sync-data' / 'records')
+        self.assertNotIn(str(remote), output)
+
+    def test_windows_native_discovery_excludes_network_and_optical_drives(self):
+        import ctypes
+        visited = []
+        def drive_type(drive):
+            visited.append(drive)
+            return {'D': 3, 'E': 4, 'F': 5}[drive[0]]
+        kernel = SimpleNamespace(GetLogicalDrives=lambda: sum(1 << i for i in (3, 4, 5)), GetDriveTypeW=drive_type)
+        self.storage_discovery = True
+        self.platform = 'win32'
+        self.answers.update({'Local roles': 'ingestor-storage', 'Choose primary scientific-data location': '',
+                             'Storage data directory': str(self.root / 'manual science')})
+        original = installer._inspect_storage_destination
+        def inspect(path):
+            return original(self.root) if str(path).replace('\\', '/') == 'D:/' else original(path)
+        with patch.object(ctypes, 'windll', SimpleNamespace(kernel32=kernel), create=True), \
+                patch.object(installer, '_inspect_storage_destination', side_effect=inspect):
+            code, output, errors = self.run_setup()
+        self.assertEqual(code, 0, errors)
+        self.assertEqual(len(visited), 3)
+        self.assertIn('local Windows drive D:', output)
+        self.assertNotIn('local Windows drive E:', output)
+        self.assertNotIn('local Windows drive F:', output)
+
     def test_zero_pair_preservation_window_prompts_for_each_new_independent_role(self):
         self.answers['Local roles'] = 'ingestor-storage'
         self.answers['Preservation window'] = '0'
@@ -543,6 +1049,9 @@ class FrameworkInstallerTests(unittest.TestCase):
         self.execute_connection_check = False
         self.connection_client = None
         self.interrupt_at = None
+        self.storage_volumes = []
+        self.storage_discovery = False
+        self.gui_version = None
 
     def hardware(self):
         path = self.root / "node hardware.json"
@@ -592,13 +1101,15 @@ class FrameworkInstallerTests(unittest.TestCase):
                 self.create_environment()
             elif installer.ENVIRONMENT_REPORT in args:
                 return json.dumps({"version": self.version, "prefix": str(self.environment),
-                                   "base_prefix": str(self.root / "base-python")})
+                                   "base_prefix": str(self.root / "base-python"), 'gui_version': self.gui_version})
             elif "pip" in args:
                 self.assertEqual(Path(args[0]), self.environment_python())
                 if "install" in args and self.failure == "pip":
                     raise RuntimeError("Injected pip failure")
                 if "install" in args and self.failure == "interrupt":
                     raise KeyboardInterrupt()
+                if 'install' in args and args[-1] == str(self.checkout / 'gui') and self.failure == 'gui-pip':
+                    raise RuntimeError('Injected GUI package failure')
             elif installer.VALIDATE in args:
                 if self.real_validation:
                     return installer_run([sys.executable, *args[1:]], timeout=timeout)
@@ -608,6 +1119,20 @@ class FrameworkInstallerTests(unittest.TestCase):
                     return "DEPENDENCIES_UNAVAILABLE\n"
                 # Run the unchanged production loader, not a fabricated validation result.
                 load_service_configuration(args[-2], args[-1])
+            elif installer.VALIDATE_GUI in args:
+                if self.failure == 'gui-dependencies':
+                    return 'DEPENDENCIES_UNAVAILABLE\n'
+                settings = json.loads(input)
+                gui_source = Path(__file__).resolve().parents[1] / 'gui' / 'src'
+                if self.real_validation:
+                    return installer_run([sys.executable, '-I', '-B', '-c', installer.VALIDATE_GUI,
+                                          Path(__file__).resolve().parents[1] / 'src', gui_source], timeout=timeout, input=input)
+                with patch.object(sys, 'path', [str(gui_source), *sys.path]):
+                    from miceball_gui.backend import create_gui_app
+                    from lab_sync_acquisition.communication import build_runtime_subject
+                    for field, kind in (('controller_id', 'controller'), ('client_id', 'client')):
+                        build_runtime_subject(None, 'command', kind, settings[field], 'stop')
+                    create_gui_app(**settings)
             elif installer.CONNECT in args:
                 self.connections.append(json.loads(input) if input is not None else json.loads(args[-2]))
                 if self.execute_connection_check:
@@ -627,7 +1152,9 @@ class FrameworkInstallerTests(unittest.TestCase):
             return ""
 
         installer_run = installer._run
-        with patch.object(installer, "_run", side_effect=run), patch("builtins.input", side_effect=answer), \
+        discovery = contextlib.nullcontext() if self.storage_discovery else patch.object(
+            installer, '_local_storage_destinations', return_value=self.storage_volumes)
+        with discovery, patch.object(installer, "_run", side_effect=run), patch("builtins.input", side_effect=answer), \
                 patch.object(installer.getpass, "getpass", side_effect=answer), \
                 patch.object(installer.Path, "home", return_value=self.root / 'operator-home'), \
                 patch.object(installer.sys, "platform", self.platform), \

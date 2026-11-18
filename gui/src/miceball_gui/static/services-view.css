@@ -63,6 +63,8 @@ html[data-theme="dark"] .service-caution { color: #d8bf89; background: #3a3326; 
 @media (max-width: 760px) { .service-row, .service-notification { grid-template-columns: minmax(0,1fr); } .service-notification { min-height: 140px; } }
 @media (prefers-reduced-motion: reduce) { #panel-services * { scroll-behavior: auto; } }
 
-.control-history pre { white-space: pre-wrap; overflow-wrap: anywhere; }
-.control-history > summary { font-weight: 600; cursor: pointer; }
-.control-history [data-control-records] { margin-top: 12px; }
+.activity-history > summary { font-weight: 600; cursor: pointer; }
+.activity-history ol { margin: 12px 0 0; padding: 0; list-style: none; }
+.activity-history li { display: flex; gap: 12px; padding: 8px 0; border-top: 1px solid var(--line); overflow-wrap: anywhere; }
+.activity-history time { flex: 0 0 auto; color: var(--ink-600); }
+.activity-history li[data-status="failed"], .activity-history li[data-status="rejected"] { font-weight: 600; }

@@ -12,6 +12,7 @@ import { localCalendarDate } from './calendar-date.mjs';
 import { confirmStop } from './stop-confirmation.mjs';
 import { serviceActions, updateServices, startServicesRefresh, showBlockedServiceStop } from './services-view.js';
 import { configurationIdentity, configurationNumber, parseConfigurationJSON, stringifyConfiguration } from './configuration-values.mjs';
+import { activityPresentation } from './activity-presentation.mjs';
 
 const $ = selector => document.querySelector(selector);
 let socket, browserId, confirmed = false, busy = false, refreshing = false, lastRender = '';
@@ -19,14 +20,29 @@ let inventoryRequest = null;
 let liveServices = [];
 let timingPending = false;
 const waiting = new Map();
-let outcomes = [];
-try { const stored = JSON.parse(sessionStorage.getItem('miceball-pending') || '[]');
-  if (Array.isArray(stored)) outcomes = stored.filter(o => o && typeof o.request_id === 'string' && typeof o.instance_id === 'string');
-} catch (_) {}
+const outcomes = [];
 const current = () => state.controllerSnapshot;
-const save = () => sessionStorage.setItem('miceball-pending', JSON.stringify(outcomes));
-const ownershipOperation = entry => ['take_browser_control', 'view_only'].includes(entry.operation);
-serviceActions.controlHistory = () => outcomes.filter(ownershipOperation);
+serviceActions.activityHistory = () => outcomes;
+function recordActivity(operation, source = 'local', status = 'pending', error = '') {
+  const entry = {activity_id: String(outcomes.length + 1), operation, source, status, error, observed_at: new Date().toISOString()};
+  outcomes.push(entry);
+  updateServices(liveServices);
+  return entry;
+}
+function updateActivity(entry, changes) {
+  Object.assign(entry, changes, {observed_at: new Date().toISOString()});
+  updateServices(liveServices);
+}
+function actionRefusal(entry, reason) {
+  updateActivity(entry, {source: 'local', status: 'rejected', error: reason, controllerCommand: false});
+  $('.setup-demo-note').textContent = 'Action not sent. See Activity History in Services.';
+  return entry;
+}
+function noteConnectionLoss(reason) {
+  if (confirmed) recordActivity('connection_status', 'local', 'unknown', reason);
+}
+state.actions.recordActivity = (operation, error = '') => recordActivity(operation, 'local', error ? 'failed' : 'succeeded', error);
+serviceActions.recordActivity = state.actions.recordActivity;
 function invalidateServiceConfirmation() {
   // Replace projections so replies admitted before this loss cannot promote them.
   liveServices = liveServices.map(service => ({...service, current: false, diagnosticsCurrent: false, pending: false, attempt: null}));
@@ -58,11 +74,13 @@ $('#inventory-status').className = 'prototype-caption';
 $('#device-validation-maximum').disabled = true;
 $('#device-validation-maximum').closest('label').title = 'Device Validation integration unavailable';
 
-function canControl() {
-  return confirmed && current()?.control?.controlling && !busy && !outcomes.some(o => ['pending', 'uncertain'].includes(o.status));
+function canControl(except = null) {
+  return confirmed && current()?.control?.controlling && !busy && !outcomes.some(o => o !== except && o.controllerCommand && ['pending', 'uncertain'].includes(o.status));
 }
 function controls() {
   const status = current()?.status;
+  const launch = outcomes.findLast(entry => entry.operation === 'launch_session');
+  if (!status?.session_id && launch) $('.setup-demo-note').textContent = `${activityPresentation(launch).message} See Activity History in Services. Local values do not establish Session acceptance.`;
   document.documentElement.dataset.controlMode = !confirmed ? 'unconfirmed' : current()?.control?.controlling ? 'controlling' : 'view-only';
   $('.launch-session-demo').disabled = !canControl() || Boolean(status?.session_id);
   $('.launch-session-demo span').textContent = !confirmed ? 'Controller connection unconfirmed' : status?.session_id ? 'Session accepted' : current()?.control?.controlling ? 'Request Controller launch' : 'View Only';
@@ -88,28 +106,21 @@ function controls() {
   $('#load-inventory').disabled = Boolean(inventoryRequest) || !confirmed || busy || !$('#inventory-node').value;
   $('#inventory-node').disabled = Boolean(inventoryRequest);
   for (const input of document.querySelectorAll('#session-device-list input')) input.disabled = Boolean(status?.session_id) || !devices.find(device => device.id === input.dataset.device)?.available;
-  let display = $('#operation-results');
-  if (!display) { display = document.createElement('div'); display.id = 'operation-results'; display.className = 'session-feedback'; display.setAttribute('role', 'status'); $('#panel-session').append(display); }
-  const outcomeNodes = entries => entries.map(entry => {
-    const details = document.createElement('details'), summary = document.createElement('summary'), text = document.createElement('p');
-    summary.textContent = `${entry.operation} · ${entry.status}`;
-    text.textContent = `${entry.request_id || 'Request identity unavailable'} · ${entry.result?.error || 'No automatic replay. Completion follows Controller readback.'}`;
-    details.append(summary, text);
-    return details;
-  });
-  display.replaceChildren(...outcomeNodes(outcomes.filter(entry => !ownershipOperation(entry))));
   updateServices(liveServices);
 }
 state.actions.syncControls = controls;
-function request(operation, parameters = {}, session_id = null) {
+function request(operation, parameters = {}, session_id = null, entry = null) {
   if (socket?.readyState !== WebSocket.OPEN) return Promise.reject(new Error('Backend disconnected; outcome unconfirmed'));
   const id = crypto.randomUUID(), request_id = `${browserId}-${id}`, instance_id = current()?.instance_id;
   const data = stringifyConfiguration({id, operation, session_id, parameters});
+  if (entry) updateActivity(entry, {source: 'submission'});
   return new Promise((resolve, reject) => {
     const uncertain = reason => Object.assign(new Error(reason), {request_id, instance_id});
     const timer = setTimeout(() => { waiting.delete(id); reject(uncertain('Response timeout; outcome unconfirmed')); }, 30000);
     waiting.set(id, {resolve: message => resolve({...message, submitted_request_id: request_id, submitted_instance_id: instance_id}), reject, timer, uncertain});
-    socket.send(data);
+    try { socket.send(data); }
+    catch (error) { clearTimeout(timer); waiting.delete(id); reject(error); return; }
+    if (entry) Object.assign(entry, {request_id, instance_id, source: 'controller', controllerCommand: true});
   });
 }
 function requireResult(reply) {
@@ -157,51 +168,83 @@ async function refresh() {
         && !snapshot.status?.session_id && snapshot.configuration === null) {
       sessionDate.value = localCalendarDate(); sessionDate.dispatchEvent(new Event('input'));
     }
-    for (const operation of snapshot.pending_operations) if (!outcomes.some(o => o.request_id === operation.request_id && o.instance_id === snapshot.instance_id)) outcomes.push({operation: operation.operation, request_id: operation.request_id, instance_id: snapshot.instance_id, status: 'pending'});
+    for (const operation of snapshot.pending_operations) if (!outcomes.some(o => o.request_id === operation.request_id && o.instance_id === snapshot.instance_id)) {
+      const entry = recordActivity(operation.operation, 'controller');
+      Object.assign(entry, {request_id: operation.request_id, instance_id: snapshot.instance_id, controllerCommand: true});
+    }
     $('#connection-state').textContent = `${snapshot.controller_id} · ${snapshot.control.controlling ? 'Controlling' : 'View Only'}`;
     $('.setup-demo-note').textContent = snapshot.status.session_id ? 'Accepted Session configuration is fixed. Catalog and unsent application edits cannot alter it.' : 'Unsent local preparation · Controller validates launch and preservation.';
     $('#accepted-configuration').textContent = JSON.stringify(snapshot.configuration, null, 2);
     const choice = $('#inventory-node');
     if (JSON.stringify([...choice.options].map(o => o.value)) !== JSON.stringify(snapshot.configured_nodes)) choice.replaceChildren(...snapshot.configured_nodes.map(id => new Option(id, id)));
     let completedNavigation = null;
-    for (const entry of outcomes.filter(o => ['pending', 'uncertain'].includes(o.status))) {
+    for (const entry of outcomes.filter(o => o.controllerCommand && o.request_id && o.instance_id && ['pending', 'uncertain'].includes(o.status))) {
       const result = requireResult(await request('read_operation_outcome', {target_request_id: entry.request_id, instance_id: entry.instance_id}));
-      entry.status = result.status; entry.result = result.result;
+      updateActivity(entry, {status: result.status, result: result.result, error: result.result?.error || (result.status === 'unknown' ? 'No matching outcome is available from the current Controller.' : entry.error)});
+      if (entry.status === 'succeeded' && ['launch_session', 'start_launched_experiment'].includes(entry.operation)) entry.navigationPending = true;
+    }
+    // A completed outcome may arrive between two state reads. Wait for matching
+    // authoritative state instead of losing the navigation on that interleaving.
+    for (const entry of outcomes.filter(entry => entry.navigationPending)) {
       if (entry.status === 'succeeded' && entry.instance_id === snapshot.instance_id) {
-        if (entry.operation === 'launch_session' && snapshot.status.session_id) completedNavigation = 'session';
+        if (entry.operation === 'launch_session' && entry.result?.outcome?.details?.session_id === snapshot.status.session_id && snapshot.status.session_id) completedNavigation = 'session';
         if (entry.operation === 'start_launched_experiment' && snapshot.status.active_experiment_id) completedNavigation = 'experiment';
+        if (completedNavigation) entry.navigationPending = false;
       }
     }
-    save();
     updateServices(liveServices);
     $('#live-closeout-status').textContent = JSON.stringify({closeout: snapshot.closeout || 'Unconfirmed', timing_interpretations: snapshot.timing || []}, null, 2);
     const signature = JSON.stringify([snapshot.instance_id, snapshot.control, snapshot.status, snapshot.configuration, snapshot.experiments]);
     if (signature !== lastRender) { lastRender = signature; renderSetup(); renderSession(); renderExperiment(); if (!$('#panel-parameters').hidden) renderParameters(); }
     if (completedNavigation) navigate(completedNavigation);
-  } catch (error) { confirmed = false; invalidateServiceConfirmation(); $('#connection-state').textContent = `Unconfirmed · ${error.message}`; }
+  } catch (error) { noteConnectionLoss(error.message); confirmed = false; invalidateServiceConfirmation(); $('#connection-state').textContent = `Unconfirmed · ${error.message}`; }
   finally { refreshing = false; controls(); }
 }
-async function command(operation, parameters = {}, session_id = current()?.status?.session_id || null) {
-  if (!confirmed || busy || (!current()?.control.controlling && !['view_only', 'take_browser_control'].includes(operation))) return;
-  if (!['view_only', 'take_browser_control'].includes(operation) && !canControl()) return;
+async function command(operation, parameters = {}, session_id = current()?.status?.session_id || null, entry = null) {
+  entry ||= recordActivity(operation);
+  if (!confirmed) return actionRefusal(entry, 'Controller connection is unconfirmed. No request was sent.');
+  if (busy) return actionRefusal(entry, 'Another request is in progress. No request was sent.');
+  if (!current()?.control.controlling && !['view_only', 'take_browser_control'].includes(operation))
+    return actionRefusal(entry, 'View Only does not permit this operation. No request was sent.');
+  if (!['view_only', 'take_browser_control'].includes(operation) && !canControl(entry))
+    return actionRefusal(entry, 'An earlier operation is pending or unconfirmed. No request was sent.');
   busy = true; controls();
   try {
-    const reply = await request(operation, parameters, session_id);
-    const entry = {operation, instance_id: reply.instance_id || reply.submitted_instance_id, request_id: reply.result?.request_id || reply.submitted_request_id, status: reply.result?.status || reply.status, result: reply.result || reply};
-    outcomes.push(entry); save();
-    return entry;
-  } catch (error) {
-    if (error.request_id && error.instance_id) {
-      const entry = {operation, status: 'uncertain', request_id: error.request_id, instance_id: error.instance_id};
-      outcomes.push(entry); save();
+    let reply;
+    try { reply = await request(operation, parameters, session_id, entry); }
+    catch (error) {
+      updateActivity(entry, error.request_id && error.instance_id
+        ? {source: 'controller', status: 'uncertain', request_id: error.request_id, instance_id: error.instance_id, error: error.message}
+        : {source: 'submission', status: 'failed', error: error.message, controllerCommand: false});
       return entry;
     }
-    $('#connection-state').textContent = `Unconfirmed · ${error.message}`;
+    // Rendering a received result must not turn that result into a synthetic failure.
+    updateActivity(entry, {source: reply.result ? 'controller' : 'submission',
+      instance_id: reply.instance_id || reply.submitted_instance_id,
+      request_id: reply.result?.request_id || reply.submitted_request_id,
+      status: reply.result?.status || reply.status, result: reply.result || reply,
+      error: reply.result?.error || reply.error || ''});
   } finally { busy = false; await refresh(); controls(); }
+  return entry;
 }
-const localAction = action => async () => { try { await action(); } catch (error) { $('.setup-demo-note').textContent = error.message; } };
-state.actions.launchSession = localAction(async () => {
-  const config = parseConfigurationJSON($('#session-framework-fields').value);
+const localAction = (operation, action) => async () => {
+  const entry = recordActivity(operation);
+  try { await action(entry); }
+  catch (error) {
+    if (entry.controllerCommand) {
+      entry.feedback_error = error.message;
+      $('.setup-demo-note').textContent = 'The display could not be refreshed. The received outcome remains retained; check Session status and Activity History.';
+      return;
+    }
+    updateActivity(entry, {source: 'local', status: 'failed', error: error.message, controllerCommand: false});
+    $('.setup-demo-note').textContent = `${activityPresentation(entry).message} See Activity History in Services.`;
+  }
+};
+state.actions.launchSession = localAction('launch_session', async entry => {
+  let config;
+  try { config = parseConfigurationJSON($('#session-framework-fields').value); }
+  catch (error) { throw new Error(error instanceof SyntaxError ? 'Additional Session configuration: enter valid JSON framework configuration.' : `Additional Session configuration: ${error.message}`); }
+  if (!config || typeof config !== 'object' || Array.isArray(config)) throw new Error('Additional Session configuration must be an object.');
   config.storage_location = readConfigurationString(storageLocation);
   config.error_evidence_location = readConfigurationString(errorLocation);
   config.session_parameters = {...config.session_parameters};
@@ -221,7 +264,7 @@ state.actions.launchSession = localAction(async () => {
     if (!device?.available) throw new Error('Selected inventory is unconfirmed.');
     (selections[device.nodeId] ??= []).push(clone(device.declaration));
   }
-  await command('launch_session', {selections, config_parameters: config, scientific_outputs: []}, null);
+  await command('launch_session', {selections, config_parameters: config, scientific_outputs: []}, null, entry);
   if (current()?.status.session_id) navigate('session');
 });
 state.actions.startSession = () => command('start_launched_session');
@@ -235,7 +278,7 @@ document.addEventListener('click', event => {
     {title: 'Authorize Kill Session?', confirm: 'Authorize Kill Session', cancel: 'Cancel'});
 });
 state.actions.releaseSession = () => { const sid = current()?.status.session_id; confirmStop('Session release', () => command('release_session', {}, sid), 'Release only after Controller confirms terminal preservation and cleanup.', {title: 'Release Session?', confirm: 'Release Session', cancel: 'Cancel'}); };
-state.actions.startExperiment = localAction(async () => {
+state.actions.startExperiment = localAction('start_launched_experiment', async entry => {
   const {step, record} = selectedStepContext(state), configuration = experimentView(state, step, record).configuration;
   const issues = experimentIssues(state, step, configuration);
   if (issues.length) throw new Error(issues.join(' '));
@@ -249,7 +292,7 @@ state.actions.startExperiment = localAction(async () => {
     if (Object.keys(parameters).length) (device_configurations[device.nodeId] ??= Object.create(null))[device.deviceId] = parameters;
   }
   state.submittedExperiment = {stepId: step.id, experimentId: configuration.experimentId};
-  await command('start_launched_experiment', {experiment_id: configuration.experimentId, configuration: {duration_s: configuration.durationSeconds, participating_devices, device_configurations, recording_budgets: configuration.recordingBudgets, preservation_budget_bytes: configuration.preservationBudget}, scientific_outputs: configuration.outputs});
+  await command('start_launched_experiment', {experiment_id: configuration.experimentId, configuration: {duration_s: configuration.durationSeconds, participating_devices, device_configurations, recording_budgets: configuration.recordingBudgets, preservation_budget_bytes: configuration.preservationBudget}, scientific_outputs: configuration.outputs}, current()?.status?.session_id || null, entry);
   if (current()?.status.active_experiment_id) navigate('experiment');
 });
 state.actions.stopExperiment = () => { const sid = current()?.status.session_id, id = current()?.status.active_experiment_id; confirmStop('Experiment', () => command('stop_launched_experiment', {experiment_id: id}, sid), 'Request early Stop and preservation; the Session remains active.'); };
@@ -258,7 +301,8 @@ $('#take-over').onclick = () => command('take_browser_control', {}, null);
 $('#view-only').onclick = () => command('view_only', {}, null);
 $('#load-inventory').onclick = async () => {
   const node = $('#inventory-node').value;
-  if (inventoryRequest || !confirmed || busy || !node) return;
+  const entry = recordActivity('get_node_inventory');
+  if (inventoryRequest || !confirmed || busy || !node) { actionRefusal(entry, 'Inventory refresh is unavailable or already pending. No request was sent.'); return; }
   const connection = socket, instance = current()?.instance_id;
   inventoryRequest = node;
   $('#inventory-status').textContent = `${node}: Refreshing inventory; confirmation pending`;
@@ -272,7 +316,8 @@ $('#load-inventory').onclick = async () => {
     for (const device of devices.filter(item => item.nodeId === node)) deviceExamples[device.id] = {acquisition: Boolean(device.declaration.scientific_products?.length), fields: Object.entries(inventory.session_parameter_definitions?.[device.deviceId] || {}).map(([name, definition]) => ({id: configurationIdentity(node, device.deviceId, name), name, label: name, type: definition.type === 'boolean' ? 'checkbox' : ['integer', 'number'].includes(definition.type) ? 'number' : 'text', integer: definition.type === 'integer', min: definition.minimum ?? definition.exclusive_minimum, max: definition.maximum, nullable: definition.nullable}))};
     if (current()) applyControllerSnapshot(state, current());
     $('#inventory-status').textContent = `${node}: inventory confirmed; readiness remains Controller-owned`;
-  } catch (error) { for (const device of devices.filter(item => item.nodeId === node)) device.available = false; $('#inventory-status').textContent = `${node}: unconfirmed · ${error.message}`; }
+    updateActivity(entry, {status: 'succeeded'});
+  } catch (error) { updateActivity(entry, {status: 'unknown', error: error.message}); for (const device of devices.filter(item => item.nodeId === node)) device.available = false; $('#inventory-status').textContent = `${node}: unconfirmed · ${error.message}`; }
   finally {
     inventoryRequest = null;
     $('#inventory-status').removeAttribute('aria-busy');
@@ -285,6 +330,7 @@ function connect() {
     let message;
     try { message = parseConfigurationJSON(event.data); }
     catch (error) {
+      noteConnectionLoss(error.message);
       confirmed = false; invalidateServiceConfirmation(); controls(); $('#connection-state').textContent = `Unconfirmed: ${error.message}`;
       for (const pending of waiting.values()) { clearTimeout(pending.timer); pending.reject(pending.uncertain(error.message)); }
       waiting.clear(); return;
@@ -293,13 +339,16 @@ function connect() {
     const pending = waiting.get(message.id);
     if (pending) { clearTimeout(pending.timer); waiting.delete(message.id); pending.resolve(message); }
   };
-  socket.onclose = () => { confirmed = false; invalidateServiceConfirmation(); for (const device of devices) device.available = false; renderSetup(); controls(); $('#connection-state').textContent = 'Backend disconnected · last-known state'; for (const pending of waiting.values()) { clearTimeout(pending.timer); pending.reject(pending.uncertain('Connection lost; outcome uncertain')); } waiting.clear(); setTimeout(connect, 2000); };
+  socket.onclose = () => { noteConnectionLoss('Backend disconnected.'); confirmed = false; invalidateServiceConfirmation(); for (const device of devices) device.available = false; renderSetup(); controls(); $('#connection-state').textContent = 'Backend disconnected · last-known state'; for (const pending of waiting.values()) { clearTimeout(pending.timer); pending.reject(pending.uncertain('Connection lost; outcome uncertain')); } waiting.clear(); setTimeout(connect, 2000); };
 }
 $('.readiness-card').insertAdjacentHTML('beforeend', '<details><summary>Authoritative timing and closeout</summary><pre id="live-timing-status">Unconfirmed</pre><pre id="live-closeout-status">Unconfirmed</pre></details>');
 serviceActions.canControl = canControl;
-serviceActions.frameworkOutcome = () => outcomes.findLast(entry => entry.operation === 'shutdown_framework');
-serviceActions.refresh = async id => {
-  if (!confirmed) return;
+serviceActions.refresh = async (id, explicit = false) => {
+  const entry = explicit ? recordActivity('check_readiness') : null;
+  if (!confirmed) { if (entry) actionRefusal(entry, 'Controller connection is unconfirmed. No check was sent.'); return; }
+  if (entry && !liveServices.some(service => (!id || service.id === id) && !service.pending)) {
+    actionRefusal(entry, 'No configured service is available for a new check, or a check is already pending. No additional request was sent.'); return;
+  }
   const connection = socket, instance = current()?.instance_id;
   await Promise.all(liveServices.filter(s => (!id || s.id === id) && !s.pending).map(async service => {
     let notice;
@@ -323,6 +372,7 @@ serviceActions.refresh = async id => {
     }
     finally { service.pending = false; updateServices(liveServices, notice); }
   }));
+  if (entry) updateActivity(entry, {status: liveServices.filter(service => !id || service.id === id).every(service => service.current) ? 'succeeded' : 'unknown', error: 'Availability remains unknown for services without a current confirmed report.'});
   const sid = current()?.status?.session_id;
   if (!id && sid && !timingPending && liveServices.some(s => s.participant.component_type === 'synchronization_manager')) {
     timingPending = true;
@@ -335,17 +385,17 @@ serviceActions.refresh = async id => {
   }
 };
 serviceActions.maintain = async (operation, service, administrator_id, recovery = null) => {
-  if (!canControl()) return;
+  if (!canControl()) { actionRefusal(recordActivity(operation), 'Current control and confirmed operation context are required. No request was sent.'); return; }
   const parameters = {administrator_id, authorized: true};
   if (recovery) Object.assign(parameters, recovery);
   if (service) {
     parameters.participant = service.participant;
     if (!recovery && operation !== 'stop_service') {
-      if (service.attempt?.outcome !== 'blocked') return;
+      if (service.attempt?.outcome !== 'blocked') { actionRefusal(recordActivity(operation), 'A current blocked Stop attempt is required. No request was sent.'); return; }
       parameters.stop_attempt_id = service.attempt.stop_attempt_id;
     }
     service.attempt = null;
-    service.lastOperation = {operation, status: 'pending'};
+    service.lastOperation = null;
   }
   updateServices(liveServices, 'Operation submitted; owner confirmation pending. No automatic retry or force escalation.');
   const entry = await command(operation, parameters, null);
