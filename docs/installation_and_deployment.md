@@ -1,5 +1,36 @@
 # Installation And Deployment
 
+## Accepted graphical installer direction (Decision 453; not implemented)
+
+[Decision 453](architecture_decisions.md#decision-453-self-contained-graphical-installation-shares-cli-operations-and-permits-bounded-local-nats-provisioning)
+accepts a self-contained Tkinter/ttk installer with a managed Python 3.12 runtime
+and packaged dependencies, retaining the CLI over shared installation operations.
+The seven steps are computer functions, NATS configuration, role configuration,
+scientific storage, optional Advanced Settings, review/install and truthful
+completion. GUI-only, NATS-only and combined roles are included. Intended Windows
+x86-64, Linux x86-64 and ARM64/Jetson support still requires platform verification.
+
+The accepted future installer may discover/provision a separate local NATS
+instance and, with explicit choices, start it and configure OS startup. New
+instances prepare required authentication, permissions, persistent storage and
+Controller claim-store prerequisites without acquiring Controller authority or
+modifying existing servers. This narrowly qualifies earlier external-NATS
+exclusions; the currently implemented CLI still does not provision NATS.
+
+One versioned non-secret laboratory connection file carries necessary shared
+configuration and upfront service identities, never credentials, local paths,
+catalogs or synchronization settings. Credentials use separate protected inputs.
+Software may be installed with configuration explicitly incomplete; reopening
+finishes configuration without reinstalling. Invalid files must never be published.
+Existing update/retirement, preservation and Decision 445 confidentiality checks
+remain mandatory. Decisions 451/452 supply existing synchronization initialization
+and catalog persistence; updates must preserve their saved administrative data.
+
+The following procedures describe existing implementations and historical evidence,
+not the future installer's availability. Scientific framework services and the
+operational GUI must not be launched/restarted by the installer. No deployment,
+implementation or compatibility validation is established by this synchronization.
+
 Decision 451's GUI synchronization initialization uses one backend-owned definition:
 exchanges 3, initial scale 1.0, clock-rate error bound 0.001, maximum uncertainty
 0.5 s, maximum mapping age 20 s, assessment interval 5 s, result window 2 s,

@@ -2744,6 +2744,18 @@ verification without another independent re-audit for this test-only cleanup.
 Remaining deployment work is pending.
 Q022 as a whole is not closed. Q019 remains CLOSED in W050.
 
+**Self-contained graphical installer (Decision 453): accepted architecture;
+implementation, packaging feasibility, independent validation and audit pending.**
+The seven-step Tkinter/ttk experience and retained CLI share installation operations,
+with managed Python/dependencies, GUI-only/NATS-only/multiple-function selection,
+one non-secret laboratory connection file and explicit incomplete-configuration
+completion. Bounded local NATS provisioning/startup qualifies Decision 440, not
+Controller authority or scientific service/GUI startup. Preserve Decisions 450-452
+and their validation baselines, including saved synchronization settings and GUI
+catalogs. Intended Windows/Linux/ARM64/Jetson support is not verified compatibility.
+See [Decision 453](architecture_decisions.md#decision-453-self-contained-graphical-installation-shares-cli-operations-and-permits-bounded-local-nats-provisioning).
+Q022 remains OPEN; historical installer closures and evidence are unchanged.
+
 **Generic installer (Decision 421): implemented; Decision 446 closes only the
 bounded guided-installer software scope below, not broader deployment work.**
 

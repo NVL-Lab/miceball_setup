@@ -12586,6 +12586,12 @@ testing or validation. G4-A/B remain CLOSED; G4-C and Q013 remain OPEN.
 
 **Status:** Accepted
 
+**Subsequent extension:** Decision 453 accepts self-contained graphical and CLI
+installation through shared operations, managed runtime preparation, GUI-only and
+NATS-only installation, and explicit incomplete-configuration completion. Historical
+checkout/interpreter prerequisites below describe the existing CLI implementation,
+not mandatory researcher prerequisites for the accepted graphical installer.
+
 **Subsequent clarification:** Decision 439 requires external nats-py availability
 and minimal broker connection/cleanup verification before installation changes,
 with editable identifier defaults and ordinary cancellation reporting.
@@ -14093,6 +14099,11 @@ no behavior and performs no Package 2 closure. Q024 remains OPEN.
 
 **Status:** Accepted
 
+**Subsequent extension:** Decision 453 permits a packaged managed runtime and
+dependencies to satisfy local prerequisites without manual Python/nats-py setup.
+Required compatibility and dependency checks remain; existing CLI behavior and
+historical validation evidence are not changed by that acceptance.
+
 **Partial supersession:** Decision 440 supersedes only the mandatory pre-install
 broker-connectivity gate recorded below. Historical text is retained; all other
 requirements, including local prerequisites, editable identifier defaults,
@@ -14147,6 +14158,12 @@ and closure remain separate workflow stages; Q022 remains OPEN.
 ## Decision 440: Software installation proceeds without an operational NATS broker
 
 **Status:** Accepted
+
+**Bounded subsequent extension:** Decision 453 authorizes local NATS discovery,
+provisioning and explicitly selected infrastructure startup/OS startup integration.
+It qualifies the external-broker exclusions below only within that scope. NATS
+remains infrastructure; scientific service/GUI startup and supervision remain
+excluded. Offline installation and truthful connectivity reporting are unchanged.
 
 This records the explicitly user-accepted LLC clarification to Decision 439 for
 Q022. It supersedes only Decision 439's mandatory pre-install broker-connectivity
@@ -14931,6 +14948,127 @@ it does not close their implementation/verification work.
 
 ---
 
+## Decision 453: Self-contained graphical installation shares CLI operations and permits bounded local NATS provisioning
+
+**Status:** Accepted; implementation, platform feasibility checks, independent
+validation and audit pending.
+
+This records the project owner's explicitly accepted LLC graphical-installer
+handoff. It extends Decisions 421, 439-440, 446 and 447 within the following scope,
+preserving historical decisions and validation evidence. Decisions 376, 426, 436,
+445 and 450-452 retain their ownership, authority, confidentiality and preservation
+contracts. Documentation synchronization does not authorize implementation.
+
+### Distribution and shared installation
+
+Provide a lightweight Tkinter/ttk graphical installer and retain the CLI for
+administration, development, automation and troubleshooting. Both use one shared
+installation implementation, including existing discovery, validation, publication
+and preservation mechanisms. Researchers need not manually install Python, clone
+Git, prepare virtual environments or edit JSON.
+
+Use a managed Python 3.12 runtime and packaged dependencies with separate Windows
+x86-64, Linux x86-64 and Linux ARM64 installation packages, including intended
+NVIDIA Jetson support. Core framework and operational GUI remain separate
+distributions. GUI-only, NATS-only and multiple-function installation are supported.
+These are intended targets, not experimentally verified platform compatibility.
+
+### Seven-step researcher workflow
+
+1. **Computer functions:** Select Control experiments (Controller), Acquire
+   scientific data (AcquisitionNode), Synchronize equipment (SynchronizationManager),
+   Store scientific data (paired Ingestor/StorageManager), and/or Provide the
+   graphical interface. Support NATS-only installation and determine genuine
+   software dependencies automatically.
+2. **NATS configuration:** Choose this computer or another computer. Discover
+   local installations before presenting actual candidates; permit an existing
+   compatible server or a separate new instance. Never scan other computers or
+   disturb existing configurations, ports or data. Remote setup supports one
+   connection-file import or equivalent manual input, including independently
+   configured compatible servers. Explain how to prepare an absent remote host
+   with this installer, without imposing runtime-based installation ordering.
+3. **Role configuration:** Generate safe local defaults and reuse valid retained
+   configuration. Hide ordinary internal identities, bucket/key names and timing
+   details; ask only for genuinely necessary information and explain prerequisites.
+4. **Scientific storage:** Offer an appropriate default and Browse, preserve valid
+   destinations, validate choices and derive owner-appropriate subordinate paths.
+   No automatic largest-disk choice, formatting, mounting, migration or ownership
+   merging is authorized.
+5. **Advanced Settings:** Initially collapsed and optional, exposing applicable
+   accepted technical settings without duplicating defaults or validation.
+6. **Review and Install:** Summarize consequential changes, obtain explicit
+   approval, install only selected components and necessary dependencies, and
+   preserve validation, cancellation, failure reporting and update protections.
+7. **Completion:** Distinguish installed software, incomplete configuration, valid
+   configuration and connectivity verified/unverified within actual check scope.
+   Explain remaining prerequisites and provide launch instructions. Do not launch
+   or automatically restart scientific framework services or the operational GUI.
+
+### Bounded local NATS provisioning
+
+Decision 440's external-infrastructure restriction is qualified for installer-owned
+local discovery, installation, configuration and optional startup only. New instances
+automatically prepare required account, authentication, permissions and Controller
+claim-store infrastructure, generate and preserve credentials, and use separate
+persistent storage. Support laboratory-network access with appropriate security
+and explicit approval for consequential network changes. Preserve existing servers.
+
+For a new instance, expose three visible, independently deselectable checkboxes,
+recommended and selected by default: persistent JetStream; start NATS after
+installation; start NATS automatically at computer startup. Explain the operational
+consequences of disabling required persistence or startup. Never weaken framework
+guarantees. Provisioning an empty claim store must not acquire Controller authority,
+clear occupied claims or alter existing recovery requirements under Decision 436.
+
+NATS remains infrastructure, not a scientific service. No remote discovery,
+distributed configuration registry, pairing infrastructure, remote service
+management or supervision of scientific framework services is authorized.
+
+### Non-secret laboratory connection file
+
+Provide one versioned transferable JSON file, provisionally
+`miceball-lab-connection.json`, containing only necessary non-secret shared
+deployment configuration. Derive its minimum schema from existing role consumers;
+do not invent another deployment protocol. Generate shared framework identities
+upfront when establishing the laboratory, including services not yet installed,
+and preserve them during subsequent installation and updates.
+
+Support import, export, display/copy of relevant non-secret information and
+equivalent manual input. Credentials are supplied separately through protected
+inputs and preserved locally under Decision 445. No secrets, encrypted credential
+export, computer-local paths, GUI catalogs, synchronization settings, scientific
+records, private keys, active Controller claims or operational-instance state belong
+in the transferable file. Avoid unnecessary repeated transfers between configured
+computers; preserve genuine node registration, dependency declarations and
+Controller authorization without silent remote configuration changes.
+
+### Incomplete configuration and preservation
+
+Software installation may complete without mandatory configuration information.
+Report precisely what is missing, why and how to complete it. The same installer
+can reopen to finish configuration without reinstalling software. Never publish
+invalid configurations, fabricate required values, treat unavailable connectivity
+as verified, or equate installation with scientific readiness.
+
+Preserve existing service identities, NATS credentials/configuration, authority
+scope, scientific destinations, Session records, journals, evidence, catalogs and
+other deployment-local configuration. Retain explicit update/retirement safeguards;
+do not silently replace settings or restart running framework services.
+
+Decision 451's `INITIAL_SYNCHRONIZATION_CONFIGURATION`, shared validator,
+`_initialize_gui_synchronization()` initialization boundary and existing backend
+persistence remain authoritative. Initialize only missing settings; preserve saved
+administrative values and refuse malformed retained settings. Decision 452's
+catalog ownership, revision, removal and historical-identity rules remain unchanged.
+No duplicate defaults, validators, persistence or catalog store is authorized.
+
+**Implementation status:** This accepts architecture only. The existing CLI and
+Decisions 450-452 implementations/validation baselines are unchanged. No graphical
+installer, NATS provisioning, platform compatibility, independent verification or
+closure is established here. Q022 remains OPEN.
+
+---
+
 # Accepted Architectural Principles
 
 The following principles summarize the accepted decisions so far.
@@ -14939,7 +15077,8 @@ Decision 440 separates software installation/configuration from operational
 connectivity and actual service readiness. Required local prerequisites still
 block installation; unavailable broker connectivity is PENDING / NOT VERIFIED and
 does not block installation. Decision 436 remains mandatory before Controller
-operation, and NATS management remains external.
+operation. Decision 453 permits bounded local installer NATS provisioning/startup;
+its implementation is pending and NATS remains infrastructure, not a service owner.
 
 Decision 436 requires a persistent non-expiring atomic JetStream claim for one
 system-wide Controller operational authority, with instance/revision-conditional

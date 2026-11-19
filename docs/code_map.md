@@ -2776,6 +2776,16 @@ Storage GUI integration and remaining deployment validation.
 
 ## scripts/install_framework.py
 
+**Planned boundary (Decision 453; no implementation yet):** Extract only reusable
+installation operations from CLI prompting for a shared CLI/Tkinter frontend,
+retaining authoritative configuration validators and durable publication. Add a
+non-secret shared connection-file adapter, explicit software-only/configuration-
+completion orchestration and bounded local NATS provisioning in their own
+installation responsibilities, not framework/GUI runtime owners. Managed runtime
+and platform packages require early feasibility verification. Reuse Decision 451
+defaults/initialization and Decision 452 catalog preservation unchanged. The
+functions below describe existing code, not these planned additions.
+
 - Decision 447: Scientific-storage selection (447-A) and optional separate GUI setup (447-B) are implemented with developer verification; independent validation/audit remain pending.
 - `_gui_plan(checkout, directory, existing, configured, installed, preflight_python)`: Discovers optional GUI package/configuration, confirms credential-isolated settings and exact local Controller field changes, and reports remote/declined setup as pending.
 - `_validate_gui(python, checkout, settings, *, source, allow_unavailable=False)`: Uses production GUI app construction and routing validation in a private-input child without starting the GUI or contacting Controller, with mandatory installed-package validation before publication.
