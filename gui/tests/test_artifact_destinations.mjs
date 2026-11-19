@@ -47,12 +47,12 @@ await page.routeWebSocket('**/ws', route => {
 const section = name => page.evaluate(name => document.dispatchEvent(new CustomEvent('gui-section', {detail: name})), name);
 const admin = async () => {
   await section('services'); await page.locator('[data-mode="administrator"]').click();
-  await page.locator('[data-danger-enter]').click(); await section('storage');
+  await page.locator('[data-administrator-entry]').fill('Alice'); await page.locator('[data-danger-enter]').click(); await section('storage');
 };
 const register = async root => {
   await page.locator('[data-destination-register]').click();
   const form = page.locator('dialog[open] form');
-  await form.locator('[name="administrator"]').fill('Alice');
+  assert.equal(await form.locator('[name="administrator"]').inputValue(), 'Alice');
   await form.locator('[name="name"]').fill('Approved extra disk');
   await form.locator('[name="root"]').fill(root);
   await form.locator('[type="submit"]').click();
@@ -70,7 +70,7 @@ try {
   await admin();
   assert.match(await page.locator('.artifact-destinations').innerText(), /Installation default/);
   await page.locator('[data-destination-toggle="other"]').click();
-  await page.locator('dialog[open] [name="administrator"]').fill('Alice');
+  assert.equal(await page.locator('dialog[open] [name="administrator"]').inputValue(), 'Alice');
   await page.locator('dialog[open] [type="submit"]').click();
   await page.locator('dialog[open]').waitFor({state: 'hidden'});
   await section('setup');
@@ -79,7 +79,7 @@ try {
   await page.selectOption('#artifact-destination', 'default');
   await section('storage');
   await page.locator('[data-destination-remove="other"]').click();
-  await page.locator('dialog[open] [name="administrator"]').fill('Alice');
+  assert.equal(await page.locator('dialog[open] [name="administrator"]').inputValue(), 'Alice');
   await page.locator('dialog[open] [type="submit"]').click();
   await page.locator('[data-destination-dialog-status]').filter({hasText: 'Retained Session'}).waitFor();
   await page.locator('[data-destination-cancel]').click();
@@ -93,7 +93,7 @@ try {
   assert.equal(submissions.filter(item => item.operation === 'register_artifact_destination').at(-1).parameters.administrator_mode, true);
   const extraId = destinations.at(-1).destination_id;
   await page.locator(`[data-destination-remove="${extraId}"]`).click();
-  await page.locator('dialog[open] [name="administrator"]').fill('Alice');
+  assert.equal(await page.locator('dialog[open] [name="administrator"]').inputValue(), 'Alice');
   await page.locator('dialog[open] [type="submit"]').click();
   await page.locator('dialog[open]').waitFor({state: 'hidden'});
   assert.equal(destinations.some(entry => entry.destination_id === extraId), false);

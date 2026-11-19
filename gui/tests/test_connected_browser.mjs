@@ -38,9 +38,11 @@ if (!process.env.MICEBALL_BROWSER_ORIGIN) {
   try {
     await page.goto(process.env.MICEBALL_BROWSER_ORIGIN);
     await page.locator('#connection-state').filter({hasText: 'View Only'}).waitFor();
-    assert.equal(await page.locator('.setup-disclosure').count(), 9);
+    assert.equal(await page.locator('.setup-disclosure').count(), 10); // Nine ordinary sections plus Decision 452 management.
+    assert.equal(await page.locator('.setup-card:not(:has([data-catalog-category])) .setup-disclosure').count(), 9);
+    assert.equal(await page.locator('[data-catalog-category]').isVisible(), false);
     await page.locator('[data-close-setup]').click();
-    assert.equal(await page.locator('.setup-disclosure[open]').count(), 0);
+    assert.equal(await page.locator('.setup-card:not([hidden]) .setup-disclosure[open]').count(), 0);
     await shot('connected-setup-collapsed');
     await page.locator('[data-open-setup]').click();
     await shot('connected-setup-expanded');
@@ -111,7 +113,7 @@ if (!process.env.MICEBALL_BROWSER_ORIGIN) {
     await observer.locator('#connection-state').filter({hasText: 'View Only'}).waitFor();
     assert.equal(await observer.locator('.launch-session-demo').isDisabled(), true);
     await observer.locator('[data-close-setup]').click();
-    assert.equal(await observer.locator('.setup-disclosure[open]').count(), 0);
+    assert.equal(await observer.locator('.setup-card:not([hidden]) .setup-disclosure[open]').count(), 0);
     await observer.locator('#take-over').click();
     await observer.locator('#connection-state').filter({hasText: 'Controlling'}).waitFor();
     await page.locator('#connection-state').filter({hasText: 'View Only'}).waitFor();
@@ -163,7 +165,7 @@ if (!process.env.MICEBALL_BROWSER_ORIGIN) {
             if (name === 'services') {
               await page.locator('[data-mode="administrator"]').click();
               await shot(`${mode}-${size}-${theme}-administrator-dialog`);
-              await page.locator('[data-danger-enter]').click();
+              await page.locator('[data-administrator-entry]').fill('Lab Operator'); await page.locator('[data-danger-enter]').click();
               await shot(`${mode}-${size}-${theme}-administrator`);
               if (mode === 'connected') assert.equal(await page.locator('[data-shutdown-framework]').isEnabled(), true);
               await page.locator('[data-mode="experimenter"]').click();

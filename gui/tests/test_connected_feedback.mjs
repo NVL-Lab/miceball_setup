@@ -272,16 +272,13 @@ async function verifyMaintenanceBinding() {
     await target.locator('#services-refresh').selectOption('0');
     await target.locator('[data-expand-service]').click();
     await target.locator('[data-mode="administrator"]').click();
-    await target.locator('[data-danger-enter]').click();
+    await target.locator('[data-administrator-entry]').fill('Lab Operator'); await target.locator('[data-danger-enter]').click();
     const authorize = async selector => {
       await target.locator(selector).click();
       const dialog = target.locator('.services-danger[open]');
-      assert.equal(await dialog.locator('[data-live-administrator]').inputValue(), '');
-      assert.equal(await dialog.locator('[data-live-confirm]').isDisabled(), true);
-      await dialog.locator('[data-live-administrator]').fill('   ');
-      assert.equal(await dialog.locator('[data-live-confirm]').isDisabled(), true);
-      await dialog.locator('[data-live-administrator]').fill('Lab Operator');
-      assert.equal(await dialog.locator('[data-live-authorized]').count(), 0);
+      assert.equal(await dialog.locator('[data-live-administrator]').inputValue(), 'Lab Operator');
+      assert.equal(await dialog.locator('[data-live-administrator]').getAttribute('readonly'), '');
+      assert.equal(await dialog.locator('[data-live-confirm]').isEnabled(), true);
       await dialog.locator('[data-live-confirm]').click();
     };
     await authorize('[data-stop-service]');
@@ -289,7 +286,7 @@ async function verifyMaintenanceBinding() {
     await blockedDialog.locator('[data-live-choice]').waitFor();
     assert.match(await blockedDialog.innerText(), /attempt-1/);
     assert.match(await blockedDialog.innerText(), /Preservation incomplete/);
-    assert.equal(await blockedDialog.locator('[data-live-confirm]').isDisabled(), true);
+    assert.equal(await blockedDialog.locator('[data-live-confirm]').isEnabled(), true);
     await blockedDialog.locator('[data-admin-close]').click();
     assert.equal(submitted.length, 1); // Closing the choice never authorizes Cancel or Kill.
     await target.locator('[data-live-kill]').waitFor();
@@ -304,7 +301,7 @@ async function verifyMaintenanceBinding() {
     const cancelDialog = target.locator('.services-danger[open]');
     await cancelDialog.locator('[data-live-choice]').waitFor();
     await cancelDialog.locator('[data-live-choice]').selectOption('cancel_service');
-    await cancelDialog.locator('[data-live-administrator]').fill('Lab Operator');
+    assert.equal(await cancelDialog.locator('[data-live-administrator]').inputValue(), 'Lab Operator');
     assert.equal(await cancelDialog.locator('[data-live-authorized]').count(), 0);
     await cancelDialog.locator('[data-live-confirm]').click();
     await target.locator('[data-owner-report] pre').filter({hasText: 'cancel_service'}).waitFor({state: 'attached'});
@@ -312,11 +309,9 @@ async function verifyMaintenanceBinding() {
     assert.equal(await target.locator('[data-live-kill]').count(), 0);
     await target.locator('[data-administrative="Supported recovery attempts"]').click();
     const recoveryDialog = target.locator('.services-danger[open]');
-    assert.equal(await recoveryDialog.locator('[data-recovery-administrator]').inputValue(), '');
-    assert.equal(await recoveryDialog.locator('[data-recovery-confirm]').isDisabled(), true);
-    await recoveryDialog.locator('[data-recovery-administrator]').fill('operator');
-    assert.equal(await recoveryDialog.locator('[data-recovery-confirm]').isDisabled(), true);
-    await recoveryDialog.locator('[data-recovery-administrator]').fill('Lab Operator');
+    assert.equal(await recoveryDialog.locator('[data-recovery-administrator]').inputValue(), 'Lab Operator');
+    assert.equal(await recoveryDialog.locator('[data-recovery-administrator]').getAttribute('readonly'), '');
+    assert.equal(await recoveryDialog.locator('[data-recovery-confirm]').isEnabled(), true);
     await recoveryDialog.locator('[data-recovery-confirm]').click();
     await target.locator('[data-owner-report] pre').filter({hasText: 'cleanup_device_resources'}).waitFor({state: 'attached'});
     assert.deepEqual(submitted[4].parameters, {participant, administrator_id: 'Lab Operator', authorized: true,
@@ -327,7 +322,7 @@ async function verifyMaintenanceBinding() {
     assert.match(activityText, /Device resource cleanup completed/);
     assert.doesNotMatch(activityText, /kill_service|cleanup_device_resources|request_id/);
     await target.locator('[data-stop-service]').click();
-    await target.locator('[data-live-administrator]').fill('Lab Operator');
+    assert.equal(await target.locator('[data-live-administrator]').inputValue(), 'Lab Operator');
     controlling = false;
     await target.locator('#connection-state').filter({hasText: 'View Only'}).waitFor();
     await target.locator('[data-live-confirm]').click();
@@ -376,7 +371,9 @@ async function verifyMaintenanceBinding() {
   } finally { await target.close(); }
 }
 try {
-  if (process.env.LAB_SYNC_GUI_ACTIVITY_ONLY === '1') {
+  if (process.env.LAB_SYNC_GUI_RENDERING_ONLY === '1') {
+   await verifyRenderingSafety();
+  } else if (process.env.LAB_SYNC_GUI_ACTIVITY_ONLY === '1') {
   await verifyActivityHistory(browser, process.env.MICEBALL_BROWSER_ORIGIN, JSON.parse(process.env.MICEBALL_MONITORING), section, directory);
   } else {
   await verifyMaintenanceBinding();
@@ -492,9 +489,9 @@ try {
   assert.equal(await services.locator('[data-expand-service]').first().getAttribute('aria-expanded'), 'false');
   await page.keyboard.press('Space');
   assert.equal(await services.locator('[data-expand-service]').first().getAttribute('aria-expanded'), 'true');
-  await services.locator('[data-mode="administrator"]').click();
+  await page.locator('.topbar [data-mode="administrator"]').click();
   assert.doesNotMatch(await page.locator('.services-danger[open]').innerText(), /demo|simulat|fixture/i);
-  await page.locator('[data-danger-enter]').click();
+  await page.locator('[data-administrator-entry]').fill('Lab Operator'); await page.locator('[data-danger-enter]').click();
   assert.doesNotMatch(await services.innerText(), /demo|simulat|fictional|fixture|transport example/i);
   assert.equal(await services.locator('[data-stop-service]').isDisabled(), true);
   assert.equal(await services.locator('[data-shutdown-framework]').isDisabled(), true);
@@ -700,9 +697,26 @@ try {
   // whether its history has the old or unified disclosure identity.
   await baseline.locator('#control-activity-history, #activity-history').evaluate(node => node.hidden = true);
   await demo.locator('#activity-history').evaluate(node => node.hidden = true);
-  assert.equal(await demo.locator('#panel-services').innerText(), await baseline.locator('#panel-services').innerText());
-  const demoBefore = await baseline.locator('#panel-services').screenshot();
-  assert.deepEqual(await demo.locator('#panel-services').screenshot(), demoBefore);
+  const configuredCard = '.services-card:has(.services-list)';
+  assert.equal(await demo.locator(configuredCard).innerText(), await baseline.locator(configuredCard).innerText());
+  // The approved shared header leaves less room in the Services scroll pane.
+  // Compare the complete card, not pixels clipped by different pane heights.
+  for (const target of [baseline, demo]) {
+    await target.setViewportSize({width: 1440, height: 1200});
+    await target.locator(configuredCard).scrollIntoViewIfNeeded();
+    const contained = await target.locator(configuredCard).evaluate(card => {
+      const box = card.getBoundingClientRect(), pane = card.closest('#panel-services');
+      const viewport = pane.getBoundingClientRect();
+      return box.top >= viewport.top + pane.clientTop
+        && box.bottom <= viewport.top + pane.clientTop + pane.clientHeight
+        && box.left >= viewport.left + pane.clientLeft
+        && box.right <= viewport.left + pane.clientLeft + pane.clientWidth;
+    });
+    assert.equal(contained, true, 'Entire Services card must fit inside its scroll viewport');
+  }
+  const demoBefore = await baseline.locator(configuredCard).screenshot();
+  assert.deepEqual(await demo.locator(configuredCard).screenshot(), demoBefore);
+  for (const target of [baseline, demo]) await target.setViewportSize({width: 1440, height: 1000});
   await demo.locator('#activity-history').evaluate(node => node.hidden = false);
   for (const theme of ['light', 'dark']) {
     for (const target of [baseline, demo]) if (await target.locator('html').getAttribute('data-theme') !== theme) await target.locator('#theme-toggle').click();
@@ -728,6 +742,7 @@ try {
     assert.match(await target.locator('.services-feedback').innerText(), /Readiness preview requested/);
     await target.locator('[data-mode="administrator"]').click();
     assert.match(await target.locator('.services-danger[open]').innerText(), /This demo sends no commands/);
+    if (await target.locator('[data-administrator-entry]').count()) await target.locator('[data-administrator-entry]').fill('Lab Operator');
     await target.locator('[data-danger-enter]').click();
     await target.locator('[data-stop-service]').click();
     assert.match(await target.locator('dialog[open]').innerText(), /Start orderly-stop simulation/);

@@ -4,17 +4,83 @@ import { deviceExamples, saveExperimentTemplate } from './experiment-demo.mjs';
 import { escapeText as escape, executionIdentity, navigate, configurationStringEditor, readConfigurationString } from './gui-presentation.js';
 import { configurationNumber, scientificOutputIdentity, configurationStringText, parseConfigurationString } from './configuration-values.mjs';
 import { clone } from './protocol-demo.mjs';
-import { catalogClient, putCatalog } from './catalog-client.mjs';
+import { catalogClient, putCatalog, putSynchronization } from './catalog-client.mjs';
 import { resolveParameterContext } from './parameter-context.mjs';
 import { parameterIssue } from './parameter-constraints.mjs';
-import { recordInvalidControl } from './activity-history.mjs';
+import { recordInvalidControl, recordActivity, updateActivity } from './activity-history.mjs';
+import { servicesAdministrator, servicesAdministratorName } from './services-view.js';
+import { confirmCatalogRemoval } from './catalog-removal.js';
 
 const panel = document.querySelector('#panel-parameters');
+function removableExperimentTemplate() {
+  const context = resolveParameterContext(state);
+  const input = panel.querySelector('[name="templateName"]');
+  if (!state.connected || !context || context.readOnly || !input) return null;
+  const owner = context.origin === 'session' ? executionIdentity(state).owner : document.querySelector('#experimenter-select').value;
+  return state.experimentTemplates.find(item => item.owner === owner && item.operation === context.step.operation && item.name === input.value);
+}
+function updateTemplateRemoval() {
+  const button = panel.querySelector('[data-remove-experiment-template]');
+  if (button) button.disabled = !removableExperimentTemplate();
+}
+panel.addEventListener('click', event => {
+  if (!event.target.closest('[data-remove-experiment-template]')) return;
+  const target = removableExperimentTemplate();
+  if (target) confirmCatalogRemoval('experimentTemplates', target.id, target.owner);
+});
+panel.addEventListener('input', updateTemplateRemoval);
+document.addEventListener('gui-catalog-changed', updateTemplateRemoval);
 panel.addEventListener('invalid', event => recordInvalidControl(event.target.closest('#personal-experiment-template') ? 'save_catalog' : 'validate_parameters', event.target), true);
 panel.addEventListener('focusout', event => {
   if (event.target.matches('#parameter-fields input, #parameter-fields select, #parameter-fields textarea')) recordInvalidControl('validate_parameters', event.target);
 });
 let message = '';
+let synchronizationSection, synchronizationDirty = false;
+function renderSynchronizationSettings() {
+  if (!servicesAdministrator()) return;
+  if (!synchronizationSection) {
+    synchronizationSection = document.createElement('section');
+    synchronizationSection.className = 'setup-card'; synchronizationSection.dataset.synchronizationSettings = '';
+    const labels = {exchanges: 'Measured exchanges', initial_scale: 'Initial scale (ratio)', clock_rate_error_bound: 'Clock-rate error bound (ratio)', max_uncertainty_s: 'Maximum uncertainty (s)', max_mapping_age_s: 'Maximum mapping age (s)', assessment_interval_s: 'Assessment interval (s)', result_window_s: 'Result window (s)'};
+    synchronizationSection.innerHTML = `<h3>Synchronization defaults</h3><form data-synchronization-form><div class="catalog-fields">${Object.entries(labels).map(([name, label]) => `<label>${label}<input type="number" name="${name}" required min="${name === 'exchanges' ? 2 : 0}" step="${name === 'exchanges' ? 1 : 'any'}"></label>`).join('')}<label>Timing-quality interpretation<select name="quality_interpretation">${['informational', 'warning', 'recoverable_failure', 'experiment_failure', 'session_failure', 'operator_required', 'uninterpreted'].map(value => `<option value="${value}">${value.replaceAll('_', ' ')}</option>`).join('')}</select></label></div><button type="submit" class="dialog-button">Save</button><small role="status" data-synchronization-feedback></small></form>`;
+    const form = synchronizationSection.querySelector('form');
+    form.addEventListener('input', () => { synchronizationDirty = true; });
+    form.addEventListener('change', () => { synchronizationDirty = true; });
+    form.addEventListener('invalid', event => recordInvalidControl('save_synchronization', event.target), true);
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      if (!state.connected || !servicesAdministrator()) return;
+      if (!form.reportValidity()) return;
+      const activity = recordActivity('save_synchronization');
+      const button = form.querySelector('button'); button.disabled = true;
+      try {
+        const submittedValues = JSON.stringify([...new FormData(form)]);
+        const configuration = Object.fromEntries([...new FormData(form)].map(([key, value]) => [key, key === 'quality_interpretation' ? value : configurationNumber(value)]));
+        await putSynchronization(configuration, servicesAdministratorName(), Number(form.dataset.revision));
+        synchronizationDirty = JSON.stringify([...new FormData(form)]) !== submittedValues;
+        form.dataset.revision = String(catalogClient.snapshot.revision);
+        updateActivity(activity, {status: 'succeeded'});
+        form.querySelector('[role="status"]').textContent = synchronizationDirty ? 'Saved; newer edits remain unsaved.' : 'Saved for subsequent Sessions.';
+        renderSynchronizationSettings();
+      } catch (error) {
+        form.querySelector('[role="status"]').textContent = error.message;
+        updateActivity(activity, {status: error.catalogStatus || 'failed', error: error.message});
+      } finally { button.disabled = false; }
+    });
+  }
+  const form = synchronizationSection.querySelector('form');
+  const configuration = state.connected && catalogClient.snapshot?.synchronization_configuration;
+  if (!synchronizationDirty && configuration) {
+    for (const [key, value] of Object.entries(configuration)) form.elements[key].value = value;
+    form.dataset.revision = String(catalogClient.snapshot.revision);
+  }
+  for (const control of form.elements) control.disabled = !configuration;
+  if (!configuration) form.querySelector('[role="status"]').textContent = 'Backend synchronization settings unavailable.';
+  panel.prepend(synchronizationSection);
+}
+document.addEventListener('gui-catalog-changed', () => {
+  if (panel.classList.contains('is-active')) renderSynchronizationSettings();
+});
 
 function stringField(attributes, value) {
   return `<textarea ${attributes} data-string-value ${value?.invalidString !== undefined ? 'data-invalid-string' : ''} rows="1">${escape(configurationStringText(value))}</textarea>`;
@@ -37,6 +103,7 @@ export function renderParameters() {
   const context = resolveParameterContext(state);
   if (!context) {
     panel.innerHTML = '<div class="context-empty"><h2 class="visually-hidden" id="heading-parameters">Parameters</h2><p>No supported parameter configuration is available in this context. Select an Experiment operation in Setup or Session. Saved Steps without explicit settings must be copied in Protocol Editor before editing.</p><button type="button" data-return-session>Return</button></div>';
+    renderSynchronizationSettings();
     return;
   }
   const {step, record} = context;
@@ -52,7 +119,7 @@ export function renderParameters() {
       ${devices.filter(device => context.devices.includes(device.id) || configuration.participants.includes(device.id)).map(device => `<details class="parameter-section" ${configuration.participants.includes(device.id) ? 'open' : ''}><summary>${escape(device.name)} <small>${state.connected ? 'Declared settings' : 'Illustrative settings'}</small></summary><fieldset class="parameter-section-body" ${configuration.participants.includes(device.id) ? '' : 'disabled'}>${(deviceExamples[device.id]?.fields || []).map(field => parameterField(field, configuration.values[field.id], Object.hasOwn(configuration.values, field.id))).join('') || '<p>No supported parameter definitions supplied for this device.</p>'}</fieldset></details>`).join('')}
       ${state.connected ? `<details class="parameter-section" open><summary>Framework recording configuration</summary><div class="parameter-section-body"><label>Experiment ID${stringField('data-framework-field="experimentId"', configuration.experimentId)}</label><label>Preservation budget (bytes)<input type="number" min="1" step="1" data-framework-field="preservationBudget" value="${escape(configuration.preservationBudget ?? '')}" required></label>${[...new Set(participants.map(device => device.nodeId))].map(node => `<label>${escape(node)} recording budget (bytes)<input type="number" min="1" step="1" data-recording-budget="${escape(node)}" value="${escape(configuration.recordingBudgets?.[node] ?? '')}" required></label>`).join('')}<h4>Scientific outputs</h4>${participants.flatMap(device => (device.declaration?.scientific_products || []).map(product => { const output = {source_node_id: device.nodeId, source_device_id: device.deviceId, data_product_id: product.data_product_id}; return `<label class="parameter-checkbox"><input type="checkbox" data-scientific-output="${escape(JSON.stringify(output))}" ${configuration.outputs?.some(item => scientificOutputIdentity(item) === scientificOutputIdentity(output)) ? 'checked' : ''}>${escape(device.name)} / ${escape(product.data_product_id)}</label>`; })).join('') || '<p>No declared scientific products available.</p>'}</div></details>` : ''}
     </fieldset>
-    <section class="personal-template-area"><h3>Save as personal template <small>Optional</small></h3><p>${state.connected ? "A new name creates an independent template; an existing personal name overwrites only your own template." : "A new name creates an independent Experiment template."} Laboratory templates are never overwritten.</p><form id="personal-experiment-template"><label>Personal template name<input name="templateName" value="${escape(view.bundle?.personalTemplateName || '')}" required ${readOnly ? 'disabled' : ''} placeholder="My baseline configuration"></label><button type="submit" ${readOnly ? 'disabled' : ''}>Save as personal template</button></form></section>
+    <section class="personal-template-area"><h3>Save as personal template <small>Optional</small></h3><p>${state.connected ? "A new name creates an independent template; an existing personal name overwrites only your own template." : "A new name creates an independent Experiment template."} Laboratory templates are never overwritten.</p><form id="personal-experiment-template"><label>Personal template name<input name="templateName" value="${escape(view.bundle?.personalTemplateName || '')}" required ${readOnly ? 'disabled' : ''} placeholder="My baseline configuration"></label><button type="submit" ${readOnly ? 'disabled' : ''}>Save as personal template</button><button type="button" data-remove-experiment-template ${!state.connected || readOnly ? 'hidden' : ''}>Remove</button></form></section>
     <p id="parameter-feedback" role="status">${escape(message)}</p>`;
   for (const control of panel.querySelectorAll('[data-string-value]')) {
     configurationStringEditor(control, control.hasAttribute('data-invalid-string')
@@ -62,6 +129,8 @@ export function renderParameters() {
     const field = Object.values(deviceExamples).flatMap(device => device.fields).find(item => item.id === control.dataset.exampleValue);
     if (field && Object.hasOwn(configuration.values, field.id)) control.setCustomValidity(parameterIssue(field, configuration.values[field.id]));
   }
+  renderSynchronizationSettings();
+  updateTemplateRemoval();
 }
 
 panel.addEventListener('click', event => {
@@ -179,3 +248,4 @@ panel.addEventListener('submit', async event => {
 });
 document.addEventListener('gui-section-changed', event => { if (event.detail === 'parameters') renderParameters(); });
 renderParameters();
+document.addEventListener('gui-administrator-changed', renderParameters);

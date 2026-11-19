@@ -211,7 +211,14 @@ general maintenance-history/memory retirement is not implemented by this closure
 
 ## gui/src/miceball_gui/static/services-view.js — Storage visibility reuse
 
-- `servicesAdministrator`: Reports the existing page-local Services administrator presentation mode for Storage filtering.
+- `servicesAdministrator`: Reports the existing client-wide Administrator mode shared by Services, Storage and Parameters.
+- `servicesAdministratorName`: Returns the once-entered client-local administrator identity without granting Controller ownership or operation authorization.
+- `renderAdministratorMode`: Synchronizes the single header selector, global mode indication and workspace tint with the existing mode state.
+- `exitAdministratorMode`: Clears the client-wide mode and identity, dismisses administrative dialogs and updates applicable tabs.
+
+## gui/src/miceball_gui/static/parameters-view.js — Administrator settings
+
+- `renderSynchronizationSettings`: Reuses the Parameters section for installation defaults, retaining the same form/draft and captured revision through refresh and scientific context changes.
 
 ## Decision 422 External Controller Lifecycle (Implementation; Independent Validation Pending)
 
@@ -3290,6 +3297,7 @@ automatic. Kill integration and overall closeout validation remain deferred.
 - navigate: Uses the existing GUI section-navigation event without changing operation state.
 - sessionIdentity: Reads the existing Setup identity fields for presentation without creating a second configuration model.
 - executionIdentity: Resolves the captured active Session identity, falling back to Setup only before launch.
+- renderAcceptedCatalogIdentity(metadata): Selects a recorded identity projection without removing current catalog/New choices and preserves recorded animal details independently of catalog availability.
 - configurationStringEditor(control, value=control.value): Creates ordinary text entry with an optional existing-compatible exact-character mode, retaining attributes and form placement.
 - setConfigurationString(control, value): Projects a typed string into ordinary text or a lossless escaped representation when native normalization would change code units.
 - needsExactCharacters(value): Identifies native-normalization-sensitive string values for the shared input projection and pre-insertion transfer guard.
@@ -3403,9 +3411,13 @@ automatic. Kill integration and overall closeout validation remain deferred.
 ## gui/src/miceball_gui/catalog_store.py
 
 - CatalogConflict: Reports a stale catalog revision without changing the committed document.
-- CatalogStore(path): Owns one explicitly located versioned GUI catalog document in SQLite, refusing invalid existing stores.
+- INITIAL_SYNCHRONIZATION_CONFIGURATION: Defines the eight user-approved initial software settings once using the existing immutable framework configuration type.
+- CatalogStore(path, *, initial_synchronization=None): Owns the existing SQLite document and initializes/migrates absent installation settings without overwriting saved values or invalid stores.
 - CatalogStore.read(): Returns a detached validated committed catalog and revision.
+- CatalogStore.put_synchronization(configuration, *, expected_revision, administrator_id, authorized): Durably saves validated installation defaults using cooperative authorization and the existing shared revision.
 - CatalogStore.put(collection, record, *, expected_revision, actor): Commits one validated reusable record with transactional revision, project, cooperative ownership and immutability checks.
+- CatalogStore.remove(collection, identity, *, expected_revision, actor, administrator=False, authorized=False): Removes an explicitly authorized exact entry and project-local dependents transactionally without touching scientific storage.
+- CatalogStore._name_key / _validate_mutation: Apply normalized ownership-scoped names and current-reference checks to new or changed catalog values while retaining unchanged deleted references.
 
 ## gui/src/miceball_gui/static/catalog-client.mjs
 
@@ -3414,12 +3426,40 @@ automatic. Kill integration and overall closeout validation remain deferred.
 - loadCatalog(): Refreshes shared catalog readback without overwriting working drafts.
 - putCatalog(collection, record, actor, expectedRevision): Sends one revision-checked mutation, retaining an editor's captured revision across background refresh and updating readback only after success.
 - responseSnapshot(response): Parses typed configuration JSON and distributes accepted catalog readback through existing DOM notification conventions.
+- removeCatalog(collection, identity, actor, administrator, expectedRevision): Uses the existing catalog mutation transport for an explicitly confirmed removal.
+- mutateCatalog(mutation): Shares pending-request, serialization, uncertainty and snapshot handling between catalog save and removal.
+- putSynchronization(configuration, administratorId, expectedRevision): Uses the same typed catalog mutation transport for explicit revision-checked administrative settings saves.
+
+## scripts/install_framework.py — GUI synchronization initialization
+
+- GUI_SYNCHRONIZATION: Uses the installed GUI's authoritative defaults, framework validator and existing durable store through the installer's subprocess boundary.
+- _initialize_gui_synchronization(python, path): Collects optional Advanced initialization overrides and preserves already-saved backend settings during installation/update.
+
+## gui/tests/test_synchronization_settings.py and test_synchronization_browser.py
+
+- SynchronizationSettingsTests / SynchronizationSettingsHttpTests: Exercise initialization, legacy migration, saved-value preservation, validation, authorization, shared revisions and backend-authoritative Session configuration through public interfaces.
+- SynchronizationBrowserTests: Exercises administrator-only Parameters settings, retained unsaved drafts, conflict refusal, accepted Session isolation, Activity History and themed responsive rendering.
+
+## gui/src/miceball_gui/static/catalog-removal.js
+
+- confirmCatalogRemoval(collection, identity, actor, administrator=False): Confirms an exact revision-bound catalog target and records its real HTTP outcome through Activity History.
+- initializeCatalogManagement(): Adds the approved initially collapsed Administrator-only Setup disclosure using existing catalog readback and mode events.
+- parameters-view.removableExperimentTemplate / updateTemplateRemoval: Resolve the existing personal-template name within its owner/operation context and enable removal only for an identified editable entry.
+
+## gui/tests/test_catalog_removal.py and test_catalog_removal_browser.py
+
+- CatalogRemovalTests / CatalogRemovalHttpTests: Exercise normalized scoped names, ownership, revision races, retained references, failed commits and exact authorized removal through public store and HTTP interfaces.
+- CatalogRemovalBrowserTests: Exercises real catalog persistence and rendered removal, cancellation, project deletion and accepted historical identity isolation with controlled Controller readback.
 
 ## GUI catalog integration in existing presenters
 
 - backend.read_catalog / write_catalog: Serve bounded HTTP catalog readback and same-origin revision-checked mutations independently of Controller transport.
 - backend.backend_info: Reports the actual backend host, public configuration, catalog location and current catalog readability without exposing NATS credentials.
-- app.renderCatalogSelects: Populates existing identity controls from durable records and filters project-local animals without changing captured Session identity.
+- app.renderCatalogSelects: Merges current catalog/New choices with the selected historical projection, preserves dialog cancellation and project-local animal filtering, and never mutates captured Session identity.
+
+## gui/tests/test_catalog_identity_browser.py
+
+- CatalogIdentityBrowserTests: Exercises all three selectors through acceptance, creation/cancellation, refresh, rename/removal/name reuse, explicit working selection and confirmed release while preserving accepted and executed configuration readback.
 - services-view.refreshGuiBackend: Reads backend-owned status without inventing Controller service membership or lifecycle operations.
 - services-view.guiBackendCard: Reuses Services styling for an independently sourced backend entry while retaining its configuration disclosure.
 

@@ -6760,6 +6760,22 @@ deployment/verification and unresolved-history/interface work tracked there.
 
 ---
 
+# GUI disconnected Windows revalidation — partial reported evidence
+
+ICC reports independent Windows GUI revalidation PASS for centralized Activity
+History, initial connection failures, successful catalog operations, local
+validation failures, absence of repeated polling noise, presentation corrections,
+automatic catalog loading and mutation visibility, and removal of manual catalog
+reload. The exact validation commit was not captured and remains unidentified.
+
+Earlier successful installation, catalog persistence and project-specific animal
+filtering evidence retains its original scope. Connected workflows remain
+independently untested. This records supplied evidence, not a new validation run,
+independent audit or decision closure. The separately reported historical-identity
+rendering regression remains unresolved and is not covered by this PASS.
+
+---
+
 # Future Workflows
 
 The following workflows are expected to be added as the framework evolves.

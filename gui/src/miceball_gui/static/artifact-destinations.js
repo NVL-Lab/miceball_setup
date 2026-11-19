@@ -1,6 +1,6 @@
 // A transient projection of StorageManager's registry, never a destination authority.
 import { escapeText as esc } from './gui-presentation.js';
-import { servicesAdministrator } from './services-view.js';
+import { servicesAdministrator, servicesAdministratorName } from './services-view.js';
 import { activityPresentation } from './activity-presentation.mjs';
 import { catalogId } from './catalog-client.mjs';
 import { recordActivityTransition } from './activity-history.mjs';
@@ -114,7 +114,8 @@ export function installArtifactDestinations(operations) {
     const registration = button.hasAttribute('data-destination-register'), remove = button.hasAttribute('data-destination-remove');
     const title = registration ? 'Register scientific destination' : `${remove ? 'Remove registration for' : entry.enabled ? 'Disable' : 'Enable'} ${entry.name}`;
     dialog.innerHTML = `<form><h2 id="destination-dialog-title">${esc(title)}</h2><p>${remove ? 'StorageManager refuses removal when retained Session bindings require this destination. Files will not be deleted.' : 'StorageManager validates and confirms the request. No disks will be mounted and no recordings moved.'}</p><label>Administrator name<input name="administrator" required></label>${registration ? '<label>Destination name<input name="name" required></label><label>Existing directory on the StorageManager computer<input name="root" required></label>' : ''}<p role="status" data-destination-dialog-status></p><div class="catalog-dialog__actions"><button type="button" class="dialog-button" data-destination-cancel>Cancel</button><button type="submit" class="dialog-button">Confirm</button></div></form>`;
-    dialog.querySelector('[name="administrator"]').value = document.querySelector('#experimenter-select').selectedOptions[0]?.textContent || '';
+    dialog.querySelector('[name="administrator"]').value = servicesAdministratorName();
+    dialog.querySelector('[name="administrator"]').readOnly = true;
     dialog.querySelector('[data-destination-cancel]').onclick = () => dialog.close();
     // Stable identity survives an uncertain attempt; there is no automatic replay.
     const destinationId = registration ? catalogId() : entry.destination_id;

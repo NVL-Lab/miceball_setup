@@ -39,7 +39,7 @@ class CatalogTests(unittest.TestCase):
     def protocol(self):
         step = self.step()
         step.update(id="occurrence", definitionId="saved")
-        return dict(id="protocol", projectId="p", name="Procedure", description="", protected=False, steps=[step])
+        return dict(id="protocol", projectId="p", owner="alice", name="Procedure", description="", protected=False, steps=[step])
 
     def test_restart_backup_and_independent_installation(self):
         self.save("animals", dict(id="animal-stable", projectId="p", animal_id="M1", animal_name="Pip"))

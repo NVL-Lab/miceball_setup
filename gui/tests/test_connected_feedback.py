@@ -25,7 +25,10 @@ class ConnectedFeedbackTests(unittest.IsolatedAsyncioTestCase):
     async def test_activity_history_in_browser(self):
         await self._check_feedback(activity_only=True)
 
-    async def _check_feedback(self, *, activity_only):
+    async def test_historical_identity_rendering_in_browser(self):
+        await self._check_feedback(activity_only=False, rendering_only=True)
+
+    async def _check_feedback(self, *, activity_only, rendering_only=False):
         node = shutil.which("node")
         module = os.environ.get("LAB_SYNC_PLAYWRIGHT_MODULE", "playwright")
         if not node or subprocess.run([node, "-e", "require(process.argv[1])", module], capture_output=True).returncode:
@@ -169,6 +172,7 @@ class ConnectedFeedbackTests(unittest.IsolatedAsyncioTestCase):
                     "active_experiment_id": None, "experiment_lifecycle_evidence": [event.to_dict() for event in monitoring.experiment_lifecycle_evidence]},
                 "experiments": [descriptor.to_dict() for descriptor in monitoring.experiment_descriptors]})
         environment = {**os.environ, "LAB_SYNC_PLAYWRIGHT_MODULE": module,
+            "LAB_SYNC_GUI_RENDERING_ONLY": "1" if rendering_only else "",
             "LAB_SYNC_GUI_ACTIVITY_ONLY": "1" if activity_only else "",
             "MICEBALL_BROWSER_ORIGIN": origin, "MICEBALL_DEMO_ORIGIN": demos["baseline"],
             "MICEBALL_DEMO_CURRENT_ORIGIN": demos["current"],

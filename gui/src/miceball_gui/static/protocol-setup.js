@@ -5,6 +5,7 @@ import { escapeText as escape, sessionIdentity, navigate } from './gui-presentat
 import { catalogClient, catalogId, putCatalog } from './catalog-client.mjs';
 import { selectParameterContext } from './parameter-context.mjs';
 import { recordLocalActivity } from './activity-history.mjs';
+import { confirmCatalogRemoval, initializeCatalogManagement } from './catalog-removal.js';
 
 const validationLimit = document.createElement('label');
 validationLimit.className = 'validation-duration-field';
@@ -68,11 +69,29 @@ stepActions.className = 'reusable-step-actions';
 stepActions.innerHTML = '<p id="step-definition-status" class="prototype-caption"></p><button type="button" id="copy-step">Copy to edit</button><button type="button" id="save-reusable-step">Save as reusable step</button><p class="prototype-caption">Reusable definitions are saved separately from this protocol, in demonstration memory only.</p>';
 $('#step-form').before(stepActions);
 const currentExperimenter = () => $('#experimenter-select').value;
+const removeProtocol = document.createElement('button');
+removeProtocol.type = 'button'; removeProtocol.id = 'remove-protocol'; removeProtocol.textContent = 'Remove';
+removeProtocol.setAttribute('aria-label', 'Remove personal protocol');
+$('#copy-protocol').after(removeProtocol);
+const removeTemplate = document.createElement('button');
+removeTemplate.type = 'button'; removeTemplate.id = 'remove-session-template'; removeTemplate.textContent = 'Remove';
+removeTemplate.setAttribute('aria-label', 'Remove personal Session template');
+$('#session-template').closest('label').after(removeTemplate);
+const removeStep = document.createElement('button');
+removeStep.type = 'button'; removeStep.id = 'remove-saved-step'; removeStep.textContent = 'Remove';
+removeStep.setAttribute('aria-label', 'Remove personal saved Step');
+$('#add-step').after(removeStep);
+const personal = entry => !!entry && entry.owner === currentExperimenter() && !entry.protected;
+removeProtocol.onclick = () => confirmCatalogRemoval('protocols', state.protocolId, currentExperimenter());
+removeTemplate.onclick = () => confirmCatalogRemoval('templates', $('#session-template').value, currentExperimenter());
+removeStep.onclick = () => confirmCatalogRemoval('definitions', $('#add-operation').value, currentExperimenter());
+$('#add-operation').addEventListener('change', () => { removeStep.hidden = !state.connected || !personal(state.definitions.find(item => item.id === $('#add-operation').value)); });
 function renderPreparedSteps() {
   const select = $('#add-operation');
   const previous = select.value;
   select.innerHTML = option('blank', 'Blank step') + preparedSteps(state, currentExperimenter()).map(step => option(step.id, `${step.name} · ${step.owner === null ? 'Lab / application' : 'Personal'}`)).join('');
   if ([...select.options].some(item => item.value === previous)) select.value = previous;
+  removeStep.hidden = !state.connected || !personal(state.definitions.find(item => item.id === select.value));
 }
 $('#experimenter-select').addEventListener('change', renderPreparedSteps);
 const optionalTable = document.createElement('div');
@@ -137,7 +156,9 @@ export function renderSetup() {
   $('#protocol-select').innerHTML = option('', 'None — Free Mode') + state.protocols.filter(p => !state.connected || p.projectId === $('#project-select').value).map(p => option(p.id, p.name + (p.protected ? ' · Lab reference' : ''))).join('');
   $('#protocol-select').value = protocol?.id || '';
   $('#protocol-description').textContent = protocol?.description || 'Free Mode: launch without a predefined protocol, then choose supported scientific operations in Session.';
-  $('#edit-protocol').disabled = !protocol || protocol.protected;
+  $('#edit-protocol').disabled = !protocol || protocol.protected || state.connected && !personal(protocol);
+  removeProtocol.hidden = !state.connected || !personal(futureProtocol);
+  removeTemplate.hidden = !state.connected || !personal(state.templates.find(item => item.id === state.templateId));
   $('#copy-protocol').disabled = !protocol;
   $('#edit-protocol').title = protocol?.protected ? 'Protected reference: use Copy Protocol to create a personal copy.' : 'Edit personal protocol';
   $('#session-template').disabled = !protocol;
@@ -195,9 +216,10 @@ function openEditor(mode) {
   }
   const source = currentProtocol();
   if (!source && mode !== 'new') return;
-  if (mode === 'edit' && source.protected) return;
+  if (mode === 'edit' && (source.protected || state.connected && !personal(source))) return;
   draft = mode === 'new' ? { id: catalogId(), ...(state.connected ? {projectId: $('#project-select').value} : {}), name: 'New personal protocol', description: '', protected: false, steps: [] } : clone(source);
   if (mode === 'copy') { draft.id = catalogId(); draft.name += ' (copy)'; draft.protected = false; }
+  if (state.connected && mode !== 'edit') draft.owner = currentExperimenter();
   if (state.connected) editor.querySelector('.editor-heading .prototype-caption').textContent = 'Reusable protocol · saved in this backend catalog';
   selectedStep = 0;
   originalDraft = JSON.stringify(draft);
@@ -439,4 +461,5 @@ if (state.connected) {
     selectProtocol(state, null); renderSetup();
   });
   if (catalogClient.snapshot) applyCatalog();
+  initializeCatalogManagement();
 }

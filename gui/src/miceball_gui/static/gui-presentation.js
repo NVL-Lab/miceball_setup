@@ -1,8 +1,28 @@
 import { configurationStringText, parseConfigurationString } from './configuration-values.mjs';
+import { formatCalendarDate } from './calendar-date.mjs';
 
 export const escapeText = value => String(value).replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
 export function executionIdentity(state) {
   return state.activeSession?.identity || sessionIdentity();
+}
+export function renderAcceptedCatalogIdentity(metadata) {
+  for (const key of ['experimenter', 'project', 'animal']) {
+    const select = document.querySelector(`#${key}-select`);
+    const name = typeof metadata[key] === 'string' ? metadata[key] : 'Not recorded';
+    const id = metadata[`catalog_${key}_id`] || `accepted:${key}`;
+    const option = new Option(name, id, true, true);
+    option.dataset.acceptedIdentity = 'true';
+    if (key === 'animal') option.dataset.projectId = metadata.catalog_project_id || 'accepted:project';
+    for (const existing of [...select.options])
+      if (existing.dataset.acceptedIdentity === 'true' || existing.value === id) existing.remove();
+    select.add(option, [...select.options].find(item => item.value.startsWith('__new_')) || null);
+    select.value = id;
+    select.dataset.previousValue = id;
+  }
+  const animal = metadata.catalog_animal_details || {};
+  for (const [id, field] of [['animal-name', 'animal_name'], ['animal-species', 'species'], ['animal-strain', 'strain'], ['animal-sex', 'sex']])
+    document.querySelector(`#${id}`).textContent = animal[field] || 'Not recorded';
+  document.querySelector('#animal-dob').textContent = formatCalendarDate(animal.date_of_birth) || 'Not recorded';
 }
 export function navigate(section) {
   document.dispatchEvent(new CustomEvent('gui-section', { detail: section }));

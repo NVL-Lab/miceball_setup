@@ -1,4 +1,5 @@
 :root {
+  --administrator-background: #f7eeee;
   --storage-delete-bg: #fff6f6;
   color-scheme: light;
   --navy-950: #07111f;
@@ -383,6 +384,28 @@ button {
   font-size: 21px;
   font-weight: 650;
   letter-spacing: -.02em;
+}
+
+/* One client-wide mode indicator; no tab-specific administrative state. */
+:root { --topbar-height: 104px; }
+.topbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: 1fr 1fr; column-gap: 12px; }
+.topbar > :first-child { grid-column: 1; grid-row: 1 / 3; }
+.topbar .connection-tools { grid-column: 2; grid-row: 1; justify-content: flex-end; }
+.administrator-mode { grid-column: 2; grid-row: 2; justify-self: end; text-align: right; max-width: min(460px, 65vw); }
+.administrator-mode [role="group"] { display: flex; justify-content: flex-end; gap: 6px; }
+.administrator-mode [hidden] { display: none; }
+.administrator-mode button { font-size: 12px; padding: 4px 10px; }
+.administrator-mode button[aria-pressed="true"] { border-color: var(--blue-500); color: var(--blue-500); }
+.administrator-mode small { display: block; color: var(--ink-600); overflow-wrap: anywhere; font-size: 11px; }
+html[data-theme="dark"] { --administrator-background: #281e23; }
+html[data-administrator="true"] body,
+html[data-administrator="true"] .workspace,
+html[data-administrator="true"] .workspace__content { background: var(--administrator-background); }
+@media (max-width: 650px) {
+  :root { --topbar-height: 140px; }
+  .topbar { padding-inline: 12px; column-gap: 8px; }
+  .administrator-mode { max-width: 58vw; }
+  .administrator-mode button { padding-inline: 6px; }
 }
 
 .alerts {

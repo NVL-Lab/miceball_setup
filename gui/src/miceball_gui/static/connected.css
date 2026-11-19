@@ -1,6 +1,7 @@
 html[data-runtime="connected"] .connection-tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 html[data-runtime="connected"] #connection-state { font-size: 12px; overflow-wrap: anywhere; }
 html[data-runtime="connected"] .topbar { height: auto; min-height: 72px; flex-wrap: wrap; gap: 10px; }
+html[data-runtime="connected"] .topbar { height: var(--topbar-height); min-height: var(--topbar-height); }
 html[data-runtime="connected"] .inventory-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; }
 html[data-runtime="connected"] .inventory-controls label { flex: 1; }
 html[data-runtime="connected"] #accepted-configuration { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 240px; overflow-y: auto; font-size: 12px; }

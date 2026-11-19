@@ -14839,6 +14839,98 @@ and Decision 449's catalog work retain their separate statuses; Q022 remains OPE
 
 ---
 
+## Decision 451: Client-wide Administrator mode and backend-owned synchronization defaults
+
+**Status:** Accepted; implementation and independent verification are separate.
+
+This records the user-approved LLC refinements to Decisions 415, 448-450 and
+379-381. Preserve existing operation-specific authorization and safety contracts.
+
+Administrator mode and the administrator name are shared across applicable tabs
+within one open GUI client, retained across navigation, and independent of other
+browsers. Ask for the name once on entry, retaining the Danger Zone confirmation.
+Global exit clears the mode and identity. Mode selection is cooperative, not
+authentication, Controller ownership or authorization of an individual operation.
+
+Services, Storage and Parameters use one consistently positioned mode selector
+under the View Only/Take Over controls, aligned right. Other tabs retain the mode
+and identity indication without unnecessary mode controls. Remove inline or
+tab-specific duplicate selectors. A muted reddish workspace background takes
+visual precedence over controlling/view-only backgrounds in both themes; panels,
+tables and scientific plots keep their normal appearance. Exit restores the
+background corresponding to current Controller ownership.
+
+The existing synchronization settings `exchanges`, `initial_scale`,
+`clock_rate_error_bound`, `max_uncertainty_s`, `max_mapping_age_s`,
+`assessment_interval_s`, `result_window_s` and `quality_interpretation` are editable
+only by administrators in Parameters, with existing constraints and no invented
+defaults. Global defaults belong to the GUI backend installation through Decision
+449's existing persistence mechanism, independent of people, projects, animals,
+protocols and Session Templates. Preserve revision/concurrency safeguards. Apply
+them through the existing Session handoff to subsequently prepared Sessions;
+templates and experimenter configuration cannot silently override them. Accepted
+Sessions remain immutable; no framework restart or live reconfiguration occurs.
+
+The user-approved initial values are: `exchanges=3`, `initial_scale=1.0`,
+`clock_rate_error_bound=0.001`, `max_uncertainty_s=0.5`, `max_mapping_age_s=20.0`,
+`assessment_interval_s=5.0`, `result_window_s=2.0`, and
+`quality_interpretation="warning"`. These are approved initial software defaults,
+not experimentally validated synchronization tolerances.
+
+Maintain one authoritative definition. Installation supplies these automatically
+with optional Advanced Settings overrides; existing backend installations
+initialize them only when no synchronization configuration is saved. Preserve
+saved administrative values during restart and updates, and report malformed
+saved settings rather than replacing them. Mandatory manual first-run setup is
+not required. The future graphical installer reuses the same initialization
+mechanism and is not a prerequisite. Preserve unrelated additional Session JSON
+fields while removing synchronization-specific manual entry.
+
+Adapter definitions remain authoritative for device parameters; preserve dynamic
+Experiment/Step editing, immutable saved Steps and executed snapshots. No separate
+Session-level device editor is authorized. `frames_per_collect` exposure remains
+unresolved unless an existing accepted classification is established. Budget
+estimation/admission changes, catalog removal, service discovery, installer work,
+Decision 450 framework feedback changes and new authentication are excluded.
+
+---
+
+## Decision 452: Catalog uniqueness, removal and historical identity independence
+
+**Status:** Accepted; implementation and independent verification are separate.
+
+Names compare without surrounding whitespace and without case, retaining their
+display spelling and stable IDs. Experimenter and project names are backend-wide;
+animal IDs are project-local; protocol and Session-template names are scoped by
+project and owner, with laboratory and each personal scope distinct. Saved-Step
+names remain collection-wide under Decision 429. Experiment-template names remain
+scoped by operation and owner. Existing duplicates are not silently merged,
+renamed or deleted; unchanged records remain readable and editable without
+introducing another collision.
+
+Individual catalog removal deletes future catalog availability and permits name
+reuse without modifying saved configuration values or scientific records.
+Retained references are not automatically reassigned. Administrator project
+removal atomically removes its animals, protocols and Session templates; saved
+Steps and Experiment templates have no project dependency and remain intact.
+Administrator catalog management uses one initially collapsed Setup section below
+Experimenter / Project / Animal and the existing global header mode selector.
+Personal reusable-entry removal uses existing management interfaces and ownership
+permissions. Laboratory originals remain protected from experimenter modification
+or removal. Mode selection is not authentication or individual authorization.
+
+Personal protocols explicitly identify their owner; legacy ownerless protocols
+must not acquire an inferred owner. Copies have independent identities and do not
+modify their sources. Accepted and executed configurations render their recorded
+identities independently of current catalog contents, refresh, rename or removal.
+No tombstones, reserved names, automatic reassignment, historical identity store,
+scientific-data deletion or additional lifecycle mechanism is introduced.
+
+This qualifies Decisions 409, 410, 429, 449 and 451 only within these boundaries;
+it does not close their implementation/verification work.
+
+---
+
 # Accepted Architectural Principles
 
 The following principles summarize the accepted decisions so far.

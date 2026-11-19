@@ -468,26 +468,37 @@ if (connected) {
   const renderCatalogSelects = () => {
     const catalog = catalogClient.snapshot.catalog;
     animalCatalog.clear();
-    const projectId = document.querySelector('#project-select').value;
+    const projectSelect = document.querySelector('#project-select');
+    const projectId = projectSelect.value.startsWith('__new_') ? projectSelect.dataset.previousValue : projectSelect.value;
     for (const record of catalog.animals) if (record.projectId === projectId) animalCatalog.set(record.id, record);
     for (const select of catalogSelects) {
-      const previous = select.value.startsWith('__new_') ? select.dataset.previousValue : select.value;
+      const creating = select.value.startsWith('__new_') ? select.value : null;
+      const previous = creating ? select.dataset.previousValue : select.value;
       const kind = select.dataset.catalogSelect;
-      const records = kind === 'experimenter' ? catalog.experimenters : kind === 'project' ? catalog.projects : catalog.animals.filter(item => item.projectId === document.querySelector('#project-select').value);
-      for (const option of [...select.options]) if (!option.value.startsWith('__new_')) option.remove();
+      const historical = [...select.options].find(option => option.dataset.acceptedIdentity === 'true'
+        && option.value === previous && (kind !== 'animal' || option.dataset.projectId === projectId));
+      const records = kind === 'experimenter' ? catalog.experimenters : kind === 'project' ? catalog.projects : catalog.animals.filter(item => item.projectId === projectId);
+      for (const option of [...select.options]) if (!option.value.startsWith('__new_') && option !== historical) option.remove();
       select.add(new Option('Not selected', ''), select.firstElementChild);
       for (const record of records) {
+        if (historical?.value === record.id) continue; // One stable identity, with its recorded label while selected.
         const option = new Option(kind === 'animal' ? record.animal_id : record.name, record.id);
         if (kind === 'project') option.dataset.primaryExperimenter = record.primary_experimenter;
         select.add(option, select.lastElementChild);
       }
-      select.value = records.some(item => item.id === previous) ? previous : '';
-      select.dataset.previousValue = select.value;
+      const retained = (historical || records.some(item => item.id === previous)) ? previous : '';
+      select.value = creating || retained;
+      select.dataset.previousValue = retained;
     }
-    updateAnimalSummary(animalCatalog.get(document.querySelector('#animal-select').value) || {});
+    const animalSelect = document.querySelector('#animal-select');
+    const animalValue = animalSelect.value.startsWith('__new_') ? animalSelect.dataset.previousValue : animalSelect.value;
+    if (![...animalSelect.options].some(option => option.value === animalValue && option.dataset.acceptedIdentity === 'true'))
+      updateAnimalSummary(animalCatalog.get(animalValue) || {});
   };
   document.addEventListener('gui-catalog-changed', renderCatalogSelects);
-  document.querySelector('#project-select').addEventListener('change', () => { if (catalogClient.snapshot) renderCatalogSelects(); });
+  for (const select of catalogSelects) select.addEventListener('change', () => {
+    if (catalogClient.snapshot && !select.value.startsWith('__new_')) renderCatalogSelects();
+  });
   document.addEventListener('gui-section-changed', event => { if (['setup', 'session', 'parameters'].includes(event.detail) && !catalogDialog.open) refresh(); });
   document.addEventListener('gui-control-acquired', refresh);
   refresh();

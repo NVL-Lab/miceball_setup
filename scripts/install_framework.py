@@ -127,6 +127,35 @@ else:
 """
 
 
+GUI_SYNCHRONIZATION = """
+import json,sys
+from miceball_gui.catalog_store import CatalogStore, INITIAL_SYNCHRONIZATION_CONFIGURATION
+from lab_sync_acquisition import SynchronizationConfiguration
+request = json.load(sys.stdin)
+if 'path' in request:
+    result = CatalogStore(request['path'], initial_synchronization=request.get('configuration')).read()['synchronization_configuration']
+elif 'configuration' in request:
+    result = SynchronizationConfiguration.from_dict(request['configuration']).to_dict()
+else:
+    result = INITIAL_SYNCHRONIZATION_CONFIGURATION.to_dict()
+print(json.dumps(result, allow_nan=False))
+"""
+
+
+def _initialize_gui_synchronization(python, path):
+    """Use the installed GUI's single defaults definition and durable initializer."""
+    def request(value):
+        return json.loads(_run([python, '-I', '-B', '-c', GUI_SYNCHRONIZATION], input=json.dumps(value)))
+    proposal = request({})
+    print('Synchronization initialization only; existing saved administrative settings are preserved.')
+    if _confirm('Advanced synchronization settings for initialization'):
+        proposal = {key: (int(_ask(key, value)) if key == 'exchanges' else
+                          _ask(key, value) if key == 'quality_interpretation' else float(_ask(key, value)))
+                    for key, value in proposal.items()}
+        proposal = request({'configuration': proposal})
+    return request({'path': str(path), 'configuration': proposal})
+
+
 def _validate_gui(python, checkout, settings, *, source, allow_unavailable=False):
     """Validate through the existing GUI without running an app or connecting NATS."""
     result = _run([python, '-I', '-B', '-c', VALIDATE_GUI, checkout / 'src',
@@ -975,6 +1004,7 @@ def main(argv=None):
             _run([python, "-I", "-m", "pip", "check"])
             if gui is not None:
                 _validate_gui(python, checkout, gui['settings'], source=False)
+                _initialize_gui_synchronization(python, directory / 'gui-catalog.sqlite3')
                 if gui['connection_bytes'] is not None and gui['connection_path'].read_bytes() != gui['connection_bytes']:
                     raise RuntimeError('GUI connection configuration changed during setup; rerun explicitly')
             if controller_update is not None:

@@ -619,6 +619,15 @@ interfaces remain implementation work; large artifact transfer is not visualizat
 
 ## Q030: What GUI presentation and deployment design implements the accepted functional areas?
 
+Decision 451's initial synchronization values and automatic initialization are
+now explicitly accepted; the former initial-values prerequisite is resolved.
+Functional implementation and independent verification retain separate status.
+
+Decision 452 settles catalog name scopes, individual/project removal and recorded
+identity independence without tombstones, reassignment or scientific deletion.
+Its developer correction remains subject to independent validation and audit;
+Q030 remains OPEN. Legacy ownerless protocols are not assigned inferred owners.
+
 Decision 448 resolves the Activity History boundary: one informative Services
 history uses existing in-memory outcomes, browser-local observation time and
 non-executing reconciliation; navigation retains it, while reload/closure may
@@ -2757,6 +2766,15 @@ can replace a specific StorageManager rejection reason with a generic unconfirme
 operation message. GUI feedback must preserve that uncertainty rather than invent
 a cause. Correction is deferred outside the current GUI usability batch; no
 Decision 450 framework or validation change is established here.
+
+Decision 451 accepts global client Administrator mode and backend-owned global
+synchronization defaults. The user-approved initialization clarification resolves
+the former initial-value checkpoint; Decision 451 lists all eight approved
+software defaults without claiming experimentally validated tolerances. Backend
+persistence, installer initialization and subsequent Session handoff are bounded
+developer implementation, pending independent verification and audit.
+`frames_per_collect` still has no accepted exposure category
+and remains adapter-driven and unrestricted by this GUI change.
 
 **Scientific storage and optional GUI setup (Decision 447): accepted; Slice 447-A
 storage implemented with developer verification, independent validation/audit

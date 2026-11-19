@@ -1,5 +1,15 @@
 # Installation And Deployment
 
+Decision 451's GUI synchronization initialization uses one backend-owned definition:
+exchanges 3, initial scale 1.0, clock-rate error bound 0.001, maximum uncertainty
+0.5 s, maximum mapping age 20 s, assessment interval 5 s, result window 2 s,
+quality interpretation warning. These approved initial software defaults are not
+experimentally validated laboratory tolerances. Installation initializes absent
+settings, with optional Advanced Settings overrides; updates preserve saved
+administrative settings. Existing backends initialize missing values without
+mandatory manual first-run setup. Malformed saved values must be reported, not
+silently reset. The future graphical installer reuses the same mechanism.
+
 Windows operators: [CMD deployment quick runbook](#windows-cmd-deployment-quick-runbook).
 
 ## Controller replacement authority — Package 1 implementation

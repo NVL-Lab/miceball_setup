@@ -7,7 +7,8 @@ import { selectedStepContext } from './session-demo.mjs';
 import { renderSession } from './session-view.js';
 import { renderParameters } from './parameters-view.js';
 import { renderExperiment } from './scientific-views.js';
-import { navigate, configurationStringEditor, setConfigurationString, readConfigurationString } from './gui-presentation.js';
+import { navigate, configurationStringEditor, setConfigurationString, readConfigurationString, renderAcceptedCatalogIdentity } from './gui-presentation.js';
+import { catalogClient } from './catalog-client.mjs';
 import { localCalendarDate } from './calendar-date.mjs';
 import { confirmStop } from './stop-confirmation.mjs';
 import { serviceActions, updateServices, startServicesRefresh, showBlockedServiceStop } from './services-view.js';
@@ -52,7 +53,7 @@ $('.storage-path code').textContent = 'Assigned by the configured storage owners
 for (const value of $('.storage-stats').querySelectorAll('dd')) value.textContent = 'Unavailable';
 $('#launch-demo-note').textContent = 'Requests Controller acceptance, reservation and durable preservation. Launch does not start an Experiment.';
 for (const button of document.querySelectorAll('#view-only, #take-over')) button.className = 'dialog-button';
-storageBody.insertAdjacentHTML('beforeend', '<label>Error evidence location<input id="error-evidence-location"></label><details><summary>Additional Session configuration</summary><label>Framework configuration fields (JSON)<textarea id="session-framework-fields" rows="7" spellcheck="false" placeholder="Explicit protocol_plan, synchronization_configuration and applicable storage/acquisition settings"></textarea></label></details>');
+storageBody.insertAdjacentHTML('beforeend', '<label>Error evidence location<input id="error-evidence-location"></label><details><summary>Additional Session configuration</summary><label>Framework configuration fields (JSON)<textarea id="session-framework-fields" rows="7" spellcheck="false" placeholder="Explicit protocol_plan and applicable storage/acquisition settings"></textarea></label></details>');
 const sessionName = configurationStringEditor($('.session-identity-grid input[type="text"]'));
 const sessionDate = $('.session-identity-grid input[type="date"]');
 const sessionNumber = $('.session-identity-grid input[type="number"]');
@@ -161,13 +162,7 @@ async function refresh() {
       sessionDate.value = metadata.date ?? '';
       sessionNumber.value = metadata.number ?? '';
       sessionDate.dispatchEvent(new Event('input'));
-      for (const key of ['experimenter', 'project', 'animal']) {
-        if (typeof metadata[key] !== 'string' || !metadata[key]) continue;
-        const select = $(`#${key}-select`);
-        let option = [...select.options].find(item => item.textContent === metadata[key]);
-        if (!option) { option = new Option(metadata[key], metadata[key]); select.add(option, select.lastElementChild); }
-        select.value = option.value; select.dataset.previousValue = option.value;
-      }
+      renderAcceptedCatalogIdentity(metadata);
       setConfigurationString(errorLocation, config.error_evidence_location ?? '');
       $('#session-framework-fields').value = JSON.stringify(config, null, 2);
       setConfigurationString(sessionNotes, metadata.notes ?? '');
@@ -175,6 +170,11 @@ async function refresh() {
     if (previous?.instance_id === snapshot.instance_id && previous?.status?.session_id
         && !snapshot.status?.session_id && snapshot.configuration === null) {
       sessionDate.value = localCalendarDate(); sessionDate.dispatchEvent(new Event('input'));
+    }
+    if (!snapshot.status?.session_id || !snapshot.configuration) {
+      const historical = document.querySelectorAll('[data-accepted-identity]');
+      for (const option of historical) delete option.dataset.acceptedIdentity;
+      if (historical.length && catalogClient.snapshot) document.dispatchEvent(new Event('gui-catalog-changed'));
     }
     for (const operation of snapshot.pending_operations) if (!outcomes.some(o => o.request_id === operation.request_id && o.instance_id === snapshot.instance_id)) {
       const entry = recordActivity(operation.operation, 'controller');
@@ -253,6 +253,8 @@ state.actions.launchSession = localAction('launch_session', async entry => {
   try { config = parseConfigurationJSON($('#session-framework-fields').value); }
   catch (error) { throw new Error(error instanceof SyntaxError ? 'Additional Session configuration: enter valid JSON framework configuration.' : `Additional Session configuration: ${error.message}`); }
   if (!config || typeof config !== 'object' || Array.isArray(config)) throw new Error('Additional Session configuration must be an object.');
+  if (!catalogClient.snapshot?.synchronization_configuration) throw new Error('Backend synchronization settings are unavailable.');
+  config.synchronization_configuration = clone(catalogClient.snapshot.synchronization_configuration);
   config.storage_location = selectedArtifactDestination();
   config.error_evidence_location = readConfigurationString(errorLocation);
   config.session_parameters = {...config.session_parameters};
@@ -265,6 +267,8 @@ state.actions.launchSession = localAction('launch_session', async entry => {
     }
   }
   if (sessionNumber.validity.badInput) throw new Error('Invalid Session number. Enter a finite value representable by this GUI.');
+  const animal = catalogClient.snapshot?.catalog.animals.find(item => item.id === $('#animal-select').value);
+  if (animal) config.session_parameters.catalog_animal_details = clone(animal);
   Object.assign(config.session_parameters, {name: readConfigurationString(sessionName), date: sessionDate.value, number: sessionNumber.value ? configurationNumber(sessionNumber.value) : null, notes: readConfigurationString(sessionNotes)});
   state.submittedProcedure = preparedProtocol(state);
   state.submittedOperation = preparedFreeOperation(state);

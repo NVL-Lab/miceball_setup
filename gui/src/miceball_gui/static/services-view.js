@@ -8,6 +8,7 @@ const panel = document.querySelector('#panel-services');
 const connected = document.documentElement?.dataset?.runtime === 'connected';
 const model = createServicesDemo(connected);
 export const servicesAdministrator = () => model.administrator;
+export const servicesAdministratorName = () => model.administrator ? model.administratorName || '' : '';
 export const serviceActions = {activityHistory: () => activities, recordActivity: recordLocalActivity};
 let guiBackend = null, guiBackendError = '', guiBackendPending = false;
 const backendPanel = document.createElement('section');
@@ -42,12 +43,16 @@ export function showBlockedServiceStop(service) {
   authorizeMaintenance('blocked_stop', service);
 }
 
-// Each operation starts with a fresh name; mode selection is not authorization.
+// Reuse the client identity; each operation still requires its own confirmation.
 function bindAdministratorName(submitSelector, nameSelector = '[data-administrator-name]', matches = () => true) {
   const name = administrativePreview.querySelector(nameSelector);
   const submit = administrativePreview.querySelector(submitSelector);
   const valid = () => Boolean(name.value.trim()) && matches(name.value);
-  const reset = () => { name.value = ''; submit.disabled = true; };
+  const reset = () => {
+    name.value = servicesAdministratorName(); name.readOnly = true;
+    submit.disabled = !valid();
+    name.title = matches(name.value) ? 'Administrator identity selected on mode entry' : 'Exit Administrator mode and re-enter with the identity required by this authorization.';
+  };
   name.required = true;
   name.autocomplete = 'off';
   administrativePreview.oninput = () => { submit.disabled = !valid(); };
@@ -134,10 +139,42 @@ danger.setAttribute('aria-labelledby', 'services-danger-title');
 danger.innerHTML = `<h2 id="services-danger-title">Danger Zone — Administrator Mode</h2><p>Administrator mode exposes advanced operations that can stop framework services, force termination, or affect unresolved recovery and data-preservation obligations.</p><p>These actions may interrupt ongoing experiments or risk loss of scientific data or operational evidence. Only enter if you understand the consequences and intend to perform administrative work.</p><p>This is a trust-based presentation safeguard, not authentication or operation authorization. ${connected ? 'Service administration is unavailable in this connected unit. No command will be sent.' : 'This demo sends no commands.'}</p><div class="catalog-dialog__actions"><button type="button" data-danger-cancel>Cancel</button><button type="button" data-danger-enter>Enter Administrator Mode</button></div>`;
 document.body.append(danger);
 danger.querySelector('[data-danger-cancel]').addEventListener('click', () => danger.close());
-danger.querySelector('[data-danger-enter]').addEventListener('click', () => {
-  setServicesAdministrator(model, true, true); danger.close(); renderServices();
+const entryLabel = document.createElement('label');
+entryLabel.textContent = 'Administrator name';
+const entryName = document.createElement('input');
+entryName.required = true; entryName.autocomplete = 'off'; entryName.dataset.administratorEntry = '';
+entryLabel.append(entryName); danger.querySelector('.catalog-dialog__actions').before(entryLabel);
+const modePanel = document.createElement('div');
+modePanel.className = 'administrator-mode';
+modePanel.innerHTML = '<div role="group" aria-label="GUI mode"><button type="button" class="dialog-button" data-mode="experimenter">Experimenter</button><button type="button" class="dialog-button" data-mode="administrator">Administrator</button></div><small role="status" data-administrator-identity></small>';
+document.querySelector('.topbar').append(modePanel);
+let currentSection = document.querySelector('.section-panel.is-active')?.dataset.panel || 'setup';
+function renderAdministratorMode() {
+  document.documentElement.dataset.administrator = String(model.administrator);
+  modePanel.querySelector('[role="group"]').hidden = !['setup', 'services', 'storage', 'parameters'].includes(currentSection);
+  for (const button of modePanel.querySelectorAll('[data-mode]')) button.setAttribute('aria-pressed', String((button.dataset.mode === 'administrator') === model.administrator));
+  modePanel.querySelector('[data-administrator-identity]').textContent = model.administrator ? `Administrator · ${servicesAdministratorName()}` : 'Experimenter';
+}
+function exitAdministratorMode() {
+  setServicesAdministrator(model, false); model.administratorName = '';
+  administrativePreview.close(); renderAdministratorMode(); renderServices();
   document.dispatchEvent(new CustomEvent('gui-administrator-changed'));
-  panel.querySelector('[data-mode="administrator"]').focus({ preventScroll: true });
+}
+modePanel.addEventListener('click', event => {
+  const button = event.target.closest('[data-mode]');
+  if (!button) return;
+  if (button.dataset.mode === 'experimenter') { exitAdministratorMode(); return; }
+  if (model.administrator) return;
+  entryName.value = ''; danger.querySelector('[data-danger-enter]').disabled = true;
+  danger.showModal(); entryName.focus();
+});
+entryName.addEventListener('input', () => { danger.querySelector('[data-danger-enter]').disabled = !entryName.value.trim(); });
+danger.querySelector('[data-danger-enter]').addEventListener('click', () => {
+  if (!entryName.value.trim()) { entryName.reportValidity(); return; }
+  model.administratorName = entryName.value;
+  setServicesAdministrator(model, true, true); danger.close(); renderAdministratorMode(); renderServices();
+  document.dispatchEvent(new CustomEvent('gui-administrator-changed'));
+  modePanel.querySelector('[data-mode="administrator"]').focus({ preventScroll: true });
 });
 const administrativePreview = document.createElement('dialog');
 administrativePreview.className = 'catalog-dialog services-danger';
@@ -206,7 +243,7 @@ function renderServices() {
     for (const id of ownerReportOpen.keys()) if (!model.services.some(service => service.id === id)) ownerReportOpen.delete(id);
   }
   const unacknowledged = notificationHistory().filter(item => !item.acknowledged).length;
-  panel.innerHTML = `<header class="services-header"><div><h2 class="visually-hidden" id="heading-services">Services</h2><p>Framework status, notifications and administrative operations</p><small>${connected ? 'Configured membership · service-owned readiness · Controller admission remains authoritative' : 'Browser-local demonstration · fictional reports, no live services or commands'}</small></div><div class="services-refresh"><label>Auto refresh (s)<select id="services-refresh"><option value="0">Off</option>${[5,10,30,60].map(n=>`<option value="${n}" ${model.refreshSeconds === n ? 'selected' : ''}>${n}</option>`).join('')}</select></label><button type="button" data-refresh-services>Refresh now</button></div><div class="services-mode" role="group" aria-label="Services mode"><span>Mode:</span><button type="button" data-mode="experimenter" aria-pressed="${!model.administrator}">Experimenter</button><button type="button" data-mode="administrator" aria-pressed="${model.administrator}">Administrator</button></div></header>
+  panel.innerHTML = `<header class="services-header"><div><h2 class="visually-hidden" id="heading-services">Services</h2><p>Framework status, notifications and administrative operations</p><small>${connected ? 'Configured membership · service-owned readiness · Controller admission remains authoritative' : 'Browser-local demonstration · fictional reports, no live services or commands'}</small></div><div class="services-refresh"><label>Auto refresh (s)<select id="services-refresh"><option value="0">Off</option>${[5,10,30,60].map(n=>`<option value="${n}" ${model.refreshSeconds === n ? 'selected' : ''}>${n}</option>`).join('')}</select></label><button type="button" data-refresh-services>Refresh now</button></div></header>
     <p class="services-feedback" ${connected ? 'id="services-readiness-unavailable"' : ''} role="status">${escape(message || refreshNotice || (model.lastPreviewRefresh ? `Preview refreshed locally at ${model.lastPreviewRefresh}; fixture confirmations are unchanged.` : (connected ? 'Only valid current checks confirm availability; communication loss alone is not failure.' : 'Automatic refresh repaints fictional information only; it does not confirm availability.')))}</p>
     <section class="services-card"><h3>Configured services${connected && !model.membershipKnown ? ' · unavailable' : ` (${model.services.length})`}</h3><ul class="services-list" aria-label="Configured services">${connected && !model.membershipKnown ? '<li>Configured membership unavailable until Controller readback.</li>' : serviceRows()}</ul></section>
     <section class="services-card services-warning-card"><h3>Warnings and errors <small>${connected ? 'Unavailable' : `${unacknowledged} unacknowledged`}</small></h3><p class="services-muted">${connected ? 'Authoritative warning and error history is unavailable.' : 'Latest three entries by default. Acknowledgment is not resolution or deletion.'}</p><div id="services-history" class="services-history" role="region" aria-label="Warning and error history" tabindex="0">${notificationRows()}</div>${notificationHistory().length > 3 ? `<button type="button" data-toggle-history aria-controls="services-history" aria-expanded="${historyExpanded}">${historyExpanded ? 'Show less' : 'Show more'}</button>` : ''}</section>${administrativeOperations()}`;
@@ -281,8 +318,6 @@ panel.addEventListener('click', event => {
     const button = event.target.closest('button'), row = event.target.closest('[data-expand-service]');
     if (!button && row) { selectService(row.dataset.expandService); return; }
     if (!button || button.disabled) return;
-    if (button.dataset.mode === 'administrator' && !model.administrator) { danger.showModal(); return; }
-    if (button.dataset.mode === 'experimenter') { setServicesAdministrator(model, false); renderServices(); return; }
     if (button.hasAttribute('data-refresh-services')) { serviceActions.refresh(undefined, true); refreshGuiBackend(); return; }
     if (button.dataset.readiness) { serviceActions.refresh(button.dataset.readiness, true); return; }
     if (button.dataset.detail) { model.detail = button.dataset.detail; renderServices(); return; }
@@ -346,11 +381,6 @@ panel.addEventListener('click', event => {
   const row = event.target.closest('[data-expand-service]');
   if (!button && row) { selectService(row.dataset.expandService); return; }
   if (!button) return;
-  if (button.dataset.mode === 'administrator' && !model.administrator) { danger.showModal(); return; }
-  if (button.dataset.mode === 'experimenter') {
-    setServicesAdministrator(model, false);
-    document.dispatchEvent(new CustomEvent('gui-administrator-changed'));
-  }
   if (button.dataset.detail) model.detail = button.dataset.detail;
   if (button.hasAttribute('data-refresh-services')) {
     if (connected) message = 'Live service status refresh unavailable. No readiness check was sent; availability remains unknown.';
@@ -393,4 +423,6 @@ export function startServicesRefresh() {
 
 document.addEventListener('gui-section-changed', event => { if (event.detail === 'services') refreshGuiBackend(); });
 document.addEventListener('gui-notifications-changed', () => renderServices());
-renderServices(); scheduleServicesRefresh();
+renderAdministratorMode(); renderServices(); scheduleServicesRefresh();
+
+document.addEventListener('gui-section-changed', event => { currentSection = event.detail; renderAdministratorMode(); });

@@ -1,9 +1,65 @@
 # Miceball GUI
 
+## Catalog corrections (Decision 452; developer implementation)
+
+Catalog names compare without case or surrounding whitespace in their accepted
+ownership/project scopes. Stored labels and IDs are preserved. Setup's shared
+Administrator selector exposes an initially collapsed Catalog management section;
+personal reusable-entry removal uses the existing protocol, Step and template
+controls. Each removal requires confirmation of the exact revision-bound target.
+Removing a project also removes its animals, protocols and Session templates,
+but not saved Steps or Experiment templates. Catalog removal does not remove
+scientific files or rewrite accepted/executed configurations. Retained references
+are not reassigned. Legacy ownerless protocols remain readable/copyable without
+invented ownership. Independent validation, audit and closure remain pending.
+
+Focused checks: `python -B -m unittest gui.tests.test_catalog
+gui.tests.test_catalog_removal gui.tests.test_catalog_removal_browser -v` and
+`node --test gui/tests/test_catalog_client.mjs`. Browser checks require the
+existing Playwright module/browser setup described below.
+
 The static preview of this separately packaged browser interface is a demonstration with fictional
 Setup information, a Protocol Editor, and seven permanent sections including Parameters. It runs entirely
 in the browser. Launch Session and other operational-looking controls do not
 start or contact scientific framework services or execute scientific algorithms.
+
+## Global Administrator mode (Decision 451; partial implementation)
+
+Services, Storage and Parameters share one header mode selector. Entry retains
+the Danger Zone confirmation and requests an administrator name once. Navigation
+preserves the mode and identity, including an indication on other tabs. Exit is
+global within that open page; other browsers and Controller ownership are
+unchanged. Administrative operations still require separate exact-target
+confirmations and existing framework admission. Recovery remains disabled when
+the retained identity does not match its durable authorization.
+
+Administrator mode adds a muted reddish workspace tint in both themes while
+leaving panels and plots unchanged. The existing 720 px minimum layout remains.
+
+Synchronization defaults are stored in the existing backend SQLite database,
+separate from catalog entities and using the shared revision. Approved initial
+values have one definition in `catalog_store.py`; these are initial software
+defaults, not experimentally validated tolerances. Missing settings initialize
+automatically, including existing databases; malformed saved values are refused.
+The installer offers optional Advanced initialization overrides and preserves
+saved administrative settings on updates. Parameters exposes seven numeric
+fields, an interpretation choice and Save in Administrator mode, independent of
+scientific selection. Unsaved edits survive automatic refresh; stale saves reject
+without overwriting them. After a conflict, reload and review before saving.
+New Session submissions use the backend's committed settings even if browser JSON
+contains other values. Accepted Sessions remain unchanged. Unrelated additional
+Session JSON fields and adapter-driven `frames_per_collect` editing remain.
+This developer implementation is pending independent validation and audit.
+
+Developer checks: `python -B -m unittest gui.tests.test_synchronization_settings
+gui.tests.test_synchronization_browser -v`. The browser check uses the existing
+Playwright/Edge setup. `CatalogStore.read()` includes installation settings at
+top-level `synchronization_configuration`; catalog and settings saves share the
+same revision. Upgrade adds this field to the existing SQLite singleton row,
+preserving catalog content and initializing settings only when absent.
+
+Developer check: `python -B -m unittest gui.tests.test_global_administrator -v`
+with the Playwright/browser configuration described below.
 
 ## Windows validation corrections — developer implementation
 

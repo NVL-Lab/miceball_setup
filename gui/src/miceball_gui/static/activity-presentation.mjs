@@ -8,6 +8,8 @@ const operations = {
   register_artifact_destination: ['Destination registration', 'Scientific destination registered.'],
   update_artifact_destination: ['Destination update', 'Scientific destination updated.'],
   save_catalog: ['Catalog save', 'Catalog saved.'],
+  save_synchronization: ['Synchronization defaults', 'Synchronization defaults saved.'],
+  remove_catalog: ['Catalog removal', 'Catalog entry removed.'],
   take_browser_control: ['Control request', 'Control acquired.'],
   view_only: ['View Only request', 'View Only selected.'],
   launch_session: ['Session launch', 'Session launched successfully.'],

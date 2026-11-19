@@ -7,6 +7,15 @@ import { devices } from '../src/miceball_gui/static/protocol-demo.mjs';
 import { traceExamples, distributionExample } from '../src/miceball_gui/static/output-examples.mjs';
 import { createDemo, selectProtocol, selectTemplate, coverage, saveProtocol, clone, moveStep, assignCapability, preparedSteps, savedOccurrence, copyStepToEdit, saveReusableStep } from '../src/miceball_gui/static/protocol-demo.mjs';
 
+test('disconnected clients can attach independent action handlers during initialization', () => {
+  const first = createDemo(), second = createDemo();
+  let recorded;
+  first.actions.recordActivity = operation => { recorded = operation; };
+  first.actions.recordActivity('prepare_session');
+  assert.equal(recorded, 'prepare_session');
+  assert.deepEqual(second.actions, {});
+});
+
 test('optional step inclusion updates requirements without editing the protocol', () => {
   const state = createDemo();
   const saved = clone(state.protocols[0]);

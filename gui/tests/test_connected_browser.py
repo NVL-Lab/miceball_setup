@@ -33,6 +33,13 @@ class ConnectedPresentationTests(unittest.IsolatedAsyncioTestCase):
         if probe.returncode:
             self.skipTest("Set LAB_SYNC_PLAYWRIGHT_MODULE to an installed Playwright package")
         static = Path(__file__).parents[1] / "src/miceball_gui/static"
+        # This workflow includes a long screenshot pass between Experiments.
+        # Use the supported administrative persistence path, not browser JSON.
+        from miceball_gui.catalog_store import CatalogStore
+        store = CatalogStore(self.root / 'gui-catalog.sqlite3')
+        snapshot = store.read()
+        store.put_synchronization({**snapshot['synchronization_configuration'], 'max_mapping_age_s': 300.},
+            expected_revision=snapshot['revision'], administrator_id='Test operator', authorized=True)
         directory = self.enterContext(tempfile.TemporaryDirectory())
         baseline = Path(directory) / "baseline"
         baseline.mkdir()
@@ -55,9 +62,7 @@ class ConnectedPresentationTests(unittest.IsolatedAsyncioTestCase):
             "MICEBALL_BROWSER_ORIGIN": self.origin, "MICEBALL_DEMO_ORIGIN": demos["baseline"],
             "MICEBALL_DEMO_CURRENT_ORIGIN": demos["current"],
             "MICEBALL_BROWSER_CONFIGURATION": json.dumps({"storage": str(self.root / "records"),
-                "errors": str(self.root / "errors"), "fields": {"protocol_plan": {},
-                # This workflow includes a long screenshot pass before a second Experiment.
-                "synchronization_configuration": lifecycle.configuration(max_mapping_age_s=300.)}}),
+                "errors": str(self.root / "errors"), "fields": {"protocol_plan": {}}}),
             "MICEBALL_BROWSER_EVIDENCE": os.environ.get("LAB_SYNC_GUI_EVIDENCE_DIR", directory)}
         result = await asyncio.to_thread(subprocess.run,
             [node, str(Path(__file__).with_suffix(".mjs"))], env=environment,

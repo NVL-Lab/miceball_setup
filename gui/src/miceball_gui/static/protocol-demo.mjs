@@ -84,6 +84,7 @@ export function createDemo() {
   const definitions = steps.map(step => freezeDefinition({ ...clone(step), id: `shared-${step.operation}`, owner: null }));
   steps.forEach(step => { step.definitionId = `shared-${step.operation}`; });
   return {
+    actions: {},
     definitions,
     protocols: [
       { id: 'cabmi', name: 'CaBMI Closed-Loop Protocol', description: 'Initial imaging, ROI identification, baseline recording, neuron selection, cursor calibration, and closed-loop acquisition. Includes optional holographic stimulation.', protected: false, steps },
@@ -128,7 +129,7 @@ export function saveProtocol(state, draft) {
   if (existing?.protected) throw new Error('Copy protected references before editing.');
   const saved = clone(draft);
   // References are authoritative; occurrence-local edits cannot mutate a saved definition.
-  saved.steps = saved.steps.map(step => step.definitionId ? savedOccurrence(state, step.definitionId, step.id) : step);
+  saved.steps = saved.steps.map(step => step.definitionId && state.definitions.some(item => item.id === step.definitionId) ? savedOccurrence(state, step.definitionId, step.id) : step);
   if (existing) state.protocols[state.protocols.indexOf(existing)] = saved;
   else state.protocols.push(saved);
   selectProtocol(state, draft.id);

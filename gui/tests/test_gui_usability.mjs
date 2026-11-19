@@ -3,54 +3,43 @@ import assert from 'node:assert/strict';
 
 export async function verifyDemoAdministrator(browser, origin, section, directory) {
   const page = await browser.newPage();
+  const errors = [];
+  page.on('pageerror', error => errors.push(error.message));
   try {
-    await page.goto(origin); await section(page, 'services');
-    const history = page.locator('#activity-history');
-    assert.equal(await history.evaluate(node => node.open), false);
-    await history.locator(':scope > summary').click();
-    assert.match(await history.innerText(), /No activity recorded on this page./);
-    await history.locator(':scope > summary').click();
+    await page.goto(origin);
+    await page.locator('#protocol-select').waitFor();
+    for (const tab of ['session', 'parameters', 'experiment']) {
+      await section(page, tab);
+      assert.equal(await page.locator(`#panel-${tab} .placeholder`).count(), 0, `${tab} presenter initialized`);
+    }
+    await section(page, 'services');
     await page.locator('[data-mode="administrator"]').click();
+    assert.equal(await page.locator('[data-danger-enter]').isDisabled(), true);
+    await page.locator('[data-administrator-entry]').fill('   ');
+    assert.equal(await page.locator('[data-danger-enter]').isDisabled(), true);
+    await page.locator('[data-administrator-entry]').fill('Lab Operator');
     await page.locator('[data-danger-enter]').click();
     for (const theme of ['light', 'dark']) {
       if (await page.locator('html').getAttribute('data-theme') !== theme) await page.locator('#theme-toggle').click();
       await page.locator('[data-shutdown-framework]').click();
       const name = page.locator('dialog[open] input[data-administrator-name]');
-      assert.equal(await name.count(), 1, 'Demo shutdown must require a manually entered Administrator name');
-      assert.equal(await name.inputValue(), '');
-      const confirm = page.locator('[data-confirm-shutdown]');
-      assert.equal(await confirm.isDisabled(), true);
-      await name.fill('   '); assert.equal(await confirm.isDisabled(), true);
-      await name.fill('Lab Operator'); assert.equal(await confirm.isEnabled(), true);
+      assert.equal(await name.inputValue(), 'Lab Operator');
+      assert.equal(await name.getAttribute('readonly'), '');
       await page.keyboard.press('Escape');
       await page.locator('[data-shutdown-framework]').click();
-      assert.equal(await name.inputValue(), '');
-      await name.fill('Lab Operator'); await confirm.click();
+      await page.locator('[data-confirm-shutdown]').click();
       await page.locator('[data-finish-shutdown]').click();
       await page.locator('[data-kill-service]').first().click();
-      assert.equal(await name.inputValue(), '');
-      assert.equal(await page.locator('[data-confirm-kill]').isDisabled(), true);
+      assert.equal(await name.inputValue(), 'Lab Operator');
       assert.equal(await page.locator('dialog[open] input[type="checkbox"]').count(), 0);
-      await name.fill('  '); assert.equal(await page.locator('[data-confirm-kill]').isDisabled(), true);
-      await name.fill('Lab Operator'); await page.locator('[data-confirm-kill]').click();
+      await page.locator('[data-confirm-kill]').click();
       await page.locator('[data-admin-close]').click();
       await page.screenshot({path: `${directory}/administrator-demo-${theme}.png`, fullPage: true});
     }
-    await page.locator('[data-expand-service]').first().click();
-    await page.locator('button[data-stop-service]').click();
-    assert.equal(await page.locator('[data-administrator-name]').inputValue(), '');
-    assert.equal(await page.locator('[data-confirm-shutdown]').isDisabled(), true);
-    await page.locator('[data-admin-close]').click();
-    await page.locator('[data-administrative="Abandon outstanding obligations"]').click();
-    assert.equal(await page.locator('[data-administrator-name]').inputValue(), '');
-    assert.equal(await page.locator('[data-admin-review]').isDisabled(), true);
-    await page.locator('[data-administrator-name]').fill('  ');
-    assert.equal(await page.locator('[data-admin-review]').isDisabled(), true);
-    await page.locator('[data-administrator-name]').fill('Lab Operator');
-    await page.locator('[data-admin-review]').click();
-    assert.match(await page.locator('[data-admin-outcome]').innerText(), /local preview only/);
-    await page.locator('[data-admin-close]').click();
-    console.log('PASS: demo Shutdown/Kill names, empty/whitespace rejection, fresh entry, Escape and both themes');
+    await page.locator('[data-mode="experimenter"]').click();
+    assert.equal(await page.locator('#services-administration').count(), 0);
+    assert.deepEqual(errors, []);
+    console.log('PASS: demo mode entry name, reused identity, separate Shutdown/Kill confirmations, Escape and both themes');
   } finally { await page.close(); }
 }
 
@@ -165,17 +154,17 @@ export async function verifyGuiUsability(browser, origin, configuration, section
     const text = '  "Session Ω" \\n literal  ', storage = 'C:\\data\\ordinary path', notes = 'first line\nsecond line Ω';
     await name.fill(text);
     await page.locator('[aria-labelledby="notes-title"] textarea').fill(notes);
-    await page.locator('[aria-labelledby="storage-title"] textarea[data-configuration-string]:not(#error-evidence-location)').fill(storage);
+    await page.locator('#artifact-destination').selectOption('default');
     await page.locator('#error-evidence-location').fill('C:\\errors');
     await page.locator('details').filter({has: page.locator('#session-framework-fields')}).last().evaluate(node => node.open = true);
     await page.locator('#session-framework-fields').fill(JSON.stringify(configuration));
     await page.locator('.launch-session-demo').click();
     await page.locator('.session-identity-grid textarea[readonly]').waitFor({state:'attached'});
     const sent = submitted.find(entry => entry.operation === 'launch_session').parameters.config_parameters;
-    assert.equal(sent.session_parameters.name, text); assert.equal(sent.storage_location, storage);
+    assert.equal(sent.session_parameters.name, text); assert.equal(sent.storage_location, 'default');
     assert.equal(sent.session_parameters.notes, notes); assert.equal(sent.session_parameters.date, '2026-11-15');
     await section(page, 'session');
-    assert.match(await page.locator('#activity-history').innerText(), /Session launched successfully/);
+    assert.match(await page.locator('#activity-history').textContent(), /Session launched successfully/);
     await page.locator('[data-release-session]').click(); await page.locator('[data-confirm-stop]').click();
     await page.waitForFunction(() => document.querySelector('.launch-session-demo').disabled);
     assert.equal(await page.locator('html').getAttribute('data-control-mode'), 'controlling'); // Busy is not View Only.

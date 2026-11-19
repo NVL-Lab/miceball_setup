@@ -37,6 +37,19 @@ export async function loadCatalog() {
 }
 
 export async function putCatalog(collection, record, actor, expectedRevision = catalogClient.snapshot?.revision) {
+  return mutateCatalog({collection, record, actor, expected_revision: expectedRevision});
+}
+
+export async function removeCatalog(collection, identity, actor, administrator, expectedRevision) {
+  return mutateCatalog({collection, identity, actor, administrator, authorized: true, expected_revision: expectedRevision});
+}
+
+export async function putSynchronization(configuration, administratorId, expectedRevision) {
+  return mutateCatalog({synchronization_configuration: configuration, administrator_id: administratorId,
+    authorized: true, expected_revision: expectedRevision});
+}
+
+async function mutateCatalog(mutation) {
   if (catalogClient.pending) throw new Error('Another catalog request is pending. Your draft is retained.');
   if (!catalogClient.snapshot) throw new Error('Load the durable catalog before saving. Your draft is retained.');
   catalogClient.pending = true;
@@ -47,7 +60,7 @@ export async function putCatalog(collection, record, actor, expectedRevision = c
     try {
       response = await fetch('api/catalog', {
         method: 'POST', headers: {'Content-Type': 'application/json'},
-        body: stringifyConfiguration({collection, record, actor, expected_revision: expectedRevision}),
+        body: stringifyConfiguration(mutation),
       });
     } catch (_) {
       const error = new Error('Catalog save could not be confirmed. Your draft is retained; reload and review before retrying.');

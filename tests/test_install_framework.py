@@ -56,6 +56,33 @@ class FrameworkInstallerTests(unittest.TestCase):
         self.assertFalse((self.config / 'gui-connection.json').exists())
         self.assertNotIn('GUI LAUNCH:', output)
 
+    def test_gui_synchronization_initialization_overrides_and_update_preservation(self):
+        self.gui_package()
+        self.answers.update({'Advanced synchronization settings': 'yes', 'exchanges': '5'})
+        code, _, errors = self.run_setup()
+        self.assertEqual(code, 0, errors)
+        from miceball_gui.catalog_store import CatalogStore
+        path = self.config / 'gui-catalog.sqlite3'
+        store = CatalogStore(path)
+        self.assertEqual(store.read()['synchronization_configuration']['exchanges'], 5)
+        snapshot = store.read()
+        store.put_synchronization({**snapshot['synchronization_configuration'], 'exchanges': 7},
+            expected_revision=snapshot['revision'], administrator_id='Operator', authorized=True)
+        before = store.read()
+        self.answers.update({'exchanges': '9', 'Use this existing connection file': 'yes'})
+        code, _, errors = self.run_setup()
+        self.assertEqual(code, 0, errors)
+        self.assertEqual(CatalogStore(path).read(), before)
+
+    def test_invalid_gui_synchronization_override_refuses_initialization(self):
+        self.gui_package()
+        self.answers.update({'Advanced synchronization settings': 'yes', 'exchanges': '1'})
+        code, _, errors = self.run_setup()
+        self.assertEqual(code, 1)
+        self.assertIn('at least two', errors)
+        self.assertFalse((self.config / 'gui-catalog.sqlite3').exists())
+        self.assertFalse((self.config / 'controller.json').exists())
+
     def test_requested_unavailable_gui_keeps_core_installation_and_reports_pending(self):
         self.answers['Install or reuse optional GUI'] = 'yes'
         code, output, errors = self.run_setup()
@@ -1133,6 +1160,19 @@ class FrameworkInstallerTests(unittest.TestCase):
                     for field, kind in (('controller_id', 'controller'), ('client_id', 'client')):
                         build_runtime_subject(None, 'command', kind, settings[field], 'stop')
                     create_gui_app(**settings)
+            elif installer.GUI_SYNCHRONIZATION in args:
+                gui_source = Path(__file__).resolve().parents[1] / 'gui' / 'src'
+                with patch.object(sys, 'path', [str(gui_source), *sys.path]):
+                    from miceball_gui.catalog_store import CatalogStore, INITIAL_SYNCHRONIZATION_CONFIGURATION
+                    from lab_sync_acquisition import SynchronizationConfiguration
+                    request = json.loads(input)
+                    if 'path' in request:
+                        result = CatalogStore(request['path'], initial_synchronization=request.get('configuration')).read()['synchronization_configuration']
+                    elif 'configuration' in request:
+                        result = SynchronizationConfiguration.from_dict(request['configuration']).to_dict()
+                    else:
+                        result = INITIAL_SYNCHRONIZATION_CONFIGURATION.to_dict()
+                    return json.dumps(result)
             elif installer.CONNECT in args:
                 self.connections.append(json.loads(input) if input is not None else json.loads(args[-2]))
                 if self.execute_connection_check:

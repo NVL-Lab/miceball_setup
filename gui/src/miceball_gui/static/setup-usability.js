@@ -7,6 +7,7 @@ toolbar.className = 'setup-disclosures-toolbar';
 toolbar.innerHTML = '<button type="button" data-open-setup>Expand All</button><button type="button" data-close-setup>Collapse All</button>';
 setup.querySelector('.setup-demo-note').after(toolbar);
 for (const card of setup.querySelectorAll('.setup-card')) {
+  if (card.querySelector('.setup-disclosure')) continue;
   const heading = card.querySelector('h3');
   if (!heading) continue;
   const disclosure = document.createElement('details'); disclosure.className = 'setup-disclosure'; disclosure.open = true;
@@ -17,7 +18,9 @@ for (const card of setup.querySelectorAll('.setup-card')) {
 }
 toolbar.addEventListener('click', event => {
   if (!event.target.closest('button')) return;
-  setup.querySelectorAll('.setup-disclosure').forEach(section => { section.open = !!event.target.closest('[data-open-setup]'); });
+  setup.querySelectorAll('.setup-disclosure').forEach(section => {
+    if (!section.closest('.setup-card').hidden) section.open = !!event.target.closest('[data-open-setup]');
+  });
 });
 
 // Keep the native calendar picker and ISO input value; display the owner's canonical format alongside it.

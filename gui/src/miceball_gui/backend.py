@@ -127,10 +127,14 @@ def create_gui_app(*, servers, controller_id, client_id, origin, timeout_s, cata
         await socket.send_json({"type": "connected", "browser_id": browser_id})
 
         async def submit(operation, parameters, session_id, identifier):
+            if operation == "launch_session" and catalog is None:
+                raise ValueError("Persistent synchronization settings are not configured")
             await transport()
             envelope = dict(controller_id=controller_id, client_id=client_id, request_id=identifier,
                             browser_context=dict(context))
             if operation == "launch_session":
+                parameters = {**parameters, "config_parameters": {**parameters["config_parameters"],
+                    "synchronization_configuration": catalog.read()["synchronization_configuration"]}}
                 model = ExternalSessionLaunchRequest(**envelope, **parameters)
                 return await client.request_launch(model, timeout_s=timeout_s)
             model = ExternalControllerRequest(**envelope, operation=operation, session_id=session_id,
@@ -197,7 +201,7 @@ def create_gui_app(*, servers, controller_id, client_id, origin, timeout_s, cata
             return web.json_response({"error": "Durable catalog is not configured"}, status=503)
         try:
             return web.json_response(catalog.read())
-        except (ValueError, sqlite3.Error, OSError):
+        except (ValueError, TypeError, sqlite3.Error, OSError):
             return web.json_response({"error": "Catalog cannot be read; retained data was not replaced"}, status=503)
 
     async def write_catalog(request):
@@ -205,6 +209,13 @@ def create_gui_app(*, servers, controller_id, client_id, origin, timeout_s, cata
             return web.json_response({"error": "Durable catalog is not configured"}, status=503)
         try:
             data = await request.json()
+            if isinstance(data, dict) and set(data) == {"synchronization_configuration", "expected_revision", "administrator_id", "authorized"}:
+                return web.json_response(catalog.put_synchronization(data["synchronization_configuration"],
+                    expected_revision=data["expected_revision"], administrator_id=data["administrator_id"], authorized=data["authorized"]))
+            if isinstance(data, dict) and set(data) == {"collection", "identity", "expected_revision", "actor", "administrator", "authorized"}:
+                return web.json_response(catalog.remove(data["collection"], data["identity"],
+                    expected_revision=data["expected_revision"], actor=data["actor"],
+                    administrator=data["administrator"], authorized=data["authorized"]))
             if not isinstance(data, dict) or set(data) != {"collection", "record", "expected_revision", "actor"}:
                 raise ValueError("Invalid bounded catalog mutation")
             return web.json_response(catalog.put(data["collection"], data["record"],

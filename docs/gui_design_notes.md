@@ -1,5 +1,36 @@
 # Future GUI Design Notes
 
+## Accepted global Administrator mode and synchronization defaults (Decision 451)
+
+Decision 451 makes Administrator mode and its once-entered name client-wide across
+navigation, with consistent header controls on Services, Storage and Parameters
+and a mode/identity indicator elsewhere. Other browser clients are independent.
+Preserve Danger Zone and per-operation confirmations, Controller ownership and
+framework admission. Use a muted global reddish workspace tint in both themes
+without recoloring panels or plots. Backend-owned synchronization defaults are an
+accepted separate responsibility within existing catalog persistence. The user
+has approved initial values for all eight settings as recorded in Decision 451;
+they are not inferred from examples or claimed as validated tolerances. No independent validation or
+closure is claimed by this architectural synchronization.
+
+## Synchronization initialization clarification (Decision 451)
+
+Initial synchronization values are now user-approved in Decision 451, not
+experimentally validated tolerances. One backend-owned definition initializes
+missing settings automatically, accepts installer Advanced Settings proposals,
+and preserves saved administrative values. Replace the unresolved Parameters
+notice with the bounded Administrator editor; this does not authorize runtime
+reconfiguration or changing accepted Sessions. Independent verification is pending.
+
+## Catalog correction boundary (Decision 452)
+
+Decision 452 records normalized scoped uniqueness, simple catalog removal and
+historical identity independence. Its bounded developer implementation extends
+the existing catalog transaction, header mode selector, Setup disclosures and
+personal reusable-entry controls. No scientific storage is part of catalog
+removal. Independent validation, audit and closure remain pending; earlier partial
+Windows evidence does not validate this correction.
+
 ## Accepted catalog, backend service and Parameters integration (Decision 449)
 
 **Architecture accepted; implementation, independent validation and audit pending.**
