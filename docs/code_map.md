@@ -195,10 +195,14 @@ general maintenance-history/memory retirement is not implemented by this closure
 
 - `destinationManagementMarkup`: Presents StorageManager-provided destinations and Administrator management controls without owning their configuration.
 - `installArtifactDestinations`: Replaces connected Setup's text declaration with an approved selector and binds management forms to existing Controller operations.
-- `refreshArtifactDestinations`: Obtains current approved choices through the configured Controller readback and retains preparation selections.
+- `refreshArtifactDestinations(explicit = false)`: Obtains current approved choices through Controller readback, retains preparation selections and records one pending-to-result activity for each explicit refresh while background reads remain transition-deduplicated.
 - `syncArtifactDestinations`: Synchronizes selection immutability and management availability with confirmed Controller context.
 - `invalidateArtifactDestinations`: Marks retained destination information unconfirmed when Controller confirmation is lost.
 - `selectedArtifactDestination`: Returns the selected approved identity for launch or reports missing, disabled or invalid selection without fallback.
+
+## gui/tests/test_artifact_destinations.py and test_destination_initialization.mjs
+
+- ArtifactDestinationGuiTests: Exercises destination transport and production-browser behavior, including delayed/failed catalog startup, explicit refresh outcomes, background deduplication and catalog hydration after reconnect.
 
 ## gui/src/miceball_gui/static/activity-history.mjs
 
@@ -1634,7 +1638,7 @@ scientific/runtime timing is rejected rather than silently rewritten.
 - Controller.list_artifact_destinations(*, communication, storage_participant, result_window_s): Reads approved destination choices from StorageManager through existing correlated NATS requests.
 - Controller.register_artifact_destination(destination_id, name, root, *, experimenter_name, administrator_mode, communication, storage_participant, result_window_s): Requires explicit administrator context and forwards registration to StorageManager.
 - Controller.update_artifact_destination(destination_id, *, enabled, remove=False, experimenter_name, administrator_mode, communication, storage_participant, result_window_s): Requests authorized destination enablement, disablement or safe removal without changing Session bindings.
-- Controller._artifact_destination_request(operation, parameters, *, communication, storage_participant, result_window_s): Confirms correlated destination results from the configured StorageManager.
+- Controller._artifact_destination_request(operation, parameters, *, communication, storage_participant, result_window_s): Confirms correlated destination results from the configured StorageManager, retaining authoritative rejection reasons while distinguishing missing or invalid confirmation.
 
 **Architecture/implementation distinction:** Decision 407 partially supersedes
 Decision 406's mandatory FAILED outcome during already-admitted Normal Stop and
@@ -2776,7 +2780,14 @@ Storage GUI integration and remaining deployment validation.
 
 ## scripts/install_framework.py
 
-**Planned boundary (Decision 453; no implementation yet):** Extract only reusable
+**Deferred planned boundary (Decision 453; no implementation yet):** Technical
+investigation, implementation design review and preliminary Windows packaging
+assessment are complete. GI-A/C, GI-B, GI-D, GI-E and GI-F functionality, further
+packaging checks and initialization-default selection are deferred while framework
+and operational GUI contracts stabilize and receive operational validation. The
+CLI remains the deployment mechanism. Preserve the
+[retained design/evidence](installation_and_deployment.md#retained-graphical-installer-design-and-preliminary-feasibility);
+resume through ICC without reopening the accepted architecture. Extract only reusable
 installation operations from CLI prompting for a shared CLI/Tkinter frontend,
 retaining authoritative configuration validators and durable publication. Add a
 non-secret shared connection-file adapter, explicit software-only/configuration-
@@ -3199,6 +3210,8 @@ automatic. Kill integration and overall closeout validation remain deferred.
 - LaunchCleanupTests: Exercises Decision 420 through real handlers and simulated NATS, covering scoped correlation, serialized admission, original-owner cleanup, invalid optional confirmations, SDK-backed Ingestor abort recovery and protected journal/evidence obligations.
 
 ## gui/src/miceball_gui/static/protocol-demo.mjs
+
+- createDemo(): Constructs demonstration state or empty connected collection projections, including Experiment templates, without marking the persistent catalog available before hydration.
 
 - clone(value): Detaches JSON-like GUI state through the shared numeric-safe configuration serialization boundary rather than silently changing unsupported numbers.
 

@@ -3,7 +3,7 @@ import { escapeText as esc } from './gui-presentation.js';
 import { servicesAdministrator, servicesAdministratorName } from './services-view.js';
 import { activityPresentation } from './activity-presentation.mjs';
 import { catalogId } from './catalog-client.mjs';
-import { recordActivityTransition } from './activity-history.mjs';
+import { recordActivity, updateActivity, recordActivityTransition } from './activity-history.mjs';
 
 let adapter, catalog = null, current = false, loading = false, selection = '', initialized = false;
 let feedback = 'Destination information is unconfirmed.';
@@ -44,8 +44,8 @@ function renderSelection() {
   select.disabled = Boolean(snapshot?.status?.session_id) || !current || loading;
   const entry = choices().find(item => item.destination_id === value);
   document.querySelector('#artifact-destination-info').textContent = accepted != null
-    ? `Controller-confirmed Session destination: ${entry?.name || 'name unavailable'}. Fixed for every Experiment.${current ? '' : ' Current availability unconfirmed.'}`
-    : !current ? feedback : entry ? `${entry.enabled ? '' : 'Disabled. '}${observation(entry)}. StorageManager rechecks at launch.` : 'Choose an approved destination. No alternative will be selected automatically.';
+    ? `Controller-confirmed Session destination: ${entry?.name || 'name unavailable'}. Fixed for every Experiment.${loading ? ` ${feedback}` : current ? '' : ' Current availability unconfirmed.'}`
+    : loading || !current ? feedback : entry ? `${entry.enabled ? '' : 'Disabled. '}${observation(entry)}. StorageManager rechecks at launch.` : 'Choose an approved destination. No alternative will be selected automatically.';
 }
 
 export function syncArtifactDestinations() {
@@ -67,19 +67,29 @@ export function invalidateArtifactDestinations() {
   syncArtifactDestinations();
 }
 
-export async function refreshArtifactDestinations() {
+export async function refreshArtifactDestinations(explicit = false) {
   if (!adapter || loading) return;
-  loading = true; renderSelection(); change();
+  loading = true;
+  const activity = explicit ? recordActivity('destination_discovery', 'controller') : null;
+  feedback = 'Refreshing destinations; pending confirmation.';
+  renderSelection(); change();
   try {
     const result = await adapter.read();
     if (!result || !Array.isArray(result.destinations)) throw new Error('Destination information could not be confirmed.');
     catalog = result; current = true;
     const unavailable = choices().filter(entry => entry.enabled && entry.validation?.status === 'invalid');
-    recordActivityTransition('destination_discovery', unavailable.length ? 'unknown' : 'succeeded',
-      unavailable.map(entry => `${entry.name}: ${entry.validation.reason || 'unavailable'}`).join('; '));
+    const status = unavailable.length ? 'unknown' : 'succeeded';
+    const error = unavailable.map(entry => `${entry.name}: ${entry.validation.reason || 'unavailable'}`).join('; ');
+    if (activity) updateActivity(activity, {status, error});
+    else recordActivityTransition('destination_discovery', status, error);
     if (!initialized) { selection ||= result.default_destination_id || ''; initialized = true; }
     feedback = 'Approved destinations received. Availability is rechecked by StorageManager at launch.';
-  } catch (error) { current = false; feedback = 'Destination information unavailable. See Activity History in Services.'; recordActivityTransition('destination_discovery', 'unknown', error.message); }
+  } catch (error) {
+    current = false;
+    if (activity) updateActivity(activity, {status: 'unknown', error: error.message});
+    else recordActivityTransition('destination_discovery', 'unknown', error.message);
+    feedback = activity ? activityPresentation(activity).message : 'Destination information unavailable. See Activity History in Services.';
+  }
   finally { loading = false; syncArtifactDestinations(); }
 }
 
@@ -102,12 +112,12 @@ export function installArtifactDestinations(operations) {
   const browse = document.querySelector('[aria-labelledby="storage-title"] button');
   browse.textContent = 'Refresh destinations'; browse.disabled = false; browse.type = 'button';
   browse.removeAttribute('title');
-  browse.addEventListener('click', refreshArtifactDestinations);
+  browse.addEventListener('click', () => refreshArtifactDestinations(true));
   select.addEventListener('change', () => { selection = select.value; initialized = true; renderSelection(); });
   const dialog = document.createElement('dialog'); dialog.className = 'catalog-dialog'; document.body.append(dialog);
   dialog.setAttribute('aria-labelledby', 'destination-dialog-title');
   document.addEventListener('click', event => {
-    if (event.target.closest('[data-destination-refresh]')) { refreshArtifactDestinations(); return; }
+    if (event.target.closest('[data-destination-refresh]')) { refreshArtifactDestinations(true); return; }
     const button = event.target.closest('[data-destination-register], [data-destination-toggle], [data-destination-remove]');
     if (!button || button.disabled || !servicesAdministrator() || !adapter.canControl() || !current || loading) return;
     const entry = choices().find(item => item.destination_id === (button.dataset.destinationToggle || button.dataset.destinationRemove));

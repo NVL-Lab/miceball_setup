@@ -100,6 +100,15 @@ restrictions. These controls do not mount disks, move data or delete recordings.
 Consequential outcomes appear in Services Activity History. Static demonstration
 mode does not acquire a registry or submit these operations.
 
+Explicit Refresh records one pending-to-result Activity History entry for each
+request, including repeated failures; background updates remain transition-based.
+Connected preparation initializes an empty Experiment-template projection before
+catalog hydration without treating it as an available persistent catalog.
+Controller destination replies retain authoritative owner rejection reasons;
+missing or invalid confirmation remains unconfirmed. These bounded developer
+corrections await independent validation/audit and do not resolve the separately
+investigated live destination-discovery failure.
+
 Developer checks: `python -B -m unittest gui.tests.test_artifact_destinations -v`.
 The rendered check requires Node, installed Playwright (optionally selected with
 `LAB_SYNC_PLAYWRIGHT_MODULE`) and Edge, or `LAB_SYNC_BROWSER_CHANNEL`. It uses

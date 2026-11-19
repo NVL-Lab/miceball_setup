@@ -2889,11 +2889,27 @@ class Controller:
                                             storage_participant, result_window_s):
         if storage_participant.component_type != "storage_manager":
             raise ValueError("Artifact destinations require StorageManager")
-        result = await communication.request_persistence_command(storage_participant, operation,
-            None, parameters, result_window_s, command_id=uuid4().hex)
-        if (result is None or result.success is not True or result.status != "succeeded"
+        command_id = uuid4().hex
+        try:
+            result = await communication.request_persistence_command(storage_participant, operation,
+                None, parameters, result_window_s, command_id=command_id)
+        except Exception as error:
+            raise RuntimeError(f"StorageManager destination operation is unconfirmed: communication failed ({type(error).__name__})") from None
+        if result is None:
+            raise RuntimeError("StorageManager destination operation is unconfirmed: no authoritative response")
+        # Nonce and Controller-instance correlation are enforced by the communication boundary.
+        if (not isinstance(result, RuntimeCommandResultMessage) or result.command_id != command_id
+                or result.session_id is not None or result.source_id != storage_participant.component_id
+                or result.target_id != self._component_id or type(result.success) is not bool
+                or not isinstance(result.payload, dict)
+                or ("storage_id" in result.payload and result.payload["storage_id"] != storage_participant.component_id)
+                or (result.reason is not None and not isinstance(result.reason, str))):
+            raise RuntimeError("StorageManager destination operation is unconfirmed: invalid confirmation")
+        if result.status == "failed" and result.success is False:
+            raise RuntimeError(f"StorageManager rejected destination operation: {result.reason or 'No reason provided'}")
+        if (result.success is not True or result.status != "succeeded"
                 or result.payload.get("storage_id") != storage_participant.component_id):
-            raise RuntimeError("StorageManager destination operation is unconfirmed")
+            raise RuntimeError("StorageManager destination operation is unconfirmed: invalid confirmation")
         return deepcopy(result.payload)
 
     @service_operation()

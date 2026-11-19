@@ -1,6 +1,15 @@
 # Installation And Deployment
 
-## Accepted graphical installer direction (Decision 453; not implemented)
+## Accepted graphical installer direction (Decision 453; implementation deferred)
+
+**Development priority:** Decision 453 remains accepted and unchanged. Technical
+investigation, implementation design review and preliminary Windows packaging
+feasibility assessment are complete. GI-A/C, GI-B, GI-D, GI-E and GI-F functionality,
+further packaging feasibility tests and installer initialization-default selection
+are intentionally deferred. The existing CLI installer remains the deployment
+mechanism while the scientific framework and operational GUI are completed and
+validated. Resume through ICC when the relevant service, configuration, storage,
+GUI and deployment contracts are sufficiently stable and operationally validated.
 
 [Decision 453](architecture_decisions.md#decision-453-self-contained-graphical-installation-shares-cli-operations-and-permits-bounded-local-nats-provisioning)
 accepts a self-contained Tkinter/ttk installer with a managed Python 3.12 runtime
@@ -30,6 +39,63 @@ The following procedures describe existing implementations and historical eviden
 not the future installer's availability. Scientific framework services and the
 operational GUI must not be launched/restarted by the installer. No deployment,
 implementation or compatibility validation is established by this synchronization.
+
+### Retained graphical installer design and preliminary feasibility
+
+This is a planning/evidence record, not implementation authorization or closure.
+The source-grounded technical investigation used `2950c002e813c37e2075920c87b834aa6c9e3478`;
+the preliminary Windows feasibility assessment used
+`483324b83a0cf0b55ad74ca4231124ca8ecff9cd`. Preserve the following conclusions when
+work resumes rather than repeating the full investigation:
+
+- **GI-A/C together:** Extract shared discovery, planning and execution from the
+  existing CLI; retain authoritative configuration loaders, credential validation,
+  durable publication, cancellation and update/retirement safeguards. Support
+  software-only/incomplete configuration and reopening without unnecessary
+  reinstallation. Do not build a parallel installer or persistent wizard database.
+- **GI-B:** Adapt one strict versioned non-secret file to existing role consumers.
+  The proposed minimum uses endpoints, authority account/bucket/key, stable core
+  service/GUI-client identities and explicit node declarations. Exact role-specific
+  derivation and validation still require review before implementation. Preserve
+  separate local credentials, existing identities and Controller authorization;
+  do not introduce distributed configuration or repeated unnecessary transfers.
+- **GI-D/E:** Keep bounded local NATS provisioning/OS integration distinct from the
+  seven-step Tkinter frontend. Reuse shared operations; never launch framework
+  services or the operational GUI. Preserve existing servers and scientific data.
+- **GI-F:** Use a clean managed Python 3.12 runtime with Tcl/Tk, separately packaged
+  core/GUI wheels and platform-specific native dependencies. Start with a
+  diagnosable one-folder executable candidate; a frozen frontend does not replace
+  the normal managed interpreter needed by service launch commands. Clean upstream
+  runtime/wheel provenance, licenses, checksums and target compatibility still need
+  verification; existing development/application binaries are not release payloads.
+- **Decisions 451/452:** Reuse the single synchronization defaults definition,
+  validator, initialization boundary and existing GUI catalog/settings persistence.
+  Preserve saved administrative settings, catalog ownership/removal safeguards,
+  revision protection and historical identities; no duplicate defaults or stores.
+
+Preliminary Windows observations: the development environment had Anaconda Python
+3.12.13, nats-py 2.15.0, NumPy 2.5.3, h5py 3.16.0, aiohttp 3.14.5 and Paramiko 4.0.0;
+PyInstaller/cx-Freeze and OpenCV were unavailable there. A disposable copy of an
+already available Python 3.12.14 runtime ran independently of Conda/Python path
+settings, initialized Tcl 8.6.12 and SSL, and passed SQLite write/read. A copied
+NATS 2.14.3 executable passed `--version` only; no broker was started.
+
+Copying the complete installed dependency set failed at NumPy native loading:
+that development build depends on external Conda/MKL DLLs. HDF5 and framework/GUI
+imports were not reached in that probe. This supports clean binary-wheel assembly,
+not cloning Conda. No clean upstream download/install, frozen Tk executable,
+graphical rendering, fresh-account/VM installation, authenticated NATS operation,
+Linux/ARM64 or Jetson compatibility was established. Further feasibility work is
+deferred, not passed. Source-supported packaging candidates are not qualified
+release versions or redistribution approval.
+
+Initialization findings: generic templates contain null preservation/result
+windows; manual examples explicitly label 30/10 seconds illustrative, not accepted
+defaults. Repository deployment evidence does not establish the values used by
+the successful distributed run. Reuse saved operational configuration; choosing
+new initialization values remains deferred. Decision 444's accepted 180-second
+registration budget remains unchanged, and Decision 451's scientific result window
+must not be reused as a maintenance/preservation default.
 
 Decision 451's GUI synchronization initialization uses one backend-owned definition:
 exchanges 3, initial scale 1.0, clock-rate error bound 0.001, maximum uncertainty

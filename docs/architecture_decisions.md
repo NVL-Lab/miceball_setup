@@ -14950,8 +14950,10 @@ it does not close their implementation/verification work.
 
 ## Decision 453: Self-contained graphical installation shares CLI operations and permits bounded local NATS provisioning
 
-**Status:** Accepted; implementation, platform feasibility checks, independent
-validation and audit pending.
+**Status:** Accepted and unchanged; functionality implementation intentionally
+deferred by development priority. Technical investigation, implementation design
+review and preliminary Windows packaging feasibility assessment are complete;
+further packaging checks and initialization-default selection are deferred.
 
 This records the project owner's explicitly accepted LLC graphical-installer
 handoff. It extends Decisions 421, 439-440, 446 and 447 within the following scope,
@@ -15062,10 +15064,22 @@ administrative values and refuse malformed retained settings. Decision 452's
 catalog ownership, revision, removal and historical-identity rules remain unchanged.
 No duplicate defaults, validators, persistence or catalog store is authorized.
 
-**Implementation status:** This accepts architecture only. The existing CLI and
-Decisions 450-452 implementations/validation baselines are unchanged. No graphical
-installer, NATS provisioning, platform compatibility, independent verification or
-closure is established here. Q022 remains OPEN.
+**Implementation priority:** GI-A/C (combined shared operations/orchestration),
+GI-B (connection file), GI-D (NATS provisioning), GI-E (graphical interface) and
+GI-F (distribution) functionality are intentionally deferred while development
+prioritizes completing and validating the scientific framework and operational
+GUI. The existing CLI installer remains the deployment mechanism. Resume graphical
+installer work once the relevant service, configuration, storage, GUI and deployment
+contracts are sufficiently stable and operationally validated, through the existing
+ICC authorization workflow. This is not rejection, architectural modification or
+closure of Decision 453; Q022 remains OPEN.
+
+Preserve the completed investigation/design and preliminary feasibility findings
+in the [retained planning record](installation_and_deployment.md#retained-graphical-installer-design-and-preliminary-feasibility).
+The assessment is not a complete packaging qualification: further feasibility work,
+initialization-default selection, implementation, independent validation and audit
+remain outstanding. Existing Decisions 450-452 implementations and their validation
+baselines are unchanged; no graphical installer or NATS provisioning is implemented.
 
 ---
 

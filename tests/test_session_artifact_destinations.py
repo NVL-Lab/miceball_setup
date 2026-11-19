@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, patch
 from lab_sync_acquisition import (PersistentStorageManager, RuntimeParticipant, SshRetrievalEndpoint,
     NatsCommunicationBoundary, NatsControllerCommunication, ServiceMaintenanceInterface,
     InMemoryIngestor, NatsStorageManagerCommunication)
+from lab_sync_acquisition.communication import RuntimeCommandResultMessage
 from tests.nats_server_fixture import acquire_test_controller_authority
 from tests import test_artifact_retrieval as retrieval
 from tests import test_session_launch as launch
@@ -359,6 +360,57 @@ class DestinationLaunchTests(unittest.IsolatedAsyncioTestCase):
         listed = await f.controller.list_artifact_destinations(**arguments)
         self.assertTrue(listed.succeeded, listed.error)
         self.assertEqual(len(listed.details["destinations"]), 2)
+
+    async def test_owner_rejections_retain_details_for_all_destination_operations(self):
+        f = self.f
+        await f.services()
+        arguments = {"communication": f.communication,
+            "storage_participant": RuntimeParticipant("storage_manager", "storage"), "result_window_s": 2}
+        reason = "Destination registry cannot be verified"
+        for operation, call in (
+                ("list_artifact_destinations", lambda: f.controller.list_artifact_destinations(**arguments)),
+                ("register_artifact_destination", lambda: f.controller.register_artifact_destination(
+                    "other", "Disk", str(f.root / "other"), **ADMIN, **arguments)),
+                ("update_artifact_destination", lambda: f.controller.update_artifact_destination(
+                    "other", enabled=False, **ADMIN, **arguments))):
+            with self.subTest(operation=operation), patch.object(f.storage, operation, side_effect=RuntimeError(reason)):
+                result = await call()
+                self.assertFalse(result.succeeded)
+                self.assertIn(reason, result.error)
+
+    async def test_destination_invalid_confirmations_do_not_expose_rejection_details(self):
+        f = self.f
+        arguments = {"communication": f.communication,
+            "storage_participant": RuntimeParticipant("storage_manager", "storage"), "result_window_s": 2}
+        for damage in ("missing", "command", "source", "target", "session", "contradictory", "progress", "payload", "rejection_owner", "reason"):
+            async def response(participant, operation, session, parameters, window, *, command_id):
+                if damage == "missing":
+                    return None
+                result = RuntimeCommandResultMessage("result", command_id, None, "storage", "controller",
+                    "failed", False, "Untrusted reason must not escape", {})
+                if damage == "command": result = replace(result, command_id="wrong")
+                if damage == "source": result = replace(result, source_id="wrong")
+                if damage == "target": result = replace(result, target_id="wrong")
+                if damage == "session": result = replace(result, session_id="wrong")
+                if damage == "contradictory": result = replace(result, success=True)
+                if damage == "progress": result = replace(result, status="progress")
+                if damage == "rejection_owner": result = replace(result, payload={"storage_id": "wrong"})
+                if damage == "reason": result = replace(result, reason={"configuration": "not a safe reason"})
+                if damage == "payload":
+                    result = replace(result, status="succeeded", success=True, payload={"storage_id": "wrong"})
+                return result
+            with self.subTest(damage=damage), patch.object(f.communication, "request_persistence_command", side_effect=response):
+                result = await f.controller.list_artifact_destinations(**arguments)
+                self.assertFalse(result.succeeded)
+                self.assertIn("unconfirmed", result.error)
+                self.assertNotIn("Untrusted reason", result.error)
+        for error in (ConnectionError("private transport configuration"), TimeoutError("private transport configuration")):
+            with self.subTest(error=type(error).__name__), patch.object(
+                    f.communication, "request_persistence_command", side_effect=error):
+                result = await f.controller.list_artifact_destinations(**arguments)
+                self.assertFalse(result.succeeded)
+                self.assertIn("unconfirmed: communication failed", result.error)
+                self.assertNotIn("private transport configuration", result.error)
 
     async def test_failure_after_admission_retains_binding(self):
         f = self.f

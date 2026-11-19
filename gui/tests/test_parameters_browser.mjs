@@ -54,7 +54,7 @@ try {
   await page.getByLabel('count', {exact: true}).selectOption('0');
   await rate.fill('.5');
   const text = '  "quoted" \\ Ω\nline'; await page.getByLabel('advanced_text', {exact: true}).fill(text);
-  await page.locator('#personal-experiment-template button').click();
+  await page.locator('#personal-experiment-template button[type="submit"]').click();
   assert.match(await page.locator('#activity-history').textContent(), /Catalog save.*Personal template name/);
   await page.locator('[data-return-session]').click();
   await page.locator('#save-reusable-step').click();

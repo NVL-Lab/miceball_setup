@@ -2744,8 +2744,18 @@ verification without another independent re-audit for this test-only cleanup.
 Remaining deployment work is pending.
 Q022 as a whole is not closed. Q019 remains CLOSED in W050.
 
-**Self-contained graphical installer (Decision 453): accepted architecture;
-implementation, packaging feasibility, independent validation and audit pending.**
+**Self-contained graphical installer (Decision 453): architecture remains accepted;
+functionality implementation intentionally deferred.** Technical investigation,
+implementation design review and preliminary Windows packaging feasibility
+assessment are complete. GI-A/C, GI-B, GI-D, GI-E and GI-F functionality, further
+packaging feasibility tests and initialization-default selection are deferred while
+the scientific framework and operational GUI are completed and validated. The
+existing CLI installer remains the deployment mechanism. Resume through ICC once
+relevant service, configuration, storage, GUI and deployment contracts are
+sufficiently stable and operationally validated; this is a development-priority
+change, not architectural revision or closure. Retain the
+[design and feasibility findings](installation_and_deployment.md#retained-graphical-installer-design-and-preliminary-feasibility)
+so subsequent work need not repeat the completed investigation.
 The seven-step Tkinter/ttk experience and retained CLI share installation operations,
 with managed Python/dependencies, GUI-only/NATS-only/multiple-function selection,
 one non-secret laboratory connection file and explicit incomplete-configuration
@@ -2773,11 +2783,12 @@ established by Decision 447's installer work or Decision 449's GUI catalogs.
 See [Decision 450](architecture_decisions.md#decision-450-storagemanager-owns-approved-session-scientific-artifact-destinations)
 for the authoritative contract and exclusions. Q022 remains OPEN.
 
-Outstanding framework feedback issue: `Controller._artifact_destination_request()`
-can replace a specific StorageManager rejection reason with a generic unconfirmed
-operation message. GUI feedback must preserve that uncertainty rather than invent
-a cause. Correction is deferred outside the current GUI usability batch; no
-Decision 450 framework or validation change is established here.
+Bounded developer correction: `Controller._artifact_destination_request()` now
+retains correctly correlated StorageManager rejection reasons, distinguishing
+missing or invalid confirmation. Connected Experiment-template initialization and
+explicit destination Refresh feedback are also corrected; independent validation
+and audit remain pending. The live destination-discovery failure cause remains
+unresolved; these corrections do not establish deployment readiness.
 
 Decision 451 accepts global client Administrator mode and backend-owned global
 synchronization defaults. The user-approved initialization clarification resolves

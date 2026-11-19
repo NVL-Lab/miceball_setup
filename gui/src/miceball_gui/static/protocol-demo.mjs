@@ -78,7 +78,7 @@ export function assignCapability(step, kind, capability, selected) {
   }
 }
 export function createDemo() {
-  if (connectedMode) return { connected: true, definitions: [], protocols: [], templates: [], protocolId: null,
+  if (connectedMode) return { connected: true, definitions: [], protocols: [], templates: [], experimentTemplates: [], protocolId: null,
     templateId: '', included: [], selectedDevices: [], inventory: Object.create(null), actions: {}, controllerSnapshot: null };
   const steps = operations.map((op, i) => ({ ...clone(op), id: `step-${i}`, operation: op.id, mandatory: op.id !== 'holo', configuration: '' }));
   const definitions = steps.map(step => freezeDefinition({ ...clone(step), id: `shared-${step.operation}`, owner: null }));
